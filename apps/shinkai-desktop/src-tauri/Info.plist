@@ -2,7 +2,27 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>CFBundleIdentifier</key>
-	<string>com.shinkai.desktop</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.shinkai.desktop</string>
+    <key>NSServices</key>
+    <array>
+      <dict>
+        <key>NSMenuItem</key>
+        <dict>
+          <key>default</key>
+          <string>Ask Shinkai</string>
+        </dict>
+        <key>NSMessage</key>
+        <string>createChatService</string>
+        <key>NSPortName</key>
+        <string>Shinkai Desktop</string>
+        <key>NSRequiredContext</key>
+        <dict/>
+        <key>NSSendTypes</key>
+        <array>
+          <string>NSStringPboardType</string>
+        </array>
+      </dict>
+    </array>
 </dict>
 </plist>

@@ -73,6 +73,7 @@ import {
   truncateAddress,
 } from '../components/crypto-wallet/utils';
 import RemoveNetworkAgentButton from '../components/network/remove-network-agent-button';
+import RemoveToolOfferingButton from '../components/network/remove-tool-offering-button';
 import { useAuth } from '../store/auth';
 import { useSettings } from '../store/settings';
 
@@ -759,8 +760,9 @@ const AgentCard = ({
             </div>
           )}
           {type === 'exposed' && (
-            <div className="flex w-full flex-col gap-3">
+            <div className="ml-auto flex w-full max-w-[300px] items-center justify-end gap-3">
               <ConfigureAgentDialog agent={agent} />
+              <RemoveToolOfferingButton toolKey={agent.toolRouterKey} />
             </div>
           )}
         </div>

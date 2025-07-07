@@ -70,6 +70,7 @@ import {
   type GetInstalledNetworkToolsResponse,
   type AddNetworkToolRequest,
   type GetNetworkAgentsResponse,
+  type RemoveToolOfferingRequest,
 } from './types';
 
 export const createTool = async (
@@ -875,6 +876,22 @@ export const setToolOffering = async (
     },
   );
   return response.data as SetToolOfferingResponse;
+};
+
+export const removeToolOffering = async (
+  nodeAddress: string,
+  bearerToken: string,
+  payload: RemoveToolOfferingRequest,
+) => {
+  const response = await httpClient.post(
+    urlJoin(nodeAddress, '/v2/remove_tool_offering'),
+    payload,
+    {
+      headers: { Authorization: `Bearer ${bearerToken}` },
+      responseType: 'json',
+    },
+  );
+  return response.data;
 };
 
 export const setToolMcpEnabled = async (

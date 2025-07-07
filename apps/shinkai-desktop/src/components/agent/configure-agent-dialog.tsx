@@ -21,7 +21,7 @@ import {
   Label,
   RadioGroupItem,
 } from '@shinkai_network/shinkai-ui';
-import { cn } from '@shinkai_network/shinkai-ui/utils';
+
 import { AnimatePresence, motion } from 'framer-motion';
 import { Settings } from 'lucide-react';
 import { useState, useEffect } from 'react';

@@ -650,6 +650,9 @@ export type SetToolOfferingRequest = {
 export type SetToolOfferingResponse = {
   message: string;
 };
+export type RemoveToolOfferingRequest = {
+  tool_key_name: string;
+};
 
 export type GetInstalledNetworkToolsResponse = ShinkaiToolHeader[];
 

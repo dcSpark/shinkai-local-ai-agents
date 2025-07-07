@@ -1,8 +1,8 @@
 import { DialogClose } from '@radix-ui/react-dialog';
+import { Slot } from '@radix-ui/react-slot';
 import { useTranslation } from '@shinkai_network/shinkai-i18n';
 import { FunctionKeyV2 } from '@shinkai_network/shinkai-node-state/v2/constants';
-import { useRemoveAgent } from '@shinkai_network/shinkai-node-state/v2/mutations/removeAgent/useRemoveAgent';
-import { useGetAgents } from '@shinkai_network/shinkai-node-state/v2/queries/getAgents/useGetAgents';
+import { useRemoveToolOffering } from '@shinkai_network/shinkai-node-state/v2/mutations/removeToolOffering/useRemoveToolOffering';
 import {
   Button,
   buttonVariants,
@@ -17,57 +17,41 @@ import {
   TooltipTrigger,
 } from '@shinkai_network/shinkai-ui';
 import { cn } from '@shinkai_network/shinkai-ui/utils';
-import { useQueryClient } from '@tanstack/react-query';
-import { Trash2 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+
+import { EyeOffIcon, Trash2 } from 'lucide-react';
+import { useState } from 'react';
+
 import { toast } from 'sonner';
 
 import { useAuth } from '../../store/auth';
 
-export default function RemoveNetworkAgentButton({
-  toolRouterKey,
+export default function RemoveToolOfferingButton({
+  toolKey,
 }: {
-  toolRouterKey: string;
+  toolKey: string;
 }) {
-  const auth = useAuth((state) => state.auth);
   const { t } = useTranslation();
+  const auth = useAuth((state) => state.auth);
   const [isOpen, setIsOpen] = useState(false);
-  const queryClient = useQueryClient();
 
-  const { data: agents } = useGetAgents({
-    nodeAddress: auth?.node_address ?? '',
-    token: auth?.api_v2_key ?? '',
+  const {
+    mutateAsync: removeToolOffering,
+    isPending: isRemoveToolOfferingPending,
+  } = useRemoveToolOffering({
+    onSuccess: async () => {
+      toast.success('Tool has been unpublished successfully.');
+      setIsOpen(false);
+    },
+    onError: (error) => {
+      toast.error('Failed to unpublish tool', {
+        description: error.response?.data?.message ?? error.message,
+      });
+    },
   });
 
-  const associatedAgentId = useMemo(
-    () =>
-      agents?.find((agent) => agent.tools.includes(toolRouterKey))?.agent_id,
-    [agents, toolRouterKey],
-  );
-
-  const { mutateAsync: removeAgent, isPending: isRemoveAgentPending } =
-    useRemoveAgent({
-      onSuccess: async () => {
-        await queryClient.invalidateQueries({
-          queryKey: [FunctionKeyV2.GET_INSTALLED_NETWORK_TOOLS],
-        });
-        toast.success(t('networkAgentsPage.removeSuccess'));
-        setIsOpen(false);
-      },
-      onError: (error) => {
-        toast.error(t('networkAgentsPage.removeFailed'), {
-          description: error.response?.data?.message ?? error.message,
-        });
-      },
-    });
-
   const handleRemove = async () => {
-    if (!associatedAgentId) {
-      toast.error(t('networkAgentsPage.removeFailed'));
-      return;
-    }
-    await removeAgent({
-      agentId: associatedAgentId,
+    await removeToolOffering({
+      toolKey: toolKey ?? '',
       nodeAddress: auth?.node_address ?? '',
       token: auth?.api_v2_key ?? '',
     });
@@ -80,24 +64,27 @@ export default function RemoveNetworkAgentButton({
           <DialogTrigger asChild>
             <button
               className={cn(
-                buttonVariants({ variant: 'outline', size: 'sm' }),
-                'flex h-auto min-h-auto w-10 justify-center py-2',
+                buttonVariants({
+                  variant: 'outline',
+                  size: 'md',
+                }),
               )}
             >
-              <Trash2 className="h-4 w-4" />
+              <EyeOffIcon className="h-4 w-4" />
+              {t('common.unpublish')}
             </button>
           </DialogTrigger>
         </TooltipTrigger>
         <TooltipContent align="center" side="top">
-          {t('networkAgentsPage.removeAgent')}
+          {t('networkAgentsPage.removeToolOffering')}
         </TooltipContent>
       </Tooltip>
       <DialogContent className="sm:max-w-[425px]">
         <DialogTitle className="pb-0">
-          {t('networkAgentsPage.removeAgent')}
+          {t('networkAgentsPage.removeToolOffering')}
         </DialogTitle>
         <DialogDescription>
-          {t('networkAgentsPage.deleteConfirmation')}
+          {t('networkAgentsPage.removeToolOfferingConfirmation')}
         </DialogDescription>
 
         <DialogFooter>
@@ -114,12 +101,12 @@ export default function RemoveNetworkAgentButton({
             </DialogClose>
             <Button
               className="min-w-[100px] flex-1"
-              isLoading={isRemoveAgentPending}
+              isLoading={isRemoveToolOfferingPending}
               onClick={handleRemove}
               size="sm"
               variant="destructive"
             >
-              {t('common.remove')}
+              {t('common.unpublish')}
             </Button>
           </div>
         </DialogFooter>

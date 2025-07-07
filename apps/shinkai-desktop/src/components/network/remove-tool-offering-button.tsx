@@ -1,7 +1,5 @@
 import { DialogClose } from '@radix-ui/react-dialog';
-import { Slot } from '@radix-ui/react-slot';
 import { useTranslation } from '@shinkai_network/shinkai-i18n';
-import { FunctionKeyV2 } from '@shinkai_network/shinkai-node-state/v2/constants';
 import { useRemoveToolOffering } from '@shinkai_network/shinkai-node-state/v2/mutations/removeToolOffering/useRemoveToolOffering';
 import {
   Button,
@@ -18,7 +16,7 @@ import {
 } from '@shinkai_network/shinkai-ui';
 import { cn } from '@shinkai_network/shinkai-ui/utils';
 
-import { EyeOffIcon, Trash2 } from 'lucide-react';
+import { EyeOffIcon } from 'lucide-react';
 import { useState } from 'react';
 
 import { toast } from 'sonner';

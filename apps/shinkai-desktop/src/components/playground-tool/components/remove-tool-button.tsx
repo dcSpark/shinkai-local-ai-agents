@@ -99,7 +99,7 @@ export default function RemoveToolButton({ toolKey }: { toolKey: string }) {
                 type="button"
                 variant="ghost"
               >
-                Cancel
+                {t('common.cancel')}
               </Button>
             </DialogClose>
             <Button
@@ -109,7 +109,7 @@ export default function RemoveToolButton({ toolKey }: { toolKey: string }) {
               size="sm"
               variant="destructive"
             >
-              Delete
+              {t('common.delete')}
             </Button>
           </div>
         </DialogFooter>

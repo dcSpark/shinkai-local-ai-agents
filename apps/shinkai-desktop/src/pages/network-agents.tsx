@@ -762,7 +762,9 @@ const AgentCard = ({
           {type === 'exposed' && (
             <div className="ml-auto flex w-full max-w-[300px] items-center justify-end gap-3">
               <ConfigureAgentDialog agent={agent} />
-              <RemoveToolOfferingButton toolKey={agent.toolRouterKey} />
+              <RemoveToolOfferingButton
+                toolKey={agent.apiData.tool_offering.tool_key}
+              />
             </div>
           )}
         </div>

@@ -431,7 +431,11 @@ export default function PublishAgentDialog() {
                           />
                         </div>
                         <p className="text-official-gray-400 mt-1 text-xs">
-                          = {formatUSDCAmount(amount)} USDC per use.
+                          ={' '}
+                          {amount
+                            ? formatUSDCAmount(amount)
+                            : formatUSDCAmount('1.00')}{' '}
+                          USDC per use.
                         </p>
                       </Card>
                     </motion.div>

@@ -1,4 +1,5 @@
 import { DialogClose } from '@radix-ui/react-dialog';
+import { useTranslation } from '@shinkai_network/shinkai-i18n';
 import { FunctionKeyV2 } from '@shinkai_network/shinkai-node-state/v2/constants';
 import { useRemoveAgent } from '@shinkai_network/shinkai-node-state/v2/mutations/removeAgent/useRemoveAgent';
 import { useGetAgents } from '@shinkai_network/shinkai-node-state/v2/queries/getAgents/useGetAgents';
@@ -20,7 +21,6 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { useTranslation } from '@shinkai_network/shinkai-i18n';
 
 import { useAuth } from '../../store/auth';
 
@@ -89,15 +89,15 @@ export default function RemoveNetworkAgentButton({
           </DialogTrigger>
         </TooltipTrigger>
         <TooltipContent align="center" side="top">
-          {t('common.remove') + ' ' + t('agentsPage.addAgent', 'Agent')}
+          {t('networkAgentsPage.removeAgent')}
         </TooltipContent>
       </Tooltip>
       <DialogContent className="sm:max-w-[425px]">
         <DialogTitle className="pb-0">
-          {t('common.remove') + ' ' + t('agentsPage.addAgent', 'Agent')}
+          {t('networkAgentsPage.removeAgent')}
         </DialogTitle>
         <DialogDescription>
-          {t('common.deleteConfirmation', 'Are you sure you want to remove this agent? This action cannot be undone.')}
+          {t('networkAgentsPage.deleteConfirmation')}
         </DialogDescription>
 
         <DialogFooter>

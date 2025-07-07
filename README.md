@@ -1,6 +1,6 @@
 <h1 align="center">
 <img width="36" height="36" src="assets/icon.png"/>
-  Shinkai 
+  Shinkai
   </h1>
 <div align="center">
 
@@ -23,7 +23,7 @@
 <p align="center">
   <strong>Build collaborative AI agents that work together, handle payments, and automate complex workflows</strong>
   <br/>
-  Shinkai is a free, open-source platform that democratizes AI agent creation. 
+  Shinkai is a free, open-source platform that democratizes AI agent creation.
   No coding required – just drag, drop, and deploy intelligent agents that can work across platforms and handle real-world tasks.
 </p>
 
@@ -133,7 +133,7 @@ Before running Shinkai, you'll need to download the embedded Shinkai Node binary
 
 ```bash
 ARCH="aarch64-apple-darwin" \
-SHINKAI_NODE_VERSION="v1.1.2" \
+SHINKAI_NODE_VERSION="v1.1.3" \
 OLLAMA_VERSION="v0.9.3" \
 npx ts-node ./ci-scripts/download-side-binaries.ts
 ```
@@ -143,7 +143,7 @@ npx ts-node ./ci-scripts/download-side-binaries.ts
 ```bash
 ARCH="x86_64-unknown-linux-gnu" \
 OLLAMA_VERSION="v0.9.3" \
-SHINKAI_NODE_VERSION="v1.1.2" \
+SHINKAI_NODE_VERSION="v1.1.3" \
 npx ts-node ./ci-scripts/download-side-binaries.ts
 ```
 
@@ -151,7 +151,7 @@ npx ts-node ./ci-scripts/download-side-binaries.ts
 
 ```powershell
 $ENV:OLLAMA_VERSION="v0.9.3"
-$ENV:SHINKAI_NODE_VERSION="v1.1.2"
+$ENV:SHINKAI_NODE_VERSION="v1.1.3"
 $ENV:ARCH="x86_64-pc-windows-msvc"
 npx ts-node ./ci-scripts/download-side-binaries.ts
 ```
@@ -277,7 +277,7 @@ npx nx run shinkai-i18n:i18n
 <p align="center">
   <strong>Built with ❤️ by the Shinkai community</strong>
   <br/>
-  <a href="https://github.com/dcSpark/shinkai-apps/blob/main/LICENSE">Apache License</a> • 
-  <a href="https://github.com/dcSpark/shinkai-apps/issues">Report Bug</a> • 
+  <a href="https://github.com/dcSpark/shinkai-apps/blob/main/LICENSE">Apache License</a> •
+  <a href="https://github.com/dcSpark/shinkai-apps/issues">Report Bug</a> •
   <a href="https://github.com/dcSpark/shinkai-apps/issues">Request Feature</a>
 </p>

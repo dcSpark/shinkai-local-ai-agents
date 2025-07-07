@@ -1,8 +1,6 @@
 import { DialogClose } from '@radix-ui/react-dialog';
-import { Slot } from '@radix-ui/react-slot';
 import { useTranslation } from '@shinkai_network/shinkai-i18n';
-import { FunctionKeyV2 } from '@shinkai_network/shinkai-node-state/v2/constants';
-import { useRemoveTool } from '@shinkai_network/shinkai-node-state/v2/mutations/removeTool/useRemoveTool';
+import { useRemoveToolOffering } from '@shinkai_network/shinkai-node-state/v2/mutations/removeToolOffering/useRemoveToolOffering';
 import {
   Button,
   buttonVariants,
@@ -17,44 +15,40 @@ import {
   TooltipTrigger,
 } from '@shinkai_network/shinkai-ui';
 import { cn } from '@shinkai_network/shinkai-ui/utils';
-import { useQueryClient } from '@tanstack/react-query';
-import { Trash2 } from 'lucide-react';
+
+import { EyeOffIcon } from 'lucide-react';
 import { useState } from 'react';
-import { useNavigate } from 'react-router';
+
 import { toast } from 'sonner';
 
-import { useAuth } from '../../../store/auth';
+import { useAuth } from '../../store/auth';
 
-export default function RemoveToolButton({ toolKey }: { toolKey: string }) {
+export default function RemoveToolOfferingButton({
+  toolKey,
+}: {
+  toolKey: string;
+}) {
   const { t } = useTranslation();
   const auth = useAuth((state) => state.auth);
-  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
-  const queryClient = useQueryClient();
-  console.log('toolKey', toolKey);
-  const { mutateAsync: removeTool, isPending: isRemoveToolPending } =
-    useRemoveTool({
-      onSuccess: async () => {
-        await queryClient.invalidateQueries({
-          queryKey: [FunctionKeyV2.GET_LIST_TOOLS],
-        });
-        await queryClient.invalidateQueries({
-          queryKey: [FunctionKeyV2.GET_SEARCH_TOOLS],
-        });
 
-        toast.success('Tool has been removed successfully');
-        setIsOpen(false);
-        await navigate('/tools');
-      },
-      onError: (error) => {
-        toast.error('Failed to remove tool', {
-          description: error.response?.data?.message ?? error.message,
-        });
-      },
-    });
+  const {
+    mutateAsync: removeToolOffering,
+    isPending: isRemoveToolOfferingPending,
+  } = useRemoveToolOffering({
+    onSuccess: async () => {
+      toast.success('Tool has been unpublished successfully.');
+      setIsOpen(false);
+    },
+    onError: (error) => {
+      toast.error('Failed to unpublish tool', {
+        description: error.response?.data?.message ?? error.message,
+      });
+    },
+  });
 
   const handleRemove = async () => {
-    await removeTool({
+    await removeToolOffering({
       toolKey: toolKey ?? '',
       nodeAddress: auth?.node_address ?? '',
       token: auth?.api_v2_key ?? '',
@@ -70,24 +64,25 @@ export default function RemoveToolButton({ toolKey }: { toolKey: string }) {
               className={cn(
                 buttonVariants({
                   variant: 'outline',
-                  size: 'sm',
+                  size: 'md',
                 }),
-                'flex h-auto min-h-auto w-10 justify-center rounded-md py-2',
               )}
             >
-              <Trash2 className="h-4 w-4" />
+              <EyeOffIcon className="h-4 w-4" />
+              {t('common.unpublish')}
             </button>
           </DialogTrigger>
         </TooltipTrigger>
         <TooltipContent align="center" side="top">
-          {t('common.deleteTool', 'Delete Tool')}
+          {t('networkAgentsPage.removeToolOffering')}
         </TooltipContent>
       </Tooltip>
       <DialogContent className="sm:max-w-[425px]">
-        <DialogTitle className="pb-0">Delete Tool</DialogTitle>
+        <DialogTitle className="pb-0">
+          {t('networkAgentsPage.removeToolOffering')}
+        </DialogTitle>
         <DialogDescription>
-          Are you sure you want to delete this tool? This action cannot be
-          undone.
+          {t('networkAgentsPage.removeToolOfferingConfirmation')}
         </DialogDescription>
 
         <DialogFooter>
@@ -104,12 +99,12 @@ export default function RemoveToolButton({ toolKey }: { toolKey: string }) {
             </DialogClose>
             <Button
               className="min-w-[100px] flex-1"
-              isLoading={isRemoveToolPending}
+              isLoading={isRemoveToolOfferingPending}
               onClick={handleRemove}
               size="sm"
               variant="destructive"
             >
-              {t('common.delete')}
+              {t('common.unpublish')}
             </Button>
           </div>
         </DialogFooter>

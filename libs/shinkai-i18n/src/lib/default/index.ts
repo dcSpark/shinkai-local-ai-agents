@@ -509,6 +509,7 @@ export default {
     create: 'Create Registration Code',
   },
   common: {
+    unpublish: 'Unpublish',
     thinking: 'Thinking...',
     reasoning: 'Reasoning',
     dismiss: 'Dismiss',
@@ -1183,6 +1184,12 @@ export default {
       'Your payment went through successfully. The tool is now executing...',
     noPublishedAgents:
       'No agents published yet. Share your first agent to get started.',
+    removeAgent: 'Remove Agent',
+    deleteConfirmation:
+      'Are you sure you want to remove this agent? This action cannot be undone.',
+    removeToolOffering: 'Unpublish Tool',
+    removeToolOfferingConfirmation:
+      'Are you sure you want to unpublish this tool? This action cannot be undone.',
   },
   mcpPage: {
     exposeToolsTab: 'Expose Tools',

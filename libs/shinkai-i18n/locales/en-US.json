@@ -457,6 +457,7 @@
     "create": "Create Registration Code"
   },
   "common": {
+    "unpublish": "Unpublish",
     "thinking": "Thinking...",
     "reasoning": "Reasoning",
     "dismiss": "Dismiss",
@@ -1016,7 +1017,7 @@
     "addedDescription": "{{name}} is now in your collection. Start a chat to use it!",
     "browseMore": "Browse More Agents",
     "startChat": "Start Chat",
-    "setupRequired": "Setup required to use paid agents",
+    "setupRequired": "Setup required to use paid agents and publish agents",
     "removeSuccess": "Network agent removed successfully",
     "removeFailed": "Failed to remove agent",
     "registerShinkaiIdentity": "Register Shinkai Identity",
@@ -1045,7 +1046,11 @@
     "pleaseWait": "Please wait while we process your transaction...",
     "paymentSuccessful": "Payment Successful!",
     "paymentSuccessfulDescription": "Your payment went through successfully. The tool is now executing...",
-    "noPublishedAgents": "You haven't shared any agents yet. Publish your agent pressing here."
+    "noPublishedAgents": "No agents published yet. Share your first agent to get started.",
+    "removeAgent": "Remove Agent",
+    "deleteConfirmation": "Are you sure you want to remove this agent? This action cannot be undone.",
+    "removeToolOffering": "Unpublish Tool",
+    "removeToolOfferingConfirmation": "Are you sure you want to unpublish this tool? This action cannot be undone."
   },
   "mcpPage": {
     "exposeToolsTab": "Expose Tools",

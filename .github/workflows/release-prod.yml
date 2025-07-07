@@ -30,7 +30,6 @@ jobs:
         with:
           script: |
             core.setFailed('Version mismatch')
-
   # release-shinkai-visor:
   #   needs: prebuild
   #   runs-on: ubuntu-latest
@@ -198,7 +197,7 @@ jobs:
         with:
           node-version-file: '.nvmrc'
           check-latest: false
-          cache: "npm"
+          cache: 'npm'
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies
@@ -215,7 +214,7 @@ jobs:
       - name: Download side binaries
         env:
           ARCH: ${{ matrix.arch }}
-          SHINKAI_NODE_VERSION: v1.1.2
+          SHINKAI_NODE_VERSION: v1.1.3
           OLLAMA_VERSION: v0.9.3
         run: |
           npx ts-node ./ci-scripts/download-side-binaries.ts
@@ -232,7 +231,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
           SECRET_DESKTOP_INSTALLATION_PROOF_KEY: ${{ secrets.SECRET_DESKTOP_INSTALLATION_PROOF_KEY }}
-          NODE_OPTIONS: "--max_old_space_size=8192"
+          NODE_OPTIONS: '--max_old_space_size=8192'
       - name: (Macos) Run NX build on shinkai-desktop
         if: ${{ matrix.arch == 'aarch64-apple-darwin' }}
         run: npx nx build shinkai-desktop --skip-nx-cache
@@ -247,7 +246,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_KEY_PASSWORD }}
           VITE_POSTHOG_API_KEY: ${{ secrets.VITE_POSTHOG_API_KEY }}
           SECRET_DESKTOP_INSTALLATION_PROOF_KEY: ${{ secrets.SECRET_DESKTOP_INSTALLATION_PROOF_KEY }}
-          NODE_OPTIONS: "--max_old_space_size=8192"
+          NODE_OPTIONS: '--max_old_space_size=8192'
       - name: (Windows) Run NX build on shinkai-desktop
         if: ${{ matrix.arch == 'x86_64-pc-windows-msvc' }}
         run: npx nx build shinkai-desktop --skip-nx-cache
@@ -259,9 +258,9 @@ jobs:
           # Windows Only
           CPAL_ASIO_DIR: ${{ github.workspace }}/asiosdk_2.3.3_2019-06-14
           LIBCLANG_PATH: C:\Program Files\LLVM\bin
-          NODE_OPTIONS: "--max_old_space_size=8192"
+          NODE_OPTIONS: '--max_old_space_size=8192'
 
-# --- Signing process ---
+      # --- Signing process ---
       - name: 'Google auth'
         id: 'auth'
         uses: 'google-github-actions/auth@v2'
@@ -276,7 +275,6 @@ jobs:
         if: ${{ matrix.arch == 'x86_64-pc-windows-msvc' }}
         with:
           project_id: 'shinkai-412316'
-
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -309,8 +307,7 @@ jobs:
               --tsmode RFC3161 \
               --tsaurl http://timestamp.globalsign.com/tsa/r6advanced1 \
               "${{ matrix.build_output_file_path }}"
-# ---
-
+      # ---
       - name: Prepare binary files
         id: prepare-files
         shell: bash
@@ -360,7 +357,7 @@ jobs:
         with:
           node-version-file: '.nvmrc'
           check-latest: false
-          cache: "npm"
+          cache: 'npm'
           cache-dependency-path: package-lock.json
 
       - name: Install dependencies

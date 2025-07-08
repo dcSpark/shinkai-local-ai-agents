@@ -144,12 +144,6 @@ impl ShinkaiNodeOptions {
                     .unwrap_or_default(),
             ),
             log_all: Some(options.log_all.or(base_options.log_all).unwrap_or_default()),
-            proxy_identity: Some(
-                options
-                    .proxy_identity
-                    .or(base_options.proxy_identity)
-                    .unwrap_or_default(),
-            ),
             rpc_url: Some(options.rpc_url.or(base_options.rpc_url).unwrap_or_default()),
             default_embedding_model: Some(
                 options
@@ -181,7 +175,9 @@ impl ShinkaiNodeOptions {
                     .or(base_options.shinkai_store_url)
                     .unwrap_or_default(),
             ),
-            secret_desktop_installation_proof_key: default_options.secret_desktop_installation_proof_key,
+            secret_desktop_installation_proof_key: default_options
+                .secret_desktop_installation_proof_key,
+            proxy_identity: default_options.proxy_identity,
         }
     }
 }
@@ -222,9 +218,13 @@ impl Default for ShinkaiNodeOptions {
             node_storage_path: Some("./".to_string()),
             embeddings_server_url: Some("http://127.0.0.1:11435".to_string()),
             first_device_needs_registration_code: Some("false".to_string()),
-            initial_agent_urls: Some("https://api.shinkai.com/inference,https://api.shinkai.com/inference".to_string()),
+            initial_agent_urls: Some(
+                "https://api.shinkai.com/inference,https://api.shinkai.com/inference".to_string(),
+            ),
             initial_agent_names: Some("shinkai_free_trial,shinkai_code_gen".to_string()),
-            initial_agent_models: Some("shinkai-backend:FREE_TEXT_INFERENCE,shinkai-backend:CODE_GENERATOR".to_string()),
+            initial_agent_models: Some(
+                "shinkai-backend:FREE_TEXT_INFERENCE,shinkai-backend:CODE_GENERATOR".to_string(),
+            ),
             initial_agent_api_keys: Some("'',''".to_string()),
             starting_num_qr_devices: Some("0".to_string()),
             log_all: Some("1".to_string()),

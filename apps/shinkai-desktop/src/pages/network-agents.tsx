@@ -556,24 +556,26 @@ const AgentCard = ({
               </Badge>
             )}
           </div>
-          <div className="flex items-center gap-1">
-            <Circle
-              className={cn(
-                'h-3 w-3',
-                nodeStatus === 'online' && 'fill-green-500 text-green-500',
-                nodeStatus !== 'online' && 'fill-red-500 text-red-500',
-              )}
-            />
-            <span
-              className={cn(
-                'text-xs',
-                nodeStatus === 'online' && 'text-green-600',
-                nodeStatus !== 'online' && 'text-red-600',
-              )}
-            >
-              {nodeStatus === 'online' ? 'Online' : 'Offline'}
-            </span>
-          </div>
+          {type === 'discover' && (
+            <div className="flex items-center gap-1">
+              <Circle
+                className={cn(
+                  'h-3 w-3',
+                  nodeStatus === 'online' && 'fill-green-500 text-green-500',
+                  nodeStatus !== 'online' && 'fill-red-500 text-red-500',
+                )}
+              />
+              <span
+                className={cn(
+                  'text-xs',
+                  nodeStatus === 'online' && 'text-green-600',
+                  nodeStatus !== 'online' && 'text-red-600',
+                )}
+              >
+                {nodeStatus === 'online' ? 'Online' : 'Offline'}
+              </span>
+            </div>
+          )}
         </CardTitle>
 
         {agent.provider && type === 'discover' && (

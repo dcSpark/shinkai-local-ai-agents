@@ -54,7 +54,7 @@ function FileSelectionActionBarBase({
   return (
     <>
       <button
-        className={cn(actionButtonClassnames, 'w-full justify-start gap-2.5')}
+        className={cn(actionButtonClassnames, 'w-auto justify-start gap-2.5')}
         disabled={disabled}
         onClick={onClick}
         type="button"

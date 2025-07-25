@@ -167,7 +167,6 @@ const MessageBase = ({
   const { t } = useTranslation();
 
   const [editing, setEditing] = useState(false);
-  const [isThinking, setIsThinking] = useState(false); // TODO: when streaming enabled
 
   const editMessageForm = useForm<EditMessageFormSchema>({
     resolver: zodResolver(editMessageFormSchema),
@@ -231,7 +230,7 @@ const MessageBase = ({
         </a>
         <div
           className={cn(
-            'flex flex-col overflow-hidden bg-transparent text-sm text-white',
+            'container flex flex-col overflow-hidden bg-transparent text-sm text-white',
             editing && 'w-full py-1',
           )}
         >

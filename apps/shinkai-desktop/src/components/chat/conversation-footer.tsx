@@ -429,7 +429,7 @@ function ConversationChatFooter({
   }, [currentMessage]);
 
   return (
-    <div className="p-3 pb-1">
+    <div className="container p-3 pb-1">
       <div
         {...getRootFileProps({
           className: 'relative shrink-0 pb-[40px]',

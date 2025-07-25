@@ -43,8 +43,8 @@ import {
   PrettyJsonPrint,
 } from '@shinkai_network/shinkai-ui';
 import {
+  AIAgentIcon,
   AisIcon,
-  appIcon,
   ReactJsIcon,
   ReasoningIcon,
   ToolsIcon,
@@ -66,6 +66,7 @@ import {
   Zap,
   User,
   Cpu,
+  BotIcon,
 } from 'lucide-react';
 import React, { Fragment, memo, useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -77,6 +78,7 @@ import { useOAuth } from '../../../store/oauth';
 import { useSettings } from '../../../store/settings';
 import { oauthUrlMatcherFromErrorMessage } from '../../../utils/oauth';
 
+import ProviderIcon from '../../ais/provider-icon';
 import { useChatStore } from '../context/chat-context';
 import { PythonCodeRunner } from '../python-code-runner/python-code-runner';
 
@@ -116,7 +118,7 @@ type MessageProps = {
 
 const actionBar = {
   rest: {
-    opacity: 0,
+    opacity: 0.8,
     scale: 0.8,
     transition: {
       type: 'spring',
@@ -163,10 +165,12 @@ const ArtifactCard = ({
     <CardContent className="flex items-center gap-1 p-1 py-1.5">
       <div className="rounded-md p-2">
         {loading ? (
-          <Loader2 className="text-gray-80 h-5 w-5 animate-spin" />
+          <Loader2 className="text-official-gray-400 h-5 w-5 animate-spin" />
         ) : (
           <ReactJsIcon
-            className={cn(isSelected ? 'text-gray-50' : 'text-gray-80')}
+            className={cn(
+              isSelected ? 'text-gray-50' : 'text-official-gray-400',
+            )}
           />
         )}
       </div>
@@ -174,7 +178,7 @@ const ArtifactCard = ({
         <p className="text-em-sm text-official-gray-50 !mb-0 line-clamp-1 font-medium">
           {title}
         </p>
-        <p className="text-gray-80 !mb-0 text-xs">
+        <p className="text-official-gray-400 !mb-0 text-xs">
           {loading ? 'Generating...' : 'Click to preview'}
         </p>
       </div>
@@ -262,44 +266,58 @@ export const MessageBase = ({
     return configDeepLinkMatcher(message.content);
   }, [message]);
 
+  const selectedIcon = useMemo(() => {
+    if (message.role !== 'assistant') return null;
+    if (message.provider?.provider_type === 'LLMProvider') {
+      return (
+        <ProviderIcon
+          className="mx-1 size-4"
+          provider={message.provider?.agent.model.split(':')[0]}
+        />
+      );
+    }
+    if (message.provider?.provider_type === 'Agent') {
+      return <AIAgentIcon name={message.provider?.agent.id} size={'xs'} />;
+    }
+    return <BotIcon className="mr-1 size-4" />;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    (message as AssistantMessage)?.provider?.agent.id,
+    (message as AssistantMessage)?.provider?.agent.model,
+    (message as AssistantMessage)?.provider?.provider_type,
+    message.role,
+  ]);
+
   const { setOauthModalVisible } = useOAuth();
 
   return (
     <motion.div
-      animate="rest"
-      className={cn('pb-10', minimalistMode && 'pb-3')}
+      // animate="rest"
+      className={cn('container pb-10', minimalistMode && 'pb-3')}
       data-testid={`message-${
         message.role === 'user' ? 'local' : 'remote'
       }-${message.messageId}`}
       id={message.messageId}
-      initial="rest"
+      // initial="rest"
       style={{ fontSize: `${getChatFontSizeInPts()}px` }}
-      whileHover="hover"
+      // whileHover="hover"
     >
       <div
         className={cn(
-          'relative flex flex-row space-x-2',
+          'relative flex flex-col gap-2',
           message.role === 'user' &&
             'mr-0 ml-auto flex-row-reverse space-x-reverse',
-          message.role === 'assistant' && 'mr-auto ml-0 flex-row items-end',
+          // message.role === 'assistant' && 'mr-auto ml-0 flex-row items-end',
         )}
       >
-        <Avatar
-          className={cn('mt-1 h-8 w-8', minimalistMode && 'mt-1.5 h-5 w-5')}
-        >
-          {message.role === 'assistant' ? (
-            <img alt="Shinkai AI" src={appIcon} />
-          ) : (
-            <AvatarFallback
-              className={cn(
-                'text-em-xs text-official-gray-300 bg-official-gray-850 border-official-gray-780 h-8 w-8 border',
-                minimalistMode && 'text-em-xs h-5 w-5',
-              )}
-            >
-              U
-            </AvatarFallback>
-          )}
-        </Avatar>
+        {message.role === 'assistant' ? (
+          <div className="mt-2 flex items-center gap-2 px-3.5">
+            {selectedIcon}
+            <span className="text-em-sm font-bold text-white">
+              {formatText(message.provider?.agent.id ?? '')}
+            </span>
+          </div>
+        ) : null}
         <div
           className={cn(
             'text-em-base flex flex-col overflow-hidden bg-transparent text-white',
@@ -359,10 +377,10 @@ export const MessageBase = ({
             <Fragment>
               <div
                 className={cn(
-                  'relative mt-1 flex flex-col rounded-lg px-3.5 pt-3 text-white',
+                  'relative container mt-1 flex flex-col rounded-lg px-3.5 pt-3 text-white',
                   message.role === 'user'
                     ? 'bg-official-gray-850 rounded-tr-none'
-                    : 'bg-official-gray-780 rounded-bl-none border-none',
+                    : '',
                   !message.content ? 'pb-3' : 'pb-4',
                   editing && 'w-full py-1',
                   message.role === 'assistant' &&
@@ -594,10 +612,8 @@ export const MessageBase = ({
               {!isPending && !minimalistMode && (
                 <motion.div
                   className={cn(
-                    'absolute -bottom-[34px] flex items-center justify-end gap-3',
-                    message.role === 'user'
-                      ? 'right-10 flex-row-reverse'
-                      : 'left-10 flex-row',
+                    'mt-2 flex items-center gap-3',
+                    message.role === 'user' ? 'justify-end' : 'justify-start',
                   )}
                   variants={actionBar}
                 >
@@ -607,7 +623,7 @@ export const MessageBase = ({
                         <TooltipTrigger asChild>
                           <button
                             className={cn(
-                              'text-gray-80 border-official-gray-780 flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
+                              'text-official-gray-400 border-official-gray-780 flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
                             )}
                             onClick={() => {
                               setEditing(true);
@@ -623,108 +639,123 @@ export const MessageBase = ({
                         </TooltipPortal>
                       </Tooltip>
                     )}
-                    {message.role === 'assistant' && !disabledRetry && (
-                      <>
+                    {message.role === 'assistant' &&
+                      !disabledRetry &&
+                      message.status.type === 'complete' && (
+                        <>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                className={cn(
+                                  'text-official-gray-400 border-official-gray-780 flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
+                                )}
+                                onClick={handleForkMessage}
+                              >
+                                <GitFork />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipPortal>
+                              <TooltipContent>
+                                <p>Fork</p>
+                              </TooltipContent>
+                            </TooltipPortal>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                className={cn(
+                                  'text-official-gray-400 border-official-gray-780 flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
+                                )}
+                                onClick={handleRetryMessage}
+                              >
+                                <RotateCcw />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipPortal>
+                              <TooltipContent>
+                                <p>{t('common.retry')}</p>
+                              </TooltipContent>
+                            </TooltipPortal>
+                          </Tooltip>
+                        </>
+                      )}
+
+                    {message.role === 'assistant' &&
+                      message.status.type === 'complete' && (
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <button
                               className={cn(
-                                'text-official-gray-400 border-official-gray-780 flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
+                                'text-official-gray-400 border-official-gray-780 flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
                               )}
-                              onClick={handleForkMessage}
+                              onClick={() => setTracingOpen(true)}
                             >
-                              <GitFork />
+                              <TracingIcon />
                             </button>
                           </TooltipTrigger>
                           <TooltipPortal>
                             <TooltipContent>
-                              <p>Fork</p>
+                              <p>{t('chat.tracing.title')}</p>
                             </TooltipContent>
                           </TooltipPortal>
-                        </Tooltip>
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              className={cn(
-                                'text-official-gray-400 border-official-gray-780 flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
-                              )}
-                              onClick={handleRetryMessage}
-                            >
-                              <RotateCcw />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipPortal>
-                            <TooltipContent>
-                              <p>{t('common.retry')}</p>
-                            </TooltipContent>
-                          </TooltipPortal>
-                        </Tooltip>
-                      </>
-                    )}
-
-                    {message.role === 'assistant' && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <button
-                            className={cn(
-                              'text-official-gray-400 border-official-gray-780 flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
-                            )}
-                            onClick={() => setTracingOpen(true)}
-                          >
-                            <TracingIcon />
-                          </button>
-                        </TooltipTrigger>
-                        <TooltipPortal>
-                          <TooltipContent>
-                            <p>{t('chat.tracing.title')}</p>
-                          </TooltipContent>
-                        </TooltipPortal>
-                        <TracingDialog
-                          open={tracingOpen}
-                          onOpenChange={setTracingOpen}
-                          parentMessageId={parentMessageId}
-                        />
-                      </Tooltip>
-                    )}
-
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <div>
-                          <CopyToClipboardIcon
-                            className={cn(
-                              'text-gray-80 border-official-gray-780 h-7 w-7 border bg-transparent hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
-                            )}
-                            string={extractErrorPropertyOrContent(
-                              message.content,
-                              'error_message',
-                            )}
+                          <TracingDialog
+                            open={tracingOpen}
+                            onOpenChange={setTracingOpen}
+                            parentMessageId={parentMessageId}
                           />
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipPortal>
-                        <TooltipContent>
-                          <p>{t('common.copy')}</p>
-                        </TooltipContent>
-                      </TooltipPortal>
-                    </Tooltip>
+                        </Tooltip>
+                      )}
+
+                    {(message.role === 'assistant' &&
+                      message.status.type === 'complete') ||
+                      (message.role === 'user' && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <div>
+                              <CopyToClipboardIcon
+                                className={cn(
+                                  'text-official-gray-400 border-official-gray-780 h-7 w-7 border bg-transparent hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
+                                )}
+                                string={extractErrorPropertyOrContent(
+                                  message.content,
+                                  'error_message',
+                                )}
+                              />
+                            </div>
+                          </TooltipTrigger>
+                          <TooltipPortal>
+                            <TooltipContent>
+                              <p>{t('common.copy')}</p>
+                            </TooltipContent>
+                          </TooltipPortal>
+                        </Tooltip>
+                      ))}
                   </div>
-                  <div
-                    className={cn('flex items-center gap-1.5 text-gray-100')}
-                  >
-                    <span>
-                      {format(new Date(message?.createdAt ?? ''), 'p')}
-                    </span>
-                    {message.role === 'assistant' && message?.metadata?.tps && (
-                      <>
-                        {' '}
-                        ⋅
+                  {message.role === 'assistant' &&
+                    message.status.type === 'complete' && (
+                      <div
+                        className={cn(
+                          'text-official-gray-400 flex items-center gap-1.5',
+                        )}
+                      >
                         <span>
-                          {Math.round(Number(message?.metadata?.tps) * 10) / 10}{' '}
-                          tokens/s
+                          {format(new Date(message?.createdAt ?? ''), 'p')}
                         </span>
-                      </>
+                        {message.role === 'assistant' &&
+                          message?.metadata?.tps && (
+                            <>
+                              {' '}
+                              ⋅
+                              <span>
+                                {Math.round(
+                                  Number(message?.metadata?.tps) * 10,
+                                ) / 10}{' '}
+                                tokens/s
+                              </span>
+                            </>
+                          )}
+                      </div>
                     )}
-                  </div>
                 </motion.div>
               )}
             </Fragment>
@@ -811,7 +842,9 @@ export function ToolCard({
         <div className="flex items-center gap-1 p-[5px]">
           <div className="size-7 shrink-0 px-1.5">{renderStatus()}</div>
           <div className="flex items-center gap-1">
-            <span className="text-gray-80 text-em-sm">{renderLabelText()}</span>
+            <span className="text-official-gray-400 text-em-sm">
+              {renderLabelText()}
+            </span>
             <Link
               className="text-em-sm font-semibold text-white hover:underline"
               to={`/tools/${toolRouterKey}`}

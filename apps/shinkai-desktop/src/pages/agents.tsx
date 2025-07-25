@@ -37,6 +37,7 @@ import {
 } from '@shinkai_network/shinkai-ui';
 import {
   AIAgentIcon,
+  appIcon,
   CategoryIcon,
   CreateAIIcon,
   DownloadIcon,
@@ -452,7 +453,7 @@ const RemoveAgentDrawer = ({
       <DialogContent className="sm:max-w-[425px]">
         <DialogTitle className="pb-0">
           Delete Agent{' '}
-          <span className="break-all font-mono text-base">{agentId}</span> ?
+          <span className="font-mono text-base break-all">{agentId}</span> ?
         </DialogTitle>
         <DialogDescription>
           The agent will be permanently deleted. This action cannot be undone.
@@ -508,7 +509,7 @@ export function AuthorAvatarLink({ author }: { author: string }) {
     >
       <Avatar className={cn('h-5 w-5')}>
         {author === '@@official.shinkai' ? (
-          <img alt="Shinkai" src="/app-icon.png" />
+          <img alt="Shinkai" src={appIcon} />
         ) : (
           <AvatarFallback className="bg-official-gray-800 text-official-gray-300">
             {formattedAuthor.charAt(0)}

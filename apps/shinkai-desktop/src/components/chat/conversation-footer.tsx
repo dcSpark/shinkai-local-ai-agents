@@ -688,7 +688,7 @@ function ConversationChatFooter({
         <motion.div
           animate={{ opacity: 1 }}
           className={cn(
-            'bg-official-gray-850 absolute inset-x-2 bottom-1.5 z-0 flex h-[40px] justify-between gap-2 rounded-b-xl px-2 pt-2.5 pb-1 shadow-white',
+            'bg-bg-tertiary shadow-text-default absolute inset-x-2 bottom-1.5 z-0 flex h-[40px] justify-between gap-2 rounded-b-xl px-2 pt-2.5 pb-1',
           )}
           exit={{ opacity: 0 }}
           initial={{ opacity: 0 }}

@@ -83,11 +83,15 @@
   --color-gray-100: #f7f2f2;
   --color-gray-200: #ccc7c7;
   --color-gray-300: #938e8e;
-  --color-gray-400: #3c3a3a;
-  --color-gray-500: #2e2d2d;
-  --color-gray-600: #2a2828;
-  --color-gray-700: #262525;
-  --color-gray-800: #1a1818;
+  --color-gray-400: #666363;
+  --color-gray-500: #3c3a3a;
+  --color-gray-600: #2e2d2d;
+  --color-gray-700: #212020;
+  /* --color-gray-700: #242323; */
+  --color-gray-800: #262525;
+  --color-gray-900: #1e1d1d;
+  --color-gray-1000: #151414;
+  /* --color-gray-1100: #151414; */
 
   /* Brand - Rose Scale */
   --color-rose-100: #feefef;
@@ -146,15 +150,18 @@
   --color-text-tertiary: var(--color-gray-300);
 
   /* Border */
-  --color-border: var(--color-gray-400);
-  --color-border-input: var(--color-gray-500);
-  --color-border-input-focus: var(--color-gray-300);
+  --color-border: var(--color-gray-700);
+  --color-divider: var(--color-gray-600);
+  --color-border-input: var(--color-gray-600);
+  --color-border-input-focus: var(--color-gray-500);
 
   /* Background */
-  --color-bg-default: var(--color-gray-800);
-  --color-bg-secondary: var(--color-gray-600);
+  --color-bg-default: var(--color-gray-900);
+  --color-bg-secondary: var(--color-gray-800);
   --color-bg-tertiary: var(--color-gray-700);
-  --color-bg-input: var(--color-gray-400);
+  --color-bg-quaternary: var(--color-gray-600);
+  --color-bg-dark: var(--color-gray-1000);
+  --color-bg-input: var(--color-gray-700);
 
   /* Placeholder */
   --color-text-placeholder: var(--color-gray-300);

@@ -293,7 +293,7 @@ export const MessageBase = ({
   return (
     <motion.div
       // animate="rest"
-      className={cn('container pb-10', minimalistMode && 'pb-3')}
+      className={cn('container px-0 px-3.5 pb-10', minimalistMode && 'pb-3')}
       data-testid={`message-${
         message.role === 'user' ? 'local' : 'remote'
       }-${message.messageId}`}
@@ -311,7 +311,7 @@ export const MessageBase = ({
         )}
       >
         {message.role === 'assistant' ? (
-          <div className="mt-2 flex items-center gap-2 px-3.5">
+          <div className="mt-2 flex items-center gap-2">
             {selectedIcon}
             <span className="text-em-sm font-bold text-white">
               {formatText(message.provider?.agent.id ?? '')}
@@ -377,10 +377,9 @@ export const MessageBase = ({
             <Fragment>
               <div
                 className={cn(
-                  'relative container mt-1 flex flex-col rounded-lg px-3.5 pt-3 text-white',
-                  message.role === 'user'
-                    ? 'bg-official-gray-850 rounded-tr-none'
-                    : '',
+                  'text-text-default relative container mt-1 flex flex-col rounded-lg px-0 pt-3',
+                  message.role === 'user' &&
+                    'bg-bg-secondary rounded-lg px-3.5',
                   !message.content ? 'pb-3' : 'pb-4',
                   editing && 'w-full py-1',
                   message.role === 'assistant' &&
@@ -581,7 +580,7 @@ export const MessageBase = ({
                 )}
 
                 {configDeepLinkToolRouterKey && (
-                  <div className="mt-4 flex flex-col items-start rounded-lg bg-gray-950 p-6 shadow-lg">
+                  <div className="bg-bg-tertiary border-divider mt-4 flex flex-col items-start rounded-lg border p-6">
                     <p className="text-em-base mb-3 font-semibold text-white">
                       <div className="flex items-center">
                         <ToolsIcon className="text-brand mr-3 size-4" />
@@ -592,8 +591,11 @@ export const MessageBase = ({
                       {t('tools.setupDescription')}
                     </p>
                     <Link to={`/tools/${configDeepLinkToolRouterKey}`}>
-                      <Button variant="default" size="sm">
-                        <ToolsIcon className="h-4 w-4 transition-transform group-hover:rotate-12" />
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="min-w-[120px]"
+                      >
                         {t('tools.setupNow')}
                       </Button>
                     </Link>
@@ -623,7 +625,7 @@ export const MessageBase = ({
                         <TooltipTrigger asChild>
                           <button
                             className={cn(
-                              'text-official-gray-400 border-official-gray-780 flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
+                              'text-text-secondary border-divider flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
                             )}
                             onClick={() => {
                               setEditing(true);
@@ -647,7 +649,7 @@ export const MessageBase = ({
                             <TooltipTrigger asChild>
                               <button
                                 className={cn(
-                                  'text-official-gray-400 border-official-gray-780 flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
+                                  'text-text-secondary border-divider flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
                                 )}
                                 onClick={handleForkMessage}
                               >
@@ -664,7 +666,7 @@ export const MessageBase = ({
                             <TooltipTrigger asChild>
                               <button
                                 className={cn(
-                                  'text-official-gray-400 border-official-gray-780 flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
+                                  'text-text-secondary border-divider flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
                                 )}
                                 onClick={handleRetryMessage}
                               >
@@ -686,7 +688,7 @@ export const MessageBase = ({
                           <TooltipTrigger asChild>
                             <button
                               className={cn(
-                                'text-official-gray-400 border-official-gray-780 flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
+                                'text-text-secondary border-divider flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
                               )}
                               onClick={() => setTracingOpen(true)}
                             >
@@ -714,7 +716,7 @@ export const MessageBase = ({
                             <div>
                               <CopyToClipboardIcon
                                 className={cn(
-                                  'text-official-gray-400 border-official-gray-780 h-7 w-7 border bg-transparent hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
+                                  'text-text-secondary border-divider h-7 w-7 border bg-transparent hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
                                 )}
                                 string={extractErrorPropertyOrContent(
                                   message.content,
@@ -735,7 +737,7 @@ export const MessageBase = ({
                     message.status.type === 'complete' && (
                       <div
                         className={cn(
-                          'text-official-gray-400 flex items-center gap-1.5',
+                          'text-text-tertiary flex items-center gap-1.5',
                         )}
                       >
                         <span>

@@ -11,14 +11,14 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          'bg-brand hover:bg-brand-500 text-white disabled:bg-gray-200 disabled:text-gray-100',
+          'bg-brand hover:bg-brand-500 text-text-default disabled:bg-rose-200/20 disabled:text-gray-300',
         destructive:
           'bg-red-500 text-gray-50 shadow-xs hover:bg-red-500/90 disabled:bg-gray-200 disabled:text-gray-100',
         outline:
-          'hover:bg-official-gray-850 border border-gray-200 bg-transparent text-white shadow-xs hover:text-gray-50',
-        secondary: 'bg-gray-100 text-gray-900 shadow-xs hover:bg-gray-100/80',
-        tertiary:
-          'hover:bg-official-gray-800/60 bg-transparent hover:text-white',
+          'hover:bg-bg-secondary text-text-secondary hover:text-text-default border border-gray-500 bg-transparent shadow-xs',
+        secondary:
+          'bg-bg-secondary text-text-default hover:bg-bg-tertiary shadow-xs',
+        tertiary: 'hover:bg-bg-tertiary hover:text-text-default bg-transparent',
         ghost: 'bg-gray-400 hover:bg-gray-400/60',
         link: 'text-white underline-offset-4 hover:underline',
         gradient:

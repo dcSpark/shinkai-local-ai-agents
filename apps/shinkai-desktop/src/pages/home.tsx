@@ -641,7 +641,7 @@ const EmptyMessage = () => {
                                   size="icon"
                                   variant="ghost"
                                 >
-                                  <PlusIcon className="h-4 w-4 text-white" />
+                                  <PlusIcon className="text-text-default h-4 w-4" />
                                   <span className="sr-only">Add</span>
                                 </Button>
                               </PopoverTrigger>
@@ -798,7 +798,7 @@ const EmptyMessage = () => {
                         )}
                       {selectedKeys &&
                         Object.keys(selectedKeys || {}).length > 0 && (
-                          <div className="no-scrollbar bg-official-gray-800/10 scroll border-official-gray-780 h-16 overflow-hidden border-b">
+                          <div className="no-scrollbar bg-bg-tertiary scroll border-border h-16 overflow-hidden border-b">
                             <div className="flex items-center gap-3 overflow-x-auto p-2.5">
                               {Object.keys(selectedKeys).map((file, index) => (
                                 <div
@@ -807,9 +807,9 @@ const EmptyMessage = () => {
                                 >
                                   <div className="flex w-6 shrink-0 items-center justify-center">
                                     {isFileOrFolder(file) === 'file' ? (
-                                      <FileTypeIcon className="text-official-gray-400 size-4 shrink-0" />
+                                      <FileTypeIcon className="text-text-secondary size-4 shrink-0" />
                                     ) : (
-                                      <DirectoryTypeIcon className="text-official-gray-400 size-4 shrink-0" />
+                                      <DirectoryTypeIcon className="text-text-secondary size-4 shrink-0" />
                                     )}
                                   </div>
 
@@ -820,7 +820,7 @@ const EmptyMessage = () => {
                                   </div>
                                   <button
                                     className={cn(
-                                      'bg-official-gray-850 hover:bg-official-gray-800 text-gray-80 border-official-gray-780 absolute -top-2 -right-2 h-5 w-5 cursor-pointer rounded-full border p-1 transition-colors hover:text-white',
+                                      'bg-bg-secondary hover:bg-bg-tertiary text-text-secondary border-border absolute -top-2 -right-2 h-5 w-5 cursor-pointer rounded-full border p-1 transition-colors',
                                     )}
                                     onClick={(event) => {
                                       event.stopPropagation();
@@ -873,7 +873,7 @@ const EmptyMessage = () => {
                           >
                             <ToolsIcon className="mr-2 h-4 w-4" />
                             <div className="flex flex-col gap-0.5 text-xs">
-                              <span className="line-clamp-1 text-white">
+                              <span className="text-text-default line-clamp-1">
                                 {formatText(tool.name)}
                               </span>
                               <span className="text-gray-80 line-clamp-2 text-xs">
@@ -892,7 +892,7 @@ const EmptyMessage = () => {
           <motion.div
             animate={{ opacity: 1 }}
             className={cn(
-              'bg-official-gray-850 absolute inset-x-2 bottom-1.5 z-0 flex h-[40px] justify-between gap-2 rounded-b-xl px-2 pt-2.5 pb-1 shadow-white',
+              'bg-bg-tertiary absolute inset-x-2 bottom-1.5 z-0 flex h-[40px] justify-between gap-2 rounded-b-xl px-2 pt-2.5 pb-1 shadow-white',
             )}
             exit={{ opacity: 0 }}
             initial={{ opacity: 0 }}
@@ -904,7 +904,7 @@ const EmptyMessage = () => {
               isSearchToolListSuccess &&
               searchToolList?.length > 0 && (
                 <div className="flex items-center gap-2 px-2">
-                  <span className="text-official-gray-400 pr-1 text-xs font-light">
+                  <span className="text-text-secondary pr-1 text-xs font-light">
                     Suggested Tools
                   </span>
                   {searchToolList?.map((tool, idx) => (
@@ -913,7 +913,7 @@ const EmptyMessage = () => {
                         <motion.button
                           animate={{ opacity: 1, x: 0 }}
                           className={cn(
-                            'hover:bg-official-gray-800 flex items-center gap-2 rounded-lg px-2 py-1 text-xs text-white transition-colors',
+                            'hover:bg-official-gray-800 flex items-center gap-2 rounded-lg px-2 py-1 text-xs transition-colors',
                           )}
                           exit={{ opacity: 0, x: -10 }}
                           initial={{ opacity: 0, x: -10 }}
@@ -943,7 +943,7 @@ const EmptyMessage = () => {
                           {tool.description}
 
                           <br />
-                          <div className="flex items-center justify-end gap-2 text-xs text-gray-100">
+                          <div className="text-text-secondary flex items-center justify-end gap-2 text-xs">
                             <CommandShortcut>⌘ + {idx + 1}</CommandShortcut>
                           </div>
                         </TooltipContent>
@@ -952,7 +952,7 @@ const EmptyMessage = () => {
                   ))}
                   <Link
                     className={cn(
-                      'hover:bg-official-gray-800 flex items-center gap-2 rounded-lg px-2 py-1 text-xs text-white transition-colors',
+                      'hover:bg-official-gray-800 flex items-center gap-2 rounded-lg px-2 py-1 text-xs transition-colors',
                     )}
                     to="/tools"
                   >
@@ -963,7 +963,7 @@ const EmptyMessage = () => {
               )}
             {(!debounceMessage || selectedTool || selectedAgent) && (
               <div className="flex w-full items-center justify-between gap-2 px-2">
-                <span className="text-official-gray-400 text-xs font-light">
+                <span className="text-text-secondary text-xs font-light">
                   <Trans
                     i18nKey="homepage.shiftEnterForNewLine"
                     components={{
@@ -971,7 +971,7 @@ const EmptyMessage = () => {
                     }}
                   />
                 </span>
-                <span className="text-official-gray-400 text-xs font-light">
+                <span className="text-text-secondary text-xs font-light">
                   <Trans
                     i18nKey="homepage.enterToSend"
                     components={{
@@ -986,7 +986,8 @@ const EmptyMessage = () => {
         <div className="mx-auto grid w-full max-w-6xl grid-cols-4 justify-center gap-3">
           {PROMPT_SUGGESTIONS.map((suggestion) => (
             <Badge
-              className="hover:bg-official-gray-900 hover:text-official-gray-100 text-official-gray-200 cursor-pointer justify-between rounded-xl px-2 py-1.5 pl-4 text-left text-sm font-normal text-balance normal-case transition-colors"
+              className="cursor-pointer justify-between rounded-xl px-2 py-1.5 pl-4 text-left text-sm font-normal text-balance normal-case transition-colors"
+              variant="outline"
               key={suggestion.text}
               onClick={() => {
                 chatForm.setValue('message', suggestion.prompt);
@@ -995,7 +996,6 @@ const EmptyMessage = () => {
                 }
                 chatConfigForm.setValue('useTools', suggestion.use_tools);
               }}
-              variant="outline"
             >
               {suggestion.text}
               <ArrowUpRight className="ml-2 h-3.5 w-3.5 shrink-0" />
@@ -1013,7 +1013,7 @@ const EmptyMessage = () => {
               }}
               title="Recently Used"
             />
-            <div className="grid grid-cols-1 gap-4">
+            <div className="divide-divider grid grid-cols-1 divide-y">
               {recentlyUsedAgents?.map((agent, idx) => (
                 <Card
                   action={{
@@ -1056,7 +1056,7 @@ const EmptyMessage = () => {
               }}
               title={t('homepage.recommendedAgents')}
             />
-            <div className="grid grid-cols-1 gap-4">
+            <div className="divide-divider grid grid-cols-1 divide-y">
               {agents?.map((agent, idx) => (
                 <Card
                   action={{
@@ -1096,7 +1096,7 @@ const EmptyMessage = () => {
             <div className="flex flex-col gap-5">
               <SectionHeading title={t('homepage.recommendedAgents')} />
               <div className="flex flex-col items-center justify-center gap-4 py-8">
-                <div className="flex items-center gap-2 text-lg text-white">
+                <div className="flex items-center gap-2 text-lg">
                   <Loader2 className="h-6 w-6 animate-spin" />
                   <span>{t('homepage.installingDefaultAgents')}</span>
                 </div>
@@ -1144,26 +1144,25 @@ const Card: React.FC<CardProps> = ({
   return (
     <div
       className={cn(
-        'bg-official-gray-900 animate-scale-in border-official-gray-850 group relative overflow-hidden rounded-2xl border p-3 transition-all duration-300',
+        'group relative overflow-hidden py-3.5 transition-all duration-300',
         delayClass,
         className,
       )}
     >
-      <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
       <div className="relative z-10 flex items-start gap-3">
         <div className="flex size-10 items-center justify-center">{icon}</div>
         <div className="flex flex-1 flex-col gap-1">
           <h3 className="text-left text-base font-medium capitalize">
             {title}
           </h3>
-          <p className="text-official-gray-400 line-clamp-2 h-10 text-left text-sm text-balance">
+          <p className="text-text-secondary line-clamp-2 text-left text-sm text-balance">
             {description || 'No description available'}
           </p>
         </div>
         <div className="flex items-center gap-2">
           {secondaryAction && (
             <Button
-              className="shrink-0 text-sm font-medium text-white/70 transition-all duration-300 hover:bg-white/5 hover:text-white"
+              className="hover:text-text-default shrink-0 text-sm font-medium transition-all duration-300 hover:bg-gray-700"
               onClick={secondaryAction.onClick}
               size="sm"
               variant="tertiary"
@@ -1172,7 +1171,7 @@ const Card: React.FC<CardProps> = ({
             </Button>
           )}
           <Button
-            className="shrink-0 text-sm font-medium text-white/70 transition-all duration-300 hover:bg-white/5 hover:text-white"
+            className="hover:text-text-default shrink-0 text-sm font-medium transition-all duration-300 hover:bg-gray-700"
             onClick={action.onClick}
             size="sm"
             variant="tertiary"
@@ -1219,7 +1218,7 @@ const SectionHeading: React.FC<SectionHeadingProps> = ({
           {title}
         </h2>
         {description && (
-          <p className="text-official-gray-400 text-sm">{description}</p>
+          <p className="text-text-secondary text-sm">{description}</p>
         )}
       </div>
       <div className="animate-fade-in animate-delay-200 mt-4 flex items-center space-x-3 md:mt-0">

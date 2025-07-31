@@ -265,7 +265,7 @@ const AgentCard = ({
 
   return (
     <React.Fragment>
-      <div className="border-official-gray-850 bg-official-gray-900 flex items-center justify-between gap-1 rounded-lg border p-3.5">
+      <div className="border-border bg-bg-secondary flex items-center justify-between gap-1 rounded-lg border p-3.5">
         <div className="flex items-start gap-3">
           <div className="flex size-8 items-center justify-center rounded-lg">
             <AIAgentIcon name={agentName} size="sm" />

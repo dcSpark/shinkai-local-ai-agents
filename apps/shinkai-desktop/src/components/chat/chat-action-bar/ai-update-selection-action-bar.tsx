@@ -188,7 +188,7 @@ export function AIModelSelectorBase({
 
                 'w-auto justify-between truncate',
                 variant === 'card' &&
-                  'bg-official-gray-900 border-official-gray-780 hover:bg-official-gray-850 h-auto w-auto max-w-md min-w-[240px] gap-3 rounded-xl border p-1.5 px-2',
+                  'bg-bg-secondary hover:bg-bg-tertiary h-auto w-auto max-w-md min-w-[240px] gap-3 rounded-xl border border-gray-500 p-1.5 px-2',
                 className,
               )}
             >
@@ -207,7 +207,7 @@ export function AIModelSelectorBase({
                 <>
                   {selectedIcon}
                   <div className="flex flex-col items-start justify-start text-left">
-                    <span className="text-base font-medium text-white capitalize">
+                    <span className="text-base font-medium capitalize">
                       {selectedAgentName}
                     </span>
                   </div>
@@ -223,17 +223,17 @@ export function AIModelSelectorBase({
             className="flex flex-col gap-1"
             side="top"
           >
-            <span className="text-center text-sm text-white">
+            <span className="text-center text-sm">
               {t('llmProviders.switch')}
             </span>
             {isRegularChatPage && (
               <div className="flex items-center gap-4 text-left">
-                <div className="text-official-gray-400 flex items-center justify-center gap-2 text-xs">
+                <div className="text-text-secondary flex items-center justify-center gap-2 text-xs">
                   <CommandShortcut>⌘ [</CommandShortcut> or
                   <CommandShortcut>⌘ ]</CommandShortcut>
                 </div>
                 <div className="flex items-center justify-center gap-2">
-                  <span className="text-official-gray-400 text-xs">
+                  <span className="text-text-secondary text-xs">
                     Prev / Next AI
                   </span>
                 </div>
@@ -242,12 +242,12 @@ export function AIModelSelectorBase({
           </TooltipContent>
         </TooltipPortal>
       </Tooltip>
-      <DialogContent className="bg-official-gray-950 border-official-gray-780 size-full max-h-[60vh] w-full max-w-3xl border p-1 py-2">
+      <DialogContent className="size-full max-h-[60vh] w-full max-w-3xl border p-1 py-2">
         <DialogTitle className="sr-only">
           {t('llmProviders.switch')}
         </DialogTitle>
         <Command
-          className="[&_[cmdk-input-wrapper]]:border-official-gray-850 h-full [&_[cmdk-input-wrapper]]:pb-1"
+          className="[&_[cmdk-input-wrapper]]:border-divider h-full [&_[cmdk-input-wrapper]]:pb-1"
           disablePointerSelection
           onKeyDown={(e) => {
             if (e.key === 'Escape') {
@@ -258,7 +258,7 @@ export function AIModelSelectorBase({
           value={value}
         >
           <CommandInput placeholder={t('common.search')} />
-          <CommandEmpty className="text-official-gray-400 py-5 text-center text-sm">
+          <CommandEmpty className="text-text-secondary py-5 text-center text-sm">
             {t('common.noResultsFound')}
           </CommandEmpty>
           <CommandList className="flex max-h-full flex-col">
@@ -267,10 +267,10 @@ export function AIModelSelectorBase({
               heading={
                 <div className="flex items-center justify-between gap-2 pb-2">
                   <div className="space-y-0.5">
-                    <h3 className="font-clash text-base font-medium text-white">
+                    <h3 className="font-clash text-text-default text-base font-medium">
                       {t('agents.label')}
                     </h3>
-                    <p className="text-official-gray-400 text-sm font-normal">
+                    <p className="text-text-secondary text-sm font-normal">
                       {t('agentsPage.exploreAgentsDescription')}
                     </p>
                   </div>
@@ -291,7 +291,7 @@ export function AIModelSelectorBase({
               {isAgentsSuccess &&
                 agents.map((agent) => (
                   <CommandItem
-                    className="hover:bg-official-gray-850 data-[selected='true']:bg-official-gray-850 flex cursor-pointer items-center justify-between gap-1.5 rounded-md px-2 py-2 text-white transition-colors"
+                    className="flex cursor-pointer items-center justify-between gap-1.5 rounded-md px-2 py-2 transition-colors"
                     key={agent.agent_id}
                     onSelect={() => {
                       setIsDialogOpen(false);
@@ -304,7 +304,7 @@ export function AIModelSelectorBase({
                         <span className="inline-flex items-center gap-1.5 text-base font-medium capitalize">
                           {agent.name}
                         </span>
-                        <span className="text-official-gray-400 line-clamp-1 text-sm">
+                        <span className="text-text-secondary line-clamp-1 text-sm">
                           {agent.ui_description}
                         </span>
                       </div>
@@ -312,7 +312,7 @@ export function AIModelSelectorBase({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Link
-                          className="text-gray-80 size-8 shrink-0 rounded-lg p-2 hover:text-white"
+                          className="text-text-secondary hover:text-text-default size-8 shrink-0 rounded-lg p-2"
                           to={`/agents/edit/${agent.agent_id}`}
                         >
                           <BoltIcon className="size-full" />
@@ -338,10 +338,10 @@ export function AIModelSelectorBase({
               heading={
                 <div className="flex items-center justify-between gap-2 pb-2">
                   <div className="space-y-0.5">
-                    <h3 className="font-clash text-base font-medium text-white">
+                    <h3 className="font-clash text-text-default text-base font-medium">
                       {t('aisPage.label')}
                     </h3>
-                    <p className="text-official-gray-400 text-sm font-normal">
+                    <p className="text-text-secondary text-sm font-normal">
                       {t('aisPage.shortDescription')}
                     </p>
                   </div>
@@ -365,14 +365,14 @@ export function AIModelSelectorBase({
                 llmProviders?.length > 0 &&
                 llmProviders?.map((llmProvider) => (
                   <CommandItem
-                    className="hover:bg-official-gray-850 data-[selected='true']:bg-official-gray-850 flex cursor-pointer items-start gap-2 gap-3 rounded-md px-2 py-2 text-white transition-colors"
+                    className="flex cursor-pointer items-start gap-3 rounded-md px-2 py-2 transition-colors"
                     key={llmProvider.id}
                     onSelect={() => {
                       setIsDialogOpen(false);
                     }}
                     value={llmProvider.id}
                   >
-                    <div className="bg-official-gray-850 border-official-gray-700 flex size-8 shrink-0 items-center justify-center gap-2 rounded-lg border p-2">
+                    <div className="bg-bg-secondary border-border flex size-8 shrink-0 items-center justify-center gap-2 rounded-lg border p-2">
                       <ProviderIcon
                         className="mt-0.5 size-5 shrink-0"
                         provider={llmProvider.model.split(':')[0]}
@@ -392,7 +392,7 @@ export function AIModelSelectorBase({
                             </Badge>
                           )}
                       </span>
-                      <span className="text-official-gray-400 line-clamp-2 text-sm">
+                      <span className="text-text-secondary line-clamp-2 text-sm">
                         {llmProvider?.description}
                       </span>
                     </div>

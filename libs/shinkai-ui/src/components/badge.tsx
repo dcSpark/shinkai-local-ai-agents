@@ -14,7 +14,9 @@ const badgeVariants = cva(
           'bg-secondary text-secondary-foreground hover:bg-secondary/80 border-transparent',
         destructive:
           'bg-destructive text-destructive-foreground hover:bg-destructive/80 border-transparent shadow',
-        outline: 'text-foreground',
+        outline:
+          'hover:bg-bg-secondary text-text-secondary hover:text-text-default border border-gray-500 bg-transparent shadow-xs',
+
         inputAdornment: 'bg-gray-600 px-2 font-medium text-white',
         gradient: 'bg-brand-gradient border-brand px-2 font-medium text-white',
         tags: 'text-gray-80 rounded-lg border-gray-400 bg-gray-400 px-2 py-1 font-normal capitalize',

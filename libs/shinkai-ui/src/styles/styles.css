@@ -3,10 +3,101 @@
 @import 'tailwindcss';
 @plugin "@tailwindcss/typography";
 
-@config '../../tailwind.config.js';
+/* @config '../../tailwind.config.js'; */
 
 @theme {
+  /* Deprecated */
   --color-official-gray-780: #313336;
+
+  /* Grayscale */
+  --color-gray-100: #f7f2f2;
+  --color-gray-200: #ccc7c7;
+  --color-gray-300: #938e8e;
+  --color-gray-400: #3c3a3a;
+  --color-gray-500: #2e2d2d;
+  --color-gray-600: #2a2828;
+  --color-gray-700: #262525;
+  --color-gray-800: #1a1818;
+
+  /* Brand - Rose Scale */
+  --color-rose-100: #feefef;
+  --color-rose-200: #fedfdf;
+  --color-rose-300: #fe9190;
+  --color-rose-400: #fe6162;
+  --color-rose-500: #cb4d4e;
+  --color-rose-600: #652627;
+  --color-rose-700: #4c1d1d;
+
+  /* Cyan */
+  --color-cyan-100: #e5fafd;
+  --color-cyan-200: #ccf6fc;
+  --color-cyan-300: #4ce0f5;
+  --color-cyan-400: #00d3f2;
+  --color-cyan-500: #00a8c1;
+  --color-cyan-600: #005460;
+  --color-cyan-700: #003f48;
+
+  /* Green Scale */
+  --color-green-100: #e6fbf1;
+  --color-green-200: #cdf8e3;
+  --color-green-300: #50e89d;
+  --color-green-400: #06df73;
+  --color-green-500: #04b25c;
+  --color-green-600: #02592e;
+  --color-green-700: #014222;
+
+  /* Amber Scale */
+  --color-yellow-100: #f7f1eb;
+  --color-yellow-200: #efe4d7;
+  --color-yellow-300: #c9a274;
+  --color-yellow-400: #b27b39;
+  --color-yellow-500: #8e622d;
+  --color-yellow-600: #473116;
+  --color-yellow-700: #352411;
+
+  /* Red Scale */
+  --color-red-100: #f8eded;
+  --color-red-200: #f2dbdb;
+  --color-red-300: #d48282;
+  --color-red-400: #c24d4d;
+  --color-red-500: #9b3d3d;
+  --color-red-600: #4d1e1e;
+  --color-red-700: #3a1717;
+
+  /* Font */
+  --font-inter: 'Inter', sans-serif;
+  --font-clash: 'Clash Display', sans-serif;
+
+  /* Semantic Tokens */
+
+  /* Text */
+  --color-text-default: var(--color-gray-100);
+  --color-text-secondary: var(--color-gray-200);
+  --color-text-tertiary: var(--color-gray-300);
+
+  /* Border */
+  --color-border: var(--color-gray-400);
+  --color-border-input: var(--color-gray-500);
+
+  /* Background */
+  --color-bg-default: var(--color-gray-800);
+  --color-bg-secondary: var(--color-gray-600);
+  --color-bg-tertiary: var(--color-gray-700);
+  --color-bg-input: var(--color-gray-400);
+
+  /* Placeholder */
+  --color-text-placeholder: var(--color-gray-300);
+}
+
+@utility container {
+  margin-inline: auto;
+  padding-inline: 2rem;
+
+  @media (width >=1400px) {
+    & {
+      max-width: 1400px;
+    }
+  }
 }
 
 @layer base {

@@ -551,7 +551,7 @@ const EmptyMessage = () => {
       <FeedbackModal buttonProps={{ className: 'absolute right-4 top-4' }} />
       <div className="mx-auto mt-[110px] flex w-full max-w-[1100px] flex-col items-stretch gap-6">
         <div className="mb-4 flex flex-col items-center gap-2">
-          <h1 className="font-clash text-3xl font-medium text-white">
+          <h1 className="font-clash text-text-default text-3xl font-medium">
             {t('homepage.welcomeTitle')}
           </h1>
           <AIModelSelector

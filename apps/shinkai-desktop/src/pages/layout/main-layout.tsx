@@ -301,14 +301,14 @@ export function MainNav() {
         width: sidebarExpanded ? '230px' : '70px',
         opacity: 1,
       }}
-      className="bg-official-gray-900 border-official-gray-850 relative z-30 flex w-auto shrink-0 flex-col gap-2 overflow-x-hidden overflow-y-auto border-r px-2 py-6 pt-9 shadow-xl"
+      className="bg-bg-secondary border-border relative z-30 flex w-auto shrink-0 flex-col gap-2 overflow-x-hidden overflow-y-auto border-r px-2 py-6 pt-9 shadow-xl"
       exit={{ width: 0, opacity: 0 }}
       initial={{ width: 0, opacity: 0 }}
       transition={{ duration: 0.3 }}
     >
       <div
         className={cn(
-          'text-official-gray-400 flex w-full items-center justify-between gap-2 py-2 pl-4',
+          'text-text-secondary flex w-full items-center justify-between gap-2 py-2 pl-4',
           !sidebarExpanded && 'justify-center px-0',
         )}
       >
@@ -320,7 +320,7 @@ export function MainNav() {
           <TooltipTrigger asChild>
             <Button
               className={cn(
-                'border-official-gray-780 text-official-gray-400 h-6 w-6 shrink-0 rounded-lg border bg-black/20 p-0 hover:bg-black/20 hover:text-white',
+                'border-official-gray-780 text-text-secondary h-6 w-6 shrink-0 rounded-lg border bg-black/20 p-0 hover:bg-black/20 hover:text-white',
               )}
               onClick={toggleSidebar}
               size="auto"
@@ -374,7 +374,7 @@ export function MainNav() {
                         {item.disabled ? (
                           <>
                             {item.title} <br />
-                            <span className="text-official-gray-400 text-xs">
+                            <span className="text-text-secondary text-xs">
                               {t('common.comingSoon')}
                             </span>
                           </>
@@ -382,7 +382,7 @@ export function MainNav() {
                           <div className="flex flex-col gap-1">
                             {item.title}
                             {item.href === '/home' ? (
-                              <div className="text-official-gray-400 flex items-center justify-center gap-2 text-center">
+                              <div className="text-text-secondary flex items-center justify-center gap-2 text-center">
                                 <span>⌘</span>
                                 <span>N</span>
                               </div>
@@ -672,7 +672,7 @@ const MainLayout = () => {
   );
 
   return (
-    <div className="bg-official-gray-950 relative flex h-screen min-h-full flex-col overflow-hidden text-white">
+    <div className="bg-bg-default text-text-default relative flex h-screen min-h-full flex-col overflow-hidden">
       <div
         className="absolute top-0 z-50 h-6 w-full"
         data-tauri-drag-region={true}

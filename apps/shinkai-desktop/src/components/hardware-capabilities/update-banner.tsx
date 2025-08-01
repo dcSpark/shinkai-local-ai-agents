@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Loader2, XIcon } from 'lucide-react';
 import React, { useCallback, useState } from 'react';
 
+import config from '../../config';
 import {
   type UpdateState,
   useCheckUpdateQuery,
@@ -85,7 +86,7 @@ const UpdateBanner: React.FC<{
     }
   }, [updateState?.state, downloadUpdate]);
 
-  if (!updateState?.update?.available || updateDismissed) {
+  if (!updateState?.update?.available || updateDismissed || config.isDev) {
     return null;
   }
 

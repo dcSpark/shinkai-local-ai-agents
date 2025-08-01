@@ -1,26 +1,20 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
 @import 'katex/dist/katex.min.css';
+
 @import 'tailwindcss';
 @plugin "@tailwindcss/typography";
 
-/* @config '../../tailwind.config.js'; */
+@config '../../tailwind.config.js';
 
 @theme {
-  /* Deprecated */
+  /* =============================== */
+  /* DESIGN TOKENS */
+  /* =============================== */
 
+  /* TODO: improve this */
   --color-brand: hsla(360, 99%, 69%, 1);
   --color-brand-500: hsla(359, 58%, 58%, 1);
-
   --color-red: hsla(0, 63%, 51%, 1);
-
-  --color-primary-600: #ff7e7f;
-  --color-primary-700: #ff5e5f;
-  --color-primary-800: #ff3e3f;
-
-  --color-secondary-600: #19242d;
-
-  /* =============================== */
-  /* =============================== */
 
   /* Generic tokens */
   --height-input: 59px;
@@ -129,6 +123,71 @@
 
   /* Placeholder */
   --color-text-placeholder: var(--color-gray-300);
+
+  /* Animations */
+  --animate-accordion-down: accordion-down 0.2s ease-out;
+  --animate-accordion-up: accordion-up 0.2s ease-out;
+  --animate-breath: breath 5s ease-out infinite;
+  --animate-big-bounce: big-bounce 1s infinite;
+  --animate-shadow-pulse: shadow-pulse 2s infinite;
+
+  @keyframes accordion-down {
+    from {
+      height: 0;
+    }
+    to {
+      height: var(--radix-accordion-content-height);
+    }
+  }
+
+  @keyframes accordion-up {
+    from {
+      height: var(--radix-accordion-content-height);
+    }
+    to {
+      height: 0;
+    }
+  }
+
+  @keyframes breath {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0.8;
+    }
+  }
+
+  @keyframes big-bounce {
+    0%,
+    100% {
+      transform: translateY(-75%);
+      animation-timing-function: cubic-bezier(0.8, 0, 1, 1);
+    }
+    50% {
+      transform: translateY(0);
+      animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
+    }
+  }
+
+  @keyframes shadow-pulse {
+    0% {
+      box-shadow: 0 0 0 0px rgba(0, 0, 0, 0.6);
+    }
+    100% {
+      box-shadow: 0 0 0 10px rgba(0, 0, 0, 0);
+    }
+  }
+
+  @keyframes loaderDots {
+    0% {
+      opacity: 1;
+    }
+    50%,
+    100% {
+      opacity: 0.15;
+    }
+  }
 }
 
 @utility container {
@@ -223,64 +282,6 @@
 }
 .icon-file {
   content: url("data:image/svg+xml,%3Csvg data-v-88732935='' xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round' class='lucide lucide-file-text lucide-icon customizable'%3E%3Cpath d='M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z'%3E%3C/path%3E%3Cpath d='M14 2v4a2 2 0 0 0 2 2h4'%3E%3C/path%3E%3Cpath d='M10 9H8'%3E%3C/path%3E%3Cpath d='M16 13H8'%3E%3C/path%3E%3Cpath d='M16 17H8'%3E%3C/path%3E%3C/svg%3E");
-}
-
-@keyframes accordion-down {
-  from {
-    height: 0;
-  }
-  to {
-    height: var(--radix-accordion-content-height);
-  }
-}
-
-@keyframes accordion-up {
-  from {
-    height: var(--radix-accordion-content-height);
-  }
-  to {
-    height: 0;
-  }
-}
-
-@keyframes breath {
-  from {
-    opacity: 1;
-  }
-  to {
-    opacity: 0.8;
-  }
-}
-
-@keyframes big-bounce {
-  0%,
-  100% {
-    transform: translateY(-75%);
-    animation-timing-function: cubic-bezier(0.8, 0, 1, 1);
-  }
-  50% {
-    transform: translateY(0);
-    animation-timing-function: cubic-bezier(0, 0, 0.2, 1);
-  }
-}
-
-@keyframes shadow-pulse {
-  0% {
-    box-shadow: 0 0 0 0px rgba(0, 0, 0, 0.6);
-  }
-  100% {
-    box-shadow: 0 0 0 10px rgba(0, 0, 0, 0);
-  }
-}
-
-@keyframes loaderDots {
-  0% {
-    opacity: 1;
-  }
-  50%,
-  100% {
-    opacity: 0.15;
-  }
 }
 
 .animate-accordion-down {

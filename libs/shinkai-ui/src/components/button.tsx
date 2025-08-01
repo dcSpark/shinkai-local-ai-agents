@@ -65,7 +65,7 @@ const Button = ({
   const Comp = asChild ? Slot : 'button';
   return (
     <Comp
-      className={cn(buttonVariants({ variant, size, rounded, className }))}
+      className={cn(buttonVariants({ variant, size, className }))}
       ref={ref}
       {...props}
     >

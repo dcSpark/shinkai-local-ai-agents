@@ -25,6 +25,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
+  Skeleton,
 } from '@shinkai_network/shinkai-ui';
 import { cn } from '@shinkai_network/shinkai-ui/utils';
 import cronstrue from 'cronstrue';
@@ -76,7 +77,7 @@ export const TaskLogs = () => {
     <SubpageLayout alignLeft className="container" title="Scheduled Task Logs">
       {isGetRecurringTaskPending && (
         <div className="p-4 text-center text-sm">
-          <p className="text-white">...</p>
+          <p className="text-text-default">...</p>
         </div>
       )}
       {isGetRecurringTaskSuccess && (
@@ -103,22 +104,12 @@ export const TaskLogs = () => {
       <div className="">
         {isPending &&
           Array.from({ length: 8 }).map((_, idx) => (
-            <div
+            <Skeleton
               className={cn(
-                'grid animate-pulse grid-cols-[1fr_115px_36px] items-center gap-5 rounded-xs bg-gray-500 px-2 py-4 text-left text-sm',
+                'grid animate-pulse grid-cols-[1fr_115px_36px] items-center gap-5 rounded-xs px-2 py-4 text-left text-sm',
               )}
               key={idx}
-            >
-              <div className="flex w-full flex-1 flex-col gap-3">
-                <span className="h-4 w-36 rounded-xs bg-gray-300" />
-                <div className="flex flex-col gap-1">
-                  <span className="h-3 w-full rounded-xs bg-gray-300" />
-                  <span className="h-3 w-2/4 rounded-xs bg-gray-300" />
-                </div>
-              </div>
-              <span className="h-7 w-full rounded-md bg-gray-300" />
-              <span className="h-5 w-[36px] rounded-full bg-gray-300" />
-            </div>
+            ></Skeleton>
           ))}
 
         <div className="flex items-center justify-between">
@@ -139,15 +130,15 @@ export const TaskLogs = () => {
         <Card className="border-0 p-0">
           {isSuccess && logs.length === 0 && (
             <div className="p-10 text-center text-sm">
-              <p className="text-white">No runs for this task yet</p>
-              <p className="text-gray-80 text-xs">
+              <p className="text-text-default">No runs for this task yet</p>
+              <p className="text-text-secondary text-xs">
                 check the schedule for your tasks to see when it runs
               </p>
             </div>
           )}
           {isSuccess && logs.length > 0 && (
-            <div className="divide-gray-375 divide-y py-2">
-              <div className="grid grid-cols-[360px_100px_130px_1fr] items-center gap-6 py-1.5 font-mono text-xs text-gray-50">
+            <div className="divide-divider divide-y py-2">
+              <div className="text-text-secondary grid grid-cols-[360px_100px_130px_1fr] items-center gap-6 py-1.5 font-mono text-xs">
                 <span>Execution Time</span>
                 <span>Status</span>
                 <span>Job Chat</span>
@@ -158,7 +149,7 @@ export const TaskLogs = () => {
                   className="grid grid-cols-[360px_100px_130px_1fr] items-center gap-6 py-3 text-xs"
                   key={log.execution_time}
                 >
-                  <div className="text-muted-foreground shrink-0 font-mono">
+                  <div className="text-text-secondary shrink-0 font-mono">
                     {format(log.execution_time, 'PPPppp')}
                   </div>
 
@@ -174,12 +165,12 @@ export const TaskLogs = () => {
                   </div>
 
                   <Link
-                    className="text-gray-80 font-mono underline"
+                    className="text-text-defaultfont-mono underline"
                     to={`/inboxes/${encodeURIComponent(buildInboxIdFromJobId(log.job_id))}`}
                   >
                     Go to chat
                   </Link>
-                  <div className="text-gray-80 font-mono">
+                  <div className="text-text-secondary font-mono">
                     {log.error_message || '-'}
                   </div>
                 </div>
@@ -239,7 +230,7 @@ const TaskCard = ({
               {name}
               <Badge
                 className={cn(
-                  'rounded-md border border-gray-300',
+                  'border-divider rounded-md border',
                   isRunning &&
                     'border-cyan-600 bg-cyan-900/20 font-normal text-cyan-400',
                 )}
@@ -272,7 +263,7 @@ const TaskCard = ({
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="end"
-              className="w-[160px] border bg-gray-500 px-2.5 py-2"
+              className="w-[160px] border px-2.5 py-2"
             >
               {[
                 {
@@ -302,9 +293,7 @@ const TaskCard = ({
                 },
               ].map((option) => (
                 <React.Fragment key={option.name}>
-                  {option.name === 'Delete' && (
-                    <DropdownMenuSeparator className="bg-gray-300" />
-                  )}
+                  {option.name === 'Delete' && <DropdownMenuSeparator />}
                   <DropdownMenuItem
                     key={option.name}
                     onClick={(event) => {
@@ -342,7 +331,7 @@ const TaskCard = ({
           </div>
           <div className="text-sm">
             {readableCron}
-            <span className="text-gray-80 ml-2 rounded-lg bg-gray-300 px-2 py-1 font-mono">
+            <span className="text-gray-80 bg-bg-quaternary ml-2 rounded-lg px-2 py-1 font-mono">
               {cronExpression}
             </span>
           </div>

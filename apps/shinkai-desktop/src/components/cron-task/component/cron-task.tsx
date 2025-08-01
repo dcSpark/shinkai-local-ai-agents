@@ -250,7 +250,7 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
       className="container"
       title={`${mode === 'create' ? 'Create' : 'Edit'} Scheduled Task`}
     >
-      <p className="text-gray-80 -mt-8 py-3 pb-6 text-center text-sm">
+      <p className="text-text-secondary -mt-8 py-3 pb-6 text-center text-sm">
         Schedule recurring tasks at a specified time
       </p>
       <Form {...form}>
@@ -299,7 +299,9 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
                       {...field}
                     />
                   </FormControl>
-                  <FormDescription>{t('cronTask.promptExample')}</FormDescription>
+                  <FormDescription>
+                    {t('cronTask.promptExample')}
+                  </FormDescription>
                 </FormItem>
               )}
             />
@@ -325,7 +327,7 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
                 </span>
               </div>
             )}
-              <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2">
               {[
                 {
                   label: t('cronTask.scheduleOptions.every5Min'),
@@ -349,7 +351,6 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
                 },
               ].map((item) => (
                 <Badge
-                  className="cursor-pointer hover:bg-gray-400"
                   key={item.cron}
                   onClick={() => {
                     form.setValue('cronExpression', item.cron);
@@ -363,14 +364,16 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
           </div>
           <div className="space-y-4">
             <div className="space-y-4">
-              <div className="bg-official-gray-900 space-y-6 rounded-lg px-4 py-4 pb-7">
-                <span className="flex-1 items-center gap-1 truncate py-2 text-left text-xs font-semibold text-gray-50">
+              <div className="bg-bg-secondary space-y-6 rounded-lg px-4 py-4 pb-7">
+                <span className="text-text-default flex-1 items-center gap-1 truncate py-2 text-left text-xs font-semibold">
                   {t('cronTask.aiModelConfiguration')}
                 </span>
 
                 <div className="space-y-4">
                   <div className="grid grid-cols-[1fr_auto] items-center">
-                    <span className="text-gray-80 text-xs">{t('cronTask.aiAgent')}</span>
+                    <span className="text-text-secondary text-xs">
+                      {t('cronTask.aiAgent')}
+                    </span>
                     <AIModelSelector
                       onValueChange={(value) => {
                         form.setValue('llmOrAgentId', value);
@@ -379,7 +382,7 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
                     />
                   </div>
                   <div className="grid grid-cols-[1fr_auto] items-center">
-                    <span className="text-gray-80 text-xs">
+                    <span className="text-text-secondary text-xs">
                       {t('cronTask.forceToolUsage')}
                     </span>
 
@@ -406,7 +409,7 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent
                         align="start"
-                        className="max-h-[400px] min-w-[330px] overflow-y-auto bg-gray-300 p-1 py-2"
+                        className="max-h-[400px] min-w-[330px] overflow-y-auto p-1 py-2"
                         side="top"
                       >
                         <DropdownMenuRadioGroup
@@ -416,19 +419,21 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
                           value={form.watch('jobMessage.tool_key')}
                         >
                           <DropdownMenuRadioItem
-                            className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-2 text-white transition-colors hover:bg-gray-200 aria-checked:bg-gray-200"
+                            className="text-text-default flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-2 transition-colors"
                             value=""
                           >
                             <ToolsIcon className="h-3.5 w-3.5 shrink-0" />
                             <div className="flex flex-col gap-1">
-                              <span className="text-xs">{t('common.none')}</span>
+                              <span className="text-xs">
+                                {t('common.none')}
+                              </span>
                             </div>
                           </DropdownMenuRadioItem>
                           {isToolListSuccess &&
                             toolsList.length > 0 &&
                             toolsList?.map((tool) => (
                               <DropdownMenuRadioItem
-                                className="flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-2 text-white transition-colors hover:bg-gray-200 aria-checked:bg-gray-200"
+                                className="text-text-default flex cursor-pointer items-center gap-1.5 rounded-md px-2 py-2 transition-colors"
                                 key={tool.tool_router_key}
                                 value={tool.tool_router_key}
                               >
@@ -447,7 +452,7 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
                 </div>
 
                 <Collapsible className="space-y-4">
-                  <CollapsibleTrigger className="text-official-gray-400 hover:text-official-gray-300 flex items-center gap-1 text-sm [&[data-state=open]>svg]:rotate-90">
+                  <CollapsibleTrigger className="text-text-secondary hover:text-text-default flex items-center gap-1 text-sm [&[data-state=open]>svg]:rotate-90">
                     {t('common.advanced')}
                     <ChevronDownIcon className="h-3 w-3" />
                   </CollapsibleTrigger>
@@ -483,7 +488,7 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
                               />
                             </FormControl>
                             <div className="space-y-1 leading-none">
-                              <FormLabel className="static space-y-1.5 text-sm text-white">
+                              <FormLabel className="text-text-default static space-y-1.5 text-sm">
                                 {t('cronTask.enableStream')}
                               </FormLabel>
                             </div>
@@ -504,7 +509,7 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
                               />
                             </FormControl>
                             <div className="space-y-1 leading-none">
-                              <FormLabel className="static space-y-1.5 text-sm text-white">
+                              <FormLabel className="text-text-default static space-y-1.5 text-sm">
                                 {t('cronTask.enableTools')}
                               </FormLabel>
                             </div>
@@ -544,7 +549,7 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
                               </HoverCardTrigger>
                               <HoverCardContent
                                 align="start"
-                                className="w-[260px] bg-gray-600 px-2 py-3 text-xs"
+                                className="w-[260px] px-2 py-3 text-xs"
                                 side="left"
                               >
                                 {t('cronTask.temperatureInfo')}
@@ -564,7 +569,9 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
                               <HoverCardTrigger asChild>
                                 <div className="grid w-full gap-4">
                                   <div className="flex items-center justify-between">
-                                    <Label htmlFor="topP">{t('cronTask.topP')}</Label>
+                                    <Label htmlFor="topP">
+                                      {t('cronTask.topP')}
+                                    </Label>
                                     <span className="text-muted-foreground hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-sm">
                                       {field.value}
                                     </span>
@@ -585,7 +592,7 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
                               </HoverCardTrigger>
                               <HoverCardContent
                                 align="start"
-                                className="w-[260px] bg-gray-600 px-2 py-3 text-xs"
+                                className="w-[260px] px-2 py-3 text-xs"
                                 side="left"
                               >
                                 {t('cronTask.topPInfo')}
@@ -605,7 +612,9 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
                               <HoverCardTrigger asChild>
                                 <div className="grid w-full gap-4">
                                   <div className="flex items-center justify-between">
-                                    <Label htmlFor="topK">{t('cronTask.topK')}</Label>
+                                    <Label htmlFor="topK">
+                                      {t('cronTask.topK')}
+                                    </Label>
                                     <span className="text-muted-foreground hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-sm">
                                       {field.value}
                                     </span>
@@ -625,7 +634,7 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
                               </HoverCardTrigger>
                               <HoverCardContent
                                 align="start"
-                                className="w-[260px] bg-gray-600 px-2 py-3 text-xs"
+                                className="w-[260px] px-2 py-3 text-xs"
                                 side="left"
                               >
                                 {t('cronTask.topKInfo')}

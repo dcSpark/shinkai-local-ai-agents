@@ -73,7 +73,7 @@ export const McpRegistryPage = () => {
           <div className="flex justify-between gap-4">
             <div className="font-clash inline-flex items-center gap-5 text-3xl font-medium">
               <h1>{t('mcpServers.title')}</h1>
-              <TabsList className="bg-official-gray-950/80 flex h-10 w-fit items-center gap-2 rounded-full px-1 py-1">
+              <TabsList className="flex h-10 w-fit items-center gap-2 rounded-full bg-transparent px-1 py-1">
                 <TabsTrigger
                   className={cn(
                     'flex items-center gap-4 rounded-full px-4 py-1.5 text-base font-medium transition-colors',
@@ -549,7 +549,9 @@ const McpCard = ({
                 {toolEnabled !== true
                   ? t('mcpServers.tooltipEnableFirst')
                   : `${t('mcpServers.label')} ${
-                      toolMcpEnabled === true ? t('common.enabled') : t('common.disabled', 'Disabled')
+                      toolMcpEnabled === true
+                        ? t('common.enabled')
+                        : t('common.disabled', 'Disabled')
                     }`}
               </TooltipContent>
             </TooltipPortal>

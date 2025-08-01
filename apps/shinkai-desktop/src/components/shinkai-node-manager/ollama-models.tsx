@@ -133,7 +133,7 @@ export const OllamaModels = ({
                         )}
                       </span>
                     </CardTitle>
-                    <CardDescription className="overflow-hidden text-ellipsis text-xs">
+                    <CardDescription className="overflow-hidden text-xs text-ellipsis">
                       {model.description}
                     </CardDescription>
                   </CardHeader>
@@ -182,13 +182,13 @@ export const OllamaModels = ({
           </AutoSizer>
         </div>
       )}
-      <span className="w-full text-right text-xs text-gray-100">
+      <span className="text-text-secondary w-full text-right text-xs">
         {t('shinkaiNode.models.poweredByOllama')}
       </span>
       {parentShowAllOllamaModels == null && (
         <div
           className={cn(
-            'flex w-full items-center justify-center gap-4 pb-4 pt-8',
+            'flex w-full items-center justify-center gap-4 pt-8 pb-4',
             rightBottomElement && 'justify-between',
           )}
         >

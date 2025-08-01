@@ -23,6 +23,7 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
+  Skeleton,
   Switch,
 } from '@shinkai_network/shinkai-ui';
 import {
@@ -124,20 +125,20 @@ export const Tasks = () => {
                       className="flex items-start gap-2 py-1"
                       key={task.task_id}
                     >
-                      <ScheduledTasksIcon className="text-gray-80 mt-1 size-4" />
+                      <ScheduledTasksIcon className="text-text-secondary mt-1 size-4" />
                       <div className="flex flex-col gap-1 text-left">
-                        <span className="text-sm text-gray-50">
+                        <span className="text-text-default text-sm">
                           {task.name}
-                          <span className="text-gray-80 mx-1 rounded-lg border border-gray-200 px-1.5 py-1 text-xs">
+                          <span className="text-text-secondary border-divider mx-1 rounded-lg border px-1.5 py-1 text-xs">
                             {cronstrue.toString(task.cron, {
                               throwExceptionOnParseError: false,
                             })}
                           </span>
                         </span>
-                        <span className="text-gray-80">
+                        <span className="text-text-secondary">
                           {' '}
                           Next execution in{' '}
-                          <span className="text-gray-80 font-semibold">
+                          <span className="text-text-secondary font-semibold">
                             {formatDistance(new Date(date), new Date(), {
                               addSuffix: false,
                             })}
@@ -169,22 +170,12 @@ export const Tasks = () => {
       <div className="flex flex-col gap-2.5 pt-4">
         {isPending &&
           Array.from({ length: 8 }).map((_, idx) => (
-            <div
+            <Skeleton
               className={cn(
-                'grid animate-pulse grid-cols-[1fr_115px_36px] items-center gap-5 rounded-xs bg-gray-500 px-2 py-4 text-left text-sm',
+                'grid h-[100px] animate-pulse grid-cols-[1fr_115px_36px] items-center gap-5 rounded-xs px-2 py-4 text-left text-sm',
               )}
               key={idx}
-            >
-              <div className="flex w-full flex-1 flex-col gap-3">
-                <span className="h-4 w-36 rounded-xs bg-gray-300" />
-                <div className="flex flex-col gap-1">
-                  <span className="h-3 w-full rounded-xs bg-gray-300" />
-                  <span className="h-3 w-2/4 rounded-xs bg-gray-300" />
-                </div>
-              </div>
-              <span className="h-7 w-full rounded-md bg-gray-300" />
-              <span className="h-5 w-[36px] rounded-full bg-gray-300" />
-            </div>
+            ></Skeleton>
           ))}
         {isSuccess &&
           tasks.length > 0 &&
@@ -237,7 +228,7 @@ export const Tasks = () => {
             <h1 className="text-base font-medium">
               {t('tasksPage.noTasksTitle')}
             </h1>
-            <p className="text-gray-80 text-sm">
+            <p className="text-text-secondary text-sm">
               {t('tasksPage.noTasksDescription')}
             </p>
           </div>
@@ -289,7 +280,7 @@ const TaskCard = ({
   return (
     <div
       className={cn(
-        'border-official-gray-850 bg-official-gray-900 grid grid-cols-[1fr_100px_120px_40px] items-start gap-5 rounded-lg border p-3.5 text-left text-sm',
+        'border-divider bg-bg-secondary grid grid-cols-[1fr_100px_120px_40px] items-start gap-5 rounded-lg border p-3.5 text-left text-sm',
       )}
     >
       <div className="flex flex-col gap-2.5">
@@ -298,21 +289,21 @@ const TaskCard = ({
             {name}
           </span>
         </div>
-        <p className="text-gray-80 line-clamp-2 text-xs">
+        <p className="text-text-secondary line-clamp-2 text-xs">
           {description ?? '-'}
         </p>
-        <p className="line-clamp-2 text-xs text-gray-50">
-          <span className="text-gray-80 mr-2">Prompt</span>
+        <p className="text-text-default line-clamp-2 text-xs">
+          <span className="text-text-secondary mr-2">Prompt</span>
           {prompt}
         </p>
-        <p className="line-clamp-2 text-xs text-gray-50">
-          <span className="text-gray-80 mr-2">Schedule</span>
+        <p className="text-text-default line-clamp-2 text-xs">
+          <span className="text-text-secondary mr-2">Schedule</span>
           {readableCron}
         </p>
       </div>
       <div className="flex items-center gap-3 pt-1">
         <Switch checked={!paused} onCheckedChange={onCheckedChange} />
-        <label className="text-xs text-gray-50" htmlFor="all">
+        <label className="text-text-default text-xs" htmlFor="all">
           {paused ? 'Inactive' : 'Active'}
         </label>
       </div>
@@ -367,12 +358,12 @@ const TaskCard = ({
             tabIndex={0}
           >
             <span className="sr-only">{t('common.moreOptions')}</span>
-            <DotsVerticalIcon className="text-gray-100" />
+            <DotsVerticalIcon className="text-text-secondary" />
           </div>
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          className="w-[160px] border bg-gray-500 px-2.5 py-2"
+          className="w-[160px] border px-2.5 py-2"
         >
           {[
             {
@@ -402,9 +393,7 @@ const TaskCard = ({
             },
           ].map((option) => (
             <React.Fragment key={option.name}>
-              {option.name === 'Delete' && (
-                <DropdownMenuSeparator className="bg-gray-300" />
-              )}
+              {option.name === 'Delete' && <DropdownMenuSeparator />}
               <DropdownMenuItem
                 key={option.name}
                 onClick={(event) => {

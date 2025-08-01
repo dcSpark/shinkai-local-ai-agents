@@ -798,7 +798,7 @@ const EmptyMessage = () => {
                         )}
                       {selectedKeys &&
                         Object.keys(selectedKeys || {}).length > 0 && (
-                          <div className="no-scrollbar bg-bg-tertiary scroll border-border h-16 overflow-hidden border-b">
+                          <div className="no-scrollbar bg-bg-quaternary scroll border-border h-16 overflow-hidden border-b">
                             <div className="flex items-center gap-3 overflow-x-auto p-2.5">
                               {Object.keys(selectedKeys).map((file, index) => (
                                 <div

@@ -846,7 +846,7 @@ const FileListBase = ({
   const size = partial({ standard: 'jedec' });
 
   return (
-    <div className="no-scrollbar bg-bg-quaternary/10 scroll border-divider h-16 overflow-hidden border-b">
+    <div className="no-scrollbar bg-bg-quaternary scroll border-divider h-16 overflow-hidden border-b">
       <div className="flex items-center gap-3 overflow-x-auto p-2.5">
         {currentFiles.map((file, index) => (
           <div

@@ -183,7 +183,7 @@ export default function PublishAgentDialog() {
                         ? 'bg-brand text-white'
                         : currentStep === 'configure'
                           ? 'bg-brand'
-                          : 'bg-official-gray-780 text-official-gray-400',
+                          : 'bg-bg-quaternary text-text-secondary',
                     )}
                   >
                     1
@@ -194,7 +194,7 @@ export default function PublishAgentDialog() {
                         'absolute top-1/2 right-0 left-0 h-4 -translate-y-1/2 rounded',
                         currentStep === 'configure'
                           ? 'bg-brand'
-                          : 'bg-official-gray-780',
+                          : 'bg-bg-quaternary',
                       )}
                     />
                   </div>
@@ -204,7 +204,7 @@ export default function PublishAgentDialog() {
                       'z-10 h-7 w-7',
                       currentStep === 'configure'
                         ? 'bg-brand text-white'
-                        : 'bg-official-gray-780 text-official-gray-400',
+                        : 'bg-bg-quaternary text-text-secondary',
                     )}
                   >
                     2
@@ -216,8 +216,8 @@ export default function PublishAgentDialog() {
                       className={cn(
                         'text-sm font-medium',
                         currentStep === 'select'
-                          ? 'text-white'
-                          : 'text-official-gray-400',
+                          ? 'text-text-default'
+                          : 'text-text-secondary',
                       )}
                     >
                       Choose Agent
@@ -228,8 +228,8 @@ export default function PublishAgentDialog() {
                       className={cn(
                         'text-sm font-medium',
                         currentStep === 'configure'
-                          ? 'text-white'
-                          : 'text-official-gray-400',
+                          ? 'text-text-default'
+                          : 'text-text-secondary',
                       )}
                     >
                       Configure & Publish
@@ -283,7 +283,7 @@ export default function PublishAgentDialog() {
                               {agent.tools.length > 0 && (
                                 <Badge
                                   variant="inputAdornment"
-                                  className="text-official-gray-400 text-xs font-bold"
+                                  className="text-text-secondary text-xs font-bold"
                                 >
                                   {agent.tools.length
                                     ? `${agent.tools.length} tools`
@@ -291,7 +291,7 @@ export default function PublishAgentDialog() {
                                 </Badge>
                               )}
                             </p>
-                            <p className="text-official-gray-400 line-clamp-1 text-sm">
+                            <p className="text-text-secondary line-clamp-1 text-sm">
                               {agent.ui_description}
                             </p>
                           </div>
@@ -354,7 +354,7 @@ export default function PublishAgentDialog() {
                 <label className="mb-0 block text-sm font-medium text-white">
                   Pricing Model
                 </label>
-                <p className="text-official-gray-400 mt-1 mb-3 text-xs">
+                <p className="text-text-secondary mt-1 mb-3 text-xs">
                   Users will be charged this amount each time they use your
                   agent.
                 </p>
@@ -379,7 +379,7 @@ export default function PublishAgentDialog() {
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="font-medium">Free</p>
-                            <p className="text-official-gray-400 text-sm">
+                            <p className="text-text-secondary text-sm">
                               Free to use your agent
                             </p>
                           </div>
@@ -400,7 +400,7 @@ export default function PublishAgentDialog() {
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="font-medium">Paid (USDC)</p>
-                            <p className="text-official-gray-400 text-sm">
+                            <p className="text-text-secondary text-sm">
                               Monetize your agent
                             </p>
                           </div>
@@ -430,7 +430,7 @@ export default function PublishAgentDialog() {
                             onChange={(e) => setAmount(e.target.value)}
                           />
                         </div>
-                        <p className="text-official-gray-400 mt-1 text-xs">
+                        <p className="text-text-secondary mt-1 text-xs">
                           ={' '}
                           {amount
                             ? formatUSDCAmount(amount)
@@ -454,7 +454,7 @@ export default function PublishAgentDialog() {
                   resize="vertical"
                   className="!min-h-[100px] pt-3"
                 />
-                <p className="text-official-gray-400 mt-1 text-xs">
+                <p className="text-text-secondary mt-1 text-xs">
                   Help users understand what your agent does.
                 </p>
               </div>

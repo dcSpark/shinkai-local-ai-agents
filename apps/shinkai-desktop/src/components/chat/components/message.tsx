@@ -165,11 +165,11 @@ const ArtifactCard = ({
     <CardContent className="flex items-center gap-1 p-1 py-1.5">
       <div className="rounded-md p-2">
         {loading ? (
-          <Loader2 className="text-official-gray-400 h-5 w-5 animate-spin" />
+          <Loader2 className="text-text-secondary h-5 w-5 animate-spin" />
         ) : (
           <ReactJsIcon
             className={cn(
-              isSelected ? 'text-gray-50' : 'text-official-gray-400',
+              isSelected ? 'text-text-default' : 'text-text-secondary',
             )}
           />
         )}
@@ -178,7 +178,7 @@ const ArtifactCard = ({
         <p className="text-em-sm text-official-gray-50 !mb-0 line-clamp-1 font-medium">
           {title}
         </p>
-        <p className="text-official-gray-400 !mb-0 text-xs">
+        <p className="text-text-secondary !mb-0 text-xs">
           {loading ? 'Generating...' : 'Click to preview'}
         </p>
       </div>
@@ -313,14 +313,14 @@ export const MessageBase = ({
         {message.role === 'assistant' ? (
           <div className="mt-2 flex items-center gap-2">
             {selectedIcon}
-            <span className="text-em-sm font-bold text-white">
+            <span className="text-em-sm text-text-default font-bold">
               {formatText(message.provider?.agent.id ?? '')}
             </span>
           </div>
         ) : null}
         <div
           className={cn(
-            'text-em-base flex flex-col overflow-hidden bg-transparent text-white',
+            'text-em-base text-text-default flex flex-col overflow-hidden bg-transparent',
             editing && 'w-full py-1',
           )}
         >
@@ -338,8 +338,8 @@ export const MessageBase = ({
                       <ChatInputArea
                         bottomAddons={
                           <div className="flex w-full items-center justify-between px-1">
-                            <div className="text-em-xs text-official-gray-400 flex items-center gap-1">
-                              <InfoIcon className="text-official-gray-400 h-3 w-3" />
+                            <div className="text-em-xs text-text-secondary flex items-center gap-1">
+                              <InfoIcon className="text-text-secondary h-3 w-3" />
                               <span>{t('chat.editMessage.warning')}</span>
                             </div>
                             <div className="flex items-center gap-2">
@@ -470,7 +470,7 @@ export const MessageBase = ({
                   <MarkdownText
                     className={cn(
                       message.reasoning?.status?.type === 'running' &&
-                        'text-official-gray-400',
+                        'text-text-secondary',
                     )}
                     content={extractErrorPropertyOrContent(
                       message.content
@@ -519,7 +519,7 @@ export const MessageBase = ({
                   ) &&
                   message.content === '' && (
                     <div className="pt-1.5 whitespace-pre-line">
-                      <span className="text-official-gray-400 text-xs">
+                      <span className="text-text-secondary text-xs">
                         Executing tools
                       </span>
                     </div>
@@ -531,7 +531,7 @@ export const MessageBase = ({
                   ) &&
                   message.content === '' && (
                     <div className="pt-1.5 whitespace-pre-line">
-                      <span className="text-official-gray-400 text-xs">
+                      <span className="text-text-secondary text-xs">
                         Getting AI response
                       </span>
                     </div>
@@ -556,19 +556,19 @@ export const MessageBase = ({
 
                 {oauthUrl && (
                   <div className="bg-official-gray-900 mt-4 flex flex-col items-start rounded-lg p-4">
-                    <p className="text-em-lg mb-2 font-semibold text-white">
+                    <p className="text-em-lg text-text-default mb-2 font-semibold">
                       <div className="flex items-center">
                         <Unplug className="mr-2 h-5 w-5" />
                         {t('oauth.connectionRequired')}
                       </div>
                     </p>
-                    <p className="text-em-sm mb-4 text-white">
+                    <p className="text-em-sm text-text-default mb-4">
                       {t('oauth.connectionRequiredDescription', {
                         provider: new URL(oauthUrl).hostname,
                       })}
                     </p>
                     <Button
-                      className="rounded-lg px-4 py-2 text-white transition duration-300"
+                      className="text-text-default rounded-lg px-4 py-2 transition duration-300"
                       onClick={() =>
                         setOauthModalVisible({ visible: true, url: oauthUrl })
                       }
@@ -581,13 +581,13 @@ export const MessageBase = ({
 
                 {configDeepLinkToolRouterKey && (
                   <div className="bg-bg-tertiary border-divider mt-4 flex flex-col items-start rounded-lg border p-6">
-                    <p className="text-em-base mb-3 font-semibold text-white">
+                    <p className="text-em-base text-text-default mb-3 font-semibold">
                       <div className="flex items-center">
                         <ToolsIcon className="text-brand mr-3 size-4" />
                         {t('tools.setupRequired')}
                       </div>
                     </p>
-                    <p className="text-em-base text-official-gray-400 mb-5 leading-relaxed">
+                    <p className="text-em-base text-text-secondary mb-5 leading-relaxed">
                       {t('tools.setupDescription')}
                     </p>
                     <Link to={`/tools/${configDeepLinkToolRouterKey}`}>
@@ -625,7 +625,7 @@ export const MessageBase = ({
                         <TooltipTrigger asChild>
                           <button
                             className={cn(
-                              'text-text-secondary border-divider flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
+                              'text-text-secondary border-divider hover:text-text-default flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
                             )}
                             onClick={() => {
                               setEditing(true);
@@ -649,7 +649,7 @@ export const MessageBase = ({
                             <TooltipTrigger asChild>
                               <button
                                 className={cn(
-                                  'text-text-secondary border-divider flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
+                                  'text-text-secondary border-divider hover:text-text-default flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
                                 )}
                                 onClick={handleForkMessage}
                               >
@@ -666,7 +666,7 @@ export const MessageBase = ({
                             <TooltipTrigger asChild>
                               <button
                                 className={cn(
-                                  'text-text-secondary border-divider flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
+                                  'text-text-secondary border-divider hover:text-text-default flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
                                 )}
                                 onClick={handleRetryMessage}
                               >
@@ -1154,10 +1154,10 @@ export function TracingDialog({
           <Button
             variant="tertiary"
             className={cn(
-              'py-2text-white relative mb-1 h-auto w-full justify-start p-0 py-2 hover:bg-transparent',
+              'py-2text-text-default relative mb-1 h-auto w-full justify-start p-0 py-2 hover:bg-transparent',
               selectedTrace?.id === node.id
-                ? 'text-white'
-                : 'text-official-gray-400',
+                ? 'text-text-default'
+                : 'text-text-secondary',
             )}
             rounded="lg"
             onClick={() => {
@@ -1213,7 +1213,9 @@ export function TracingDialog({
           <div className="flex flex-col gap-5">
             {data.messages && data.messages.length > 0 && (
               <div className="space-y-3">
-                <h4 className="text-base font-medium text-white">Messages</h4>
+                <h4 className="text-text-default text-base font-medium">
+                  Messages
+                </h4>
                 {data.messages.map((message, index) => (
                   <div
                     key={index}
@@ -1232,7 +1234,7 @@ export function TracingDialog({
                         ) : (
                           <Zap className="size-3" />
                         )}
-                        <span className="text-official-gray-400 text-xs capitalize">
+                        <span className="text-text-secondary text-xs capitalize">
                           {message.role}
                         </span>
                       </div>
@@ -1303,7 +1305,7 @@ export function TracingDialog({
             )}
             {(data.functions ?? []).length > 0 && (
               <div>
-                <h3 className="mb-2 text-sm font-medium text-white">
+                <h3 className="text-text-default mb-2 text-sm font-medium">
                   Tool Calls
                 </h3>
                 <div className="border-official-gray-780 bg-official-gray-900 rounded-md border p-3">
@@ -1312,19 +1314,19 @@ export function TracingDialog({
                       <ToolsIcon className="mt-0.5 h-5 w-5 text-cyan-500" />
                       <div>
                         <p className="text-sm font-medium">{func.name}</p>
-                        <p className="text-official-gray-400 text-sm">
+                        <p className="text-text-secondary text-sm">
                           {func.description}
                         </p>
                         {Object.entries(func.parameters.properties).length >
                           0 && (
                           <div className="mt-2 flex flex-wrap items-center gap-1">
-                            <p className="text-official-gray-400 text-xs">
+                            <p className="text-text-secondary text-xs">
                               Parameters:
                             </p>
                             {Object.entries(func.parameters.properties).map(
                               ([key, value]) => (
                                 <span
-                                  className="text-official-gray-400 text-xs"
+                                  className="text-text-secondary text-xs"
                                   key={key}
                                 >
                                   {key}
@@ -1341,24 +1343,24 @@ export function TracingDialog({
             )}
 
             <div className="space-y-2">
-              <h3 className="mb-2 text-sm font-medium text-white">
+              <h3 className="text-text-default mb-2 text-sm font-medium">
                 Model Configuration
               </h3>
               <div className="grid grid-cols-2 gap-3">
                 <div className="bg-official-gray-900 border-official-gray-780 rounded-md border p-3">
-                  <p className="text-official-gray-400 text-xs">Model</p>
+                  <p className="text-text-secondary text-xs">Model</p>
                   <p className="text-sm">{data.model}</p>
                 </div>
                 <div className="bg-official-gray-900 border-official-gray-780 rounded-md border p-3">
-                  <p className="text-official-gray-400 text-xs">Max Tokens</p>
+                  <p className="text-text-secondary text-xs">Max Tokens</p>
                   <p className="text-sm">{data.max_tokens}</p>
                 </div>
                 <div className="bg-official-gray-900 border-official-gray-780 rounded-md border p-3">
-                  <p className="text-official-gray-400 text-xs">Temperature</p>
+                  <p className="text-text-secondary text-xs">Temperature</p>
                   <p className="text-sm">{data.temperature}</p>
                 </div>
                 <div className="bg-official-gray-900 border-official-gray-780 rounded-md border p-3">
-                  <p className="text-official-gray-400 text-xs">Top P</p>
+                  <p className="text-text-secondary text-xs">Top P</p>
                   <p className="text-sm">{data.top_p}</p>
                 </div>
               </div>
@@ -1373,7 +1375,7 @@ export function TracingDialog({
           <div className="flex flex-col gap-5">
             {data.function_calls && data.function_calls.length > 0 && (
               <div>
-                <h3 className="mb-2 text-sm font-medium text-white">
+                <h3 className="text-text-default mb-2 text-sm font-medium">
                   Tool Calls
                 </h3>
                 <div className="border-official-gray-780 bg-official-gray-900 rounded-md border p-3">
@@ -1382,7 +1384,7 @@ export function TracingDialog({
                       <ToolsIcon className="mt-0.5 h-5 w-5 text-cyan-500" />
                       <div>
                         <p className="text-sm font-medium">{func.name}</p>
-                        <p className="text-official-gray-400 text-xs">
+                        <p className="text-text-secondary text-xs">
                           <span className="text-official-gray-200 font-medium">
                             Tool Router Key:{' '}
                           </span>
@@ -1390,13 +1392,13 @@ export function TracingDialog({
                         </p>
                         {Object.entries(func.arguments).length > 0 && (
                           <div className="mt-2 flex flex-col gap-0.5">
-                            <p className="text-official-gray-400 text-xs">
+                            <p className="text-text-secondary text-xs">
                               Parameters
                             </p>
                             {Object.entries(func.arguments).map(
                               ([key, value]) => (
                                 <span
-                                  className="text-official-gray-400 text-sm"
+                                  className="text-text-secondary text-sm"
                                   key={key}
                                 >
                                   {key}:{' '}
@@ -1416,7 +1418,7 @@ export function TracingDialog({
             )}
             {data.response && (
               <div>
-                <h3 className="mb-2 text-sm font-medium text-white">
+                <h3 className="text-text-default mb-2 text-sm font-medium">
                   Response
                 </h3>
                 <div className="border-official-gray-780 bg-official-gray-900 rounded-md border p-3 text-sm">
@@ -1436,7 +1438,7 @@ export function TracingDialog({
               <ToolsIcon className="mt-0.5 h-5 w-5 text-cyan-500" />
               <div>
                 <p className="text-sm font-medium">{data.function}</p>
-                <p className="text-official-gray-400 text-xs">
+                <p className="text-text-secondary text-xs">
                   <span className="text-official-gray-200 font-medium">
                     Tool Router Key:{' '}
                   </span>
@@ -1453,7 +1455,7 @@ export function TracingDialog({
           <div className="border-official-gray-780 bg-official-gray-900 space-y-2 overflow-hidden rounded-md border p-3">
             <p className="text-sm font-medium">{data.function}</p>
 
-            <div className="text-official-gray-400 overflow-auto text-xs">
+            <div className="text-text-secondary overflow-auto text-xs">
               <PrettyJsonPrint json={data.response} />
             </div>
           </div>
@@ -1464,25 +1466,25 @@ export function TracingDialog({
         return (
           <div className="border-official-gray-780 bg-official-gray-900 space-y-2 overflow-hidden rounded-md border p-3">
             <p className="text-sm font-medium">{data.tool}</p>
-            <p className="text-official-gray-400 text-xs">
+            <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">
                 Author:{' '}
               </span>
               {data.tool_author}
             </p>
-            <p className="text-official-gray-400 text-xs">
+            <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">
                 Description:{' '}
               </span>
               {data.tool_description}
             </p>
-            <p className="text-official-gray-400 text-xs">
+            <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">
                 Provider:{' '}
               </span>
               {data.provider}
             </p>
-            <p className="text-official-gray-400 text-xs">
+            <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">
                 Usage Type:{' '}
               </span>
@@ -1496,43 +1498,43 @@ export function TracingDialog({
         return (
           <div className="border-official-gray-780 bg-official-gray-900 space-y-2 overflow-hidden rounded-md border p-3">
             <p className="text-sm font-medium">{data.tool_key}</p>
-            <p className="text-official-gray-400 text-xs">
+            <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">
                 Provider:{' '}
               </span>
               {data.provider}
             </p>
-            <p className="text-official-gray-400 text-xs">
+            <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">
                 Requester:{' '}
               </span>
               {data.requester}
             </p>
-            <p className="text-official-gray-400 text-xs">
+            <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">
                 Invoice Date:{' '}
               </span>
               {format(new Date(data.invoice_date), 'yyyy-MM-dd HH:mm:ss')}
             </p>
-            <p className="text-official-gray-400 text-xs">
+            <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">
                 Expiration:{' '}
               </span>
               {format(new Date(data.expiration), 'yyyy-MM-dd HH:mm:ss')}
             </p>
-            <p className="text-official-gray-400 text-xs">
+            <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">
                 Usage Type:{' '}
               </span>
               {data.usage_type}
             </p>
-            <p className="text-official-gray-400 text-xs">
+            <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">
                 Has Tool Data:{' '}
               </span>
               {String(data.has_tool_data)}
             </p>
-            <div className="text-official-gray-400 text-xs">
+            <div className="text-text-secondary text-xs">
               <p className="text-official-gray-200 font-medium">Address</p>
               <p>
                 ID:{' '}
@@ -1555,61 +1557,61 @@ export function TracingDialog({
         return (
           <div className="border-official-gray-780 bg-official-gray-900 space-y-2 overflow-hidden rounded-md border p-3">
             <p className="text-sm font-medium">{data.tool_key}</p>
-            <p className="text-official-gray-400 text-xs">
+            <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">
                 Provider:{' '}
               </span>
               {data.provider}
             </p>
-            <p className="text-official-gray-400 text-xs">
+            <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">
                 Requester:{' '}
               </span>
               {data.requester}
             </p>
-            <p className="text-official-gray-400 text-xs">
+            <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">
                 Status:{' '}
               </span>
               {data.status}
             </p>
-            <p className="text-official-gray-400 text-xs">
+            <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">
                 Invoice ID:{' '}
               </span>
               {data.invoice_id}
             </p>
-            <p className="text-official-gray-400 text-xs">
+            <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">
                 Invoice Date:{' '}
               </span>
               {format(new Date(data.invoice_date), 'yyyy-MM-dd HH:mm:ss')}
             </p>
-            <p className="text-official-gray-400 text-xs">
+            <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">
                 Paid Date:{' '}
               </span>
               {format(new Date(data.paid_date), 'yyyy-MM-dd HH:mm:ss')}
             </p>
-            <p className="text-official-gray-400 text-xs">
+            <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">
                 Has Tool Data:{' '}
               </span>
               {String(data.has_tool_data)}
             </p>
-            <p className="text-official-gray-400 text-xs">
+            <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">
                 Tool Price:{' '}
               </span>
               {data.tool_price}
             </p>
-            <p className="text-official-gray-400 text-xs">
+            <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">
                 Usage Type:{' '}
               </span>
               {data.usage_type}
             </p>
-            <div className="text-official-gray-400 text-xs">
+            <div className="text-text-secondary text-xs">
               <p className="text-official-gray-200 font-medium">
                 Payment Details
               </p>
@@ -1627,7 +1629,7 @@ export function TracingDialog({
               </p>
             </div>
             {data.tool_data_keys.length > 0 && (
-              <div className="text-official-gray-400 text-xs">
+              <div className="text-text-secondary text-xs">
                 <p className="text-official-gray-200 font-medium">
                   Tool Data Keys ({data.tool_data_size})
                 </p>
@@ -1652,10 +1654,10 @@ export function TracingDialog({
         <div className="flex size-full divide-x">
           <ScrollArea className="bg-official-gray-900 h-[calc(100vh-45px)] w-1/3 px-4 [&>div>div]:!block">
             <div className="flex items-center justify-between py-3">
-              <h3 className="text-base font-semibold text-white">
+              <h3 className="text-text-default text-base font-semibold">
                 Activity Steps
               </h3>
-              <p className="text-official-gray-400 mt-1 text-sm">
+              <p className="text-text-secondary mt-1 text-sm">
                 {tracingData?.length} steps
               </p>
             </div>
@@ -1671,7 +1673,7 @@ export function TracingDialog({
             {selectedTrace ? (
               <div className="size-full space-y-4 overflow-hidden py-4">
                 <div className="flex items-center justify-between">
-                  <p className="text-base font-medium text-white">
+                  <p className="text-text-default text-base font-medium">
                     {formatText(selectedTrace.trace_name)}
                   </p>
                   <Button
@@ -1693,7 +1695,7 @@ export function TracingDialog({
                 )}
               </div>
             ) : (
-              <p className="text-official-gray-400 py-4 text-center text-sm">
+              <p className="text-text-secondary py-4 text-center text-sm">
                 {t('common.selectItem')}
               </p>
             )}

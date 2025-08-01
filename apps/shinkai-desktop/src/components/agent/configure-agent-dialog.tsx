@@ -175,7 +175,7 @@ export default function ConfigureAgentDialog({
             <label className="mb-0 block text-sm font-medium text-white">
               Pricing Model
             </label>
-            <p className="text-official-gray-400 mt-1 mb-3 text-xs">
+            <p className="text-text-secondary mt-1 mb-3 text-xs">
               Users will be charged this amount each time they use your agent.
             </p>
             <RadioGroup
@@ -193,7 +193,7 @@ export default function ConfigureAgentDialog({
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="font-medium">Free</p>
-                        <p className="text-official-gray-400 text-sm">
+                        <p className="text-text-secondary text-sm">
                           Free to use your agent
                         </p>
                       </div>
@@ -210,7 +210,7 @@ export default function ConfigureAgentDialog({
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="font-medium">Paid (USDC)</p>
-                        <p className="text-official-gray-400 text-sm">
+                        <p className="text-text-secondary text-sm">
                           Monetize your agent
                         </p>
                       </div>
@@ -240,7 +240,7 @@ export default function ConfigureAgentDialog({
                         onChange={(e) => setAmount(e.target.value)}
                       />
                     </div>
-                    <p className="text-official-gray-400 mt-1 text-xs">
+                    <p className="text-text-secondary mt-1 text-xs">
                       = {formatUSDCAmount(amount)} USDC per use.
                     </p>
                   </Card>
@@ -260,7 +260,7 @@ export default function ConfigureAgentDialog({
               resize="vertical"
               className="!min-h-[100px] pt-3"
             />
-            <p className="text-official-gray-400 mt-1 text-xs">
+            <p className="text-text-secondary mt-1 text-xs">
               Help users understand what your agent does.
             </p>
           </div>

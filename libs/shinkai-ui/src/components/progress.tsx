@@ -9,7 +9,10 @@ const Progress = ({
   ...props
 }: React.ComponentProps<typeof ProgressPrimitive.Root>) => (
   <ProgressPrimitive.Root
-    className={cn('relative h-4 w-full overflow-hidden bg-gray-200', className)}
+    className={cn(
+      'bg-bg-quaternary relative h-4 w-full overflow-hidden',
+      className,
+    )}
     {...props}
   >
     <ProgressPrimitive.Indicator

@@ -296,9 +296,9 @@ const SettingsPage = () => {
                 <div className="flex justify-between text-sm">
                   <span>Total tokens used</span>
                   <div className="flex items-center gap-1">
-                    <span className="text-xs text-white">
+                    <span className="text-text-default text-xs">
                       {shinkaiFreeModelQuota.usedTokens.toLocaleString()}{' '}
-                      <span className="text-official-gray-500 text-xs">
+                      <span className="text-text-tertiary text-xs">
                         / {shinkaiFreeModelQuota.tokensQuota.toLocaleString()}
                       </span>
                     </span>
@@ -341,7 +341,7 @@ const SettingsPage = () => {
               </CardContent>
 
               <CardFooter>
-                <span className="text-official-gray-200 text-xs">
+                <span className="text-text-default text-xs">
                   Your free limit resets in{' '}
                   {formatDuration(
                     intervalToDuration({
@@ -449,7 +449,7 @@ const SettingsPage = () => {
                       }}
                       helperMessage={
                         <span className="flex items-center justify-start gap-3">
-                          <span className="text-gray-80 inline-flex items-center gap-1 px-1 py-2.5 hover:text-white">
+                          <span className="text-text-secondary hover:text-text-default inline-flex items-center gap-1 px-1 py-2.5">
                             {isIdentityLocalhost ? (
                               <a
                                 className={cn(
@@ -494,7 +494,7 @@ const SettingsPage = () => {
                                 size: 'auto',
                                 variant: 'link',
                               }),
-                              'text-gray-80 rounded-lg p-0 text-xs underline hover:text-white',
+                              'text-text-secondary hover:text-text-default rounded-lg p-0 text-xs underline',
                             )}
                             href="https://docs.shinkai.com/advanced/shinkai-identity-troubleshooting"
                             rel="noreferrer"
@@ -512,7 +512,7 @@ const SettingsPage = () => {
                 />
                 {currentShinkaiIdentity !== auth?.shinkai_identity && (
                   <div className="space-y-1.5">
-                    <p className="text-gray-80/80 flex items-center gap-1 text-xs">
+                    <p className="text-text-tertiary flex items-center gap-1 text-xs">
                       <InfoIcon className="size-3" />
                       {t('settings.shinkaiIdentity.saveWillRestartApp')}
                     </p>
@@ -565,7 +565,7 @@ const SettingsPage = () => {
                       <span className="capitalize">
                         {t('settings.shinkaiIdentity.checkIdentityInSync')}
                       </span>
-                      <span className="text-gray-80">
+                      <span className="text-text-tertiary">
                         {t(
                           'settings.shinkaiIdentity.checkIdentityInSyncDescription',
                         )}
@@ -630,7 +630,7 @@ const SettingsPage = () => {
                       />
                     </FormControl>
                     <div className="space-y-1 leading-none">
-                      <FormLabel className="static space-y-1.5 text-sm text-white">
+                      <FormLabel className="text-text-default static space-y-1.5 text-sm">
                         {t('settings.experimentalFeature.label')}
                       </FormLabel>
                     </div>
@@ -641,7 +641,7 @@ const SettingsPage = () => {
           </Form>
         </div>
         <div>
-          <p className="text-gray-80 text-right text-xs">
+          <p className="text-text-default text-right text-xs">
             {t('settings.shinkaiVersion')}{' '}
             <span className="font-bold">{appVersion}</span>
           </p>

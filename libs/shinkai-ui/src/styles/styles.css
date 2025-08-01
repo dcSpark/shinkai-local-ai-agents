@@ -102,41 +102,41 @@
   --color-rose-600: #652627;
   --color-rose-700: #4c1d1d;
 
-  /* Cyan */
-  --color-cyan-100: #e5fafd;
+  /* Cyan
+  /* --color-cyan-100: #e5fafd;
   --color-cyan-200: #ccf6fc;
   --color-cyan-300: #4ce0f5;
   --color-cyan-400: #00d3f2;
   --color-cyan-500: #00a8c1;
   --color-cyan-600: #005460;
-  --color-cyan-700: #003f48;
+  --color-cyan-700: #003f48; */
 
   /* Green Scale */
-  --color-green-100: #e6fbf1;
+  /* --color-green-100: #e6fbf1;
   --color-green-200: #cdf8e3;
   --color-green-300: #50e89d;
   --color-green-400: #06df73;
   --color-green-500: #04b25c;
   --color-green-600: #02592e;
-  --color-green-700: #014222;
+  --color-green-700: #014222; */
 
   /* Amber Scale */
-  --color-yellow-100: #f7f1eb;
+  /* --color-yellow-100: #f7f1eb;
   --color-yellow-200: #efe4d7;
   --color-yellow-300: #c9a274;
   --color-yellow-400: #b27b39;
   --color-yellow-500: #8e622d;
   --color-yellow-600: #473116;
-  --color-yellow-700: #352411;
+  --color-yellow-700: #352411; */
 
   /* Red Scale */
-  --color-red-100: #f8eded;
+  /* --color-red-100: #f8eded;
   --color-red-200: #f2dbdb;
   --color-red-300: #d48282;
   --color-red-400: #c24d4d;
   --color-red-500: #9b3d3d;
   --color-red-600: #4d1e1e;
-  --color-red-700: #3a1717;
+  --color-red-700: #3a1717; */
 
   /* Font */
   --font-inter: 'Inter', sans-serif;

@@ -25,13 +25,13 @@ const OnboardingLayout = ({ className, ...props }: OnboardingLayoutProps) => {
   return (
     <div
       className={cn(
-        'bg-black-gradient relative mx-auto grid h-full grid-cols-2 flex-col-reverse items-center px-[48px]',
+        'bg-bg-dark relative mx-auto grid h-full grid-cols-2 flex-col-reverse items-center px-[48px]',
         className,
       )}
       {...props}
     >
       <UpdateBanner
-        className="absolute left-1/2 top-8 z-[100] w-auto -translate-x-1/2 p-1"
+        className="absolute top-8 left-1/2 z-[100] w-auto -translate-x-1/2 p-1"
         isOnboardingStep
       />
       <div className="flex h-[calc(100dvh-100px)] items-center justify-center">

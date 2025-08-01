@@ -152,11 +152,11 @@ export const GalxeValidation = () => {
         </Alert>
         {isPending &&
           Array.from({ length: 10 }).map((_, index) => (
-            <Skeleton className="h-20 w-full bg-gray-300" key={index} />
+            <Skeleton className="h-20 w-full" key={index} />
           ))}
         {isSuccess &&
           quests?.map((quest, index) => (
-            <Card className="m-0 p-3 px-4" key={index}>
+            <Card className="m-0 mb-4 p-3 px-4" key={index}>
               <CardHeader className="flex flex-row items-start gap-2.5 space-y-0 p-0">
                 <span className="pt-1">
                   {quest.progress === 100 ? (
@@ -171,7 +171,7 @@ export const GalxeValidation = () => {
                   <CardTitle className="flex items-center gap-2 p-0 text-base font-semibold">
                     {quest.name}
                   </CardTitle>
-                  <CardDescription className="text-gray-80 p-0 text-sm">
+                  <CardDescription className="text-text-secondary p-0 text-sm">
                     {quest.description}
                   </CardDescription>
                 </div>

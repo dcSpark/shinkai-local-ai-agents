@@ -137,7 +137,8 @@ function Payment({
                         ? 'Free'
                         : 'Payment' in data.usage_type.PerUse
                           ? `${formatBalanceAmount(
-                              data.usage_type.PerUse.Payment[0].maxAmountRequired ?? '0',
+                              data.usage_type.PerUse.Payment[0]
+                                .maxAmountRequired ?? '0',
                               tokenDecimals,
                             )} ${tokenId}`
                           : data.usage_type.PerUse.DirectDelegation}
@@ -150,13 +151,13 @@ function Payment({
                       </h4>
                       <div className="space-y-2 text-sm">
                         <div className="flex justify-between">
-                          <span className="text-official-gray-400">
+                          <span className="text-text-secondary">
                             {t('networkAgentsPage.tool')}:
                           </span>
                           <span>{data.tool_key}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-official-gray-400">
+                          <span className="text-text-secondary">
                             {t('networkAgentsPage.author')}:
                           </span>
                           <span>{data.invoice.provider_name}</span>
@@ -166,7 +167,7 @@ function Payment({
                           'Payment' in data.usage_type.PerUse &&
                           data.usage_type.PerUse.Payment?.[0].payTo && (
                             <div className="flex justify-between">
-                              <span className="text-official-gray-400">
+                              <span className="text-text-secondary">
                                 {t('networkAgentsPage.paymentRecipient')}:
                               </span>
                               <span className="inline-flex items-center gap-1 text-white">
@@ -198,7 +199,7 @@ function Payment({
                                   )}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="text-official-gray-400 ml-1 hover:text-white"
+                                  className="text-text-secondary ml-1 hover:text-white"
                                 >
                                   <ExternalLinkIcon className="h-4 w-4" />
                                 </a>
@@ -237,7 +238,7 @@ function Payment({
                                   `
                               : data.usage_type.PerUse.DirectDelegation}
                         </span>
-                        <span className="text-official-gray-400">
+                        <span className="text-text-secondary">
                           one-time use
                         </span>
                       </Label>
@@ -278,7 +279,7 @@ function Payment({
                         </h4>
                         <div className="flex flex-col gap-2">
                           <div className="flex items-center justify-between text-sm">
-                            <span className="text-official-gray-400">
+                            <span className="text-text-secondary">
                               {t('networkAgentsPage.walletAddress')}:
                             </span>
                             <div className="flex flex-col items-end justify-start gap-2">
@@ -289,7 +290,7 @@ function Payment({
                             </div>
                           </div>
                           <div className="flex items-start justify-between text-sm">
-                            <span className="text-official-gray-400">
+                            <span className="text-text-secondary">
                               {t('networkAgentsPage.usdcBalance')}:
                             </span>
                             <div className="flex flex-col items-end justify-start gap-0.5">
@@ -372,7 +373,7 @@ function Payment({
                     <span className="mb-2 text-lg text-white">
                       {t('networkAgentsPage.processingPayment')}
                     </span>
-                    <p className="text-official-gray-400 text-sm">
+                    <p className="text-text-secondary text-sm">
                       {t('networkAgentsPage.pleaseWait')}
                     </p>
                   </div>
@@ -391,7 +392,7 @@ function Payment({
                     <span className="mb-2 text-lg font-semibold text-white">
                       {t('networkAgentsPage.paymentSuccessful')}
                     </span>
-                    <span className="text-official-gray-400 mb-10 text-sm">
+                    <span className="text-text-secondary mb-10 text-sm">
                       {t('networkAgentsPage.paymentSuccessfulDescription')}
                     </span>
                     <Button
@@ -422,7 +423,7 @@ function Payment({
                       <span className="mb-2 text-lg font-semibold text-white">
                         Payment Failed!
                       </span>
-                      <span className="text-official-gray-400 text-sm">
+                      <span className="text-text-secondary text-sm">
                         Please try again.
                       </span>
                     </div>

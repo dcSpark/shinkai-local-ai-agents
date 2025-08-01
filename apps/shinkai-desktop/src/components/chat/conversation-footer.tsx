@@ -699,7 +699,7 @@ function ConversationChatFooter({
             isSearchToolListSuccess &&
             searchToolList?.length > 0 && (
               <div className="flex items-center gap-2 px-2">
-                <span className="text-official-gray-400 pr-1 text-xs font-light">
+                <span className="text-text-secondary pr-1 text-xs font-light">
                   Suggested Tools
                 </span>
                 {searchToolList?.map((tool, idx) => (
@@ -760,11 +760,11 @@ function ConversationChatFooter({
             )}
           {(!debounceMessage || selectedTool) && (
             <div className="flex w-full items-center justify-between gap-2 px-2">
-              <span className="text-official-gray-400 text-xs font-light">
+              <span className="text-text-secondary text-xs font-light">
                 <span className="font-medium">Shift + Enter</span> for a new
                 line
               </span>
-              <span className="text-official-gray-400 text-xs font-light">
+              <span className="text-text-secondary text-xs font-light">
                 <span className="font-medium">Enter</span> to send
               </span>
             </div>
@@ -862,7 +862,7 @@ const FileListBase = ({
                   type={getFileExt(file.name)}
                 />
               ) : (
-                <Paperclip className="text-official-gray-400 h-4 w-4 shrink-0" />
+                <Paperclip className="text-text-secondary h-4 w-4 shrink-0" />
               )}
             </div>
 

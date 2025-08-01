@@ -655,7 +655,6 @@ const MainLayout = () => {
   const disabledSidebarRoutes = [
     '/terms-conditions',
     '/analytics',
-    '/ai-provider-selection',
     '/quick-connection',
     '/restore',
     '/connect-qr',
@@ -680,7 +679,11 @@ const MainLayout = () => {
         </AnimatePresence>
 
         <div
-          className={cn('min-h-full flex-1 overflow-y-scroll')}
+          className={cn(
+            'min-h-full flex-1',
+            !disabledSidebarRoutes.includes(location.pathname) &&
+              'overflow-y-scroll',
+          )}
           ref={mainLayoutContainerRef}
         >
           <Outlet />

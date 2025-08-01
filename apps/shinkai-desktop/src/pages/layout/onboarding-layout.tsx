@@ -48,7 +48,7 @@ const OnboardingLayout = ({ className, ...props }: OnboardingLayoutProps) => {
       </div>
       <div className="grid h-full place-items-center">
         <div className="relative size-full">
-          <div className="absolute left-10 z-10 flex aspect-square size-full items-center object-left bg-blend-darken">
+          <div className="absolute left-14 z-10 flex aspect-square size-full items-center object-left bg-blend-darken">
             <img
               alt="shinkai logo"
               className="size-full max-h-[70vh] object-cover object-left"

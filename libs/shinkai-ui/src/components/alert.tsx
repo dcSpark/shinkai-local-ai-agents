@@ -16,6 +16,8 @@ const alertVariants = cva(
           'border-yellow-800 bg-yellow-900 text-yellow-400 [&>svg]:text-yellow-400',
         success:
           'border-green-800 bg-green-900 text-green-400 [&>svg]:text-green-400',
+        download:
+          'border-gray-800 bg-gray-900 text-cyan-400 [&>svg]:text-cyan-400',
       },
     },
     defaultVariants: {

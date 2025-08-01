@@ -30,10 +30,7 @@ const OnboardingLayout = ({ className, ...props }: OnboardingLayoutProps) => {
       )}
       {...props}
     >
-      <UpdateBanner
-        className="absolute top-8 left-1/2 z-[100] w-auto -translate-x-1/2 p-1"
-        isOnboardingStep
-      />
+      <UpdateBanner />
       <div className="flex h-[calc(100dvh-100px)] items-center justify-center">
         <div className="mx-auto flex h-[600px] w-full max-w-lg flex-col gap-12">
           <img

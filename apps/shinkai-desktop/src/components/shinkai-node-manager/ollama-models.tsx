@@ -118,7 +118,6 @@ export const OllamaModels = ({
                                   className={cn(
                                     'border-brand ml-2 flex inline-flex h-5 w-5 items-center justify-center rounded-full border p-0 font-medium',
                                   )}
-                                  variant="gradient"
                                 >
                                   <StarIcon className="text-brand size-3" />
                                 </Badge>

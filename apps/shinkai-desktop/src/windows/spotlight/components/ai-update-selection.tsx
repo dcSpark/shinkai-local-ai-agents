@@ -95,7 +95,7 @@ export function AIModelSelectorBase({
       <PopoverTrigger asChild>
         <button
           className={cn(
-            'bg-official-gray-900 border-divider hover:bg-official-gray-850 flex h-auto w-auto max-w-md min-w-[180px] items-center justify-between gap-3 truncate rounded-xl border p-1.5 px-2',
+            'bg-bg-tertiary border-divider hover:bg-bg-secondary flex h-auto w-auto max-w-md min-w-[180px] items-center justify-between gap-3 truncate rounded-xl border p-1.5 px-2',
             className,
           )}
         >
@@ -110,10 +110,10 @@ export function AIModelSelectorBase({
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className="bg-official-gray-950 border-divider flex size-full max-h-[60vh] w-full flex-col border p-1 py-2"
+        className="bg-bg-dark border-divider flex size-full max-h-[60vh] w-full flex-col border p-1 py-2"
       >
         <Command
-          className="[&_[cmdk-input-wrapper]]:border-official-gray-850 flex size-full max-w-[400px] min-w-[340px] flex-col [&_[cmdk-input-wrapper]]:pb-1"
+          className="[&_[cmdk-input-wrapper]]:border-divider flex size-full max-w-[400px] min-w-[340px] flex-col [&_[cmdk-input-wrapper]]:pb-1"
           disablePointerSelection
           onKeyDown={(e) => {
             if (e.key === 'Escape') {
@@ -139,7 +139,7 @@ export function AIModelSelectorBase({
               {isAgentsSuccess &&
                 agents.map((agent) => (
                   <CommandItem
-                    className="hover:bg-official-gray-850 data-[selected='true']:bg-official-gray-850 flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-2 text-white transition-colors"
+                    className="hover:bg-bg-secondary data-[selected='true']:bg-bg-secondary flex cursor-pointer items-center justify-between gap-2 rounded-md px-2 py-2 text-white transition-colors"
                     key={agent.agent_id}
                     onSelect={() => {
                       setIsPopoverOpen(false);
@@ -168,14 +168,14 @@ export function AIModelSelectorBase({
                 llmProviders?.length > 0 &&
                 llmProviders?.map((llmProvider) => (
                   <CommandItem
-                    className="hover:bg-official-gray-850 data-[selected='true']:bg-official-gray-850 flex cursor-pointer items-start gap-2 rounded-md px-2 py-2 text-white transition-colors"
+                    className="hover:bg-bg-secondary data-[selected='true']:bg-bg-secondary flex cursor-pointer items-start gap-2 rounded-md px-2 py-2 text-white transition-colors"
                     key={llmProvider.id}
                     onSelect={() => {
                       setIsPopoverOpen(false);
                     }}
                     value={llmProvider.id}
                   >
-                    <div className="bg-official-gray-850 border-official-gray-700 flex size-6 shrink-0 items-center justify-center gap-2 rounded-lg border p-2">
+                    <div className="bg-bg-secondary border-divider flex size-6 shrink-0 items-center justify-center gap-2 rounded-lg border p-2">
                       <ProviderIcon
                         className="mt-0.5 size-4 shrink-0"
                         provider={llmProvider.model.split(':')[0]}

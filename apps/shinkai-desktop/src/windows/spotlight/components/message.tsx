@@ -258,7 +258,7 @@ export const MessageBase = ({
                 className={cn(
                   'relative mt-1 flex flex-col rounded-lg px-3.5 pt-3 text-white',
                   message.role === 'user'
-                    ? 'bg-official-gray-850 rounded-tr-none'
+                    ? 'bg-bg-secondary rounded-tr-none'
                     : '',
                   !message.content ? 'pb-3' : 'pb-4',
                   editing && 'w-full py-1',
@@ -291,7 +291,7 @@ export const MessageBase = ({
                       {message.toolCalls.map((tool, index) => {
                         return (
                           <AccordionItem
-                            className="bg-official-gray-950 border-official-gray-750 overflow-hidden rounded-lg border"
+                            className="bg-bg-dark border-divider overflow-hidden rounded-lg border"
                             disabled={tool.status !== ToolStatusType.Complete}
                             key={`${tool.name}-${index}`}
                             value={`${tool.name}-${index}`}
@@ -299,7 +299,7 @@ export const MessageBase = ({
                             <AccordionTrigger
                               className={cn(
                                 'min-w-[10rem] gap-3 py-0 pr-2 no-underline hover:no-underline',
-                                'hover:bg-official-gray-900 [&[data-state=open]]:bg-official-gray-950 transition-colors',
+                                'hover:bg-bg-default [&[data-state=open]]:bg-bg-default transition-colors',
                                 tool.status !== ToolStatusType.Complete &&
                                   '[&>svg]:hidden',
                               )}
@@ -311,7 +311,7 @@ export const MessageBase = ({
                                 toolRouterKey={tool.toolRouterKey}
                               />
                             </AccordionTrigger>
-                            <AccordionContent className="bg-official-gray-950 flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3 text-xs">
+                            <AccordionContent className="bg-bg-dark flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3 text-xs">
                               {Object.keys(tool.args).length > 0 && (
                                 <span className="font-medium text-white">
                                   {tool.name}(
@@ -391,7 +391,7 @@ export const MessageBase = ({
                   )}
 
                 {oauthUrl && (
-                  <div className="bg-official-gray-900 mt-4 flex flex-col items-start rounded-lg p-4">
+                  <div className="bg-bg-tertiary mt-4 flex flex-col items-start rounded-lg p-4">
                     <p className="text-em-lg mb-2 font-semibold text-white">
                       <div className="flex items-center">
                         <Unplug className="mr-2 h-5 w-5" />
@@ -645,7 +645,7 @@ export function Reasoning({
     >
       <AccordionItem
         className={cn(
-          'bg-official-gray-950 border-official-gray-750 overflow-hidden rounded-lg border',
+          'bg-bg-dark border-divider overflow-hidden rounded-lg border',
           status?.type === 'running' &&
             'animate-pulse border-none bg-transparent',
         )}
@@ -654,7 +654,7 @@ export function Reasoning({
         <AccordionTrigger
           className={cn(
             'inline-flex w-auto gap-3 p-[5px] no-underline hover:no-underline',
-            'hover:bg-official-gray-900 transition-colors',
+            'hover:bg-bg-tertiary transition-colors',
             status?.type === 'running' && 'p-0',
           )}
           hideArrow={status?.type === 'running'}
@@ -670,8 +670,8 @@ export function Reasoning({
             >
               <div
                 className={cn(
-                  'text-official-gray-300 flex items-center gap-1',
-                  status?.type === 'running' && 'text-official-gray-200',
+                  'text-text-secondary flex items-center gap-1',
+                  status?.type === 'running' && 'text-text-tertiary',
                 )}
               >
                 {renderStatus() && (
@@ -684,7 +684,7 @@ export function Reasoning({
             </motion.div>
           </AnimatePresence>
         </AccordionTrigger>
-        <AccordionContent className="bg-official-gray-950 flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3 text-sm">
+        <AccordionContent className="bg-bg-dark flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3 text-sm">
           <span className="text-text-secondary break-words whitespace-pre-line">
             {reasoning}
           </span>

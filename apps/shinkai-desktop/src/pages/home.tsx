@@ -913,7 +913,7 @@ const EmptyMessage = () => {
                         <motion.button
                           animate={{ opacity: 1, x: 0 }}
                           className={cn(
-                            'hover:bg-official-gray-800 flex items-center gap-2 rounded-lg px-2 py-1 text-xs transition-colors',
+                            'hover:bg-bg-quaternary flex items-center gap-2 rounded-lg px-2 py-1 text-xs transition-colors',
                           )}
                           exit={{ opacity: 0, x: -10 }}
                           initial={{ opacity: 0, x: -10 }}
@@ -952,7 +952,7 @@ const EmptyMessage = () => {
                   ))}
                   <Link
                     className={cn(
-                      'hover:bg-official-gray-800 flex items-center gap-2 rounded-lg px-2 py-1 text-xs transition-colors',
+                      'hover:bg-bg-quaternary flex items-center gap-2 rounded-lg px-2 py-1 text-xs transition-colors',
                     )}
                     to="/tools"
                   >

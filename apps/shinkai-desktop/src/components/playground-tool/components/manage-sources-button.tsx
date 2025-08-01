@@ -91,7 +91,7 @@ function ManageSourcesButtonBase() {
           <ToolAssetsIcon className="text-gray-80 h-4 w-4" />
           Tool Project Files
           {isGetAllToolAssetsSuccess && assets.length > 0 && (
-            <Badge className="bg-official-gray-800 min-w-5 rounded-full px-1 text-white">
+            <Badge className="bg-bg-quaternary min-w-5 rounded-full px-1 text-white">
               {assets.length}
             </Badge>
           )}

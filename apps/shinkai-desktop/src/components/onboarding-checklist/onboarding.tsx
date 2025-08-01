@@ -205,7 +205,7 @@ export const Stepper = ({ steps }: StepperProps) => {
         {sidebarExpanded && (
           <motion.div
             animate="show"
-            className="mb-2 flex flex-col gap-2 whitespace-nowrap rounded-lg bg-cyan-900/20 p-3.5 py-3 text-xs"
+            className="mb-2 flex flex-col gap-2 rounded-lg bg-cyan-900/20 p-3.5 py-3 text-xs whitespace-nowrap"
             exit="hidden"
             initial="hidden"
             transition={showAnimation}
@@ -248,12 +248,12 @@ export const Stepper = ({ steps }: StepperProps) => {
       </AnimatePresence>
 
       {!sidebarExpanded && (
-        <PopoverTrigger className="relative mb-2 mt-4 flex h-10 w-10 items-center justify-center gap-2 self-center rounded-full bg-cyan-700 text-xs text-white ring-4 ring-cyan-900 transition-colors hover:bg-cyan-900">
+        <PopoverTrigger className="relative mt-4 mb-2 flex h-10 w-10 items-center justify-center gap-2 self-center rounded-full bg-cyan-700 text-xs text-white ring-4 ring-cyan-900 transition-colors hover:bg-cyan-900">
           <Sparkles className="h-4 w-4" />
           <span className="sr-only">
             {t('onboardingChecklist.getStartedText')}
           </span>
-          <Badge className="bg-brand absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full p-0">
+          <Badge className="bg-brand absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full p-0">
             {steps.length -
               steps.filter((step) => step.status === GetStartedStatus.Done)
                 .length}
@@ -284,7 +284,7 @@ export const Stepper = ({ steps }: StepperProps) => {
         </div>
         {hasCompletedAllSteps && (
           <div>
-            <div className="bg-official-gray-950 flex justify-center gap-2 p-3">
+            <div className="bg-bg-dark flex justify-center gap-2 p-3">
               <span className="text-gray-80">
                 {t('onboardingChecklist.completedSteps')}
               </span>
@@ -308,7 +308,7 @@ export const Stepper = ({ steps }: StepperProps) => {
         {!hasCompletedAllSteps && (
           <div className="">
             <Accordion
-              className="divide-official-gray-850 divide-y [&>div:first-of-type]:rounded-t-lg [&>div:last-of-type]:rounded-b-lg"
+              className="divide-divider divide-y [&>div:first-of-type]:rounded-t-lg [&>div:last-of-type]:rounded-b-lg"
               collapsible
               type="single"
             >
@@ -316,7 +316,7 @@ export const Stepper = ({ steps }: StepperProps) => {
                 const stepStatus = step.status ?? GetStartedStatus.NotStarted;
                 return (
                   <AccordionItem
-                    className="bg-official-gray-950 gap-4"
+                    className="bg-bg-dark gap-4"
                     key={index}
                     value={step.label}
                   >
@@ -326,7 +326,7 @@ export const Stepper = ({ steps }: StepperProps) => {
                         'hover:bg-gray-500 hover:no-underline',
                       )}
                     >
-                      <div className="flex flex-row items-center gap-2 font-normal capitalize text-white">
+                      <div className="flex flex-row items-center gap-2 font-normal text-white capitalize">
                         <div
                           className={cn(
                             'flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-100 p-1',
@@ -338,7 +338,7 @@ export const Stepper = ({ steps }: StepperProps) => {
                         {step.title}
                       </div>
                     </AccordionTrigger>
-                    <AccordionContent className="bg-official-gray-950 px-0 py-1 pb-3 pl-[43px] pr-8 text-xs text-neutral-200">
+                    <AccordionContent className="bg-bg-dark px-0 py-1 pr-8 pb-3 pl-[43px] text-xs text-neutral-200">
                       <div className="flex-1 font-light">{step.body}</div>
                     </AccordionContent>
                   </AccordionItem>

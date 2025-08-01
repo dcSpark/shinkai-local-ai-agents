@@ -93,7 +93,7 @@ function ChatConfigForm({ form }: ChatConfigFormProps) {
                       <Label className="text-xs" htmlFor="temperature">
                         Temperature
                       </Label>
-                      <span className="text-muted-foreground hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-xs">
+                      <span className="text-text-secondary hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-xs">
                         {field.value}
                       </span>
                     </div>
@@ -137,7 +137,7 @@ function ChatConfigForm({ form }: ChatConfigFormProps) {
                       <Label className="text-xs" htmlFor="topP">
                         Top P
                       </Label>
-                      <span className="text-muted-foreground hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-xs">
+                      <span className="text-text-secondary hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-xs">
                         {field.value}
                       </span>
                     </div>
@@ -184,7 +184,7 @@ function ChatConfigForm({ form }: ChatConfigFormProps) {
                       <Label className="text-xs" htmlFor="topK">
                         Top K
                       </Label>
-                      <span className="text-muted-foreground hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-xs">
+                      <span className="text-text-secondary hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-xs">
                         {field.value}
                       </span>
                     </div>
@@ -355,7 +355,7 @@ export function UpdateChatConfigActionBarBase() {
               className="min-w-[380px] px-6 py-7 text-xs"
               side="top"
             >
-              <h2 className="leading-1 text-gray-80 mb-5 text-xs uppercase">
+              <h2 className="text-gray-80 mb-5 text-xs leading-1 uppercase">
                 Chat Settings
               </h2>
 
@@ -423,7 +423,7 @@ export function CreateChatConfigActionBar({
               className="max-h-[50vh] min-w-[380px] overflow-auto px-6 py-7 text-xs"
               side="bottom"
             >
-              <h2 className="leading-1 text-gray-80 mb-5 text-xs uppercase">
+              <h2 className="text-gray-80 mb-5 text-xs leading-1 uppercase">
                 Chat Settings
               </h2>
 

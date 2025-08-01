@@ -42,13 +42,13 @@ export type CodeHeaderProps = {
 
 export const CodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
   return (
-    <div className="code-header-root flex items-center justify-between gap-4 rounded-t-lg border-b border-gray-400 bg-[#0d1117] px-4 py-1 text-white">
-      <span className="code-header-language text-gray-80 text-xs font-medium lowercase">
+    <div className="code-header-root border-divider bg-bg-default text-text-default flex items-center justify-between gap-4 rounded-t-lg border-b px-4 py-1">
+      <span className="code-header-language text-text-secondary text-xs font-medium lowercase">
         {language}
       </span>
       <CopyToClipboardIcon
         className={cn(
-          'text-gray-80 h-7 w-7 bg-transparent hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
+          'text-text-secondary h-7 w-7 bg-transparent hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
         )}
         string={code}
       />
@@ -199,10 +199,7 @@ export const defaultComponents = memoizeMarkdownComponents({
   ),
   hr: ({ className, ...props }) => (
     <hr
-      className={cn(
-        'border-official-gray-600/25 my-[2.25em] border-b',
-        className,
-      )}
+      className={cn('border-divider my-[2.25em] border-b', className)}
       {...props}
     />
   ),
@@ -226,7 +223,7 @@ export const defaultComponents = memoizeMarkdownComponents({
   td: ({ className, ...props }) => (
     <td
       className={cn(
-        'text-em-sm border-official-gray-700 border-b px-[1em] py-[0.875em] text-left [&[align=center]]:text-center [&[align=right]]:text-right',
+        'text-em-sm border-divider border-b px-[1em] py-[0.875em] text-left [&[align=center]]:text-center [&[align=right]]:text-right',
         className,
       )}
       {...props}
@@ -250,7 +247,7 @@ export const defaultComponents = memoizeMarkdownComponents({
   pre: ({ className, ...props }) => (
     <pre
       className={cn(
-        'overflow-x-auto rounded-b-lg bg-black !px-[1em] !py-[0.5em] text-white',
+        'bg-bg-dark text-text-default overflow-x-auto rounded-b-lg !px-[1em] !py-[0.5em]',
         className,
       )}
       {...props}
@@ -262,7 +259,7 @@ export const defaultComponents = memoizeMarkdownComponents({
       <code
         className={cn(
           !isCodeBlock &&
-            'bg-official-gray-1000 text-em-sm border-divider rounded-sm border p-[0.25em] font-semibold',
+            'bg-bg-dark text-em-sm border-divider rounded-sm border p-[0.25em] font-semibold',
           className,
         )}
         {...props}

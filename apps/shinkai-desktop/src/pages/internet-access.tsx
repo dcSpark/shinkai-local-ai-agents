@@ -1,8 +1,8 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useTranslation } from '@shinkai_network/shinkai-i18n';
-import { useGetNgrokStatus } from '@shinkai_network/shinkai-node-state/v2/queries/getNgrokStatus/useGetNgrokStatus';
 import { useSetNgrokAuthToken } from '@shinkai_network/shinkai-node-state/v2/mutations/setNgrokAuthToken/useSetNgrokAuthToken';
 import { useSetNgrokEnabled } from '@shinkai_network/shinkai-node-state/v2/mutations/setNgrokEnabled/useSetNgrokEnabled';
+import { useGetNgrokStatus } from '@shinkai_network/shinkai-node-state/v2/queries/getNgrokStatus/useGetNgrokStatus';
 
 import {
   Button,
@@ -14,13 +14,13 @@ import {
   TextField,
 } from '@shinkai_network/shinkai-ui';
 
+import { CheckCircle2 } from 'lucide-react';
 import { useForm } from 'react-hook-form';
 
+import { toast } from 'sonner';
+import z from 'zod';
 import { useAuth } from '../store/auth';
 import { SimpleLayout } from './layout/simple-layout';
-import z from 'zod';
-import { toast } from 'sonner';
-import { CheckCircle2 } from 'lucide-react';
 
 const internetAccessSchema = z.object({
   authtoken: z.string().optional(),
@@ -195,11 +195,11 @@ const InternetAccessPage = () => {
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-official-gray-200 block text-sm font-semibold">
+                      <label className="text-text-secondary block text-sm font-semibold">
                         {t('settings.remoteAccess.publicAccessUrl')}
                       </label>
-                      <div className="bg-official-gray-900/60 border-divider flex items-center space-x-2 rounded-xl border p-2 shadow-inner">
-                        <code className="bg-official-gray-800/50 flex-1 rounded-lg p-3 font-mono text-sm break-all text-white">
+                      <div className="bg-bg-tertiary border-divider flex items-center space-x-2 rounded-xl border p-2 shadow-inner">
+                        <code className="bg-bg-quaternary flex-1 rounded-lg p-3 font-mono text-sm break-all text-white">
                           {tunnelUrl}
                         </code>
                         <div className="flex space-x-2">

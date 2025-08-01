@@ -78,7 +78,7 @@ export function QrCodeModal({
       <DialogContent className={modalClassName}>
         <div className="flex flex-col items-center py-4">
           <h2 className="mb-1 text-lg font-semibold">{title}</h2>
-          <p className="text-foreground text-gray-80 mb-5 text-center text-xs">
+          <p className="text-text-secondary mb-5 text-center text-xs">
             {description}
           </p>
           <div className="mb-7 overflow-hidden rounded-lg shadow-2xl">

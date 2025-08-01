@@ -19,10 +19,10 @@ const SelectTrigger = ({
   <SelectPrimitive.Trigger
     className={cn(
       'h-input border-divider bg-bg-secondary relative flex w-full items-center justify-between rounded-md border px-4 py-2 text-sm shadow-xs',
-      'focus:ring-official-gray-700 placeholder:text-gray-100 focus:ring-1 focus:outline-hidden focus:ring-inset disabled:cursor-not-allowed disabled:opacity-50',
+      'focus:ring-border-input-focus placeholder:text-gray-100 focus:ring-1 focus:outline-hidden focus:ring-inset disabled:cursor-not-allowed disabled:opacity-50',
       'peer/select [&[data-placeholder]>svg]:mt-0',
       'pt-6 data-[placeholder]:pt-2',
-      'aria-expanded:ring-official-gray-700 aria-expanded:ring-1 aria-expanded:ring-inset',
+      'aria-expanded:ring-border-input-focus aria-expanded:ring-1 aria-expanded:ring-inset',
       className,
     )}
     {...props}

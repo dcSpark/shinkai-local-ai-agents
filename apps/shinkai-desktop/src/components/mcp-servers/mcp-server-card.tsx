@@ -182,13 +182,13 @@ export const McpServerCard = ({
                           {Object.keys((tool.input_args || {}).properties || {})
                             .length > 0 && (
                             <Collapsible>
-                              <CollapsibleTrigger className="text-text-secondary bg-official-gray-900 mt-2 flex w-full cursor-pointer items-center justify-between rounded-lg p-2 text-left hover:text-white [&[data-state=open]]:rounded-b-none [&[data-state=open]>svg]:rotate-180">
+                              <CollapsibleTrigger className="text-text-secondary bg-bg-tertiary mt-2 flex w-full cursor-pointer items-center justify-between rounded-lg p-2 text-left hover:text-white [&[data-state=open]]:rounded-b-none [&[data-state=open]>svg]:rotate-180">
                                 <span className="text-sm">
                                   View Input Parameters
                                 </span>
                                 <ChevronDown className="ml-auto size-4" />
                               </CollapsibleTrigger>
-                              <CollapsibleContent className="bg-official-gray-900 rounded-b-lg p-1 pt-0">
+                              <CollapsibleContent className="bg-bg-tertiary rounded-b-lg p-1 pt-0">
                                 <ul className="grid list-disc gap-2 rounded-lg px-1 py-1 pl-6">
                                   {Object.keys(
                                     (tool.input_args || {}).properties || {},
@@ -256,10 +256,7 @@ export const McpServerCard = ({
               <MoreVertical className="size-full" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="end"
-            className="bg-official-gray-950 border-divider border p-2.5"
-          >
+          <DropdownMenuContent align="end" className="p-2.5">
             <DropdownMenuItem
               className="flex items-center gap-2.5 text-xs"
               onClick={() => setIsConfigureModalOpen(true)}

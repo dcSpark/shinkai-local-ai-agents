@@ -323,10 +323,10 @@ function PlaygroundHeaderBase({
                   <StoreIcon className="h-4 w-4" />
                   Publish to the App Store
                 </h4>
-                <p className="text-official-gray-300 text-xs">
+                <p className="text-text-secondary text-xs">
                   Publishing will make your tool available in the{' '}
                   <a
-                    className="text-white underline"
+                    className="text-text-default underline"
                     href={SHINKAI_STORE_URL}
                     rel="noreferrer"
                     target="_blank"
@@ -337,12 +337,12 @@ function PlaygroundHeaderBase({
                 </p>
               </div>
               {/* create short preview with the tool name and description */}
-              <div className="bg-official-gray-900 flex flex-col gap-2 rounded-lg p-4 text-white">
+              <div className="bg-bg-tertiary text-text-default flex flex-col gap-2 rounded-lg p-4">
                 <h5 className="text-sm leading-none font-medium">
                   {toolMetadata?.name}
                 </h5>
                 <p className="text-xs">{toolMetadata?.description}</p>
-                <p className="text-xs text-white">
+                <p className="text-text-default text-xs">
                   Author: {auth?.shinkai_identity}
                 </p>
               </div>

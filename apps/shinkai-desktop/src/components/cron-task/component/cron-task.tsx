@@ -530,7 +530,7 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
                                     <Label htmlFor="temperature">
                                       {t('cronTask.temperature')}
                                     </Label>
-                                    <span className="text-muted-foreground hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-sm">
+                                    <span className="text-text-secondary hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-sm">
                                       {field.value}
                                     </span>
                                   </div>
@@ -572,7 +572,7 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
                                     <Label htmlFor="topP">
                                       {t('cronTask.topP')}
                                     </Label>
-                                    <span className="text-muted-foreground hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-sm">
+                                    <span className="text-text-secondary hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-sm">
                                       {field.value}
                                     </span>
                                   </div>
@@ -615,7 +615,7 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
                                     <Label htmlFor="topK">
                                       {t('cronTask.topK')}
                                     </Label>
-                                    <span className="text-muted-foreground hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-sm">
+                                    <span className="text-text-secondary hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-sm">
                                       {field.value}
                                     </span>
                                   </div>

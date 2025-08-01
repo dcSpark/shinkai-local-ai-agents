@@ -153,10 +153,10 @@ function MetadataPanelBase({
                   side="bottom"
                 >
                   <p className="font-medium">Invalid metadata format</p>
-                  <span className="text-official-gray-500">
+                  <span className="text-text-tertiary">
                     {validateMetadataEditorValue}
                   </span>
-                  <p className="text-official-gray-500 text-xs">
+                  <p className="text-text-tertiary text-xs">
                     This value will not be saved.
                   </p>
                 </TooltipContent>

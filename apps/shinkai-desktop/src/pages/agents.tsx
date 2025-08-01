@@ -160,7 +160,7 @@ function AgentsPage() {
             <div className="flex flex-1 flex-col space-y-3 pb-10">
               {!filteredAgents?.length ? (
                 <div className="flex grow flex-col items-center gap-3 pt-20">
-                  <div className="bg-official-gray-800 flex size-10 items-center justify-center rounded-lg p-2">
+                  <div className="bg-bg-quaternary flex size-10 items-center justify-center rounded-lg p-2">
                     <AIAgentIcon className="size-full" name={''} />
                   </div>
                   <div className="flex flex-col items-center gap-1">
@@ -293,7 +293,7 @@ const AgentCard = ({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Link
-                          className="text-official-gray-200 bg-official-gray-850 hover:text-text-default flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors"
+                          className="text-text-secondary bg-bg-quaternary hover:text-text-default flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors"
                           key={task.task_id}
                           to={`/tasks/${task.task_id}`}
                         >

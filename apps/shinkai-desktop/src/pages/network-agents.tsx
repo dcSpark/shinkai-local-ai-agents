@@ -40,6 +40,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Skeleton,
 } from '@shinkai_network/shinkai-ui';
 import {
   CryptoWalletIcon,
@@ -393,25 +394,25 @@ const DiscoverNetworkAgents = ({
           Array.from({ length: 4 }).map((_, index) => (
             <Card
               key={index}
-              className="border-official-gray-850 bg-official-gray-900 flex flex-col border"
+              className="border-divider bg-bg-tertiary flex flex-col border"
             >
               <CardHeader className="pb-4">
-                <div className="bg-official-gray-800 mb-1 h-6 w-3/4 animate-pulse rounded" />
-                <div className="bg-official-gray-800 mb-3 h-4 w-1/2 animate-pulse rounded" />
+                <Skeleton className="mb-1 h-6 w-3/4 rounded" />
+                <Skeleton className="mb-3 h-4 w-1/2 rounded" />
                 <div className="space-y-2">
-                  <div className="bg-official-gray-800 h-4 w-full animate-pulse rounded" />
-                  <div className="bg-official-gray-800 h-4 w-2/3 animate-pulse rounded" />
+                  <Skeleton className="h-4 w-full rounded" />
+                  <Skeleton className="h-4 w-2/3 rounded" />
                 </div>
               </CardHeader>
               <CardContent className="flex-1">
                 <div className="flex items-center justify-between">
-                  <div className="bg-official-gray-800 h-4 w-1/4 animate-pulse rounded" />
-                  <div className="bg-official-gray-800 h-4 w-1/4 animate-pulse rounded" />
+                  <Skeleton className="h-4 w-1/4 rounded" />
+                  <Skeleton className="h-4 w-1/4 rounded" />
                 </div>
               </CardContent>
               <CardFooter className="flex gap-3">
-                <div className="bg-official-gray-800 h-9 w-full animate-pulse rounded-full" />
-                <div className="bg-official-gray-800 h-9 w-full animate-pulse rounded-full" />
+                <Skeleton className="h-9 w-full rounded-full" />
+                <Skeleton className="h-9 w-full rounded-full" />
               </CardFooter>
             </Card>
           ))}
@@ -595,7 +596,7 @@ const AgentCard = ({
               <div className="text-lg font-semibold">
                 {isFreePricing ? 'Free' : formatBalanceAmount(amount ?? '0', 6)}
                 {!isFreePricing && (
-                  <span className="text-official-gray-200 text-sm font-medium">
+                  <span className="text-text-secondary text-sm font-medium">
                     {' '}
                     {ticker}
                   </span>
@@ -661,7 +662,7 @@ const AgentCard = ({
                       </span>
                     </div>
 
-                    <div className="bg-official-gray-850 flex items-center justify-between rounded-md p-3">
+                    <div className="bg-bg-quaternary flex items-center justify-between rounded-md p-3">
                       <div className="flex items-center gap-3">
                         <CreditCard className="h-5 w-5" />
                         <div>
@@ -680,7 +681,7 @@ const AgentCard = ({
                       ) : (
                         <div className="inline-flex items-center gap-1 py-1.5 text-lg">
                           {formatBalanceAmount(amount ?? '0', 6)}{' '}
-                          <span className="text-official-gray-200 text-sm font-medium">
+                          <span className="text-text-secondary text-sm font-medium">
                             {ticker}
                           </span>
                         </div>
@@ -894,7 +895,7 @@ export const InstallAgentModal = ({
                   </p>
                 </div>
                 <div>
-                  <div className="text-official-gray-100 space-y-2 text-sm">
+                  <div className="text-text-default space-y-2 text-sm">
                     <p>
                       <strong>Free to add</strong> - No cost to add agents to
                       your collection
@@ -919,7 +920,7 @@ export const InstallAgentModal = ({
               </div>
             </div>
 
-            <div className="bg-official-gray-900 space-y-3 rounded-lg p-4">
+            <div className="bg-bg-tertiary space-y-3 rounded-lg p-4">
               <div className="flex items-start justify-between">
                 <div>
                   <h3 className="text-text-default text-lg font-semibold">
@@ -1037,7 +1038,7 @@ function SetupGuide({ isWalletConnected }: SetupGuideProps) {
                   <p className="text-text-default text-sm font-medium">
                     {t('networkAgentsPage.connectWallet')}
                   </p>
-                  <p className="text-official-gray-200 text-sm">
+                  <p className="text-text-secondary text-sm">
                     {t('networkAgentsPage.connectWalletDescription')}
                   </p>
                 </div>
@@ -1074,7 +1075,7 @@ function Disclaimer() {
   return (
     <Alert variant="warning" className="mb-6 border-0 bg-orange-300/5 p-6">
       <button
-        className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none"
+        className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-text-secondary absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none"
         onClick={() => setDismissedCommunityAgentsDisclaimer(true)}
       >
         <X className="h-4 w-4" />
@@ -1086,7 +1087,7 @@ function Disclaimer() {
           <p className="text-text-default text-sm font-medium">
             Community Agents
           </p>
-          <p className="text-official-gray-200 text-sm">
+          <p className="text-text-secondary text-sm">
             Community agents are not verified by Shinkai. We may remove agents
             that violate our terms. Use at your own risk.
           </p>

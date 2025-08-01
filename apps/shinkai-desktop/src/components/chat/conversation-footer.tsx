@@ -87,7 +87,7 @@ import { useChatStore } from './context/chat-context';
 import { useSetJobScope } from './context/set-job-scope-context';
 
 export const actionButtonClassnames =
-  'shrink-0 inline-flex h-[32px] w-[32px] rounded-full cursor-pointer items-center justify-center gap-1.5 truncate p-[8px] text-left text-[13px] font-normal text-official-gray-200 hover:bg-official-gray-950 hover:text-white disabled:opacity-50';
+  'shrink-0 inline-flex h-[32px] w-[32px] rounded-full cursor-pointer items-center justify-center gap-1.5 truncate p-[8px] text-left text-[13px] font-normal text-text-secondary hover:bg-bg-dark hover:text-white disabled:opacity-50';
 
 export type ChatConversationLocationState = {
   files: File[];
@@ -708,7 +708,7 @@ function ConversationChatFooter({
                       <motion.button
                         animate={{ opacity: 1, x: 0 }}
                         className={cn(
-                          'hover:bg-official-gray-800 flex items-center gap-2 rounded-lg px-2 py-1 text-xs text-white transition-colors',
+                          'hover:bg-bg-quaternary flex items-center gap-2 rounded-lg px-2 py-1 text-xs text-white transition-colors',
                         )}
                         exit={{ opacity: 0, x: -10 }}
                         initial={{ opacity: 0, x: -10 }}
@@ -749,7 +749,7 @@ function ConversationChatFooter({
                 ))}
                 <Link
                   className={cn(
-                    'hover:bg-official-gray-800 flex items-center gap-2 rounded-lg px-2 py-1 text-xs text-white transition-colors',
+                    'hover:bg-bg-quaternary flex items-center gap-2 rounded-lg px-2 py-1 text-xs text-white transition-colors',
                   )}
                   to="/tools"
                 >
@@ -845,7 +845,7 @@ const FileListBase = ({
   const size = partial({ standard: 'jedec' });
 
   return (
-    <div className="no-scrollbar bg-official-gray-800/10 scroll border-divider h-16 overflow-hidden border-b">
+    <div className="no-scrollbar bg-bg-quaternary/10 scroll border-divider h-16 overflow-hidden border-b">
       <div className="flex items-center gap-3 overflow-x-auto p-2.5">
         {currentFiles.map((file, index) => (
           <div
@@ -868,13 +868,13 @@ const FileListBase = ({
 
             <div className="text-left text-xs">
               <span className="line-clamp-1 break-all">{file.name}</span>
-              <span className="text-official-gray-500 line-clamp-1 break-all">
+              <span className="text-text-tertiary line-clamp-1 break-all">
                 {size(file.size)}
               </span>
             </div>
             <button
               className={cn(
-                'bg-official-gray-850 hover:bg-official-gray-800 text-gray-80 border-divider absolute -top-2 -right-2 h-5 w-5 cursor-pointer rounded-full border p-1 transition-colors hover:text-white',
+                'bg-bg-tertiary hover:bg-bg-quaternary text-text-secondary border-divider absolute -top-2 -right-2 h-5 w-5 cursor-pointer rounded-full border p-1 transition-colors hover:text-white',
               )}
               onClick={(event) => {
                 event.stopPropagation();
@@ -898,7 +898,7 @@ export const FileList = memo(FileListBase, (prevProps, nextProps) => {
 export const DropFileActive = () => (
   <motion.div
     animate={{ opacity: 1, y: 0 }}
-    className="bg-official-gray-1000 z-10 flex h-16 w-full items-center justify-center p-2.5"
+    className="bg-bg-dark z-10 flex h-16 w-full items-center justify-center p-2.5"
     initial={{ opacity: 0, y: 10 }}
     transition={{ duration: 0.2 }}
   >
@@ -985,7 +985,7 @@ export const SelectedToolChat = ({
   return (
     <motion.div
       animate={{ opacity: 1 }}
-      className="bg-official-gray-1000 mb-1 max-h-[50vh] w-full max-w-full overflow-auto rounded-lg p-4 px-5 text-left [&_textarea::placeholder]:text-[rgb(176,176,176)]"
+      className="bg-bg-dark mb-1 max-h-[50vh] w-full max-w-full overflow-auto rounded-lg p-4 px-5 text-left [&_textarea::placeholder]:text-[rgb(176,176,176)]"
       exit={{ opacity: 0 }}
       initial={{ opacity: 0 }}
       transition={{ duration: 0.2, ease: 'easeInOut' }}

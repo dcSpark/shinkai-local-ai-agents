@@ -90,7 +90,7 @@ const DrawerDescription = ({
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Description>) => (
   <DrawerPrimitive.Description
-    className={cn('text-muted-foreground text-sm', className)}
+    className={cn('text-text-secondary text-sm', className)}
     {...props}
   />
 );

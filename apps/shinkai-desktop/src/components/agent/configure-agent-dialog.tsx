@@ -228,7 +228,7 @@ export default function ConfigureAgentDialog({
                   exit={{ opacity: 0, height: 0, y: -10 }}
                   transition={{ duration: 0.3, ease: 'easeInOut' }}
                 >
-                  <Card className="bg-official-gray-950 -mt-3 border-none px-5 py-2">
+                  <Card className="bg-bg-dark -mt-3 border-none px-5 py-2">
                     <Label htmlFor="price" className="text-sm font-medium">
                       Price per use (USDC units)
                     </Label>

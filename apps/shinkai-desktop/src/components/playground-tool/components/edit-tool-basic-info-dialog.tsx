@@ -101,7 +101,7 @@ export default function EditToolBasicInfoDialog({
       >
         <PopoverTrigger
           className={cn(
-            'hover:bg-official-gray-900 transtion-colors flex max-w-[400px] items-center gap-2 truncate rounded-lg p-1 text-base font-medium',
+            'hover:bg-bg-tertiary transtion-colors flex max-w-[400px] items-center gap-2 truncate rounded-lg p-1 text-base font-medium',
             className,
           )}
         >
@@ -116,7 +116,7 @@ export default function EditToolBasicInfoDialog({
           side="bottom"
           sideOffset={10}
         >
-          <h1 className="text-sm font-semibold leading-none tracking-tight">
+          <h1 className="text-sm leading-none font-semibold tracking-tight">
             Update Tool
           </h1>
           <Form {...toolBasicInfoForm}>
@@ -134,7 +134,7 @@ export default function EditToolBasicInfoDialog({
                     </Label>
                     <Input
                       autoFocus
-                      className="placeholder-gray-80 bg-official-gray-900 !h-[40px] resize-none border-none py-0 pl-2 pt-0 text-xs caret-white focus-visible:ring-0 focus-visible:ring-white"
+                      className="placeholder-gray-80 bg-bg-tertiary !h-[40px] resize-none border-none py-0 pt-0 pl-2 text-xs caret-white focus-visible:ring-0 focus-visible:ring-white"
                       id="name"
                       onChange={field.onChange}
                       placeholder="Tool Name"
@@ -156,7 +156,7 @@ export default function EditToolBasicInfoDialog({
                       Description
                     </Label>
                     <Textarea
-                      className="placeholder-gray-80 bg-official-gray-900 resize-none border-none py-2 pl-2 pt-2 text-xs caret-white focus-visible:ring-0 focus-visible:ring-white"
+                      className="placeholder-gray-80 bg-bg-tertiary resize-none border-none py-2 pt-2 pl-2 text-xs caret-white focus-visible:ring-0 focus-visible:ring-white"
                       id="description"
                       onChange={field.onChange}
                       placeholder="Tool Description"

@@ -18,7 +18,6 @@ const badgeVariants = cva(
           'hover:bg-bg-secondary text-text-secondary hover:text-text-default border border-gray-500 bg-transparent shadow-xs',
 
         inputAdornment: 'bg-gray-600 px-2 font-medium text-white',
-        gradient: 'bg-brand-gradient border-brand px-2 font-medium text-white',
         tags: 'text-text-secondary border-divider bg-bg-quaternary rounded-lg px-2 py-1 font-normal capitalize',
       },
     },

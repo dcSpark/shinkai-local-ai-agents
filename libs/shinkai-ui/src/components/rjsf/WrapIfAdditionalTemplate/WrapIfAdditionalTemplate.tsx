@@ -49,7 +49,7 @@ export default function WrapIfAdditionalTemplate<
     <div className={`flex ${classNames}`} style={style}>
       <div className="w-1/2 flex-none p-2">
         <label
-          className="text-muted-foreground block text-sm font-medium"
+          className="text-text-secondary block text-sm font-medium"
           htmlFor={keyId}
         >
           {keyLabel}

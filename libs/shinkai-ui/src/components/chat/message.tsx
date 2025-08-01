@@ -221,11 +221,7 @@ const MessageBase = ({
           <Avatar className={cn('mt-1 h-8 w-8')}>
             {message.role === 'assistant' ? (
               <img alt="Shinkai AI" src={appIcon} />
-            ) : (
-              <AvatarFallback className="bg-official-gray-850 text-official-gray-300 h-8 w-8 text-xs">
-                U
-              </AvatarFallback>
-            )}
+            ) : null}
           </Avatar>
         </a>
         <div
@@ -306,7 +302,7 @@ const MessageBase = ({
                       {message.toolCalls.map((tool, index) => {
                         return (
                           <AccordionItem
-                            className="bg-app-gradient overflow-hidden rounded-lg"
+                            className="bg-bg-secondary overflow-hidden rounded-lg"
                             disabled={tool.status !== ToolStatusType.Complete}
                             key={`${tool.name}-${index}`}
                             value={tool.name}
@@ -314,7 +310,7 @@ const MessageBase = ({
                             <AccordionTrigger
                               className={cn(
                                 'min-w-[10rem] py-0 pr-2 no-underline hover:no-underline',
-                                'transition-colors hover:bg-gray-500 [&[data-state=open]]:bg-gray-500',
+                                'hover:bg-bg-default [&[data-state=open]]:bg-bg-default transition-colors',
                                 tool.status !== ToolStatusType.Complete &&
                                   '[&>svg]:hidden',
                               )}

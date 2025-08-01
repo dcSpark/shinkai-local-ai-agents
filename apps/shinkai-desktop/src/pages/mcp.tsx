@@ -50,7 +50,7 @@ type GetMCPCategory = 'all' | 'agent' | 'tool';
 
 export const tabTriggerClassnames = cn(
   'relative flex size-full min-w-[120px] rounded-xs p-0 pt-0.5 text-sm',
-  'data-[state=active]:bg-official-gray-950 data-[state=active]:text-white data-[state=active]:shadow-[0_2px_0_0_#1a1a1d]',
+  'data-[state=active]:bg-bg-dark data-[state=active]:text-white data-[state=active]:shadow-[0_2px_0_0_#1a1a1d]',
   'before:absolute before:top-0 before:right-0 before:left-0 before:h-0.5',
 );
 
@@ -77,7 +77,7 @@ export const McpRegistryPage = () => {
                 <TabsTrigger
                   className={cn(
                     'flex items-center gap-4 rounded-full px-4 py-1.5 text-base font-medium transition-colors',
-                    'data-[state=active]:bg-official-gray-800 data-[state=active]:text-white',
+                    'data-[state=active]:bg-bg-quaternary data-[state=active]:text-white',
                     'data-[state=inactive]:text-text-secondary data-[state=inactive]:bg-transparent',
                     'focus-visible:outline-hidden',
                   )}
@@ -91,7 +91,7 @@ export const McpRegistryPage = () => {
                 <TabsTrigger
                   className={cn(
                     'flex items-center gap-4 rounded-full px-4 py-1.5 text-base font-medium transition-colors',
-                    'data-[state=active]:bg-official-gray-800 data-[state=active]:text-white',
+                    'data-[state=active]:bg-bg-quaternary data-[state=active]:text-white',
                     'data-[state=inactive]:text-text-secondary data-[state=inactive]:bg-transparent',
                     'focus-visible:outline-hidden',
                   )}
@@ -259,7 +259,7 @@ const ExposeToolsAsMcp = () => {
             value={selectedMCCategory}
           >
             <ToggleGroupItem
-              className="data-[state=on]:bg-official-gray-850 text-text-secondary rounded-full bg-transparent px-5 py-1.5 text-xs font-medium data-[state=on]:text-white"
+              className="data-[state=on]:bg-bg-secondary text-text-secondary rounded-full bg-transparent px-5 py-1.5 text-xs font-medium data-[state=on]:text-white"
               key="all"
               size="sm"
               value="all"
@@ -277,7 +277,7 @@ const ExposeToolsAsMcp = () => {
               },
             ].map((tool) => (
               <ToggleGroupItem
-                className="data-[state=on]:bg-official-gray-850 text-text-secondary rounded-full bg-transparent px-5 py-1.5 text-xs font-medium data-[state=on]:text-white"
+                className="data-[state=on]:bg-bg-secondary text-text-secondary rounded-full bg-transparent px-5 py-1.5 text-xs font-medium data-[state=on]:text-white"
                 key={tool.value}
                 size="sm"
                 value={tool.value}
@@ -321,7 +321,7 @@ const ExposeToolsAsMcp = () => {
         </div>
       </div>
       <div className="mx-auto flex flex-col gap-2">
-        <div className="divide-official-gray-780 grid grid-cols-1 divide-y py-4">
+        <div className="divide-divider grid grid-cols-1 divide-y py-4">
           {filteredToolsList?.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-8">
               <p className="text-text-secondary text-sm">
@@ -351,7 +351,7 @@ const ExposeToolsAsMcp = () => {
         </div>
 
         {isPending && (
-          <div className="divide-official-gray-780 grid grid-cols-1 divide-y py-4">
+          <div className="divide-divider grid grid-cols-1 divide-y py-4">
             {Array.from({ length: 8 }).map((_, idx) => (
               <div
                 className={cn(
@@ -360,13 +360,13 @@ const ExposeToolsAsMcp = () => {
                 key={idx}
               >
                 <div className="flex w-full flex-1 flex-col gap-3">
-                  <span className="bg-official-gray-800 h-4 w-36 rounded-xs" />
+                  <span className="bg-bg-quaternary h-4 w-36 rounded-xs" />
                   <div className="flex flex-col gap-1">
-                    <span className="bg-official-gray-800 h-3 w-full rounded-xs" />
-                    <span className="bg-official-gray-800 h-3 w-2/4 rounded-xs" />
+                    <span className="bg-bg-quaternary h-3 w-full rounded-xs" />
+                    <span className="bg-bg-quaternary h-3 w-2/4 rounded-xs" />
                   </div>
                 </div>
-                <span className="bg-official-gray-800 h-5 w-[36px] rounded-full" />
+                <span className="bg-bg-quaternary h-5 w-[36px] rounded-full" />
               </div>
             ))}
           </div>
@@ -380,7 +380,7 @@ const ExposeToolsAsMcp = () => {
                 {dialogDescription}
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <div className="bg-official-gray-800 my-4 max-h-[60vh] overflow-y-auto rounded-sm p-3 text-sm">
+            <div className="bg-bg-quaternary my-4 max-h-[60vh] overflow-y-auto rounded-sm p-3 text-sm">
               <pre>
                 <code>{dialogHelpText}</code>
               </pre>
@@ -411,7 +411,7 @@ const ExposeToolsAsMcp = () => {
                 {t('mcpClients.customDescriptionPrimary')}
               </AlertDialogDescription>
             </AlertDialogHeader>
-            <div className="bg-official-gray-800 relative my-2 rounded-sm p-3">
+            <div className="bg-bg-quaternary relative my-2 rounded-sm p-3">
               <pre className="mt-1 text-sm whitespace-pre-wrap">
                 <code>{customSseUrl}</code>
                 <CopyToClipboardIcon
@@ -425,7 +425,7 @@ const ExposeToolsAsMcp = () => {
             <AlertDialogDescription className="mt-4">
               {t('mcpClients.customDescriptionSecondary')}
             </AlertDialogDescription>
-            <div className="bg-official-gray-800 relative my-2 rounded-sm p-3">
+            <div className="bg-bg-quaternary relative my-2 rounded-sm p-3">
               <pre className="mt-1 text-sm whitespace-pre-wrap">
                 <code>{customCommand}</code>
                 <CopyToClipboardIcon
@@ -493,7 +493,7 @@ const McpCard = ({
           </Link>
           {!hideToolTypeBadge && (
             <Badge
-              className="text-official-gray-300 text-xs font-normal"
+              className="text-text-secondary text-xs font-normal"
               variant="outline"
             >
               {toolType}

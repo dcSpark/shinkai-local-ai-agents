@@ -41,7 +41,7 @@ const AnalyticsPage = () => {
       <h1 className="font-clash text-4xl font-semibold">
         {t('analytics.title')}
       </h1>
-      <div className="text-official-gray-300 flex flex-1 flex-col gap-10 text-base">
+      <div className="text-text-secondary flex flex-1 flex-col gap-10 text-base">
         <ul className="space-y-3">
           {analyticsBulletPoints().map((item) => (
             <li className="flex items-center gap-2" key={item}>

@@ -259,14 +259,14 @@ const ConversationHeaderWithInboxId = () => {
                             value="instructions"
                           >
                             <AccordionTrigger className="py-3 hover:no-underline">
-                              <div className="text-official-gray-200 flex items-center gap-2">
+                              <div className="text-text-secondary flex items-center gap-2">
                                 <span className="text-sm font-medium">
                                   {t('agents.systemInstructions')}
                                 </span>
                               </div>
                             </AccordionTrigger>
                             <AccordionContent>
-                              <div className="bg-official-gray-850 border-divider rounded-lg border p-4">
+                              <div className="bg-bg-default border-divider rounded-lg border p-4">
                                 <p className="text-sm whitespace-pre-wrap">
                                   {selectedAgent.config?.custom_system_prompt ||
                                     'No system instructions found.'}
@@ -277,7 +277,7 @@ const ConversationHeaderWithInboxId = () => {
 
                           <AccordionItem className="border-b-0" value="tools">
                             <AccordionTrigger className="py-3 hover:no-underline">
-                              <div className="text-official-gray-200 flex items-center gap-2">
+                              <div className="text-text-secondary flex items-center gap-2">
                                 <span className="text-sm font-medium">
                                   Available Tools{' '}
                                   {selectedAgent.tools.length > 0 && (
@@ -297,7 +297,7 @@ const ConversationHeaderWithInboxId = () => {
                                 )}
                                 {selectedAgent.tools.map((tool, index) => (
                                   <div
-                                    className="bg-official-gray-850 border-divider relative flex cursor-default items-center gap-2 rounded-lg border p-2 pr-8 text-sm transition-colors"
+                                    className="bg-bg-default border-divider relative flex cursor-default items-center gap-2 rounded-lg border p-2 pr-8 text-sm transition-colors"
                                     key={index}
                                   >
                                     <ToolsIcon className="h-4 w-4" />
@@ -326,7 +326,7 @@ const ConversationHeaderWithInboxId = () => {
                             value="knowledge"
                           >
                             <AccordionTrigger className="py-3 hover:no-underline">
-                              <div className="text-official-gray-200 flex items-center gap-2">
+                              <div className="text-text-secondary flex items-center gap-2">
                                 <span className="text-sm font-medium">
                                   Knowledge Sources{' '}
                                   {(
@@ -364,7 +364,7 @@ const ConversationHeaderWithInboxId = () => {
                                 {selectedAgent.scope?.vector_fs_folders?.map(
                                   (item, index) => (
                                     <div
-                                      className="bg-official-gray-850 border-divider flex items-center justify-start gap-2 rounded-lg border p-2 capitalize"
+                                      className="bg-bg-default border-divider flex items-center justify-start gap-2 rounded-lg border p-2 capitalize"
                                       key={index}
                                     >
                                       <FolderIcon className="h-4 w-4" />
@@ -377,7 +377,7 @@ const ConversationHeaderWithInboxId = () => {
                                 {selectedAgent.scope?.vector_fs_items?.map(
                                   (item, index) => (
                                     <div
-                                      className="bg-official-gray-850 border-divider flex items-center justify-start gap-2 rounded-lg border p-2 capitalize"
+                                      className="bg-bg-default border-divider flex items-center justify-start gap-2 rounded-lg border p-2 capitalize"
                                       key={index}
                                     >
                                       <FileIcon className="h-4 w-4" />
@@ -393,7 +393,7 @@ const ConversationHeaderWithInboxId = () => {
 
                           <AccordionItem className="border-b-0" value="tasks">
                             <AccordionTrigger className="py-3 hover:no-underline">
-                              <div className="text-official-gray-200 flex items-center gap-2">
+                              <div className="text-text-secondary flex items-center gap-2">
                                 <span className="text-sm font-medium">
                                   Scheduled Tasks
                                 </span>
@@ -409,7 +409,7 @@ const ConversationHeaderWithInboxId = () => {
                                 )}
                                 {selectedAgent.cron_tasks?.map((task) => (
                                   <div
-                                    className="bg-official-gray-850 border-divider relative flex items-start gap-2 rounded-lg border p-2 pr-6 capitalize"
+                                    className="bg-bg-default border-divider relative flex items-start gap-2 rounded-lg border p-2 pr-6 capitalize"
                                     key={task.task_id}
                                   >
                                     <ScheduledTasksIcon className="mt-1 h-4 w-4" />

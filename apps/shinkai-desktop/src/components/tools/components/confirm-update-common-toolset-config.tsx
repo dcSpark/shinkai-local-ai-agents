@@ -53,11 +53,11 @@ export function ConfirmToolsetUpdateDialog({
           </DialogDescription>
         </DialogHeader>
         {affectedToolNames && affectedToolNames.length > 0 && (
-          <div className="border-official-gray-800 bg-official-gray-900 space-y-2 rounded-lg border p-3 text-sm">
+          <div className="border-divider bg-bg-tertiary space-y-2 rounded-lg border p-3 text-sm">
             <p className="font-medium">
               {t('tools.configuration.followingToolsAffected')}
             </p>
-            <ul className="text-official-gray-300 list-disc space-y-1 pl-5">
+            <ul className="text-text-secondary list-disc space-y-1 pl-5">
               {affectedToolNames.map((name) => (
                 <li key={name}>{name}</li>
               ))}

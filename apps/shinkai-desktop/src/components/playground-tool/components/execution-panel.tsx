@@ -181,16 +181,16 @@ function ExecutionPanelBase({
           </div>
           <div className="pb-6">
             {(isMetadataGenerationPending || isToolCodeGenerationPending) && (
-              <div className="text-gray-80 flex w-full flex-col items-start gap-5 text-xs">
+              <div className="flex w-full flex-col items-start gap-5 text-xs">
                 <div className="w-full space-y-2">
-                  <Skeleton className="bg-official-gray-900 h-6 w-2/4 animate-pulse rounded" />
-                  <Skeleton className="bg-official-gray-900 h-10 w-3/4 animate-pulse rounded" />
+                  <Skeleton className="h-6 w-2/4 animate-pulse rounded" />
+                  <Skeleton className="h-10 w-3/4 animate-pulse rounded" />
                 </div>
                 <div className="w-full space-y-3">
-                  <Skeleton className="bg-official-gray-900 h-4 w-1/4 animate-pulse rounded" />
-                  <Skeleton className="bg-official-gray-900 h-8 w-full animate-pulse rounded" />
-                  <Skeleton className="bg-official-gray-900 h-4 w-1/4 animate-pulse rounded" />
-                  <Skeleton className="bg-official-gray-900 h-10 w-full animate-pulse rounded" />
+                  <Skeleton className="h-4 w-1/4 animate-pulse rounded" />
+                  <Skeleton className="h-8 w-full animate-pulse rounded" />
+                  <Skeleton className="h-4 w-1/4 animate-pulse rounded" />
+                  <Skeleton className="h-10 w-full animate-pulse rounded" />
                 </div>
                 <p className="sr-only">Generating Metadata...</p>
               </div>
@@ -511,7 +511,7 @@ const ToolLogsBase = ({
   }
 
   return (
-    <div className="bg-official-gray-950 rounded-md px-2 py-1 text-gray-50">
+    <div className="bg-bg-dark rounded-md px-2 py-1 text-gray-50">
       {logsFile ? (
         <div className="space-y-1">{formatLogs(logsFile)}</div>
       ) : (

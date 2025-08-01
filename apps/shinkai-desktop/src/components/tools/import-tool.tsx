@@ -155,31 +155,31 @@ export default function ImportToolModal() {
             </DialogHeader>
             <div className="mt-8 space-y-3">
               <Button
-                className="hover:bg-official-gray-850 flex h-[auto] w-full items-center justify-start gap-4 rounded-md px-5 py-2.5 text-left"
+                className="flex h-[auto] w-full items-center justify-start gap-4 rounded-md px-5 py-2.5 text-left"
                 onClick={() => setImportToolView(ImportToolView.Url)}
                 variant="outline"
               >
                 <Link className="size-5" />
                 <div>
-                  <div className="text-sm font-semibold">
+                  <div className="text-text-default text-sm font-semibold">
                     {t('tools.importModal.fromUrl')}
                   </div>
-                  <div className="text-gray-80 text-sm">
+                  <div className="text-text-secondary text-sm">
                     {t('tools.importModal.urlDescription')}
                   </div>
                 </div>
               </Button>
               <Button
-                className="hover:bg-official-gray-850 flex h-[auto] w-full items-center justify-start gap-4 rounded-md px-5 py-2.5 text-left"
+                className="flex h-[auto] w-full items-center justify-start gap-4 rounded-md px-5 py-2.5 text-left"
                 onClick={() => setImportToolView(ImportToolView.Zip)}
                 variant="outline"
               >
                 <Package2Icon className="size-5" />
                 <div>
-                  <div className="text-sm font-semibold">
+                  <div className="text-text-default text-sm font-semibold">
                     {t('tools.importModal.fromZip')}
                   </div>
-                  <div className="text-gray-80 text-sm">
+                  <div className="text-text-secondary text-sm">
                     {t('tools.importModal.zipDescription')}
                   </div>
                 </div>

@@ -318,14 +318,14 @@ const TaskCard = ({
       </CardHeader>
       <CardContent className="flex flex-col gap-4 px-0 py-6">
         <div className="flex items-center gap-4">
-          <div className="text-muted-foreground flex items-center gap-2 text-sm font-medium">
+          <div className="text-text-secondary flex items-center gap-2 text-sm font-medium">
             <Sparkles className="h-4 w-4" />
             Prompt:
           </div>
           <div className="rounded-md text-sm">{prompt}</div>
         </div>
         <div className="flex items-center gap-4">
-          <div className="text-muted-foreground flex items-center gap-2 text-sm font-medium">
+          <div className="text-text-secondary flex items-center gap-2 text-sm font-medium">
             <Clock className="h-4 w-4" />
             Schedule:
           </div>
@@ -337,7 +337,7 @@ const TaskCard = ({
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <div className="text-muted-foreground flex items-center gap-2 text-sm font-medium">
+          <div className="text-text-secondary flex items-center gap-2 text-sm font-medium">
             <Bot className="h-4 w-4" />
             Agent/AI Model:
           </div>

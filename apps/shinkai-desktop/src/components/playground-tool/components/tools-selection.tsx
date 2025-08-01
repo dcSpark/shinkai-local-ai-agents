@@ -57,7 +57,7 @@ export function ToolsSelection({
             tabIndex={0}
           >
             {value.length > 0 ? (
-              <Badge className="bg-official-gray-1000 inline-flex size-4 items-center justify-center rounded-full border-gray-200 p-0 text-center text-[10px] text-gray-50">
+              <Badge className="bg-bg-dark border-divider text-text-default inline-flex size-4 items-center justify-center rounded-full p-0 text-center text-[10px]">
                 {value.length}
               </Badge>
             ) : (

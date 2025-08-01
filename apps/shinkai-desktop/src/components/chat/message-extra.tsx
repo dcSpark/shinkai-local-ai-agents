@@ -128,7 +128,7 @@ function Payment({
                       {t('networkAgentsPage.toolPaymentRequiredDescription')}
                     </p>
                   </div>
-                  <div className="bg-official-gray-850 flex items-center justify-between rounded-md p-3">
+                  <div className="bg-bg-quaternary flex items-center justify-between rounded-md p-3">
                     <p className="font-medium">
                       {t('networkAgentsPage.costPerUse')}
                     </p>
@@ -145,7 +145,7 @@ function Payment({
                     </p>
                   </div>
                   <div className="space-y-3">
-                    <div className="bg-official-gray-850 rounded-lg p-4">
+                    <div className="bg-bg-quaternary rounded-lg p-4">
                       <h4 className="mb-3 font-medium">
                         {t('networkAgentsPage.networkToolDetails')}
                       </h4>
@@ -273,7 +273,7 @@ function Payment({
                   )}
                 </RadioGroup> */}
                     {walletExist ? (
-                      <div className="bg-official-gray-850 rounded-lg p-4">
+                      <div className="bg-bg-quaternary rounded-lg p-4">
                         <h4 className="mb-2 font-medium">
                           {t('networkAgentsPage.yourWallet')}
                         </h4>
@@ -303,7 +303,7 @@ function Payment({
                                     balance.amount,
                                     balance.asset.decimals,
                                   )}{' '}
-                                  <span className="text-official-gray-200 font-medium">
+                                  <span className="text-text-secondary font-medium">
                                     {balance.asset.asset_id}
                                   </span>
                                 </div>
@@ -313,7 +313,7 @@ function Payment({
                         </div>
                       </div>
                     ) : (
-                      <div className="bg-official-gray-850 rounded-lg p-4 text-sm">
+                      <div className="bg-bg-quaternary rounded-lg p-4 text-sm">
                         {t('networkAgentsPage.walletNotSetup')}
                       </div>
                     )}

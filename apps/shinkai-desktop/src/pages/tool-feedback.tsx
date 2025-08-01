@@ -148,15 +148,15 @@ function ToolFeedbackPrompt() {
                 <div className="size-6" />
               </div>
               {isChatConversationLoading ? (
-                <div className="bg-official-gray-950 flex w-full flex-1 flex-col gap-4 overflow-y-auto p-4">
-                  <Skeleton className="bg-official-gray-900 h-6 w-32" />
-                  <Skeleton className="bg-official-gray-900 h-24 w-full" />
-                  <Skeleton className="bg-official-gray-900 h-24 w-full" />
-                  <Skeleton className="bg-official-gray-900 h-6 w-32" />
-                  <Skeleton className="bg-official-gray-900 h-24 w-full" />
-                  <Skeleton className="bg-official-gray-900 h-24 w-full" />
-                  <Skeleton className="bg-official-gray-900 h-6 w-32" />
-                  <Skeleton className="bg-official-gray-900 h-24 w-full" />
+                <div className="bg-bg-dark flex w-full flex-1 flex-col gap-4 overflow-y-auto p-4">
+                  <Skeleton className="h-6 w-32" />
+                  <Skeleton className="h-24 w-full" />
+                  <Skeleton className="h-24 w-full" />
+                  <Skeleton className="h-6 w-32" />
+                  <Skeleton className="h-24 w-full" />
+                  <Skeleton className="h-24 w-full" />
+                  <Skeleton className="h-6 w-32" />
+                  <Skeleton className="h-24 w-full" />
                 </div>
               ) : (
                 <MessageList
@@ -339,7 +339,7 @@ function ToolFeedbackPrompt() {
                   <div className="relative mx-auto h-[400px] w-full max-w-2xl overflow-hidden rounded-lg md:order-2 md:h-[450px] lg:h-[600px]">
                     <motion.div
                       animate={{ y: 0, opacity: 1 }}
-                      className="border-official-gray-950 bg-official-gray-1000 flex h-full w-full flex-1 flex-col gap-3 overflow-hidden rounded-lg p-3"
+                      className="border-divider bg-bg-dark flex h-full w-full flex-1 flex-col gap-3 overflow-hidden rounded-lg p-3"
                       exit={{ y: -100, opacity: 0 }}
                       initial={{ y: 100, opacity: 0, rotateX: -20 }}
                       key={currentStep}
@@ -389,7 +389,7 @@ function ToolFeedbackPrompt() {
                       >
                         {[...Array(20)].map((_, lineIndex) => (
                           <div className="mb-2 flex gap-3" key={lineIndex}>
-                            <Skeleton className="bg-official-gray-900 h-4 w-12 rounded" />
+                            <Skeleton className="h-4 w-12 rounded" />
                             <div className="flex-1">
                               <div className="flex flex-wrap gap-2">
                                 {[
@@ -398,7 +398,7 @@ function ToolFeedbackPrompt() {
                                   <Skeleton
                                     className={cn(
                                       getRandomWidth(),
-                                      'bg-official-gray-900 h-4 rounded',
+                                      'h-4 rounded',
                                     )}
                                     key={blockIndex}
                                   />
@@ -414,11 +414,11 @@ function ToolFeedbackPrompt() {
               }
               topElement={
                 <div className="flex h-[45px] items-center justify-between gap-2 border-b border-gray-400 px-4 pb-2.5">
-                  <Skeleton className="bg-official-gray-900 h-[30px] w-[200px]" />
+                  <Skeleton className="h-[30px] w-[200px]" />
                   <div className="flex items-center gap-2">
-                    <Skeleton className="bg-official-gray-900 h-[30px] w-[100px]" />
-                    <Skeleton className="bg-official-gray-900 h-[30px] w-[40px]" />
-                    <Skeleton className="bg-official-gray-900 h-[30px] w-[100px]" />
+                    <Skeleton className="h-[30px] w-[100px]" />
+                    <Skeleton className="h-[30px] w-[40px]" />
+                    <Skeleton className="h-[30px] w-[100px]" />
                   </div>
                 </div>
               }

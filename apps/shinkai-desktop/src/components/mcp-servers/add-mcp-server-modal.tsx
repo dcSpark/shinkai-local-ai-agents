@@ -374,9 +374,7 @@ export const AddMcpServerModal = ({
                       <SelectItem value={McpServerType.Sse}>
                         Server-Sent Events (SSE)
                       </SelectItem>
-                      <SelectItem value={McpServerType.Http}>
-                        HTTP
-                      </SelectItem>
+                      <SelectItem value={McpServerType.Http}>HTTP</SelectItem>
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -442,7 +440,7 @@ export const AddMcpServerModal = ({
                   })}
                   <div className="flex flex-col items-center justify-center gap-2">
                     {fields.length === 0 && (
-                      <p className="text-muted-foreground text-sm">
+                      <p className="text-text-secondary text-sm">
                         {t('mcpServers.noEnvironmentVariablesAdded')}
                       </p>
                     )}
@@ -465,15 +463,15 @@ export const AddMcpServerModal = ({
             )}
 
             {serverType === McpServerType.Sse ||
-              serverType === McpServerType.Http && (
-              <FormField
-                control={form.control}
-                name="url"
-                render={({ field }) => (
-                  <TextField field={field} label="Server URL" type="text" />
-                )}
-              />
-            )}
+              (serverType === McpServerType.Http && (
+                <FormField
+                  control={form.control}
+                  name="url"
+                  render={({ field }) => (
+                    <TextField field={field} label="Server URL" type="text" />
+                  )}
+                />
+              ))}
 
             <DialogFooter className="mt-6">
               <Button

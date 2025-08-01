@@ -172,7 +172,7 @@ export default function PublishAgentDialog() {
         </DialogHeader>
         {(currentStep === 'select' || currentStep === 'configure') && (
           <div className="-mx-[24px]">
-            <div className="bg-official-gray-900 border-divider my-2 w-full border-b py-4">
+            <div className="bg-bg-tertiary border-divider my-2 w-full border-b py-4">
               <div className="mx-auto flex max-w-[400px] flex-col">
                 <div className="flex w-full items-center px-2">
                   <div
@@ -418,7 +418,7 @@ export default function PublishAgentDialog() {
                       exit={{ opacity: 0, height: 0, y: -10 }}
                       transition={{ duration: 0.3, ease: 'easeInOut' }}
                     >
-                      <Card className="bg-official-gray-950 -mt-3 border-none px-5 py-2">
+                      <Card className="bg-bg-dark -mt-3 border-none px-5 py-2">
                         <Label htmlFor="price" className="text-sm font-medium">
                           Price per use (USDC units)
                         </Label>

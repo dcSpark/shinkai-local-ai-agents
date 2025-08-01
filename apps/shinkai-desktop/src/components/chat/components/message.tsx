@@ -414,7 +414,7 @@ export const MessageBase = ({
                               <AccordionTrigger
                                 className={cn(
                                   'min-w-[10rem] flex-1 gap-3 py-0 pr-2 no-underline hover:no-underline',
-                                  'hover:bg-official-gray-900 [&[data-state=open]]:bg-official-gray-950 transition-colors',
+                                  'hover:bg-bg-default [&[data-state=open]]:bg-bg-default transition-colors',
                                   tool.status !== ToolStatusType.Complete &&
                                     '[&>svg]:hidden',
                                 )}
@@ -555,7 +555,7 @@ export const MessageBase = ({
                   )}
 
                 {oauthUrl && (
-                  <div className="bg-official-gray-900 mt-4 flex flex-col items-start rounded-lg p-4">
+                  <div className="bg-bg-tertiary mt-4 flex flex-col items-start rounded-lg p-4">
                     <p className="text-em-lg text-text-default mb-2 font-semibold">
                       <div className="flex items-center">
                         <Unplug className="mr-2 h-5 w-5" />
@@ -1239,7 +1239,7 @@ export function TracingDialog({
                         </span>
                       </div>
                       <div className="w-full flex-1 pl-2">
-                        <p className="text-official-gray-200 text-sm leading-relaxed break-words">
+                        <p className="text-text-secondary text-sm leading-relaxed break-words">
                           {(() => {
                             if (typeof message.content === 'string') {
                               return (
@@ -1256,7 +1256,7 @@ export function TracingDialog({
                                     (item: any, index: number) => (
                                       <div key={index} className="mb-2">
                                         <div className="max-h-[280px] space-y-2 overflow-y-auto">
-                                          <p className="text-official-gray-200 text-sm">
+                                          <p className="text-text-secondary text-sm">
                                             {item.text}
                                           </p>
                                         </div>
@@ -1308,7 +1308,7 @@ export function TracingDialog({
                 <h3 className="text-text-default mb-2 text-sm font-medium">
                   Tool Calls
                 </h3>
-                <div className="border-divider bg-official-gray-900 rounded-md border p-3">
+                <div className="border-divider bg-bg-tertiary rounded-md border p-3">
                   {data.functions.map((func) => (
                     <div className="flex items-start gap-3" key={func.name}>
                       <ToolsIcon className="mt-0.5 h-5 w-5 text-cyan-500" />
@@ -1347,19 +1347,19 @@ export function TracingDialog({
                 Model Configuration
               </h3>
               <div className="grid grid-cols-2 gap-3">
-                <div className="bg-official-gray-900 border-divider rounded-md border p-3">
+                <div className="bg-bg-tertiary border-divider rounded-md border p-3">
                   <p className="text-text-secondary text-xs">Model</p>
                   <p className="text-sm">{data.model}</p>
                 </div>
-                <div className="bg-official-gray-900 border-divider rounded-md border p-3">
+                <div className="bg-bg-tertiary border-divider rounded-md border p-3">
                   <p className="text-text-secondary text-xs">Max Tokens</p>
                   <p className="text-sm">{data.max_tokens}</p>
                 </div>
-                <div className="bg-official-gray-900 border-divider rounded-md border p-3">
+                <div className="bg-bg-tertiary border-divider rounded-md border p-3">
                   <p className="text-text-secondary text-xs">Temperature</p>
                   <p className="text-sm">{data.temperature}</p>
                 </div>
-                <div className="bg-official-gray-900 border-divider rounded-md border p-3">
+                <div className="bg-bg-tertiary border-divider rounded-md border p-3">
                   <p className="text-text-secondary text-xs">Top P</p>
                   <p className="text-sm">{data.top_p}</p>
                 </div>
@@ -1378,14 +1378,14 @@ export function TracingDialog({
                 <h3 className="text-text-default mb-2 text-sm font-medium">
                   Tool Calls
                 </h3>
-                <div className="border-divider bg-official-gray-900 rounded-md border p-3">
+                <div className="border-divider bg-bg-tertiary rounded-md border p-3">
                   {data.function_calls.map((func) => (
                     <div className="flex items-start gap-3" key={func.name}>
                       <ToolsIcon className="mt-0.5 h-5 w-5 text-cyan-500" />
                       <div>
                         <p className="text-sm font-medium">{func.name}</p>
                         <p className="text-text-secondary text-xs">
-                          <span className="text-official-gray-200 font-medium">
+                          <span className="text-text-secondary font-medium">
                             Tool Router Key:{' '}
                           </span>
                           {func.tool_router_key}
@@ -1402,7 +1402,7 @@ export function TracingDialog({
                                   key={key}
                                 >
                                   {key}:{' '}
-                                  <span className="text-official-gray-200 text-sm">
+                                  <span className="text-text-secondary text-sm">
                                     {value}
                                   </span>
                                 </span>
@@ -1421,7 +1421,7 @@ export function TracingDialog({
                 <h3 className="text-text-default mb-2 text-sm font-medium">
                   Response
                 </h3>
-                <div className="border-divider bg-official-gray-900 rounded-md border p-3 text-sm">
+                <div className="border-divider bg-bg-tertiary rounded-md border p-3 text-sm">
                   {data.response}
                 </div>
               </div>
@@ -1433,13 +1433,13 @@ export function TracingDialog({
       case 'tool_call': {
         const data = info as ToolCallTracingInfo;
         return (
-          <div className="border-divider bg-official-gray-900 rounded-md border p-3">
+          <div className="border-divider bg-bg-tertiary rounded-md border p-3">
             <div className="flex items-start gap-3">
               <ToolsIcon className="mt-0.5 h-5 w-5 text-cyan-500" />
               <div>
                 <p className="text-sm font-medium">{data.function}</p>
                 <p className="text-text-secondary text-xs">
-                  <span className="text-official-gray-200 font-medium">
+                  <span className="text-text-secondary font-medium">
                     Tool Router Key:{' '}
                   </span>
                   {data.tool}
@@ -1452,7 +1452,7 @@ export function TracingDialog({
       case 'tool_response': {
         const data = info as ToolResponseTracingInfo;
         return (
-          <div className="border-divider bg-official-gray-900 space-y-2 overflow-hidden rounded-md border p-3">
+          <div className="border-divider bg-bg-tertiary space-y-2 overflow-hidden rounded-md border p-3">
             <p className="text-sm font-medium">{data.function}</p>
 
             <div className="text-text-secondary overflow-auto text-xs">
@@ -1464,28 +1464,26 @@ export function TracingDialog({
       case 'invoice_request_sent': {
         const data = info as InvoiceRequestSentTracingInfo;
         return (
-          <div className="border-divider bg-official-gray-900 space-y-2 overflow-hidden rounded-md border p-3">
+          <div className="border-divider bg-bg-tertiary space-y-2 overflow-hidden rounded-md border p-3">
             <p className="text-sm font-medium">{data.tool}</p>
             <p className="text-text-secondary text-xs">
-              <span className="text-official-gray-200 font-medium">
-                Author:{' '}
-              </span>
+              <span className="text-text-secondary font-medium">Author: </span>
               {data.tool_author}
             </p>
             <p className="text-text-secondary text-xs">
-              <span className="text-official-gray-200 font-medium">
+              <span className="text-text-secondary font-medium">
                 Description:{' '}
               </span>
               {data.tool_description}
             </p>
             <p className="text-text-secondary text-xs">
-              <span className="text-official-gray-200 font-medium">
+              <span className="text-text-secondary font-medium">
                 Provider:{' '}
               </span>
               {data.provider}
             </p>
             <p className="text-text-secondary text-xs">
-              <span className="text-official-gray-200 font-medium">
+              <span className="text-text-secondary font-medium">
                 Usage Type:{' '}
               </span>
               {data.usage_type}
@@ -1496,55 +1494,55 @@ export function TracingDialog({
       case 'invoice_received': {
         const data = info as InvoiceReceivedTracingInfo;
         return (
-          <div className="border-divider bg-official-gray-900 space-y-2 overflow-hidden rounded-md border p-3">
+          <div className="border-divider bg-bg-tertiary space-y-2 overflow-hidden rounded-md border p-3">
             <p className="text-sm font-medium">{data.tool_key}</p>
             <p className="text-text-secondary text-xs">
-              <span className="text-official-gray-200 font-medium">
+              <span className="text-text-secondary font-medium">
                 Provider:{' '}
               </span>
               {data.provider}
             </p>
             <p className="text-text-secondary text-xs">
-              <span className="text-official-gray-200 font-medium">
+              <span className="text-text-secondary font-medium">
                 Requester:{' '}
               </span>
               {data.requester}
             </p>
             <p className="text-text-secondary text-xs">
-              <span className="text-official-gray-200 font-medium">
+              <span className="text-text-secondary font-medium">
                 Invoice Date:{' '}
               </span>
               {format(new Date(data.invoice_date), 'yyyy-MM-dd HH:mm:ss')}
             </p>
             <p className="text-text-secondary text-xs">
-              <span className="text-official-gray-200 font-medium">
+              <span className="text-text-secondary font-medium">
                 Expiration:{' '}
               </span>
               {format(new Date(data.expiration), 'yyyy-MM-dd HH:mm:ss')}
             </p>
             <p className="text-text-secondary text-xs">
-              <span className="text-official-gray-200 font-medium">
+              <span className="text-text-secondary font-medium">
                 Usage Type:{' '}
               </span>
               {data.usage_type}
             </p>
             <p className="text-text-secondary text-xs">
-              <span className="text-official-gray-200 font-medium">
+              <span className="text-text-secondary font-medium">
                 Has Tool Data:{' '}
               </span>
               {String(data.has_tool_data)}
             </p>
             <div className="text-text-secondary text-xs">
-              <p className="text-official-gray-200 font-medium">Address</p>
+              <p className="text-text-secondary font-medium">Address</p>
               <p>
                 ID:{' '}
-                <span className="text-official-gray-200">
+                <span className="text-text-secondary">
                   {data.address.address_id}
                 </span>
               </p>
               <p>
                 Network:{' '}
-                <span className="text-official-gray-200">
+                <span className="text-text-secondary">
                   {data.address.network}
                 </span>
               </p>
@@ -1555,82 +1553,78 @@ export function TracingDialog({
       case 'invoice_paid': {
         const data = info as InvoicePaidTracingInfo;
         return (
-          <div className="border-divider bg-official-gray-900 space-y-2 overflow-hidden rounded-md border p-3">
+          <div className="border-divider bg-bg-tertiary space-y-2 overflow-hidden rounded-md border p-3">
             <p className="text-sm font-medium">{data.tool_key}</p>
             <p className="text-text-secondary text-xs">
-              <span className="text-official-gray-200 font-medium">
+              <span className="text-text-secondary font-medium">
                 Provider:{' '}
               </span>
               {data.provider}
             </p>
             <p className="text-text-secondary text-xs">
-              <span className="text-official-gray-200 font-medium">
+              <span className="text-text-secondary font-medium">
                 Requester:{' '}
               </span>
               {data.requester}
             </p>
             <p className="text-text-secondary text-xs">
-              <span className="text-official-gray-200 font-medium">
-                Status:{' '}
-              </span>
+              <span className="text-text-secondary font-medium">Status: </span>
               {data.status}
             </p>
             <p className="text-text-secondary text-xs">
-              <span className="text-official-gray-200 font-medium">
+              <span className="text-text-secondary font-medium">
                 Invoice ID:{' '}
               </span>
               {data.invoice_id}
             </p>
             <p className="text-text-secondary text-xs">
-              <span className="text-official-gray-200 font-medium">
+              <span className="text-text-secondary font-medium">
                 Invoice Date:{' '}
               </span>
               {format(new Date(data.invoice_date), 'yyyy-MM-dd HH:mm:ss')}
             </p>
             <p className="text-text-secondary text-xs">
-              <span className="text-official-gray-200 font-medium">
+              <span className="text-text-secondary font-medium">
                 Paid Date:{' '}
               </span>
               {format(new Date(data.paid_date), 'yyyy-MM-dd HH:mm:ss')}
             </p>
             <p className="text-text-secondary text-xs">
-              <span className="text-official-gray-200 font-medium">
+              <span className="text-text-secondary font-medium">
                 Has Tool Data:{' '}
               </span>
               {String(data.has_tool_data)}
             </p>
             <p className="text-text-secondary text-xs">
-              <span className="text-official-gray-200 font-medium">
+              <span className="text-text-secondary font-medium">
                 Tool Price:{' '}
               </span>
               {data.tool_price}
             </p>
             <p className="text-text-secondary text-xs">
-              <span className="text-official-gray-200 font-medium">
+              <span className="text-text-secondary font-medium">
                 Usage Type:{' '}
               </span>
               {data.usage_type}
             </p>
             <div className="text-text-secondary text-xs">
-              <p className="text-official-gray-200 font-medium">
-                Payment Details
-              </p>
+              <p className="text-text-secondary font-medium">Payment Details</p>
               <p>
                 Status:{' '}
-                <span className="text-official-gray-200">
+                <span className="text-text-secondary">
                   {data.payment_details.payment_status}
                 </span>
               </p>
               <p>
                 Tx Hash:{' '}
-                <span className="text-official-gray-200">
+                <span className="text-text-secondary">
                   {data.payment_details.transaction_hash}
                 </span>
               </p>
             </div>
             {data.tool_data_keys.length > 0 && (
               <div className="text-text-secondary text-xs">
-                <p className="text-official-gray-200 font-medium">
+                <p className="text-text-secondary font-medium">
                   Tool Data Keys ({data.tool_data_size})
                 </p>
                 <p>{data.tool_data_keys.join(', ')}</p>
@@ -1648,11 +1642,11 @@ export function TracingDialog({
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
       <SheetContent className="max-w-3xl p-0 pt-4" side="right">
-        <SheetHeader className="border-official-gray-750 border-b p-4 pt-0">
+        <SheetHeader className="border-divider border-b p-4 pt-0">
           <SheetTitle>{t('chat.tracing.title')}</SheetTitle>
         </SheetHeader>
         <div className="flex size-full divide-x">
-          <ScrollArea className="bg-official-gray-900 h-[calc(100vh-45px)] w-1/3 px-4 [&>div>div]:!block">
+          <ScrollArea className="bg-bg-tertiary h-[calc(100vh-45px)] w-1/3 px-4 [&>div>div]:!block">
             <div className="flex items-center justify-between py-3">
               <h3 className="text-text-default text-base font-semibold">
                 Activity Steps

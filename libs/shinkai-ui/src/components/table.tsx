@@ -87,7 +87,7 @@ const TableCaption = ({
   ...props
 }: React.HTMLAttributes<HTMLTableCaptionElement>) => (
   <caption
-    className={cn('text-muted-foreground mt-4 text-sm', className)}
+    className={cn('text-text-secondary mt-4 text-sm', className)}
     {...props}
   />
 );

@@ -3,39 +3,13 @@
 @import 'tailwindcss';
 @plugin "@tailwindcss/typography";
 
-@config '../../tailwind.config.js';
+/* @config '../../tailwind.config.js'; */
 
 @theme {
   /* Deprecated */
-  /* --color-official-gray-780: #313336; */
-
-  --font-size-em-xs: 0.75em;
-  --font-size-em-sm: 0.875em;
-  --font-size-em-base: 1em;
-  --font-size-em-lg: 1.125em;
-  --font-size-em-xl: 1.25em;
-  --font-size-em-2xl: 1.5em;
-
-  --height-input: 59px;
 
   --color-brand: hsla(360, 99%, 69%, 1);
   --color-brand-500: hsla(359, 58%, 58%, 1);
-
-  --color-official-gray-100: #f0f0f0;
-  --color-official-gray-200: #d0d0d0;
-  --color-official-gray-300: #b0b0b0;
-  --color-official-gray-400: #b3b3b3;
-  --color-official-gray-500: #707070;
-  --color-official-gray-600: #5a5a5a;
-  --color-official-gray-700: #464648;
-  --color-official-gray-750: #3c3c3f;
-  --color-official-gray-780: #313336;
-  --color-official-gray-800: #323234;
-  --color-official-gray-850: #2a2a2d;
-  --color-official-gray-900: #212023;
-  --color-official-gray-950: #1a1a1d;
-  --color-official-gray-1000: #101113;
-  --color-official-gray-1100: #0c0d0e;
 
   --color-red: hsla(0, 63%, 51%, 1);
 
@@ -45,39 +19,12 @@
 
   --color-secondary-600: #19242d;
 
-  --color-foreground: #ffffff;
-  --color-muted-foreground: #c7c7c7;
+  /* =============================== */
+  /* =============================== */
 
-  /* --border-input: hsl(var(--input)); */
-
-  --font-family-inter:
-    Inter, ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji',
-    'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
-  --font-family-clash:
-    'Clash Display', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji',
-    'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
-
-  --bg-brand-gradient: linear-gradient(
-    180deg,
-    rgba(249, 97, 98, 0) 0%,
-    rgba(249, 97, 98, 0.2) 100%
-  );
-  --bg-app-gradient: linear-gradient(
-    90deg,
-    rgba(0, 0, 0, 0.3) 0%,
-    rgba(0, 0, 0, 0.2) 100%
-  );
-  --bg-black-gradient: linear-gradient(94deg, #08090a 21.25%, #121316 81.73%);
-  --bg-onboarding-card: linear-gradient(
-    120deg,
-    #101113 24.72%,
-    #141517 56.36%,
-    #151619 68.07%
-  );
+  /* Generic tokens */
+  --height-input: 59px;
   --z-max: 2147483647;
-
-  /* =============================== */
-  /* =============================== */
 
   /* Grayscale */
   --color-gray-100: #f7f2f2;
@@ -87,7 +34,6 @@
   --color-gray-500: #3c3a3a;
   --color-gray-600: #2e2d2d;
   --color-gray-700: #212020;
-  /* --color-gray-700: #242323; */
   --color-gray-800: #262525;
   --color-gray-900: #1e1d1d;
   --color-gray-1000: #151414;
@@ -141,6 +87,20 @@
   /* Font */
   --font-inter: 'Inter', sans-serif;
   --font-clash: 'Clash Display', sans-serif;
+
+  --font-size-em-xs: 0.75em;
+  --font-size-em-sm: 0.875em;
+  --font-size-em-base: 1em;
+  --font-size-em-lg: 1.125em;
+  --font-size-em-xl: 1.25em;
+  --font-size-em-2xl: 1.5em;
+
+  --font-family-inter:
+    Inter, ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji',
+    'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  --font-family-clash:
+    'Clash Display', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji',
+    'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
 
   /* Semantic Tokens */
 

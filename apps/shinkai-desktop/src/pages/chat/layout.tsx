@@ -554,7 +554,7 @@ const AgentInboxList = ({ agentId }: { agentId?: string }) => {
         <Tooltip>
           <TooltipTrigger asChild>
             <button
-              className="text-official-gray-300 flex size-8 items-center justify-center rounded-full hover:text-white"
+              className="text-text-secondary flex size-8 items-center justify-center rounded-full hover:text-white"
               onClick={() => {
                 void navigate(`/home`, {
                   state: { agentName: agentId },

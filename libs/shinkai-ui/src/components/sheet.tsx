@@ -28,7 +28,7 @@ const SheetOverlay = ({
 SheetOverlay.displayName = SheetPrimitive.Overlay.displayName;
 
 const sheetVariants = cva(
-  'data-[state=open]:animate-in data-[state=closed]:animate-out bg-official-gray-950 border-divider fixed z-50 gap-4 p-6 shadow-lg transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500',
+  'data-[state=open]:animate-in data-[state=closed]:animate-out bg-bg-dark border-divider fixed z-50 gap-4 p-6 shadow-lg transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500',
   {
     variants: {
       side: {
@@ -108,7 +108,7 @@ const SheetTitle = ({
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Title>) => (
   <SheetPrimitive.Title
-    className={cn('text-foreground text-lg font-semibold', className)}
+    className={cn('text-text-default text-lg font-semibold', className)}
     {...props}
   />
 );
@@ -119,7 +119,7 @@ const SheetDescription = ({
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Description>) => (
   <SheetPrimitive.Description
-    className={cn('text-muted-foreground text-sm', className)}
+    className={cn('text-text-secondary text-sm', className)}
     {...props}
   />
 );

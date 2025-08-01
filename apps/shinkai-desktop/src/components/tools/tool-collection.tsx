@@ -163,7 +163,7 @@ export const ToolCollection = () => {
         isSearchQuerySynced &&
         isSearchToolListSuccess &&
         searchToolList?.length > 0 && (
-          <div className="divide-official-gray-780 grid grid-cols-1 divide-y py-4">
+          <div className="divide-divider grid grid-cols-1 divide-y py-4">
             {searchToolList?.map((tool) => (
               <ToolCard key={tool.tool_router_key} tool={tool} />
             ))}
@@ -181,7 +181,7 @@ export const ToolCollection = () => {
               value={selectedToolCategory}
             >
               <ToggleGroupItem
-                className="data-[state=on]:bg-official-gray-850 text-text-secondary data-[state=on]:text-text-default rounded-full bg-transparent px-3 py-2.5 text-xs font-medium"
+                className="data-[state=on]:bg-bg-secondary text-text-secondary data-[state=on]:text-text-default rounded-full bg-transparent px-3 py-2.5 text-xs font-medium"
                 key="all"
                 size="sm"
                 value="all"
@@ -190,7 +190,7 @@ export const ToolCollection = () => {
               </ToggleGroupItem>
               {toolsGroup.map((tool) => (
                 <ToggleGroupItem
-                  className="data-[state=on]:bg-official-gray-850 text-text-secondary data-[state=on]:text-text-default rounded-full bg-transparent px-3 py-2.5 text-xs font-medium"
+                  className="data-[state=on]:bg-bg-secondary text-text-secondary data-[state=on]:text-text-default rounded-full bg-transparent px-3 py-2.5 text-xs font-medium"
                   key={tool.value}
                   size="sm"
                   value={tool.value}

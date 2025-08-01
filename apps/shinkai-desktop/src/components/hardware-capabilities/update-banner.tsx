@@ -115,7 +115,10 @@ const UpdateBanner: React.FC<{
         {updateState.state === 'available' && (
           <Button
             className="text-text-tertiary absolute top-2 right-2 p-2"
-            onClick={() => setUpdateDismissed(true)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setUpdateDismissed(true);
+            }}
             size="auto"
             variant="tertiary"
           >

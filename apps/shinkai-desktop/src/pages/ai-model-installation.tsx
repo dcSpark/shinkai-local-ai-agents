@@ -299,7 +299,7 @@ const AIModelInstallation = ({
                     <CardContent className="space-y-4 px-4">
                       {model.models && model.models.length > 0 ? (
                         <div>
-                          <p className="text-gray-80 mb-2 text-xs uppercase">
+                          <p className="text-text-secondary mb-2 text-xs uppercase">
                             Available Models
                           </p>
                           <ul className="space-y-1">

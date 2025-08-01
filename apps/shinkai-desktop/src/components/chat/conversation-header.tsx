@@ -147,7 +147,7 @@ const ConversationHeaderWithInboxId = () => {
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
-              className="text-gray-80 flex items-center gap-2"
+              className="text-text-secondary flex items-center gap-2"
               onClick={() => setChatSidebarCollapsed(!isChatSidebarCollapsed)}
               size="icon"
               variant="tertiary"
@@ -165,7 +165,7 @@ const ConversationHeaderWithInboxId = () => {
           <TooltipPortal>
             <TooltipContent className="flex flex-col items-center gap-1">
               <p> Toggle Chat Sidebar</p>
-              <div className="text-gray-80 flex items-center justify-center gap-2 text-center">
+              <div className="text-text-secondary flex items-center justify-center gap-2 text-center">
                 <span>⌘</span>
                 <span>B</span>
               </div>
@@ -473,7 +473,7 @@ const ConversationHeaderWithInboxId = () => {
               tabIndex={0}
             >
               <span className="sr-only">{t('common.moreOptions')}</span>
-              <DotsVerticalIcon className="text-gray-100" />
+              <DotsVerticalIcon className="text-text-secondary" />
             </div>
           </DropdownMenuTrigger>
           <DropdownMenuContent

@@ -508,7 +508,7 @@ const ChatList = () => {
             )),
           )}
         {isSuccess && !hasInboxes && (
-          <p className="text-gray-80 py-3 text-center text-sm">
+          <p className="text-text-secondary py-3 text-center text-sm">
             {t('chat.actives.notFound')}{' '}
           </p>
         )}

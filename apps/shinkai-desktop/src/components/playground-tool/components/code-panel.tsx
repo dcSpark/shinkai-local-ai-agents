@@ -190,7 +190,7 @@ function CodePanelBase({
         {/*    <TooltipTrigger asChild>*/}
         {/*      <div>*/}
         {/*        <CopyToClipboardIcon*/}
-        {/*          className="text-gray-80 flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3"*/}
+        {/*          className="text-text-secondary flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3"*/}
         {/*          string={toolCode ?? ''}*/}
         {/*        />*/}
         {/*      </div>*/}

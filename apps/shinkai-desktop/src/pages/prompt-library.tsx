@@ -355,7 +355,7 @@ function PromptPreview({
             />
           ) : (
             <MarkdownText
-              className="prose-h1:!text-gray-80 prose-h1:!text-xs !text-gray-80"
+              className="prose-h1:!text-text-secondary prose-h1:!text-xs !text-text-secondary"
               content={selectedPrompt?.prompt ?? ''}
             />
           )}

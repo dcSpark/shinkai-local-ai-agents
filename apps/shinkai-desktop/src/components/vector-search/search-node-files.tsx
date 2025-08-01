@@ -138,7 +138,7 @@ const SearchNodeFiles = () => {
           <h1 className="text-center text-2xl font-semibold text-white">
             {t('aiFilesSearch.label')}
           </h1>
-          <p className="text-gray-80 mx-auto text-center text-sm">
+          <p className="text-text-secondary mx-auto text-center text-sm">
             {t('aiFilesSearch.description')}
           </p>
           <Form {...searchVectorFSForm}>
@@ -174,7 +174,7 @@ const SearchNodeFiles = () => {
 
               <div className="flex items-center gap-2 self-start px-2 py-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-gray-80 text-xs">
+                  <span className="text-text-secondary text-xs">
                     {t('common.folderLocation')}
                   </span>
                   <SelectFolderButton />
@@ -211,7 +211,7 @@ const SearchNodeFiles = () => {
           ))}
         {isSearchEntered && isSuccess && (
           <div className="flex min-h-[50px] items-center justify-between gap-4 px-2">
-            <h2 className="text-gray-80 text-sm font-medium">
+            <h2 className="text-text-secondary text-sm font-medium">
               Found {data?.length} results
             </h2>
             {selectedKeys && Object.keys(selectedKeys).length > 0 && (
@@ -297,7 +297,7 @@ const SearchNodeFiles = () => {
                           <div className="divide-y divide-gray-300">
                             {contents?.map((content) => (
                               <p
-                                className="text-gray-80 py-3 text-xs"
+                                className="text-text-secondary py-3 text-xs"
                                 key={content}
                               >
                                 {content}

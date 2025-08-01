@@ -362,7 +362,7 @@ const AgentCard = ({
                 tabIndex={0}
               >
                 <span className="sr-only">{t('common.moreOptions')}</span>
-                <DotsVerticalIcon className="text-gray-100" />
+                <DotsVerticalIcon className="text-text-secondary" />
               </div>
             </DropdownMenuTrigger>
             <DropdownMenuContent

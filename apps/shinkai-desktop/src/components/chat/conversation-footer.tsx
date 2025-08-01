@@ -673,7 +673,7 @@ function ConversationChatFooter({
                             <span className="line-clamp-1 text-white">
                               {formatText(tool.name)}
                             </span>
-                            <span className="text-gray-80 line-clamp-3 text-xs whitespace-pre-wrap">
+                            <span className="text-text-secondary line-clamp-3 text-xs whitespace-pre-wrap">
                               {tool.description}
                             </span>
                           </div>
@@ -741,7 +741,7 @@ function ConversationChatFooter({
                         </span>
 
                         <br />
-                        <div className="flex items-center justify-end gap-2 text-xs text-gray-100">
+                        <div className="text-text-secondary flex items-center justify-end gap-2 text-xs">
                           <CommandShortcut>⌘ + {idx + 1}</CommandShortcut>
                         </div>
                       </TooltipContent>
@@ -855,11 +855,11 @@ const FileListBase = ({
           >
             <div className="flex w-6 shrink-0 items-center justify-center">
               {isPending ? (
-                <Loader2 className="h-5 w-5 animate-spin text-gray-100" />
+                <Loader2 className="text-text-secondary h-5 w-5 animate-spin" />
               ) : getFileExt(file.name) &&
                 fileIconMap[getFileExt(file.name)] ? (
                 <FileTypeIcon
-                  className="text-gray-80 h-[18px] w-[18px] shrink-0"
+                  className="text-text-secondary h-[18px] w-[18px] shrink-0"
                   type={getFileExt(file.name)}
                 />
               ) : (
@@ -991,7 +991,7 @@ export const SelectedToolChat = ({
       initial={{ opacity: 0 }}
       transition={{ duration: 0.2, ease: 'easeInOut' }}
     >
-      <div className="flex flex-1 flex-col gap-2 text-sm text-gray-100">
+      <div className="text-text-secondary flex flex-1 flex-col gap-2 text-sm">
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="flex items-center gap-2">
@@ -1045,7 +1045,7 @@ export const SelectedToolChat = ({
           </div>
         )}
       </div>
-      <div className="absolute top-3 right-3 flex items-center gap-6 text-gray-100 hover:text-white">
+      <div className="text-text-secondary absolute top-3 right-3 flex items-center gap-6 hover:text-white">
         <ToggleGroup
           className="bg-background inline-flex gap-0 -space-x-px rounded-lg shadow-xs shadow-black/5 rtl:space-x-reverse"
           onValueChange={(value) => {
@@ -1085,7 +1085,7 @@ export const SelectedToolChat = ({
           </ToggleGroupItem>
         </ToggleGroup>
         <button
-          className="text-gray-100 hover:text-white"
+          className="text-text-secondary hover:text-white"
           onClick={() => {
             remove();
             setToolRawInput('');

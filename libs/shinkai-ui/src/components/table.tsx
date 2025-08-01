@@ -63,7 +63,7 @@ const TableHead = ({
 }: React.HTMLAttributes<HTMLTableCellElement>) => (
   <th
     className={cn(
-      'text-gray-80 h-12 px-4 text-left align-middle font-medium uppercase [&:has([role=checkbox])]:pr-0',
+      'text-text-secondary h-12 px-4 text-left align-middle font-medium uppercase [&:has([role=checkbox])]:pr-0',
       className,
     )}
     {...props}

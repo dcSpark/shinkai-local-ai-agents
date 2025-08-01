@@ -355,7 +355,7 @@ export function UpdateChatConfigActionBarBase() {
               className="min-w-[380px] px-6 py-7 text-xs"
               side="top"
             >
-              <h2 className="text-gray-80 mb-5 text-xs leading-1 uppercase">
+              <h2 className="text-text-secondary mb-5 text-xs leading-1 uppercase">
                 Chat Settings
               </h2>
 
@@ -423,7 +423,7 @@ export function CreateChatConfigActionBar({
               className="max-h-[50vh] min-w-[380px] overflow-auto px-6 py-7 text-xs"
               side="bottom"
             >
-              <h2 className="text-gray-80 mb-5 text-xs leading-1 uppercase">
+              <h2 className="text-text-secondary mb-5 text-xs leading-1 uppercase">
                 Chat Settings
               </h2>
 

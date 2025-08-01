@@ -34,7 +34,7 @@ export const PublicKeys = () => {
           <form className="flex flex-col justify-between space-y-8">
             <div className="flex grow flex-col space-y-5">
               <div>
-                <h2 className="text-gray-80 mb-2 text-sm">
+                <h2 className="text-text-secondary mb-2 text-sm">
                   {t('settings.publicKeys.nodePublicKeys')}
                 </h2>
                 <div className="space-y-3">
@@ -84,7 +84,9 @@ export const PublicKeys = () => {
               </div>
             </div>
             <div>
-              <h2 className="text-gray-80 mb-2 text-sm">API Bearer Token</h2>
+              <h2 className="text-text-secondary mb-2 text-sm">
+                API Bearer Token
+              </h2>
               <div className="space-y-3">
                 <FormField
                   control={form.control}

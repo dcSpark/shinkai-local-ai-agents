@@ -111,7 +111,7 @@ export const OAuthConnect = () => {
                 src={oauthData.providerData.image}
               />
             )}
-            <AlertDialogTitle className="text-lg font-semibold text-gray-800">
+            <AlertDialogTitle className="text-text-secondary0 text-lg font-semibold">
               {t('oauth.title', { provider: oauthData?.providerData?.name })}
             </AlertDialogTitle>
           </div>

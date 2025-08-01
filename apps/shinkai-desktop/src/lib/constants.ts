@@ -39,7 +39,7 @@ export const treeOptions: TreePassThroughOptions = {
       'mr-2.5 h-4 w-4 rounded-full border-0 !bg-transparent transition duration-200',
       context.selected
         ? 'hover:bg-bg-quaternary text-brand'
-        : 'hover:text-gray-80 hover:bg-bg-quaternary text-white',
+        : 'hover:text-text-secondary hover:bg-bg-quaternary text-white',
       // @ts-expect-error - TS doesn't know about the isLeaf property
       context.isLeaf && 'invisible',
     ),

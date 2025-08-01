@@ -206,7 +206,7 @@ function ExecutionPanelBase({
             {isMetadataGenerationSuccess &&
               !isToolCodeGenerationPending &&
               !isMetadataGenerationError && (
-                <div className="text-gray-80 size-full text-xs">
+                <div className="text-text-secondary size-full text-xs">
                   <JsonForm
                     className={cn(
                       (toolMetadata?.configurations?.properties &&
@@ -282,7 +282,7 @@ function ExecutionPanelBase({
                         initial={{ opacity: 0, x: 20 }}
                       >
                         {isExecutionToolCodePending && (
-                          <div className="text-gray-80 flex flex-col items-center gap-2 py-4 text-xs">
+                          <div className="text-text-secondary flex flex-col items-center gap-2 py-4 text-xs">
                             <LoaderIcon className="shrink-0 animate-spin" />
                             Running Tool...
                           </div>
@@ -313,7 +313,7 @@ function ExecutionPanelBase({
               )}
             {isMetadataGenerationIdle && !isToolCodeGenerationPending && (
               <div>
-                <p className="text-gray-80 py-4 pt-6 text-center text-xs">
+                <p className="text-text-secondary py-4 pt-6 text-center text-xs">
                   No metadata generated yet.
                 </p>
               </div>
@@ -503,7 +503,7 @@ const ToolLogsBase = ({
             className="px-2 py-2 font-mono text-xs hover:bg-gray-500"
             key={i}
           >
-            <span className="text-gray-100">{readableDate} </span>
+            <span className="text-text-secondary">{readableDate} </span>
             <span className="text-gray-50">{logContent}</span>
           </div>
         );
@@ -515,7 +515,7 @@ const ToolLogsBase = ({
       {logsFile ? (
         <div className="space-y-1">{formatLogs(logsFile)}</div>
       ) : (
-        <div className="text-gray-80 px-2 py-2 text-left text-xs">
+        <div className="text-text-secondary px-2 py-2 text-left text-xs">
           Results of your code will appear here when you run
         </div>
       )}

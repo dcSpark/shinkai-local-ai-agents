@@ -218,7 +218,7 @@ export function VectorFsActionBarPreview() {
                 </div>
                 <button
                   className={cn(
-                    'bg-bg-tertiary hover:bg-bg-quaternary text-gray-80 border-divider absolute -top-2 -right-2 h-5 w-5 cursor-pointer rounded-full border p-1 transition-colors hover:text-white',
+                    'bg-bg-tertiary hover:bg-bg-quaternary text-text-secondary border-divider absolute -top-2 -right-2 h-5 w-5 cursor-pointer rounded-full border p-1 transition-colors hover:text-white',
                     isUpdatingJobScope && 'opacity-50',
                   )}
                   disabled={isUpdatingJobScope}

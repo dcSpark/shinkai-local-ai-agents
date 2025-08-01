@@ -63,7 +63,7 @@ export const OllamaModels = ({
   if (!isShinkaiNodeRunning) {
     return (
       <div className="flex h-full w-full flex-row items-center justify-center">
-        <div className="text-gray-100">
+        <div className="text-text-secondary">
           <span
             className={cn('cursor-pointer text-white underline')}
             onClick={() => {

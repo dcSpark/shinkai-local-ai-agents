@@ -563,7 +563,7 @@ function QuickAsk() {
                             <span className="line-clamp-1 text-white">
                               {formatText(tool.name)}
                             </span>
-                            <span className="text-gray-80 line-clamp-2 text-xs">
+                            <span className="text-text-secondary line-clamp-2 text-xs">
                               {tool.description}
                             </span>
                           </div>

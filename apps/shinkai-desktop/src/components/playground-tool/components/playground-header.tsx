@@ -243,7 +243,7 @@ function PlaygroundHeaderBase({
                   disabled={toolCode === toolHistory?.at(0)?.code}
                 >
                   <Button
-                    className="size-[30px] rounded-lg p-1 disabled:pointer-events-none disabled:bg-transparent disabled:text-gray-100"
+                    className="disabled:text-text-secondary size-[30px] rounded-lg p-1 disabled:pointer-events-none disabled:bg-transparent"
                     onClick={goPreviousToolCode}
                     size="auto"
                     variant="ghost"
@@ -263,7 +263,7 @@ function PlaygroundHeaderBase({
                   disabled={toolCode === toolHistory?.at(-1)?.code}
                 >
                   <Button
-                    className="size-[30px] rounded-lg p-1 disabled:pointer-events-none disabled:bg-transparent disabled:text-gray-100"
+                    className="disabled:text-text-secondary size-[30px] rounded-lg p-1 disabled:pointer-events-none disabled:bg-transparent"
                     onClick={goNextToolCode}
                     size="auto"
                     variant="ghost"

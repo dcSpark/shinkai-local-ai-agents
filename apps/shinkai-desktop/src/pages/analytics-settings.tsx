@@ -25,7 +25,7 @@ const AnalyticsSettingsPage = () => {
       <div className="flex flex-col justify-between space-y-8">
         <p>{t('analytics.title')}</p>
         <div className="mt-10 flex flex-1 flex-col gap-10 text-sm text-gray-50">
-          <ul className="text-gray-80 space-y-5">
+          <ul className="text-text-secondary space-y-5">
             {analyticsBulletPoints().map((item) => (
               <li className="flex items-center gap-2" key={item}>
                 <Trans

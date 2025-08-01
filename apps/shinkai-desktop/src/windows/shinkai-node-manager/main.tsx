@@ -214,7 +214,7 @@ const App = () => {
         <img alt="shinkai logo" className="h-10 w-10" src={logo} />
         <div className="ml-4 flex flex-col">
           <span className="text-lg">Local Shinkai Node</span>
-          <span className="text-gray-80 text-sm">{`API URL: http://${shinkaiNodeOptions?.node_api_ip}:${shinkaiNodeOptions?.node_api_port}`}</span>
+          <span className="text-text-secondary text-sm">{`API URL: http://${shinkaiNodeOptions?.node_api_ip}:${shinkaiNodeOptions?.node_api_port}`}</span>
         </div>
         <div className="flex grow flex-row items-center justify-end space-x-4">
           <TooltipProvider>

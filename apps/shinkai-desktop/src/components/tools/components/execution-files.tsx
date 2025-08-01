@@ -28,7 +28,7 @@ export function ExecutionFiles({ files, className }: ExecutionFilesProps) {
 
   return (
     <div className={cn('mt-4 flex flex-col items-start gap-1', className)}>
-      <span className="text-gray-80 text-xs">Generated Files</span>
+      <span className="text-text-secondary text-xs">Generated Files</span>
       <div className="mt-2 flex w-full flex-wrap gap-2">
         <FileList
           className="mt-2"

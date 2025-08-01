@@ -181,7 +181,7 @@ export const MessageList = ({
         !isFetchingPreviousPage &&
         !hasPreviousPage &&
         (paginatedMessages?.pages ?? [])?.length > 1 && (
-          <div className="py-2 text-center text-xs text-gray-100">
+          <div className="text-text-secondary py-2 text-center text-xs">
             {noMoreMessageLabel}
           </div>
         )}
@@ -193,8 +193,8 @@ export const MessageList = ({
                 className={cn(
                   'flex w-[85%] gap-2',
                   index % 2 === 0
-                    ? 'ml-0 mr-auto flex-row items-end'
-                    : 'ml-auto mr-0 flex-row-reverse items-start',
+                    ? 'mr-auto ml-0 flex-row items-end'
+                    : 'mr-0 ml-auto flex-row-reverse items-start',
                 )}
                 key={`${index}`}
               >
@@ -222,8 +222,8 @@ export const MessageList = ({
                 className={cn(
                   'flex w-[85%] gap-2',
                   index % 2 === 0
-                    ? 'ml-0 mr-auto flex-row items-end'
-                    : 'ml-auto mr-0 flex-row-reverse items-start',
+                    ? 'mr-auto ml-0 flex-row items-end'
+                    : 'mr-0 ml-auto flex-row-reverse items-start',
                 )}
                 key={`${index}`}
               >
@@ -256,7 +256,7 @@ export const MessageList = ({
                         'sticky top-5',
                       )}
                     >
-                      <span className="text-gray-80 text-xs font-medium">
+                      <span className="text-text-secondary text-xs font-medium">
                         {getRelativeDateLabel(
                           new Date(messages[0].createdAt || ''),
                         )}

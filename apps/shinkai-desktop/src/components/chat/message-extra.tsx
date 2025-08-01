@@ -267,7 +267,7 @@ function Payment({
                                   `
                               : data.usage_type.Downloadable.DirectDelegation}
                         </span>
-                        <span className="text-gray-100">for download</span>
+                        <span className="text-text-secondary">for download</span>
                       </Label>
                     </div>
                   )}

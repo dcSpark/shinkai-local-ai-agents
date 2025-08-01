@@ -342,7 +342,7 @@ export default function ImportToolModal() {
             size="icon"
             variant="tertiary"
           >
-            <XIcon className="text-gray-80 h-5 w-5" />
+            <XIcon className="text-text-secondary h-5 w-5" />
           </Button>
           <div className="px-2 pt-2.5 antialiased" ref={elementRef}>
             <AnimatePresence

@@ -186,7 +186,7 @@ export const MessageList = memo(
           !isFetchingPreviousPage &&
           !hasPreviousPage &&
           (paginatedMessages?.pages ?? [])?.length > 1 && (
-            <div className="py-2 text-center text-xs text-gray-100">
+            <div className="text-text-secondary py-2 text-center text-xs">
               {noMoreMessageLabel}
             </div>
           )}

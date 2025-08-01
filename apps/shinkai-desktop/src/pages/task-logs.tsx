@@ -258,7 +258,7 @@ const TaskCard = ({
                 tabIndex={0}
               >
                 <span className="sr-only">{t('common.moreOptions')}</span>
-                <DotsVerticalIcon className="text-gray-100" />
+                <DotsVerticalIcon className="text-text-secondary" />
               </div>
             </DropdownMenuTrigger>
             <DropdownMenuContent
@@ -331,7 +331,7 @@ const TaskCard = ({
           </div>
           <div className="text-sm">
             {readableCron}
-            <span className="text-gray-80 bg-bg-quaternary ml-2 rounded-lg px-2 py-1 font-mono">
+            <span className="text-text-secondary bg-bg-quaternary ml-2 rounded-lg px-2 py-1 font-mono">
               {cronExpression}
             </span>
           </div>

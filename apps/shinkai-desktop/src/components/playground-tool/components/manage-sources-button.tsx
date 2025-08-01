@@ -83,12 +83,12 @@ function ManageSourcesButtonBase() {
     <Dialog>
       <DialogTrigger asChild>
         <Button
-          className="text-gray-80 relative shrink-0"
+          className="text-text-secondary relative shrink-0"
           rounded="lg"
           size="xs"
           variant="outline"
         >
-          <ToolAssetsIcon className="text-gray-80 h-4 w-4" />
+          <ToolAssetsIcon className="text-text-secondary h-4 w-4" />
           Tool Project Files
           {isGetAllToolAssetsSuccess && assets.length > 0 && (
             <Badge className="bg-bg-quaternary min-w-5 rounded-full px-1 text-white">
@@ -99,7 +99,7 @@ function ManageSourcesButtonBase() {
       </DialogTrigger>
       <DialogContent className="flex h-[60vh] max-w-[500px] flex-col gap-4">
         <DialogClose className="absolute top-4 right-4">
-          <XIcon className="text-gray-80 h-5 w-5" />
+          <XIcon className="text-text-secondary h-5 w-5" />
         </DialogClose>
         <div className="space-y-2">
           <DialogTitle className="pb-0">Attach files to your tool</DialogTitle>
@@ -159,7 +159,7 @@ function ManageSourcesButtonBase() {
                   <div className="flex aspect-square w-4.5 shrink-0 items-center justify-center">
                     {getFileExt(asset) && fileIconMap[getFileExt(asset)] ? (
                       <FileTypeIcon
-                        className="text-gray-80 h-[18px] w-[18px] shrink-0"
+                        className="text-text-secondary h-[18px] w-[18px] shrink-0"
                         type={getFileExt(asset)}
                       />
                     ) : (

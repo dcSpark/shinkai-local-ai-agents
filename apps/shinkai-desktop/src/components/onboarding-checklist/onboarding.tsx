@@ -219,7 +219,7 @@ export const Stepper = ({ steps }: StepperProps) => {
               value={currentPercents}
             />
             {hasCompletedAllSteps ? (
-              <span className="text-gray-80">
+              <span className="text-text-secondary">
                 {currentPercents}% -
                 <Button
                   className="h-auto py-0 text-xs"
@@ -234,7 +234,7 @@ export const Stepper = ({ steps }: StepperProps) => {
                 </Button>
               </span>
             ) : (
-              <span className="text-gray-80 truncate capitalize">
+              <span className="text-text-secondary truncate capitalize">
                 {currentPercents}% - {t('common.next')},{' '}
                 {
                   steps.find(
@@ -271,7 +271,7 @@ export const Stepper = ({ steps }: StepperProps) => {
           <div className="flex justify-between gap-3 rounded-lg p-1 font-medium text-white">
             <p>{t('onboardingChecklist.getStartedChecklist')}</p>
             <button
-              className="text-gray-80 hover:text-white"
+              className="text-text-secondary hover:text-white"
               onClick={() => setIsPopoverOpen(false)}
             >
               <XIcon className="h-4 w-4" />
@@ -285,7 +285,7 @@ export const Stepper = ({ steps }: StepperProps) => {
         {hasCompletedAllSteps && (
           <div>
             <div className="bg-bg-dark flex justify-center gap-2 p-3">
-              <span className="text-gray-80">
+              <span className="text-text-secondary">
                 {t('onboardingChecklist.completedSteps')}
               </span>
               <CheckIcon className="w-4 text-cyan-700" />

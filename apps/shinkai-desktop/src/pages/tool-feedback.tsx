@@ -207,7 +207,7 @@ function ToolFeedbackPrompt() {
                                 autoFocus
                                 bottomAddons={
                                   <div className="relative z-50 flex items-end gap-3 self-end p-2">
-                                    <span className="pb-1 text-xs font-light text-gray-100">
+                                    <span className="text-text-secondary pb-1 text-xs font-light">
                                       <span className="font-medium">Enter</span>{' '}
                                       to send
                                     </span>
@@ -297,7 +297,7 @@ function ToolFeedbackPrompt() {
                                     autoFocus
                                     bottomAddons={
                                       <div className="relative z-50 flex items-end gap-3 self-end p-2">
-                                        <span className="pb-1 text-xs font-light text-gray-100">
+                                        <span className="text-text-secondary pb-1 text-xs font-light">
                                           <span className="font-medium">
                                             Enter
                                           </span>{' '}
@@ -428,7 +428,7 @@ function ToolFeedbackPrompt() {
       // case 'error':
       //   return (
       //     <div className="flex h-full items-center justify-center">
-      //       <div className="text-center text-sm text-gray-100">
+      //       <div className="text-center text-sm text-text-secondary">
       //         <h1>Error</h1>
       //         <p>{error}</p>
       //       </div>

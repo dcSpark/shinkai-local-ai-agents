@@ -44,12 +44,11 @@ const PaginationLink = ({
   size = 'icon',
   ...props
 }: PaginationLinkProps) => (
-   
   <a
     aria-current={isActive ? 'page' : undefined}
     className={cn(
       buttonVariants({
-        variant: isActive ? 'outline' : 'ghost',
+        variant: isActive ? 'outline' : 'tertiary',
         size,
       }),
       'size-[30px] rounded-lg p-0.5',

@@ -169,7 +169,7 @@ export const Logs = () => {
               <Button
                 onClick={() => navigator.clipboard.writeText(selectedLog || '')}
                 size="sm"
-                variant="ghost"
+                variant="tertiary"
               >
                 Copy to clipboard
               </Button>

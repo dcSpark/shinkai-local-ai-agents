@@ -186,7 +186,7 @@ export const TooConfigOverrideForm = ({
                             }}
                             size="icon"
                             type="button"
-                            variant="ghost"
+                            variant="tertiary"
                           >
                             <Trash className="h-4 w-4" />
                           </Button>

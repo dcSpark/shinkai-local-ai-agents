@@ -868,7 +868,7 @@ const RegularRestoreWalletMnemonic = () => {
                     onClick={() => setShowMnemonic(!showMnemonic)}
                     size="icon"
                     type="button"
-                    variant="ghost"
+                    variant="tertiary"
                   >
                     {showMnemonic ? (
                       <EyeOffIcon aria-hidden="true" className="h-4 w-4" />

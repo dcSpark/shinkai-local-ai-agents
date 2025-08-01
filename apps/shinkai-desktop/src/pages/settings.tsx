@@ -549,7 +549,7 @@ const SettingsPage = () => {
                     className={cn(
                       buttonVariants({
                         size: 'auto',
-                        variant: 'ghost',
+                        variant: 'tertiary',
                       }),
                       'flex cursor-pointer items-start justify-start gap-2 rounded-lg text-xs',
                     )}

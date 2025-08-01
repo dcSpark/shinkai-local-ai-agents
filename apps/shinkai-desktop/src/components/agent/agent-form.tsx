@@ -2485,7 +2485,7 @@ function AgentForm({ mode }: AgentFormProps) {
                                 {/* Assuming only one task is manageable via this form */}
                                 {agent?.cron_tasks?.slice(0, 1).map((task) => (
                                   <div
-                                    className="bg-bg-quaternary flex items-center justify-between rounded-md border p-2"
+                                    className="bg-bg-secondary flex items-center justify-between rounded-md border p-2"
                                     key={task.task_id}
                                   >
                                     <div className="flex items-center gap-2 pl-1">
@@ -2506,7 +2506,7 @@ function AgentForm({ mode }: AgentFormProps) {
                                       }
                                       size="auto"
                                       type="button"
-                                      variant="ghost"
+                                      variant="tertiary"
                                     >
                                       <Trash2 className="h-4 w-4" />
                                     </Button>

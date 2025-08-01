@@ -35,7 +35,7 @@ export default function SubmitButton<
         rounded="lg"
         size="xs"
         type="submit"
-        variant="ghost"
+        variant="tertiary"
       >
         {submitText}
       </Button>

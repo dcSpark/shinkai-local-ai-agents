@@ -319,13 +319,11 @@ export function MainNav() {
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
-              className={cn(
-                'border-border text-text-secondary bg-bg-quaternary hover:bg-bg-tertiary hover:text-text-default h-6 w-6 shrink-0 rounded-lg border p-0',
-              )}
+              className={cn('border-divider h-6 w-6 shrink-0 rounded-lg p-0')}
               onClick={toggleSidebar}
               size="auto"
               type="button"
-              variant="ghost"
+              variant="outline"
             >
               {sidebarExpanded ? (
                 <ArrowLeftToLine className="h-3 w-3" />
@@ -403,8 +401,7 @@ export function MainNav() {
                   <PopoverTrigger asChild>
                     <Button
                       className={cn(
-                        'flex w-full items-center gap-2.5 rounded-lg bg-transparent px-4 py-2.5 transition-colors',
-                        'hover:bg-bg-quaternary hover:text-text-default text-text-tertiary',
+                        'text-text-tertiary flex w-full items-center gap-2.5 rounded-lg bg-transparent px-4 py-2.5 transition-colors',
                       )}
                       size="auto"
                       style={{
@@ -412,7 +409,7 @@ export function MainNav() {
                           ? 'flex-start'
                           : 'center',
                       }}
-                      variant="ghost"
+                      variant="tertiary"
                     >
                       <Ellipsis className="size-[18px]" />
                       <span

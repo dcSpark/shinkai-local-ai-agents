@@ -141,7 +141,7 @@ const QuickConnectionPage = () => {
             className={cn(
               buttonVariants({
                 size: 'icon',
-                variant: 'ghost',
+                variant: 'tertiary',
               }),
             )}
             to={-1 as To}

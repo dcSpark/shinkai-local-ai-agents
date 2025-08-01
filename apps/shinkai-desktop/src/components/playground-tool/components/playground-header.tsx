@@ -246,7 +246,7 @@ function PlaygroundHeaderBase({
                     className="disabled:text-text-secondary size-[30px] rounded-lg p-1 disabled:pointer-events-none disabled:bg-transparent"
                     onClick={goPreviousToolCode}
                     size="auto"
-                    variant="ghost"
+                    variant="tertiary"
                   >
                     <Undo2Icon className="h-4 w-4" />
                   </Button>
@@ -266,7 +266,7 @@ function PlaygroundHeaderBase({
                     className="disabled:text-text-secondary size-[30px] rounded-lg p-1 disabled:pointer-events-none disabled:bg-transparent"
                     onClick={goNextToolCode}
                     size="auto"
-                    variant="ghost"
+                    variant="tertiary"
                   >
                     <Redo2Icon className="h-4 w-4" />
                   </Button>

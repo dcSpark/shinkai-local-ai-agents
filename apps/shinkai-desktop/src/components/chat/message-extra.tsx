@@ -435,7 +435,7 @@ function Payment({
                         setStatus('idle');
                       }}
                       size="sm"
-                      variant="ghost"
+                      variant="tertiary"
                     >
                       Go back
                     </Button>

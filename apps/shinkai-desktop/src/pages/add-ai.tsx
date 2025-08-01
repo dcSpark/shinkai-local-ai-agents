@@ -280,7 +280,7 @@ const AddAIPage = () => {
       className="max-w-lg"
       rightElement={
         <a
-          className={cn(buttonVariants({ variant: 'ghost', size: 'xs' }))}
+          className={cn(buttonVariants({ variant: 'outline', size: 'xs' }))}
           href={getGuideUrl(currentModel)}
           rel="noreferrer"
           target="_blank"

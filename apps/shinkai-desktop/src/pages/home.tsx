@@ -639,9 +639,9 @@ const EmptyMessage = () => {
                                 <Button
                                   className="h-8 w-8 bg-transparent"
                                   size="icon"
-                                  variant="ghost"
+                                  variant="tertiary"
                                 >
-                                  <PlusIcon className="text-text-default h-4 w-4" />
+                                  <PlusIcon className="h-4 w-4" />
                                   <span className="sr-only">Add</span>
                                 </Button>
                               </PopoverTrigger>

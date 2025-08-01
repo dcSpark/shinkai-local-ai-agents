@@ -103,11 +103,11 @@ const Input = ({
       {type === 'password' && !hidePasswordToggle && (
         <Button
           aria-label={showPassword ? 'Hide password' : 'Show password'}
-          className="text-text-secondary absolute top-3 right-3"
+          className="absolute top-3 right-3"
           onClick={togglePasswordVisibility}
           size={'icon'}
           type="button"
-          variant={'ghost'}
+          variant="tertiary"
         >
           {showPassword ? (
             <EyeOffIcon aria-hidden="true" className="h-4 w-4" />

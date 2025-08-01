@@ -184,7 +184,6 @@ const VectorFsItem = ({
                 variant: 'tertiary',
                 size: 'icon',
               }),
-              'hover:bg-bg-quaternary border-0',
             )}
             onClick={(event) => {
               event.stopPropagation();

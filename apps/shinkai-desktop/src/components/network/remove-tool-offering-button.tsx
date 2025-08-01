@@ -92,7 +92,7 @@ export default function RemoveToolOfferingButton({
                 className="min-w-[100px] flex-1"
                 size="sm"
                 type="button"
-                variant="ghost"
+                variant="outline"
               >
                 {t('common.cancel')}
               </Button>

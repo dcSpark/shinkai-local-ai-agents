@@ -471,11 +471,11 @@ function ConversationChatFooter({
                           <TooltipTrigger asChild>
                             <PopoverTrigger asChild>
                               <Button
-                                className="h-8 w-8 bg-transparent"
+                                className="h-8 w-8"
                                 size="icon"
-                                variant="ghost"
+                                variant="tertiary"
                               >
-                                <PlusIcon className="h-4 w-4 text-white" />
+                                <PlusIcon className="h-4 w-4" />
                                 <span className="sr-only">Add</span>
                               </Button>
                             </PopoverTrigger>

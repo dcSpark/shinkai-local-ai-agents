@@ -123,7 +123,7 @@ function ToolFeedbackPrompt() {
                           onClick={() => setIsExitDialogOpen(false)}
                           size="sm"
                           type="button"
-                          variant="ghost"
+                          variant="outline"
                         >
                           Cancel
                         </Button>

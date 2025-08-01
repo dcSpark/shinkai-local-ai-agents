@@ -170,7 +170,7 @@ function MetadataPanelBase({
                 onClick={regenerateToolMetadata}
                 size="xs"
                 type="button"
-                variant="ghost"
+                variant="tertiary"
               >
                 <ReloadIcon className="size-full" />
               </Button>

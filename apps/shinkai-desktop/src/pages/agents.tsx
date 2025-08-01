@@ -353,7 +353,6 @@ const AgentCard = ({
                     variant: 'tertiary',
                     size: 'icon',
                   }),
-                  'border-0 hover:bg-gray-500/40',
                 )}
                 onClick={(event) => {
                   event.stopPropagation();
@@ -464,7 +463,7 @@ const RemoveAgentDrawer = ({
                 className="min-w-[100px] flex-1"
                 size="sm"
                 type="button"
-                variant="ghost"
+                variant="outline"
               >
                 {t('common.cancel')}
               </Button>

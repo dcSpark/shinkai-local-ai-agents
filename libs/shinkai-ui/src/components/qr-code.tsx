@@ -100,7 +100,7 @@ export function QrCodeModal({
               onClick={() => {
                 onOpenChange(false);
               }}
-              variant="ghost"
+              variant="tertiary"
             >
               I saved it, close
             </Button>

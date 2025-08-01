@@ -15,7 +15,7 @@ const buttonVariants = cva(
         destructive:
           'disabled:text-text-secondary bg-red-500 text-gray-50 hover:bg-red-500/90 disabled:bg-gray-200',
         outline:
-          'hover:bg-bg-secondary text-text-secondary hover:text-text-default border border-gray-400 bg-transparent hover:border-gray-400',
+          'hover:bg-bg-secondary text-text-secondary hover:text-text-default border border-gray-500 bg-transparent hover:border-gray-400',
         tertiary:
           'hover:bg-bg-tertiary hover:text-text-default text-text-secondary bg-transparent',
         link: 'text-white underline-offset-4 hover:underline',

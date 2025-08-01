@@ -49,7 +49,8 @@ function VectorFsActionBarBase({
                 actionButtonClassnames,
                 'w-auto gap-2',
                 disabled && 'opacity-50',
-                aiFilesCount > 0 && 'bg-cyan-950 hover:bg-cyan-950',
+                aiFilesCount > 0 &&
+                  'bg-gray-900 text-cyan-400 hover:bg-gray-900 hover:text-cyan-300',
               )}
               disabled={disabled}
               onClick={onClick}

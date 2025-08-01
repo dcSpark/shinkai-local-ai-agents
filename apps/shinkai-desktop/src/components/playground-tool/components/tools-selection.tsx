@@ -51,7 +51,8 @@ export function ToolsSelection({
             className={cn(
               actionButtonClassnames,
               'w-auto gap-2',
-              value.length > 0 && 'bg-cyan-950 hover:bg-cyan-950',
+              value.length > 0 &&
+                'bg-gray-900 text-cyan-400 hover:bg-gray-900 hover:text-cyan-500',
             )}
             role="button"
             tabIndex={0}

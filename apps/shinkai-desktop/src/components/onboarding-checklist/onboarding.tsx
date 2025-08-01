@@ -153,20 +153,20 @@ const stepIconColorMap: {
   [key in GetStartedStatus]?: { icon?: ReactNode; iconClassName?: string };
 } = {
   [GetStartedStatus.NotStarted]: {
-    iconClassName: 'bg-cyan-100/30',
-    icon: <CheckIcon className="w-full text-gray-400" />,
+    iconClassName: 'bg-bg-quaternary',
+    icon: <CheckIcon className="text-text-secondary w-full" />,
   },
   // [StepStatus.Loading]: {
   //   icon: <Loader className="text-brand animate-spin" />,
   //   iconClassName: 'bg-gray-200',
   // },
   [GetStartedStatus.Done]: {
-    icon: <CheckIcon className="w-full text-white" />,
+    icon: <CheckIcon className="text-text-default w-full" />,
     iconClassName: 'bg-cyan-700',
   },
   // [StepStatus.Error]: {
   //   icon: <XCircle />,
-  //   iconClassName: 'bg-red-500 text-white',
+  //   iconClassName: 'bg-red-500 text-text-default',
   // },
 };
 
@@ -205,12 +205,12 @@ export const Stepper = ({ steps }: StepperProps) => {
         {sidebarExpanded && (
           <motion.div
             animate="show"
-            className="mb-2 flex flex-col gap-2 rounded-lg bg-cyan-900/20 p-3.5 py-3 text-xs whitespace-nowrap"
+            className="bg-bg-default mb-2 flex flex-col gap-2 rounded-lg p-3.5 py-3 text-xs whitespace-nowrap"
             exit="hidden"
             initial="hidden"
             transition={showAnimation}
           >
-            <PopoverTrigger className="flex gap-3 rounded-lg p-1 font-medium text-white hover:bg-cyan-800/20 [&[data-state=open]>svg]:rotate-180">
+            <PopoverTrigger className="text-text-default hover:bg-bg-quaternary flex gap-3 rounded-lg p-1 font-medium [&[data-state=open]>svg]:rotate-180">
               {t('onboardingChecklist.getStartedText')}{' '}
               <ChevronDown className="h-4 w-4" />
             </PopoverTrigger>
@@ -248,7 +248,7 @@ export const Stepper = ({ steps }: StepperProps) => {
       </AnimatePresence>
 
       {!sidebarExpanded && (
-        <PopoverTrigger className="relative mt-4 mb-2 flex h-10 w-10 items-center justify-center gap-2 self-center rounded-full bg-cyan-700 text-xs text-white ring-4 ring-cyan-900 transition-colors hover:bg-cyan-900">
+        <PopoverTrigger className="text-text-default bg-bg-default relative mt-4 mb-2 flex h-10 w-10 items-center justify-center gap-2 self-center rounded-full text-xs ring-3 ring-cyan-900 transition-colors hover:bg-cyan-900">
           <Sparkles className="h-4 w-4" />
           <span className="sr-only">
             {t('onboardingChecklist.getStartedText')}
@@ -267,11 +267,11 @@ export const Stepper = ({ steps }: StepperProps) => {
         side="right"
         sideOffset={sidebarExpanded ? 20 : 12}
       >
-        <div className="space-y-2 bg-cyan-900/20 p-3.5">
-          <div className="flex justify-between gap-3 rounded-lg p-1 font-medium text-white">
+        <div className="bg-bg-default space-y-2 p-3.5">
+          <div className="text-text-default flex justify-between gap-3 rounded-lg p-1 font-medium">
             <p>{t('onboardingChecklist.getStartedChecklist')}</p>
             <button
-              className="text-text-secondary hover:text-white"
+              className="text-text-secondary hover:text-text-default"
               onClick={() => setIsPopoverOpen(false)}
             >
               <XIcon className="h-4 w-4" />
@@ -284,7 +284,7 @@ export const Stepper = ({ steps }: StepperProps) => {
         </div>
         {hasCompletedAllSteps && (
           <div>
-            <div className="bg-bg-dark flex justify-center gap-2 p-3">
+            <div className="bg-bg-default flex justify-center gap-2 p-3">
               <span className="text-text-secondary">
                 {t('onboardingChecklist.completedSteps')}
               </span>
@@ -322,14 +322,14 @@ export const Stepper = ({ steps }: StepperProps) => {
                   >
                     <AccordionTrigger
                       className={cn(
-                        'px-3 py-2 text-gray-50 [&>svg]:mt-0 [&>svg]:h-4 [&>svg]:w-4 [&>svg]:stroke-white',
-                        'hover:bg-gray-500 hover:no-underline',
+                        'text-text-default [&>svg]:stroke-text-default px-3 py-2 [&>svg]:mt-0 [&>svg]:h-4 [&>svg]:w-4',
+                        'hover:bg-bg-secondary hover:no-underline',
                       )}
                     >
-                      <div className="flex flex-row items-center gap-2 font-normal text-white capitalize">
+                      <div className="text-text-default flex flex-row items-center gap-2 font-normal capitalize">
                         <div
                           className={cn(
-                            'flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-100 p-1',
+                            'flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gray-500 p-1',
                             stepIconColorMap[stepStatus]?.iconClassName,
                           )}
                         >

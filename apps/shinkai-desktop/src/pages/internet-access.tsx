@@ -98,7 +98,7 @@ const InternetAccessPage = () => {
   return (
     <SimpleLayout classname="max-w-xl" title={t('settings.remoteAccess.title')}>
       <div className="mb-6 flex items-center justify-between">
-        <p className="text-official-gray-400 text-base">
+        <p className="text-text-secondary text-base">
           <Trans
             components={{
               a: (
@@ -185,7 +185,7 @@ const InternetAccessPage = () => {
                             </div>
                             {t('settings.remoteAccess.connected')}
                           </h3>
-                          <p className="text-official-gray-400 text-sm">
+                          <p className="text-text-secondary text-sm">
                             {t(
                               'settings.remoteAccess.publicAccessURLDescription',
                             )}

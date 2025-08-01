@@ -193,7 +193,7 @@ export const NetworkAgentPage = () => {
                         <div className="text-sm font-medium">
                           {t('networkAgentsPage.walletBalance')}
                         </div>
-                        <div className="text-official-gray-400 text-xs">
+                        <div className="text-text-secondary text-xs">
                           {walletInfo?.payment_wallet?.data?.network}
                         </div>
                       </div>
@@ -244,7 +244,7 @@ export const NetworkAgentPage = () => {
               )}
             </div>
           </div>
-          <p className="text-official-gray-400 text-sm whitespace-pre-wrap">
+          <p className="text-text-secondary text-sm whitespace-pre-wrap">
             {selectedTab === 'network'
               ? t('networkAgentsPage.descriptionNetwork')
               : t('networkAgentsPage.descriptionPublished')}
@@ -579,12 +579,12 @@ const AgentCard = ({
         </CardTitle>
 
         {agent.provider && type === 'discover' && (
-          <div className="text-official-gray-400 mb-3 flex items-center gap-2 text-sm">
+          <div className="text-text-secondary mb-3 flex items-center gap-2 text-sm">
             <User className="h-3 w-3" />
             <span>{agent.provider}</span>
           </div>
         )}
-        <CardDescription className="text-official-gray-400 line-clamp-2 h-[44px] text-sm leading-relaxed">
+        <CardDescription className="text-text-secondary line-clamp-2 h-[44px] text-sm leading-relaxed">
           {agent.description}
         </CardDescription>
       </CardHeader>
@@ -602,7 +602,7 @@ const AgentCard = ({
                 )}
               </div>
               {!isFreePricing && (
-                <div className="text-official-gray-400 flex items-center gap-1 text-sm">
+                <div className="text-text-secondary flex items-center gap-1 text-sm">
                   <span>per use</span>
                 </div>
               )}
@@ -653,7 +653,7 @@ const AgentCard = ({
                       <SetupGuide isWalletConnected={!!isWalletConnected} />
                     )}
                     <div className="flex justify-between py-2">
-                      <span className="text-official-gray-400 text-sm">
+                      <span className="text-text-secondary text-sm">
                         {t('networkAgentsPage.toolRouterKey')}
                       </span>
                       <span className="font-mono text-xs break-all">
@@ -668,7 +668,7 @@ const AgentCard = ({
                           <p className="font-medium">
                             {t('networkAgentsPage.costPerUse')}
                           </p>
-                          <p className="text-official-gray-400 text-sm">
+                          <p className="text-text-secondary text-sm">
                             {t('networkAgentsPage.costPerUseDescription')}
                           </p>
                         </div>
@@ -694,7 +694,7 @@ const AgentCard = ({
                           <p className="text-sm font-medium text-cyan-400">
                             {t('networkAgentsPage.howPaymentsWork')}
                           </p>
-                          <p className="text-official-gray-400 text-sm">
+                          <p className="text-text-secondary text-sm">
                             {t('networkAgentsPage.howPaymentsWorkDescription', {
                               network:
                                 agent?.apiData?.tool_offering?.usage_type
@@ -874,7 +874,7 @@ export const InstallAgentModal = ({
             </div> */}
             <span>Add {agent.name}</span>
           </DialogTitle>
-          <DialogDescription className="text-official-gray-400">
+          <DialogDescription className="text-text-secondary">
             {step === 1 && t('networkAgentsPage.addAgent')}
             {step === 2 && t('networkAgentsPage.addedSuccess')}
           </DialogDescription>
@@ -925,12 +925,12 @@ export const InstallAgentModal = ({
                   <h3 className="text-text-default text-lg font-semibold">
                     {agent.name}
                   </h3>
-                  <p className="text-official-gray-400 text-sm">
+                  <p className="text-text-secondary text-sm">
                     by {agent.provider}
                   </p>
                 </div>
               </div>
-              <p className="text-official-gray-400 text-sm leading-relaxed">
+              <p className="text-text-secondary text-sm leading-relaxed">
                 {agent.description}
               </p>
 
@@ -978,7 +978,7 @@ export const InstallAgentModal = ({
             <h3 className="text-text-default mb-2 text-base font-semibold">
               {t('networkAgentsPage.addedSuccess')}
             </h3>
-            <p className="text-official-gray-400 mb-6 text-sm">
+            <p className="text-text-secondary mb-6 text-sm">
               {t('networkAgentsPage.addedDescription', { name: agent.name })}
             </p>
             <div className="mx-auto flex w-full max-w-sm gap-3">

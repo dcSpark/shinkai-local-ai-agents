@@ -568,7 +568,7 @@ export const FileInputField = ({ value, onChange }: FieldProps) => {
       />
       {value && (
         <div className="inline-flex items-center gap-2">
-          <span className="text-official-gray-400">File Path:</span>
+          <span className="text-text-secondary">File Path:</span>
           <Tooltip>
             <TooltipTrigger asChild>
               <span className="text-white">{value?.split('/')?.at(-1)}</span>

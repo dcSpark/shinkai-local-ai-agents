@@ -124,7 +124,7 @@ export function AIModelSelectorBase({
           value={value}
         >
           <CommandInput placeholder="Search..." />
-          <CommandEmpty className="text-official-gray-400 py-5 text-center text-sm">
+          <CommandEmpty className="text-text-secondary py-5 text-center text-sm">
             No results found.
           </CommandEmpty>
           <CommandList className="flex max-h-full flex-col overflow-y-auto">

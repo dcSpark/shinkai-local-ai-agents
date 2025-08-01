@@ -78,7 +78,7 @@ function KeyCombo({ combo }: { combo: string[] }) {
 const ShortcutsPage = () => {
   return (
     <SimpleLayout classname="max-w-xl" title="Shortcuts">
-      <p className="text-official-gray-400">
+      <p className="text-text-secondary">
         Here you can view all available keyboard shortcuts for the app.
       </p>
       <div className="space-y-10 py-4">

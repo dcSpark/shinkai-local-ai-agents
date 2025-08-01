@@ -1236,7 +1236,7 @@ export default function ToolDetailsCard({
               !(tool.input_args as any).properties ||
               Object.keys((tool.input_args as any).properties).length ===
                 0) && (
-              <div className="text-official-gray-400 py-2 text-sm">
+              <div className="text-text-secondary py-2 text-sm">
                 No input parameters required.
               </div>
             )}

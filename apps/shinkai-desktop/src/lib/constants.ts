@@ -29,7 +29,7 @@ export const treeOptions: TreePassThroughOptions = {
   node: { className: 'p-0 outline-hidden' },
   content: {
     className: cn(
-      'text-official-gray-400 hover:bg-official-gray-850 mb-1 rounded-lg !bg-transparent p-1 !py-0 shadow-none hover:text-white',
+      'text-text-secondary hover:bg-official-gray-850 mb-1 rounded-lg !bg-transparent p-1 !py-0 shadow-none hover:text-white',
       'cursor-pointer select-none',
     ),
   },

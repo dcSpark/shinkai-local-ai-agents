@@ -174,7 +174,7 @@ export const McpServerCard = ({
                             </div>
                             {tool.description && (
                               <MarkdownText
-                                className="text-official-gray-400"
+                                className="text-text-secondary"
                                 content={tool.description}
                               />
                             )}
@@ -182,7 +182,7 @@ export const McpServerCard = ({
                           {Object.keys((tool.input_args || {}).properties || {})
                             .length > 0 && (
                             <Collapsible>
-                              <CollapsibleTrigger className="text-official-gray-400 bg-official-gray-900 mt-2 flex w-full cursor-pointer items-center justify-between rounded-lg p-2 text-left hover:text-white [&[data-state=open]]:rounded-b-none [&[data-state=open]>svg]:rotate-180">
+                              <CollapsibleTrigger className="text-text-secondary bg-official-gray-900 mt-2 flex w-full cursor-pointer items-center justify-between rounded-lg p-2 text-left hover:text-white [&[data-state=open]]:rounded-b-none [&[data-state=open]>svg]:rotate-180">
                                 <span className="text-sm">
                                   View Input Parameters
                                 </span>
@@ -197,7 +197,7 @@ export const McpServerCard = ({
                                       <span className="mr-2 text-sm text-white">
                                         {key}
                                       </span>
-                                      <span className="text-official-gray-400 text-sm">
+                                      <span className="text-text-secondary text-sm">
                                         {
                                           tool.input_args?.properties?.[key]
                                             ?.description

@@ -78,13 +78,13 @@ export const McpRegistryPage = () => {
                   className={cn(
                     'flex items-center gap-4 rounded-full px-4 py-1.5 text-base font-medium transition-colors',
                     'data-[state=active]:bg-official-gray-800 data-[state=active]:text-white',
-                    'data-[state=inactive]:text-official-gray-400 data-[state=inactive]:bg-transparent',
+                    'data-[state=inactive]:text-text-secondary data-[state=inactive]:bg-transparent',
                     'focus-visible:outline-hidden',
                   )}
                   value="mcp_servers"
                 >
                   {t('mcpServers.label')}
-                  <span className="text-official-gray-400 inline-flex items-center gap-1 text-xs">
+                  <span className="text-text-secondary inline-flex items-center gap-1 text-xs">
                     MCP <MoveRightIcon className="size-2.5" /> Shinkai
                   </span>
                 </TabsTrigger>
@@ -92,26 +92,26 @@ export const McpRegistryPage = () => {
                   className={cn(
                     'flex items-center gap-4 rounded-full px-4 py-1.5 text-base font-medium transition-colors',
                     'data-[state=active]:bg-official-gray-800 data-[state=active]:text-white',
-                    'data-[state=inactive]:text-official-gray-400 data-[state=inactive]:bg-transparent',
+                    'data-[state=inactive]:text-text-secondary data-[state=inactive]:bg-transparent',
                     'focus-visible:outline-hidden',
                   )}
                   value="expose_tools"
                 >
                   {t('mcpPage.exposeToolsTab')}
-                  <span className="text-official-gray-400 inline-flex items-center gap-1 text-xs">
+                  <span className="text-text-secondary inline-flex items-center gap-1 text-xs">
                     Shinkai <MoveRightIcon className="size-2.5" /> MCP
                   </span>
                 </TabsTrigger>
               </TabsList>
             </div>
           </div>
-          <p className="text-official-gray-400 text-sm whitespace-pre-wrap">
+          <p className="text-text-secondary text-sm whitespace-pre-wrap">
             {selectedTab === 'mcp_servers'
               ? t('mcpPage.mcpServersDescription')
               : t('mcpPage.exposeToolsDescription')}
           </p>
           {selectedTab === 'mcp_servers' && (
-            <p className="text-official-gray-400 text-sm">
+            <p className="text-text-secondary text-sm">
               {t('mcpPage.helpfulLinks')}{' '}
               <a
                 href="http://smithery.ai"
@@ -259,7 +259,7 @@ const ExposeToolsAsMcp = () => {
             value={selectedMCCategory}
           >
             <ToggleGroupItem
-              className="data-[state=on]:bg-official-gray-850 text-official-gray-400 rounded-full bg-transparent px-5 py-1.5 text-xs font-medium data-[state=on]:text-white"
+              className="data-[state=on]:bg-official-gray-850 text-text-secondary rounded-full bg-transparent px-5 py-1.5 text-xs font-medium data-[state=on]:text-white"
               key="all"
               size="sm"
               value="all"
@@ -277,7 +277,7 @@ const ExposeToolsAsMcp = () => {
               },
             ].map((tool) => (
               <ToggleGroupItem
-                className="data-[state=on]:bg-official-gray-850 text-official-gray-400 rounded-full bg-transparent px-5 py-1.5 text-xs font-medium data-[state=on]:text-white"
+                className="data-[state=on]:bg-official-gray-850 text-text-secondary rounded-full bg-transparent px-5 py-1.5 text-xs font-medium data-[state=on]:text-white"
                 key={tool.value}
                 size="sm"
                 value={tool.value}
@@ -324,7 +324,7 @@ const ExposeToolsAsMcp = () => {
         <div className="divide-official-gray-780 grid grid-cols-1 divide-y py-4">
           {filteredToolsList?.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-8">
-              <p className="text-official-gray-400 text-sm">
+              <p className="text-text-secondary text-sm">
                 {t('tools.noToolsInCategory')}
               </p>
             </div>
@@ -416,7 +416,7 @@ const ExposeToolsAsMcp = () => {
                 <code>{customSseUrl}</code>
                 <CopyToClipboardIcon
                   className={cn(
-                    'text-official-gray-400 absolute top-2 right-2 h-7 w-7 border border-gray-200 bg-transparent hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
+                    'text-text-secondary absolute top-2 right-2 h-7 w-7 border border-gray-200 bg-transparent hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
                   )}
                   string={customSseUrl}
                 />
@@ -430,7 +430,7 @@ const ExposeToolsAsMcp = () => {
                 <code>{customCommand}</code>
                 <CopyToClipboardIcon
                   className={cn(
-                    'text-official-gray-400 absolute top-2 right-2 h-7 w-7 border border-gray-200 bg-transparent hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
+                    'text-text-secondary absolute top-2 right-2 h-7 w-7 border border-gray-200 bg-transparent hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
                   )}
                   string={customCommand}
                 />
@@ -500,12 +500,12 @@ const McpCard = ({
             </Badge>
           )}
         </div>
-        <p className="text-official-gray-400 line-clamp-2 text-sm">
+        <p className="text-text-secondary line-clamp-2 text-sm">
           {toolDescription}
         </p>
-        <p className="text-official-gray-400 text-xs">{toolAuthor}</p>
+        <p className="text-text-secondary text-xs">{toolAuthor}</p>
       </div>
-      <div className="text-official-gray-400 flex items-center gap-4 text-xs">
+      <div className="text-text-secondary flex items-center gap-4 text-xs">
         {requiredConfig && (
           <Link
             className={cn(

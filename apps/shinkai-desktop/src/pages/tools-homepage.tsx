@@ -36,7 +36,7 @@ export function ToolsPage() {
               <h3 className="font-clash max-w-xl text-2xl font-semibold tracking-normal">
                 Discover More Tools
               </h3>
-              <p className="text-official-gray-400 max-w-xl text-base leading-relaxed tracking-tight">
+              <p className="text-text-secondary max-w-xl text-base leading-relaxed tracking-tight">
                 Explore and install tools from our App Store to boost your
                 productivity and automate your workflow.
               </p>

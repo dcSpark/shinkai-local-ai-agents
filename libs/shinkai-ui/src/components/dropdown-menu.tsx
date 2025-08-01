@@ -147,7 +147,7 @@ const DropdownMenuLabel = ({
 }) => (
   <DropdownMenuPrimitive.Label
     className={cn(
-      'text-official-gray-400 text-xs tracking-[2px] uppercase',
+      'text-text-secondary text-xs tracking-[2px] uppercase',
       inset && 'pl-8',
       className,
     )}

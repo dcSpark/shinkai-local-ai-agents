@@ -217,8 +217,8 @@ export const MessageBase = ({
                       <ChatInputArea
                         bottomAddons={
                           <div className="flex w-full items-center justify-between px-1">
-                            <div className="text-em-xs text-official-gray-400 flex items-center gap-1">
-                              <InfoIcon className="text-official-gray-400 h-3 w-3" />
+                            <div className="text-em-xs text-text-secondary flex items-center gap-1">
+                              <InfoIcon className="text-text-secondary h-3 w-3" />
                               <span>{t('chat.editMessage.warning')}</span>
                             </div>
                             <div className="flex items-center gap-2">
@@ -316,7 +316,7 @@ export const MessageBase = ({
                                 <span className="font-medium text-white">
                                   {tool.name}(
                                   {Object.keys(tool.args).length > 0 && (
-                                    <span className="text-official-gray-400 font-mono font-medium">
+                                    <span className="text-text-secondary font-mono font-medium">
                                       <PrettyJsonPrint json={tool.args} />
                                     </span>
                                   )}
@@ -326,7 +326,7 @@ export const MessageBase = ({
                               {tool.result && (
                                 <div>
                                   <span>Response:</span>
-                                  <span className="text-official-gray-400 font-mono break-all">
+                                  <span className="text-text-secondary font-mono break-all">
                                     <PrettyJsonPrint json={tool.result} />
                                   </span>
                                 </div>
@@ -342,7 +342,7 @@ export const MessageBase = ({
                   <MarkdownText
                     className={cn(
                       message.reasoning?.status?.type === 'running' &&
-                        'text-official-gray-400',
+                        'text-text-secondary',
                     )}
                     content={extractErrorPropertyOrContent(
                       message.content
@@ -365,7 +365,7 @@ export const MessageBase = ({
                   ) &&
                   message.content === '' && (
                     <div className="pt-1.5 whitespace-pre-line">
-                      <span className="text-official-gray-400 text-xs">
+                      <span className="text-text-secondary text-xs">
                         Executing tools
                       </span>
                     </div>
@@ -377,7 +377,7 @@ export const MessageBase = ({
                   ) &&
                   message.content === '' && (
                     <div className="pt-1.5 whitespace-pre-line">
-                      <span className="text-official-gray-400 text-xs">
+                      <span className="text-text-secondary text-xs">
                         Getting AI response
                       </span>
                     </div>
@@ -423,7 +423,7 @@ export const MessageBase = ({
                         {t('tools.setupRequired')}
                       </div>
                     </p>
-                    <p className="text-em-base text-official-gray-400 mb-5 leading-relaxed">
+                    <p className="text-em-base text-text-secondary mb-5 leading-relaxed">
                       {t('tools.setupDescription')}
                     </p>
                     <Link to={`/tools/${configDeepLinkToolRouterKey}`}>
@@ -482,7 +482,7 @@ export const MessageBase = ({
                         <TooltipTrigger asChild>
                           <button
                             className={cn(
-                              'text-official-gray-400 flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
+                              'text-text-secondary flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
                             )}
                             onClick={handleRetryMessage}
                           >
@@ -564,10 +564,10 @@ export function ToolCard({
       return <ToolsIcon className="text-brand size-full" />;
     }
     if (status === ToolStatusType.Incomplete) {
-      return <XCircle className="text-official-gray-400 size-full" />;
+      return <XCircle className="text-text-secondary size-full" />;
     }
     if (status === ToolStatusType.RequiresAction) {
-      return <InfoIcon className="text-official-gray-400 size-full" />;
+      return <InfoIcon className="text-text-secondary size-full" />;
     }
     return <Loader2 className="text-brand size-full animate-spin" />;
   };
@@ -622,7 +622,7 @@ export function Reasoning({
       return <ReasoningIcon className="text-brand size-full" />;
     }
     if (status?.type === 'incomplete') {
-      return <XCircle className="text-official-gray-400 size-full" />;
+      return <XCircle className="text-text-secondary size-full" />;
     }
     if (status?.type === 'running') {
       return null;
@@ -685,7 +685,7 @@ export function Reasoning({
           </AnimatePresence>
         </AccordionTrigger>
         <AccordionContent className="bg-official-gray-950 flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3 text-sm">
-          <span className="text-official-gray-400 whitespace-pre-line break-words">
+          <span className="text-text-secondary break-words whitespace-pre-line">
             {reasoning}
           </span>
         </AccordionContent>
@@ -701,9 +701,7 @@ export const GeneratedFiles = ({ toolCalls }: { toolCalls: ToolCall[] }) => {
       (tool) => !!tool.generatedFiles && tool.generatedFiles.length > 0,
     ) && (
       <div className="mt-4 space-y-1 py-4 pt-1.5">
-        <span className="text-official-gray-400 text-em-sm">
-          Generated Files
-        </span>
+        <span className="text-text-secondary text-em-sm">Generated Files</span>
         <div className="flex flex-wrap items-start gap-4 rounded-md">
           {toolCalls.map((tool) => {
             if (!tool.generatedFiles || !tool.generatedFiles.length)

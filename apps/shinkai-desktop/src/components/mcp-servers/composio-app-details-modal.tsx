@@ -83,7 +83,7 @@ export const ComposioAppDetailsModal = ({
                       onError={() => setImageError(true)}
                     />
                   ) : (
-                    <div className="text-official-gray-400 flex h-full w-full items-center justify-center text-xs font-medium">
+                    <div className="text-text-secondary flex h-full w-full items-center justify-center text-xs font-medium">
                       {app?.name?.[0]?.toUpperCase() || 'A'}
                     </div>
                   )}

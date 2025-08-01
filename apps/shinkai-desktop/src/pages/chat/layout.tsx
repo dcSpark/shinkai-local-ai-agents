@@ -573,7 +573,7 @@ const AgentInboxList = ({ agentId }: { agentId?: string }) => {
       </div>
       <div className="flex flex-col gap-2 py-4">
         {isSuccess && agentInboxes.length === 0 && (
-          <p className="text-official-gray-400 py-3 text-center text-xs">
+          <p className="text-text-secondary py-3 text-center text-xs">
             {t('chat.actives.notFound')}
           </p>
         )}

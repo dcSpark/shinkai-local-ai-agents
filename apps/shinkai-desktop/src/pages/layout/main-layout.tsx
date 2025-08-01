@@ -148,7 +148,7 @@ const NavLink = ({
         'flex w-full items-center gap-2.5 rounded-lg px-4 py-3 transition-colors',
         isMatch
           ? 'bg-bg-quaternary text-text-default'
-          : 'hover:bg-bg-quaternary hover:text-text-default text-text-tertiary',
+          : 'hover:bg-bg-quaternary hover:text-text-default text-text-secondary',
       )}
       onClick={onClick}
       rel={external ? 'noreferrer' : ''}

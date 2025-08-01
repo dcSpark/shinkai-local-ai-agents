@@ -169,10 +169,10 @@ function PlaygroundHeaderBase({
   };
 
   return (
-    <div className="flex items-center justify-between gap-2 border-b border-gray-400 px-4 pb-2.5">
+    <div className="border-divider flex items-center justify-between gap-2 border-b px-4 pb-2.5">
       <div className="flex items-center gap-2">
         <Button
-          className="text-gray-80 border-none"
+          className="text-text-secondary border-none"
           onClick={() => {
             resetPlaygroundStore();
             void navigate('/tools');

@@ -195,34 +195,41 @@ export const MessageList = memo(
           !isFetchingPreviousPage &&
           !hasPreviousPage &&
           (paginatedMessages?.pages ?? [])?.length > 1 && (
-            <div className="py-2 text-center text-xs text-gray-100">
+            <div className="text-text-secondary py-2 text-center text-xs">
               {noMoreMessageLabel}
             </div>
           )}
         <div className="">
           {isLoading && (
-            <div className="flex flex-col space-y-8">
+            <div className="container flex flex-col space-y-8">
               {[...Array(10).keys()].map((index) => (
                 <div
                   className={cn(
                     'flex w-[85%] gap-2',
-                    index % 2 === 0
-                      ? 'ml-0 mr-auto flex-row items-end'
-                      : 'ml-auto mr-0 flex-row-reverse items-start',
+                    index % 2 !== 0
+                      ? 'mr-auto ml-0 flex-col'
+                      : 'mr-0 ml-auto w-[300px] items-start',
                   )}
                   key={`${index}`}
                 >
-                  <Skeleton
-                    className="h-8 w-8 shrink-0 rounded-full bg-gray-300"
-                    key={index}
-                  />
+                  {index % 2 !== 0 ? (
+                    <div className="flex items-center justify-start gap-2">
+                      <Skeleton
+                        className="size-6 shrink-0 rounded-full"
+                        key={index}
+                      />
+                      <Skeleton
+                        className="h-6 w-[100px] shrink-0 rounded-md"
+                        key={index}
+                      />
+                    </div>
+                  ) : null}
                   <Skeleton
                     className={cn(
                       'w-full rounded-lg px-2.5 py-3',
-                      index % 2 === 0
-                        ? 'h-24 rounded-bl-none bg-gray-300'
-                        : 'h-16 rounded-tr-none bg-gray-200',
-                      index % 3 === 0 && 'h-32',
+                      index % 2 !== 0
+                        ? 'bg-bg-secondary h-32 rounded-bl-none'
+                        : 'h-10',
                     )}
                   />
                 </div>
@@ -236,22 +243,23 @@ export const MessageList = memo(
                   className={cn(
                     'flex w-[85%] gap-2',
                     index % 2 === 0
-                      ? 'ml-0 mr-auto flex-row items-end'
-                      : 'ml-auto mr-0 flex-row-reverse items-start',
+                      ? 'mr-auto ml-0 flex-col'
+                      : 'mr-0 ml-auto w-[300px] items-start',
                   )}
                   key={`${index}`}
                 >
-                  <Skeleton
-                    className="h-8 w-8 shrink-0 rounded-full bg-gray-300"
-                    key={index}
-                  />
+                  {index % 2 !== 0 ? (
+                    <Skeleton
+                      className="bg-bg-quaternary size-6 shrink-0 rounded-full"
+                      key={index}
+                    />
+                  ) : null}
                   <Skeleton
                     className={cn(
                       'w-full rounded-lg px-2.5 py-3',
-                      index % 2 === 0
-                        ? 'h-24 rounded-bl-none bg-gray-300'
-                        : 'h-16 rounded-tr-none bg-gray-200',
-                      index % 3 === 0 && 'h-32',
+                      index % 2 !== 0
+                        ? 'bg-bg-secondary h-32 rounded-bl-none'
+                        : 'h-10',
                     )}
                   />
                 </div>
@@ -267,11 +275,11 @@ export const MessageList = memo(
                       {!minimalistMode && (
                         <div
                           className={cn(
-                            'bg-official-gray-900 relative z-10 m-auto my-2 flex h-[26px] w-fit min-w-[100px] items-center justify-center rounded-xl px-2.5 capitalize',
+                            'bg-bg-tertiary relative z-10 m-auto my-2 flex h-[26px] w-fit min-w-[100px] items-center justify-center rounded-xl px-2.5 capitalize',
                             'sticky top-5',
                           )}
                         >
-                          <span className="text-official-gray-200 text-sm font-medium">
+                          <span className="text-text-tertiary text-sm font-medium">
                             {getRelativeDateLabel(
                               new Date(messages[0].createdAt || ''),
                             )}

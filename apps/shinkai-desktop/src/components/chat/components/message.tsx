@@ -405,7 +405,7 @@ export const MessageBase = ({
                       {message.toolCalls.map((tool, index) => {
                         return (
                           <AccordionItem
-                            className="bg-official-gray-950 border-official-gray-750 overflow-hidden rounded-lg border"
+                            className="bg-bg-secondary border-divider overflow-hidden rounded-lg border"
                             disabled={tool.status !== ToolStatusType.Complete}
                             key={`${tool.name}-${index}`}
                             value={`${tool.name}-${index}`}
@@ -439,12 +439,12 @@ export const MessageBase = ({
                                 Network Tracing
                               </Button>
                             </div>
-                            <AccordionContent className="bg-official-gray-950 flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3 text-xs">
+                            <AccordionContent className="bg-bg-secondary flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3 text-xs">
                               {Object.keys(tool.args).length > 0 && (
-                                <span className="font-medium text-white">
+                                <span className="text-text-default font-medium">
                                   {tool.name}(
                                   {Object.keys(tool.args).length > 0 && (
-                                    <span className="text-official-gray-400 font-mono font-medium">
+                                    <span className="text-text-secondary font-mono font-medium">
                                       <PrettyJsonPrint json={tool.args} />
                                     </span>
                                   )}
@@ -454,7 +454,7 @@ export const MessageBase = ({
                               {tool.result && (
                                 <div>
                                   <span>Response:</span>
-                                  <span className="text-official-gray-400 font-mono break-all">
+                                  <span className="text-text-secondary font-mono break-all">
                                     <PrettyJsonPrint json={tool.result} />
                                   </span>
                                 </div>
@@ -809,10 +809,10 @@ export function ToolCard({
       return <ToolsIcon className="text-brand size-full" />;
     }
     if (status === ToolStatusType.Incomplete) {
-      return <XCircle className="text-official-gray-400 size-full" />;
+      return <XCircle className="text-text-secondary size-full" />;
     }
     if (status === ToolStatusType.RequiresAction) {
-      return <InfoIcon className="text-official-gray-400 size-full" />;
+      return <InfoIcon className="text-text-secondary size-full" />;
     }
     return <Loader2 className="text-brand size-full animate-spin" />;
   };
@@ -844,11 +844,11 @@ export function ToolCard({
         <div className="flex items-center gap-1 p-[5px]">
           <div className="size-7 shrink-0 px-1.5">{renderStatus()}</div>
           <div className="flex items-center gap-1">
-            <span className="text-official-gray-400 text-em-sm">
+            <span className="text-text-secondary text-em-sm">
               {renderLabelText()}
             </span>
             <Link
-              className="text-em-sm font-semibold text-white hover:underline"
+              className="text-em-sm font-semibold hover:underline"
               to={`/tools/${toolRouterKey}`}
             >
               {formatText(name)}
@@ -872,7 +872,7 @@ export function Reasoning({
       return <ReasoningIcon className="text-brand size-full" />;
     }
     if (status?.type === 'incomplete') {
-      return <XCircle className="text-official-gray-400 size-full" />;
+      return <XCircle className="text-text-secondary size-full" />;
     }
     if (status?.type === 'running') {
       return null;
@@ -895,7 +895,7 @@ export function Reasoning({
     >
       <AccordionItem
         className={cn(
-          'bg-official-gray-950 border-official-gray-750 overflow-hidden rounded-lg border',
+          'bg-bg-tertiary border-divider overflow-hidden rounded-lg border',
           status?.type === 'running' &&
             'animate-pulse border-none bg-transparent',
         )}
@@ -904,7 +904,7 @@ export function Reasoning({
         <AccordionTrigger
           className={cn(
             'inline-flex w-auto gap-3 p-[5px] no-underline hover:no-underline',
-            'hover:bg-official-gray-900 transition-colors',
+            'hover:bg-bg-secondary transition-colors',
             status?.type === 'running' && 'p-0',
           )}
           hideArrow={status?.type === 'running'}
@@ -920,8 +920,8 @@ export function Reasoning({
             >
               <div
                 className={cn(
-                  'text-official-gray-300 flex items-center gap-1',
-                  status?.type === 'running' && 'text-official-gray-200',
+                  'text-text-secondary flex items-center gap-1',
+                  status?.type === 'running' && 'text-text-tertiary',
                 )}
               >
                 {renderStatus() && (
@@ -934,8 +934,8 @@ export function Reasoning({
             </motion.div>
           </AnimatePresence>
         </AccordionTrigger>
-        <AccordionContent className="bg-official-gray-950 flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3 text-sm">
-          <span className="text-official-gray-400 break-words whitespace-pre-line">
+        <AccordionContent className="bg-bg-secondary flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3 text-sm">
+          <span className="text-text-secondary break-words whitespace-pre-line">
             {reasoning}
           </span>
         </AccordionContent>
@@ -951,9 +951,7 @@ export const GeneratedFiles = ({ toolCalls }: { toolCalls: ToolCall[] }) => {
       (tool) => !!tool.generatedFiles && tool.generatedFiles.length > 0,
     ) && (
       <div className="mt-4 space-y-1 py-4 pt-1.5">
-        <span className="text-official-gray-400 text-em-sm">
-          Generated Files
-        </span>
+        <span className="text-text-secondary text-em-sm">Generated Files</span>
         <div className="flex flex-wrap items-start gap-4 rounded-md">
           {toolCalls.map((tool) => {
             if (!tool.generatedFiles || !tool.generatedFiles.length)

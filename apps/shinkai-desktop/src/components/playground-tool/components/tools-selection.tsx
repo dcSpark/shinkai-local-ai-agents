@@ -106,7 +106,7 @@ export function ToolsSelection({
                   }
                 }}
               />
-              <label className="text-xs text-gray-50" htmlFor="all">
+              <label className="text-text-secondary text-xs" htmlFor="all">
                 Enabled All
               </label>
             </div>
@@ -158,14 +158,14 @@ export function ToolsSelection({
                         />
                         <div className="inline-flex flex-1 items-center gap-2 leading-none">
                           <label
-                            className="max-w-[40ch] truncate text-xs text-gray-50"
+                            className="text-text-default max-w-[40ch] truncate text-xs"
                             htmlFor={tool.tool_router_key}
                           >
                             {formatText(tool.name)}
                           </label>
                           <Tooltip>
                             <TooltipTrigger className="flex shrink-0 items-center gap-1">
-                              <InfoCircleIcon className="h-3 w-3 text-gray-100" />
+                              <InfoCircleIcon className="text-text-tertiary h-3 w-3" />
                             </TooltipTrigger>
                             <TooltipPortal>
                               <TooltipContent
@@ -186,7 +186,7 @@ export function ToolsSelection({
                               className="flex shrink-0 items-center gap-1"
                             >
                               <Link
-                                className="text-gray-80 size-3.5 rounded-lg hover:text-white"
+                                className="text-text-secondary hover:text-text-default size-3.5 rounded-lg"
                                 to={`/tools/${tool.tool_router_key}`}
                               >
                                 <BoltIcon className="size-full" />

@@ -133,9 +133,9 @@ function MetadataPanelBase({
   return (
     <div
       className={cn(
-        'flex h-full flex-col pb-4 pl-4 pr-3',
+        'bg-bg-dark flex h-full flex-col pr-3 pb-4 pl-4',
         validateMetadataEditorValue !== null &&
-          'ring-1 ring-inset ring-red-600 transition-shadow',
+          'ring-1 ring-red-600 transition-shadow ring-inset',
       )}
     >
       {isMetadataGenerationSuccess && (
@@ -149,7 +149,7 @@ function MetadataPanelBase({
               </TooltipTrigger>
               <TooltipPortal>
                 <TooltipContent
-                  className="bg-official-gray-1000 flex max-w-[300px] flex-col gap-2.5 text-xs text-white"
+                  className="text-text-default flex max-w-[300px] flex-col gap-2.5 text-xs"
                   side="bottom"
                 >
                   <p className="font-medium">Invalid metadata format</p>
@@ -177,7 +177,7 @@ function MetadataPanelBase({
             </TooltipTrigger>
             <TooltipPortal>
               <TooltipContent
-                className="bg-official-gray-1000 flex max-w-[300px] flex-col gap-2.5 text-xs text-white"
+                className="text-text-default flex max-w-[300px] flex-col gap-2.5 text-xs"
                 side="bottom"
               >
                 <p>Regenerate metadata</p>

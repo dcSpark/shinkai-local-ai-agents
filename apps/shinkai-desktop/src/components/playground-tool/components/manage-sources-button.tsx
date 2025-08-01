@@ -111,23 +111,25 @@ function ManageSourcesButtonBase() {
         <div
           {...getRootFileProps({
             className:
-              'dropzone py-4 bg-gray-400 group relative  flex cursor-pointer items-center justify-center overflow-hidden rounded-lg border border-dashed border-gray-200 transition-colors hover:border-gray-100',
+              'dropzone py-4 bg-bg-secondary group relative  flex cursor-pointer items-center justify-center overflow-hidden rounded-lg border border-dashed border-divider transition-colors hover:border-gray-400',
           })}
         >
           <div className="flex flex-col items-center justify-center space-y-1 px-2">
-            <div className="bg-gray-350 rounded-full p-2 shadow-xs">
+            <div className="bg-bg-quaternary rounded-full p-2 shadow-xs">
               <Upload className="h-4 w-4" />
             </div>
-            <p className="text-sm text-white">{t('common.clickToUpload')}</p>
+            <p className="text-text-default text-sm">
+              {t('common.clickToUpload')}
+            </p>
 
-            <p className="text-gray-80 line-clamp-1 text-xs">
+            <p className="text-text-secondary line-clamp-1 text-xs">
               {t('common.uploadAFileDescription')}
             </p>
           </div>
 
           <input {...getInputFileProps({})} />
         </div>
-        <Separator className="my-1 bg-gray-200" orientation="horizontal" />
+        <Separator className="my-1" orientation="horizontal" />
         <div
           className={cn(
             'flex flex-1 flex-col gap-2 overflow-y-auto pr-2',
@@ -135,14 +137,14 @@ function ManageSourcesButtonBase() {
           )}
         >
           {isGetAllToolAssetsSuccess && assets.length === 0 && (
-            <span className="text-gray-80 text-center text-xs">
+            <span className="text-text-secondary text-center text-xs">
               No files uploaded yet.
             </span>
           )}
           {isUploadingAssets && (
             <div className="flex flex-col items-center gap-2">
-              <Loader2 className="text-gray-80 shrink-0 animate-spin" />
-              <span className="text-gray-80 text-center text-xs">
+              <Loader2 className="text-text-secondary shrink-0 animate-spin" />
+              <span className="text-text-secondary text-center text-xs">
                 Uploading files...
               </span>
             </div>
@@ -150,10 +152,10 @@ function ManageSourcesButtonBase() {
           {isGetAllToolAssetsSuccess &&
             assets.map((asset) => (
               <div
-                className="border-official-gray-780 flex items-center justify-between gap-2 overflow-hidden rounded-lg border px-1.5 py-2"
+                className="border-divider flex items-center justify-between gap-2 overflow-hidden rounded-lg border px-1.5 py-2"
                 key={asset}
               >
-                <div className="flex items-center gap-2 overflow-hidden text-gray-50">
+                <div className="text-text-secondary flex items-center gap-2 overflow-hidden">
                   <div className="flex aspect-square w-4.5 shrink-0 items-center justify-center">
                     {getFileExt(asset) && fileIconMap[getFileExt(asset)] ? (
                       <FileTypeIcon
@@ -161,7 +163,7 @@ function ManageSourcesButtonBase() {
                         type={getFileExt(asset)}
                       />
                     ) : (
-                      <Paperclip className="text-gray-80 h-3.5 w-3.5 shrink-0" />
+                      <Paperclip className="text-text-secondary h-3.5 w-3.5 shrink-0" />
                     )}
                   </div>
                   <Tooltip delayDuration={1000}>
@@ -178,7 +180,7 @@ function ManageSourcesButtonBase() {
                   </Tooltip>
                 </div>
                 <Button
-                  className="text-gray-80 !size-5 shrink-0 border-0 p-0.5 hover:text-white"
+                  className="text-text-secondary hover:text-text-default !size-5 shrink-0 border-0 p-0.5"
                   onClick={async () => {
                     await removeAsset({
                       nodeAddress: auth?.node_address ?? '',

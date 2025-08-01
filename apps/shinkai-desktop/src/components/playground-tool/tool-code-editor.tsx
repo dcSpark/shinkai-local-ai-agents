@@ -104,7 +104,7 @@ const ToolCodeEditor = ({
         height: '100%',
         overflow: 'auto',
         //@ts-expect-error css variables
-        '--editor__bg': '#1a1a1d',
+        '--editor__bg': 'var(--color-gray-1000)',
         '--padding-left': '32px',
         ...style,
       }}

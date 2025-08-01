@@ -93,10 +93,10 @@ const FormLabel = ({
   return (
     <Label
       className={cn(
-        'text-official-gray-400 pointer-events-none absolute left-4 top-3 flex select-none text-xs font-medium leading-tight transition-all',
+        'text-text-secondary pointer-events-none absolute top-3 left-4 flex text-xs leading-tight font-medium transition-all select-none',
         // input
-        'peer-placeholder-shown:text-official-gray-400 z-[1] peer-placeholder-shown:text-base peer-placeholder-shown:leading-[2.3]',
-        'peer-focus:text-official-gray-400 peer-disabled:text-official-gray-400 peer-disabled:peer-placeholder-shown:text-official-gray-400/80 peer-focus:text-xs peer-focus:leading-tight',
+        'peer-placeholder-shown:text-text-tertiary z-[1] peer-placeholder-shown:text-base peer-placeholder-shown:leading-[2.3]',
+        'peer-focus:text-text-secondary peer-disabled:peer-placeholder-shown:text-text-tertiary peer-disabled:text-text-tertiary peer-focus:text-xs peer-focus:leading-tight',
         // select
         'peer-data-[placeholder]/select:top-5 peer-data-[placeholder]/select:text-base',
         // adornment
@@ -136,7 +136,7 @@ const FormDescription = ({
 
   return (
     <p
-      className={cn('text-official-gray-400 py-1 text-[0.75rem]', className)}
+      className={cn('text-text-secondary py-1 text-[0.75rem]', className)}
       id={formDescriptionId}
       {...props}
     />

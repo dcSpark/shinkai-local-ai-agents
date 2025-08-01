@@ -62,7 +62,7 @@ const Input = ({
     <>
       <input
         className={cn(
-          'h-input disabled:text-official-gray-400 border-border-input bg-official-gray-900 focus:border-border-input-focus disabled:bg-official-gray-900 peer placeholder-shown:border-border-input w-full rounded-lg border px-4 py-3 pt-8 text-sm font-medium text-white placeholder-transparent outline outline-0 transition-all placeholder-shown:border focus:border focus:outline-0 disabled:border-0',
+          'h-input border-border-input bg-bg-secondary focus:border-border-input-focus disabled:bg-bg-input-disabled peer placeholder-shown:border-border-input text-text-default w-full rounded-lg border px-4 py-3 pt-8 text-sm font-medium placeholder-transparent outline outline-0 transition-all placeholder-shown:border focus:border focus:outline-0 disabled:border-0 disabled:text-gray-400',
           startAdornment && 'pl-[var(--custom-padding-left-input)]',
           endAdornment && 'pr-[var(--custom-padding-right-input)]',
           type === 'password' && 'pr-[60px]',
@@ -103,7 +103,7 @@ const Input = ({
       {type === 'password' && !hidePasswordToggle && (
         <Button
           aria-label={showPassword ? 'Hide password' : 'Show password'}
-          className="text-gray-80 hover:bg-gray-350 absolute top-3 right-3"
+          className="text-text-secondary absolute top-3 right-3"
           onClick={togglePasswordVisibility}
           size={'icon'}
           type="button"

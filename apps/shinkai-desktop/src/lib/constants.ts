@@ -19,7 +19,7 @@ export const treeOptions: TreePassThroughOptions = {
   root: {
     className: cn(
       '',
-      '!bg-official-gray-950 !border-official-gray-780 my-0 w-full rounded-md border !px-1 !py-1.5 text-white',
+      '!bg-bg-default !border-divider my-0 w-full rounded-md border !px-1 !py-1.5 text-white',
     ),
   },
   label: { className: 'text-white text-sm line-clamp-1 break-all' },

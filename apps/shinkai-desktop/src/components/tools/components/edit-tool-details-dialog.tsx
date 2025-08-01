@@ -280,14 +280,8 @@ export default function EditToolDetailsDialog({
       }}
       open={isOpen}
     >
-      <PopoverTrigger
-        asChild
-        className={cn(
-          'hover:bg-official-gray-900 flex items-center gap-1 rounded-lg p-1 text-xs font-medium transition-colors',
-          className,
-        )}
-      >
-        <Button className="h-6 px-2" size="xs" variant="ghost">
+      <PopoverTrigger asChild className={cn(className, 'bg-bg-quaternary')}>
+        <Button className="h-6 px-2" size="xs" variant="tertiary">
           Edit
           <span className="sr-only">{fieldName}</span>
         </Button>

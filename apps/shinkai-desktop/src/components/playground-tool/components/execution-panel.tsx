@@ -94,7 +94,7 @@ function ExecutionPanelBase({
 
   return (
     <Tabs className="flex size-full flex-col" defaultValue="view">
-      <div className="bg-official-gray-1000 flex w-full shrink-0 items-center justify-between gap-2 border-b border-gray-500">
+      <div className="bg-bg-dark border-divider flex w-full shrink-0 items-center justify-between gap-2 border-b">
         <TabsList className="grid h-8 grid-cols-2 rounded-none bg-transparent p-0">
           <TabsTrigger
             className={cn(tabTriggerClassnames)}
@@ -102,7 +102,7 @@ function ExecutionPanelBase({
             onClick={() => setFocusedPanel('preview')}
             value="view"
           >
-            <div className="flex size-full items-center justify-start gap-2 border-r border-gray-400 pl-3 pr-5 text-xs font-normal">
+            <div className="border-divider flex size-full items-center justify-start gap-2 border-r pr-5 pl-3 text-xs font-normal">
               {isExecutionToolCodePending || isMetadataGenerationPending ? (
                 <LoaderIcon className="size-4 animate-spin" />
               ) : (
@@ -126,7 +126,7 @@ function ExecutionPanelBase({
             }}
             value="console"
           >
-            <div className="flex size-full items-center justify-start gap-2 border-r border-gray-400 pl-3 pr-5 text-xs font-normal">
+            <div className="border-divider flex size-full items-center justify-start gap-2 border-r pr-5 pl-3 text-xs font-normal">
               <TerminalIcon className="size-4 text-inherit" />
               Console
             </div>
@@ -134,24 +134,24 @@ function ExecutionPanelBase({
         </TabsList>
       </div>
       <TabsContent
-        className="mt-0 flex-1 overflow-auto whitespace-pre-line break-words"
+        className="mt-0 flex-1 overflow-auto break-words whitespace-pre-line"
         onBlur={() => setFocusedPanel(null)}
         onFocus={() => setFocusedPanel('preview')}
         ref={viewTabRef}
         value="view"
       >
-        <div className="flex size-full flex-col pb-4 pl-4 pr-3">
+        <div className="flex size-full flex-col pr-3 pb-4 pl-4">
           <div className="flex items-start justify-between gap-8 py-3">
-            <div className="text-gray-80 flex items-center gap-1 text-xs">
+            <div className="text-text-secondary flex items-center gap-1 text-xs">
               {isMetadataGenerationSuccess &&
                 !isToolCodeGenerationPending &&
                 !isMetadataGenerationError &&
                 toolMetadata && (
                   <div className="flex flex-col gap-1">
-                    <h1 className="text-base font-medium text-white">
+                    <h1 className="text-text-default text-base font-medium">
                       {toolMetadata.name}
                     </h1>
-                    <p className="text-official-gray-400 text-xs">
+                    <p className="text-text-secondary text-xs">
                       {toolMetadata.description}
                     </p>
                   </div>
@@ -293,7 +293,7 @@ function ExecutionPanelBase({
                               Tool execution failed. Try generating the tool
                               code again.
                             </p>
-                            <pre className="whitespace-break-spaces break-words px-4 text-center">
+                            <pre className="px-4 text-center break-words whitespace-break-spaces">
                               {executionToolCodeError}
                             </pre>
                           </div>
@@ -322,7 +322,7 @@ function ExecutionPanelBase({
         </div>
       </TabsContent>
       <TabsContent
-        className="mt-0 h-full overflow-y-auto whitespace-pre-line break-words"
+        className="mt-0 h-full overflow-y-auto break-words whitespace-pre-line"
         onBlur={() => setFocusedPanel(null)}
         onFocus={() => {
           setFocusedPanel('console');

@@ -69,7 +69,7 @@ export const VectorFsItemInfo = ({
         )}
       </div>
       {layout === VectorFSLayout.List && (
-        <p className="text-xs font-medium text-gray-100">
+        <p className="text-text-tertiary text-xs font-medium">
           <span>{createdDatetime}</span> - <span>{fileSize}</span>
         </p>
       )}
@@ -101,8 +101,8 @@ const VectorFsItem = ({
   const size = partial({ standard: 'jedec' });
 
   const wrapperClassname = cn(
-    'flex items-center justify-between gap-3 truncate rounded-lg py-3.5 pr-2 hover:bg-gradient-to-r hover:from-gray-500 hover:to-gray-400',
-    layout === VectorFSLayout.Grid && 'bg-gray-400/30 p-2',
+    'hover:to-bg-quaternary flex items-center justify-between gap-2 truncate py-3.5 pr-2 hover:bg-gradient-to-r hover:from-transparent',
+    layout === VectorFSLayout.Grid && 'bg-bg-tertiary p-2',
   );
 
   const createdDatetime = formatDateToUSLocaleString(
@@ -184,7 +184,7 @@ const VectorFsItem = ({
                 variant: 'tertiary',
                 size: 'icon',
               }),
-              'border-0 hover:bg-gray-500/40',
+              'hover:bg-bg-quaternary border-0',
             )}
             onClick={(event) => {
               event.stopPropagation();
@@ -193,12 +193,12 @@ const VectorFsItem = ({
             tabIndex={0}
           >
             <span className="sr-only">{t('common.moreOptions')}</span>
-            <DotsVerticalIcon className="text-gray-100" />
+            <DotsVerticalIcon className="text-text-secondary" />
           </div>
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
-          className="w-[160px] border bg-gray-500 px-2.5 py-2"
+          className="w-[160px] border px-2.5 py-2"
         >
           {[
             file.path.includes('.txt') && {
@@ -233,7 +233,7 @@ const VectorFsItem = ({
             .filter((item) => !!item)
             .map((option, idx) => (
               <React.Fragment key={option.name}>
-                {idx === 2 && <DropdownMenuSeparator className="bg-gray-300" />}
+                {idx === 2 && <DropdownMenuSeparator />}
                 <DropdownMenuItem
                   key={option.name}
                   onClick={(event) => {

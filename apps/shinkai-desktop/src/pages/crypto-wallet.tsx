@@ -534,7 +534,7 @@ const CreateWalletDialog = ({ buttonLabel }: { buttonLabel: string }) => {
             </DialogHeader>
             <div className="mt-8 space-y-3">
               <Button
-                className="flex h-[auto] w-full items-center justify-start gap-4 rounded-md bg-gray-500/20 px-5 py-2.5 text-left hover:bg-gray-200"
+                className="flex h-[auto] w-full items-center justify-start gap-4 rounded-md px-5 py-2.5 text-left"
                 onClick={() =>
                   setWalletCreationView(WalletCreateConnectView.RegularCreate)
                 }
@@ -549,7 +549,7 @@ const CreateWalletDialog = ({ buttonLabel }: { buttonLabel: string }) => {
                 </div>
               </Button>
               <Button
-                className="flex h-[auto] w-full items-center justify-start gap-4 rounded-md bg-gray-500/20 px-5 py-2.5 text-left hover:bg-gray-200"
+                className="flex h-[auto] w-full items-center justify-start gap-4 rounded-md px-5 py-2.5 text-left"
                 onClick={() =>
                   setWalletCreationView(WalletCreateConnectView.RegularMnemonic)
                 }
@@ -566,7 +566,7 @@ const CreateWalletDialog = ({ buttonLabel }: { buttonLabel: string }) => {
                 </div>
               </Button>
               <Button
-                className="flex h-[auto] w-full items-center justify-start gap-4 rounded-md bg-gray-500/20 px-5 py-2.5 text-left hover:bg-gray-200"
+                className="flex h-[auto] w-full items-center justify-start gap-4 rounded-md px-5 py-2.5 text-left"
                 onClick={() =>
                   setWalletCreationView(
                     WalletCreateConnectView.RegularPrivateKey,
@@ -866,7 +866,7 @@ const RegularRestoreWalletMnemonic = () => {
                   </FormControl>
                   <Button
                     aria-label={showMnemonic ? 'Hide phrase' : 'Show phrase'}
-                    className="text-gray-80 hover:bg-gray-350 absolute top-2 right-2"
+                    className="absolute top-2 right-2"
                     onClick={() => setShowMnemonic(!showMnemonic)}
                     size="icon"
                     type="button"

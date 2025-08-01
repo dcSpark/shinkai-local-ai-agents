@@ -118,15 +118,12 @@ const PlaygroundChatBase = ({
                     <ChatInputArea
                       autoFocus
                       bottomAddons={
-                        <div className="relative z-50 flex items-end gap-3 self-end">
-                          <span className="pb-1 text-xs font-light text-gray-100">
+                        <div className="flex items-end gap-3 self-end p-2">
+                          <span className="text-text-secondary pb-1 text-xs font-light">
                             <span className="font-medium">Enter</span> to send
                           </span>
                           <Button
-                            className={cn(
-                              'bg-official-gray-850 h-[40px] w-[40px] cursor-pointer rounded-xl p-3 transition-colors',
-                              'disabled:text-gray-80 disabled:bg-official-gray-800 disabled:pointer-events-none disabled:cursor-not-allowed disabled:border disabled:border-gray-200 hover:disabled:bg-gray-300',
-                            )}
+                            className={cn('size-[36px] p-2')}
                             disabled={
                               isToolCodeGenerationPending ||
                               isMetadataGenerationPending ||
@@ -134,7 +131,6 @@ const PlaygroundChatBase = ({
                             }
                             onClick={form.handleSubmit(handleCreateToolCode)}
                             size="icon"
-                            variant="tertiary"
                           >
                             <SendIcon className="h-full w-full" />
                             <span className="sr-only">

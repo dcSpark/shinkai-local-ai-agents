@@ -1,3 +1,4 @@
+import { useTranslation } from '@shinkai_network/shinkai-i18n';
 import {
   Dialog,
   DialogContent,
@@ -6,7 +7,6 @@ import {
 } from '@shinkai_network/shinkai-ui';
 import { cn } from '@shinkai_network/shinkai-ui/utils';
 import React from 'react';
-import { useTranslation } from '@shinkai_network/shinkai-i18n';
 
 interface VideoBannerProps {
   onClose?: () => void;
@@ -25,7 +25,7 @@ export function VideoBanner({ title, videoUrl, duration }: VideoBannerProps) {
       <div
         className={cn(
           'animate-scale-in group relative cursor-pointer overflow-hidden rounded-2xl border border-white/10',
-          'border-official-gray-850 bg-official-gray-900 w-full flex-shrink-0 p-2.5 transition-all',
+          'border-bg-quaternary bg-bg-quaternary w-full flex-shrink-0 p-2.5 transition-all',
         )}
         onClick={() => setIsVideoDialogOpen(true)}
       >
@@ -37,7 +37,7 @@ export function VideoBanner({ title, videoUrl, duration }: VideoBannerProps) {
           />
         </div>
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-black/5 transition-opacity duration-300 group-hover:opacity-90" />
-        <div className="absolute bottom-0 left-0 right-0 p-5 pt-10">
+        <div className="absolute right-0 bottom-0 left-0 p-5 pt-10">
           <h3 className="mb-1 truncate text-left text-base font-medium text-white">
             {title}
           </h3>

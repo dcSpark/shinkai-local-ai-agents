@@ -91,7 +91,7 @@
   --color-gray-800: #262525;
   --color-gray-900: #1e1d1d;
   --color-gray-1000: #151414;
-  /* --color-gray-1100: #151414; */
+  --color-gray-1100: #0b0a0a;
 
   /* Brand - Rose Scale */
   --color-rose-100: #feefef;
@@ -154,6 +154,8 @@
   --color-divider: var(--color-gray-600);
   --color-border-input: var(--color-gray-600);
   --color-border-input-focus: var(--color-gray-500);
+  --color-border-input-secondary: var(--color-gray-500);
+  --color-border-input-secondary-focus: var(--color-gray-400);
 
   /* Background */
   --color-bg-default: var(--color-gray-900);
@@ -161,7 +163,9 @@
   --color-bg-tertiary: var(--color-gray-700);
   --color-bg-quaternary: var(--color-gray-600);
   --color-bg-dark: var(--color-gray-1000);
+  --color-bg-darker: var(--color-gray-1100);
   --color-bg-input: var(--color-gray-700);
+  --color-bg-input-disabled: var(--color-gray-600);
 
   /* Placeholder */
   --color-text-placeholder: var(--color-gray-300);
@@ -211,11 +215,11 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-official-gray-800 rounded-full;
+    @apply bg-bg-quaternary rounded-full;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-official-gray-900;
+    @apply bg-bg-default;
   }
 }
 

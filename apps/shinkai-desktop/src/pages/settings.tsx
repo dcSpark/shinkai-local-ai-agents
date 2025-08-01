@@ -285,7 +285,7 @@ const SettingsPage = () => {
       <div className="flex flex-col space-y-8 pr-2.5">
         <div className="flex flex-col space-y-8">
           {shinkaiFreeModelQuota && (
-            <Card className="bg-official-gray-950 w-full">
+            <Card className="bg-bg-tertiary w-full">
               <CardHeader className="space-y-1">
                 <h3 className="text-base font-semibold">
                   Free Shinkai AI Usage

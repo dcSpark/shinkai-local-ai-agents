@@ -18,7 +18,7 @@ const SelectTrigger = ({
 }: React.ComponentProps<typeof SelectPrimitive.Trigger>) => (
   <SelectPrimitive.Trigger
     className={cn(
-      'h-input border-official-gray-750 bg-official-gray-900 relative flex w-full items-center justify-between rounded-md border px-4 py-2 text-sm shadow-xs',
+      'h-input border-divider bg-bg-secondary relative flex w-full items-center justify-between rounded-md border px-4 py-2 text-sm shadow-xs',
       'focus:ring-official-gray-700 placeholder:text-gray-100 focus:ring-1 focus:outline-hidden focus:ring-inset disabled:cursor-not-allowed disabled:opacity-50',
       'peer/select [&[data-placeholder]>svg]:mt-0',
       'pt-6 data-[placeholder]:pt-2',
@@ -44,7 +44,7 @@ const SelectContent = ({
   <SelectPrimitive.Portal>
     <SelectPrimitive.Content
       className={cn(
-        'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 border-official-gray-750 bg-official-gray-900 relative z-50 min-w-[8rem] overflow-hidden rounded-md border text-gray-50/70 shadow-md',
+        'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 border-divider bg-bg-dark relative z-50 min-w-[8rem] overflow-hidden rounded-md border text-gray-50/70 shadow-md',
         position === 'popper' &&
           'data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1',
         className,
@@ -84,7 +84,7 @@ const SelectItem = ({
 }: React.ComponentProps<typeof SelectPrimitive.Item>) => (
   <SelectPrimitive.Item
     className={cn(
-      'focus:bg-official-gray-750 relative flex w-full cursor-default items-center rounded-xs py-2 pr-8 pl-2 text-sm outline-hidden select-none focus:text-white data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+      'focus:bg-bg-secondary focus:text-text-default relative flex w-full cursor-default items-center rounded-xs py-2 pr-8 pl-2 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
       className,
     )}
     {...props}

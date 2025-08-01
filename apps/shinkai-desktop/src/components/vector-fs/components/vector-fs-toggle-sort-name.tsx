@@ -10,7 +10,7 @@ export default function VectorFsToggleSortName() {
   return (
     <Toggle
       aria-label="Toggle sort by name"
-      className="bg-[#2D3239] text-white data-[state=on]:bg-[#2D3239] data-[state=on]:text-white"
+      className="bg-bg-tertiary text-text-default data-[state=on]:bg-bg-quaternary data-[state=on]:text-text-default"
       onPressedChange={() => {
         setSortByName(!isSortByName);
       }}

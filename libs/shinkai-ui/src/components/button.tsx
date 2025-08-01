@@ -19,7 +19,7 @@ const buttonVariants = cva(
         secondary:
           'bg-bg-secondary text-text-default hover:bg-bg-tertiary shadow-xs',
         tertiary: 'hover:bg-bg-tertiary hover:text-text-default bg-transparent',
-        ghost: 'bg-gray-400 hover:bg-gray-400/60',
+        ghost: 'bg-bg-quaternary hover:bg-bg-tertiary',
         link: 'text-white underline-offset-4 hover:underline',
         gradient:
           'bg-brand-gradient border-brand border-[1px] text-white transition-colors hover:bg-[#201F1F]',

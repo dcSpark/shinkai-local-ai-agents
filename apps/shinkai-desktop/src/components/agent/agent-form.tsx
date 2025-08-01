@@ -179,39 +179,39 @@ interface AgentFormProps {
 const TabNavigation = () => {
   const { t } = useTranslation();
   return (
-    <TabsList className="border-official-gray-780 flex h-auto justify-start gap-4 rounded-full bg-transparent px-0.5 py-1">
+    <TabsList className="border-divider flex h-auto justify-start gap-4 rounded-full bg-transparent px-0.5 py-1">
       <TabsTrigger
-        className="data-[state=active]:bg-official-gray-850 text-official-gray-400 border-official-gray-780 h-full gap-2 rounded-full border bg-transparent px-4 py-2 text-xs font-medium data-[state=active]:text-white"
+        className="data-[state=active]:bg-bg-secondary text-text-secondary border-divider data-[state=active]:text-text-default h-full gap-2 rounded-full border bg-transparent px-4 py-2 text-xs font-medium"
         value="persona"
       >
-        <Badge className="bg-official-gray-700 inline-flex size-5 items-center justify-center rounded-full border-none border-gray-200 p-0 text-center text-[10px] text-gray-50">
+        <Badge className="bg-bg-quaternary border-divider text-text-secondary inline-flex size-5 items-center justify-center rounded-full border-none p-0 text-center text-[10px]">
           1
         </Badge>
         <span>{t('agents.create.persona')}</span>
       </TabsTrigger>
       <TabsTrigger
-        className="data-[state=active]:bg-official-gray-850 text-official-gray-400 border-official-gray-780 h-full gap-2 rounded-full border bg-transparent px-4 py-2 text-xs font-medium data-[state=active]:text-white"
+        className="data-[state=active]:bg-bg-secondary text-text-secondary border-divider data-[state=active]:text-text-default h-full gap-2 rounded-full border bg-transparent px-4 py-2 text-xs font-medium"
         value="knowledge"
       >
-        <Badge className="bg-official-gray-700 inline-flex size-5 items-center justify-center rounded-full border-none border-gray-200 p-0 text-center text-[10px] text-gray-50">
+        <Badge className="bg-bg-quaternary border-divider text-text-secondary inline-flex size-5 items-center justify-center rounded-full border-none p-0 text-center text-[10px]">
           2
         </Badge>
         <span>{t('agents.create.knowledge')}</span>
       </TabsTrigger>
       <TabsTrigger
-        className="data-[state=active]:bg-official-gray-850 text-official-gray-400 border-official-gray-780 h-full gap-2 rounded-full border bg-transparent px-4 py-2 text-xs font-medium data-[state=active]:text-white"
+        className="data-[state=active]:bg-bg-secondary text-text-secondary border-divider data-[state=active]:text-text-default h-full gap-2 rounded-full border bg-transparent px-4 py-2 text-xs font-medium"
         value="tools"
       >
-        <Badge className="bg-official-gray-700 inline-flex size-5 items-center justify-center rounded-full border-none border-gray-200 p-0 text-center text-[10px] text-gray-50">
+        <Badge className="bg-bg-quaternary border-divider text-text-secondary inline-flex size-5 items-center justify-center rounded-full border-none p-0 text-center text-[10px]">
           3
         </Badge>
         <span>{t('agents.create.tools')}</span>
       </TabsTrigger>
       <TabsTrigger
-        className="data-[state=active]:bg-official-gray-850 text-official-gray-400 border-official-gray-780 h-full gap-2 rounded-full border bg-transparent px-4 py-2 text-xs font-medium data-[state=active]:text-white"
+        className="data-[state=active]:bg-bg-secondary text-text-secondary border-divider data-[state=active]:text-text-default h-full gap-2 rounded-full border bg-transparent px-4 py-2 text-xs font-medium"
         value="schedule"
       >
-        <Badge className="bg-official-gray-700 inline-flex size-5 items-center justify-center rounded-full border-none border-gray-200 p-0 text-center text-[10px] text-gray-50">
+        <Badge className="bg-bg-quaternary border-divider text-text-secondary inline-flex size-5 items-center justify-center rounded-full border-none p-0 text-center text-[10px]">
           4
         </Badge>
         <span>{t('agents.create.schedule')}</span>
@@ -347,7 +347,7 @@ function AgentSideChat({
 
   return (
     <ChatProvider>
-      <div className="bg-official-gray-950 h-full shadow-lg">
+      <div className="bg-bg-tertiary h-full shadow-lg">
         <div className="flex h-full flex-col">
           {/* Header Area */}
           <div className="flex items-center justify-between p-4">
@@ -367,7 +367,7 @@ function AgentSideChat({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
-                    className="text-official-gray-300 p-2"
+                    className="text-text-secondary p-2"
                     onClick={() => setChatInboxId(null)}
                     size="auto"
                     variant="tertiary"
@@ -390,7 +390,7 @@ function AgentSideChat({
                   <TooltipTrigger asChild>
                     <SelectPrimitive.Trigger asChild>
                       <Button
-                        className="text-official-gray-300 p-2"
+                        className="text-text-secondary p-2"
                         disabled={!agentInboxes || agentInboxes.length === 0}
                         size="auto"
                         variant="tertiary"
@@ -407,10 +407,10 @@ function AgentSideChat({
                   {agentInboxes?.map((inbox) => (
                     <SelectItem key={inbox.inbox_id} value={inbox.inbox_id}>
                       <div className="flex w-full flex-col">
-                        <span className="max-w-[255px] truncate text-sm text-white">
+                        <span className="text-text-default max-w-[255px] truncate text-sm">
                           {inbox.custom_name || inbox.inbox_id}
                         </span>
-                        <span className="text-official-gray-400 truncate text-xs">
+                        <span className="text-text-secondary truncate text-xs">
                           {formatDateToLocaleStringWithTime(
                             new Date(inbox.datetime_created),
                           )}
@@ -424,7 +424,7 @@ function AgentSideChat({
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
-                    className="text-official-gray-300 p-2"
+                    className="text-text-tertiary p-2"
                     onClick={onClose}
                     size="auto"
                     variant="tertiary"
@@ -448,7 +448,7 @@ function AgentSideChat({
                 <h2 className="text-base font-medium">
                   {t('agents.form.emptyChatTitle')}
                 </h2>
-                <p className="text-official-gray-400">
+                <p className="text-text-secondary">
                   {t('agents.form.emptyChatDescription')}
                 </p>
               </div>
@@ -473,7 +473,7 @@ function AgentSideChat({
               autoFocus
               bottomAddons={
                 <div className="relative z-50 flex items-end gap-3 self-end p-2">
-                  <span className="pb-1 font-light text-gray-100">
+                  <span className="text-text-tertiary pb-1 font-light">
                     <span className="font-medium">
                       {t('agents.form.enter')}
                     </span>{' '}
@@ -698,7 +698,14 @@ function AgentForm({ mode }: AgentFormProps) {
         });
       }
     }
-  }, [agent, form, mode, onSelectedKeysChange, selectedFileKeysRef, selectedFolderKeysRef]);
+  }, [
+    agent,
+    form,
+    mode,
+    onSelectedKeysChange,
+    selectedFileKeysRef,
+    selectedFolderKeysRef,
+  ]);
 
   useEffect(() => {
     if (mode === 'edit' && isOpenQueryActive) {
@@ -1285,7 +1292,7 @@ function AgentForm({ mode }: AgentFormProps) {
                               </FormLabel>
                               <FormControl>
                                 <Textarea
-                                  className="placeholder-official-gray-500 !max-h-[auto] !min-h-[300px] text-sm"
+                                  className="!max-h-[auto] !min-h-[300px] text-sm"
                                   placeholder={t(
                                     'agents.create.systemInstructionsPlaceholder',
                                   )}
@@ -1306,14 +1313,14 @@ function AgentForm({ mode }: AgentFormProps) {
                           name="llmProviderId"
                           render={({ field }) => (
                             <div className="space-y-2">
-                              <p className="text-official-gray-400 text-sm">
-                                {t('chat.form.selectAI')}
+                              <p className="text-text-default text-sm">
+                                {t('agents.create.llmProviderLabel')}
                               </p>
-                              <span className="text-official-gray-200 text-xs">
+                              <span className="text-text-secondary text-xs">
                                 {t('agents.create.llmProviderDescription')}
                               </span>
                               <AIModelSelector
-                                className="bg-official-gray-900 !h-auto w-full rounded-lg border !border-gray-200 py-2.5"
+                                className="bg-bg-secondary hover:bg-bg-quaternary !border-divider !h-auto w-full rounded-lg border py-2.5"
                                 onValueChange={field.onChange}
                                 value={field.value}
                               />
@@ -1324,7 +1331,7 @@ function AgentForm({ mode }: AgentFormProps) {
                         <Collapsible>
                           <CollapsibleTrigger
                             className={cn(
-                              'text-official-gray-400 hover:text-official-gray-300 flex items-center gap-1 text-sm',
+                              'text-text-secondary hover:text-text-default flex items-center gap-1 text-sm',
                               '[&[data-state=open]>svg]:rotate-90',
                               '[&[data-state=open]>span.input]:block',
                               '[&[data-state=open]>span.content]:hidden',
@@ -1345,7 +1352,7 @@ function AgentForm({ mode }: AgentFormProps) {
                                     </FormLabel>
                                     <FormControl>
                                       <Textarea
-                                        className="placeholder-official-gray-500 !min-h-[100px] text-sm"
+                                        className="!min-h-[100px] text-sm"
                                         placeholder="e.g., {{user_message}}. And then say: Chao amigo!"
                                         spellCheck={false}
                                         {...field}
@@ -1366,7 +1373,7 @@ function AgentForm({ mode }: AgentFormProps) {
                         <Collapsible>
                           <CollapsibleTrigger
                             className={cn(
-                              'text-official-gray-400 hover:text-official-gray-300 flex items-center gap-1 text-sm',
+                              'text-text-secondary hover:text-text-default flex items-center gap-1 text-sm',
                               '[&[data-state=open]>svg]:rotate-90',
                               '[&[data-state=open]>span.input]:block',
                               '[&[data-state=open]>span.content]:hidden',
@@ -1384,10 +1391,10 @@ function AgentForm({ mode }: AgentFormProps) {
                                   <FormItem className="flex w-full flex-col gap-3">
                                     <div className="flex justify-between gap-3">
                                       <div className="space-y-1 leading-none">
-                                        <FormLabel className="static space-y-1.5 text-sm text-white">
+                                        <FormLabel className="text-text-default static space-y-1.5 text-sm">
                                           {t('agents.create.enableStream')}
                                         </FormLabel>
-                                        <p className="text-official-gray-400 text-xs">
+                                        <p className="text-text-secondary text-xs">
                                           {t(
                                             'agents.create.enableStreamDescription',
                                           )}
@@ -1410,10 +1417,10 @@ function AgentForm({ mode }: AgentFormProps) {
                                   <FormItem className="flex w-full flex-col gap-3">
                                     <div className="flex justify-between gap-3">
                                       <div className="space-y-1 leading-none">
-                                        <FormLabel className="static space-y-1.5 text-sm text-white">
+                                        <FormLabel className="text-text-default static space-y-1.5 text-sm">
                                           {t('agents.create.enableTools')}
                                         </FormLabel>
-                                        <p className="text-official-gray-400 text-xs">
+                                        <p className="text-text-secondary text-xs">
                                           {t(
                                             'agents.create.enableToolsDescription',
                                           )}
@@ -1442,7 +1449,7 @@ function AgentForm({ mode }: AgentFormProps) {
                                               <Label htmlFor="temperature">
                                                 {t('agents.create.temperature')}
                                               </Label>
-                                              <span className="text-official-gray-400 hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-sm">
+                                              <span className="text-text-secondary hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-sm">
                                                 {field.value}
                                               </span>
                                             </div>
@@ -1461,7 +1468,7 @@ function AgentForm({ mode }: AgentFormProps) {
                                         </HoverCardTrigger>
                                         <HoverCardContent
                                           align="start"
-                                          className="w-[260px] bg-gray-600 px-2 py-3 text-xs"
+                                          className="w-[260px] px-2 py-3 text-xs"
                                           side="left"
                                         >
                                           {t(
@@ -1486,7 +1493,7 @@ function AgentForm({ mode }: AgentFormProps) {
                                               <Label htmlFor="topP">
                                                 Top P
                                               </Label>
-                                              <span className="text-official-gray-400 hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-sm">
+                                              <span className="text-text-secondary hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-sm">
                                                 {field.value}
                                               </span>
                                             </div>
@@ -1506,7 +1513,7 @@ function AgentForm({ mode }: AgentFormProps) {
                                         </HoverCardTrigger>
                                         <HoverCardContent
                                           align="start"
-                                          className="w-[260px] bg-gray-600 px-2 py-3 text-xs"
+                                          className="w-[260px] px-2 py-3 text-xs"
                                           side="left"
                                         >
                                           {t('agents.create.topPDescription')}
@@ -1529,7 +1536,7 @@ function AgentForm({ mode }: AgentFormProps) {
                                               <Label htmlFor="topK">
                                                 {t('agents.create.topK')}
                                               </Label>
-                                              <span className="text-official-gray-400 hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-sm">
+                                              <span className="text-text-secondary hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-sm">
                                                 {field.value}
                                               </span>
                                             </div>
@@ -1548,7 +1555,7 @@ function AgentForm({ mode }: AgentFormProps) {
                                         </HoverCardTrigger>
                                         <HoverCardContent
                                           align="start"
-                                          className="w-[260px] bg-gray-600 px-2 py-3 text-xs"
+                                          className="w-[260px] px-2 py-3 text-xs"
                                           side="left"
                                         >
                                           {t('agents.create.topKDescription')}
@@ -1573,12 +1580,12 @@ function AgentForm({ mode }: AgentFormProps) {
                           <h2 className="inline-flex items-center gap-2 text-base font-medium">
                             {t('agents.create.knowledgeBase')}
                             {Object.keys(selectedKeys ?? {}).length > 0 && (
-                              <Badge className="bg-official-gray-1000 inline-flex size-6 items-center justify-center rounded-full border-gray-200 p-0 text-center text-sm text-gray-50">
+                              <Badge className="bg-bg-quaternary border-divider text-text-tertiary inline-flex size-6 items-center justify-center rounded-full p-0 text-center text-sm">
                                 {Object.keys(selectedKeys ?? {}).length}
                               </Badge>
                             )}
                           </h2>
-                          <p className="text-official-gray-400 text-sm">
+                          <p className="text-text-secondary text-sm">
                             {t('agents.create.knowledgeBaseDescription')}
                           </p>
                         </div>
@@ -1613,7 +1620,7 @@ function AgentForm({ mode }: AgentFormProps) {
                           {searchQueryKnowledge &&
                             isSearchQueryKnowledgeSynced &&
                             searchKnowledgeList?.length === 0 && (
-                              <div className="flex h-20 items-center justify-center text-gray-100">
+                              <div className="text-text-secondary flex h-20 items-center justify-center">
                                 {t('vectorFs.emptyState.noFiles')}
                               </div>
                             )}
@@ -1656,7 +1663,7 @@ function AgentForm({ mode }: AgentFormProps) {
                                       type={getFileExt(file.name)}
                                     />
                                   )}
-                                  <span className="text-sm text-white">
+                                  <span className="text-text-default text-sm">
                                     {file.path}
                                   </span>
                                 </label>
@@ -1669,7 +1676,7 @@ function AgentForm({ mode }: AgentFormProps) {
                               debouncedSearchQueryKnowledge &&
                             Array.from({ length: 4 }).map((_, idx) => (
                               <Skeleton
-                                className="bg-official-gray-900 h-[30px] animate-pulse rounded"
+                                className="h-[30px] animate-pulse rounded"
                                 key={idx}
                               />
                             ))}
@@ -1814,7 +1821,7 @@ function AgentForm({ mode }: AgentFormProps) {
                             <h2 className="text-base font-medium">
                               {t('agents.create.tools')}
                             </h2>
-                            <p className="text-official-gray-400 text-sm">
+                            <p className="text-text-secondary text-sm">
                               {t('agents.create.toolsDescription')}
                             </p>
                           </div>
@@ -1831,13 +1838,13 @@ function AgentForm({ mode }: AgentFormProps) {
                         </div>
 
                         {form.watch('tools')?.length > 0 && (
-                          <div className="bg-official-gray-850 mr-2 rounded-lg p-3">
+                          <div className="bg-bg-secondary mr-2 rounded-lg p-3">
                             <div className="flex items-center justify-between">
-                              <h3 className="text-official-gray-200 mb-2 text-xs font-medium tracking-wide uppercase">
+                              <h3 className="text-text-secondary mb-2 text-xs font-medium tracking-wide uppercase">
                                 {t('agents.create.selectedTools')}
                               </h3>
                               <Button
-                                className="text-official-gray-200 text-xs"
+                                className="text-text-secondary text-xs"
                                 onClick={() => {
                                   form.setValue('tools', []);
                                   form.setValue('tools_config_override', {});
@@ -1848,7 +1855,7 @@ function AgentForm({ mode }: AgentFormProps) {
                                 {t('common.clear')}
                               </Button>
                             </div>
-                            <div className="divide-official-gray-700 divide-y">
+                            <div className="divide-divider divide-y">
                               {form.watch('tools').map((toolKey) => {
                                 const tool = toolsList?.find(
                                   (t) => t.tool_router_key === toolKey,
@@ -1861,11 +1868,11 @@ function AgentForm({ mode }: AgentFormProps) {
                                   >
                                     <div className="flex w-full items-center gap-3 py-2">
                                       <div className="inline-flex flex-1 items-center gap-2 leading-none">
-                                        <div className="flex flex-col gap-1 text-xs text-gray-50">
-                                          <span className="inline-flex items-center gap-1 text-sm text-white">
+                                        <div className="text-text-default flex flex-col gap-1 text-xs">
+                                          <span className="text-text-default inline-flex items-center gap-1 text-sm">
                                             {formatText(tool.name)}
                                           </span>
-                                          <span className="text-official-gray-400 line-clamp-2 text-sm">
+                                          <span className="text-text-secondary line-clamp-2 text-sm">
                                             {tool.description}
                                           </span>
                                         </div>
@@ -1930,7 +1937,7 @@ function AgentForm({ mode }: AgentFormProps) {
                                             <Button
                                               className={cn(
                                                 buttonVariants({
-                                                  variant: 'ghost',
+                                                  variant: 'outline',
                                                   size: 'sm',
                                                 }),
                                                 'w-full justify-between',
@@ -2002,13 +2009,13 @@ function AgentForm({ mode }: AgentFormProps) {
                                   key={idx}
                                 >
                                   <div className="flex w-full flex-1 flex-col gap-3">
-                                    <span className="h-4 w-36 rounded-xs bg-gray-300" />
+                                    <Skeleton className="h-4 w-36 rounded-xs" />
                                     <div className="flex flex-col gap-1">
-                                      <span className="h-3 w-full rounded-xs bg-gray-300" />
-                                      <span className="h-3 w-2/4 rounded-xs bg-gray-300" />
+                                      <Skeleton className="h-3 w-full rounded-xs" />
+                                      <Skeleton className="h-3 w-2/4 rounded-xs" />
                                     </div>
                                   </div>
-                                  <span className="h-5 w-[36px] rounded-full bg-gray-300" />
+                                  <Skeleton className="h-5 w-[36px] rounded-full" />
                                 </div>
                               ))}
                             </div>
@@ -2027,13 +2034,13 @@ function AgentForm({ mode }: AgentFormProps) {
                                         <div className="flex w-full items-center gap-3">
                                           <div className="inline-flex flex-1 items-center gap-2 leading-none">
                                             <label
-                                              className="flex flex-col gap-1 text-xs text-gray-50"
+                                              className="text-text-default flex flex-col gap-1 text-xs"
                                               htmlFor={tool.tool_router_key}
                                             >
-                                              <span className="inline-flex items-center gap-1 text-sm text-white">
+                                              <span className="text-text-default inline-flex items-center gap-1 text-sm">
                                                 {formatText(tool.name)}
                                               </span>
-                                              <span className="text-official-gray-400 line-clamp-2 text-sm">
+                                              <span className="text-text-secondary line-clamp-2 text-sm">
                                                 {tool.description}
                                               </span>
                                             </label>
@@ -2109,7 +2116,7 @@ function AgentForm({ mode }: AgentFormProps) {
                           {isSearchQuerySynced && !searchQuery && (
                             <div className="flex items-center justify-between gap-3">
                               <label
-                                className="text-xs text-gray-50"
+                                className="text-text-default text-xs"
                                 htmlFor="all"
                               >
                                 Enabled All
@@ -2180,13 +2187,13 @@ function AgentForm({ mode }: AgentFormProps) {
                                           <div className="flex w-full items-center gap-3">
                                             <div className="inline-flex flex-1 items-center gap-2 leading-none">
                                               <label
-                                                className="flex flex-col gap-1 text-xs text-gray-50"
+                                                className="text-text-default flex flex-col gap-1 text-xs"
                                                 htmlFor={tool.tool_router_key}
                                               >
-                                                <span className="inline-flex items-center gap-1 text-sm text-white">
+                                                <span className="text-text-default inline-flex items-center gap-1 text-sm">
                                                   {formatText(tool.name)}
                                                 </span>
-                                                <span className="text-official-gray-400 line-clamp-2 text-sm">
+                                                <span className="text-text-secondary line-clamp-2 text-sm">
                                                   {tool.description}
                                                 </span>
                                               </label>
@@ -2284,7 +2291,7 @@ function AgentForm({ mode }: AgentFormProps) {
                           <h2 className="text-base font-medium">
                             {t('agents.create.schedule')}
                           </h2>
-                          <p className="text-official-gray-400 text-sm">
+                          <p className="text-text-secondary text-sm">
                             {t('agents.create.scheduleDescription')}
                           </p>
                         </div>
@@ -2306,7 +2313,7 @@ function AgentForm({ mode }: AgentFormProps) {
                             }}
                             value={scheduleType}
                           >
-                            <div className="border-official-gray-780 flex items-start space-x-3 rounded-lg border p-3">
+                            <div className="border-divider flex items-start space-x-3 rounded-lg border p-3">
                               <RadioGroupItem
                                 className="mt-1"
                                 id="schedule-always-on"
@@ -2319,7 +2326,7 @@ function AgentForm({ mode }: AgentFormProps) {
                                 >
                                   {t('agents.create.scheduleNormalUsage')}
                                 </Label>
-                                <p className="text-official-gray-400 text-sm">
+                                <p className="text-text-secondary text-sm">
                                   {t(
                                     'agents.create.scheduleNormalUsageDescription',
                                   )}
@@ -2327,7 +2334,7 @@ function AgentForm({ mode }: AgentFormProps) {
                               </div>
                             </div>
 
-                            <div className="border-official-gray-780 flex items-start space-x-3 rounded-lg border p-3">
+                            <div className="border-divider flex items-start space-x-3 rounded-lg border p-3">
                               <RadioGroupItem
                                 className="mt-1"
                                 id="schedule-recurring"
@@ -2341,7 +2348,7 @@ function AgentForm({ mode }: AgentFormProps) {
                                   >
                                     {t('agents.create.scheduleRecurring')}
                                   </Label>
-                                  <p className="text-official-gray-400 text-sm">
+                                  <p className="text-text-secondary text-sm">
                                     {t(
                                       'agents.create.scheduleRecurringDescription',
                                     )}
@@ -2377,7 +2384,7 @@ function AgentForm({ mode }: AgentFormProps) {
                                         </FormItem>
                                       )}
                                     />
-                                    <p className="text-official-gray-400 text-sm">
+                                    <p className="text-text-secondary text-sm">
                                       {t(
                                         'agents.create.scheduleAIInstructionsHelper',
                                       )}
@@ -2404,7 +2411,7 @@ function AgentForm({ mode }: AgentFormProps) {
                                         <span>
                                           This cron will run{' '}
                                           {readableCronExpression.toLowerCase()}{' '}
-                                          <span className="text-gray-80 font-mono">
+                                          <span className="text-text-secondary font-mono">
                                             ({form.watch('cronExpression')})
                                           </span>
                                         </span>
@@ -2441,7 +2448,7 @@ function AgentForm({ mode }: AgentFormProps) {
                                         },
                                       ].map((item) => (
                                         <Badge
-                                          className="bg-official-gray-850 hover:bg-official-gray-900 cursor-pointer font-normal"
+                                          className="cursor-pointer font-normal"
                                           key={item.cron}
                                           onClick={() => {
                                             form.setValue(
@@ -2469,7 +2476,7 @@ function AgentForm({ mode }: AgentFormProps) {
                           agent?.cron_tasks?.length > 0 && (
                             <div className="mt-2 space-y-4">
                               <div className="mb-2 flex items-center gap-2">
-                                <ScheduledTasksIcon className="size-4 text-white" />
+                                <ScheduledTasksIcon className="text-text-default size-4" />
                                 <h4 className="text-sm font-medium">
                                   Current Scheduled Task
                                 </h4>
@@ -2478,7 +2485,7 @@ function AgentForm({ mode }: AgentFormProps) {
                                 {/* Assuming only one task is manageable via this form */}
                                 {agent?.cron_tasks?.slice(0, 1).map((task) => (
                                   <div
-                                    className="bg-official-gray-900 flex items-center justify-between rounded-md border p-2"
+                                    className="bg-bg-quaternary flex items-center justify-between rounded-md border p-2"
                                     key={task.task_id}
                                   >
                                     <div className="flex items-center gap-2 pl-1">
@@ -2492,7 +2499,7 @@ function AgentForm({ mode }: AgentFormProps) {
                                     </div>
 
                                     <Button
-                                      className="text-official-gray-400 p-2 hover:bg-red-900/10 hover:text-red-400/90"
+                                      className="text-text-secondary p-2 hover:bg-red-900/10 hover:text-red-400/90"
                                       isLoading={isRemovingTask}
                                       onClick={() =>
                                         onDeleteTask(task.task_id.toString())
@@ -2526,7 +2533,7 @@ function AgentForm({ mode }: AgentFormProps) {
                 </div>
               </div>
 
-              <div className="bg-official-gray-950 sticky bottom-0 bg-gradient-to-t to-transparent pb-10">
+              <div className="bg-bg-default sticky bottom-0 bg-gradient-to-t to-transparent pb-10">
                 <div className="flex items-center justify-end gap-2">
                   <Button
                     className="min-w-[120px]"
@@ -2668,7 +2675,7 @@ function AgentForm({ mode }: AgentFormProps) {
       {/* Side Chat Panel */}
       {isSideChatOpen && mode === 'edit' && agent && (
         <>
-          <ResizableHandle className="bg-gray-300" />
+          <ResizableHandle className="bg-divider" />
           <ResizablePanel
             className="flex h-full min-h-0 flex-col"
             collapsible
@@ -2749,7 +2756,7 @@ const ToolConfigModal = ({
             size="icon"
             variant="tertiary"
           >
-            <XIcon className="text-gray-80 h-5 w-5" />
+            <XIcon className="text-text-secondary h-5 w-5" />
           </Button>
         </DialogClose>
         <DialogHeader>
@@ -2757,9 +2764,7 @@ const ToolConfigModal = ({
             {isSuccess ? tool.name : 'Getting tool details...'}
           </DialogTitle>
         </DialogHeader>
-        {isPending && (
-          <Skeleton className="bg-official-gray-900 flex-1 animate-pulse rounded" />
-        )}
+        {isPending && <Skeleton className="flex-1 animate-pulse rounded" />}
         {isSuccess && (
           <ToolDetailsCard
             hideToolHeaderDetails
@@ -2769,7 +2774,7 @@ const ToolConfigModal = ({
             toolType={toolType}
           />
         )}
-        <DialogFooter className="bg-official-gray-950 sticky -bottom-6 bg-gradient-to-t to-transparent p-2">
+        <DialogFooter className="bg-bg-default sticky -bottom-6 bg-gradient-to-t to-transparent p-2">
           <div className="flex w-full items-center justify-between gap-2">
             <span>
               {!hasAllRequiredFields && (

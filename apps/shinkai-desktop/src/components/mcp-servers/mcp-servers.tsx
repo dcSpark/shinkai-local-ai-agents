@@ -10,6 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   SearchInput,
+  Skeleton,
   Tabs,
   TabsContent,
   TabsList,
@@ -91,15 +92,15 @@ export const McpServers = () => {
   return (
     <>
       <Tabs defaultValue="explore_composio">
-        <TabsList className="border-official-gray-780 flex h-auto justify-start gap-4 rounded-full bg-transparent px-0.5 py-1">
+        <TabsList className="border-divider flex h-auto justify-start gap-4 rounded-full bg-transparent px-0.5 py-1">
           <TabsTrigger
-            className="data-[state=active]:bg-official-gray-850 text-official-gray-400 border-official-gray-780 h-full gap-2 rounded-full border bg-transparent px-4 py-2 text-xs font-medium data-[state=active]:text-white"
+            className="data-[state=active]:bg-bg-quaternary text-text-tertiary border-divider data-[state=active]:text-text-default h-full gap-2 rounded-full border bg-transparent px-4 py-2 text-xs font-medium"
             value="explore_composio"
           >
             Explore Composio MCPs
           </TabsTrigger>
           <TabsTrigger
-            className="data-[state=active]:bg-official-gray-850 text-official-gray-400 border-official-gray-780 h-full gap-2 rounded-full border bg-transparent px-4 py-2 text-xs font-medium data-[state=active]:text-white"
+            className="data-[state=active]:bg-bg-quaternary text-text-tertiary border-divider data-[state=active]:text-text-default h-full gap-2 rounded-full border bg-transparent px-4 py-2 text-xs font-medium"
             value="my_mcp_servers"
           >
             My MCP Servers
@@ -144,17 +145,17 @@ export const McpServers = () => {
                 <div className="grid w-full animate-pulse grid-cols-[1fr_120px_40px_115px_36px] gap-5">
                   {[...Array(3)].map((_, i) => (
                     <div className="contents" key={i}>
-                      <div className="bg-official-gray-750 h-12 rounded" />
-                      <div className="bg-official-gray-750 h-12 rounded" />
-                      <div className="bg-official-gray-750 h-12 rounded" />
-                      <div className="bg-official-gray-750 h-12 rounded" />
-                      <div className="bg-official-gray-750 h-12 rounded" />
+                      <Skeleton className="h-12 rounded" />
+                      <Skeleton className="h-12 rounded" />
+                      <Skeleton className="h-12 rounded" />
+                      <Skeleton className="h-12 rounded" />
+                      <Skeleton className="h-12 rounded" />
                     </div>
                   ))}
                 </div>
               </div>
             ) : filteredServers && filteredServers.length > 0 ? (
-              <div className="divide-official-gray-780 grid max-h-[calc(100vh-300px)] grid-cols-1 divide-y overflow-y-auto py-4">
+              <div className="divide-divider grid max-h-[calc(100vh-300px)] grid-cols-1 divide-y overflow-y-auto py-4">
                 {filteredServers.map((server) => (
                   <McpServerCard
                     key={server.id}
@@ -165,7 +166,7 @@ export const McpServers = () => {
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center gap-2 py-8">
-                <p className="text-official-gray-400 text-sm">
+                <p className="text-text-secondary text-sm">
                   {t('mcpServers.noServersFound')}
                 </p>
               </div>

@@ -89,12 +89,12 @@ function AgentsPage() {
             <div className="flex justify-between gap-4">
               <div className="font-clash inline-flex items-center gap-5 text-3xl font-medium">
                 <h1>{t('agents.label')}</h1>
-                <TabsList className="bg-official-gray-950/80 flex h-10 w-fit items-center gap-2 rounded-full px-1 py-1">
+                <TabsList className="flex h-10 w-fit items-center gap-2 rounded-full bg-transparent px-1 py-1">
                   <TabsTrigger
                     className={cn(
                       'flex flex-col rounded-full px-4 py-1.5 text-base font-medium transition-colors',
-                      'data-[state=active]:bg-official-gray-800 data-[state=active]:text-white',
-                      'data-[state=inactive]:text-official-gray-400 data-[state=inactive]:bg-transparent',
+                      'data-[state=active]:bg-bg-quaternary data-[state=active]:text-text-default',
+                      'data-[state=inactive]:text-text-tertiary data-[state=inactive]:bg-transparent',
                       'focus-visible:outline-hidden',
                     )}
                     value="my"
@@ -104,8 +104,8 @@ function AgentsPage() {
                   <TabsTrigger
                     className={cn(
                       'flex flex-col rounded-full px-4 py-1.5 text-base font-medium transition-colors',
-                      'data-[state=active]:bg-official-gray-800 data-[state=active]:text-white',
-                      'data-[state=inactive]:text-official-gray-400 data-[state=inactive]:bg-transparent',
+                      'data-[state=active]:bg-bg-quaternary data-[state=active]:text-text-default',
+                      'data-[state=inactive]:text-text-tertiary data-[state=inactive]:bg-transparent',
                       'focus-visible:outline-hidden',
                     )}
                     value="explore"
@@ -128,7 +128,7 @@ function AgentsPage() {
                 </Button>
               </div>
             </div>
-            <p className="text-official-gray-400 text-sm">
+            <p className="text-text-secondary text-sm">
               {selectedTab === 'my' ? (
                 <>
                   <Trans
@@ -167,7 +167,7 @@ function AgentsPage() {
                     <p className="font-medium">
                       {t('agents.noAvailableAgents')}
                     </p>
-                    <p className="text-official-gray-400 text-center text-sm font-medium">
+                    <p className="text-text-secondary text-center text-sm font-medium">
                       {t('agents.createFirstAgent')}
                     </p>
                   </div>
@@ -265,7 +265,7 @@ const AgentCard = ({
 
   return (
     <React.Fragment>
-      <div className="border-border bg-bg-secondary flex items-center justify-between gap-1 rounded-lg border p-3.5">
+      <div className="border-divider bg-bg-secondary flex items-center justify-between gap-1 rounded-lg border p-3.5">
         <div className="flex items-start gap-3">
           <div className="flex size-8 items-center justify-center rounded-lg">
             <AIAgentIcon name={agentName} size="sm" />
@@ -283,7 +283,7 @@ const AgentCard = ({
               )}
             </span>
 
-            <span className="text-official-gray-400 text-sm">
+            <span className="text-text-secondary text-sm">
               {agentDescription ?? 'No description'}
             </span>
             {hasScheduledTasks && (
@@ -293,7 +293,7 @@ const AgentCard = ({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Link
-                          className="text-official-gray-200 bg-official-gray-850 flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors hover:text-white"
+                          className="text-official-gray-200 bg-official-gray-850 hover:text-text-default flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors"
                           key={task.task_id}
                           to={`/tasks/${task.task_id}`}
                         >
@@ -367,7 +367,7 @@ const AgentCard = ({
             </DropdownMenuTrigger>
             <DropdownMenuContent
               align="end"
-              className="w-[160px] border bg-gray-500 px-2.5 py-2"
+              className="w-[160px] border px-2.5 py-2"
             >
               {[
                 {
@@ -397,9 +397,7 @@ const AgentCard = ({
                 },
               ].map((option) => (
                 <React.Fragment key={option.name}>
-                  {option.name === 'Delete' && (
-                    <DropdownMenuSeparator className="bg-gray-300" />
-                  )}
+                  {option.name === 'Delete' && <DropdownMenuSeparator />}
                   <DropdownMenuItem
                     key={option.name}
                     onClick={(event) => {
@@ -503,7 +501,7 @@ export function AuthorAvatarLink({ author }: { author: string }) {
   return (
     <a
       href={`${SHINKAI_DAPP_URL}/identity/${formattedAuthor}`}
-      className="text-gray-80 isolate flex items-center gap-2 text-sm hover:[&>span]:underline"
+      className="text-text-secondary isolate flex items-center gap-2 text-sm hover:[&>span]:underline"
       target="_blank"
       rel="noopener noreferrer"
     >
@@ -511,7 +509,7 @@ export function AuthorAvatarLink({ author }: { author: string }) {
         {author === '@@official.shinkai' ? (
           <img alt="Shinkai" src={appIcon} />
         ) : (
-          <AvatarFallback className="bg-official-gray-800 text-official-gray-300">
+          <AvatarFallback className="bg-bg-tertiary text-text-tertiary">
             {formattedAuthor.charAt(0)}
           </AvatarFallback>
         )}
@@ -550,16 +548,16 @@ const DownloadAgents = () => {
           Array.from({ length: 4 }).map((_, idx) => (
             <Card
               key={idx}
-              className="border-official-gray-850 bg-official-gray-900 h-24 animate-pulse"
+              className="border-divider bg-bg-secondary h-24 animate-pulse"
             />
           ))}
         {filtered.map((agent) => (
           <Card
             key={agent.id}
-            className="border-official-gray-850 bg-official-gray-900 flex flex-col rounded-xl border p-4"
+            className="border-divider bg-bg-secondary flex flex-col rounded-xl border p-4"
           >
             <div className="flex items-center gap-2">
-              <div className="bg-official-gray-900 flex h-12 min-h-12 w-12 min-w-12 items-center justify-center rounded-lg">
+              <div className="bg-bg-tertiary flex h-12 min-h-12 w-12 min-w-12 items-center justify-center rounded-lg">
                 {agent.iconUrl ? (
                   <img
                     src={agent.iconUrl}
@@ -571,28 +569,28 @@ const DownloadAgents = () => {
                 )}
               </div>
               <div className="flex min-w-0 flex-1 flex-col">
-                <CardTitle className="truncate text-base leading-tight font-semibold text-white">
+                <CardTitle className="text-text-default truncate text-base leading-tight font-semibold">
                   <Link
-                    className="truncate text-base leading-tight font-semibold text-white hover:underline"
+                    className="text-text-default truncate text-base leading-tight font-semibold hover:underline"
                     to={`https://store.shinkai.com/product/${agent.routerKey}`}
                     target="_blank"
                   >
                     {agent.name}
                   </Link>
                 </CardTitle>
-                <CardDescription className="text-official-gray-400 line-clamp-1 text-sm">
+                <CardDescription className="text-text-secondary line-clamp-1 text-sm">
                   {agent.description}
                 </CardDescription>
               </div>
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-4">
-              <div className="text-official-gray-400 flex items-center gap-6 pl-2 text-sm font-medium">
+              <div className="text-text-secondary flex items-center gap-6 pl-2 text-sm font-medium">
                 <span className="flex items-center gap-2">
-                  <CategoryIcon className="text-official-gray-400 size-4" />
+                  <CategoryIcon className="text-text-secondary size-4" />
                   {agent.category?.name ?? ''}
                 </span>
                 <span className="flex items-center gap-1">
-                  <DownloadIcon className="text-official-gray-400 size-4" />
+                  <DownloadIcon className="text-text-secondary size-4" />
                   {agent.downloads ?? 0} Installs
                 </span>
                 <AuthorAvatarLink author={agent.author} />

@@ -57,7 +57,7 @@ export function DockerStatus() {
         <span
           className={`h-2 w-2 rounded-full ${config.color} ${config.borderColor}`}
         />
-        <span className="text-official-gray-400 text-xs">{config.title}</span>
+        <span className="text-text-secondary text-xs">{config.title}</span>
       </TooltipTrigger>
       <TooltipPortal>
         <TooltipContent
@@ -71,7 +71,7 @@ export function DockerStatus() {
             className={cn(
               'border',
               config.borderColor,
-              'bg-official-gray-850',
+              'bg-bg-quaternary',
               config.bgColor,
             )}
           >

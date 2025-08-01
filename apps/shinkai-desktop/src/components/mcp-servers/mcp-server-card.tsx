@@ -94,17 +94,12 @@ export const McpServerCard = ({
       >
         <div className="flex flex-col gap-2.5">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-white">
+            <span className="text-text-default text-sm font-medium">
               {server.name}{' '}
             </span>
-            <Badge
-              className="text-official-gray-300 text-xs font-normal"
-              variant="outline"
-            >
-              {server.type}
-            </Badge>
+            <Badge variant="outline">{server.type}</Badge>
           </div>
-          <div className="text-official-gray-400 text-xs">
+          <div className="text-text-secondary text-xs">
             {server.type === 'Command' ? server.command : server.url}
           </div>
         </div>

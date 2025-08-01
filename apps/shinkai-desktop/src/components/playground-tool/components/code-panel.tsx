@@ -73,16 +73,13 @@ function CodePanelBase({
         <div className="flex w-full flex-col items-start gap-1 px-4 py-4 text-xs">
           {[...Array(20)].map((_, lineIndex) => (
             <div className="mb-2 flex gap-3" key={lineIndex}>
-              <Skeleton className="bg-official-gray-900 h-4 w-12 rounded" />
+              <Skeleton className="h-4 w-12 rounded" />
               <div className="flex-1">
                 <div className="flex flex-wrap gap-2">
                   {[...Array(Math.floor(Math.random() * 4) + 1)].map(
                     (_, blockIndex) => (
                       <Skeleton
-                        className={cn(
-                          getRandomWidth(),
-                          'bg-official-gray-900 h-4 rounded',
-                        )}
+                        className={cn(getRandomWidth(), 'h-4 rounded')}
                         key={blockIndex}
                       />
                     ),
@@ -102,7 +99,7 @@ function CodePanelBase({
       !isToolCodeGenerationSuccess
     ) {
       return (
-        <p className="text-gray-80 pt-6 text-center text-xs">
+        <p className="text-text-secondary pt-6 text-center text-xs">
           No code generated yet. <br />
           Ask Shinkai AI to generate your tool code.
         </p>
@@ -122,8 +119,8 @@ function CodePanelBase({
           key={resetCounter}
           onSubmit={handleApplyChangesCodeSubmit}
         >
-          <div className="bg-official-gray-950 sticky top-0 z-10 flex h-[40px] shrink-0 items-center justify-between rounded-t-sm border-b border-gray-400 px-3 py-2">
-            <span className="text-gray-80 inline-flex items-center gap-2 pl-2 text-xs font-medium">
+          <div className="bg-bg-dark border-divider sticky top-0 z-10 flex h-[40px] shrink-0 items-center justify-between rounded-t-sm border-b px-3 py-2">
+            <span className="text-text-secondary inline-flex items-center gap-2 pl-2 text-xs font-medium">
               {' '}
               {detectedLanguage}{' '}
               {isDirtyCodeEditor && (

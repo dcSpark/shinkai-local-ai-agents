@@ -13,6 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   SearchInput,
+  Skeleton,
   ToggleGroup,
   ToggleGroupItem,
 } from '@shinkai_network/shinkai-ui';
@@ -139,9 +140,7 @@ export const ToolCollection = () => {
             </Button>
           </div>
         </div>
-        <p className="text-official-gray-400 text-sm">
-          {t('tools.description')}
-        </p>
+        <p className="text-text-secondary text-sm">{t('tools.description')}</p>
       </div>
       <SearchInput
         classNames={{
@@ -155,7 +154,7 @@ export const ToolCollection = () => {
 
       {searchQuery && isSearchQuerySynced && searchToolList?.length === 0 && (
         <div className="flex h-20 items-center justify-center">
-          <p className="text-official-gray-400 text-sm">
+          <p className="text-text-secondary text-sm">
             {t('tools.emptyState.search.text')}
           </p>
         </div>
@@ -182,7 +181,7 @@ export const ToolCollection = () => {
               value={selectedToolCategory}
             >
               <ToggleGroupItem
-                className="data-[state=on]:bg-official-gray-850 text-official-gray-400 rounded-full bg-transparent px-3 py-2.5 text-xs font-medium data-[state=on]:text-white"
+                className="data-[state=on]:bg-official-gray-850 text-text-secondary data-[state=on]:text-text-default rounded-full bg-transparent px-3 py-2.5 text-xs font-medium"
                 key="all"
                 size="sm"
                 value="all"
@@ -191,7 +190,7 @@ export const ToolCollection = () => {
               </ToggleGroupItem>
               {toolsGroup.map((tool) => (
                 <ToggleGroupItem
-                  className="data-[state=on]:bg-official-gray-850 text-official-gray-400 rounded-full bg-transparent px-3 py-2.5 text-xs font-medium data-[state=on]:text-white"
+                  className="data-[state=on]:bg-official-gray-850 text-text-secondary data-[state=on]:text-text-default rounded-full bg-transparent px-3 py-2.5 text-xs font-medium"
                   key={tool.value}
                   size="sm"
                   value={tool.value}
@@ -206,7 +205,7 @@ export const ToolCollection = () => {
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
-                    className="text-official-gray-400"
+                    className="text-text-secondary"
                     rounded="lg"
                     size="icon"
                     variant="outline"
@@ -243,10 +242,10 @@ export const ToolCollection = () => {
               </DropdownMenu>
             </div>
           </div>
-          <div className="divide-official-gray-780 grid grid-cols-1 divide-y py-4">
+          <div className="divide-divider grid grid-cols-1 divide-y py-4">
             {toolsList?.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-2 py-8">
-                <p className="text-official-gray-400 text-sm">
+                <p className="text-text-secondary text-sm">
                   {t('tools.noToolsInCategory')}
                 </p>
               </div>
@@ -259,7 +258,7 @@ export const ToolCollection = () => {
         </div>
       )}
       {(isPending || !isSearchQuerySynced || isSearchToolListPending) && (
-        <div className="divide-official-gray-780 grid grid-cols-1 divide-y py-4">
+        <div className="divide-divider grid grid-cols-1 divide-y py-4">
           {Array.from({ length: 8 }).map((_, idx) => (
             <div
               className={cn(
@@ -268,15 +267,15 @@ export const ToolCollection = () => {
               key={idx}
             >
               <div className="flex w-full flex-1 flex-col gap-3">
-                <span className="bg-official-gray-800 h-4 w-36 rounded-xs" />
+                <Skeleton className="h-4 w-36 rounded-xs" />
                 <div className="flex flex-col gap-1">
-                  <span className="bg-official-gray-800 h-3 w-full rounded-xs" />
-                  <span className="bg-official-gray-800 h-3 w-2/4 rounded-xs" />
+                  <Skeleton className="h-3 w-full rounded-xs" />
+                  <Skeleton className="h-3 w-2/4 rounded-xs" />
                 </div>
               </div>
-              <span className="bg-official-gray-800 h-7 w-full rounded-md" />
-              <span className="bg-official-gray-800 h-7 w-10 rounded-md" />
-              <span className="bg-official-gray-800 h-5 w-[36px] rounded-full" />
+              <Skeleton className="h-7 w-full rounded-md" />
+              <Skeleton className="h-7 w-10 rounded-md" />
+              <Skeleton className="h-5 w-[36px] rounded-full" />
             </div>
           ))}
         </div>

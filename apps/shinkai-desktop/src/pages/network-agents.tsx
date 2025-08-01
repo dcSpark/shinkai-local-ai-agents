@@ -122,7 +122,7 @@ export const NetworkAgentPage = () => {
           <div className="flex items-center justify-between gap-4">
             <div
               className={cn(
-                'font-clash inline-flex items-center gap-2 text-3xl font-medium',
+                'font-clash inline-flex items-center gap-3 text-3xl font-medium',
               )}
             >
               <h1>
@@ -131,12 +131,12 @@ export const NetworkAgentPage = () => {
                   : t('networkAgentsPage.titleDecentralized')}
               </h1>
               {optInExperimental && (
-                <TabsList className="bg-official-gray-950/80 flex h-10 w-fit items-center gap-2 rounded-full px-1 py-1">
+                <TabsList className="flex h-10 w-fit items-center gap-2 rounded-full bg-transparent px-1 py-1">
                   <TabsTrigger
                     className={cn(
                       'flex flex-col rounded-full px-4 py-1.5 text-base font-medium transition-colors',
-                      'data-[state=active]:bg-official-gray-800 data-[state=active]:text-white',
-                      'data-[state=inactive]:text-official-gray-400 data-[state=inactive]:bg-transparent',
+                      'data-[state=active]:bg-bg-quaternary data-[state=active]:text-text-default',
+                      'data-[state=inactive]:text-text-tertiary data-[state=inactive]:bg-transparent',
                       'focus-visible:outline-hidden',
                     )}
                     value="network"
@@ -147,8 +147,8 @@ export const NetworkAgentPage = () => {
                     <TabsTrigger
                       className={cn(
                         'flex flex-col rounded-full px-4 py-1.5 text-base font-medium transition-colors',
-                        'data-[state=active]:bg-official-gray-800 data-[state=active]:text-white',
-                        'data-[state=inactive]:text-official-gray-400 data-[state=inactive]:bg-transparent',
+                        'data-[state=active]:bg-bg-quaternary data-[state=active]:text-text-default',
+                        'data-[state=inactive]:text-text-tertiary data-[state=inactive]:bg-transparent',
                         'focus-visible:outline-hidden',
                       )}
                       value="published"
@@ -544,9 +544,9 @@ const AgentCard = ({
     (!isInstalled && !isFreePricing && isWalletConnected);
 
   return (
-    <Card className="border-official-gray-850 bg-official-gray-900 flex flex-col border">
+    <Card className="border-divider bg-bg-secondary flex flex-col border">
       <CardHeader className="pb-4">
-        <CardTitle className="mb-1 inline-flex items-center justify-between gap-2 text-lg leading-tight font-bold text-white">
+        <CardTitle className="text-text-default mb-1 inline-flex items-center justify-between gap-2 text-lg leading-tight font-bold">
           <div className="inline-flex items-center gap-2">
             {agent.name}
             {isInstalled && (
@@ -866,7 +866,7 @@ export const InstallAgentModal = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="max-w-xl text-white">
+      <DialogContent className="text-text-default max-w-xl">
         <DialogHeader>
           <DialogTitle className="flex items-center space-x-3 text-xl">
             {/* <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 text-xl">
@@ -906,7 +906,7 @@ export const InstallAgentModal = ({
                       ) : (
                         <>
                           Only pay{' '}
-                          <strong className="text-white">
+                          <strong className="text-text-default">
                             {`${formatBalanceAmount(amount ?? '0', 6)} ${ticker}`}
                           </strong>{' '}
                           when you use it in chat. You'll see a payment
@@ -922,7 +922,7 @@ export const InstallAgentModal = ({
             <div className="bg-official-gray-900 space-y-3 rounded-lg p-4">
               <div className="flex items-start justify-between">
                 <div>
-                  <h3 className="text-lg font-semibold text-white">
+                  <h3 className="text-text-default text-lg font-semibold">
                     {agent.name}
                   </h3>
                   <p className="text-official-gray-400 text-sm">
@@ -936,10 +936,10 @@ export const InstallAgentModal = ({
 
               <div className="border-official-gray-780 border-t pt-2">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-white">
+                  <span className="text-text-default">
                     {t('networkAgentsPage.costPerUse')}:
                   </span>
-                  <span className="font-semibold text-white">
+                  <span className="text-text-default font-semibold">
                     {isFreePricing
                       ? 'FREE'
                       : `${formatBalanceAmount(amount ?? '0', 6)} ${ticker}`}
@@ -975,7 +975,7 @@ export const InstallAgentModal = ({
         {step === 2 && (
           <div className="py-8 text-center">
             <CheckCircle className="mx-auto mb-4 h-12 w-12 text-green-400" />
-            <h3 className="mb-2 text-base font-semibold text-white">
+            <h3 className="text-text-default mb-2 text-base font-semibold">
               {t('networkAgentsPage.addedSuccess')}
             </h3>
             <p className="text-official-gray-400 mb-6 text-sm">
@@ -1021,7 +1021,7 @@ function SetupGuide({ isWalletConnected }: SetupGuideProps) {
   return (
     <Alert variant="warning" className="mb-6 border-0 bg-yellow-300/5 p-6">
       <div className="flex flex-col gap-4">
-        <AlertTitle className="text-base font-semibold text-white">
+        <AlertTitle className="text-text-default text-base font-semibold">
           {t('networkAgentsPage.setupRequired')}
         </AlertTitle>
         <AlertDescription>
@@ -1034,7 +1034,7 @@ function SetupGuide({ isWalletConnected }: SetupGuideProps) {
                   <AlertCircle className="mt-0.5 size-4 shrink-0 text-yellow-400" />
                 )}
                 <div>
-                  <p className="text-sm font-medium text-white">
+                  <p className="text-text-default text-sm font-medium">
                     {t('networkAgentsPage.connectWallet')}
                   </p>
                   <p className="text-official-gray-200 text-sm">
@@ -1083,7 +1083,9 @@ function Disclaimer() {
       <div className="flex items-start gap-3">
         <AlertCircle className="mt-0.5 size-4 shrink-0 text-orange-400" />
         <div>
-          <p className="text-sm font-medium text-white">Community Agents</p>
+          <p className="text-text-default text-sm font-medium">
+            Community Agents
+          </p>
           <p className="text-official-gray-200 text-sm">
             Community agents are not verified by Shinkai. We may remove agents
             that violate our terms. Use at your own risk.

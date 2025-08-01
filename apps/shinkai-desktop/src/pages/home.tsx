@@ -549,7 +549,7 @@ const EmptyMessage = () => {
       transition={{ duration: 0.3 }}
     >
       <FeedbackModal buttonProps={{ className: 'absolute right-4 top-4' }} />
-      <div className="mx-auto mt-[110px] flex w-full max-w-[1100px] flex-col items-stretch gap-6">
+      <div className="mx-auto mt-[110px] flex w-full max-w-[1050px] flex-col items-stretch gap-6">
         <div className="mb-4 flex flex-col items-center gap-2">
           <h1 className="font-clash text-text-default text-3xl font-medium">
             {t('homepage.welcomeTitle')}

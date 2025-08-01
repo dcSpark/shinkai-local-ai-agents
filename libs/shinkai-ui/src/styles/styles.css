@@ -21,15 +21,15 @@
   --z-max: 2147483647;
 
   /* Grayscale */
-  --color-gray-100: #f7f2f2;
-  --color-gray-200: #ccc7c7;
+  --color-gray-100: #f7f5f5;
+  --color-gray-200: #b2aeae;
   --color-gray-300: #938e8e;
   --color-gray-400: #666363;
   --color-gray-500: #3c3a3a;
   --color-gray-600: #2e2d2d;
   --color-gray-700: #212020;
   --color-gray-800: #262525;
-  --color-gray-900: #1e1d1d;
+  --color-gray-900: #1e1e1e;
   --color-gray-1000: #151414;
   --color-gray-1100: #0b0a0a;
 

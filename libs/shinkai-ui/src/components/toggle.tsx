@@ -11,7 +11,7 @@ const toggleVariants = cva(
       variant: {
         default: 'bg-official-gray-900',
         outline:
-          'border-official-gray-780 hover:bg-official-gray-900 border bg-transparent hover:text-white',
+          'border-divider hover:bg-official-gray-900 border bg-transparent hover:text-white',
       },
       size: {
         default: 'h-10 px-3',

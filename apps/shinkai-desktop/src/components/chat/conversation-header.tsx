@@ -142,7 +142,7 @@ const ConversationHeaderWithInboxId = () => {
   });
 
   return (
-    <div className="border-official-gray-780 flex h-[58px] items-center justify-between border-b px-4 py-2">
+    <div className="border-divider flex h-[58px] items-center justify-between border-b px-4 py-2">
       <div className="flex flex-1 items-center gap-2">
         <Tooltip>
           <TooltipTrigger asChild>
@@ -266,7 +266,7 @@ const ConversationHeaderWithInboxId = () => {
                               </div>
                             </AccordionTrigger>
                             <AccordionContent>
-                              <div className="bg-official-gray-850 border-official-gray-780 rounded-lg border p-4">
+                              <div className="bg-official-gray-850 border-divider rounded-lg border p-4">
                                 <p className="text-sm whitespace-pre-wrap">
                                   {selectedAgent.config?.custom_system_prompt ||
                                     'No system instructions found.'}
@@ -297,7 +297,7 @@ const ConversationHeaderWithInboxId = () => {
                                 )}
                                 {selectedAgent.tools.map((tool, index) => (
                                   <div
-                                    className="bg-official-gray-850 border-official-gray-780 relative flex cursor-default items-center gap-2 rounded-lg border p-2 pr-8 text-sm transition-colors"
+                                    className="bg-official-gray-850 border-divider relative flex cursor-default items-center gap-2 rounded-lg border p-2 pr-8 text-sm transition-colors"
                                     key={index}
                                   >
                                     <ToolsIcon className="h-4 w-4" />
@@ -364,7 +364,7 @@ const ConversationHeaderWithInboxId = () => {
                                 {selectedAgent.scope?.vector_fs_folders?.map(
                                   (item, index) => (
                                     <div
-                                      className="bg-official-gray-850 border-official-gray-780 flex items-center justify-start gap-2 rounded-lg border p-2 capitalize"
+                                      className="bg-official-gray-850 border-divider flex items-center justify-start gap-2 rounded-lg border p-2 capitalize"
                                       key={index}
                                     >
                                       <FolderIcon className="h-4 w-4" />
@@ -377,7 +377,7 @@ const ConversationHeaderWithInboxId = () => {
                                 {selectedAgent.scope?.vector_fs_items?.map(
                                   (item, index) => (
                                     <div
-                                      className="bg-official-gray-850 border-official-gray-780 flex items-center justify-start gap-2 rounded-lg border p-2 capitalize"
+                                      className="bg-official-gray-850 border-divider flex items-center justify-start gap-2 rounded-lg border p-2 capitalize"
                                       key={index}
                                     >
                                       <FileIcon className="h-4 w-4" />
@@ -409,7 +409,7 @@ const ConversationHeaderWithInboxId = () => {
                                 )}
                                 {selectedAgent.cron_tasks?.map((task) => (
                                   <div
-                                    className="bg-official-gray-850 border-official-gray-780 relative flex items-start gap-2 rounded-lg border p-2 pr-6 capitalize"
+                                    className="bg-official-gray-850 border-divider relative flex items-start gap-2 rounded-lg border p-2 pr-6 capitalize"
                                     key={task.task_id}
                                   >
                                     <ScheduledTasksIcon className="mt-1 h-4 w-4" />

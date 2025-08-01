@@ -173,7 +173,7 @@ export const ToolCollection = () => {
         <div>
           <div className="flex w-full items-center justify-between gap-3">
             <ToggleGroup
-              className="border-official-gray-780 rounded-full border bg-transparent px-0.5 py-1"
+              className="border-divider rounded-full border bg-transparent px-0.5 py-1"
               onValueChange={(value) => {
                 setSelectedToolCategory(value as GetToolsCategory);
               }}

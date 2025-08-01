@@ -198,7 +198,7 @@ const InternetAccessPage = () => {
                       <label className="text-official-gray-200 block text-sm font-semibold">
                         {t('settings.remoteAccess.publicAccessUrl')}
                       </label>
-                      <div className="bg-official-gray-900/60 border-official-gray-780 flex items-center space-x-2 rounded-xl border p-2 shadow-inner">
+                      <div className="bg-official-gray-900/60 border-divider flex items-center space-x-2 rounded-xl border p-2 shadow-inner">
                         <code className="bg-official-gray-800/50 flex-1 rounded-lg p-3 font-mono text-sm break-all text-white">
                           {tunnelUrl}
                         </code>

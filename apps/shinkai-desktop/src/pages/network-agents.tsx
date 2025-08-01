@@ -934,7 +934,7 @@ export const InstallAgentModal = ({
                 {agent.description}
               </p>
 
-              <div className="border-official-gray-780 border-t pt-2">
+              <div className="border-divider border-t pt-2">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-text-default">
                     {t('networkAgentsPage.costPerUse')}:

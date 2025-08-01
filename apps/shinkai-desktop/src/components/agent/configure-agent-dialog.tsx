@@ -184,7 +184,7 @@ export default function ConfigureAgentDialog({
               className="px-1"
             >
               <div className="space-y-3">
-                <div className="border-official-gray-780 flex items-center gap-0 rounded-lg border px-4">
+                <div className="border-divider flex items-center gap-0 rounded-lg border px-4">
                   <RadioGroupItem value="free" id="pricing-free" />
                   <Label
                     htmlFor="pricing-free"
@@ -201,7 +201,7 @@ export default function ConfigureAgentDialog({
                   </Label>
                 </div>
 
-                <div className="border-official-gray-780 flex items-center gap-0 rounded-lg border px-4">
+                <div className="border-divider flex items-center gap-0 rounded-lg border px-4">
                   <RadioGroupItem value="paid" id="pricing-paid" />
                   <Label
                     htmlFor="pricing-paid"

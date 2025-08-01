@@ -262,7 +262,7 @@ export const defaultComponents = memoizeMarkdownComponents({
       <code
         className={cn(
           !isCodeBlock &&
-            'bg-official-gray-1000 text-em-sm border-official-gray-780 rounded-sm border p-[0.25em] font-semibold',
+            'bg-official-gray-1000 text-em-sm border-divider rounded-sm border p-[0.25em] font-semibold',
           className,
         )}
         {...props}

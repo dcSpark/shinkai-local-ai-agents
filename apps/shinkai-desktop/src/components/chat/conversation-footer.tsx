@@ -845,11 +845,11 @@ const FileListBase = ({
   const size = partial({ standard: 'jedec' });
 
   return (
-    <div className="no-scrollbar bg-official-gray-800/10 scroll border-official-gray-780 h-16 overflow-hidden border-b">
+    <div className="no-scrollbar bg-official-gray-800/10 scroll border-divider h-16 overflow-hidden border-b">
       <div className="flex items-center gap-3 overflow-x-auto p-2.5">
         {currentFiles.map((file, index) => (
           <div
-            className="border-official-gray-780 relative flex h-10 w-[180px] shrink-0 items-center gap-1.5 rounded-lg border px-1 py-1.5 pr-2.5"
+            className="border-divider relative flex h-10 w-[180px] shrink-0 items-center gap-1.5 rounded-lg border px-1 py-1.5 pr-2.5"
             key={index}
           >
             <div className="flex w-6 shrink-0 items-center justify-center">
@@ -874,7 +874,7 @@ const FileListBase = ({
             </div>
             <button
               className={cn(
-                'bg-official-gray-850 hover:bg-official-gray-800 text-gray-80 border-official-gray-780 absolute -top-2 -right-2 h-5 w-5 cursor-pointer rounded-full border p-1 transition-colors hover:text-white',
+                'bg-official-gray-850 hover:bg-official-gray-800 text-gray-80 border-divider absolute -top-2 -right-2 h-5 w-5 cursor-pointer rounded-full border p-1 transition-colors hover:text-white',
               )}
               onClick={(event) => {
                 event.stopPropagation();

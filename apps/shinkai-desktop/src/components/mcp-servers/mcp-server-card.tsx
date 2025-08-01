@@ -148,7 +148,7 @@ export const McpServerCard = ({
                     <ul className="space-y-3">
                       {mcpServerTools.map((tool) => (
                         <li
-                          className="border-official-gray-780 rounded-lg border p-3 py-2.5 text-sm"
+                          className="border-divider rounded-lg border p-3 py-2.5 text-sm"
                           key={tool.id}
                           style={{
                             fontSize: '14px',
@@ -258,7 +258,7 @@ export const McpServerCard = ({
           </DropdownMenuTrigger>
           <DropdownMenuContent
             align="end"
-            className="bg-official-gray-950 border-official-gray-780 border p-2.5"
+            className="bg-official-gray-950 border-divider border p-2.5"
           >
             <DropdownMenuItem
               className="flex items-center gap-2.5 text-xs"

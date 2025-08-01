@@ -802,7 +802,7 @@ const EmptyMessage = () => {
                             <div className="flex items-center gap-3 overflow-x-auto p-2.5">
                               {Object.keys(selectedKeys).map((file, index) => (
                                 <div
-                                  className="border-official-gray-780 relative flex h-10 w-[180px] shrink-0 items-center gap-1.5 rounded-lg border px-1 py-1.5 pr-2.5"
+                                  className="border-divider relative flex h-10 w-[180px] shrink-0 items-center gap-1.5 rounded-lg border px-1 py-1.5 pr-2.5"
                                   key={file + index}
                                 >
                                   <div className="flex w-6 shrink-0 items-center justify-center">

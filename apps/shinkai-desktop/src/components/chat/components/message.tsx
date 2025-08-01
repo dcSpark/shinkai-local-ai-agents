@@ -1219,7 +1219,7 @@ export function TracingDialog({
                 {data.messages.map((message, index) => (
                   <div
                     key={index}
-                    className="border-official-gray-780 rounded-md border p-2"
+                    className="border-divider rounded-md border p-2"
                   >
                     <div className="flex flex-col items-start gap-1">
                       <div className="inline-flex items-center gap-2 rounded-full p-2">
@@ -1308,7 +1308,7 @@ export function TracingDialog({
                 <h3 className="text-text-default mb-2 text-sm font-medium">
                   Tool Calls
                 </h3>
-                <div className="border-official-gray-780 bg-official-gray-900 rounded-md border p-3">
+                <div className="border-divider bg-official-gray-900 rounded-md border p-3">
                   {data.functions.map((func) => (
                     <div className="flex items-start gap-3" key={func.name}>
                       <ToolsIcon className="mt-0.5 h-5 w-5 text-cyan-500" />
@@ -1347,19 +1347,19 @@ export function TracingDialog({
                 Model Configuration
               </h3>
               <div className="grid grid-cols-2 gap-3">
-                <div className="bg-official-gray-900 border-official-gray-780 rounded-md border p-3">
+                <div className="bg-official-gray-900 border-divider rounded-md border p-3">
                   <p className="text-text-secondary text-xs">Model</p>
                   <p className="text-sm">{data.model}</p>
                 </div>
-                <div className="bg-official-gray-900 border-official-gray-780 rounded-md border p-3">
+                <div className="bg-official-gray-900 border-divider rounded-md border p-3">
                   <p className="text-text-secondary text-xs">Max Tokens</p>
                   <p className="text-sm">{data.max_tokens}</p>
                 </div>
-                <div className="bg-official-gray-900 border-official-gray-780 rounded-md border p-3">
+                <div className="bg-official-gray-900 border-divider rounded-md border p-3">
                   <p className="text-text-secondary text-xs">Temperature</p>
                   <p className="text-sm">{data.temperature}</p>
                 </div>
-                <div className="bg-official-gray-900 border-official-gray-780 rounded-md border p-3">
+                <div className="bg-official-gray-900 border-divider rounded-md border p-3">
                   <p className="text-text-secondary text-xs">Top P</p>
                   <p className="text-sm">{data.top_p}</p>
                 </div>
@@ -1378,7 +1378,7 @@ export function TracingDialog({
                 <h3 className="text-text-default mb-2 text-sm font-medium">
                   Tool Calls
                 </h3>
-                <div className="border-official-gray-780 bg-official-gray-900 rounded-md border p-3">
+                <div className="border-divider bg-official-gray-900 rounded-md border p-3">
                   {data.function_calls.map((func) => (
                     <div className="flex items-start gap-3" key={func.name}>
                       <ToolsIcon className="mt-0.5 h-5 w-5 text-cyan-500" />
@@ -1421,7 +1421,7 @@ export function TracingDialog({
                 <h3 className="text-text-default mb-2 text-sm font-medium">
                   Response
                 </h3>
-                <div className="border-official-gray-780 bg-official-gray-900 rounded-md border p-3 text-sm">
+                <div className="border-divider bg-official-gray-900 rounded-md border p-3 text-sm">
                   {data.response}
                 </div>
               </div>
@@ -1433,7 +1433,7 @@ export function TracingDialog({
       case 'tool_call': {
         const data = info as ToolCallTracingInfo;
         return (
-          <div className="border-official-gray-780 bg-official-gray-900 rounded-md border p-3">
+          <div className="border-divider bg-official-gray-900 rounded-md border p-3">
             <div className="flex items-start gap-3">
               <ToolsIcon className="mt-0.5 h-5 w-5 text-cyan-500" />
               <div>
@@ -1452,7 +1452,7 @@ export function TracingDialog({
       case 'tool_response': {
         const data = info as ToolResponseTracingInfo;
         return (
-          <div className="border-official-gray-780 bg-official-gray-900 space-y-2 overflow-hidden rounded-md border p-3">
+          <div className="border-divider bg-official-gray-900 space-y-2 overflow-hidden rounded-md border p-3">
             <p className="text-sm font-medium">{data.function}</p>
 
             <div className="text-text-secondary overflow-auto text-xs">
@@ -1464,7 +1464,7 @@ export function TracingDialog({
       case 'invoice_request_sent': {
         const data = info as InvoiceRequestSentTracingInfo;
         return (
-          <div className="border-official-gray-780 bg-official-gray-900 space-y-2 overflow-hidden rounded-md border p-3">
+          <div className="border-divider bg-official-gray-900 space-y-2 overflow-hidden rounded-md border p-3">
             <p className="text-sm font-medium">{data.tool}</p>
             <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">
@@ -1496,7 +1496,7 @@ export function TracingDialog({
       case 'invoice_received': {
         const data = info as InvoiceReceivedTracingInfo;
         return (
-          <div className="border-official-gray-780 bg-official-gray-900 space-y-2 overflow-hidden rounded-md border p-3">
+          <div className="border-divider bg-official-gray-900 space-y-2 overflow-hidden rounded-md border p-3">
             <p className="text-sm font-medium">{data.tool_key}</p>
             <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">
@@ -1555,7 +1555,7 @@ export function TracingDialog({
       case 'invoice_paid': {
         const data = info as InvoicePaidTracingInfo;
         return (
-          <div className="border-official-gray-780 bg-official-gray-900 space-y-2 overflow-hidden rounded-md border p-3">
+          <div className="border-divider bg-official-gray-900 space-y-2 overflow-hidden rounded-md border p-3">
             <p className="text-sm font-medium">{data.tool_key}</p>
             <p className="text-text-secondary text-xs">
               <span className="text-official-gray-200 font-medium">

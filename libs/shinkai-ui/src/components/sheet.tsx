@@ -28,7 +28,7 @@ const SheetOverlay = ({
 SheetOverlay.displayName = SheetPrimitive.Overlay.displayName;
 
 const sheetVariants = cva(
-  'data-[state=open]:animate-in data-[state=closed]:animate-out bg-official-gray-950 border-official-gray-780 fixed z-50 gap-4 p-6 shadow-lg transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500',
+  'data-[state=open]:animate-in data-[state=closed]:animate-out bg-official-gray-950 border-divider fixed z-50 gap-4 p-6 shadow-lg transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500',
   {
     variants: {
       side: {

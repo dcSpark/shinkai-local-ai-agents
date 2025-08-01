@@ -250,7 +250,7 @@ const ExposeToolsAsMcp = () => {
         </div>
         <div className="flex items-center justify-start gap-2">
           <ToggleGroup
-            className="border-official-gray-780 flex justify-start rounded-full border bg-transparent px-0.5 py-0.5"
+            className="border-divider flex justify-start rounded-full border bg-transparent px-0.5 py-0.5"
             onValueChange={(value) => {
               if (!value) return;
               setSelectedMCCategory(value as GetMCPCategory);

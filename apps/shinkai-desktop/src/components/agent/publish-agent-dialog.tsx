@@ -172,7 +172,7 @@ export default function PublishAgentDialog() {
         </DialogHeader>
         {(currentStep === 'select' || currentStep === 'configure') && (
           <div className="-mx-[24px]">
-            <div className="bg-official-gray-900 border-official-gray-780 my-2 w-full border-b py-4">
+            <div className="bg-official-gray-900 border-divider my-2 w-full border-b py-4">
               <div className="mx-auto flex max-w-[400px] flex-col">
                 <div className="flex w-full items-center px-2">
                   <div
@@ -263,7 +263,7 @@ export default function PublishAgentDialog() {
                     <div
                       key={agent.agent_id}
                       className={cn(
-                        'border-official-gray-780 flex items-center gap-0 rounded-lg border px-4',
+                        'border-divider flex items-center gap-0 rounded-lg border px-4',
                         publishedKeys.has(agent.tools[0]) && 'hidden',
                       )}
                     >
@@ -366,7 +366,7 @@ export default function PublishAgentDialog() {
                   className="px-1"
                 >
                   <div className="space-y-3">
-                    <div className="border-official-gray-780 flex items-center gap-0 rounded-lg border px-4">
+                    <div className="border-divider flex items-center gap-0 rounded-lg border px-4">
                       <RadioGroupItem
                         value="free"
                         id="pricing-free"
@@ -387,7 +387,7 @@ export default function PublishAgentDialog() {
                       </Label>
                     </div>
 
-                    <div className="border-official-gray-780 flex items-center gap-0 rounded-lg border px-4">
+                    <div className="border-divider flex items-center gap-0 rounded-lg border px-4">
                       <RadioGroupItem
                         value="paid"
                         id="pricing-paid"

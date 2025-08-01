@@ -95,7 +95,7 @@ export function AIModelSelectorBase({
       <PopoverTrigger asChild>
         <button
           className={cn(
-            'bg-official-gray-900 border-official-gray-780 hover:bg-official-gray-850 flex h-auto w-auto max-w-md min-w-[180px] items-center justify-between gap-3 truncate rounded-xl border p-1.5 px-2',
+            'bg-official-gray-900 border-divider hover:bg-official-gray-850 flex h-auto w-auto max-w-md min-w-[180px] items-center justify-between gap-3 truncate rounded-xl border p-1.5 px-2',
             className,
           )}
         >
@@ -110,7 +110,7 @@ export function AIModelSelectorBase({
       </PopoverTrigger>
       <PopoverContent
         align="start"
-        className="bg-official-gray-950 border-official-gray-780 flex size-full max-h-[60vh] w-full flex-col border p-1 py-2"
+        className="bg-official-gray-950 border-divider flex size-full max-h-[60vh] w-full flex-col border p-1 py-2"
       >
         <Command
           className="[&_[cmdk-input-wrapper]]:border-official-gray-850 flex size-full max-w-[400px] min-w-[340px] flex-col [&_[cmdk-input-wrapper]]:pb-1"

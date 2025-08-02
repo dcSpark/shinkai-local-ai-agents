@@ -253,7 +253,7 @@ export const Stepper = ({ steps }: StepperProps) => {
           <span className="sr-only">
             {t('onboardingChecklist.getStartedText')}
           </span>
-          <Badge className="bg-brand absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full p-0">
+          <Badge className="bg-bg-secondary border-divider absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full border p-0 text-cyan-400">
             {steps.length -
               steps.filter((step) => step.status === GetStartedStatus.Done)
                 .length}

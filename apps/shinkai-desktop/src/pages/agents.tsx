@@ -87,7 +87,7 @@ function AgentsPage() {
         <div className="container flex flex-col">
           <div className="flex flex-col gap-3 pt-10 pb-4">
             <div className="flex justify-between gap-4">
-              <div className="font-clash inline-flex items-center gap-5 text-3xl font-medium">
+              <div className="font-clash flex flex-col gap-5 text-3xl font-medium md:flex-row md:items-center">
                 <h1>{t('agents.label')}</h1>
                 <TabsList className="flex h-10 w-fit items-center gap-2 rounded-full bg-transparent px-1 py-1">
                   <TabsTrigger
@@ -265,8 +265,8 @@ const AgentCard = ({
 
   return (
     <React.Fragment>
-      <div className="border-divider bg-bg-secondary flex items-center justify-between gap-1 rounded-lg border p-3.5">
-        <div className="flex items-start gap-3">
+      <div className="border-divider bg-bg-secondary flex flex-col justify-between gap-1 rounded-lg border p-3.5 md:flex-row md:items-center">
+        <div className="flex flex-col items-start gap-3 md:flex-row">
           <div className="flex size-8 items-center justify-center rounded-lg">
             <AIAgentIcon name={agentName} size="sm" />
           </div>
@@ -318,7 +318,7 @@ const AgentCard = ({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 self-end md:self-auto">
           <TooltipProvider delayDuration={0}>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -555,7 +555,7 @@ const DownloadAgents = () => {
             key={agent.id}
             className="border-divider bg-bg-secondary flex flex-col rounded-xl border p-4"
           >
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center">
               <div className="bg-bg-tertiary flex h-12 min-h-12 w-12 min-w-12 items-center justify-center rounded-lg">
                 {agent.iconUrl ? (
                   <img
@@ -582,8 +582,8 @@ const DownloadAgents = () => {
                 </CardDescription>
               </div>
             </div>
-            <div className="mt-4 flex flex-wrap items-center gap-4">
-              <div className="text-text-secondary flex items-center gap-6 pl-2 text-sm font-medium">
+            <div className="mt-4 flex flex-col gap-4 md:flex-row md:items-center">
+              <div className="text-text-secondary flex flex-col gap-2 text-sm font-medium md:flex-row md:items-center md:gap-6 md:pl-2">
                 <span className="flex items-center gap-2">
                   <CategoryIcon className="text-text-secondary size-4" />
                   {agent.category?.name ?? ''}

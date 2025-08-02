@@ -194,7 +194,7 @@ export const ComposioMcpServers = ({
           : filteredApps?.map((app) => (
               <div
                 key={app.id}
-                className="bg-bg-secondary border-divider group flex h-20 overflow-hidden rounded-2xl border p-3.5 transition-all"
+                className="bg-bg-secondary border-divider group flex flex-col overflow-hidden rounded-2xl border p-3.5 transition-all md:h-20 md:flex-row"
                 onClick={() => handleAppClick(app)}
                 role="button"
               >

@@ -280,7 +280,7 @@ const TaskCard = ({
   return (
     <div
       className={cn(
-        'border-divider bg-bg-secondary grid grid-cols-[1fr_100px_120px_40px] items-start gap-5 rounded-lg border p-3.5 text-left text-sm',
+        'border-divider bg-bg-secondary grid items-start gap-5 rounded-lg border p-3.5 text-left text-sm md:grid-cols-[1fr_100px_120px_40px]',
       )}
     >
       <div className="flex flex-col gap-2.5">

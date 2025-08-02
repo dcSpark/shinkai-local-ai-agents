@@ -983,7 +983,7 @@ const EmptyMessage = () => {
             )}
           </motion.div>
         </div>
-        <div className="mx-auto grid w-full max-w-6xl grid-cols-4 justify-center gap-3">
+        <div className="mx-auto grid w-full max-w-6xl justify-center gap-3 sm:grid-cols-2 md:grid-cols-4">
           {PROMPT_SUGGESTIONS.map((suggestion) => (
             <Badge
               className="cursor-pointer justify-between rounded-xl px-2 py-1.5 pl-4 text-left text-sm font-normal text-balance normal-case transition-colors"
@@ -1149,7 +1149,7 @@ const Card: React.FC<CardProps> = ({
         className,
       )}
     >
-      <div className="relative z-10 flex items-start gap-3">
+      <div className="relative z-10 flex flex-col items-start gap-3 md:flex-row">
         <div className="flex size-10 items-center justify-center">{icon}</div>
         <div className="flex flex-1 flex-col gap-1">
           <h3 className="text-left text-base font-medium capitalize">
@@ -1162,7 +1162,6 @@ const Card: React.FC<CardProps> = ({
         <div className="flex items-center gap-2">
           {secondaryAction && (
             <Button
-              className="hover:text-text-default shrink-0 text-sm font-medium transition-all duration-300 hover:bg-gray-700"
               onClick={secondaryAction.onClick}
               size="sm"
               variant="tertiary"
@@ -1170,12 +1169,7 @@ const Card: React.FC<CardProps> = ({
               {secondaryAction.label}
             </Button>
           )}
-          <Button
-            className="hover:text-text-default shrink-0 text-sm font-medium transition-all duration-300 hover:bg-gray-700"
-            onClick={action.onClick}
-            size="sm"
-            variant="tertiary"
-          >
+          <Button onClick={action.onClick} size="sm" variant="tertiary">
             {action.label}
             <ArrowUpRight className="ml-1.5 h-3.5 w-3.5 transition-transform duration-300 group-hover:translate-x-1" />
           </Button>

@@ -57,12 +57,12 @@ export default function ToolCard({ tool }: { tool: ShinkaiToolHeader }) {
   return (
     <div
       className={cn(
-        'grid grid-cols-[1fr_40px_40px_115px_36px] items-center gap-5 rounded-xs px-2 py-4 pr-4 text-left text-sm',
+        'grid grid-cols-1 items-center gap-5 rounded-xs px-2 py-4 pr-4 text-left text-sm md:grid-cols-[1fr_40px_40px_115px_36px]',
       )}
       key={tool.tool_router_key}
     >
       <div className="flex flex-col gap-2.5">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-col items-start gap-2 md:flex-row md:items-center">
           <Link
             className="text-text-default text-sm font-medium hover:underline"
             to={`/tools/${tool.tool_router_key}`}

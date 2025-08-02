@@ -38,6 +38,7 @@ import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 
 import { useWebSocketMessage } from '../components/chat/websocket-message';
+import MobileBackNavigation from '../components/mobile-back-navigation';
 import { CreatePromptDrawer } from '../components/prompt/context/prompt-selection-context';
 import { useDebounce } from '../hooks/use-debounce';
 import { useAuth } from '../store/auth';

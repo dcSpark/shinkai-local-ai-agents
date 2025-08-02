@@ -71,7 +71,7 @@ export const McpRegistryPage = () => {
       <div className="container max-w-screen-lg">
         <div className="flex flex-col gap-5 pt-10 pb-6">
           <div className="flex justify-between gap-4">
-            <div className="font-clash inline-flex items-center gap-5 text-3xl font-medium">
+            <div className="font-clash flex flex-col gap-5 text-3xl font-medium md:flex-row md:items-center">
               <h1>{t('mcpServers.title')}</h1>
               <TabsList className="flex h-10 w-fit items-center gap-2 rounded-full bg-transparent px-1 py-1">
                 <TabsTrigger
@@ -84,7 +84,7 @@ export const McpRegistryPage = () => {
                   value="mcp_servers"
                 >
                   {t('mcpServers.label')}
-                  <span className="text-text-secondary inline-flex items-center gap-1 text-xs">
+                  <span className="text-text-secondary hidden items-center gap-1 text-xs md:inline-flex">
                     MCP <MoveRightIcon className="size-2.5" /> Shinkai
                   </span>
                 </TabsTrigger>
@@ -98,7 +98,7 @@ export const McpRegistryPage = () => {
                   value="expose_tools"
                 >
                   {t('mcpPage.exposeToolsTab')}
-                  <span className="text-text-secondary inline-flex items-center gap-1 text-xs">
+                  <span className="text-text-secondary hidden items-center gap-1 text-xs md:inline-flex">
                     Shinkai <MoveRightIcon className="size-2.5" /> MCP
                   </span>
                 </TabsTrigger>

@@ -1,3 +1,4 @@
+import MobileBackNavigation from '../components/mobile-back-navigation';
 import { SimpleLayout } from './layout/simple-layout';
 
 const shortcuts = [

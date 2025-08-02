@@ -85,6 +85,7 @@ import {
   WalletCreateConnectView,
 } from '../components/crypto-wallet/context/wallets-context';
 import { formatBalanceAmount } from '../components/crypto-wallet/utils';
+import MobileBackNavigation from '../components/mobile-back-navigation';
 import { useAuth } from '../store/auth';
 import { SimpleLayout } from './layout/simple-layout';
 

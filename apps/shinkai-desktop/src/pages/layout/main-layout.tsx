@@ -19,6 +19,10 @@ import {
   Popover,
   PopoverContent,
   PopoverTrigger,
+  Sheet,
+  SheetClose,
+  SheetContent,
+  SheetTrigger,
   Tooltip,
   TooltipContent,
   TooltipPortal,
@@ -38,6 +42,7 @@ import {
   ShinkaiCombinationMarkIcon,
   ToolsIcon,
 } from '@shinkai_network/shinkai-ui/assets';
+import { useIsMobile } from '@shinkai_network/shinkai-ui/hooks';
 import { cn } from '@shinkai_network/shinkai-ui/utils';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -47,6 +52,7 @@ import {
   ArrowRightToLine,
   Ellipsis,
   HelpCircleIcon,
+  Menu,
 } from 'lucide-react';
 import React, { Fragment, useEffect, useState } from 'react';
 import { Link, Outlet, useLocation, useMatch, useNavigate } from 'react-router';
@@ -54,6 +60,7 @@ import { toast } from 'sonner';
 
 import { ResourcesBanner } from '../../components/hardware-capabilities/resources-banner';
 import { UpdateBanner } from '../../components/hardware-capabilities/update-banner';
+import MobileSettingsDrawer from '../../components/mobile-settings-drawer';
 import OnboardingStepper from '../../components/onboarding-checklist/onboarding';
 import { ResetConnectionDialog } from '../../components/reset-connection-dialog';
 import config from '../../config';
@@ -176,6 +183,7 @@ const NavLink = ({
 
 export function MainNav() {
   const { t, Trans } = useTranslation();
+  const isMobile = useIsMobile();
   const optInExperimental = useSettings((state) => state.optInExperimental);
   const auth = useAuth((state) => state.auth);
   const logout = useAuth((state) => state.setLogout);
@@ -242,7 +250,7 @@ export function MainNav() {
       },
   ].filter(Boolean) as NavigationLink[];
 
-  const secondaryNavigationLinks = [
+  const secondaryNavigationLinks: NavigationLink[] = [
     {
       title: t('layout.menuItems.tools'),
       href: '/tools',
@@ -282,11 +290,13 @@ export function MainNav() {
       icon: <HelpCircleIcon className="size-[18px]" />,
       external: true,
     },
-    {
-      title: t('layout.menuItems.settings'),
-      href: '/settings',
-      icon: <GearIcon className="size-[18px]" />,
-    },
+    isMobile
+      ? null
+      : {
+          title: t('layout.menuItems.settings'),
+          href: '/settings',
+          icon: <GearIcon className="size-[18px]" />,
+        },
     config.isDev && {
       title: t('layout.menuItems.disconnect'),
       href: '#',
@@ -295,262 +305,351 @@ export function MainNav() {
     },
   ].filter(Boolean) as NavigationLink[];
 
+  const getHeaderTitle = () => {
+    const navigationLinksWithTitles = [
+      ...navigationLinks,
+      ...secondaryNavigationLinks,
+      ...footerNavigationLinks,
+    ];
+
+    const currentTitle = navigationLinksWithTitles.find(
+      (item) => item.href === location.pathname,
+    );
+
+    return currentTitle?.title ?? '-';
+  };
+
   return (
-    <motion.aside
-      animate={{
-        width: sidebarExpanded ? '230px' : '70px',
-        opacity: 1,
-      }}
-      className="bg-bg-secondary border-divider relative z-30 flex w-auto shrink-0 flex-col gap-2 overflow-x-hidden overflow-y-auto border-r px-2 py-6 pt-9"
-      exit={{ width: 0, opacity: 0 }}
-      initial={{ width: 0, opacity: 0 }}
-      transition={{ duration: 0.3 }}
-    >
-      <div
-        className={cn(
-          'text-text-secondary flex w-full items-center justify-between gap-2 py-2 pl-4',
-          !sidebarExpanded && 'justify-center px-0',
-        )}
-      >
-        {sidebarExpanded && (
-          <ShinkaiCombinationMarkIcon className="text-text-secondary h-auto w-[90px]" />
-        )}
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              className={cn('border-divider h-6 w-6 shrink-0 rounded-lg p-0')}
-              onClick={toggleSidebar}
-              size="auto"
-              type="button"
-              variant="outline"
-            >
-              {sidebarExpanded ? (
-                <ArrowLeftToLine className="h-3 w-3" />
-              ) : (
-                <ArrowRightToLine className="h-3 w-3" />
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipPortal>
-            <TooltipContent align="center" side="right">
-              {t('layout.sidebar.toggle')}
-            </TooltipContent>
-          </TooltipPortal>
-        </Tooltip>
-      </div>
-
-      <div className="flex flex-1 flex-col justify-between">
-        <div className="flex flex-col gap-1.5">
-          {!isGetStartedChecklistHidden && <OnboardingStepper />}
-          {navigationLinks.map((item) => {
-            return (
-              <Fragment key={item.title}>
-                <TooltipProvider
-                  delayDuration={
-                    item.disabled ? 0 : !sidebarExpanded ? 0 : 10000
-                  }
-                  key={item.title}
-                >
-                  <Tooltip>
-                    <TooltipTrigger className="flex items-center gap-1">
-                      <NavLink
-                        disabled={item.disabled}
-                        external={item.external}
-                        href={item.href}
-                        icon={item.icon}
-                        onClick={item.onClick}
-                        title={item.title}
-                      />
-                    </TooltipTrigger>
-                    <TooltipPortal>
-                      <TooltipContent
-                        align="center"
-                        arrowPadding={2}
-                        side="right"
-                      >
-                        {item.disabled ? (
-                          <>
-                            {item.title} <br />
-                            <span className="text-text-secondary text-xs">
-                              {t('common.comingSoon')}
-                            </span>
-                          </>
-                        ) : (
-                          <div className="flex flex-col gap-1">
-                            {item.title}
-                            {item.href === '/home' ? (
-                              <div className="text-text-secondary flex items-center justify-center gap-2 text-center">
-                                <span>⌘</span>
-                                <span>N</span>
-                              </div>
-                            ) : null}
-                          </div>
-                        )}
-                      </TooltipContent>
-                    </TooltipPortal>
-                  </Tooltip>
-                </TooltipProvider>
-              </Fragment>
-            );
-          })}
-          <Popover>
-            <TooltipProvider delayDuration={!sidebarExpanded ? 0 : 10000}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <PopoverTrigger asChild>
-                    <Button
-                      className={cn(
-                        'text-text-tertiary flex w-full items-center gap-2.5 rounded-lg bg-transparent px-4 py-2.5 transition-colors',
-                      )}
-                      size="auto"
-                      style={{
-                        justifyContent: sidebarExpanded
-                          ? 'flex-start'
-                          : 'center',
-                      }}
-                      variant="tertiary"
-                    >
-                      <Ellipsis className="size-[18px]" />
-                      <span
-                        className={cn(
-                          'text-sm font-normal',
-                          !sidebarExpanded && 'sr-only',
-                        )}
-                      >
-                        {t('common.more')}
-                      </span>
-                    </Button>
-                  </PopoverTrigger>
-                </TooltipTrigger>
-                {!sidebarExpanded && (
-                  <TooltipPortal>
-                    <TooltipContent
-                      align="center"
-                      arrowPadding={2}
-                      side="right"
-                    >
-                      <p>{t('common.more')}</p>
-                    </TooltipContent>
-                  </TooltipPortal>
-                )}
-              </Tooltip>
-            </TooltipProvider>
-            <PopoverContent
-              align="start"
-              className="w-[240px] p-2"
-              sideOffset={8}
-            >
-              <div className="flex flex-col gap-1">
-                {secondaryNavigationLinks.map((item) => {
-                  return (
-                    <PopoverClose asChild key={item.title}>
-                      <NavLink
-                        href={item.href}
-                        icon={item.icon}
-                        isPopover
-                        title={item.title}
-                      />
-                    </PopoverClose>
-                  );
-                })}
+    <>
+      <div className="md:hidden">
+        <div className="border-divider bg-bg-secondary relative flex items-center justify-center border-b px-4 py-3 md:justify-between">
+          <ShinkaiCombinationMarkIcon className="text-text-secondary hidden h-auto w-[90px] md:block" />
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button
+                variant="tertiary"
+                size="icon"
+                className="absolute top-2 left-4"
+              >
+                <Menu className="h-6 w-6" />
+                <span className="sr-only">Toggle navigation menu</span>
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="w-[280px] p-0">
+              <div className="border-divider flex items-center justify-between border-b px-4 py-3">
+                <ShinkaiCombinationMarkIcon className="text-text-secondary h-auto w-[90px]" />
               </div>
-            </PopoverContent>
-          </Popover>
-        </div>
-        <div className="flex flex-col gap-1">
-          <ResourcesBanner isInSidebar />
-          <UpdateBanner />
-          {footerNavigationLinks.map((item) => {
-            return (
-              <React.Fragment key={item.title}>
-                <TooltipProvider
-                  delayDuration={!sidebarExpanded ? 0 : 10000}
-                  key={item.title}
-                >
-                  <Tooltip>
-                    <TooltipTrigger className="flex items-center gap-1">
-                      <NavLink
-                        external={item.external}
-                        href={item.href}
-                        icon={item.icon}
-                        onClick={item.onClick}
-                        title={item.title}
-                      />
-                    </TooltipTrigger>
-                    <TooltipPortal>
-                      <TooltipContent
-                        align="center"
-                        arrowPadding={2}
-                        side="right"
-                      >
-                        <p>{item.title}</p>
-                      </TooltipContent>
-                    </TooltipPortal>
-                  </Tooltip>
-                </TooltipProvider>
-              </React.Fragment>
-            );
-          })}
-        </div>
-      </div>
-
-      <ResetConnectionDialog
-        isOpen={isApiV2KeyMissingDialogOpen}
-        onOpenChange={setIsApiV2KeyMissingDialogOpen}
-      />
-      <AlertDialog
-        onOpenChange={setIsConfirmLogoutDialogOpened}
-        open={isConfirmLogoutDialogOpened}
-      >
-        <AlertDialogContent className="w-[75%]">
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('disconnect.modalTitle')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              <div className="text-text-secondary flex flex-col space-y-3 text-left">
-                <div className="flex flex-col space-y-1">
-                  <span className="text-sm">
-                    {t('disconnect.modalDescription')}
-                  </span>
-                </div>
-                <div className="text-sm">
-                  <Trans
-                    components={{
-                      Link: (
-                        <Link
-                          className="mx-0.5 inline-block cursor-pointer underline"
-                          onClick={() => {
-                            setIsConfirmLogoutDialogOpened(false);
-                          }}
-                          to={'/settings/export-connection'}
-                        />
-                      ),
-                    }}
-                    i18nKey="disconnect.exportConnection"
+              <div className="flex flex-col gap-2 px-2 py-4">
+                {!isGetStartedChecklistHidden && <OnboardingStepper />}
+                {navigationLinks.map((item) => (
+                  <SheetClose asChild key={item.title}>
+                    <NavLink
+                      disabled={item.disabled}
+                      external={item.external}
+                      href={item.href}
+                      icon={item.icon}
+                      onClick={item.onClick}
+                      title={item.title}
+                      isPopover={false}
+                    />
+                  </SheetClose>
+                ))}
+                {secondaryNavigationLinks.map((item) => (
+                  <SheetClose asChild key={item.title}>
+                    <NavLink
+                      disabled={item.disabled}
+                      external={item.external}
+                      href={item.href}
+                      icon={item.icon}
+                      onClick={item.onClick}
+                      title={item.title}
+                      isPopover={false}
+                    />
+                  </SheetClose>
+                ))}
+                {footerNavigationLinks.map((item) => (
+                  <SheetClose asChild key={item.title}>
+                    <NavLink
+                      disabled={item.disabled}
+                      external={item.external}
+                      href={item.href}
+                      icon={item.icon}
+                      onClick={item.onClick}
+                      title={item.title}
+                      isPopover={false}
+                    />
+                  </SheetClose>
+                ))}
+                <MobileSettingsDrawer>
+                  <NavLink
+                    href="/settings"
+                    icon={<GearIcon className="size-[18px]" />}
+                    title={t('layout.menuItems.settings')}
                   />
-                </div>
+                </MobileSettingsDrawer>
               </div>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="mt-4 flex justify-end gap-2">
-            <AlertDialogCancel
-              className="mt-0 min-w-[120px]"
-              onClick={() => {
-                setIsConfirmLogoutDialogOpened(false);
-              }}
-            >
-              {t('common.cancel')}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              className="min-w-[120px]"
-              onClick={handleDisconnect}
-            >
-              {t('common.disconnect')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </motion.aside>
+            </SheetContent>
+          </Sheet>
+          {getHeaderTitle()}
+        </div>
+      </div>
+
+      <motion.aside
+        animate={{
+          width: sidebarExpanded ? '230px' : '70px',
+          opacity: 1,
+        }}
+        className="bg-bg-secondary border-divider relative z-30 hidden w-auto shrink-0 flex-col gap-2 overflow-x-hidden overflow-y-auto border-r px-2 py-6 pt-9 md:flex"
+        exit={{ width: 0, opacity: 0 }}
+        initial={{ width: 0, opacity: 0 }}
+        transition={{ duration: 0.3 }}
+      >
+        <div
+          className={cn(
+            'text-text-secondary flex w-full items-center justify-between gap-2 py-2 pl-4',
+            !sidebarExpanded && 'justify-center px-0',
+          )}
+        >
+          {sidebarExpanded && (
+            <ShinkaiCombinationMarkIcon className="text-text-secondary h-auto w-[90px]" />
+          )}
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                className={cn('border-divider h-6 w-6 shrink-0 rounded-lg p-0')}
+                onClick={toggleSidebar}
+                size="auto"
+                type="button"
+                variant="outline"
+              >
+                {sidebarExpanded ? (
+                  <ArrowLeftToLine className="h-3 w-3" />
+                ) : (
+                  <ArrowRightToLine className="h-3 w-3" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipPortal>
+              <TooltipContent align="center" side="right">
+                {t('layout.sidebar.toggle')}
+              </TooltipContent>
+            </TooltipPortal>
+          </Tooltip>
+        </div>
+
+        <div className="flex flex-1 flex-col justify-between">
+          <div className="flex flex-col gap-1.5">
+            {!isGetStartedChecklistHidden && <OnboardingStepper />}
+            {navigationLinks.map((item) => {
+              return (
+                <Fragment key={item.title}>
+                  <TooltipProvider
+                    delayDuration={
+                      item.disabled ? 0 : !sidebarExpanded ? 0 : 10000
+                    }
+                    key={item.title}
+                  >
+                    <Tooltip>
+                      <TooltipTrigger className="flex items-center gap-1">
+                        <NavLink
+                          disabled={item.disabled}
+                          external={item.external}
+                          href={item.href}
+                          icon={item.icon}
+                          onClick={item.onClick}
+                          title={item.title}
+                        />
+                      </TooltipTrigger>
+                      <TooltipPortal>
+                        <TooltipContent
+                          align="center"
+                          arrowPadding={2}
+                          side="right"
+                        >
+                          {item.disabled ? (
+                            <>
+                              {item.title} <br />
+                              <span className="text-text-secondary text-xs">
+                                {t('common.comingSoon')}
+                              </span>
+                            </>
+                          ) : (
+                            <div className="flex flex-col gap-1">
+                              {item.title}
+                              {item.href === '/home' ? (
+                                <div className="text-text-secondary flex items-center justify-center gap-2 text-center">
+                                  <span>⌘</span>
+                                  <span>N</span>
+                                </div>
+                              ) : null}
+                            </div>
+                          )}
+                        </TooltipContent>
+                      </TooltipPortal>
+                    </Tooltip>
+                  </TooltipProvider>
+                </Fragment>
+              );
+            })}
+            <Popover>
+              <TooltipProvider delayDuration={!sidebarExpanded ? 0 : 10000}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <PopoverTrigger asChild>
+                      <Button
+                        className={cn(
+                          'text-text-tertiary flex w-full items-center gap-2.5 rounded-lg bg-transparent px-4 py-2.5 transition-colors',
+                        )}
+                        size="auto"
+                        style={{
+                          justifyContent: sidebarExpanded
+                            ? 'flex-start'
+                            : 'center',
+                        }}
+                        variant="tertiary"
+                      >
+                        <Ellipsis className="size-[18px]" />
+                        <span
+                          className={cn(
+                            'text-sm font-normal',
+                            !sidebarExpanded && 'sr-only',
+                          )}
+                        >
+                          {t('common.more')}
+                        </span>
+                      </Button>
+                    </PopoverTrigger>
+                  </TooltipTrigger>
+                  {!sidebarExpanded && (
+                    <TooltipPortal>
+                      <TooltipContent
+                        align="center"
+                        arrowPadding={2}
+                        side="right"
+                      >
+                        <p>{t('common.more')}</p>
+                      </TooltipContent>
+                    </TooltipPortal>
+                  )}
+                </Tooltip>
+              </TooltipProvider>
+              <PopoverContent
+                align="start"
+                className="w-[240px] p-2"
+                sideOffset={8}
+              >
+                <div className="flex flex-col gap-1">
+                  {secondaryNavigationLinks.map((item) => {
+                    return (
+                      <PopoverClose asChild key={item.title}>
+                        <NavLink
+                          href={item.href}
+                          icon={item.icon}
+                          isPopover
+                          title={item.title}
+                        />
+                      </PopoverClose>
+                    );
+                  })}
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+          <div className="flex flex-col gap-1">
+            <ResourcesBanner isInSidebar />
+            <UpdateBanner />
+            {footerNavigationLinks.map((item) => {
+              return (
+                <React.Fragment key={item.title}>
+                  <TooltipProvider
+                    delayDuration={!sidebarExpanded ? 0 : 10000}
+                    key={item.title}
+                  >
+                    <Tooltip>
+                      <TooltipTrigger className="flex items-center gap-1">
+                        <NavLink
+                          external={item.external}
+                          href={item.href}
+                          icon={item.icon}
+                          onClick={item.onClick}
+                          title={item.title}
+                        />
+                      </TooltipTrigger>
+                      <TooltipPortal>
+                        <TooltipContent
+                          align="center"
+                          arrowPadding={2}
+                          side="right"
+                        >
+                          <p>{item.title}</p>
+                        </TooltipContent>
+                      </TooltipPortal>
+                    </Tooltip>
+                  </TooltipProvider>
+                </React.Fragment>
+              );
+            })}
+          </div>
+        </div>
+
+        <ResetConnectionDialog
+          isOpen={isApiV2KeyMissingDialogOpen}
+          onOpenChange={setIsApiV2KeyMissingDialogOpen}
+        />
+        <AlertDialog
+          onOpenChange={setIsConfirmLogoutDialogOpened}
+          open={isConfirmLogoutDialogOpened}
+        >
+          <AlertDialogContent className="w-[75%]">
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t('disconnect.modalTitle')}</AlertDialogTitle>
+              <AlertDialogDescription>
+                <div className="text-text-secondary flex flex-col space-y-3 text-left">
+                  <div className="flex flex-col space-y-1">
+                    <span className="text-sm">
+                      {t('disconnect.modalDescription')}
+                    </span>
+                  </div>
+                  <div className="text-sm">
+                    <Trans
+                      components={{
+                        Link: (
+                          <Link
+                            className="mx-0.5 inline-block cursor-pointer underline"
+                            onClick={() => {
+                              setIsConfirmLogoutDialogOpened(false);
+                            }}
+                            to={'/settings/export-connection'}
+                          />
+                        ),
+                      }}
+                      i18nKey="disconnect.exportConnection"
+                    />
+                  </div>
+                </div>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter className="mt-4 flex justify-end gap-2">
+              <AlertDialogCancel
+                className="mt-0 min-w-[120px]"
+                onClick={() => {
+                  setIsConfirmLogoutDialogOpened(false);
+                }}
+              >
+                {t('common.cancel')}
+              </AlertDialogCancel>
+              <AlertDialogAction
+                className="min-w-[120px]"
+                onClick={handleDisconnect}
+              >
+                {t('common.disconnect')}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </motion.aside>
+    </>
   );
 }
 
@@ -673,7 +772,7 @@ const MainLayout = () => {
         className="absolute top-0 z-50 h-6 w-full"
         data-tauri-drag-region={true}
       />
-      <div className={cn('flex h-full flex-1')}>
+      <div className={cn('flex h-full flex-1 flex-col md:flex-row')}>
         <AnimatePresence initial={false}>
           {displaySidebar && <MainNav />}
         </AnimatePresence>

@@ -2,6 +2,7 @@ import { useTranslation } from '@shinkai_network/shinkai-i18n';
 import { Button } from '@shinkai_network/shinkai-ui';
 import { CheckIcon, XIcon } from 'lucide-react';
 
+import MobileBackNavigation from '../components/mobile-back-navigation';
 import { OnboardingStep } from '../components/onboarding/constants';
 import { analyticsBulletPoints } from '../constants/analytics';
 import { useSettings } from '../store/settings';

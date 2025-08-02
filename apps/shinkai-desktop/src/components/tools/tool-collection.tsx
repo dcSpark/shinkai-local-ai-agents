@@ -171,7 +171,7 @@ export const ToolCollection = () => {
         )}
       {!searchQuery && isSearchQuerySynced && (
         <div>
-          <div className="flex w-full items-center justify-between gap-3">
+          <div className="flex w-full flex-col items-center justify-between gap-3 md:flex-row">
             <ToggleGroup
               className="border-divider rounded-full border bg-transparent px-0.5 py-1"
               onValueChange={(value) => {

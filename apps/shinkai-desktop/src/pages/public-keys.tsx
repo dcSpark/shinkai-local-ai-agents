@@ -12,6 +12,7 @@ import {
 } from '@shinkai_network/shinkai-ui';
 import { useForm } from 'react-hook-form';
 
+import MobileBackNavigation from '../components/mobile-back-navigation';
 import { useAuth } from '../store/auth';
 import { SimpleLayout } from './layout/simple-layout';
 

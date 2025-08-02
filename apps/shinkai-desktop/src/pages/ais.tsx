@@ -162,7 +162,7 @@ function LLMProviderCard({
 
   return (
     <React.Fragment>
-      <div className="border-divider bg-bg-secondary flex items-center justify-between gap-1 rounded-lg border p-3.5">
+      <div className="border-divider bg-bg-secondary flex flex-col justify-between gap-1 rounded-lg border p-3.5 md:flex-row md:items-center">
         <div className="flex items-center gap-3">
           <div className="flex size-6 items-center justify-center rounded-lg">
             <ProviderIcon
@@ -184,7 +184,7 @@ function LLMProviderCard({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 self-end md:self-auto">
           <TooltipProvider delayDuration={0}>
             <Tooltip>
               <TooltipTrigger asChild>

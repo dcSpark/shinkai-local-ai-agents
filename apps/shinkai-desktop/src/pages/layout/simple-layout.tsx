@@ -19,7 +19,7 @@ export const SubpageLayout = ({
 }) => {
   const { t } = useTranslation();
   return (
-    <div className={cn('container relative py-10', className)}>
+    <div className={cn('relative container py-10', className)}>
       <div className="mb-8 flex items-center gap-2">
         <div
           className={cn(
@@ -91,11 +91,16 @@ export const SimpleLayout = ({
 }) => {
   return (
     <div
-      className={cn('container flex h-full flex-col gap-4 py-10', classname)}
+      className={cn(
+        'flex h-full flex-col gap-4 px-2 py-4 md:container md:py-10',
+        classname,
+      )}
     >
       <div className="flex items-center justify-between gap-4">
         {title ? (
-          <h1 className="font-clash text-3xl font-medium">{title}</h1>
+          <h1 className="font-clash hidden text-3xl font-medium md:block">
+            {title}
+          </h1>
         ) : null}
         {headerRightElement}
       </div>

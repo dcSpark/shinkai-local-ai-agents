@@ -97,13 +97,13 @@ const EmptyMessage = () => {
           <h1 className="mb-2 text-3xl font-bold text-white">
             {t('chat.emptyStateTitle')}
           </h1>
-          <p className="text-gray-80 text-sm">
+          <p className="text-text-secondary text-sm">
             {t('chat.emptyStateDescription')}
           </p>
         </div>
         <div className="container grid grid-cols-2 items-center gap-3">
           <Badge
-            className="hover:bg-official-gray-900 cursor-pointer justify-between text-balance rounded-full py-2 text-left font-normal normal-case text-gray-50 transition-colors"
+            className="cursor-pointer justify-between rounded-full py-2 text-left font-normal text-balance normal-case transition-colors"
             onClick={() => showSpotlightWindow()}
             variant="outline"
           >
@@ -121,7 +121,7 @@ const EmptyMessage = () => {
             },
           ].map((suggestion) => (
             <Badge
-              className="hover:bg-official-gray-900 cursor-pointer justify-between text-balance rounded-full py-2 text-left font-normal normal-case text-gray-50 transition-colors"
+              className="cursor-pointer justify-between rounded-full py-2 text-left font-normal text-balance normal-case transition-colors"
               key={suggestion.text}
               onClick={() => {
                 setPromptSelected({
@@ -148,7 +148,7 @@ const EmptyMessage = () => {
             </Badge>
           ))}
           <Badge
-            className="hover:bg-official-gray-900 cursor-pointer justify-between text-balance rounded-full py-2 text-left font-normal normal-case text-gray-50 transition-colors"
+            className="cursor-pointer justify-between rounded-full py-2 text-left font-normal text-balance normal-case transition-colors"
             onClick={() => onCreateJob('Tell me about the Roman Empire')}
             variant="outline"
           >

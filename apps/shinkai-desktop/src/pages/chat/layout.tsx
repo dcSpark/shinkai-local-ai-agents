@@ -114,8 +114,8 @@ const InboxNameInput = ({
             control={updateInboxNameForm.control}
             name="name"
             render={({ field }) => (
-              <div className="flex h-[46px] items-center rounded-lg bg-gray-300">
-                <Edit3 className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 transform text-white" />
+              <div className="flex h-[46px] items-center rounded-lg bg-gray-600">
+                <Edit3 className="absolute top-1/2 left-2 h-4 w-4 -translate-y-1/2 transform text-white" />
 
                 <FormItem className="space-y-0 pl-7 text-xs">
                   <FormLabel className="sr-only static">
@@ -123,7 +123,7 @@ const InboxNameInput = ({
                   </FormLabel>
                   <FormControl>
                     <Input
-                      className="h-full border-none bg-transparent py-2 pr-16 text-xs caret-white placeholder:text-gray-100 focus-visible:ring-0 focus-visible:ring-white"
+                      className="placeholder:!text-text-placeholder h-full border-none bg-transparent py-2 pr-16 text-xs caret-white focus-visible:ring-0 focus-visible:ring-white"
                       placeholder={inboxName}
                       {...field}
                       ref={inputRef}
@@ -137,7 +137,7 @@ const InboxNameInput = ({
 
         {inboxNameValue ? (
           <Button
-            className="absolute right-1 top-1/2 h-8 -translate-y-1/2 transform text-xs text-white"
+            className="absolute top-1/2 right-1 h-8 -translate-y-1/2 transform text-xs text-white"
             size="sm"
             type="submit"
             variant="default"
@@ -146,10 +146,10 @@ const InboxNameInput = ({
           </Button>
         ) : (
           <Button
-            className="absolute right-1 top-1/2 h-8 -translate-y-1/2 transform bg-gray-700 text-xs text-white"
+            className="absolute top-1/2 right-1 h-8 -translate-y-1/2 transform text-xs text-white"
             onClick={closeEditable}
             size="sm"
-            variant="ghost"
+            variant="tertiary"
           >
             {t('common.cancel')}
           </Button>
@@ -220,8 +220,8 @@ const InboxMessageButtonBase = ({
           ) : (
             <Link
               className={cn(
-                'text-official-gray-300 group relative flex h-[46px] w-full items-center gap-2 rounded-xl px-2 py-2 text-xs hover:bg-white/10 hover:text-white',
-                location.pathname === to && 'bg-white/10 text-white',
+                'text-text-secondary group hover:bg-secondary hover:text-text-default relative flex h-[46px] w-full items-center gap-2 rounded-xl px-2 py-2 text-xs',
+                location.pathname === to && 'bg-bg-secondary text-text-default',
               )}
               key={inboxId}
               onClick={() => {
@@ -230,16 +230,15 @@ const InboxMessageButtonBase = ({
               }}
               to={to}
             >
-              <span className="line-clamp-1 flex-1 break-all pr-2 text-left text-xs">
+              <span className="line-clamp-1 flex-1 pr-2 text-left text-xs break-all">
                 {inboxName}
               </span>
-              <div className="absolute right-0 rounded-full bg-transparent opacity-0 duration-200 group-hover:bg-gray-300 group-hover:opacity-100">
+              <div className="group-hover:bg-bg-tertiary absolute right-0 rounded-full bg-transparent opacity-0 duration-200 group-hover:opacity-100">
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <div
                       className={cn(
                         buttonVariants({ variant: 'tertiary', size: 'icon' }),
-                        'justify-self-end bg-transparent',
                       )}
                       onClick={() => setIsEditable(true)}
                       role="button"
@@ -258,7 +257,6 @@ const InboxMessageButtonBase = ({
                     <div
                       className={cn(
                         buttonVariants({ variant: 'tertiary', size: 'icon' }),
-                        'justify-self-end bg-transparent',
                       )}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -287,11 +285,7 @@ const InboxMessageButtonBase = ({
         </div>
       </TooltipTrigger>
       <TooltipPortal>
-        <TooltipContent
-          align="end"
-          className="max-w-[200px] bg-gray-600"
-          side="right"
-        >
+        <TooltipContent align="end" className="max-w-[200px]" side="right">
           <p>{inboxName}</p>
         </TooltipContent>
       </TooltipPortal>
@@ -341,7 +335,7 @@ function RemoveInboxMessageModal({
                 className="min-w-[100px] flex-1"
                 size="sm"
                 type="button"
-                variant="ghost"
+                variant="outline"
               >
                 {t('common.cancel')}
               </Button>
@@ -384,7 +378,7 @@ const ChatLayout = () => {
         {!isChatSidebarCollapsed && (
           <motion.div
             animate={{ width: 260, opacity: 1 }}
-            className="border-official-gray-780 flex h-full shrink-0 flex-col overflow-hidden border-r"
+            className="border-divider flex h-full shrink-0 flex-col overflow-hidden border-r"
             exit={{ width: 0, opacity: 0 }}
             initial={{ width: 0, opacity: 0 }}
             transition={{ duration: 0.3 }}
@@ -461,7 +455,7 @@ const ChatList = () => {
         <Tooltip>
           <TooltipTrigger asChild>
             <button
-              className="text-official-gray-300 flex size-8 items-center justify-center rounded-full hover:text-white"
+              className="text-text-secondary hover:text-text-default flex size-8 items-center justify-center rounded-full"
               onClick={() => {
                 void navigate(`/home`);
               }}
@@ -512,7 +506,7 @@ const ChatList = () => {
             )),
           )}
         {isSuccess && !hasInboxes && (
-          <p className="text-gray-80 py-3 text-center text-xs">
+          <p className="text-text-secondary py-3 text-center text-sm">
             {t('chat.actives.notFound')}{' '}
           </p>
         )}
@@ -551,14 +545,14 @@ const AgentInboxList = ({ agentId }: { agentId?: string }) => {
   return (
     <div className=" ">
       <div className="flex h-8 items-center justify-between gap-1">
-        <h2 className="font-clash flex items-center gap-2 px-2 text-sm font-normal capitalize tracking-wide">
+        <h2 className="font-clash flex items-center gap-2 px-2 text-sm font-normal tracking-wide capitalize">
           <AIAgentIcon name={agent?.name ?? ''} size="xs" />
           {agent?.name}
         </h2>
         <Tooltip>
           <TooltipTrigger asChild>
             <button
-              className="text-official-gray-300 flex size-8 items-center justify-center rounded-full hover:text-white"
+              className="text-text-secondary flex size-8 items-center justify-center rounded-full hover:text-white"
               onClick={() => {
                 void navigate(`/home`, {
                   state: { agentName: agentId },
@@ -577,7 +571,7 @@ const AgentInboxList = ({ agentId }: { agentId?: string }) => {
       </div>
       <div className="flex flex-col gap-2 py-4">
         {isSuccess && agentInboxes.length === 0 && (
-          <p className="text-official-gray-400 py-3 text-center text-xs">
+          <p className="text-text-secondary py-3 text-center text-xs">
             {t('chat.actives.notFound')}
           </p>
         )}
@@ -586,18 +580,18 @@ const AgentInboxList = ({ agentId }: { agentId?: string }) => {
           agentInboxes?.map((inbox) => (
             <Link
               className={cn(
-                'hover:bg-official-gray-850 flex flex-col items-start gap-2 rounded-lg p-3 py-2 text-left',
+                'hover:bg-bg-secondary flex flex-col items-start gap-2 rounded-lg p-3 py-2 text-left',
                 location.pathname ===
                   `/inboxes/${encodeURIComponent(inbox.inbox_id)}` &&
-                  'bg-official-gray-850',
+                  'bg-bg-secondary',
               )}
               key={inbox.inbox_id}
               to={`/inboxes/${encodeURIComponent(inbox.inbox_id)}`}
             >
-              <span className="text-official-gray-100 line-clamp-2 text-sm">
+              <span className="text-text-default line-clamp-2 text-sm">
                 {inbox.custom_name || inbox.inbox_id}
               </span>
-              <span className="text-official-gray-500 text-xs">
+              <span className="text-text-tertiary text-xs">
                 {formatDateToLocaleStringWithTime(
                   new Date(inbox.datetime_created),
                 )}
@@ -646,7 +640,7 @@ const AgentList = ({
         <Tooltip>
           <TooltipTrigger asChild>
             <button
-              className="text-official-gray-300 flex size-8 items-center justify-center rounded-full hover:text-white"
+              className="text-text-secondary hover:text-text-default flex size-8 items-center justify-center rounded-full"
               onClick={() => {
                 void navigate(`/add-agent`);
               }}
@@ -664,25 +658,22 @@ const AgentList = ({
       <div className="w-full space-y-1 bg-transparent">
         {isPending &&
           Array.from({ length: 5 }).map((_, index) => (
-            <Skeleton
-              className="h-11 w-full shrink-0 rounded-md bg-gray-300"
-              key={index}
-            />
+            <Skeleton className="h-11 w-full shrink-0 rounded-md" key={index} />
           ))}
 
         {isSuccess &&
           displayedAgents.map((agent) => (
             <div
               className={cn(
-                'text-official-gray-300 group flex h-[46px] w-full items-center gap-2 rounded-xl px-2 py-2 text-xs hover:bg-white/10 hover:text-white',
-                selectedAgent === agent.agent_id && 'bg-white/10 text-white',
+                'text-text-secondary group hover:bg-bg-secondary hover:text-text-default flex h-[46px] w-full items-center gap-2 rounded-xl px-2 py-2 text-xs',
+                selectedAgent === agent.agent_id && 'text-text-default',
               )}
               key={agent.agent_id}
               onClick={() => onSelectedAgentChange(agent.agent_id)}
               role="button"
             >
               <AIAgentIcon name={agent.name} size="xs" />
-              <span className="line-clamp-1 flex-1 break-all pr-2 text-left text-xs capitalize">
+              <span className="line-clamp-1 flex-1 pr-2 text-left text-xs break-all capitalize">
                 {agent.name}
               </span>
               <Tooltip>
@@ -729,13 +720,13 @@ const AgentList = ({
             </div>
           ))}
         {isSuccess && !agents && (
-          <p className="text-official-gray-400 py-3 text-center text-xs">
+          <p className="text-text-secondary py-3 text-center text-sm">
             {t('chat.actives.notFound')}{' '}
           </p>
         )}
         {isSuccess && agents && agents.length > AGENTS_DISPLAY_LIMIT && (
           <button
-            className="text-official-gray-300 flex h-[46px] w-full items-center gap-2 rounded-xl px-2 py-2 text-xs hover:bg-white/10 hover:text-white"
+            className="text-text-secondary hover:bg-bg-secondary hover:text-text-default flex h-[46px] w-full items-center gap-2 rounded-xl px-2 py-2 text-xs"
             onClick={() => setShowAll(!showAll)}
             type="button"
           >

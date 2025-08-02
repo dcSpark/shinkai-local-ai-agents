@@ -169,10 +169,10 @@ function PlaygroundHeaderBase({
   };
 
   return (
-    <div className="flex items-center justify-between gap-2 border-b border-gray-400 px-4 pb-2.5">
+    <div className="border-divider flex items-center justify-between gap-2 border-b px-4 pb-2.5">
       <div className="flex items-center gap-2">
         <Button
-          className="text-gray-80 border-none"
+          className="text-text-secondary border-none"
           onClick={() => {
             resetPlaygroundStore();
             void navigate('/tools');
@@ -243,10 +243,10 @@ function PlaygroundHeaderBase({
                   disabled={toolCode === toolHistory?.at(0)?.code}
                 >
                   <Button
-                    className="size-[30px] rounded-lg p-1 disabled:pointer-events-none disabled:bg-transparent disabled:text-gray-100"
+                    className="disabled:text-text-secondary size-[30px] rounded-lg p-1 disabled:pointer-events-none disabled:bg-transparent"
                     onClick={goPreviousToolCode}
                     size="auto"
-                    variant="ghost"
+                    variant="tertiary"
                   >
                     <Undo2Icon className="h-4 w-4" />
                   </Button>
@@ -263,10 +263,10 @@ function PlaygroundHeaderBase({
                   disabled={toolCode === toolHistory?.at(-1)?.code}
                 >
                   <Button
-                    className="size-[30px] rounded-lg p-1 disabled:pointer-events-none disabled:bg-transparent disabled:text-gray-100"
+                    className="disabled:text-text-secondary size-[30px] rounded-lg p-1 disabled:pointer-events-none disabled:bg-transparent"
                     onClick={goNextToolCode}
                     size="auto"
-                    variant="ghost"
+                    variant="tertiary"
                   >
                     <Redo2Icon className="h-4 w-4" />
                   </Button>
@@ -323,10 +323,10 @@ function PlaygroundHeaderBase({
                   <StoreIcon className="h-4 w-4" />
                   Publish to the App Store
                 </h4>
-                <p className="text-official-gray-300 text-xs">
+                <p className="text-text-secondary text-xs">
                   Publishing will make your tool available in the{' '}
                   <a
-                    className="text-white underline"
+                    className="text-text-default underline"
                     href={SHINKAI_STORE_URL}
                     rel="noreferrer"
                     target="_blank"
@@ -337,12 +337,12 @@ function PlaygroundHeaderBase({
                 </p>
               </div>
               {/* create short preview with the tool name and description */}
-              <div className="bg-official-gray-900 flex flex-col gap-2 rounded-lg p-4 text-white">
+              <div className="bg-bg-tertiary text-text-default flex flex-col gap-2 rounded-lg p-4">
                 <h5 className="text-sm leading-none font-medium">
                   {toolMetadata?.name}
                 </h5>
                 <p className="text-xs">{toolMetadata?.description}</p>
-                <p className="text-xs text-white">
+                <p className="text-text-default text-xs">
                   Author: {auth?.shinkai_identity}
                 </p>
               </div>

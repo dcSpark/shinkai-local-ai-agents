@@ -39,7 +39,7 @@ export default function PlaygroundToolLayout({
   );
 
   return (
-    <div className="bg-official-gray-950 flex h-full flex-col pt-4">
+    <div className="bg-bg-dark flex h-full flex-col pt-4">
       {topElement}
       <div className="flex h-full" style={{ contain: 'strict' }}>
         <ResizablePanelGroup direction="horizontal">
@@ -53,7 +53,7 @@ export default function PlaygroundToolLayout({
           >
             {leftElement}
           </ResizablePanel>
-          <ResizableHandle className="bg-official-gray-1000 w-2" />
+          <ResizableHandle className="bg-bg-darker w-2" />
           <ResizablePanel
             className="flex h-full flex-col overflow-hidden rounded-xs pb-3"
             minSize={10}
@@ -71,7 +71,7 @@ export default function PlaygroundToolLayout({
                     >
                       {rightTopElement}
                     </ResizablePanel>
-                    <ResizableHandle className="bg-official-gray-1000/80 !h-2" />
+                    <ResizableHandle className="bg-bg-darker !h-2" />
                     <ResizablePanel minSize={3}>
                       {rightBottomElement}
                     </ResizablePanel>

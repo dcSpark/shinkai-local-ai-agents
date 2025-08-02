@@ -116,7 +116,7 @@ const NavLink = ({
     return (
       <div
         className={cn(
-          'flex w-full items-center gap-2 rounded-lg px-4 py-3 text-white transition-colors',
+          'flex w-full items-center gap-2 rounded-lg px-4 py-3 transition-colors',
           'opacity-40',
         )}
       >
@@ -145,10 +145,10 @@ const NavLink = ({
   return (
     <Link
       className={cn(
-        'flex w-full items-center gap-2.5 rounded-lg px-4 py-3 text-white transition-colors',
+        'flex w-full items-center gap-2.5 rounded-lg px-4 py-3 transition-colors',
         isMatch
-          ? 'bg-white/10 text-white shadow-xl'
-          : 'opacity-60 hover:bg-white/10 hover:opacity-100',
+          ? 'bg-bg-quaternary text-text-default'
+          : 'hover:bg-bg-quaternary hover:text-text-default text-text-secondary',
       )}
       onClick={onClick}
       rel={external ? 'noreferrer' : ''}
@@ -301,31 +301,29 @@ export function MainNav() {
         width: sidebarExpanded ? '230px' : '70px',
         opacity: 1,
       }}
-      className="bg-official-gray-900 border-official-gray-850 relative z-30 flex w-auto shrink-0 flex-col gap-2 overflow-x-hidden overflow-y-auto border-r px-2 py-6 pt-9 shadow-xl"
+      className="bg-bg-secondary border-divider relative z-30 flex w-auto shrink-0 flex-col gap-2 overflow-x-hidden overflow-y-auto border-r px-2 py-6 pt-9"
       exit={{ width: 0, opacity: 0 }}
       initial={{ width: 0, opacity: 0 }}
       transition={{ duration: 0.3 }}
     >
       <div
         className={cn(
-          'text-official-gray-400 flex w-full items-center justify-between gap-2 py-2 pl-4',
+          'text-text-secondary flex w-full items-center justify-between gap-2 py-2 pl-4',
           !sidebarExpanded && 'justify-center px-0',
         )}
       >
         {sidebarExpanded && (
-          <ShinkaiCombinationMarkIcon className="text-official-gray-100 h-auto w-[90px]" />
+          <ShinkaiCombinationMarkIcon className="text-text-secondary h-auto w-[90px]" />
         )}
 
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
-              className={cn(
-                'border-official-gray-780 text-official-gray-400 h-6 w-6 shrink-0 rounded-lg border bg-black/20 p-0 hover:bg-black/20 hover:text-white',
-              )}
+              className={cn('border-divider h-6 w-6 shrink-0 rounded-lg p-0')}
               onClick={toggleSidebar}
               size="auto"
               type="button"
-              variant="ghost"
+              variant="outline"
             >
               {sidebarExpanded ? (
                 <ArrowLeftToLine className="h-3 w-3" />
@@ -374,7 +372,7 @@ export function MainNav() {
                         {item.disabled ? (
                           <>
                             {item.title} <br />
-                            <span className="text-official-gray-400 text-xs">
+                            <span className="text-text-secondary text-xs">
                               {t('common.comingSoon')}
                             </span>
                           </>
@@ -382,7 +380,7 @@ export function MainNav() {
                           <div className="flex flex-col gap-1">
                             {item.title}
                             {item.href === '/home' ? (
-                              <div className="text-official-gray-400 flex items-center justify-center gap-2 text-center">
+                              <div className="text-text-secondary flex items-center justify-center gap-2 text-center">
                                 <span>⌘</span>
                                 <span>N</span>
                               </div>
@@ -403,8 +401,7 @@ export function MainNav() {
                   <PopoverTrigger asChild>
                     <Button
                       className={cn(
-                        'flex w-full items-center gap-2.5 rounded-lg bg-transparent px-4 py-2.5 text-white transition-colors',
-                        'opacity-60 hover:bg-white/10 hover:opacity-100',
+                        'text-text-tertiary flex w-full items-center gap-2.5 rounded-lg bg-transparent px-4 py-2.5 transition-colors',
                       )}
                       size="auto"
                       style={{
@@ -412,7 +409,7 @@ export function MainNav() {
                           ? 'flex-start'
                           : 'center',
                       }}
-                      variant="ghost"
+                      variant="tertiary"
                     >
                       <Ellipsis className="size-[18px]" />
                       <span
@@ -510,7 +507,7 @@ export function MainNav() {
           <AlertDialogHeader>
             <AlertDialogTitle>{t('disconnect.modalTitle')}</AlertDialogTitle>
             <AlertDialogDescription>
-              <div className="flex flex-col space-y-3 text-left text-white/70">
+              <div className="text-text-secondary flex flex-col space-y-3 text-left">
                 <div className="flex flex-col space-y-1">
                   <span className="text-sm">
                     {t('disconnect.modalDescription')}
@@ -521,7 +518,7 @@ export function MainNav() {
                     components={{
                       Link: (
                         <Link
-                          className="mx-0.5 inline-block cursor-pointer text-white underline"
+                          className="mx-0.5 inline-block cursor-pointer underline"
                           onClick={() => {
                             setIsConfirmLogoutDialogOpened(false);
                           }}
@@ -658,7 +655,6 @@ const MainLayout = () => {
   const disabledSidebarRoutes = [
     '/terms-conditions',
     '/analytics',
-    '/ai-provider-selection',
     '/quick-connection',
     '/restore',
     '/connect-qr',
@@ -672,7 +668,7 @@ const MainLayout = () => {
   );
 
   return (
-    <div className="bg-official-gray-950 relative flex h-screen min-h-full flex-col overflow-hidden text-white">
+    <div className="bg-bg-default relative flex h-screen min-h-full flex-col overflow-hidden">
       <div
         className="absolute top-0 z-50 h-6 w-full"
         data-tauri-drag-region={true}
@@ -683,7 +679,11 @@ const MainLayout = () => {
         </AnimatePresence>
 
         <div
-          className={cn('min-h-full flex-1 overflow-y-scroll')}
+          className={cn(
+            'min-h-full flex-1',
+            !disabledSidebarRoutes.includes(location.pathname) &&
+              'overflow-y-scroll',
+          )}
           ref={mainLayoutContainerRef}
         >
           <Outlet />

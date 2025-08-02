@@ -22,13 +22,13 @@ const SearchInput = ({
   return (
     <div
       className={cn(
-        'shadow-official-gray-750 focus-within:shadow-official-gray-600 relative flex h-10 flex-1 items-center overflow-hidden rounded-full shadow-[0_0_0_1px_currentColor] transition-shadow',
+        'shadow-border-input focus-within:shadow-border-input-focus relative flex h-10 flex-1 items-center overflow-hidden rounded-full shadow-[0_0_0_1px_currentColor] transition-shadow',
         classNames?.container,
       )}
     >
       <Input
         className={cn(
-          'placeholder-official-gray-500 bg-official-gray-900 !h-full border-none py-2 pl-10',
+          'placeholder:!text-text-placeholder !h-full border-none bg-transparent py-2 pl-10',
           classNames?.input,
         )}
         onChange={(e) => {
@@ -39,7 +39,7 @@ const SearchInput = ({
         value={value}
         {...props}
       />
-      <SearchIcon className="text-official-gray-400 absolute left-4 top-1/2 -z-[1px] h-4 w-4 -translate-y-1/2" />
+      <SearchIcon className="text-text-tertiary absolute top-1/2 left-4 -z-[1px] h-4 w-4 -translate-y-1/2" />
       {value && (
         <Button
           className={cn('absolute right-1 h-8 w-8 p-2', classNames?.button)}

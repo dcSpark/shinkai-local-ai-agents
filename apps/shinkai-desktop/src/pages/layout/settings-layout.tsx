@@ -64,7 +64,7 @@ const NavLink = ({
     return (
       <div
         className={cn(
-          'flex w-full items-center gap-2 rounded-lg px-4 py-3 text-white transition-colors',
+          'text-text-default flex w-full items-center gap-2 rounded-lg px-4 py-3 transition-colors',
           'opacity-40',
         )}
       >
@@ -83,10 +83,10 @@ const NavLink = ({
   return (
     <Link
       className={cn(
-        'flex w-full items-center gap-2 rounded-lg px-4 py-3 text-white transition-colors',
+        'flex w-full items-center gap-2 rounded-lg px-4 py-3 transition-colors',
         isMatch
-          ? 'bg-official-gray-850 text-white'
-          : 'hover:bg-official-gray-850 opacity-60 hover:opacity-100',
+          ? 'bg-bg-secondary text-text-default'
+          : 'hover:bg-bg-secondary opacity-50 hover:opacity-100',
       )}
       onClick={onClick}
       rel={external ? 'noreferrer' : ''}
@@ -110,17 +110,17 @@ export function MainNav() {
     {
       title: t('settings.layout.general'),
       href: '/settings',
-      icon: <SettingsIcon className="text-official-gray-400 h-4 w-4" />,
+      icon: <SettingsIcon className="text-text-secondary h-4 w-4" />,
     },
     {
       title: t('settings.layout.appearance'),
       href: '/settings/appearance',
-      icon: <PaintbrushIcon className="text-official-gray-400 h-4 w-4" />,
+      icon: <PaintbrushIcon className="text-text-secondary h-4 w-4" />,
     },
     {
       title: 'Shortcuts',
       href: '/settings/shortcuts',
-      icon: <ShortcutsIcon className="text-official-gray-400 h-4 w-4" />,
+      icon: <ShortcutsIcon className="text-text-secondary h-4 w-4" />,
     },
     isLocalShinkaiNodeInUse && {
       title: t('settings.layout.shinkaiNode'),
@@ -128,29 +128,29 @@ export function MainNav() {
       onClick: () => {
         void openShinkaiNodeManagerWindow();
       },
-      icon: <CodesandboxIcon className="text-official-gray-400 h-4 w-4" />,
+      icon: <CodesandboxIcon className="text-text-secondary h-4 w-4" />,
     },
     {
       title: t('settings.layout.remoteAccess'),
       href: '/settings/remote-access',
-      icon: <LaptopMinimal className="text-official-gray-400 h-4 w-4" />,
+      icon: <LaptopMinimal className="text-text-secondary h-4 w-4" />,
     },
     {
       title: t('settings.layout.analytics'),
       href: '/settings/analytics-settings',
-      icon: <BarChart2 className="text-official-gray-400 h-4 w-4" />,
+      icon: <BarChart2 className="text-text-secondary h-4 w-4" />,
     },
     {
       title: t('settings.layout.exportConnection'),
       href: '/settings/export-connection',
-      icon: <ExportIcon className="text-official-gray-400 h-4 w-4" />,
+      icon: <ExportIcon className="text-text-secondary h-4 w-4" />,
     },
     {
       title: t('settings.layout.publicKeys'),
       href: '/settings/public-keys',
       icon: (
         <svg
-          className="text-official-gray-400 h-4 w-4"
+          className="text-text-secondary h-4 w-4"
           fill="currentColor"
           stroke="currentColor"
           strokeWidth="0"
@@ -163,18 +163,18 @@ export function MainNav() {
     {
       title: t('settings.layout.promptLibrary'),
       href: '/settings/prompt-library',
-      icon: <PromptLibraryIcon className="text-official-gray-400 h-4 w-4" />,
+      icon: <PromptLibraryIcon className="text-text-secondary h-4 w-4" />,
     },
     {
       title: t('settings.layout.cryptoWallet'),
       href: '/settings/crypto-wallet',
-      icon: <WalletMinimal className="text-official-gray-400 h-4 w-4" />,
+      icon: <WalletMinimal className="text-text-secondary h-4 w-4" />,
     },
     {
       title: t('settings.layout.galxe'),
       href: '/settings/galxe-validation',
       icon: (
-        <div className="text-gray-100">
+        <div className="text-text-secondary">
           <img alt="galxe icon" className="h-4 w-4" src={galxeIcon} />
         </div>
       ),
@@ -182,7 +182,7 @@ export function MainNav() {
   ].filter(Boolean) as NavigationLink[];
 
   return (
-    <aside className="flex max-w-[250px] flex-1 shrink-0 flex-col gap-2 overflow-x-hidden border-r border-gray-400 px-2 py-6 pt-9">
+    <aside className="border-divider flex max-w-[250px] flex-1 shrink-0 flex-col gap-2 overflow-x-hidden border-r px-2 py-6 pt-9">
       <div className="flex flex-col gap-1.5">
         {navigationLinks.map((item) => {
           if (item.disabled) {

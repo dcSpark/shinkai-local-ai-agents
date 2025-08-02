@@ -165,11 +165,11 @@ const ArtifactCard = ({
     <CardContent className="flex items-center gap-1 p-1 py-1.5">
       <div className="rounded-md p-2">
         {loading ? (
-          <Loader2 className="text-official-gray-400 h-5 w-5 animate-spin" />
+          <Loader2 className="text-text-secondary h-5 w-5 animate-spin" />
         ) : (
           <ReactJsIcon
             className={cn(
-              isSelected ? 'text-gray-50' : 'text-official-gray-400',
+              isSelected ? 'text-text-default' : 'text-text-secondary',
             )}
           />
         )}
@@ -178,7 +178,7 @@ const ArtifactCard = ({
         <p className="text-em-sm text-official-gray-50 !mb-0 line-clamp-1 font-medium">
           {title}
         </p>
-        <p className="text-official-gray-400 !mb-0 text-xs">
+        <p className="text-text-secondary !mb-0 text-xs">
           {loading ? 'Generating...' : 'Click to preview'}
         </p>
       </div>
@@ -293,7 +293,7 @@ export const MessageBase = ({
   return (
     <motion.div
       // animate="rest"
-      className={cn('container pb-10', minimalistMode && 'pb-3')}
+      className={cn('container px-0 px-3.5 pb-10', minimalistMode && 'pb-3')}
       data-testid={`message-${
         message.role === 'user' ? 'local' : 'remote'
       }-${message.messageId}`}
@@ -311,16 +311,16 @@ export const MessageBase = ({
         )}
       >
         {message.role === 'assistant' ? (
-          <div className="mt-2 flex items-center gap-2 px-3.5">
+          <div className="mt-2 flex items-center gap-2">
             {selectedIcon}
-            <span className="text-em-sm font-bold text-white">
+            <span className="text-em-sm text-text-default font-bold">
               {formatText(message.provider?.agent.id ?? '')}
             </span>
           </div>
         ) : null}
         <div
           className={cn(
-            'text-em-base flex flex-col overflow-hidden bg-transparent text-white',
+            'text-em-base text-text-default flex flex-col overflow-hidden bg-transparent',
             editing && 'w-full py-1',
           )}
         >
@@ -338,8 +338,8 @@ export const MessageBase = ({
                       <ChatInputArea
                         bottomAddons={
                           <div className="flex w-full items-center justify-between px-1">
-                            <div className="text-em-xs text-official-gray-400 flex items-center gap-1">
-                              <InfoIcon className="text-official-gray-400 h-3 w-3" />
+                            <div className="text-em-xs text-text-secondary flex items-center gap-1">
+                              <InfoIcon className="text-text-secondary h-3 w-3" />
                               <span>{t('chat.editMessage.warning')}</span>
                             </div>
                             <div className="flex items-center gap-2">
@@ -377,10 +377,9 @@ export const MessageBase = ({
             <Fragment>
               <div
                 className={cn(
-                  'relative container mt-1 flex flex-col rounded-lg px-3.5 pt-3 text-white',
-                  message.role === 'user'
-                    ? 'bg-official-gray-850 rounded-tr-none'
-                    : '',
+                  'text-text-default relative container mt-1 flex flex-col rounded-lg px-0 pt-3',
+                  message.role === 'user' &&
+                    'bg-bg-secondary rounded-lg px-3.5',
                   !message.content ? 'pb-3' : 'pb-4',
                   editing && 'w-full py-1',
                   message.role === 'assistant' &&
@@ -406,7 +405,7 @@ export const MessageBase = ({
                       {message.toolCalls.map((tool, index) => {
                         return (
                           <AccordionItem
-                            className="bg-official-gray-950 border-official-gray-750 overflow-hidden rounded-lg border"
+                            className="bg-bg-secondary border-divider overflow-hidden rounded-lg border"
                             disabled={tool.status !== ToolStatusType.Complete}
                             key={`${tool.name}-${index}`}
                             value={`${tool.name}-${index}`}
@@ -415,7 +414,7 @@ export const MessageBase = ({
                               <AccordionTrigger
                                 className={cn(
                                   'min-w-[10rem] flex-1 gap-3 py-0 pr-2 no-underline hover:no-underline',
-                                  'hover:bg-official-gray-900 [&[data-state=open]]:bg-official-gray-950 transition-colors',
+                                  'hover:bg-bg-default [&[data-state=open]]:bg-bg-default transition-colors',
                                   tool.status !== ToolStatusType.Complete &&
                                     '[&>svg]:hidden',
                                 )}
@@ -440,12 +439,12 @@ export const MessageBase = ({
                                 Network Tracing
                               </Button>
                             </div>
-                            <AccordionContent className="bg-official-gray-950 flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3 text-xs">
+                            <AccordionContent className="bg-bg-secondary flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3 text-xs">
                               {Object.keys(tool.args).length > 0 && (
-                                <span className="font-medium text-white">
+                                <span className="text-text-default font-medium">
                                   {tool.name}(
                                   {Object.keys(tool.args).length > 0 && (
-                                    <span className="text-official-gray-400 font-mono font-medium">
+                                    <span className="text-text-secondary font-mono font-medium">
                                       <PrettyJsonPrint json={tool.args} />
                                     </span>
                                   )}
@@ -455,7 +454,7 @@ export const MessageBase = ({
                               {tool.result && (
                                 <div>
                                   <span>Response:</span>
-                                  <span className="text-official-gray-400 font-mono break-all">
+                                  <span className="text-text-secondary font-mono break-all">
                                     <PrettyJsonPrint json={tool.result} />
                                   </span>
                                 </div>
@@ -471,7 +470,7 @@ export const MessageBase = ({
                   <MarkdownText
                     className={cn(
                       message.reasoning?.status?.type === 'running' &&
-                        'text-official-gray-400',
+                        'text-text-secondary',
                     )}
                     content={extractErrorPropertyOrContent(
                       message.content
@@ -520,7 +519,7 @@ export const MessageBase = ({
                   ) &&
                   message.content === '' && (
                     <div className="pt-1.5 whitespace-pre-line">
-                      <span className="text-official-gray-400 text-xs">
+                      <span className="text-text-secondary text-xs">
                         Executing tools
                       </span>
                     </div>
@@ -532,7 +531,7 @@ export const MessageBase = ({
                   ) &&
                   message.content === '' && (
                     <div className="pt-1.5 whitespace-pre-line">
-                      <span className="text-official-gray-400 text-xs">
+                      <span className="text-text-secondary text-xs">
                         Getting AI response
                       </span>
                     </div>
@@ -556,20 +555,20 @@ export const MessageBase = ({
                   )}
 
                 {oauthUrl && (
-                  <div className="bg-official-gray-900 mt-4 flex flex-col items-start rounded-lg p-4">
-                    <p className="text-em-lg mb-2 font-semibold text-white">
+                  <div className="bg-bg-tertiary mt-4 flex flex-col items-start rounded-lg p-4">
+                    <p className="text-em-lg text-text-default mb-2 font-semibold">
                       <div className="flex items-center">
                         <Unplug className="mr-2 h-5 w-5" />
                         {t('oauth.connectionRequired')}
                       </div>
                     </p>
-                    <p className="text-em-sm mb-4 text-white">
+                    <p className="text-em-sm text-text-default mb-4">
                       {t('oauth.connectionRequiredDescription', {
                         provider: new URL(oauthUrl).hostname,
                       })}
                     </p>
                     <Button
-                      className="rounded-lg px-4 py-2 text-white transition duration-300"
+                      className="text-text-default rounded-lg px-4 py-2 transition duration-300"
                       onClick={() =>
                         setOauthModalVisible({ visible: true, url: oauthUrl })
                       }
@@ -581,19 +580,22 @@ export const MessageBase = ({
                 )}
 
                 {configDeepLinkToolRouterKey && (
-                  <div className="mt-4 flex flex-col items-start rounded-lg bg-gray-950 p-6 shadow-lg">
-                    <p className="text-em-base mb-3 font-semibold text-white">
+                  <div className="bg-bg-tertiary border-divider mt-4 flex flex-col items-start rounded-lg border p-6">
+                    <p className="text-em-base text-text-default mb-3 font-semibold">
                       <div className="flex items-center">
                         <ToolsIcon className="text-brand mr-3 size-4" />
                         {t('tools.setupRequired')}
                       </div>
                     </p>
-                    <p className="text-em-base text-official-gray-400 mb-5 leading-relaxed">
+                    <p className="text-em-base text-text-secondary mb-5 leading-relaxed">
                       {t('tools.setupDescription')}
                     </p>
                     <Link to={`/tools/${configDeepLinkToolRouterKey}`}>
-                      <Button variant="default" size="sm">
-                        <ToolsIcon className="h-4 w-4 transition-transform group-hover:rotate-12" />
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="min-w-[120px]"
+                      >
                         {t('tools.setupNow')}
                       </Button>
                     </Link>
@@ -623,7 +625,7 @@ export const MessageBase = ({
                         <TooltipTrigger asChild>
                           <button
                             className={cn(
-                              'text-official-gray-400 border-official-gray-780 flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
+                              'text-text-secondary border-divider hover:text-text-default hover:bg-bg-tertiary flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors [&>svg]:h-3 [&>svg]:w-3',
                             )}
                             onClick={() => {
                               setEditing(true);
@@ -647,7 +649,7 @@ export const MessageBase = ({
                             <TooltipTrigger asChild>
                               <button
                                 className={cn(
-                                  'text-official-gray-400 border-official-gray-780 flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
+                                  'text-text-secondary border-divider hover:text-text-default hover:bg-bg-tertiary flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors [&>svg]:h-3 [&>svg]:w-3',
                                 )}
                                 onClick={handleForkMessage}
                               >
@@ -664,7 +666,7 @@ export const MessageBase = ({
                             <TooltipTrigger asChild>
                               <button
                                 className={cn(
-                                  'text-official-gray-400 border-official-gray-780 flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
+                                  'text-text-secondary border-divider hover:text-text-default hover:bg-bg-tertiary flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors [&>svg]:h-3 [&>svg]:w-3',
                                 )}
                                 onClick={handleRetryMessage}
                               >
@@ -686,7 +688,7 @@ export const MessageBase = ({
                           <TooltipTrigger asChild>
                             <button
                               className={cn(
-                                'text-official-gray-400 border-official-gray-780 flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
+                                'text-text-secondary border-divider hover:bg-bg-tertiary flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors [&>svg]:h-3 [&>svg]:w-3',
                               )}
                               onClick={() => setTracingOpen(true)}
                             >
@@ -714,7 +716,7 @@ export const MessageBase = ({
                             <div>
                               <CopyToClipboardIcon
                                 className={cn(
-                                  'text-official-gray-400 border-official-gray-780 h-7 w-7 border bg-transparent hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
+                                  'text-text-secondary border-divider hover:bg-bg-tertiary h-7 w-7 border bg-transparent [&>svg]:h-3 [&>svg]:w-3',
                                 )}
                                 string={extractErrorPropertyOrContent(
                                   message.content,
@@ -735,7 +737,7 @@ export const MessageBase = ({
                     message.status.type === 'complete' && (
                       <div
                         className={cn(
-                          'text-official-gray-400 flex items-center gap-1.5',
+                          'text-text-tertiary flex items-center gap-1.5',
                         )}
                       >
                         <span>
@@ -807,10 +809,10 @@ export function ToolCard({
       return <ToolsIcon className="text-brand size-full" />;
     }
     if (status === ToolStatusType.Incomplete) {
-      return <XCircle className="text-official-gray-400 size-full" />;
+      return <XCircle className="text-text-secondary size-full" />;
     }
     if (status === ToolStatusType.RequiresAction) {
-      return <InfoIcon className="text-official-gray-400 size-full" />;
+      return <InfoIcon className="text-text-secondary size-full" />;
     }
     return <Loader2 className="text-brand size-full animate-spin" />;
   };
@@ -842,11 +844,11 @@ export function ToolCard({
         <div className="flex items-center gap-1 p-[5px]">
           <div className="size-7 shrink-0 px-1.5">{renderStatus()}</div>
           <div className="flex items-center gap-1">
-            <span className="text-official-gray-400 text-em-sm">
+            <span className="text-text-secondary text-em-sm">
               {renderLabelText()}
             </span>
             <Link
-              className="text-em-sm font-semibold text-white hover:underline"
+              className="text-em-sm font-semibold hover:underline"
               to={`/tools/${toolRouterKey}`}
             >
               {formatText(name)}
@@ -870,7 +872,7 @@ export function Reasoning({
       return <ReasoningIcon className="text-brand size-full" />;
     }
     if (status?.type === 'incomplete') {
-      return <XCircle className="text-official-gray-400 size-full" />;
+      return <XCircle className="text-text-secondary size-full" />;
     }
     if (status?.type === 'running') {
       return null;
@@ -893,7 +895,7 @@ export function Reasoning({
     >
       <AccordionItem
         className={cn(
-          'bg-official-gray-950 border-official-gray-750 overflow-hidden rounded-lg border',
+          'bg-bg-tertiary border-divider overflow-hidden rounded-lg border',
           status?.type === 'running' &&
             'animate-pulse border-none bg-transparent',
         )}
@@ -902,7 +904,7 @@ export function Reasoning({
         <AccordionTrigger
           className={cn(
             'inline-flex w-auto gap-3 p-[5px] no-underline hover:no-underline',
-            'hover:bg-official-gray-900 transition-colors',
+            'hover:bg-bg-secondary transition-colors',
             status?.type === 'running' && 'p-0',
           )}
           hideArrow={status?.type === 'running'}
@@ -918,8 +920,8 @@ export function Reasoning({
             >
               <div
                 className={cn(
-                  'text-official-gray-300 flex items-center gap-1',
-                  status?.type === 'running' && 'text-official-gray-200',
+                  'text-text-secondary flex items-center gap-1',
+                  status?.type === 'running' && 'text-text-tertiary',
                 )}
               >
                 {renderStatus() && (
@@ -932,8 +934,8 @@ export function Reasoning({
             </motion.div>
           </AnimatePresence>
         </AccordionTrigger>
-        <AccordionContent className="bg-official-gray-950 flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3 text-sm">
-          <span className="text-official-gray-400 break-words whitespace-pre-line">
+        <AccordionContent className="bg-bg-secondary flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3 text-sm">
+          <span className="text-text-secondary break-words whitespace-pre-line">
             {reasoning}
           </span>
         </AccordionContent>
@@ -949,9 +951,7 @@ export const GeneratedFiles = ({ toolCalls }: { toolCalls: ToolCall[] }) => {
       (tool) => !!tool.generatedFiles && tool.generatedFiles.length > 0,
     ) && (
       <div className="mt-4 space-y-1 py-4 pt-1.5">
-        <span className="text-official-gray-400 text-em-sm">
-          Generated Files
-        </span>
+        <span className="text-text-secondary text-em-sm">Generated Files</span>
         <div className="flex flex-wrap items-start gap-4 rounded-md">
           {toolCalls.map((tool) => {
             if (!tool.generatedFiles || !tool.generatedFiles.length)
@@ -1154,10 +1154,10 @@ export function TracingDialog({
           <Button
             variant="tertiary"
             className={cn(
-              'py-2text-white relative mb-1 h-auto w-full justify-start p-0 py-2 hover:bg-transparent',
+              'py-2text-text-default relative mb-1 h-auto w-full justify-start p-0 py-2 hover:bg-transparent',
               selectedTrace?.id === node.id
-                ? 'text-white'
-                : 'text-official-gray-400',
+                ? 'text-text-default'
+                : 'text-text-secondary',
             )}
             rounded="lg"
             onClick={() => {
@@ -1213,11 +1213,13 @@ export function TracingDialog({
           <div className="flex flex-col gap-5">
             {data.messages && data.messages.length > 0 && (
               <div className="space-y-3">
-                <h4 className="text-base font-medium text-white">Messages</h4>
+                <h4 className="text-text-default text-base font-medium">
+                  Messages
+                </h4>
                 {data.messages.map((message, index) => (
                   <div
                     key={index}
-                    className="border-official-gray-780 rounded-md border p-2"
+                    className="border-divider rounded-md border p-2"
                   >
                     <div className="flex flex-col items-start gap-1">
                       <div className="inline-flex items-center gap-2 rounded-full p-2">
@@ -1232,12 +1234,12 @@ export function TracingDialog({
                         ) : (
                           <Zap className="size-3" />
                         )}
-                        <span className="text-official-gray-400 text-xs capitalize">
+                        <span className="text-text-secondary text-xs capitalize">
                           {message.role}
                         </span>
                       </div>
                       <div className="w-full flex-1 pl-2">
-                        <p className="text-official-gray-200 text-sm leading-relaxed break-words">
+                        <p className="text-text-secondary text-sm leading-relaxed break-words">
                           {(() => {
                             if (typeof message.content === 'string') {
                               return (
@@ -1254,7 +1256,7 @@ export function TracingDialog({
                                     (item: any, index: number) => (
                                       <div key={index} className="mb-2">
                                         <div className="max-h-[280px] space-y-2 overflow-y-auto">
-                                          <p className="text-official-gray-200 text-sm">
+                                          <p className="text-text-secondary text-sm">
                                             {item.text}
                                           </p>
                                         </div>
@@ -1303,28 +1305,28 @@ export function TracingDialog({
             )}
             {(data.functions ?? []).length > 0 && (
               <div>
-                <h3 className="mb-2 text-sm font-medium text-white">
+                <h3 className="text-text-default mb-2 text-sm font-medium">
                   Tool Calls
                 </h3>
-                <div className="border-official-gray-780 bg-official-gray-900 rounded-md border p-3">
+                <div className="border-divider bg-bg-tertiary rounded-md border p-3">
                   {data.functions.map((func) => (
                     <div className="flex items-start gap-3" key={func.name}>
                       <ToolsIcon className="mt-0.5 h-5 w-5 text-cyan-500" />
                       <div>
                         <p className="text-sm font-medium">{func.name}</p>
-                        <p className="text-official-gray-400 text-sm">
+                        <p className="text-text-secondary text-sm">
                           {func.description}
                         </p>
                         {Object.entries(func.parameters.properties).length >
                           0 && (
                           <div className="mt-2 flex flex-wrap items-center gap-1">
-                            <p className="text-official-gray-400 text-xs">
+                            <p className="text-text-secondary text-xs">
                               Parameters:
                             </p>
                             {Object.entries(func.parameters.properties).map(
                               ([key, value]) => (
                                 <span
-                                  className="text-official-gray-400 text-xs"
+                                  className="text-text-secondary text-xs"
                                   key={key}
                                 >
                                   {key}
@@ -1341,24 +1343,24 @@ export function TracingDialog({
             )}
 
             <div className="space-y-2">
-              <h3 className="mb-2 text-sm font-medium text-white">
+              <h3 className="text-text-default mb-2 text-sm font-medium">
                 Model Configuration
               </h3>
               <div className="grid grid-cols-2 gap-3">
-                <div className="bg-official-gray-900 border-official-gray-780 rounded-md border p-3">
-                  <p className="text-official-gray-400 text-xs">Model</p>
+                <div className="bg-bg-tertiary border-divider rounded-md border p-3">
+                  <p className="text-text-secondary text-xs">Model</p>
                   <p className="text-sm">{data.model}</p>
                 </div>
-                <div className="bg-official-gray-900 border-official-gray-780 rounded-md border p-3">
-                  <p className="text-official-gray-400 text-xs">Max Tokens</p>
+                <div className="bg-bg-tertiary border-divider rounded-md border p-3">
+                  <p className="text-text-secondary text-xs">Max Tokens</p>
                   <p className="text-sm">{data.max_tokens}</p>
                 </div>
-                <div className="bg-official-gray-900 border-official-gray-780 rounded-md border p-3">
-                  <p className="text-official-gray-400 text-xs">Temperature</p>
+                <div className="bg-bg-tertiary border-divider rounded-md border p-3">
+                  <p className="text-text-secondary text-xs">Temperature</p>
                   <p className="text-sm">{data.temperature}</p>
                 </div>
-                <div className="bg-official-gray-900 border-official-gray-780 rounded-md border p-3">
-                  <p className="text-official-gray-400 text-xs">Top P</p>
+                <div className="bg-bg-tertiary border-divider rounded-md border p-3">
+                  <p className="text-text-secondary text-xs">Top P</p>
                   <p className="text-sm">{data.top_p}</p>
                 </div>
               </div>
@@ -1373,34 +1375,34 @@ export function TracingDialog({
           <div className="flex flex-col gap-5">
             {data.function_calls && data.function_calls.length > 0 && (
               <div>
-                <h3 className="mb-2 text-sm font-medium text-white">
+                <h3 className="text-text-default mb-2 text-sm font-medium">
                   Tool Calls
                 </h3>
-                <div className="border-official-gray-780 bg-official-gray-900 rounded-md border p-3">
+                <div className="border-divider bg-bg-tertiary rounded-md border p-3">
                   {data.function_calls.map((func) => (
                     <div className="flex items-start gap-3" key={func.name}>
                       <ToolsIcon className="mt-0.5 h-5 w-5 text-cyan-500" />
                       <div>
                         <p className="text-sm font-medium">{func.name}</p>
-                        <p className="text-official-gray-400 text-xs">
-                          <span className="text-official-gray-200 font-medium">
+                        <p className="text-text-secondary text-xs">
+                          <span className="text-text-secondary font-medium">
                             Tool Router Key:{' '}
                           </span>
                           {func.tool_router_key}
                         </p>
                         {Object.entries(func.arguments).length > 0 && (
                           <div className="mt-2 flex flex-col gap-0.5">
-                            <p className="text-official-gray-400 text-xs">
+                            <p className="text-text-secondary text-xs">
                               Parameters
                             </p>
                             {Object.entries(func.arguments).map(
                               ([key, value]) => (
                                 <span
-                                  className="text-official-gray-400 text-sm"
+                                  className="text-text-secondary text-sm"
                                   key={key}
                                 >
                                   {key}:{' '}
-                                  <span className="text-official-gray-200 text-sm">
+                                  <span className="text-text-secondary text-sm">
                                     {value}
                                   </span>
                                 </span>
@@ -1416,10 +1418,10 @@ export function TracingDialog({
             )}
             {data.response && (
               <div>
-                <h3 className="mb-2 text-sm font-medium text-white">
+                <h3 className="text-text-default mb-2 text-sm font-medium">
                   Response
                 </h3>
-                <div className="border-official-gray-780 bg-official-gray-900 rounded-md border p-3 text-sm">
+                <div className="border-divider bg-bg-tertiary rounded-md border p-3 text-sm">
                   {data.response}
                 </div>
               </div>
@@ -1431,13 +1433,13 @@ export function TracingDialog({
       case 'tool_call': {
         const data = info as ToolCallTracingInfo;
         return (
-          <div className="border-official-gray-780 bg-official-gray-900 rounded-md border p-3">
+          <div className="border-divider bg-bg-tertiary rounded-md border p-3">
             <div className="flex items-start gap-3">
               <ToolsIcon className="mt-0.5 h-5 w-5 text-cyan-500" />
               <div>
                 <p className="text-sm font-medium">{data.function}</p>
-                <p className="text-official-gray-400 text-xs">
-                  <span className="text-official-gray-200 font-medium">
+                <p className="text-text-secondary text-xs">
+                  <span className="text-text-secondary font-medium">
                     Tool Router Key:{' '}
                   </span>
                   {data.tool}
@@ -1450,10 +1452,10 @@ export function TracingDialog({
       case 'tool_response': {
         const data = info as ToolResponseTracingInfo;
         return (
-          <div className="border-official-gray-780 bg-official-gray-900 space-y-2 overflow-hidden rounded-md border p-3">
+          <div className="border-divider bg-bg-tertiary space-y-2 overflow-hidden rounded-md border p-3">
             <p className="text-sm font-medium">{data.function}</p>
 
-            <div className="text-official-gray-400 overflow-auto text-xs">
+            <div className="text-text-secondary overflow-auto text-xs">
               <PrettyJsonPrint json={data.response} />
             </div>
           </div>
@@ -1462,28 +1464,26 @@ export function TracingDialog({
       case 'invoice_request_sent': {
         const data = info as InvoiceRequestSentTracingInfo;
         return (
-          <div className="border-official-gray-780 bg-official-gray-900 space-y-2 overflow-hidden rounded-md border p-3">
+          <div className="border-divider bg-bg-tertiary space-y-2 overflow-hidden rounded-md border p-3">
             <p className="text-sm font-medium">{data.tool}</p>
-            <p className="text-official-gray-400 text-xs">
-              <span className="text-official-gray-200 font-medium">
-                Author:{' '}
-              </span>
+            <p className="text-text-secondary text-xs">
+              <span className="text-text-secondary font-medium">Author: </span>
               {data.tool_author}
             </p>
-            <p className="text-official-gray-400 text-xs">
-              <span className="text-official-gray-200 font-medium">
+            <p className="text-text-secondary text-xs">
+              <span className="text-text-secondary font-medium">
                 Description:{' '}
               </span>
               {data.tool_description}
             </p>
-            <p className="text-official-gray-400 text-xs">
-              <span className="text-official-gray-200 font-medium">
+            <p className="text-text-secondary text-xs">
+              <span className="text-text-secondary font-medium">
                 Provider:{' '}
               </span>
               {data.provider}
             </p>
-            <p className="text-official-gray-400 text-xs">
-              <span className="text-official-gray-200 font-medium">
+            <p className="text-text-secondary text-xs">
+              <span className="text-text-secondary font-medium">
                 Usage Type:{' '}
               </span>
               {data.usage_type}
@@ -1494,55 +1494,55 @@ export function TracingDialog({
       case 'invoice_received': {
         const data = info as InvoiceReceivedTracingInfo;
         return (
-          <div className="border-official-gray-780 bg-official-gray-900 space-y-2 overflow-hidden rounded-md border p-3">
+          <div className="border-divider bg-bg-tertiary space-y-2 overflow-hidden rounded-md border p-3">
             <p className="text-sm font-medium">{data.tool_key}</p>
-            <p className="text-official-gray-400 text-xs">
-              <span className="text-official-gray-200 font-medium">
+            <p className="text-text-secondary text-xs">
+              <span className="text-text-secondary font-medium">
                 Provider:{' '}
               </span>
               {data.provider}
             </p>
-            <p className="text-official-gray-400 text-xs">
-              <span className="text-official-gray-200 font-medium">
+            <p className="text-text-secondary text-xs">
+              <span className="text-text-secondary font-medium">
                 Requester:{' '}
               </span>
               {data.requester}
             </p>
-            <p className="text-official-gray-400 text-xs">
-              <span className="text-official-gray-200 font-medium">
+            <p className="text-text-secondary text-xs">
+              <span className="text-text-secondary font-medium">
                 Invoice Date:{' '}
               </span>
               {format(new Date(data.invoice_date), 'yyyy-MM-dd HH:mm:ss')}
             </p>
-            <p className="text-official-gray-400 text-xs">
-              <span className="text-official-gray-200 font-medium">
+            <p className="text-text-secondary text-xs">
+              <span className="text-text-secondary font-medium">
                 Expiration:{' '}
               </span>
               {format(new Date(data.expiration), 'yyyy-MM-dd HH:mm:ss')}
             </p>
-            <p className="text-official-gray-400 text-xs">
-              <span className="text-official-gray-200 font-medium">
+            <p className="text-text-secondary text-xs">
+              <span className="text-text-secondary font-medium">
                 Usage Type:{' '}
               </span>
               {data.usage_type}
             </p>
-            <p className="text-official-gray-400 text-xs">
-              <span className="text-official-gray-200 font-medium">
+            <p className="text-text-secondary text-xs">
+              <span className="text-text-secondary font-medium">
                 Has Tool Data:{' '}
               </span>
               {String(data.has_tool_data)}
             </p>
-            <div className="text-official-gray-400 text-xs">
-              <p className="text-official-gray-200 font-medium">Address</p>
+            <div className="text-text-secondary text-xs">
+              <p className="text-text-secondary font-medium">Address</p>
               <p>
                 ID:{' '}
-                <span className="text-official-gray-200">
+                <span className="text-text-secondary">
                   {data.address.address_id}
                 </span>
               </p>
               <p>
                 Network:{' '}
-                <span className="text-official-gray-200">
+                <span className="text-text-secondary">
                   {data.address.network}
                 </span>
               </p>
@@ -1553,82 +1553,78 @@ export function TracingDialog({
       case 'invoice_paid': {
         const data = info as InvoicePaidTracingInfo;
         return (
-          <div className="border-official-gray-780 bg-official-gray-900 space-y-2 overflow-hidden rounded-md border p-3">
+          <div className="border-divider bg-bg-tertiary space-y-2 overflow-hidden rounded-md border p-3">
             <p className="text-sm font-medium">{data.tool_key}</p>
-            <p className="text-official-gray-400 text-xs">
-              <span className="text-official-gray-200 font-medium">
+            <p className="text-text-secondary text-xs">
+              <span className="text-text-secondary font-medium">
                 Provider:{' '}
               </span>
               {data.provider}
             </p>
-            <p className="text-official-gray-400 text-xs">
-              <span className="text-official-gray-200 font-medium">
+            <p className="text-text-secondary text-xs">
+              <span className="text-text-secondary font-medium">
                 Requester:{' '}
               </span>
               {data.requester}
             </p>
-            <p className="text-official-gray-400 text-xs">
-              <span className="text-official-gray-200 font-medium">
-                Status:{' '}
-              </span>
+            <p className="text-text-secondary text-xs">
+              <span className="text-text-secondary font-medium">Status: </span>
               {data.status}
             </p>
-            <p className="text-official-gray-400 text-xs">
-              <span className="text-official-gray-200 font-medium">
+            <p className="text-text-secondary text-xs">
+              <span className="text-text-secondary font-medium">
                 Invoice ID:{' '}
               </span>
               {data.invoice_id}
             </p>
-            <p className="text-official-gray-400 text-xs">
-              <span className="text-official-gray-200 font-medium">
+            <p className="text-text-secondary text-xs">
+              <span className="text-text-secondary font-medium">
                 Invoice Date:{' '}
               </span>
               {format(new Date(data.invoice_date), 'yyyy-MM-dd HH:mm:ss')}
             </p>
-            <p className="text-official-gray-400 text-xs">
-              <span className="text-official-gray-200 font-medium">
+            <p className="text-text-secondary text-xs">
+              <span className="text-text-secondary font-medium">
                 Paid Date:{' '}
               </span>
               {format(new Date(data.paid_date), 'yyyy-MM-dd HH:mm:ss')}
             </p>
-            <p className="text-official-gray-400 text-xs">
-              <span className="text-official-gray-200 font-medium">
+            <p className="text-text-secondary text-xs">
+              <span className="text-text-secondary font-medium">
                 Has Tool Data:{' '}
               </span>
               {String(data.has_tool_data)}
             </p>
-            <p className="text-official-gray-400 text-xs">
-              <span className="text-official-gray-200 font-medium">
+            <p className="text-text-secondary text-xs">
+              <span className="text-text-secondary font-medium">
                 Tool Price:{' '}
               </span>
               {data.tool_price}
             </p>
-            <p className="text-official-gray-400 text-xs">
-              <span className="text-official-gray-200 font-medium">
+            <p className="text-text-secondary text-xs">
+              <span className="text-text-secondary font-medium">
                 Usage Type:{' '}
               </span>
               {data.usage_type}
             </p>
-            <div className="text-official-gray-400 text-xs">
-              <p className="text-official-gray-200 font-medium">
-                Payment Details
-              </p>
+            <div className="text-text-secondary text-xs">
+              <p className="text-text-secondary font-medium">Payment Details</p>
               <p>
                 Status:{' '}
-                <span className="text-official-gray-200">
+                <span className="text-text-secondary">
                   {data.payment_details.payment_status}
                 </span>
               </p>
               <p>
                 Tx Hash:{' '}
-                <span className="text-official-gray-200">
+                <span className="text-text-secondary">
                   {data.payment_details.transaction_hash}
                 </span>
               </p>
             </div>
             {data.tool_data_keys.length > 0 && (
-              <div className="text-official-gray-400 text-xs">
-                <p className="text-official-gray-200 font-medium">
+              <div className="text-text-secondary text-xs">
+                <p className="text-text-secondary font-medium">
                   Tool Data Keys ({data.tool_data_size})
                 </p>
                 <p>{data.tool_data_keys.join(', ')}</p>
@@ -1646,16 +1642,16 @@ export function TracingDialog({
   return (
     <Sheet onOpenChange={onOpenChange} open={open}>
       <SheetContent className="max-w-3xl p-0 pt-4" side="right">
-        <SheetHeader className="border-official-gray-750 border-b p-4 pt-0">
+        <SheetHeader className="border-divider border-b p-4 pt-0">
           <SheetTitle>{t('chat.tracing.title')}</SheetTitle>
         </SheetHeader>
         <div className="flex size-full divide-x">
-          <ScrollArea className="bg-official-gray-900 h-[calc(100vh-45px)] w-1/3 px-4 [&>div>div]:!block">
+          <ScrollArea className="bg-bg-tertiary h-[calc(100vh-45px)] w-1/3 px-4 [&>div>div]:!block">
             <div className="flex items-center justify-between py-3">
-              <h3 className="text-base font-semibold text-white">
+              <h3 className="text-text-default text-base font-semibold">
                 Activity Steps
               </h3>
-              <p className="text-official-gray-400 mt-1 text-sm">
+              <p className="text-text-secondary mt-1 text-sm">
                 {tracingData?.length} steps
               </p>
             </div>
@@ -1671,7 +1667,7 @@ export function TracingDialog({
             {selectedTrace ? (
               <div className="size-full space-y-4 overflow-hidden py-4">
                 <div className="flex items-center justify-between">
-                  <p className="text-base font-medium text-white">
+                  <p className="text-text-default text-base font-medium">
                     {formatText(selectedTrace.trace_name)}
                   </p>
                   <Button
@@ -1693,7 +1689,7 @@ export function TracingDialog({
                 )}
               </div>
             ) : (
-              <p className="text-official-gray-400 py-4 text-center text-sm">
+              <p className="text-text-secondary py-4 text-center text-sm">
                 {t('common.selectItem')}
               </p>
             )}

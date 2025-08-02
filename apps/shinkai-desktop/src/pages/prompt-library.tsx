@@ -13,6 +13,8 @@ import {
   Input,
   MarkdownText,
   ScrollArea,
+  SearchInput,
+  Skeleton,
   Textarea,
   Tooltip,
   TooltipContent,
@@ -104,40 +106,24 @@ export const PromptLibrary = () => {
       title={t('settings.promptLibrary.label')}
     >
       <div className="grid h-[calc(100dvh-134px)] grid-cols-[250px_1fr]">
-        <ScrollArea className="h-full border-r border-gray-400 pr-4 [&>div>div]:!block">
-          <div className="relative mb-4 flex h-10 w-full items-center">
-            <Input
-              className="placeholder-gray-80 !h-full border-none bg-gray-400 py-2 pl-10"
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-              }}
-              placeholder="Search..."
-              spellCheck={false}
-              value={searchQuery}
-            />
-            <SearchIcon className="absolute left-4 top-1/2 -z-[1px] h-4 w-4 -translate-y-1/2" />
-            {searchQuery && (
-              <Button
-                className="absolute right-1 h-8 w-8 bg-gray-200 p-2"
-                onClick={() => {
-                  setSearchQuery('');
-                }}
-                size="auto"
-                type="button"
-                variant="ghost"
-              >
-                <XIcon />
-                <span className="sr-only">{t('common.clearSearch')}</span>
-              </Button>
-            )}
-          </div>
+        <ScrollArea className="border-divider h-full border-r pr-4 [&>div>div]:!block">
+          <SearchInput
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+            }}
+            classNames={{
+              container: 'mx-0.5 h-9 mb-3 mt-1',
+              input: 'bg-transparent',
+            }}
+            placeholder="Search..."
+            value={searchQuery}
+          />
           <div className="flex flex-col gap-1">
             {(isPending || !isSearchQuerySynced || isSearchPromptListPending) &&
               Array.from({ length: 8 }).map((_, idx) => (
-                <div
+                <Skeleton
                   className={cn(
-                    'text-gray-80 mb-2 flex h-10 w-full items-center gap-5 rounded-md px-2 py-2.5 text-left text-sm hover:bg-gray-300 hover:text-white',
-                    'bg-gray-300 text-white',
+                    'mb-2 flex h-10 w-full items-center gap-5 rounded-md px-2 py-2.5 text-left text-sm',
                   )}
                   key={idx}
                 />
@@ -147,9 +133,8 @@ export const PromptLibrary = () => {
               promptList?.map((prompt) => (
                 <button
                   className={cn(
-                    'text-gray-80 flex items-center gap-5 rounded-md px-2 py-2.5 pr-6 text-left text-sm hover:bg-gray-300 hover:text-white',
-                    selectedPrompt?.name === prompt.name &&
-                      'bg-gray-300 text-white',
+                    'flex items-center gap-5 rounded-md px-2 py-2.5 pr-6 text-left text-sm',
+                    selectedPrompt?.name === prompt.name && 'bg-bg-secondary',
                   )}
                   key={prompt.name}
                   onClick={() => {
@@ -164,9 +149,8 @@ export const PromptLibrary = () => {
               searchPromptList?.map((prompt) => (
                 <button
                   className={cn(
-                    'text-gray-80 flex items-center gap-5 rounded-md px-2 py-2.5 pr-6 text-left text-sm hover:bg-gray-300',
-                    selectedPrompt?.name === prompt.name &&
-                      'bg-gray-300 text-white',
+                    'text-text-default flex items-center gap-5 rounded-md px-2 py-2.5 pr-6 text-left text-sm',
+                    selectedPrompt?.name === prompt.name && 'bg-bg-secondary',
                   )}
                   key={prompt.name}
                   onClick={() => {
@@ -180,7 +164,7 @@ export const PromptLibrary = () => {
               isSearchQuerySynced &&
               searchPromptList?.length === 0 && (
                 <div className="flex h-20 items-center justify-center">
-                  <p className="text-gray-80 text-sm">
+                  <p className="text-text-secondary text-sm">
                     {t('tools.emptyState.search.text')}
                   </p>
                 </div>
@@ -264,7 +248,7 @@ function PromptPreview({
                       <TooltipTrigger asChild>
                         <button
                           className={cn(
-                            'text-gray-80 flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
+                            'text-text-secondary border-divider hover:bg-bg-secondary flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:text-white [&>svg]:h-3 [&>svg]:w-3',
                           )}
                           onClick={() => {
                             setEditing(true);
@@ -287,7 +271,7 @@ function PromptPreview({
                         <div>
                           <CopyToClipboardIcon
                             className={cn(
-                              'text-gray-80 h-7 w-7 border border-gray-200 bg-transparent hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
+                              'text-text-secondary border-divider hover:bg-bg-secondary flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:text-white [&>svg]:h-3 [&>svg]:w-3',
                             )}
                             string={selectedPrompt?.prompt ?? ''}
                           />
@@ -305,7 +289,7 @@ function PromptPreview({
                       <TooltipTrigger asChild>
                         <button
                           className={cn(
-                            'text-gray-80 flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
+                            'text-text-secondary border-divider hover:bg-bg-secondary flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:text-white [&>svg]:h-3 [&>svg]:w-3',
                           )}
                           onClick={async () => {
                             await removePrompt({
@@ -329,7 +313,7 @@ function PromptPreview({
               )}
 
               <button
-                className="text-gray-80 flex h-7 min-w-[100px] items-center justify-center gap-1 rounded-lg border border-gray-200 bg-transparent text-xs font-medium transition-colors hover:bg-gray-300 hover:text-white"
+                className="text-text-secondary border-divider hover:bg-bg-secondary flex h-7 min-w-[100px] items-center justify-center gap-1 rounded-lg border bg-transparent text-xs font-medium transition-colors hover:text-white"
                 onClick={() => {
                   setIsTryActive(!isTryActive);
                   setPromptEditContent(selectedPrompt?.prompt);
@@ -371,7 +355,7 @@ function PromptPreview({
             />
           ) : (
             <MarkdownText
-              className="prose-h1:!text-gray-80 prose-h1:!text-xs !text-gray-80"
+              className="prose-h1:!text-text-secondary prose-h1:!text-xs !text-text-secondary"
               content={selectedPrompt?.prompt ?? ''}
             />
           )}
@@ -397,7 +381,7 @@ export const PromptEditor = ({
   <div>
     <Textarea
       autoFocus
-      className="h-full !max-h-[60vh] !min-h-[100px] resize-none pl-2 pt-2 text-sm placeholder-transparent"
+      className="h-full !max-h-[60vh] !min-h-[100px] resize-none pt-2 pl-2 text-sm placeholder-transparent"
       onChange={(e) => setPromptEditContent(e.target.value)}
       onFocus={(e) => {
         e.target.setSelectionRange(
@@ -504,7 +488,7 @@ export const PromptTryOut = ({
     <div>
       <Textarea
         autoFocus
-        className="h-full !max-h-[50vh] !min-h-[100px] resize-none pl-2 pt-2 text-sm placeholder-transparent"
+        className="h-full !max-h-[50vh] !min-h-[100px] resize-none pt-2 pl-2 text-sm placeholder-transparent"
         onChange={(e) => setPromptEditContent(e.target.value)}
         onFocus={(e) => {
           e.target.setSelectionRange(
@@ -532,16 +516,16 @@ export const PromptTryOut = ({
         {!isLoadingMessage && chatInboxId && (
           <motion.div
             animate={{ opacity: 1 }}
-            className="mt-4 overflow-hidden rounded-md border border-gray-400"
+            className="border-divider mt-4 overflow-hidden rounded-md border"
             exit={{ opacity: 0 }}
             initial={{ opacity: 0 }}
           >
-            <p className="text-gray-80 border-b border-gray-300 bg-gray-200 px-2.5 py-2 text-xs">
+            <p className="text-text-secondary border-divider bg-bg-tertiary border-b px-2.5 py-2 text-xs">
               Output
             </p>
             <div className="p-4">
               <MarkdownText
-                className="prose-h1:!text-gray-80 prose-h1:!text-xs !text-gray-80 !text-xs"
+                className="prose-h1:!text-text-default prose-h1:!text-xs !text-text-secondary !text-xs"
                 content={data?.pages?.at(-1)?.at(-1)?.content ?? ''}
               />
             </div>

@@ -43,7 +43,7 @@ export default function PasswordWidget<
       <Input
         aria-describedby={rawErrors?.length > 0 ? `${id}-error` : undefined}
         autoFocus={autofocus}
-        className={cn('!h-11 !pt-1 !pb-1 pr-10')}
+        className={cn('!h-11 !pt-1 pr-10 !pb-1')}
         disabled={disabled || readonly}
         hidePasswordToggle={true}
         id={id}
@@ -59,12 +59,12 @@ export default function PasswordWidget<
       />
       <Button
         aria-label={showPassword ? 'Hide password' : 'Show password'}
-        className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 text-official-gray-400 hover:bg-transparent hover:text-official-gray-200"
+        className="absolute top-1/2 right-2 h-7 w-7 -translate-y-1/2"
         disabled={disabled || readonly}
         onClick={() => setShowPassword(!showPassword)}
         size="icon"
         type="button"
-        variant="ghost"
+        variant="tertiary"
       >
         {showPassword ? (
           <EyeIcon className="h-4 w-4" />
@@ -74,4 +74,4 @@ export default function PasswordWidget<
       </Button>
     </div>
   );
-} 
+}

@@ -40,17 +40,17 @@ const CopyToClipboardIcon = ({
   return (
     <Button
       className={cn(
-        'flex h-8 w-8 gap-2 rounded-lg bg-gray-400 text-xs font-normal text-gray-50 transition-colors hover:bg-gray-400 hover:text-white',
+        'text-text-secondary hover:bg-bg-tertiary bg-bg-tertiary flex h-8 w-8 gap-2 rounded-lg text-xs font-normal transition-colors hover:text-white',
         className,
       )}
       disabled={!string}
       onClick={onCopy}
       size={'icon'}
       type="button"
-      variant="ghost"
+      variant="tertiary"
     >
       <ClipboardIcon
-        className={cn('h-3.5 w-3.5', isCopied && 'text-green-600')}
+        className={cn('h-3.5 w-3.5', isCopied && 'text-green-500')}
       />
       {children}
     </Button>

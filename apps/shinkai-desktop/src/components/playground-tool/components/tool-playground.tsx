@@ -44,9 +44,9 @@ export const getLanguageIcon = (currentLanguage: string) => {
 };
 
 export const tabTriggerClassnames = cn(
-  'rounded-xs relative flex size-full min-w-[120px] p-0 pt-0.5',
-  'data-[state=active]:bg-official-gray-950 data-[state=active]:text-white data-[state=active]:shadow-[0_2px_0_0_#1a1a1d]',
-  'before:absolute before:left-0 before:right-0 before:top-0 before:h-0.5',
+  'relative flex size-full min-w-[120px] rounded-xs p-0 pt-0.5',
+  'data-[state=active]:bg-bg-dark data-[state=active]:text-text-default data-[state=active]:shadow-[0_2px_0_0_var(--color-gray-1000)]',
+  'before:absolute before:top-0 before:right-0 before:left-0 before:h-0.5',
   'before:bg-cyan-500 before:opacity-0 before:transition-opacity',
   'data-[focused=true]:before:opacity-100',
 );
@@ -199,7 +199,7 @@ function PlaygroundToolEditor({
         }
         rightTopElement={
           <Tabs className="flex size-full flex-col" defaultValue="code">
-            <div className="bg-official-gray-1000 flex h-8 w-full shrink-0 items-center justify-between gap-2 border-b border-gray-400">
+            <div className="bg-bg-dark border-divider flex h-8 w-full shrink-0 items-center justify-between gap-2 border-b">
               <TabsList className="grid h-full grid-cols-2 rounded-none bg-transparent p-0">
                 <TabsTrigger
                   className={tabTriggerClassnames}
@@ -207,7 +207,7 @@ function PlaygroundToolEditor({
                   data-focused={focusedPanel === 'code'}
                   onClick={() => setFocusedPanel('code')}
                 >
-                  <div className="flex size-full items-center justify-start gap-2 border-r border-gray-400 pl-3 pr-5 text-xs font-normal">
+                  <div className="border-divider flex size-full items-center justify-start gap-2 border-r pr-5 pl-3 text-xs font-normal">
                     {isToolCodeGenerationPending ? (
                       <LoaderIcon className="size-4 animate-spin" />
                     ) : (
@@ -222,7 +222,7 @@ function PlaygroundToolEditor({
                   data-focused={focusedPanel === 'metadata'}
                   onClick={() => setFocusedPanel('metadata')}
                 >
-                  <div className="flex size-full items-center justify-start gap-2 border-r border-gray-400 pl-3 pr-5 text-xs font-normal">
+                  <div className="border-divider flex size-full items-center justify-start gap-2 border-r pr-5 pl-3 text-xs font-normal">
                     {isToolMetadataPending ? (
                       <LoaderIcon className="size-4 animate-spin" />
                     ) : (
@@ -234,7 +234,7 @@ function PlaygroundToolEditor({
               </TabsList>
             </div>
             <TabsContent
-              className="mt-0 flex-1 space-y-4 overflow-y-auto whitespace-pre-line break-words data-[state=inactive]:hidden"
+              className="mt-0 flex-1 space-y-4 overflow-y-auto break-words whitespace-pre-line data-[state=inactive]:hidden"
               forceMount
               value="code"
               onFocus={() => setFocusedPanel('code')}
@@ -249,7 +249,7 @@ function PlaygroundToolEditor({
               />
             </TabsContent>
             <TabsContent
-              className="mt-0 flex-1 space-y-4 overflow-y-auto whitespace-pre-line break-words data-[state=inactive]:hidden"
+              className="mt-0 flex-1 space-y-4 overflow-y-auto break-words whitespace-pre-line data-[state=inactive]:hidden"
               forceMount
               value="metadata"
               onFocus={() => setFocusedPanel('metadata')}

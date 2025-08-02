@@ -30,10 +30,16 @@ export const ResetStorageBeforeConnectConfirmationPrompt = ({
   // const navigate = useNavigate();
   const { t } = useTranslation();
   const { setShinkaiNodeOptions } = useShinkaiNodeManager();
-  const { mutateAsync: shinkaiNodeKill, isPending: isShinkaiNodeKillPending } = useShinkaiNodeKillMutation();
-  const { mutateAsync: shinkaiNodeSpawn, isPending: isShinkaiNodeSpawnPending } = useShinkaiNodeSpawnMutation();
-  const { mutateAsync: shinkaiNodeRemoveStorage, isPending: isShinkaiNodeRemoveStoragePending} =
-    useShinkaiNodeRemoveStorageMutation();
+  const { mutateAsync: shinkaiNodeKill, isPending: isShinkaiNodeKillPending } =
+    useShinkaiNodeKillMutation();
+  const {
+    mutateAsync: shinkaiNodeSpawn,
+    isPending: isShinkaiNodeSpawnPending,
+  } = useShinkaiNodeSpawnMutation();
+  const {
+    mutateAsync: shinkaiNodeRemoveStorage,
+    isPending: isShinkaiNodeRemoveStoragePending,
+  } = useShinkaiNodeRemoveStorageMutation();
 
   const cancel = () => {
     if (typeof onCancel === 'function') {
@@ -48,7 +54,10 @@ export const ResetStorageBeforeConnectConfirmationPrompt = ({
   //   }
   // };
 
-  const isResetLoading = isShinkaiNodeKillPending || isShinkaiNodeRemoveStoragePending || isShinkaiNodeSpawnPending;
+  const isResetLoading =
+    isShinkaiNodeKillPending ||
+    isShinkaiNodeRemoveStoragePending ||
+    isShinkaiNodeSpawnPending;
 
   const reset = async (preserveKeys: boolean) => {
     await shinkaiNodeKill();
@@ -88,7 +97,6 @@ export const ResetStorageBeforeConnectConfirmationPrompt = ({
           {/*<Button*/}
           {/*  className="mt-0 flex-1 text-sm"*/}
           {/*  onClick={() => reset(false)}*/}
-          {/*  variant={'ghost'}*/}
           {/*>*/}
           {/*  <span aria-label="reset all" className="emoji" role="img">*/}
           {/*    💣 {t('common.resetAll')}*/}

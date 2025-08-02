@@ -80,7 +80,7 @@ export const Logs = () => {
     <div className="h-full overflow-hidden">
       <div className="bg-background sticky top-0 z-10 mb-2 flex items-center gap-2 p-2">
         <div className="relative flex items-center">
-          <Search className="absolute left-3 h-4 w-4 text-gray-100" />
+          <Search className="text-text-secondary absolute left-3 h-4 w-4" />
           <Input
             className="placeholder-gray-80 !h-full bg-transparent py-2 pl-10"
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -105,7 +105,7 @@ export const Logs = () => {
             const log = filteredLogs?.[virtualRow.index];
             return (
               <div
-                className="text-gray-80 absolute left-0 top-0 w-full overflow-hidden border-b border-gray-100/10 font-mono text-xs leading-relaxed"
+                className="text-text-secondary absolute top-0 left-0 w-full overflow-hidden border-b border-gray-100/10 font-mono text-xs leading-relaxed"
                 key={virtualRow.index}
                 style={{
                   height: `${virtualRow.size}px`,
@@ -124,7 +124,7 @@ export const Logs = () => {
           })}
         </div>
       </div>
-      <div className="fixed bottom-6 right-12 flex gap-2">
+      <div className="fixed right-12 bottom-6 flex gap-2">
         <Button
           disabled={tauriLogsLoading}
           onClick={() => refetchLogs()}
@@ -162,20 +162,20 @@ export const Logs = () => {
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <LogIcon level="INFO" />
-                <span className="text-sm font-medium text-gray-100">
+                <span className="text-text-secondary text-sm font-medium">
                   Log Details
                 </span>
               </div>
               <Button
                 onClick={() => navigator.clipboard.writeText(selectedLog || '')}
                 size="sm"
-                variant="ghost"
+                variant="tertiary"
               >
                 Copy to clipboard
               </Button>
             </div>
             <div className="rounded-lg bg-gray-900 p-4">
-              <pre className="whitespace-pre-wrap break-words font-mono text-sm leading-relaxed text-gray-100 sm:text-base">
+              <pre className="text-text-secondary font-mono text-sm leading-relaxed break-words whitespace-pre-wrap sm:text-base">
                 {selectedLog}
               </pre>
             </div>

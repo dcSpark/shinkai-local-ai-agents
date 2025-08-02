@@ -49,14 +49,15 @@ function VectorFsActionBarBase({
                 actionButtonClassnames,
                 'w-auto gap-2',
                 disabled && 'opacity-50',
-                aiFilesCount > 0 && 'bg-cyan-950 hover:bg-cyan-950',
+                aiFilesCount > 0 &&
+                  'bg-gray-900 text-cyan-400 hover:bg-gray-900 hover:text-cyan-300',
               )}
               disabled={disabled}
               onClick={onClick}
               type="button"
             >
               {aiFilesCount > 0 ? (
-                <Badge className="bg-official-gray-1000 inline-flex size-4 items-center justify-center rounded-full border-gray-200 p-0 text-center text-[10px] text-gray-50">
+                <Badge className="bg-bg-dark text-text-default border-divider inline-flex size-4 items-center justify-center rounded-full p-0 text-center text-[10px]">
                   {aiFilesCount}
                 </Badge>
               ) : (
@@ -84,7 +85,7 @@ function VectorFsActionBarBase({
       <FilesIcon className="size-4" />
       <span className="">{t('vectorFs.localFiles')}</span>
       {aiFilesCount > 0 ? (
-        <Badge className="bg-official-gray-1000 inline-flex size-4 items-center justify-center rounded-full border-gray-200 p-0 text-center text-[10px] text-gray-50">
+        <Badge className="bg-bg-dark border-divider text-text-default inline-flex size-4 items-center justify-center rounded-full p-0 text-center text-[10px]">
           {aiFilesCount}
         </Badge>
       ) : null}
@@ -198,18 +199,18 @@ export function VectorFsActionBarPreview() {
   return (
     <>
       {allItems.length > 0 && (
-        <div className="no-scrollbar bg-official-gray-800/10 scroll border-official-gray-780 h-16 overflow-hidden border-b">
+        <div className="no-scrollbar bg-bg-quaternary/10 scroll border-divider h-16 overflow-hidden border-b">
           <div className="flex items-center gap-3 overflow-x-auto p-2.5">
             {allItems.map((item) => (
               <div
-                className="border-official-gray-780 relative flex h-10 w-[180px] shrink-0 items-center gap-1.5 rounded-lg border px-1 py-1.5 pr-2.5"
+                className="border-divider relative flex h-10 w-[180px] shrink-0 items-center gap-1.5 rounded-lg border px-1 py-1.5 pr-2.5"
                 key={item.name}
               >
                 <div className="flex w-6 shrink-0 items-center justify-center">
                   {item.type === 'file' ? (
-                    <FileTypeIcon className="text-official-gray-400 size-4 shrink-0" />
+                    <FileTypeIcon className="text-text-secondary size-4 shrink-0" />
                   ) : (
-                    <DirectoryTypeIcon className="text-official-gray-400 size-4 shrink-0" />
+                    <DirectoryTypeIcon className="text-text-secondary size-4 shrink-0" />
                   )}
                 </div>
 
@@ -218,7 +219,7 @@ export function VectorFsActionBarPreview() {
                 </div>
                 <button
                   className={cn(
-                    'bg-official-gray-850 hover:bg-official-gray-800 text-gray-80 border-official-gray-780 absolute -top-2 -right-2 h-5 w-5 cursor-pointer rounded-full border p-1 transition-colors hover:text-white',
+                    'bg-bg-tertiary hover:bg-bg-quaternary text-text-secondary border-divider absolute -top-2 -right-2 h-5 w-5 cursor-pointer rounded-full border p-1 transition-colors hover:text-white',
                     isUpdatingJobScope && 'opacity-50',
                   )}
                   disabled={isUpdatingJobScope}

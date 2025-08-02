@@ -40,6 +40,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Skeleton,
 } from '@shinkai_network/shinkai-ui';
 import {
   CryptoWalletIcon,
@@ -122,7 +123,7 @@ export const NetworkAgentPage = () => {
           <div className="flex items-center justify-between gap-4">
             <div
               className={cn(
-                'font-clash inline-flex items-center gap-2 text-3xl font-medium',
+                'font-clash inline-flex items-center gap-3 text-3xl font-medium',
               )}
             >
               <h1>
@@ -131,12 +132,12 @@ export const NetworkAgentPage = () => {
                   : t('networkAgentsPage.titleDecentralized')}
               </h1>
               {optInExperimental && (
-                <TabsList className="bg-official-gray-950/80 flex h-10 w-fit items-center gap-2 rounded-full px-1 py-1">
+                <TabsList className="flex h-10 w-fit items-center gap-2 rounded-full bg-transparent px-1 py-1">
                   <TabsTrigger
                     className={cn(
                       'flex flex-col rounded-full px-4 py-1.5 text-base font-medium transition-colors',
-                      'data-[state=active]:bg-official-gray-800 data-[state=active]:text-white',
-                      'data-[state=inactive]:text-official-gray-400 data-[state=inactive]:bg-transparent',
+                      'data-[state=active]:bg-bg-quaternary data-[state=active]:text-text-default',
+                      'data-[state=inactive]:text-text-tertiary data-[state=inactive]:bg-transparent',
                       'focus-visible:outline-hidden',
                     )}
                     value="network"
@@ -147,8 +148,8 @@ export const NetworkAgentPage = () => {
                     <TabsTrigger
                       className={cn(
                         'flex flex-col rounded-full px-4 py-1.5 text-base font-medium transition-colors',
-                        'data-[state=active]:bg-official-gray-800 data-[state=active]:text-white',
-                        'data-[state=inactive]:text-official-gray-400 data-[state=inactive]:bg-transparent',
+                        'data-[state=active]:bg-bg-quaternary data-[state=active]:text-text-default',
+                        'data-[state=inactive]:text-text-tertiary data-[state=inactive]:bg-transparent',
                         'focus-visible:outline-hidden',
                       )}
                       value="published"
@@ -193,7 +194,7 @@ export const NetworkAgentPage = () => {
                         <div className="text-sm font-medium">
                           {t('networkAgentsPage.walletBalance')}
                         </div>
-                        <div className="text-official-gray-400 text-xs">
+                        <div className="text-text-secondary text-xs">
                           {walletInfo?.payment_wallet?.data?.network}
                         </div>
                       </div>
@@ -244,7 +245,7 @@ export const NetworkAgentPage = () => {
               )}
             </div>
           </div>
-          <p className="text-official-gray-400 text-sm whitespace-pre-wrap">
+          <p className="text-text-secondary text-sm whitespace-pre-wrap">
             {selectedTab === 'network'
               ? t('networkAgentsPage.descriptionNetwork')
               : t('networkAgentsPage.descriptionPublished')}
@@ -393,25 +394,25 @@ const DiscoverNetworkAgents = ({
           Array.from({ length: 4 }).map((_, index) => (
             <Card
               key={index}
-              className="border-official-gray-850 bg-official-gray-900 flex flex-col border"
+              className="border-divider bg-bg-tertiary flex flex-col border"
             >
               <CardHeader className="pb-4">
-                <div className="bg-official-gray-800 mb-1 h-6 w-3/4 animate-pulse rounded" />
-                <div className="bg-official-gray-800 mb-3 h-4 w-1/2 animate-pulse rounded" />
+                <Skeleton className="mb-1 h-6 w-3/4 rounded" />
+                <Skeleton className="mb-3 h-4 w-1/2 rounded" />
                 <div className="space-y-2">
-                  <div className="bg-official-gray-800 h-4 w-full animate-pulse rounded" />
-                  <div className="bg-official-gray-800 h-4 w-2/3 animate-pulse rounded" />
+                  <Skeleton className="h-4 w-full rounded" />
+                  <Skeleton className="h-4 w-2/3 rounded" />
                 </div>
               </CardHeader>
               <CardContent className="flex-1">
                 <div className="flex items-center justify-between">
-                  <div className="bg-official-gray-800 h-4 w-1/4 animate-pulse rounded" />
-                  <div className="bg-official-gray-800 h-4 w-1/4 animate-pulse rounded" />
+                  <Skeleton className="h-4 w-1/4 rounded" />
+                  <Skeleton className="h-4 w-1/4 rounded" />
                 </div>
               </CardContent>
               <CardFooter className="flex gap-3">
-                <div className="bg-official-gray-800 h-9 w-full animate-pulse rounded-full" />
-                <div className="bg-official-gray-800 h-9 w-full animate-pulse rounded-full" />
+                <Skeleton className="h-9 w-full rounded-full" />
+                <Skeleton className="h-9 w-full rounded-full" />
               </CardFooter>
             </Card>
           ))}
@@ -544,9 +545,9 @@ const AgentCard = ({
     (!isInstalled && !isFreePricing && isWalletConnected);
 
   return (
-    <Card className="border-official-gray-850 bg-official-gray-900 flex flex-col border">
+    <Card className="border-divider bg-bg-secondary flex flex-col border">
       <CardHeader className="pb-4">
-        <CardTitle className="mb-1 inline-flex items-center justify-between gap-2 text-lg leading-tight font-bold text-white">
+        <CardTitle className="text-text-default mb-1 inline-flex items-center justify-between gap-2 text-lg leading-tight font-bold">
           <div className="inline-flex items-center gap-2">
             {agent.name}
             {isInstalled && (
@@ -579,12 +580,12 @@ const AgentCard = ({
         </CardTitle>
 
         {agent.provider && type === 'discover' && (
-          <div className="text-official-gray-400 mb-3 flex items-center gap-2 text-sm">
+          <div className="text-text-secondary mb-3 flex items-center gap-2 text-sm">
             <User className="h-3 w-3" />
             <span>{agent.provider}</span>
           </div>
         )}
-        <CardDescription className="text-official-gray-400 line-clamp-2 h-[44px] text-sm leading-relaxed">
+        <CardDescription className="text-text-secondary line-clamp-2 h-[44px] text-sm leading-relaxed">
           {agent.description}
         </CardDescription>
       </CardHeader>
@@ -595,14 +596,14 @@ const AgentCard = ({
               <div className="text-lg font-semibold">
                 {isFreePricing ? 'Free' : formatBalanceAmount(amount ?? '0', 6)}
                 {!isFreePricing && (
-                  <span className="text-official-gray-200 text-sm font-medium">
+                  <span className="text-text-secondary text-sm font-medium">
                     {' '}
                     {ticker}
                   </span>
                 )}
               </div>
               {!isFreePricing && (
-                <div className="text-official-gray-400 flex items-center gap-1 text-sm">
+                <div className="text-text-secondary flex items-center gap-1 text-sm">
                   <span>per use</span>
                 </div>
               )}
@@ -653,7 +654,7 @@ const AgentCard = ({
                       <SetupGuide isWalletConnected={!!isWalletConnected} />
                     )}
                     <div className="flex justify-between py-2">
-                      <span className="text-official-gray-400 text-sm">
+                      <span className="text-text-secondary text-sm">
                         {t('networkAgentsPage.toolRouterKey')}
                       </span>
                       <span className="font-mono text-xs break-all">
@@ -661,14 +662,14 @@ const AgentCard = ({
                       </span>
                     </div>
 
-                    <div className="bg-official-gray-850 flex items-center justify-between rounded-md p-3">
+                    <div className="bg-bg-quaternary flex items-center justify-between rounded-md p-3">
                       <div className="flex items-center gap-3">
                         <CreditCard className="h-5 w-5" />
                         <div>
                           <p className="font-medium">
                             {t('networkAgentsPage.costPerUse')}
                           </p>
-                          <p className="text-official-gray-400 text-sm">
+                          <p className="text-text-secondary text-sm">
                             {t('networkAgentsPage.costPerUseDescription')}
                           </p>
                         </div>
@@ -680,7 +681,7 @@ const AgentCard = ({
                       ) : (
                         <div className="inline-flex items-center gap-1 py-1.5 text-lg">
                           {formatBalanceAmount(amount ?? '0', 6)}{' '}
-                          <span className="text-official-gray-200 text-sm font-medium">
+                          <span className="text-text-secondary text-sm font-medium">
                             {ticker}
                           </span>
                         </div>
@@ -694,7 +695,7 @@ const AgentCard = ({
                           <p className="text-sm font-medium text-cyan-400">
                             {t('networkAgentsPage.howPaymentsWork')}
                           </p>
-                          <p className="text-official-gray-400 text-sm">
+                          <p className="text-text-secondary text-sm">
                             {t('networkAgentsPage.howPaymentsWorkDescription', {
                               network:
                                 agent?.apiData?.tool_offering?.usage_type
@@ -866,7 +867,7 @@ export const InstallAgentModal = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="max-w-xl text-white">
+      <DialogContent className="text-text-default max-w-xl">
         <DialogHeader>
           <DialogTitle className="flex items-center space-x-3 text-xl">
             {/* <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 text-xl">
@@ -874,7 +875,7 @@ export const InstallAgentModal = ({
             </div> */}
             <span>Add {agent.name}</span>
           </DialogTitle>
-          <DialogDescription className="text-official-gray-400">
+          <DialogDescription className="text-text-secondary">
             {step === 1 && t('networkAgentsPage.addAgent')}
             {step === 2 && t('networkAgentsPage.addedSuccess')}
           </DialogDescription>
@@ -894,7 +895,7 @@ export const InstallAgentModal = ({
                   </p>
                 </div>
                 <div>
-                  <div className="text-official-gray-100 space-y-2 text-sm">
+                  <div className="text-text-default space-y-2 text-sm">
                     <p>
                       <strong>Free to add</strong> - No cost to add agents to
                       your collection
@@ -906,7 +907,7 @@ export const InstallAgentModal = ({
                       ) : (
                         <>
                           Only pay{' '}
-                          <strong className="text-white">
+                          <strong className="text-text-default">
                             {`${formatBalanceAmount(amount ?? '0', 6)} ${ticker}`}
                           </strong>{' '}
                           when you use it in chat. You'll see a payment
@@ -919,27 +920,27 @@ export const InstallAgentModal = ({
               </div>
             </div>
 
-            <div className="bg-official-gray-900 space-y-3 rounded-lg p-4">
+            <div className="bg-bg-tertiary space-y-3 rounded-lg p-4">
               <div className="flex items-start justify-between">
                 <div>
-                  <h3 className="text-lg font-semibold text-white">
+                  <h3 className="text-text-default text-lg font-semibold">
                     {agent.name}
                   </h3>
-                  <p className="text-official-gray-400 text-sm">
+                  <p className="text-text-secondary text-sm">
                     by {agent.provider}
                   </p>
                 </div>
               </div>
-              <p className="text-official-gray-400 text-sm leading-relaxed">
+              <p className="text-text-secondary text-sm leading-relaxed">
                 {agent.description}
               </p>
 
-              <div className="border-official-gray-780 border-t pt-2">
+              <div className="border-divider border-t pt-2">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-white">
+                  <span className="text-text-default">
                     {t('networkAgentsPage.costPerUse')}:
                   </span>
-                  <span className="font-semibold text-white">
+                  <span className="text-text-default font-semibold">
                     {isFreePricing
                       ? 'FREE'
                       : `${formatBalanceAmount(amount ?? '0', 6)} ${ticker}`}
@@ -975,10 +976,10 @@ export const InstallAgentModal = ({
         {step === 2 && (
           <div className="py-8 text-center">
             <CheckCircle className="mx-auto mb-4 h-12 w-12 text-green-400" />
-            <h3 className="mb-2 text-base font-semibold text-white">
+            <h3 className="text-text-default mb-2 text-base font-semibold">
               {t('networkAgentsPage.addedSuccess')}
             </h3>
-            <p className="text-official-gray-400 mb-6 text-sm">
+            <p className="text-text-secondary mb-6 text-sm">
               {t('networkAgentsPage.addedDescription', { name: agent.name })}
             </p>
             <div className="mx-auto flex w-full max-w-sm gap-3">
@@ -1021,7 +1022,7 @@ function SetupGuide({ isWalletConnected }: SetupGuideProps) {
   return (
     <Alert variant="warning" className="mb-6 border-0 bg-yellow-300/5 p-6">
       <div className="flex flex-col gap-4">
-        <AlertTitle className="text-base font-semibold text-white">
+        <AlertTitle className="text-text-default text-base font-semibold">
           {t('networkAgentsPage.setupRequired')}
         </AlertTitle>
         <AlertDescription>
@@ -1034,10 +1035,10 @@ function SetupGuide({ isWalletConnected }: SetupGuideProps) {
                   <AlertCircle className="mt-0.5 size-4 shrink-0 text-yellow-400" />
                 )}
                 <div>
-                  <p className="text-sm font-medium text-white">
+                  <p className="text-text-default text-sm font-medium">
                     {t('networkAgentsPage.connectWallet')}
                   </p>
-                  <p className="text-official-gray-200 text-sm">
+                  <p className="text-text-secondary text-sm">
                     {t('networkAgentsPage.connectWalletDescription')}
                   </p>
                 </div>
@@ -1074,7 +1075,7 @@ function Disclaimer() {
   return (
     <Alert variant="warning" className="mb-6 border-0 bg-orange-300/5 p-6">
       <button
-        className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none"
+        className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-text-secondary absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none"
         onClick={() => setDismissedCommunityAgentsDisclaimer(true)}
       >
         <X className="h-4 w-4" />
@@ -1083,8 +1084,10 @@ function Disclaimer() {
       <div className="flex items-start gap-3">
         <AlertCircle className="mt-0.5 size-4 shrink-0 text-orange-400" />
         <div>
-          <p className="text-sm font-medium text-white">Community Agents</p>
-          <p className="text-official-gray-200 text-sm">
+          <p className="text-text-default text-sm font-medium">
+            Community Agents
+          </p>
+          <p className="text-text-secondary text-sm">
             Community agents are not verified by Shinkai. We may remove agents
             that violate our terms. Use at your own risk.
           </p>

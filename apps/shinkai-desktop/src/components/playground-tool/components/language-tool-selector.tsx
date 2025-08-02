@@ -68,7 +68,7 @@ export function LanguageToolSelector({
           </TooltipPortal>
           <DropdownMenuContent
             align="start"
-            className="min-w-[200px] overflow-y-auto bg-gray-300 p-1 py-2"
+            className="min-w-[200px] overflow-y-auto p-1 py-2"
             side="top"
           >
             <DropdownMenuRadioGroup onValueChange={onValueChange} value={value}>

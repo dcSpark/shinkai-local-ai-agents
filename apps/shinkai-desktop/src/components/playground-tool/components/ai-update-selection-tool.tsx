@@ -116,7 +116,7 @@ export function AIModelSelectorToolsBase({
                 actionButtonClassnames,
                 'w-auto justify-between truncate',
                 variant === 'card' &&
-                  'bg-official-gray-900 border-official-gray-780 hover:bg-official-gray-850 h-auto w-auto min-w-[240px] max-w-md gap-3 rounded-xl border p-1.5 px-2',
+                  'bg-bg-secondary border-divider hover:bg-bg-secondary h-auto w-auto max-w-md min-w-[240px] gap-3 rounded-xl border p-1.5 px-2',
                 className,
               )}
             >
@@ -135,7 +135,7 @@ export function AIModelSelectorToolsBase({
                 <>
                   {selectedIcon}
                   <div className="flex flex-col items-start justify-start text-left">
-                    <span className="text-sm capitalize text-white">
+                    <span className="text-text-default text-sm capitalize">
                       {selectedAgentName}
                     </span>
                   </div>
@@ -151,17 +151,17 @@ export function AIModelSelectorToolsBase({
             className="flex flex-col gap-1"
             side="top"
           >
-            <span className="text-center text-xs text-white">
+            <span className="text-text-default text-center text-xs">
               {t('llmProviders.switch')}
             </span>
             {isRegularChatPage && (
               <div className="flex items-center gap-4 text-left">
-                <div className="text-official-gray-400 flex items-center justify-center gap-2 text-xs">
+                <div className="text-text-secondary flex items-center justify-center gap-2 text-xs">
                   <CommandShortcut>⌘ [</CommandShortcut> or
                   <CommandShortcut>⌘ ]</CommandShortcut>
                 </div>
                 <div className="flex items-center justify-center gap-2">
-                  <span className="text-official-gray-400 text-xs">
+                  <span className="text-text-secondary text-xs">
                     Prev / Next AI
                   </span>
                 </div>
@@ -172,11 +172,11 @@ export function AIModelSelectorToolsBase({
       </Tooltip>
       <DropdownMenuContent
         align="start"
-        className="bg-official-gray-950 border-official-gray-780 size-full max-h-[60vh] w-full max-w-[400px] overflow-y-auto border p-1 py-2"
+        className="size-full max-h-[60vh] w-full max-w-[400px] overflow-y-auto border p-1 py-2"
       >
         <div className="space-y-1 px-2 py-2">
           <DropdownMenuLabel>Best Models for Tool Builder</DropdownMenuLabel>
-          <p className="text-official-gray-400 text-xs">
+          <p className="text-text-secondary text-xs">
             These models are optimized for tool creation specifically.
           </p>
         </div>
@@ -185,11 +185,11 @@ export function AIModelSelectorToolsBase({
             llmProviders?.length > 0 &&
             toolRecommendedModels?.map((llmProvider) => (
               <DropdownMenuRadioItem
-                className="hover:bg-official-gray-850 data-[state=checked]:bg-official-gray-800 flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-white transition-colors"
+                className="text-text-default flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 transition-colors"
                 key={llmProvider.id}
                 value={llmProvider.id}
               >
-                <div className="bg-official-gray-850 border-official-gray-700 flex size-5 shrink-0 items-center justify-center gap-2 rounded-lg border p-2">
+                <div className="bg-bg-secondary border-divider flex size-5 shrink-0 items-center justify-center gap-2 rounded-lg border p-2">
                   <ProviderIcon
                     className="mt-0.5 size-3 shrink-0"
                     provider={llmProvider.model.split(':')[0]}
@@ -210,10 +210,10 @@ export function AIModelSelectorToolsBase({
               </DropdownMenuRadioItem>
             ))}
 
-          <DropdownMenuSeparator className="bg-official-gray-780 my-2" />
+          <DropdownMenuSeparator className="my-2" />
           <div className="space-y-1 px-2 py-2">
             <DropdownMenuLabel>Other Models</DropdownMenuLabel>
-            <p className="text-official-gray-400 text-xs">
+            <p className="text-text-secondary text-xs">
               Use your own models, but note they may not be optimized for tool
               creation specifically.
             </p>
@@ -221,11 +221,11 @@ export function AIModelSelectorToolsBase({
 
           {restModels?.map((llmProvider) => (
             <DropdownMenuRadioItem
-              className="hover:bg-official-gray-850 data-[state=checked]:bg-official-gray-800 flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 text-white transition-colors"
+              className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-2 transition-colors"
               key={llmProvider.id}
               value={llmProvider.id}
             >
-              <div className="bg-official-gray-850 border-official-gray-700 flex size-5 shrink-0 items-center justify-center gap-2 rounded-lg border p-2">
+              <div className="bg-bg-secondary border-divider flex size-5 shrink-0 items-center justify-center gap-2 rounded-lg border p-2">
                 <ProviderIcon
                   className="mt-0.5 size-4 shrink-0"
                   provider={llmProvider.model.split(':')[0]}

@@ -11,18 +11,14 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default:
-          'bg-brand hover:bg-brand-500 text-white disabled:bg-gray-200 disabled:text-gray-100',
+          'bg-brand hover:bg-brand-500 text-text-default disabled:bg-rose-200/20 disabled:text-gray-300',
         destructive:
-          'bg-red-500 text-gray-50 shadow-xs hover:bg-red-500/90 disabled:bg-gray-200 disabled:text-gray-100',
+          'disabled:text-text-secondary bg-red-500 text-gray-50 hover:bg-red-500/90 disabled:bg-gray-600',
         outline:
-          'hover:bg-official-gray-850 border border-gray-200 bg-transparent text-white shadow-xs hover:text-gray-50',
-        secondary: 'bg-gray-100 text-gray-900 shadow-xs hover:bg-gray-100/80',
+          'hover:bg-bg-secondary text-text-secondary hover:text-text-default border border-gray-500 bg-transparent hover:border-gray-400',
         tertiary:
-          'hover:bg-official-gray-800/60 bg-transparent hover:text-white',
-        ghost: 'bg-gray-400 hover:bg-gray-400/60',
+          'hover:bg-bg-tertiary hover:text-text-default text-text-secondary bg-transparent',
         link: 'text-white underline-offset-4 hover:underline',
-        gradient:
-          'bg-brand-gradient border-brand border-[1px] text-white transition-colors hover:bg-[#201F1F]',
       },
       size: {
         default: 'h-[50px] px-8 text-sm',
@@ -67,7 +63,7 @@ const Button = ({
   const Comp = asChild ? Slot : 'button';
   return (
     <Comp
-      className={cn(buttonVariants({ variant, size, rounded, className }))}
+      className={cn(buttonVariants({ variant, size, className }))}
       ref={ref}
       {...props}
     >

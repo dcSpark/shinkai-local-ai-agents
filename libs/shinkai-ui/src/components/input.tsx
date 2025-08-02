@@ -62,7 +62,7 @@ const Input = ({
     <>
       <input
         className={cn(
-          'h-input disabled:text-official-gray-400 border-official-gray-750 bg-official-gray-900 focus:border-official-gray-700 disabled:bg-official-gray-900 peer w-full rounded-lg border px-4 py-3 pt-8 text-sm font-medium text-white placeholder-transparent outline outline-0 transition-all placeholder-shown:border placeholder-shown:border-gray-200 focus:border focus:outline-0 disabled:border-0',
+          'h-input border-border-input bg-bg-secondary focus:border-border-input-focus disabled:bg-bg-input-disabled peer placeholder-shown:border-border-input text-text-default w-full rounded-lg border px-4 py-3 pt-8 text-sm font-medium placeholder-transparent outline outline-0 transition-all placeholder-shown:border focus:border focus:outline-0 disabled:border-0 disabled:text-gray-400',
           startAdornment && 'pl-[var(--custom-padding-left-input)]',
           endAdornment && 'pr-[var(--custom-padding-right-input)]',
           type === 'password' && 'pr-[60px]',
@@ -77,7 +77,7 @@ const Input = ({
       />
       {startAdornment ? (
         <Badge
-          className="peer/adornment adornment absolute left-4 top-[30px]"
+          className="peer/adornment adornment absolute top-[30px] left-4"
           ref={startAdornmentRef}
           variant="inputAdornment"
         >
@@ -86,7 +86,7 @@ const Input = ({
       ) : null}
       {endAdornment && typeof endAdornment === 'string' ? (
         <Badge
-          className="peer/adornment adornment absolute right-4 top-[30px]"
+          className="peer/adornment adornment absolute top-[30px] right-4"
           ref={endAdornmentRef}
           variant="inputAdornment"
         >
@@ -103,11 +103,11 @@ const Input = ({
       {type === 'password' && !hidePasswordToggle && (
         <Button
           aria-label={showPassword ? 'Hide password' : 'Show password'}
-          className="text-gray-80 hover:bg-gray-350 absolute right-3 top-3"
+          className="absolute top-3 right-3"
           onClick={togglePasswordVisibility}
           size={'icon'}
           type="button"
-          variant={'ghost'}
+          variant="tertiary"
         >
           {showPassword ? (
             <EyeOffIcon aria-hidden="true" className="h-4 w-4" />

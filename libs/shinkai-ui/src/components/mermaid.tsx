@@ -146,7 +146,7 @@ export const MermaidDiagram: FC<MermaidDiagramProps> = ({
               variant="tertiary"
               size="icon"
               onClick={resetZoom}
-              className="text-official-gray-400"
+              className="text-text-secondary"
             >
               <RotateCcw size={14} />
             </Button>
@@ -161,7 +161,7 @@ export const MermaidDiagram: FC<MermaidDiagramProps> = ({
               variant="tertiary"
               size="icon"
               onClick={downloadSVG}
-              className="text-official-gray-400"
+              className="text-text-secondary"
             >
               <Download size={14} />
             </Button>
@@ -173,7 +173,7 @@ export const MermaidDiagram: FC<MermaidDiagramProps> = ({
       </div>
       <div
         onClick={handleClick}
-        className="text-official-gray-400 bg-official-gray-800 absolute right-2 bottom-2 z-10 rounded px-2 py-1 text-xs"
+        className="text-text-secondary bg-bg-quaternary absolute right-2 bottom-2 z-10 rounded px-2 py-1 text-xs"
       >
         Click to focus, then scroll to zoom & drag to pan
       </div>
@@ -184,7 +184,7 @@ export const MermaidDiagram: FC<MermaidDiagramProps> = ({
         onBlur={handleBlur}
         onClick={handleClick}
         className={cn(
-          'text-official-gray-400 bg-official-gray-850 focus:ring-opacity-50 relative w-full cursor-grab overflow-hidden rounded-b-lg p-4 py-10 text-center text-sm focus:cursor-grabbing focus:ring-2 focus:ring-blue-500 focus:outline-none',
+          'text-text-secondary bg-bg-quaternary focus:ring-opacity-50 relative w-full cursor-grab overflow-hidden rounded-b-lg p-4 py-10 text-center text-sm focus:cursor-grabbing focus:ring-2 focus:ring-blue-500 focus:outline-none',
           className,
         )}
         style={{ width: '100%', minHeight: '400px' }}

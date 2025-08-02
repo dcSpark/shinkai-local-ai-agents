@@ -43,7 +43,7 @@ const Textarea = ({
   return (
     <textarea
       className={cn(
-        'bg-official-gray-900 placeholder-official-gray-500 flex w-full rounded-md border border-gray-200 px-4 py-2 pt-7 text-sm break-words focus-visible:ring-1 focus-visible:ring-gray-100 focus-visible:outline-hidden focus-visible:ring-inset disabled:cursor-not-allowed disabled:opacity-50',
+        'bg-bg-secondary placeholder:!text-text-placeholder border-input focus-visible:ring-border-input-focus flex w-full rounded-md border px-4 py-2 pt-7 text-sm break-words focus-visible:ring-1 focus-visible:outline-hidden focus-visible:ring-inset disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}
       ref={ref || textareaRef}

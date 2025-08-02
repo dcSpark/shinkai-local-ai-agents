@@ -94,17 +94,12 @@ export const McpServerCard = ({
       >
         <div className="flex flex-col gap-2.5">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-white">
+            <span className="text-text-default text-sm font-medium">
               {server.name}{' '}
             </span>
-            <Badge
-              className="text-official-gray-300 text-xs font-normal"
-              variant="outline"
-            >
-              {server.type}
-            </Badge>
+            <Badge variant="outline">{server.type}</Badge>
           </div>
-          <div className="text-official-gray-400 text-xs">
+          <div className="text-text-secondary text-xs">
             {server.type === 'Command' ? server.command : server.url}
           </div>
         </div>
@@ -153,7 +148,7 @@ export const McpServerCard = ({
                     <ul className="space-y-3">
                       {mcpServerTools.map((tool) => (
                         <li
-                          className="border-official-gray-780 rounded-lg border p-3 py-2.5 text-sm"
+                          className="border-divider rounded-lg border p-3 py-2.5 text-sm"
                           key={tool.id}
                           style={{
                             fontSize: '14px',
@@ -179,7 +174,7 @@ export const McpServerCard = ({
                             </div>
                             {tool.description && (
                               <MarkdownText
-                                className="text-official-gray-400"
+                                className="text-text-secondary"
                                 content={tool.description}
                               />
                             )}
@@ -187,13 +182,13 @@ export const McpServerCard = ({
                           {Object.keys((tool.input_args || {}).properties || {})
                             .length > 0 && (
                             <Collapsible>
-                              <CollapsibleTrigger className="text-official-gray-400 bg-official-gray-900 mt-2 flex w-full cursor-pointer items-center justify-between rounded-lg p-2 text-left hover:text-white [&[data-state=open]]:rounded-b-none [&[data-state=open]>svg]:rotate-180">
+                              <CollapsibleTrigger className="text-text-secondary bg-bg-tertiary mt-2 flex w-full cursor-pointer items-center justify-between rounded-lg p-2 text-left hover:text-white [&[data-state=open]]:rounded-b-none [&[data-state=open]>svg]:rotate-180">
                                 <span className="text-sm">
                                   View Input Parameters
                                 </span>
                                 <ChevronDown className="ml-auto size-4" />
                               </CollapsibleTrigger>
-                              <CollapsibleContent className="bg-official-gray-900 rounded-b-lg p-1 pt-0">
+                              <CollapsibleContent className="bg-bg-tertiary rounded-b-lg p-1 pt-0">
                                 <ul className="grid list-disc gap-2 rounded-lg px-1 py-1 pl-6">
                                   {Object.keys(
                                     (tool.input_args || {}).properties || {},
@@ -202,7 +197,7 @@ export const McpServerCard = ({
                                       <span className="mr-2 text-sm text-white">
                                         {key}
                                       </span>
-                                      <span className="text-official-gray-400 text-sm">
+                                      <span className="text-text-secondary text-sm">
                                         {
                                           tool.input_args?.properties?.[key]
                                             ?.description
@@ -261,10 +256,7 @@ export const McpServerCard = ({
               <MoreVertical className="size-full" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="end"
-            className="bg-official-gray-950 border-official-gray-780 border p-2.5"
-          >
+          <DropdownMenuContent align="end" className="p-2.5">
             <DropdownMenuItem
               className="flex items-center gap-2.5 text-xs"
               onClick={() => setIsConfigureModalOpen(true)}
@@ -295,7 +287,7 @@ export const McpServerCard = ({
                   className="min-w-[100px] flex-1"
                   size="sm"
                   type="button"
-                  variant="ghost"
+                  variant="outline"
                 >
                   {t('common.cancel')}
                 </Button>

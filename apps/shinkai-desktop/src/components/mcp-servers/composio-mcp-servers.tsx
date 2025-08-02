@@ -7,7 +7,7 @@ import { buildInboxIdFromJobId } from '@shinkai_network/shinkai-message-ts/utils
 import { DEFAULT_CHAT_CONFIG } from '@shinkai_network/shinkai-node-state/v2/constants';
 import { useCreateJob } from '@shinkai_network/shinkai-node-state/v2/mutations/createJob/useCreateJob';
 import { useDeleteMcpServer } from '@shinkai_network/shinkai-node-state/v2/mutations/deleteMcpServer/useDeleteMcpServer';
-import { Button, SearchInput } from '@shinkai_network/shinkai-ui';
+import { Button, SearchInput, Skeleton } from '@shinkai_network/shinkai-ui';
 import { PlusIcon, Trash } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
@@ -186,24 +186,15 @@ export const ComposioMcpServers = ({
       <div className="grid grid-cols-1 gap-2.5 overflow-y-auto py-4 pr-2">
         {isLoadingComposio
           ? [...Array(3)].map((_, i) => (
-              <div
+              <Skeleton
                 key={i}
-                className="bg-official-gray-900 flex h-24 items-center justify-between rounded-lg border p-4"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="bg-official-gray-850 h-12 w-12 shrink-0 animate-pulse rounded-lg" />
-                  <div className="space-y-2">
-                    <div className="bg-official-gray-850 h-5 w-32 animate-pulse rounded" />
-                    <div className="bg-official-gray-850 h-4 w-48 animate-pulse rounded" />
-                  </div>
-                </div>
-                <div className="bg-official-gray-850 h-9 w-20 animate-pulse rounded-md" />
-              </div>
+                className="flex h-16 items-center justify-between rounded-lg border p-4"
+              ></Skeleton>
             ))
           : filteredApps?.map((app) => (
               <div
                 key={app.id}
-                className="bg-official-gray-900 border-official-gray-850 group hover:border-official-gray-700 flex h-20 overflow-hidden rounded-2xl border p-3.5 transition-all"
+                className="bg-bg-secondary border-divider group flex h-20 overflow-hidden rounded-2xl border p-3.5 transition-all"
                 onClick={() => handleAppClick(app)}
                 role="button"
               >
@@ -217,11 +208,11 @@ export const ComposioMcpServers = ({
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <h3 className="truncate text-base font-semibold text-white">
+                      <h3 className="text-text-default truncate text-base font-semibold">
                         {app.name}
                       </h3>
                     </div>
-                    <p className="text-official-gray-400 line-clamp-2 text-sm">
+                    <p className="text-text-secondary line-clamp-2 text-sm">
                       {app.description}
                     </p>
                   </div>

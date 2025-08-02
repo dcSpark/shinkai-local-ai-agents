@@ -479,7 +479,7 @@ export const CreateTextFileAction = ({
             className="flex size-full flex-col space-y-2"
             style={{ contain: 'strict' }}
           >
-            <p className="text-gray-80 text-xs font-semibold">Content</p>
+            <p className="text-text-secondary text-xs font-semibold">Content</p>
             <PrismErrorBoundary>
               <ToolCodeEditor
                 language="txt"

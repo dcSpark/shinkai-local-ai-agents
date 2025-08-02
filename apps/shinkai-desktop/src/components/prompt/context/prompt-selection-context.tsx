@@ -172,7 +172,7 @@ const PromptSearchDrawer = () => {
                 >
                   <div className="absolute top-1 right-1 flex translate-x-[150%] items-center gap-0.5 transition duration-200 group-hover:translate-x-0">
                     <button
-                      className="text-gray-80 rounded-full p-2 transition-colors hover:bg-gray-400 hover:text-white"
+                      className="text-text-secondary rounded-full p-2 transition-colors hover:bg-gray-400 hover:text-white"
                       onClick={(event) => {
                         event.stopPropagation();
                         setSelectedPromptEdit(prompt);
@@ -183,7 +183,7 @@ const PromptSearchDrawer = () => {
                     </button>
 
                     <button
-                      className="text-gray-80 rounded-full p-2 transition-colors hover:bg-gray-400 hover:text-white"
+                      className="text-text-secondary rounded-full p-2 transition-colors hover:bg-gray-400 hover:text-white"
                       onClick={async (event) => {
                         event.stopPropagation();
                         await removePrompt({
@@ -217,7 +217,7 @@ const PromptSearchDrawer = () => {
                 >
                   <div className="absolute top-1 right-1 flex translate-x-[150%] items-center gap-0.5 transition duration-200 group-hover:translate-x-0">
                     <button
-                      className="text-gray-80 rounded-full p-2 transition-colors hover:bg-gray-400 hover:text-white"
+                      className="text-text-secondary rounded-full p-2 transition-colors hover:bg-gray-400 hover:text-white"
                       onClick={(event) => {
                         event.stopPropagation();
                         setSelectedPromptEdit(prompt);
@@ -228,7 +228,7 @@ const PromptSearchDrawer = () => {
                     </button>
 
                     <button
-                      className="text-gray-80 rounded-full p-2 transition-colors hover:bg-gray-400 hover:text-white"
+                      className="text-text-secondary rounded-full p-2 transition-colors hover:bg-gray-400 hover:text-white"
                       onClick={async (event) => {
                         event.stopPropagation();
                         await removePrompt({
@@ -249,7 +249,7 @@ const PromptSearchDrawer = () => {
               isSearchQuerySynced &&
               searchPromptList?.length === 0 && (
                 <div className="flex h-20 items-center justify-center">
-                  <p className="text-gray-80 text-sm">
+                  <p className="text-text-secondary text-sm">
                     No prompts found for the search query
                   </p>
                 </div>
@@ -353,7 +353,11 @@ export function CreatePromptDrawer({
                   control={createPromptForm.control}
                   name="promptName"
                   render={({ field }) => (
-                    <TextField autoFocus field={field} label={t('prompt.fields.name')} />
+                    <TextField
+                      autoFocus
+                      field={field}
+                      label={t('prompt.fields.name')}
+                    />
                   )}
                 />
                 <FormField
@@ -489,7 +493,11 @@ function UpdatePromptDrawer({
                   control={createPromptForm.control}
                   name="promptName"
                   render={({ field }) => (
-                    <TextField autoFocus field={field} label={t('prompt.fields.name')} />
+                    <TextField
+                      autoFocus
+                      field={field}
+                      label={t('prompt.fields.name')}
+                    />
                   )}
                 />
                 <FormField

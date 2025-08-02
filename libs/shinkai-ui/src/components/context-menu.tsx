@@ -151,7 +151,7 @@ const ContextMenuLabel = ({
 }) => (
   <ContextMenuPrimitive.Label
     className={cn(
-      'text-foreground px-2 py-1.5 text-sm font-semibold',
+      'text-text-default px-2 py-1.5 text-sm font-semibold',
       inset && 'pl-8',
       className,
     )}
@@ -178,7 +178,7 @@ const ContextMenuShortcut = ({
   return (
     <span
       className={cn(
-        'text-muted-foreground ml-auto text-xs tracking-widest',
+        'text-text-secondary ml-auto text-xs tracking-widest',
         className,
       )}
       {...props}

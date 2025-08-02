@@ -142,7 +142,7 @@ export const SetJobScopeDrawer = () => {
               </Badge>
             )}
           </SheetTitle>
-          <p className="text-gray-80 text-sm">
+          <p className="text-text-secondary text-sm">
             {t('chat.form.setContextText')}
           </p>
         </SheetHeader>
@@ -344,7 +344,7 @@ export const KnowledgeSearchDrawer = () => {
           <SheetTitle className="flex h-[40px] items-center gap-4">
             {t('aiFilesSearch.label')}
           </SheetTitle>
-          <p className="text-gray-80 text-sm">
+          <p className="text-text-secondary text-sm">
             {t('aiFilesSearch.description')}
           </p>
         </SheetHeader>
@@ -394,7 +394,7 @@ export const KnowledgeSearchDrawer = () => {
           {isSearchEntered && isSuccess && (
             <div>
               <div className="flex items-center justify-between gap-4 p-2">
-                <h2 className="text-gray-80 text-sm font-medium">
+                <h2 className="text-text-secondary text-sm font-medium">
                   {t('aiFilesSearch.foundResults', {
                     count: data?.length,
                   })}
@@ -456,7 +456,7 @@ export const KnowledgeSearchDrawer = () => {
                         <div className="divide-y divide-gray-300">
                           {contents?.map((content) => (
                             <p
-                              className="text-gray-80 py-3 text-xs"
+                              className="text-text-secondary py-3 text-xs"
                               key={content}
                             >
                               {content}

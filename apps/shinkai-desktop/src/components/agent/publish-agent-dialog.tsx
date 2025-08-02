@@ -172,7 +172,7 @@ export default function PublishAgentDialog() {
         </DialogHeader>
         {(currentStep === 'select' || currentStep === 'configure') && (
           <div className="-mx-[24px]">
-            <div className="bg-official-gray-900 border-official-gray-780 my-2 w-full border-b py-4">
+            <div className="bg-bg-tertiary border-divider my-2 w-full border-b py-4">
               <div className="mx-auto flex max-w-[400px] flex-col">
                 <div className="flex w-full items-center px-2">
                   <div
@@ -183,7 +183,7 @@ export default function PublishAgentDialog() {
                         ? 'bg-brand text-white'
                         : currentStep === 'configure'
                           ? 'bg-brand'
-                          : 'bg-official-gray-780 text-official-gray-400',
+                          : 'bg-bg-quaternary text-text-secondary',
                     )}
                   >
                     1
@@ -194,7 +194,7 @@ export default function PublishAgentDialog() {
                         'absolute top-1/2 right-0 left-0 h-4 -translate-y-1/2 rounded',
                         currentStep === 'configure'
                           ? 'bg-brand'
-                          : 'bg-official-gray-780',
+                          : 'bg-bg-quaternary',
                       )}
                     />
                   </div>
@@ -204,7 +204,7 @@ export default function PublishAgentDialog() {
                       'z-10 h-7 w-7',
                       currentStep === 'configure'
                         ? 'bg-brand text-white'
-                        : 'bg-official-gray-780 text-official-gray-400',
+                        : 'bg-bg-quaternary text-text-secondary',
                     )}
                   >
                     2
@@ -216,8 +216,8 @@ export default function PublishAgentDialog() {
                       className={cn(
                         'text-sm font-medium',
                         currentStep === 'select'
-                          ? 'text-white'
-                          : 'text-official-gray-400',
+                          ? 'text-text-default'
+                          : 'text-text-secondary',
                       )}
                     >
                       Choose Agent
@@ -228,8 +228,8 @@ export default function PublishAgentDialog() {
                       className={cn(
                         'text-sm font-medium',
                         currentStep === 'configure'
-                          ? 'text-white'
-                          : 'text-official-gray-400',
+                          ? 'text-text-default'
+                          : 'text-text-secondary',
                       )}
                     >
                       Configure & Publish
@@ -263,7 +263,7 @@ export default function PublishAgentDialog() {
                     <div
                       key={agent.agent_id}
                       className={cn(
-                        'border-official-gray-780 flex items-center gap-0 rounded-lg border px-4',
+                        'border-divider flex items-center gap-0 rounded-lg border px-4',
                         publishedKeys.has(agent.tools[0]) && 'hidden',
                       )}
                     >
@@ -283,7 +283,7 @@ export default function PublishAgentDialog() {
                               {agent.tools.length > 0 && (
                                 <Badge
                                   variant="inputAdornment"
-                                  className="text-official-gray-400 text-xs font-bold"
+                                  className="text-text-secondary text-xs font-bold"
                                 >
                                   {agent.tools.length
                                     ? `${agent.tools.length} tools`
@@ -291,7 +291,7 @@ export default function PublishAgentDialog() {
                                 </Badge>
                               )}
                             </p>
-                            <p className="text-official-gray-400 line-clamp-1 text-sm">
+                            <p className="text-text-secondary line-clamp-1 text-sm">
                               {agent.ui_description}
                             </p>
                           </div>
@@ -354,7 +354,7 @@ export default function PublishAgentDialog() {
                 <label className="mb-0 block text-sm font-medium text-white">
                   Pricing Model
                 </label>
-                <p className="text-official-gray-400 mt-1 mb-3 text-xs">
+                <p className="text-text-secondary mt-1 mb-3 text-xs">
                   Users will be charged this amount each time they use your
                   agent.
                 </p>
@@ -366,7 +366,7 @@ export default function PublishAgentDialog() {
                   className="px-1"
                 >
                   <div className="space-y-3">
-                    <div className="border-official-gray-780 flex items-center gap-0 rounded-lg border px-4">
+                    <div className="border-divider flex items-center gap-0 rounded-lg border px-4">
                       <RadioGroupItem
                         value="free"
                         id="pricing-free"
@@ -379,7 +379,7 @@ export default function PublishAgentDialog() {
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="font-medium">Free</p>
-                            <p className="text-official-gray-400 text-sm">
+                            <p className="text-text-secondary text-sm">
                               Free to use your agent
                             </p>
                           </div>
@@ -387,7 +387,7 @@ export default function PublishAgentDialog() {
                       </Label>
                     </div>
 
-                    <div className="border-official-gray-780 flex items-center gap-0 rounded-lg border px-4">
+                    <div className="border-divider flex items-center gap-0 rounded-lg border px-4">
                       <RadioGroupItem
                         value="paid"
                         id="pricing-paid"
@@ -400,7 +400,7 @@ export default function PublishAgentDialog() {
                         <div className="flex items-center justify-between">
                           <div>
                             <p className="font-medium">Paid (USDC)</p>
-                            <p className="text-official-gray-400 text-sm">
+                            <p className="text-text-secondary text-sm">
                               Monetize your agent
                             </p>
                           </div>
@@ -418,7 +418,7 @@ export default function PublishAgentDialog() {
                       exit={{ opacity: 0, height: 0, y: -10 }}
                       transition={{ duration: 0.3, ease: 'easeInOut' }}
                     >
-                      <Card className="bg-official-gray-950 -mt-3 border-none px-5 py-2">
+                      <Card className="bg-bg-dark -mt-3 border-none px-5 py-2">
                         <Label htmlFor="price" className="text-sm font-medium">
                           Price per use (USDC units)
                         </Label>
@@ -430,7 +430,7 @@ export default function PublishAgentDialog() {
                             onChange={(e) => setAmount(e.target.value)}
                           />
                         </div>
-                        <p className="text-official-gray-400 mt-1 text-xs">
+                        <p className="text-text-secondary mt-1 text-xs">
                           ={' '}
                           {amount
                             ? formatUSDCAmount(amount)
@@ -454,7 +454,7 @@ export default function PublishAgentDialog() {
                   resize="vertical"
                   className="!min-h-[100px] pt-3"
                 />
-                <p className="text-official-gray-400 mt-1 text-xs">
+                <p className="text-text-secondary mt-1 text-xs">
                   Help users understand what your agent does.
                 </p>
               </div>

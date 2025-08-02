@@ -55,7 +55,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({
       }
       const textContent = new TextDecoder('utf-8').decode(bytes);
       return (
-        <pre className="h-full overflow-auto whitespace-pre-wrap break-words bg-gray-600 p-4 font-mono text-sm">
+        <pre className="bg-bg-dark h-full overflow-auto p-4 font-mono text-sm break-words whitespace-pre-wrap">
           {textContent}
         </pre>
       );
@@ -88,7 +88,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({
       );
     default:
       return (
-        <div className="flex h-full flex-col items-center justify-center gap-6 text-gray-50">
+        <div className="text-text-default flex h-full flex-col items-center justify-center gap-6">
           <span>Preview not available for this file type</span>
           {onDownload && (
             <Button onClick={onDownload} size="xs" variant="outline">
@@ -180,7 +180,7 @@ export const VectorFileDetails = () => {
   return (
     <React.Fragment>
       <div className="flex size-full">
-        <div className="flex max-w-[80%] flex-1 basis-[80%] flex-col overflow-hidden rounded-l-xl bg-gray-600 p-10 text-white">
+        <div className="bg-bg-dark flex max-w-[80%] flex-1 basis-[80%] flex-col overflow-hidden rounded-l-xl p-10">
           <FilePreview
             extension={fileExtension}
             fileContentBase64={fileContent}
@@ -188,7 +188,7 @@ export const VectorFileDetails = () => {
             onDownload={handleDownloadFile}
           />
         </div>
-        <div className="bg-official-gray-950 border-official-gray-780 flex min-w-[350px] flex-1 shrink-0 flex-col rounded-r-xl border-l p-5 pl-4">
+        <div className="bg-bg-secondary border-divider flex min-w-[350px] flex-1 shrink-0 flex-col rounded-r-xl border-l p-5 pl-4">
           <DialogHeader>
             <DialogTitle className={'sr-only'}>File Information</DialogTitle>
           </DialogHeader>
@@ -199,13 +199,13 @@ export const VectorFileDetails = () => {
                 type={getFileExt(selectedFile?.name ?? '')}
               />
             </div>
-            <div className="break-words text-lg font-medium text-white">
+            <div className="text-text-default text-lg font-medium break-words">
               {selectedFile?.name}
-              <Badge className="text-official-gray-400 ml-2 bg-gray-400 text-xs uppercase">
+              <Badge className="text-text-secondary bg-bg-quaternary ml-2 text-xs uppercase">
                 {getFileExt(selectedFile?.name ?? '') ?? '-'}
               </Badge>
             </div>
-            <p className="text-official-gray-400">
+            <p className="text-text-secondary">
               <span className="text-sm">
                 {formatDateToUSLocaleString(
                   new Date(selectedFile?.created_time ?? ''),
@@ -223,10 +223,10 @@ export const VectorFileDetails = () => {
             )}
           </div>
           <div className="py-6">
-            <h2 className="mb-3 text-left text-base font-medium text-white">
+            <h2 className="text-text-default mb-3 text-left text-base font-medium">
               Information
             </h2>
-            <div className="divide-y divide-gray-300">
+            <div className="divide-divider divide-y">
               {[
                 { label: 'Created', value: selectedFile?.created_time },
                 {
@@ -242,10 +242,10 @@ export const VectorFileDetails = () => {
                   className="flex items-center justify-between py-2 text-xs font-medium"
                   key={item.label}
                 >
-                  <span className="text-official-gray-400 text-sm">
+                  <span className="text-text-secondary text-sm">
                     {item.label}
                   </span>
-                  <span className="text-sm text-white">
+                  <span className="text-text-default text-sm">
                     {formatDateToLocaleStringWithTime(
                       new Date(item.value ?? ''),
                     )}
@@ -255,7 +255,7 @@ export const VectorFileDetails = () => {
             </div>
           </div>
           <div className="py-6 text-left">
-            <h2 className="mb-3 text-base font-medium text-white">
+            <h2 className="text-text-default mb-3 text-base font-medium">
               Permissions
             </h2>
             <span className="text-sm">

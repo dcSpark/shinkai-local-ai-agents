@@ -21,7 +21,7 @@ const AppearancePage = () => {
       <div className="space-y-6">
         <div>
           <h2 className="text-lg font-semibold text-white">Chat font</h2>
-          <p className="text-official-gray-400 text-sm">
+          <p className="text-text-secondary text-sm">
             {t('settings.appearance.chatFontSize.description')}
           </p>
         </div>

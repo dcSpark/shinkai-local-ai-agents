@@ -159,23 +159,23 @@ export const CreateToolPage = () => {
                   paginatedMessages={conversationData}
                 />
               ) : (
-                <div className="bg-official-gray-950 flex w-full flex-col gap-4 p-4">
-                  <Skeleton className="bg-official-gray-900 h-6 w-32" />
-                  <Skeleton className="bg-official-gray-900 h-24 w-full" />
-                  <Skeleton className="bg-official-gray-900 h-24 w-full" />
-                  <Skeleton className="bg-official-gray-900 h-6 w-32" />
-                  <Skeleton className="bg-official-gray-900 h-24 w-full" />
-                  <Skeleton className="bg-official-gray-900 h-24 w-full" />
-                  <Skeleton className="bg-official-gray-900 h-6 w-32" />
-                  <Skeleton className="bg-official-gray-900 h-24 w-full" />
+                <div className="flex w-full flex-col gap-4 p-4">
+                  <Skeleton className="h-6 w-32" />
+                  <Skeleton className="h-24 w-full" />
+                  <Skeleton className="h-24 w-full" />
+                  <Skeleton className="h-6 w-32" />
+                  <Skeleton className="h-24 w-full" />
+                  <Skeleton className="h-24 w-full" />
+                  <Skeleton className="h-6 w-32" />
+                  <Skeleton className="h-24 w-full" />
                 </div>
               )}
               <div className="flex h-[154px] w-full flex-col items-center justify-between gap-2 rounded-lg p-4">
                 <div className="flex w-full items-center gap-2">
-                  <Skeleton className="bg-official-gray-900 h-8 w-24 rounded-lg" />
-                  <Skeleton className="bg-official-gray-900 h-8 w-16 rounded-lg" />
+                  <Skeleton className="h-8 w-24 rounded-lg" />
+                  <Skeleton className="h-8 w-16 rounded-lg" />
                 </div>
-                <Skeleton className="bg-official-gray-900 w-full flex-1 rounded" />
+                <Skeleton className="w-full flex-1 rounded" />
               </div>
             </div>
           }
@@ -192,7 +192,7 @@ export const CreateToolPage = () => {
             />
           }
           topElement={
-            <div className="flex h-[45px] items-center justify-between gap-2 border-b border-gray-400 px-4 pb-2.5">
+            <div className="border-divider flex h-[45px] items-center justify-between gap-2 border-b px-4 pb-2.5">
               <div className="flex items-center gap-2">
                 <Button
                   className="size-6 p-1"
@@ -200,15 +200,15 @@ export const CreateToolPage = () => {
                   size="auto"
                   variant="tertiary"
                 >
-                  <LogOut className="size-full text-white" />
+                  <LogOut className="text-text-default size-full" />
                 </Button>
 
-                <Skeleton className="bg-official-gray-900 h-[30px] w-[200px]" />
+                <Skeleton className="h-[30px] w-[200px]" />
               </div>
               <div className="flex items-center gap-2">
-                <Skeleton className="bg-official-gray-900 h-[30px] w-[100px]" />
-                <Skeleton className="bg-official-gray-900 h-[30px] w-[40px]" />
-                <Skeleton className="bg-official-gray-900 h-[30px] w-[100px]" />
+                <Skeleton className="h-[30px] w-[100px]" />
+                <Skeleton className="h-[30px] w-[40px]" />
+                <Skeleton className="h-[30px] w-[100px]" />
               </div>
             </div>
           }
@@ -329,9 +329,9 @@ function AIModelSelectorBase({
         return (
           <Card
             className={cn(
-              'border-official-gray-780 bg-official-gray-900 hover:bg-official-gray-850 flex cursor-pointer flex-col gap-2.5 border p-4 transition-all',
+              'border-divider bg-bg-tertiary hover:bg-bg-secondary flex cursor-pointer flex-col gap-2.5 border p-4 transition-all',
               isSelected
-                ? 'ring-official-gray-600 border-official-gray-780 bg-official-gray-850 ring-1'
+                ? 'ring-bg-secondary border-divider bg-bg-secondary ring-1'
                 : '',
             )}
             key={model.id}
@@ -348,7 +348,7 @@ function AIModelSelectorBase({
                 <div
                   className={cn(
                     'flex size-6 items-center justify-center rounded-md',
-                    isSelected ? 'text-white' : 'text-official-gray-400',
+                    isSelected ? 'text-text-default' : 'text-text-secondary',
                   )}
                 >
                   <ProviderIcon
@@ -356,17 +356,17 @@ function AIModelSelectorBase({
                     provider={model?.model?.split(':')[0] ?? ''}
                   />
                 </div>
-                <CardTitle className="text-official-gray-100 text-base font-medium">
+                <CardTitle className="text-text-default text-base font-medium">
                   {model?.name}
                 </CardTitle>
               </div>
             </CardHeader>
             <CardContent className="space-y-4 p-0">
-              <CardDescription className="text-official-gray-400 flex flex-col gap-2 text-sm">
+              <CardDescription className="text-text-secondary flex flex-col gap-2 text-sm">
                 {model.description}
               </CardDescription>
               {model.recommendation && (
-                <div className="text-official-gray-400 text-sm">
+                <div className="text-text-secondary text-sm">
                   <span className="font-semibold">Recommendation: </span>
                   {model.recommendation}
                 </div>
@@ -381,20 +381,16 @@ function AIModelSelectorBase({
                 >
                   <SelectTrigger
                     className={cn(
-                      'bg-official-gray-900 hover:bg-official-gray-800 flex !h-auto !w-auto max-w-[300px] items-center justify-between border py-2 pr-10 focus:ring-0 [&>svg]:top-[10px]',
-                      isSelected ? 'text-white' : 'text-official-gray-400',
+                      'bg-bg-quaternary hover:bg-bg-secondary flex !h-auto !w-auto max-w-[300px] items-center justify-between border py-2 pr-10 focus:ring-0 [&>svg]:top-[10px]',
+                      isSelected ? 'text-text-default' : 'text-text-secondary',
                     )}
                     onClick={(e) => e.stopPropagation()}
                   >
                     <SelectValue placeholder="Select model" />
                   </SelectTrigger>
-                  <SelectContent className="border-official-gray-780 bg-official-gray-900 text-official-gray-100">
+                  <SelectContent>
                     {customModelOptions.map((option) => (
-                      <SelectItem
-                        className="hover:bg-official-gray-800 focus:bg-official-gray-800 focus:text-official-gray-100"
-                        key={option.id}
-                        value={option.id}
-                      >
+                      <SelectItem key={option.id} value={option.id}>
                         {option.name ?? option.id}
                       </SelectItem>
                     ))}
@@ -461,10 +457,10 @@ function ToolsHome({
       <div className="flex w-full flex-col items-center justify-between gap-6 pt-2">
         <div className="flex flex-col gap-2">
           <div className="flex flex-col items-center">
-            <h1 className="font-clash text-center text-4xl font-medium text-white">
+            <h1 className="font-clash text-text-default text-center text-4xl font-medium">
               {t('tools.create.title')}
             </h1>
-            <p className="text-official-gray-400 text-center text-sm">
+            <p className="text-text-secondary text-center text-sm">
               {t('tools.create.description')}
             </p>
           </div>
@@ -473,10 +469,10 @@ function ToolsHome({
         <div className="flex w-full flex-col gap-4">
           <div className="flex flex-col gap-2.5">
             <div className="flex items-center gap-2">
-              <span className="bg-official-gray-900 border-official-gray-700 rounded-full border px-3 py-1 text-xs font-semibold text-white">
+              <span className="bg-bg-quaternary border-divider text-text-default rounded-full border px-3 py-1 text-xs font-semibold">
                 {t('tools.create.step1Label')}
               </span>
-              <span className="text-base font-medium text-white">
+              <span className="text-text-default text-base font-medium">
                 {t('tools.create.step1Text')}
               </span>
             </div>
@@ -492,10 +488,10 @@ function ToolsHome({
 
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2.5">
-              <span className="bg-official-gray-900 border-official-gray-700 rounded-full border px-3 py-1 text-xs font-semibold text-white">
+              <span className="bg-bg-quaternary border-divider text-text-default rounded-full border px-3 py-1 text-xs font-semibold">
                 {t('tools.create.step2Label')}
               </span>
-              <span className="text-base font-medium text-white">
+              <span className="text-text-default text-base font-medium">
                 {t('tools.create.step2Text')}
               </span>
             </div>
@@ -589,7 +585,7 @@ function ToolsHome({
                         <div className="-ml-2.5 w-full shrink-0 truncate rounded-full px-2.5 py-1 text-xs">
                           {t('tools.create.generationError')}
                         </div>
-                        <div className="text-gray-80 py-1">{error}</div>
+                        <div className="text-text-secondary py-1">{error}</div>
                       </div>
                     </div>
                   )}
@@ -629,11 +625,11 @@ const ChatBoxFooterBase = () => {
   return (
     <div
       className={cn(
-        'bg-official-gray-850 absolute inset-x-2 bottom-1 flex h-[40px] justify-between gap-2 rounded-b-xl px-2 pt-2.5 pb-1 shadow-white',
+        'bg-bg-tertiary shadow-text-default absolute inset-x-2 bottom-1 flex h-[40px] justify-between gap-2 rounded-b-xl px-2 pt-2.5 pb-1',
       )}
     >
-      <div className="text-official-gray-400 flex w-full items-center justify-between gap-2 px-2">
-        <span className="text-official-gray-400 text-xs font-light">
+      <div className="text-text-secondary flex w-full items-center justify-between gap-2 px-2">
+        <span className="text-text-secondary text-xs font-light">
           <Trans
             i18nKey="homepage.shiftEnterForNewLine"
             components={{
@@ -641,7 +637,7 @@ const ChatBoxFooterBase = () => {
             }}
           />
         </span>
-        <span className="text-official-gray-400 text-xs font-light">
+        <span className="text-text-secondary text-xs font-light">
           <Trans
             i18nKey="homepage.enterToSend"
             components={{
@@ -661,8 +657,8 @@ function SupportedProtocols() {
 
   return (
     <Dialog>
-      <DialogTrigger className="text-official-gray-300 hover:text-official-gray-200 flex items-center gap-1 text-sm transition-colors">
-        <div className="border-official-gray-300 border-b">
+      <DialogTrigger className="text-text-secondary hover:text-text-default flex items-center gap-1 text-sm transition-colors">
+        <div className="border-text-secondary border-b">
           {t('tools.create.wellSupportedProtocols')}
         </div>
         <ArrowRight className="ml-0.5 h-3 w-3" />
@@ -675,7 +671,7 @@ function SupportedProtocols() {
             size="icon"
             variant="tertiary"
           >
-            <XIcon className="text-gray-80 h-5 w-5" />
+            <XIcon className="text-text-secondary h-5 w-5" />
           </Button>
         </DialogClose>
         <DialogHeader>
@@ -687,14 +683,11 @@ function SupportedProtocols() {
         {isPending ? (
           <div className="flex flex-col gap-3">
             {[1, 2, 3, 4, 5, 6].map((i) => (
-              <Skeleton
-                className="bg-official-gray-900/30 h-[72px] animate-pulse rounded-lg"
-                key={i}
-              />
+              <Skeleton className="h-[72px] animate-pulse rounded-lg" key={i} />
             ))}
           </div>
         ) : toolProtocols?.supported && toolProtocols?.supported.length > 0 ? (
-          <div className="divide-official-gray-780 max-h-[500px] divide-y overflow-y-auto">
+          <div className="divide-divider max-h-[500px] divide-y overflow-y-auto">
             {toolProtocols?.supported.map((protocol) => (
               <Link
                 className="group flex items-center gap-3 px-3 py-2.5 transition-all duration-200"
@@ -703,7 +696,7 @@ function SupportedProtocols() {
                 target="_blank"
                 to={protocol.documentationURL}
               >
-                <div className="relative h-10 w-10 flex-shrink-0 overflow-hidden rounded-full bg-gray-900 p-1.5">
+                <div className="bg-bg-default relative h-10 w-10 flex-shrink-0 overflow-hidden rounded-full p-1.5">
                   <img
                     alt=""
                     className="size-full overflow-hidden rounded-full object-cover"
@@ -714,12 +707,12 @@ function SupportedProtocols() {
                 </div>
                 <div className="min-w-0 flex-grow">
                   <div className="flex items-center gap-1">
-                    <p className="truncate text-sm font-medium text-white">
+                    <p className="text-text-default truncate text-sm font-medium">
                       {protocol.name}
                     </p>
-                    <ExternalLink className="text-official-gray-500 h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
+                    <ExternalLink className="text-text-tertiary h-3 w-3 opacity-0 transition-opacity group-hover:opacity-100" />
                   </div>
-                  <div className="text-official-gray-400 mt-0.5 flex items-center text-xs">
+                  <div className="text-text-secondary mt-0.5 flex items-center text-xs">
                     <CheckCircle className="mr-1 h-3 w-3 text-green-400" />
                     <span className="truncate">Verified</span>
                   </div>
@@ -729,14 +722,14 @@ function SupportedProtocols() {
           </div>
         ) : (
           <div className="py-8 text-center">
-            <p className="text-official-gray-400 text-sm">
+            <p className="text-text-secondary text-sm">
               {t('tools.create.noProtocols')}
             </p>
           </div>
         )}
 
-        <div className="border-official-gray-780 flex flex-col items-start justify-between gap-3 border-t pt-4 sm:flex-row sm:items-center">
-          <p className="text-official-gray-400 text-xs">
+        <div className="border-divider flex flex-col items-start justify-between gap-3 border-t pt-4 sm:flex-row sm:items-center">
+          <p className="text-text-secondary text-xs">
             {t('tools.create.otherProtocols')}
           </p>
           <FeedbackModal

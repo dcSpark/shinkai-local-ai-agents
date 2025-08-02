@@ -192,7 +192,7 @@ const StepperIndicator = ({
   return (
     <div
       className={cn(
-        'bg-official-gray-700 text-muted-foreground data-[state=completed]:bg-brand data-[state=active]:text-primary-foreground data-[state=completed]:text-primary-foreground data-[state=active]:bg-official-gray-500 relative flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium',
+        'bg-bg-tertiary text-text-secondary data-[state=completed]:bg-brand data-[state=active]:text-text-default data-[state=completed]:text-primary-foreground data-[state=active]:bg-bg-secondary relative flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium',
         className,
       )}
       data-state={state}
@@ -202,7 +202,7 @@ const StepperIndicator = ({
         children
       ) : (
         <>
-          <span className="transition-all group-data-[loading=true]/step:scale-0 group-data-[state=completed]/step:scale-0 group-data-[loading=true]/step:opacity-0 group-data-[state=completed]/step:opacity-0 group-data-[loading=true]/step:transition-none">
+          <span className="transition-all group-data-[loading=true]/step:scale-0 group-data-[loading=true]/step:opacity-0 group-data-[loading=true]/step:transition-none group-data-[state=completed]/step:scale-0 group-data-[state=completed]/step:opacity-0">
             {step}
           </span>
           <CheckIcon
@@ -233,7 +233,6 @@ const StepperTitle = ({
   className,
   ...props
 }: React.HTMLAttributes<HTMLHeadingElement>) => (
-   
   <h3 className={cn('text-sm font-medium', className)} {...props} />
 );
 StepperTitle.displayName = 'StepperTitle';
@@ -242,7 +241,7 @@ const StepperDescription = ({
   className,
   ...props
 }: React.HTMLAttributes<HTMLParagraphElement>) => (
-  <p className={cn('text-muted-foreground text-sm', className)} {...props} />
+  <p className={cn('text-text-secondary text-sm', className)} {...props} />
 );
 StepperDescription.displayName = 'StepperDescription';
 
@@ -253,7 +252,7 @@ const StepperSeparator = ({
   return (
     <div
       className={cn(
-        'bg-muted group-data-[state=completed]/step:bg-primary m-0.5 group-data-[orientation=horizontal]/stepper:h-0.5 group-data-[orientation=vertical]/stepper:h-12 group-data-[orientation=horizontal]/stepper:w-full group-data-[orientation=vertical]/stepper:w-0.5 group-data-[orientation=horizontal]/stepper:flex-1',
+        'bg-muted group-data-[state=completed]/step:bg-primary m-0.5 group-data-[orientation=horizontal]/stepper:h-0.5 group-data-[orientation=horizontal]/stepper:w-full group-data-[orientation=horizontal]/stepper:flex-1 group-data-[orientation=vertical]/stepper:h-12 group-data-[orientation=vertical]/stepper:w-0.5',
         className,
       )}
       {...props}

@@ -82,11 +82,11 @@ export const FeedbackModal = ({
       <DialogContent className="sm:max-w-xl">
         <DialogClose asChild>
           <Button
-            className="absolute right-4 top-4"
+            className="absolute top-4 right-4"
             size="icon"
             variant="tertiary"
           >
-            <XIcon className="text-gray-80 h-5 w-5" />
+            <XIcon className="text-text-secondary h-5 w-5" />
           </Button>
         </DialogClose>
         <DialogHeader>

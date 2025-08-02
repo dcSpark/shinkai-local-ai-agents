@@ -35,16 +35,13 @@ const LoadingSkeleton = memo(() => (
   >
     {[...Array(20)].map((_, lineIndex) => (
       <div className="mb-2 flex gap-3" key={lineIndex}>
-        <Skeleton className="bg-official-gray-900 h-4 w-12 rounded" />
+        <Skeleton className="bg-bg-default h-4 w-12 rounded" />
         <div className="flex-1">
           <div className="flex flex-wrap gap-2">
             {[...Array(Math.floor(Math.random() * 4) + 1)].map(
               (_, blockIndex) => (
                 <Skeleton
-                  className={cn(
-                    getRandomWidth(),
-                    'bg-official-gray-900 h-4 rounded',
-                  )}
+                  className={cn(getRandomWidth(), 'bg-bg-default h-4 rounded')}
                   key={blockIndex}
                 />
               ),
@@ -128,7 +125,7 @@ const CodeGenerationStep = memo(
   }) => (
     <motion.div
       animate={{ y: 0, opacity: 1 }}
-      className="border-official-gray-950 bg-official-gray-1000 flex h-full w-full flex-1 flex-col gap-3 overflow-hidden rounded-lg p-3"
+      className="border-divider bg-bg-dark flex h-full w-full flex-1 flex-col gap-3 overflow-hidden rounded-lg p-3"
       exit={{ y: -100, opacity: 0 }}
       initial={{ y: 100, opacity: 0, rotateX: -20 }}
       key={toolCodeStatus}
@@ -182,7 +179,7 @@ const MetadataGenerationStep = memo(
   }) => (
     <motion.div
       animate={{ y: 0, opacity: 1, rotateX: 0 }}
-      className="border-official-gray-950 bg-official-gray-1000 flex h-full w-full flex-1 flex-col gap-3 overflow-hidden rounded-lg p-3"
+      className="border-divider bg-bg-dark flex h-full w-full flex-1 flex-col gap-3 overflow-hidden rounded-lg p-3"
       exit={{ y: -100, opacity: 0, rotateX: 20 }}
       initial={{ y: 100, opacity: 0, rotateX: -20 }}
       key={toolMetadataStatus}
@@ -251,7 +248,7 @@ MetadataGenerationStep.displayName = 'MetadataGenerationStep';
 const SavingToolStep = memo(({ isSavingTool }: { isSavingTool: boolean }) => (
   <motion.div
     animate={{ y: 0, opacity: 1, rotateX: 0 }}
-    className="border-official-gray-950 bg-official-gray-1000 flex h-full w-full flex-1 flex-col gap-3 overflow-hidden rounded-lg p-3"
+    className="border-divider bg-bg-dark flex h-full w-full flex-1 flex-col gap-3 overflow-hidden rounded-lg p-3"
     exit={{ y: -100, opacity: 0, rotateX: 20 }}
     initial={{ y: 100, opacity: 0, rotateX: -20 }}
     key={isSavingTool ? 'saving-tool' : 'tool-saved'}

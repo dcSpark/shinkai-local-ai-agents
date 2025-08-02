@@ -41,7 +41,8 @@ function ToolsSwitchActionBarBase({
             className={cn(
               actionButtonClassnames,
               'w-auto gap-2',
-              checked && 'bg-cyan-950 hover:bg-cyan-950',
+              checked &&
+                'bg-gray-900 text-cyan-400 hover:bg-gray-900 hover:text-cyan-500',
             )}
             disabled={disabled}
             onClick={onClick}

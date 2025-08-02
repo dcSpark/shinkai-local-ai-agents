@@ -133,9 +133,9 @@ function MetadataPanelBase({
   return (
     <div
       className={cn(
-        'flex h-full flex-col pb-4 pl-4 pr-3',
+        'bg-bg-dark flex h-full flex-col pr-3 pb-4 pl-4',
         validateMetadataEditorValue !== null &&
-          'ring-1 ring-inset ring-red-600 transition-shadow',
+          'ring-1 ring-red-600 transition-shadow ring-inset',
       )}
     >
       {isMetadataGenerationSuccess && (
@@ -149,14 +149,14 @@ function MetadataPanelBase({
               </TooltipTrigger>
               <TooltipPortal>
                 <TooltipContent
-                  className="bg-official-gray-1000 flex max-w-[300px] flex-col gap-2.5 text-xs text-white"
+                  className="text-text-default flex max-w-[300px] flex-col gap-2.5 text-xs"
                   side="bottom"
                 >
                   <p className="font-medium">Invalid metadata format</p>
-                  <span className="text-official-gray-500">
+                  <span className="text-text-tertiary">
                     {validateMetadataEditorValue}
                   </span>
-                  <p className="text-official-gray-500 text-xs">
+                  <p className="text-text-tertiary text-xs">
                     This value will not be saved.
                   </p>
                 </TooltipContent>
@@ -170,14 +170,14 @@ function MetadataPanelBase({
                 onClick={regenerateToolMetadata}
                 size="xs"
                 type="button"
-                variant="ghost"
+                variant="tertiary"
               >
                 <ReloadIcon className="size-full" />
               </Button>
             </TooltipTrigger>
             <TooltipPortal>
               <TooltipContent
-                className="bg-official-gray-1000 flex max-w-[300px] flex-col gap-2.5 text-xs text-white"
+                className="text-text-default flex max-w-[300px] flex-col gap-2.5 text-xs"
                 side="bottom"
               >
                 <p>Regenerate metadata</p>
@@ -187,7 +187,7 @@ function MetadataPanelBase({
         </div>
       )}
       {isMetadataGenerationPending && (
-        <div className="text-gray-80 flex flex-col gap-2 py-4 text-xs">
+        <div className="text-text-secondary flex flex-col gap-2 py-4 text-xs">
           <div className="space-y-3 font-mono text-sm">
             <div className="ml-4 flex items-center gap-2">
               <Skeleton className="h-4 w-24 bg-zinc-800" />
@@ -254,7 +254,7 @@ function MetadataPanelBase({
         )}
       {isMetadataGenerationIdle && (
         <div>
-          <p className="text-gray-80 py-4 pt-6 text-center text-xs">
+          <p className="text-text-secondary py-4 pt-6 text-center text-xs">
             No metadata generated yet.
           </p>
         </div>

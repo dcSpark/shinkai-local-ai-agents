@@ -31,7 +31,7 @@ export const FileItem = ({
   const hasPreviewImage = file?.type?.includes('image/');
 
   return (
-    <div className="bg-gray-350 relative flex items-center gap-2 rounded-xl px-3 py-1.5 pr-2">
+    <div className="bg-bg-quaternary relative flex items-center gap-2 rounded-xl px-3 py-1.5 pr-2">
       <span className="flex w-[30px] items-center justify-center">
         {hasPreviewImage ? (
           <FileImagePreview
@@ -39,9 +39,12 @@ export const FileItem = ({
             file={file}
           />
         ) : fileIconMap[getFileExt(file.name)] ? (
-          <FileTypeIcon className="text-gray-80" type={getFileExt(file.name)} />
+          <FileTypeIcon
+            className="text-text-secondary"
+            type={getFileExt(file.name)}
+          />
         ) : (
-          <PaperClipIcon className="text-gray-80 h-4 w-4" />
+          <PaperClipIcon className="text-text-secondary h-4 w-4" />
         )}
       </span>
       <div className="line-clamp-1 flex flex-1 flex-col gap-1">
@@ -50,12 +53,12 @@ export const FileItem = ({
           onClick={() => openFile(file)}
           type="button"
         >
-          <span className="line-clamp-1 text-sm text-gray-50">
+          <span className="text-text-default line-clamp-1 text-sm">
             {decodeURIComponent(file.name)}
           </span>
         </button>
         {file.size && (
-          <span className="shrink-0 text-xs text-gray-100">
+          <span className="text-text-tertiary shrink-0 text-xs">
             {size(file.size)}
           </span>
         )}
@@ -64,12 +67,12 @@ export const FileItem = ({
         <div className="shrink-0">
           {actions?.map((action) => (
             <Button
-              className="h-8 w-8 bg-transparent"
+              className="h-8 w-8 border-0 bg-transparent"
               key={action.label}
               onClick={() => action.onClick(file)}
               size="icon"
               type="button"
-              variant="ghost"
+              variant="outline"
             >
               <span className="sr-only">{action.label}</span>
               {action.icon}
@@ -116,16 +119,16 @@ export const FileUploader = ({
       <div
         {...getRootFileProps({
           className:
-            'dropzone py-4 bg-gray-400 group relative mt-3 flex cursor-pointer items-center justify-center overflow-hidden rounded-lg border border-dashed border-gray-200 transition-colors hover:border-gray-100',
+            'dropzone py-4 bg-bg-secondary group relative mt-3 flex cursor-pointer items-center justify-center overflow-hidden rounded-lg border border-dashed border-divider transition-colors hover:border-border-input-focus',
         })}
       >
         <div className="flex flex-col items-center justify-center space-y-1 px-2">
-          <div className="bg-gray-350 rounded-full p-2 shadow-xs">
+          <div className="bg-bg-tertiary rounded-full p-2 shadow-xs">
             <Upload className="h-4 w-4" />
           </div>
           <p className="text-sm text-white">{t('common.clickToUpload')}</p>
           {descriptionText && (
-            <p className="text-gray-80 line-clamp-1 text-xs">
+            <p className="text-text-tertiary line-clamp-1 text-xs">
               {descriptionText}
             </p>
           )}
@@ -151,7 +154,7 @@ export const FileUploader = ({
                 actions={[
                   {
                     label: 'Delete',
-                    icon: <Trash className="text-gray-80 h-4 w-4" />,
+                    icon: <Trash className="text-text-tertiary h-4 w-4" />,
                     onClick: (file) => {
                       const newFiles = [...value];
                       newFiles.splice(newFiles.indexOf(file), 1);

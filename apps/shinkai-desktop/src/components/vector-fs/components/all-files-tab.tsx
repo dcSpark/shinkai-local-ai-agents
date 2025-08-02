@@ -22,6 +22,7 @@ import {
   ScrollArea,
   SearchInput,
   Separator,
+  Skeleton,
   Tooltip,
   TooltipContent,
   TooltipPortal,
@@ -241,11 +242,7 @@ const AllFiles = () => {
 
         <div className="flex gap-3">
           <VectorFsToggleSortName />
-          <Separator
-            className="bg-official-gray-780"
-            decorative
-            orientation="vertical"
-          />
+          <Separator className="bg-divider" decorative orientation="vertical" />
           <VectorFsToggleLayout />
         </div>
       </div>
@@ -256,7 +253,9 @@ const AllFiles = () => {
               <BreadcrumbItem>
                 <BreadcrumbLink asChild>
                   <Button
-                    className={cn(currentGlobalPath === '/' && 'text-white')}
+                    className={cn(
+                      currentGlobalPath === '/' && 'text-text-default',
+                    )}
                     onClick={() => {
                       setCurrentGlobalPath('/');
                     }}
@@ -306,7 +305,7 @@ const AllFiles = () => {
             layout === VectorFSLayout.Grid &&
               'grid-cols-2 gap-3 md:grid-cols-3',
             layout === VectorFSLayout.List &&
-              'grid-cols-1 divide-y divide-gray-400',
+              'divide-divider grid-cols-1 divide-y',
             searchQuery && 'pt-4',
           )}
         >
@@ -314,8 +313,8 @@ const AllFiles = () => {
             isSearchVRItemsLoading ||
             (searchQuery && searchQuery !== debouncedSearchQuery)) &&
             Array.from({ length: 4 }).map((_, idx) => (
-              <div
-                className="bg-official-gray-900 mb-2 flex h-[69px] items-center justify-between gap-2 rounded-lg py-3"
+              <Skeleton
+                className="mb-2 flex h-[69px] items-center justify-between gap-2 rounded-lg py-3"
                 key={idx}
               />
             ))}
@@ -359,7 +358,7 @@ const AllFiles = () => {
             isVRFilesSuccess &&
             folderList.length === 0 &&
             currentGlobalPath === '/' && (
-              <div className="text-official-gray-400 mt-4 flex flex-col items-center justify-center gap-4 text-center text-base">
+              <div className="text-text-secondary mt-4 flex flex-col items-center justify-center gap-4 text-center text-base">
                 <FileEmptyStateIcon className="h-20 w-20" />
                 <div>
                   <h2 className="font-medium text-white">
@@ -375,14 +374,14 @@ const AllFiles = () => {
             isVRFilesSuccess &&
             itemList.length === 0 &&
             folderList.length === 0 && (
-              <div className="text-official-gray-400 flex h-20 items-center justify-center">
+              <div className="text-text-secondary flex h-20 items-center justify-center">
                 {t('vectorFs.emptyState.noFiles')}
               </div>
             )}
           {searchQuery &&
             isSearchVRItemsSuccess &&
             searchVRItems?.length === 0 && (
-              <div className="text-official-gray-400 flex h-20 items-center justify-center">
+              <div className="text-text-secondary flex h-20 items-center justify-center">
                 {t('vectorFs.emptyState.noFiles')}
               </div>
             )}
@@ -392,7 +391,7 @@ const AllFiles = () => {
             searchVRItems?.map((item) => {
               return (
                 <button
-                  className="relative flex items-center gap-2 text-ellipsis px-3 py-1.5 hover:bg-gradient-to-r hover:from-gray-500 hover:to-gray-400"
+                  className="hover:to-bg-quaternary relative flex items-center gap-2 px-3 py-1.5 text-ellipsis hover:bg-gradient-to-r hover:from-transparent"
                   key={item.path}
                   onClick={() => {
                     const directoryMainPath = item.path.split('/').slice(0, -1);
@@ -401,7 +400,9 @@ const AllFiles = () => {
                   }}
                 >
                   <FileTypeIcon />
-                  <span className="text-gray-80 text-sm">{item?.name}</span>
+                  <span className="text-text-default text-sm">
+                    {item?.name}
+                  </span>
                 </button>
               );
             })}
@@ -426,7 +427,7 @@ const AllFiles = () => {
           <TooltipTrigger asChild>
             <MotionButton
               className={cn(
-                'fixed bottom-8 right-8 h-[60px] w-[60px]',
+                'fixed right-8 bottom-8 h-[60px] w-[60px]',
                 isVRSelectionActive && 'w-[210px]',
               )}
               layout
@@ -446,7 +447,7 @@ const AllFiles = () => {
               }}
               size={isVRSelectionActive ? 'lg' : 'icon'}
               transition={{ duration: 0.2 }}
-              variant="gradient"
+              variant="outline"
             >
               {!isVRSelectionActive && <CreateAIIcon />}
               <motion.div
@@ -458,7 +459,7 @@ const AllFiles = () => {
               >
                 <span>{t('chat.create')}</span>
                 {isVRSelectionActive && (
-                  <span className="text-sm text-neutral-200">
+                  <span className="text-text-secondary text-sm">
                     {t('vectorFs.filesSelected', {
                       count: selectedFiles.length + selectedFolders.length,
                     })}
@@ -477,7 +478,7 @@ const AllFiles = () => {
       {isVRSelectionActive && (
         <MotionButton
           animate={{ opacity: 1 }}
-          className="border-official-gray-780 bg-official-gray-900 text-official-gray-400 fixed bottom-12 right-[230px] h-[24px] w-[24px] border p-1 hover:text-white"
+          className="border-border bg-bg-quaternary text-text-secondary fixed right-[230px] bottom-12 h-[24px] w-[24px] border p-1 hover:text-white"
           initial={{ opacity: 0 }}
           onClick={() => setVRSelectionActive(false)}
           size="icon"

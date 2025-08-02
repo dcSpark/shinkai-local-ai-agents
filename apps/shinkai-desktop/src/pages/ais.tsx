@@ -92,7 +92,7 @@ const AIsPage = () => {
               </Button>
             </div>
           </div>
-          <p className="text-official-gray-400 text-sm">
+          <p className="text-text-secondary text-sm">
             {t('aisPage.description')}
           </p>
         </div>
@@ -107,7 +107,7 @@ const AIsPage = () => {
                 <p className="text-2xl font-semibold">
                   {t('llmProviders.notFound.title')}
                 </p>
-                <p className="text-center text-sm font-medium text-gray-100">
+                <p className="text-text-secondary text-center text-sm font-medium">
                   {t('llmProviders.notFound.description')}
                 </p>
               </div>
@@ -162,7 +162,7 @@ function LLMProviderCard({
 
   return (
     <React.Fragment>
-      <div className="border-official-gray-850 bg-official-gray-900 flex items-center justify-between gap-1 rounded-lg border p-3.5">
+      <div className="border-divider bg-bg-secondary flex items-center justify-between gap-1 rounded-lg border p-3.5">
         <div className="flex items-center gap-3">
           <div className="flex size-6 items-center justify-center rounded-lg">
             <ProviderIcon
@@ -174,11 +174,11 @@ function LLMProviderCard({
             <span className="w-full truncate text-start text-sm">
               {name || llmProviderId}
             </span>
-            <Badge className="text-official-gray-300 bg-official-gray-850 truncate text-start text-xs font-normal shadow-none">
+            <Badge className="bg-bg-quaternary truncate text-start text-xs font-normal shadow-none">
               {model}
             </Badge>
             {description && (
-              <span className="text-official-gray-400 truncate text-start text-xs">
+              <span className="text-text-secondary truncate text-start text-xs">
                 {description}
               </span>
             )}
@@ -216,10 +216,10 @@ function LLMProviderCard({
               <div
                 className={cn(
                   buttonVariants({
-                    variant: 'tertiary',
+                    variant: 'outline',
                     size: 'icon',
                   }),
-                  'border-0 hover:bg-gray-500/40',
+                  'hover:bg-bg-quaternary border-0',
                 )}
                 onClick={(event) => {
                   event.stopPropagation();
@@ -228,13 +228,10 @@ function LLMProviderCard({
                 tabIndex={0}
               >
                 <span className="sr-only">{t('common.moreOptions')}</span>
-                <DotsVerticalIcon className="text-gray-100" />
+                <DotsVerticalIcon className="text-text-secondary" />
               </div>
             </DropdownMenuTrigger>
-            <DropdownMenuContent
-              align="end"
-              className="w-[160px] border bg-gray-500 px-2.5 py-2"
-            >
+            <DropdownMenuContent align="end" className="w-[160px] px-2.5 py-2">
               {[
                 {
                   name: t('common.edit'),
@@ -252,9 +249,7 @@ function LLMProviderCard({
                 },
               ].map((option) => (
                 <React.Fragment key={option.name}>
-                  {option.name === 'Delete' && (
-                    <DropdownMenuSeparator className="bg-gray-300" />
-                  )}
+                  {option.name === 'Delete' && <DropdownMenuSeparator />}
                   <DropdownMenuItem
                     key={option.name}
                     onClick={(event) => {
@@ -536,7 +531,7 @@ const RemoveLLMProviderModal = ({
                 className="min-w-[100px] flex-1"
                 size="sm"
                 type="button"
-                variant="ghost"
+                variant="outline"
               >
                 {t('common.cancel')}
               </Button>

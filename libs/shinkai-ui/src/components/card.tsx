@@ -58,7 +58,7 @@ const CardDescription = ({
   ...props
 }: CardDescriptionProps) => (
   <p
-    className={cn('text-muted-foreground text-sm', className)}
+    className={cn('text-text-secondary text-sm', className)}
     ref={ref}
     {...props}
   />

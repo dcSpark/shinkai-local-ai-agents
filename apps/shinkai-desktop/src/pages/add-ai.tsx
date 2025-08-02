@@ -136,7 +136,10 @@ const AddAIPage = () => {
     defaultValues: {
       ...addAiModelFormDefault,
       model: preSelectedAiProvider || undefined,
-      modelType: preSelectedAiProvider && modelsConfig[preSelectedAiProvider]?.modelTypes?.[0]?.value || '',
+      modelType:
+        (preSelectedAiProvider &&
+          modelsConfig[preSelectedAiProvider]?.modelTypes?.[0]?.value) ||
+        '',
     },
   });
 
@@ -277,7 +280,7 @@ const AddAIPage = () => {
       className="max-w-lg"
       rightElement={
         <a
-          className={cn(buttonVariants({ variant: 'ghost', size: 'xs' }))}
+          className={cn(buttonVariants({ variant: 'outline', size: 'xs' }))}
           href={getGuideUrl(currentModel)}
           rel="noreferrer"
           target="_blank"
@@ -308,7 +311,7 @@ const AddAIPage = () => {
                   </FormControl>
                   <div
                     className={cn(
-                      'text-gray-80 space-y-1 text-sm leading-none',
+                      'text-text-secondary space-y-1 text-sm leading-none',
                       field.value && 'text-white',
                     )}
                   >

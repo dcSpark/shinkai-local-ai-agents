@@ -137,7 +137,7 @@ const SecretRecoveryPhraseDisplay = ({
       )}
 
       <div className="space-y-2">
-        <div className="text-official-gray-400 mb-2 text-xs">
+        <div className="text-text-secondary mb-2 text-xs">
           Hover over each word to reveal
         </div>
         <div className="mb-4 grid grid-cols-2 gap-x-8 gap-y-1 rounded-lg border bg-white/5 p-4">
@@ -249,7 +249,7 @@ const CryptoWalletPage = () => {
                 <CardContent className="space-y-4 pt-5">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <div className="text-official-gray-400 text-sm font-medium">
+                      <div className="text-text-secondary text-sm font-medium">
                         Wallet Address
                       </div>
                       {walletInfo?.payment_wallet?.data?.mnemonic && (
@@ -304,7 +304,7 @@ const CryptoWalletPage = () => {
                   </div>
                   <Separator />
                   <div className="space-y-2">
-                    <div className="text-official-gray-400 text-sm font-medium">
+                    <div className="text-text-secondary text-sm font-medium">
                       Network
                     </div>
                     <p className="text-base text-white">
@@ -339,9 +339,7 @@ const CryptoWalletPage = () => {
                         </div>
                         <div>
                           <div className="font-medium">Ethereum</div>
-                          <div className="text-official-gray-400 text-sm">
-                            ETH
-                          </div>
+                          <div className="text-text-secondary text-sm">ETH</div>
                         </div>
                       </div>
                       <div className="text-right">
@@ -362,7 +360,7 @@ const CryptoWalletPage = () => {
                         </div>
                         <div>
                           <div className="font-medium">USD Coin</div>
-                          <div className="text-official-gray-400 text-sm">
+                          <div className="text-text-secondary text-sm">
                             USDC
                           </div>
                         </div>
@@ -393,7 +391,7 @@ const CryptoWalletPage = () => {
                       </div>
                       <div className="flex-1">
                         <div className="text-sm font-medium">Received USDC</div>
-                        <div className="text-official-gray-400 text-xs">
+                        <div className="text-text-secondary text-xs">
                           2 hours ago
                         </div>
                       </div>
@@ -408,7 +406,7 @@ const CryptoWalletPage = () => {
                       </div>
                       <div className="flex-1">
                         <div className="text-sm font-medium">Received ETH</div>
-                        <div className="text-official-gray-400 text-xs">
+                        <div className="text-text-secondary text-xs">
                           1 day ago
                         </div>
                       </div>
@@ -430,7 +428,7 @@ const CryptoWalletPage = () => {
               <h2 className="text-lg font-medium">
                 {t('settings.cryptoWallet.emptyState.title')}
               </h2>
-              <p className="text-official-gray-400 text-sm">
+              <p className="text-text-secondary text-sm">
                 {t('settings.cryptoWallet.emptyState.description')}
               </p>
             </div>
@@ -534,7 +532,7 @@ const CreateWalletDialog = ({ buttonLabel }: { buttonLabel: string }) => {
             </DialogHeader>
             <div className="mt-8 space-y-3">
               <Button
-                className="flex h-[auto] w-full items-center justify-start gap-4 rounded-md bg-gray-500/20 px-5 py-2.5 text-left hover:bg-gray-200"
+                className="flex h-[auto] w-full items-center justify-start gap-4 rounded-md px-5 py-2.5 text-left"
                 onClick={() =>
                   setWalletCreationView(WalletCreateConnectView.RegularCreate)
                 }
@@ -543,13 +541,13 @@ const CreateWalletDialog = ({ buttonLabel }: { buttonLabel: string }) => {
                 <PlusIcon className="size-4 shrink-0" />
                 <div>
                   <div className="text-sm font-semibold">Create New</div>
-                  <div className="text-official-gray-400 text-sm">
+                  <div className="text-text-secondary text-sm">
                     Create a new wallet to store your assets.
                   </div>
                 </div>
               </Button>
               <Button
-                className="flex h-[auto] w-full items-center justify-start gap-4 rounded-md bg-gray-500/20 px-5 py-2.5 text-left hover:bg-gray-200"
+                className="flex h-[auto] w-full items-center justify-start gap-4 rounded-md px-5 py-2.5 text-left"
                 onClick={() =>
                   setWalletCreationView(WalletCreateConnectView.RegularMnemonic)
                 }
@@ -560,13 +558,13 @@ const CreateWalletDialog = ({ buttonLabel }: { buttonLabel: string }) => {
                   <div className="text-sm font-semibold">
                     Import Secret Recovery Phrase
                   </div>
-                  <div className="text-official-gray-400 text-sm">
+                  <div className="text-text-secondary text-sm">
                     Restore to regain access to your cryptocurrency assets.
                   </div>
                 </div>
               </Button>
               <Button
-                className="flex h-[auto] w-full items-center justify-start gap-4 rounded-md bg-gray-500/20 px-5 py-2.5 text-left hover:bg-gray-200"
+                className="flex h-[auto] w-full items-center justify-start gap-4 rounded-md px-5 py-2.5 text-left"
                 onClick={() =>
                   setWalletCreationView(
                     WalletCreateConnectView.RegularPrivateKey,
@@ -580,7 +578,7 @@ const CreateWalletDialog = ({ buttonLabel }: { buttonLabel: string }) => {
                     {' '}
                     Import Private Key
                   </div>
-                  <div className="text-official-gray-400 text-sm">
+                  <div className="text-text-secondary text-sm">
                     Restore to regain access to your cryptocurrency assets.
                   </div>
                 </div>
@@ -645,7 +643,7 @@ const CreateWalletDialog = ({ buttonLabel }: { buttonLabel: string }) => {
               size="icon"
               variant="tertiary"
             >
-              <XIcon className="text-official-gray-400 h-5 w-5" />
+              <XIcon className="text-text-secondary h-5 w-5" />
             </Button>
           </DialogClose>
           <div className="px-2 pt-2.5 antialiased" ref={elementRef}>
@@ -768,7 +766,7 @@ const MpcRestoreWallet = () => {
                 </FormControl>
                 <div
                   className={cn(
-                    'text-official-gray-400 space-y-1 text-sm leading-none',
+                    'text-text-secondary space-y-1 text-sm leading-none',
                     field.value && 'text-white',
                   )}
                 >
@@ -866,11 +864,11 @@ const RegularRestoreWalletMnemonic = () => {
                   </FormControl>
                   <Button
                     aria-label={showMnemonic ? 'Hide phrase' : 'Show phrase'}
-                    className="text-gray-80 hover:bg-gray-350 absolute top-2 right-2"
+                    className="absolute top-2 right-2"
                     onClick={() => setShowMnemonic(!showMnemonic)}
                     size="icon"
                     type="button"
-                    variant="ghost"
+                    variant="tertiary"
                   >
                     {showMnemonic ? (
                       <EyeOffIcon aria-hidden="true" className="h-4 w-4" />
@@ -987,7 +985,7 @@ const RegularRestoreWalletPrivateKey = () => {
           {/*  name="role"*/}
           {/*  render={({ field }) => (*/}
           {/*    <div className="space-y-1.5">*/}
-          {/*      <Label className="text-official-gray-400 pb-2 pl-2 text-xs">*/}
+          {/*      <Label className="text-text-secondary pb-2 pl-2 text-xs">*/}
           {/*        Select account type*/}
           {/*      </Label>*/}
           {/*      <FormItem>*/}

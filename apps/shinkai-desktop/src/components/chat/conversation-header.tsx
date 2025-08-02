@@ -142,12 +142,12 @@ const ConversationHeaderWithInboxId = () => {
   });
 
   return (
-    <div className="border-official-gray-780 flex h-[58px] items-center justify-between border-b px-4 py-2">
+    <div className="border-divider flex h-[58px] items-center justify-between border-b px-4 py-2">
       <div className="flex flex-1 items-center gap-2">
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
-              className="text-gray-80 flex items-center gap-2"
+              className="text-text-secondary flex items-center gap-2"
               onClick={() => setChatSidebarCollapsed(!isChatSidebarCollapsed)}
               size="icon"
               variant="tertiary"
@@ -165,7 +165,7 @@ const ConversationHeaderWithInboxId = () => {
           <TooltipPortal>
             <TooltipContent className="flex flex-col items-center gap-1">
               <p> Toggle Chat Sidebar</p>
-              <div className="text-gray-80 flex items-center justify-center gap-2 text-center">
+              <div className="text-text-secondary flex items-center justify-center gap-2 text-center">
                 <span>⌘</span>
                 <span>B</span>
               </div>
@@ -188,14 +188,14 @@ const ConversationHeaderWithInboxId = () => {
                     </Badge>
                   )}
               </span>
-              <span className="text-official-gray-400 flex items-center text-xs">
+              <span className="text-text-secondary flex items-center text-xs">
                 <span className="max-w-[300px] truncate">
                   {selectedAgent?.ui_description || 'No description'}
                 </span>
                 <span className="px-2">⋅</span>
                 <Sheet>
                   <SheetTrigger asChild>
-                    <span className="text-official-gray-400 text-xs hover:cursor-pointer hover:text-white hover:underline">
+                    <span className="text-text-secondary text-xs hover:cursor-pointer hover:text-white hover:underline">
                       {t('common.viewDetails')}
                     </span>
                   </SheetTrigger>
@@ -220,7 +220,7 @@ const ConversationHeaderWithInboxId = () => {
 
                     <ScrollArea className="h-[calc(100vh-130px)] pr-3">
                       <div className="py-6">
-                        <h3 className="text-official-gray-400 mb-2 flex items-center gap-2 text-sm font-medium">
+                        <h3 className="text-text-secondary mb-2 flex items-center gap-2 text-sm font-medium">
                           {t('common.about')}
                         </h3>
                         <p className="text-sm leading-relaxed">
@@ -228,7 +228,7 @@ const ConversationHeaderWithInboxId = () => {
                         </p>
 
                         <div className="mt-6">
-                          <h3 className="text-official-gray-400 mb-2 flex items-center gap-2 text-sm font-medium">
+                          <h3 className="text-text-secondary mb-2 flex items-center gap-2 text-sm font-medium">
                             AI Model
                           </h3>
                           <div className="flex items-center gap-2">
@@ -259,14 +259,14 @@ const ConversationHeaderWithInboxId = () => {
                             value="instructions"
                           >
                             <AccordionTrigger className="py-3 hover:no-underline">
-                              <div className="text-official-gray-200 flex items-center gap-2">
+                              <div className="text-text-secondary flex items-center gap-2">
                                 <span className="text-sm font-medium">
                                   {t('agents.systemInstructions')}
                                 </span>
                               </div>
                             </AccordionTrigger>
                             <AccordionContent>
-                              <div className="bg-official-gray-850 border-official-gray-780 rounded-lg border p-4">
+                              <div className="bg-bg-default border-divider rounded-lg border p-4">
                                 <p className="text-sm whitespace-pre-wrap">
                                   {selectedAgent.config?.custom_system_prompt ||
                                     'No system instructions found.'}
@@ -277,11 +277,11 @@ const ConversationHeaderWithInboxId = () => {
 
                           <AccordionItem className="border-b-0" value="tools">
                             <AccordionTrigger className="py-3 hover:no-underline">
-                              <div className="text-official-gray-200 flex items-center gap-2">
+                              <div className="text-text-secondary flex items-center gap-2">
                                 <span className="text-sm font-medium">
                                   Available Tools{' '}
                                   {selectedAgent.tools.length > 0 && (
-                                    <span className="text-official-gray-400 text-xs">
+                                    <span className="text-text-secondary text-xs">
                                       ({selectedAgent.tools.length})
                                     </span>
                                   )}
@@ -291,13 +291,13 @@ const ConversationHeaderWithInboxId = () => {
                             <AccordionContent>
                               <div className="space-y-3">
                                 {selectedAgent.tools.length === 0 && (
-                                  <p className="text-official-gray-400 text-sm">
+                                  <p className="text-text-secondary text-sm">
                                     {t('tools.commandEmpty')}
                                   </p>
                                 )}
                                 {selectedAgent.tools.map((tool, index) => (
                                   <div
-                                    className="bg-official-gray-850 border-official-gray-780 relative flex cursor-default items-center gap-2 rounded-lg border p-2 pr-8 text-sm transition-colors"
+                                    className="bg-bg-default border-divider relative flex cursor-default items-center gap-2 rounded-lg border p-2 pr-8 text-sm transition-colors"
                                     key={index}
                                   >
                                     <ToolsIcon className="h-4 w-4" />
@@ -307,7 +307,7 @@ const ConversationHeaderWithInboxId = () => {
                                       )}
                                     </span>
                                     <Link
-                                      className="text-official-gray-400 absolute right-2 hover:text-white"
+                                      className="text-text-secondary absolute right-2 hover:text-white"
                                       to={`/tools/${tool}`}
                                     >
                                       <ExternalLinkIcon className="h-4 w-4" />
@@ -326,7 +326,7 @@ const ConversationHeaderWithInboxId = () => {
                             value="knowledge"
                           >
                             <AccordionTrigger className="py-3 hover:no-underline">
-                              <div className="text-official-gray-200 flex items-center gap-2">
+                              <div className="text-text-secondary flex items-center gap-2">
                                 <span className="text-sm font-medium">
                                   Knowledge Sources{' '}
                                   {(
@@ -335,7 +335,7 @@ const ConversationHeaderWithInboxId = () => {
                                     ((
                                       selectedAgent.scope?.vector_fs_items ?? []
                                     )?.length > 0 && (
-                                      <span className="text-official-gray-400 text-xs">
+                                      <span className="text-text-secondary text-xs">
                                         (
                                         {(
                                           selectedAgent.scope
@@ -357,14 +357,14 @@ const ConversationHeaderWithInboxId = () => {
                                   .length === 0 &&
                                   (selectedAgent.scope?.vector_fs_items ?? [])
                                     .length === 0 && (
-                                    <p className="text-official-gray-400 text-sm">
+                                    <p className="text-text-secondary text-sm">
                                       No knowledge sources found.
                                     </p>
                                   )}
                                 {selectedAgent.scope?.vector_fs_folders?.map(
                                   (item, index) => (
                                     <div
-                                      className="bg-official-gray-850 border-official-gray-780 flex items-center justify-start gap-2 rounded-lg border p-2 capitalize"
+                                      className="bg-bg-default border-divider flex items-center justify-start gap-2 rounded-lg border p-2 capitalize"
                                       key={index}
                                     >
                                       <FolderIcon className="h-4 w-4" />
@@ -377,7 +377,7 @@ const ConversationHeaderWithInboxId = () => {
                                 {selectedAgent.scope?.vector_fs_items?.map(
                                   (item, index) => (
                                     <div
-                                      className="bg-official-gray-850 border-official-gray-780 flex items-center justify-start gap-2 rounded-lg border p-2 capitalize"
+                                      className="bg-bg-default border-divider flex items-center justify-start gap-2 rounded-lg border p-2 capitalize"
                                       key={index}
                                     >
                                       <FileIcon className="h-4 w-4" />
@@ -393,7 +393,7 @@ const ConversationHeaderWithInboxId = () => {
 
                           <AccordionItem className="border-b-0" value="tasks">
                             <AccordionTrigger className="py-3 hover:no-underline">
-                              <div className="text-official-gray-200 flex items-center gap-2">
+                              <div className="text-text-secondary flex items-center gap-2">
                                 <span className="text-sm font-medium">
                                   Scheduled Tasks
                                 </span>
@@ -403,19 +403,19 @@ const ConversationHeaderWithInboxId = () => {
                               <div className="space-y-2">
                                 {(selectedAgent.cron_tasks ?? []).length ===
                                   0 && (
-                                  <p className="text-official-gray-400 text-sm">
+                                  <p className="text-text-secondary text-sm">
                                     {t('tasksPage.noTasksTitle')}
                                   </p>
                                 )}
                                 {selectedAgent.cron_tasks?.map((task) => (
                                   <div
-                                    className="bg-official-gray-850 border-official-gray-780 relative flex items-start gap-2 rounded-lg border p-2 pr-6 capitalize"
+                                    className="bg-bg-default border-divider relative flex items-start gap-2 rounded-lg border p-2 pr-6 capitalize"
                                     key={task.task_id}
                                   >
                                     <ScheduledTasksIcon className="mt-1 h-4 w-4" />
                                     <div className="flex flex-col gap-1">
                                       <p className="text-sm">{task.name}</p>
-                                      <p className="text-official-gray-400 text-xs">
+                                      <p className="text-text-secondary text-xs">
                                         {cronstrue.toString(task.cron, {
                                           throwExceptionOnParseError: false,
                                         })}{' '}
@@ -423,7 +423,7 @@ const ConversationHeaderWithInboxId = () => {
                                       </p>
                                     </div>
                                     <Link
-                                      className="text-official-gray-400 absolute top-2 right-2 hover:text-white"
+                                      className="text-text-secondary absolute top-2 right-2 hover:text-white"
                                       to={`/tasks/${task.task_id}`}
                                     >
                                       <ExternalLinkIcon className="h-4 w-4" />
@@ -473,7 +473,7 @@ const ConversationHeaderWithInboxId = () => {
               tabIndex={0}
             >
               <span className="sr-only">{t('common.moreOptions')}</span>
-              <DotsVerticalIcon className="text-gray-100" />
+              <DotsVerticalIcon className="text-text-secondary" />
             </div>
           </DropdownMenuTrigger>
           <DropdownMenuContent

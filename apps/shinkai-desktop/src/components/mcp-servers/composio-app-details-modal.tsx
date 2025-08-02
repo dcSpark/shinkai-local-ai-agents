@@ -6,6 +6,7 @@ import {
   DialogTitle,
   DialogDescription,
   MarkdownText,
+  Skeleton,
 } from '@shinkai_network/shinkai-ui';
 import { useState } from 'react';
 import { useApp } from '../../lib/composio';
@@ -23,8 +24,8 @@ const DetailItem = ({
   label: string;
   value: string | undefined | null;
 }) => (
-  <div className="bg-official-gray-800/50 hover:bg-official-gray-800/70 rounded-lg p-3 transition-colors">
-    <p className="text-official-gray-300 text-sm font-medium">{label}</p>
+  <div className="bg-bg-quaternary/50 hover:bg-bg-quaternary/70 rounded-lg p-3 transition-colors">
+    <p className="text-text-secondary text-sm font-medium">{label}</p>
     <p className="mt-1 text-sm">{value || 'N/A'}</p>
   </div>
 );
@@ -32,17 +33,17 @@ const DetailItem = ({
 const LoadingSkeleton = () => (
   <div className="space-y-6">
     <div className="flex items-center gap-4">
-      <div className="bg-official-gray-750 h-12 w-12 animate-pulse rounded-lg" />
-      <div className="bg-official-gray-750 h-6 w-48 animate-pulse rounded" />
+      <Skeleton className="h-12 w-12 rounded-lg" />
+      <Skeleton className="h-6 w-48 rounded" />
     </div>
-    <div className="bg-official-gray-750 h-4 w-full animate-pulse rounded" />
+    <Skeleton className="h-4 w-full rounded" />
     <div className="space-y-4">
-      <div className="bg-official-gray-750 h-6 w-32 animate-pulse rounded" />
+      <Skeleton className="h-6 w-32 animate-pulse rounded" />
       <div className="grid grid-cols-2 gap-4">
         {[...Array(4)].map((_, i) => (
           <div key={i} className="space-y-2">
-            <div className="bg-official-gray-750 h-4 w-24 animate-pulse rounded" />
-            <div className="bg-official-gray-750 h-4 w-32 animate-pulse rounded" />
+            <Skeleton className="h-4 w-24 rounded" />
+            <Skeleton className="h-4 w-32 rounded" />
           </div>
         ))}
       </div>
@@ -51,9 +52,7 @@ const LoadingSkeleton = () => (
 );
 
 const SectionTitle = ({ children }: { children: React.ReactNode }) => (
-  <h3 className="text-official-gray-100 mb-4 text-lg font-semibold">
-    {children}
-  </h3>
+  <h3 className="text-text-default mb-4 text-lg font-semibold">{children}</h3>
 );
 
 export const ComposioAppDetailsModal = ({
@@ -74,7 +73,7 @@ export const ComposioAppDetailsModal = ({
           <>
             <DialogHeader className="flex-shrink-0">
               <DialogTitle className="flex items-center gap-4">
-                <div className="bg-official-gray-750 relative h-12 w-12 overflow-hidden rounded-lg">
+                <div className="bg-bg-quaternary relative h-12 w-12 overflow-hidden rounded-lg">
                   {!imageError ? (
                     <img
                       src={app?.meta.logo}
@@ -83,14 +82,14 @@ export const ComposioAppDetailsModal = ({
                       onError={() => setImageError(true)}
                     />
                   ) : (
-                    <div className="text-official-gray-400 flex h-full w-full items-center justify-center text-xs font-medium">
+                    <div className="text-text-secondary flex h-full w-full items-center justify-center text-xs font-medium">
                       {app?.name?.[0]?.toUpperCase() || 'A'}
                     </div>
                   )}
                 </div>
-                <span className="text-official-gray-100">{app?.name}</span>
+                <span className="text-text-default">{app?.name}</span>
               </DialogTitle>
-              <DialogDescription className="text-official-gray-300 mt-2 leading-relaxed">
+              <DialogDescription className="text-text-secondary mt-2 leading-relaxed">
                 {app?.meta.description}
               </DialogDescription>
             </DialogHeader>
@@ -151,13 +150,13 @@ export const ComposioAppDetailsModal = ({
                     {app.actions.map((action, index) => (
                       <div
                         key={index}
-                        className="bg-official-gray-800/50 hover:bg-official-gray-800/70 rounded-lg p-3 transition-colors"
+                        className="bg-bg-quaternary/50 hover:bg-bg-quaternary/70 rounded-lg p-3 transition-colors"
                       >
-                        <p className="text-official-gray-100 font-semibold">
+                        <p className="text-text-default font-semibold">
                           {action.name}
                         </p>
                         {action.description && (
-                          <div className="text-official-gray-300 mt-2 text-sm">
+                          <div className="text-text-secondary mt-2 text-sm">
                             <MarkdownText content={action.description} />
                           </div>
                         )}

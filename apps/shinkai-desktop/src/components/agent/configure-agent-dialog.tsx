@@ -175,7 +175,7 @@ export default function ConfigureAgentDialog({
             <label className="mb-0 block text-sm font-medium text-white">
               Pricing Model
             </label>
-            <p className="text-official-gray-400 mt-1 mb-3 text-xs">
+            <p className="text-text-secondary mt-1 mb-3 text-xs">
               Users will be charged this amount each time they use your agent.
             </p>
             <RadioGroup
@@ -184,7 +184,7 @@ export default function ConfigureAgentDialog({
               className="px-1"
             >
               <div className="space-y-3">
-                <div className="border-official-gray-780 flex items-center gap-0 rounded-lg border px-4">
+                <div className="border-divider flex items-center gap-0 rounded-lg border px-4">
                   <RadioGroupItem value="free" id="pricing-free" />
                   <Label
                     htmlFor="pricing-free"
@@ -193,7 +193,7 @@ export default function ConfigureAgentDialog({
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="font-medium">Free</p>
-                        <p className="text-official-gray-400 text-sm">
+                        <p className="text-text-secondary text-sm">
                           Free to use your agent
                         </p>
                       </div>
@@ -201,7 +201,7 @@ export default function ConfigureAgentDialog({
                   </Label>
                 </div>
 
-                <div className="border-official-gray-780 flex items-center gap-0 rounded-lg border px-4">
+                <div className="border-divider flex items-center gap-0 rounded-lg border px-4">
                   <RadioGroupItem value="paid" id="pricing-paid" />
                   <Label
                     htmlFor="pricing-paid"
@@ -210,7 +210,7 @@ export default function ConfigureAgentDialog({
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="font-medium">Paid (USDC)</p>
-                        <p className="text-official-gray-400 text-sm">
+                        <p className="text-text-secondary text-sm">
                           Monetize your agent
                         </p>
                       </div>
@@ -228,7 +228,7 @@ export default function ConfigureAgentDialog({
                   exit={{ opacity: 0, height: 0, y: -10 }}
                   transition={{ duration: 0.3, ease: 'easeInOut' }}
                 >
-                  <Card className="bg-official-gray-950 -mt-3 border-none px-5 py-2">
+                  <Card className="bg-bg-dark -mt-3 border-none px-5 py-2">
                     <Label htmlFor="price" className="text-sm font-medium">
                       Price per use (USDC units)
                     </Label>
@@ -240,7 +240,7 @@ export default function ConfigureAgentDialog({
                         onChange={(e) => setAmount(e.target.value)}
                       />
                     </div>
-                    <p className="text-official-gray-400 mt-1 text-xs">
+                    <p className="text-text-secondary mt-1 text-xs">
                       = {formatUSDCAmount(amount)} USDC per use.
                     </p>
                   </Card>
@@ -260,7 +260,7 @@ export default function ConfigureAgentDialog({
               resize="vertical"
               className="!min-h-[100px] pt-3"
             />
-            <p className="text-official-gray-400 mt-1 text-xs">
+            <p className="text-text-secondary mt-1 text-xs">
               Help users understand what your agent does.
             </p>
           </div>

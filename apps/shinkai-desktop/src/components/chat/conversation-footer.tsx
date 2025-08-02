@@ -86,8 +86,9 @@ import {
 import { useChatStore } from './context/chat-context';
 import { useSetJobScope } from './context/set-job-scope-context';
 
-export const actionButtonClassnames =
-  'shrink-0 inline-flex h-[32px] w-[32px] rounded-full cursor-pointer items-center justify-center gap-1.5 truncate p-[8px] text-left text-[13px] font-normal text-official-gray-200 hover:bg-official-gray-950 hover:text-white disabled:opacity-50';
+export const actionButtonClassnames = cn(
+  'text-text-secondary hover:bg-bg-quaternary inline-flex h-[32px] w-[32px] shrink-0 cursor-pointer items-center justify-center gap-1.5 truncate rounded-full p-[8px] text-left text-[13px] font-normal hover:text-white disabled:opacity-50',
+);
 
 export type ChatConversationLocationState = {
   files: File[];
@@ -470,11 +471,11 @@ function ConversationChatFooter({
                           <TooltipTrigger asChild>
                             <PopoverTrigger asChild>
                               <Button
-                                className="h-8 w-8 bg-transparent"
+                                className="h-8 w-8"
                                 size="icon"
-                                variant="ghost"
+                                variant="tertiary"
                               >
-                                <PlusIcon className="h-4 w-4 text-white" />
+                                <PlusIcon className="h-4 w-4" />
                                 <span className="sr-only">Add</span>
                               </Button>
                             </PopoverTrigger>
@@ -672,7 +673,7 @@ function ConversationChatFooter({
                             <span className="line-clamp-1 text-white">
                               {formatText(tool.name)}
                             </span>
-                            <span className="text-gray-80 line-clamp-3 text-xs whitespace-pre-wrap">
+                            <span className="text-text-secondary line-clamp-3 text-xs whitespace-pre-wrap">
                               {tool.description}
                             </span>
                           </div>
@@ -688,7 +689,7 @@ function ConversationChatFooter({
         <motion.div
           animate={{ opacity: 1 }}
           className={cn(
-            'bg-official-gray-850 absolute inset-x-2 bottom-1.5 z-0 flex h-[40px] justify-between gap-2 rounded-b-xl px-2 pt-2.5 pb-1 shadow-white',
+            'bg-bg-tertiary shadow-text-default absolute inset-x-2 bottom-1.5 z-0 flex h-[40px] justify-between gap-2 rounded-b-xl px-2 pt-2.5 pb-1',
           )}
           exit={{ opacity: 0 }}
           initial={{ opacity: 0 }}
@@ -699,7 +700,7 @@ function ConversationChatFooter({
             isSearchToolListSuccess &&
             searchToolList?.length > 0 && (
               <div className="flex items-center gap-2 px-2">
-                <span className="text-official-gray-400 pr-1 text-xs font-light">
+                <span className="text-text-secondary pr-1 text-xs font-light">
                   Suggested Tools
                 </span>
                 {searchToolList?.map((tool, idx) => (
@@ -708,7 +709,7 @@ function ConversationChatFooter({
                       <motion.button
                         animate={{ opacity: 1, x: 0 }}
                         className={cn(
-                          'hover:bg-official-gray-800 flex items-center gap-2 rounded-lg px-2 py-1 text-xs text-white transition-colors',
+                          'hover:bg-bg-quaternary flex items-center gap-2 rounded-lg px-2 py-1 text-xs text-white transition-colors',
                         )}
                         exit={{ opacity: 0, x: -10 }}
                         initial={{ opacity: 0, x: -10 }}
@@ -740,7 +741,7 @@ function ConversationChatFooter({
                         </span>
 
                         <br />
-                        <div className="flex items-center justify-end gap-2 text-xs text-gray-100">
+                        <div className="text-text-secondary flex items-center justify-end gap-2 text-xs">
                           <CommandShortcut>⌘ + {idx + 1}</CommandShortcut>
                         </div>
                       </TooltipContent>
@@ -749,7 +750,7 @@ function ConversationChatFooter({
                 ))}
                 <Link
                   className={cn(
-                    'hover:bg-official-gray-800 flex items-center gap-2 rounded-lg px-2 py-1 text-xs text-white transition-colors',
+                    'hover:bg-bg-quaternary flex items-center gap-2 rounded-lg px-2 py-1 text-xs text-white transition-colors',
                   )}
                   to="/tools"
                 >
@@ -760,11 +761,11 @@ function ConversationChatFooter({
             )}
           {(!debounceMessage || selectedTool) && (
             <div className="flex w-full items-center justify-between gap-2 px-2">
-              <span className="text-official-gray-400 text-xs font-light">
+              <span className="text-text-secondary text-xs font-light">
                 <span className="font-medium">Shift + Enter</span> for a new
                 line
               </span>
-              <span className="text-official-gray-400 text-xs font-light">
+              <span className="text-text-secondary text-xs font-light">
                 <span className="font-medium">Enter</span> to send
               </span>
             </div>
@@ -845,36 +846,36 @@ const FileListBase = ({
   const size = partial({ standard: 'jedec' });
 
   return (
-    <div className="no-scrollbar bg-official-gray-800/10 scroll border-official-gray-780 h-16 overflow-hidden border-b">
+    <div className="no-scrollbar bg-bg-quaternary scroll border-divider h-16 overflow-hidden border-b">
       <div className="flex items-center gap-3 overflow-x-auto p-2.5">
         {currentFiles.map((file, index) => (
           <div
-            className="border-official-gray-780 relative flex h-10 w-[180px] shrink-0 items-center gap-1.5 rounded-lg border px-1 py-1.5 pr-2.5"
+            className="border-divider relative flex h-10 w-[180px] shrink-0 items-center gap-1.5 rounded-lg border px-1 py-1.5 pr-2.5"
             key={index}
           >
             <div className="flex w-6 shrink-0 items-center justify-center">
               {isPending ? (
-                <Loader2 className="h-5 w-5 animate-spin text-gray-100" />
+                <Loader2 className="text-text-secondary h-5 w-5 animate-spin" />
               ) : getFileExt(file.name) &&
                 fileIconMap[getFileExt(file.name)] ? (
                 <FileTypeIcon
-                  className="text-gray-80 h-[18px] w-[18px] shrink-0"
+                  className="text-text-secondary h-[18px] w-[18px] shrink-0"
                   type={getFileExt(file.name)}
                 />
               ) : (
-                <Paperclip className="text-official-gray-400 h-4 w-4 shrink-0" />
+                <Paperclip className="text-text-secondary h-4 w-4 shrink-0" />
               )}
             </div>
 
             <div className="text-left text-xs">
               <span className="line-clamp-1 break-all">{file.name}</span>
-              <span className="text-official-gray-500 line-clamp-1 break-all">
+              <span className="text-text-tertiary line-clamp-1 break-all">
                 {size(file.size)}
               </span>
             </div>
             <button
               className={cn(
-                'bg-official-gray-850 hover:bg-official-gray-800 text-gray-80 border-official-gray-780 absolute -top-2 -right-2 h-5 w-5 cursor-pointer rounded-full border p-1 transition-colors hover:text-white',
+                'bg-bg-tertiary hover:bg-bg-quaternary text-text-secondary border-divider absolute -top-2 -right-2 h-5 w-5 cursor-pointer rounded-full border p-1 transition-colors hover:text-white',
               )}
               onClick={(event) => {
                 event.stopPropagation();
@@ -898,7 +899,7 @@ export const FileList = memo(FileListBase, (prevProps, nextProps) => {
 export const DropFileActive = () => (
   <motion.div
     animate={{ opacity: 1, y: 0 }}
-    className="bg-official-gray-1000 z-10 flex h-16 w-full items-center justify-center p-2.5"
+    className="bg-bg-dark z-10 flex h-16 w-full items-center justify-center p-2.5"
     initial={{ opacity: 0, y: 10 }}
     transition={{ duration: 0.2 }}
   >
@@ -985,12 +986,12 @@ export const SelectedToolChat = ({
   return (
     <motion.div
       animate={{ opacity: 1 }}
-      className="bg-official-gray-1000 mb-1 max-h-[50vh] w-full max-w-full overflow-auto rounded-lg p-4 px-5 text-left [&_textarea::placeholder]:text-[rgb(176,176,176)]"
+      className="bg-bg-dark mb-1 max-h-[50vh] w-full max-w-full overflow-auto rounded-lg p-4 px-5 text-left [&_textarea::placeholder]:text-[rgb(176,176,176)]"
       exit={{ opacity: 0 }}
       initial={{ opacity: 0 }}
       transition={{ duration: 0.2, ease: 'easeInOut' }}
     >
-      <div className="flex flex-1 flex-col gap-2 text-sm text-gray-100">
+      <div className="text-text-secondary flex flex-1 flex-col gap-2 text-sm">
         <Tooltip>
           <TooltipTrigger asChild>
             <div className="flex items-center gap-2">
@@ -1044,7 +1045,7 @@ export const SelectedToolChat = ({
           </div>
         )}
       </div>
-      <div className="absolute top-3 right-3 flex items-center gap-6 text-gray-100 hover:text-white">
+      <div className="text-text-secondary absolute top-3 right-3 flex items-center gap-6 hover:text-white">
         <ToggleGroup
           className="bg-background inline-flex gap-0 -space-x-px rounded-lg shadow-xs shadow-black/5 rtl:space-x-reverse"
           onValueChange={(value) => {
@@ -1084,7 +1085,7 @@ export const SelectedToolChat = ({
           </ToggleGroupItem>
         </ToggleGroup>
         <button
-          className="text-gray-100 hover:text-white"
+          className="text-text-secondary hover:text-white"
           onClick={() => {
             remove();
             setToolRawInput('');

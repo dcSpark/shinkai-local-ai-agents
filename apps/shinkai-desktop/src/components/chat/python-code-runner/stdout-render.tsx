@@ -28,7 +28,7 @@ export const StdoutRender = ({ stdout }: { stdout: string[] }) => {
       </button>
       {isExpanded && (
         <div className="border-t border-gray-200">
-          <pre className="max-h-60 overflow-y-auto p-4 text-sm break-words whitespace-pre-wrap text-gray-800">
+          <pre className="text-text-secondary0 max-h-60 overflow-y-auto p-4 text-sm break-words whitespace-pre-wrap">
             {stdout.map((line, index) => (
               <div className="mb-1 last:mb-0" key={index}>
                 <span className="mr-2 text-gray-500 select-none">

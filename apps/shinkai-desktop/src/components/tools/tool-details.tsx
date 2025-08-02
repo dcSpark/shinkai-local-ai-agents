@@ -57,14 +57,14 @@ export default function ToolDetails() {
       <SubpageLayout alignLeft className="container" title="">
         <div className="mb-8 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Skeleton className="bg-official-gray-900 h-16 w-16 rounded-md" />
+            <Skeleton className="h-16 w-16 rounded-md" />
             <div className="flex flex-col gap-2">
-              <Skeleton className="bg-official-gray-900 h-7 w-64 rounded-md" />
-              <Skeleton className="bg-official-gray-900 h-5 w-96 rounded-md" />
+              <Skeleton className="h-7 w-64 rounded-md" />
+              <Skeleton className="h-5 w-96 rounded-md" />
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <Skeleton className="bg-official-gray-900 h-6 w-24 rounded-md" />{' '}
+            <Skeleton className="h-6 w-24 rounded-md" />{' '}
             <div className="flex h-8 w-8 items-center justify-center">
               <MoreVertical className="h-5 w-5 text-gray-400" />
             </div>
@@ -73,30 +73,30 @@ export default function ToolDetails() {
 
         <div className="mb-8 border-b border-gray-500 pb-2">
           <div className="flex gap-2">
-            <Skeleton className="bg-official-gray-900 h-6 w-20 rounded-md" />
-            <Skeleton className="bg-official-gray-900 h-6 w-20 rounded-md" />
-            <Skeleton className="bg-official-gray-900 h-6 w-32 rounded-md" />
+            <Skeleton className="h-6 w-20 rounded-md" />
+            <Skeleton className="h-6 w-20 rounded-md" />
+            <Skeleton className="h-6 w-32 rounded-md" />
           </div>
         </div>
         <div className="flex flex-col gap-6 px-4">
           <div className="flex flex-col gap-2">
-            <Skeleton className="bg-official-gray-900 h-5 w-32 rounded-md" />
-            <Skeleton className="bg-official-gray-900 h-6 w-full max-w-2xl rounded-md" />
+            <Skeleton className="h-5 w-32 rounded-md" />
+            <Skeleton className="h-6 w-full max-w-2xl rounded-md" />
           </div>
 
           <div className="mt-4 flex flex-col gap-2">
-            <Skeleton className="bg-official-gray-900 h-5 w-24 rounded-md" />
-            <Skeleton className="bg-official-gray-900 h-6 w-24 rounded-md" />
+            <Skeleton className="h-5 w-24 rounded-md" />
+            <Skeleton className="h-6 w-24 rounded-md" />
           </div>
 
           <div className="mt-4 flex flex-col gap-2">
-            <Skeleton className="bg-official-gray-900 h-5 w-20 rounded-md" />
-            <Skeleton className="bg-official-gray-900 h-6 w-48 rounded-md" />
+            <Skeleton className="h-5 w-20 rounded-md" />
+            <Skeleton className="h-6 w-48 rounded-md" />
           </div>
 
           <div className="mt-4 flex flex-col gap-2">
-            <Skeleton className="bg-official-gray-900 h-5 w-24 rounded-md" />
-            <Skeleton className="bg-official-gray-900 h-6 w-full max-w-xl rounded-md" />
+            <Skeleton className="h-5 w-24 rounded-md" />
+            <Skeleton className="h-6 w-full max-w-xl rounded-md" />
           </div>
         </div>
       </SubpageLayout>

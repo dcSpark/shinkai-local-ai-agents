@@ -63,7 +63,7 @@ export const OllamaModels = ({
   if (!isShinkaiNodeRunning) {
     return (
       <div className="flex h-full w-full flex-row items-center justify-center">
-        <div className="text-gray-100">
+        <div className="text-text-secondary">
           <span
             className={cn('cursor-pointer text-white underline')}
             onClick={() => {
@@ -118,7 +118,6 @@ export const OllamaModels = ({
                                   className={cn(
                                     'border-brand ml-2 flex inline-flex h-5 w-5 items-center justify-center rounded-full border p-0 font-medium',
                                   )}
-                                  variant="gradient"
                                 >
                                   <StarIcon className="text-brand size-3" />
                                 </Badge>
@@ -133,7 +132,7 @@ export const OllamaModels = ({
                         )}
                       </span>
                     </CardTitle>
-                    <CardDescription className="overflow-hidden text-ellipsis text-xs">
+                    <CardDescription className="overflow-hidden text-xs text-ellipsis">
                       {model.description}
                     </CardDescription>
                   </CardHeader>
@@ -182,13 +181,13 @@ export const OllamaModels = ({
           </AutoSizer>
         </div>
       )}
-      <span className="w-full text-right text-xs text-gray-100">
+      <span className="text-text-secondary w-full text-right text-xs">
         {t('shinkaiNode.models.poweredByOllama')}
       </span>
       {parentShowAllOllamaModels == null && (
         <div
           className={cn(
-            'flex w-full items-center justify-center gap-4 pb-4 pt-8',
+            'flex w-full items-center justify-center gap-4 pt-8 pb-4',
             rightBottomElement && 'justify-between',
           )}
         >

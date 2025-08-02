@@ -46,17 +46,17 @@ const ImagePreview = ({
   onFullscreen: (open: boolean) => void;
 }) => (
   <button
-    className="flex h-14 w-full max-w-[210px] min-w-[210px] shrink-0 cursor-pointer items-center gap-2 rounded-md border border-gray-100/40 py-1.5 pr-1.5 pl-2 text-left hover:bg-gray-300/30"
+    className="border-divider hover:bg-bg-secondary flex h-14 w-full max-w-[210px] min-w-[210px] shrink-0 cursor-pointer items-center gap-2 rounded-md border py-1.5 pr-1.5 pl-2 text-left"
     onClick={() => onFullscreen(true)}
   >
-    <Avatar className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xs bg-gray-300 text-gray-100 transition-colors">
+    <Avatar className="bg-bg-quaternary text-text-default flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xs transition-colors">
       <AvatarImage
         alt={name}
-        className="aspect-square h-full w-full rounded-xs border border-gray-400 object-cover"
+        className="border-divider aspect-square h-full w-full rounded-xs border object-cover"
         src={url}
       />
       <AvatarFallback>
-        <CircleSlashIcon className="h-4 w-4 text-gray-100" />
+        <CircleSlashIcon className="text-text-secondary h-4 w-4" />
       </AvatarFallback>
     </Avatar>
     <FileInfo fileName={name} fileSize={size} />
@@ -70,12 +70,12 @@ const FileInfo = ({
   fileSize?: number;
   fileName: string;
 }) => (
-  <div className="text-official-gray-400 text-em-sm grid flex-1 -translate-x-px gap-1 py-0.5 leading-none">
-    <div className="text-official-gray-100 truncate overflow-hidden font-medium">
+  <div className="text-text-secondary text-em-sm grid flex-1 -translate-x-px gap-1 py-0.5 leading-none">
+    <div className="text-text-default truncate overflow-hidden font-medium">
       {decodeURIComponent(fileName.split('/').at(-1) ?? '')}
     </div>
     {fileSize && (
-      <div className="text-official-gray-400 line-clamp-1 aspect-auto font-normal">
+      <div className="text-text-secondary line-clamp-1 aspect-auto font-normal">
         {size(fileSize)}
       </div>
     )}
@@ -96,7 +96,7 @@ export const FileContentViewer: React.FC<FileContentViewerProps> = ({
   switch (type) {
     case FileTypeSupported.Text: {
       return (
-        <pre className="h-full overflow-auto bg-gray-600 p-4 pt-10 font-mono text-xs break-words whitespace-pre-wrap">
+        <pre className="bg-bg-dark h-full overflow-auto p-4 pt-10 font-mono text-xs break-words whitespace-pre-wrap">
           {content}
         </pre>
       );
@@ -134,7 +134,7 @@ export const FileContentViewer: React.FC<FileContentViewerProps> = ({
       return (
         <div className="flex h-full w-full items-center justify-center">
           <iframe
-            className="h-full w-full bg-gray-50"
+            className="h-full w-full bg-gray-100"
             sandbox="allow-same-origin"
             src={url}
             title={name}
@@ -147,7 +147,7 @@ export const FileContentViewer: React.FC<FileContentViewerProps> = ({
     }
     default:
       return (
-        <div className="flex h-full flex-col items-center justify-center gap-6 text-gray-50">
+        <div className="text-text-secondary flex h-full flex-col items-center justify-center gap-6">
           <span>Preview not available for this file type</span>
         </div>
       );
@@ -170,7 +170,7 @@ const FullscreenDialog = ({
   <Dialog onOpenChange={setOpen} open={open}>
     <DialogContent className="flex size-full max-h-[99vh] max-w-[99vw] flex-col gap-2 bg-transparent p-1 py-8">
       <div className="flex w-full items-center justify-between gap-16 px-10">
-        <div className="text-gray-80 max-w-3xl truncate text-left text-sm">
+        <div className="text-text-default max-w-3xl truncate text-left text-sm">
           {name}
         </div>
         <div className="flex items-center gap-4">
@@ -178,12 +178,12 @@ const FullscreenDialog = ({
             Download
           </Button>
           <DialogClose>
-            <XIcon className="text-gray-80 h-6 w-6" />
+            <XIcon className="text-text-secondary h-6 w-6" />
             <span className="sr-only">Close</span>
           </DialogClose>
         </div>
       </div>
-      <div className="flex size-full flex-col overflow-hidden rounded-l-xl p-10 text-white">
+      <div className="text-text-default flex size-full flex-col overflow-hidden rounded-l-xl p-10">
         <FileContentViewer
           content={content}
           name={name}
@@ -202,17 +202,17 @@ const FileButton = ({
   onFullscreen: (open: boolean) => void;
 }) => (
   <button
-    className="flex h-14 w-full max-w-[210px] min-w-[210px] shrink-0 cursor-pointer items-center gap-2 rounded-md border border-gray-100/40 py-1.5 pr-1.5 pl-2 text-left hover:bg-gray-300/30"
+    className="border-divider hover:bg-bg-secondary flex h-14 w-full max-w-[210px] min-w-[210px] shrink-0 cursor-pointer items-center gap-2 rounded-md border py-1.5 pr-1.5 pl-2 text-left"
     onClick={() => onFullscreen(true)}
   >
-    <span className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xs bg-gray-300 text-gray-100 transition-colors">
+    <span className="bg-bg-quaternary text-text-default flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xs transition-colors">
       {fileIconMap[getFileExt(name)] ? (
         <FileTypeIcon
-          className="text-official-gray-400 h-5 w-5"
+          className="text-text-secondary h-5 w-5"
           type={getFileExt(name)}
         />
       ) : (
-        <PaperClipIcon className="text-official-gray-400 h-4 w-4" />
+        <PaperClipIcon className="text-text-secondary h-4 w-4" />
       )}
     </span>
     <FileInfo fileName={name} fileSize={size} />

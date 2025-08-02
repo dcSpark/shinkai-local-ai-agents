@@ -49,7 +49,7 @@ const ChatInputBase = ({
   return (
     <textarea
       className={cn(
-        'placeholder:text-official-gray-500 flex max-h-[40vh] min-h-[80px] w-full resize-none overflow-y-auto border-none bg-transparent px-3 py-2 text-base leading-normal break-words focus:outline-hidden focus-visible:ring-0 focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50',
+        'placeholder:!text-text-placeholder flex max-h-[40vh] min-h-[80px] w-full resize-none overflow-y-auto border-none bg-transparent px-3 py-2 text-base leading-normal break-words focus:outline-hidden focus-visible:ring-0 focus-visible:outline-hidden disabled:cursor-not-allowed disabled:opacity-50',
         className,
       )}
       id="chat-input"

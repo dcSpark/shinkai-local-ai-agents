@@ -55,7 +55,7 @@ export default function RadioWidget<
               <input
                 aria-describedby={ariaDescribedByIds<T>(id)}
                 checked={checked}
-                className="border-muted-foreground bg-background text-primary focus:ring-primary focus:ring-2"
+                className="border-border-input bg-background text-primary focus:ring-primary focus:ring-2"
                 disabled={disabled || itemDisabled || readonly}
                 id={optionId(id, index)}
                 name={id}

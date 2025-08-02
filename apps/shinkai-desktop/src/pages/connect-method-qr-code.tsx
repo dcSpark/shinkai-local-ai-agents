@@ -206,7 +206,7 @@
 //                         <p className="text-sm text-white">
 //                           Click to upload or drag and drop
 //                         </p>
-//                         <p className="text-gray-80 text-xs">JPG | PNG</p>
+//                         <p className="text-text-secondary text-xs">JPG | PNG</p>
 //                       </div>
 //                       <input
 //                         accept="image/png, image/jpeg"

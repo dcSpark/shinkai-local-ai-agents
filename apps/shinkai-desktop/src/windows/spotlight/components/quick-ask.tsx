@@ -364,7 +364,7 @@ function QuickAsk() {
                 {['⇧', '⌘', 'N'].map((key, i) => (
                   <kbd
                     key={i}
-                    className="border-official-gray-780 bg-official-gray-950 rounded border px-2 py-1 font-mono text-xs text-white shadow-sm"
+                    className="border-divider bg-bg-dark rounded border px-2 py-1 font-mono text-xs text-white shadow-sm"
                   >
                     {key}
                   </kbd>
@@ -389,7 +389,7 @@ function QuickAsk() {
                 {['⇧', '⌘', 'O'].map((key, i) => (
                   <kbd
                     key={i}
-                    className="border-official-gray-780 bg-official-gray-950 rounded border px-2 py-1 font-mono text-xs text-white shadow-sm"
+                    className="border-divider bg-bg-dark rounded border px-2 py-1 font-mono text-xs text-white shadow-sm"
                   >
                     {key}
                   </kbd>
@@ -563,7 +563,7 @@ function QuickAsk() {
                             <span className="line-clamp-1 text-white">
                               {formatText(tool.name)}
                             </span>
-                            <span className="text-gray-80 line-clamp-2 text-xs">
+                            <span className="text-text-secondary line-clamp-2 text-xs">
                               {tool.description}
                             </span>
                           </div>

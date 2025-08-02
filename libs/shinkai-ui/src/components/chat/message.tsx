@@ -129,10 +129,10 @@ const ArtifactCard = ({
     <CardContent className="flex items-center gap-1 p-1 py-1.5">
       <div className="rounded-md p-2">
         {loading ? (
-          <Loader2 className="text-gray-80 h-5 w-5 animate-spin" />
+          <Loader2 className="text-text-secondary h-5 w-5 animate-spin" />
         ) : (
           <ReactJsIcon
-            className={cn(isSelected ? 'text-gray-50' : 'text-gray-80')}
+            className={cn(isSelected ? 'text-gray-50' : 'text-text-secondary')}
           />
         )}
       </div>
@@ -140,7 +140,7 @@ const ArtifactCard = ({
         <p className="!mb-0 line-clamp-1 text-sm font-medium text-gray-50">
           {title}
         </p>
-        <p className="text-gray-80 !mb-0 text-xs">
+        <p className="text-text-secondary !mb-0 text-xs">
           {loading ? 'Generating...' : 'Click to preview'}
         </p>
       </div>
@@ -221,11 +221,7 @@ const MessageBase = ({
           <Avatar className={cn('mt-1 h-8 w-8')}>
             {message.role === 'assistant' ? (
               <img alt="Shinkai AI" src={appIcon} />
-            ) : (
-              <AvatarFallback className="bg-official-gray-850 text-official-gray-300 h-8 w-8 text-xs">
-                U
-              </AvatarFallback>
-            )}
+            ) : null}
           </Avatar>
         </a>
         <div
@@ -248,8 +244,8 @@ const MessageBase = ({
                       <ChatInputArea
                         bottomAddons={
                           <div className="flex w-full items-center justify-between px-1">
-                            <div className="flex items-center gap-1 text-xs text-gray-100">
-                              <InfoCircleIcon className="h-3 w-3 text-gray-100" />
+                            <div className="text-text-secondary flex items-center gap-1 text-xs">
+                              <InfoCircleIcon className="text-text-secondary h-3 w-3" />
                               <span>{t('chat.editMessage.warning')}</span>
                             </div>
                             <div className="flex items-center gap-2">
@@ -306,7 +302,7 @@ const MessageBase = ({
                       {message.toolCalls.map((tool, index) => {
                         return (
                           <AccordionItem
-                            className="bg-app-gradient overflow-hidden rounded-lg"
+                            className="bg-bg-secondary overflow-hidden rounded-lg"
                             disabled={tool.status !== ToolStatusType.Complete}
                             key={`${tool.name}-${index}`}
                             value={tool.name}
@@ -314,7 +310,7 @@ const MessageBase = ({
                             <AccordionTrigger
                               className={cn(
                                 'min-w-[10rem] py-0 pr-2 no-underline hover:no-underline',
-                                'transition-colors hover:bg-gray-500 [&[data-state=open]]:bg-gray-500',
+                                'hover:bg-bg-default [&[data-state=open]]:bg-bg-default transition-colors',
                                 tool.status !== ToolStatusType.Complete &&
                                   '[&>svg]:hidden',
                               )}
@@ -331,7 +327,7 @@ const MessageBase = ({
                                 <span className="font-medium text-white">
                                   {tool.name}(
                                   {Object.keys(tool.args).length > 0 && (
-                                    <span className="text-gray-80 font-mono font-medium">
+                                    <span className="text-text-secondary font-mono font-medium">
                                       {JSON.stringify(tool.args)}
                                     </span>
                                   )}
@@ -341,7 +337,7 @@ const MessageBase = ({
                               {tool.result && (
                                 <div>
                                   <span>Response:</span>
-                                  <span className="text-gray-80 font-mono break-all">
+                                  <span className="text-text-secondary font-mono break-all">
                                     <PrettyJsonPrint json={tool.result} />
                                   </span>
                                 </div>
@@ -402,7 +398,7 @@ const MessageBase = ({
                           <TooltipTrigger asChild>
                             <button
                               className={cn(
-                                'text-gray-80 flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
+                                'text-text-secondary flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
                               )}
                               onClick={() => {
                                 setEditing(true);
@@ -425,7 +421,7 @@ const MessageBase = ({
                           <TooltipTrigger asChild>
                             <button
                               className={cn(
-                                'text-gray-80 flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
+                                'text-text-secondary flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
                               )}
                               onClick={handleRetryMessage}
                             >
@@ -446,7 +442,7 @@ const MessageBase = ({
                           <div>
                             <CopyToClipboardIcon
                               className={cn(
-                                'text-gray-80 h-7 w-7 border border-gray-200 bg-transparent hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
+                                'text-text-secondary h-7 w-7 border border-gray-200 bg-transparent hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
                               )}
                               string={extractErrorPropertyOrContent(
                                 message.content,
@@ -465,7 +461,7 @@ const MessageBase = ({
                   </div>
                   <div
                     className={cn(
-                      'flex items-center gap-1.5 text-xs text-gray-100',
+                      'text-text-secondary flex items-center gap-1.5 text-xs',
                     )}
                   >
                     <span>
@@ -523,10 +519,10 @@ export function ToolCard({
       return <ToolsIcon className="text-brand size-full" />;
     }
     if (status === ToolStatusType.Incomplete) {
-      return <XCircle className="text-gray-80 size-full" />;
+      return <XCircle className="text-text-secondary size-full" />;
     }
     if (status === ToolStatusType.RequiresAction) {
-      return <InfoCircleIcon className="text-gray-80 size-full" />;
+      return <InfoCircleIcon className="text-text-secondary size-full" />;
     }
     return <Loader2 className="text-brand size-full animate-spin" />;
   };
@@ -556,9 +552,11 @@ export function ToolCard({
         <div className="flex items-center gap-1 p-[5px]">
           <div className="size-7 shrink-0 px-1.5">{renderStatus()}</div>
           <div className="flex items-center gap-1">
-            <span className="text-gray-80 text-em-sm">{renderLabelText()}</span>
+            <span className="text-text-secondary text-em-sm">
+              {renderLabelText()}
+            </span>
             <Link
-              className="text-gray-white text-xs font-semibold hover:underline"
+              className="text-gray-white text-em-sm font-semibold hover:underline"
               to={`/tools/${toolRouterKey}`}
             >
               {formatText(name)}

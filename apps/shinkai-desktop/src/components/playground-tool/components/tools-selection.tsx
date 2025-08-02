@@ -51,13 +51,14 @@ export function ToolsSelection({
             className={cn(
               actionButtonClassnames,
               'w-auto gap-2',
-              value.length > 0 && 'bg-cyan-950 hover:bg-cyan-950',
+              value.length > 0 &&
+                'bg-gray-900 text-cyan-400 hover:bg-gray-900 hover:text-cyan-500',
             )}
             role="button"
             tabIndex={0}
           >
             {value.length > 0 ? (
-              <Badge className="bg-official-gray-1000 inline-flex size-4 items-center justify-center rounded-full border-gray-200 p-0 text-center text-[10px] text-gray-50">
+              <Badge className="bg-bg-dark border-divider text-text-default inline-flex size-4 items-center justify-center rounded-full p-0 text-center text-[10px]">
                 {value.length}
               </Badge>
             ) : (
@@ -106,7 +107,7 @@ export function ToolsSelection({
                   }
                 }}
               />
-              <label className="text-xs text-gray-50" htmlFor="all">
+              <label className="text-text-secondary text-xs" htmlFor="all">
                 Enabled All
               </label>
             </div>
@@ -158,14 +159,14 @@ export function ToolsSelection({
                         />
                         <div className="inline-flex flex-1 items-center gap-2 leading-none">
                           <label
-                            className="max-w-[40ch] truncate text-xs text-gray-50"
+                            className="text-text-default max-w-[40ch] truncate text-xs"
                             htmlFor={tool.tool_router_key}
                           >
                             {formatText(tool.name)}
                           </label>
                           <Tooltip>
                             <TooltipTrigger className="flex shrink-0 items-center gap-1">
-                              <InfoCircleIcon className="h-3 w-3 text-gray-100" />
+                              <InfoCircleIcon className="text-text-tertiary h-3 w-3" />
                             </TooltipTrigger>
                             <TooltipPortal>
                               <TooltipContent
@@ -186,7 +187,7 @@ export function ToolsSelection({
                               className="flex shrink-0 items-center gap-1"
                             >
                               <Link
-                                className="text-gray-80 size-3.5 rounded-lg hover:text-white"
+                                className="text-text-secondary hover:text-text-default size-3.5 rounded-lg"
                                 to={`/tools/${tool.tool_router_key}`}
                               >
                                 <BoltIcon className="size-full" />

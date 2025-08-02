@@ -4,18 +4,20 @@ import * as React from 'react';
 import { cn } from '../utils';
 
 const alertVariants = cva(
-  '[&>svg]:text-foreground relative w-full rounded-lg border p-4 [&>svg+div]:translate-y-[-3px] [&>svg]:absolute [&>svg]:left-4 [&>svg]:top-4 [&>svg~*]:pl-7',
+  '[&>svg]:text-text-default relative w-full rounded-lg border p-4 [&>svg]:absolute [&>svg]:top-4 [&>svg]:left-4 [&>svg+div]:translate-y-[-3px] [&>svg~*]:pl-7',
   {
     variants: {
       variant: {
-        default: 'background-secondary-600/50 text-foreground',
-        info: 'text-gray-80 [&>svg]:text-gray-80 bg-gray-250 border-gray-100 border-gray-200',
+        default: 'bg-bg-tertiary text-text-default',
+        info: 'text-text-secondary [&>svg]:text-text-secondary bg-gray-250 border-gray-100 border-gray-200',
         destructive:
           'border-[#4d0408] bg-[#2d0607] text-[#ff9ea1] [&>svg]:text-[#ff9ea1]',
         warning:
           'border-yellow-800 bg-yellow-900 text-yellow-400 [&>svg]:text-yellow-400',
         success:
           'border-green-800 bg-green-900 text-green-400 [&>svg]:text-green-400',
+        download:
+          'border-gray-800 bg-gray-900 text-cyan-400 [&>svg]:text-cyan-400',
       },
     },
     defaultVariants: {
@@ -44,9 +46,8 @@ type AlertTitleProps = React.HTMLAttributes<HTMLHeadingElement> & {
 };
 
 const AlertTitle = ({ className, ref, ...props }: AlertTitleProps) => (
-   
   <h5
-    className={cn('mb-1 font-medium leading-none tracking-tight', className)}
+    className={cn('mb-1 leading-none font-medium tracking-tight', className)}
     ref={ref}
     {...props}
   />
@@ -57,7 +58,11 @@ type AlertDescriptionProps = React.HTMLAttributes<HTMLParagraphElement> & {
   ref?: React.RefObject<HTMLParagraphElement>;
 };
 
-const AlertDescription = ({ className, ref, ...props }: AlertDescriptionProps) => (
+const AlertDescription = ({
+  className,
+  ref,
+  ...props
+}: AlertDescriptionProps) => (
   <div
     className={cn('text-sm [&_p]:leading-relaxed', className)}
     ref={ref}

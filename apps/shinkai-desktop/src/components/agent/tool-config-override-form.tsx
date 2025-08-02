@@ -1,6 +1,9 @@
 import { type RJSFSchema } from '@rjsf/utils';
 import validator from '@rjsf/validator-ajv8';
-import { type ShinkaiTool, type ToolConfigBase } from '@shinkai_network/shinkai-message-ts/api/tools/types';
+import {
+  type ShinkaiTool,
+  type ToolConfigBase,
+} from '@shinkai_network/shinkai-message-ts/api/tools/types';
 import { useGetTool } from '@shinkai_network/shinkai-node-state/v2/queries/getTool/useGetTool';
 import {
   Button,
@@ -55,15 +58,24 @@ export const TooConfigOverrideForm = ({
   const internalValue = useRef<any>(value);
   const updateDynamicSchema = useCallback(() => {
     const properties = (tool as any)?.configurations?.properties || {};
-    const toolConfig = (tool as any)?.config as ToolConfigBase[] || [];
-    const toolConfigAsMap = new Map(toolConfig.map((config) => [config.BasicConfig.key_name, config.BasicConfig]));
+    const toolConfig = ((tool as any)?.config as ToolConfigBase[]) || [];
+    const toolConfigAsMap = new Map(
+      toolConfig.map((config) => [
+        config.BasicConfig.key_name,
+        config.BasicConfig,
+      ]),
+    );
     const propertiesToShow = Object.fromEntries(
-      Object.entries(properties).filter(([jsonSchemaKey, _]: [string, unknown]) => {
-        const toolConfig = toolConfigAsMap.get(jsonSchemaKey);
-        const requiresToolConfigurationOrOverride = toolConfig?.required && !toolConfig?.key_value;
-        const hasOverrideValue = internalValue.current[jsonSchemaKey] !== undefined;
-        return hasOverrideValue || requiresToolConfigurationOrOverride;
-      }),
+      Object.entries(properties).filter(
+        ([jsonSchemaKey, _]: [string, unknown]) => {
+          const toolConfig = toolConfigAsMap.get(jsonSchemaKey);
+          const requiresToolConfigurationOrOverride =
+            toolConfig?.required && !toolConfig?.key_value;
+          const hasOverrideValue =
+            internalValue.current[jsonSchemaKey] !== undefined;
+          return hasOverrideValue || requiresToolConfigurationOrOverride;
+        },
+      ),
     );
     const requiredProperties =
       (tool as any)?.configurations?.required?.filter((property: string) => {
@@ -111,9 +123,7 @@ export const TooConfigOverrideForm = ({
 
   return (
     <div className="flex flex-col gap-2">
-      {isPending && (
-        <Skeleton className="bg-official-gray-900 flex-1 animate-pulse rounded" />
-      )}
+      {isPending && <Skeleton className="flex-1 animate-pulse rounded" />}
       {isSuccess && tool && (
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
@@ -126,14 +136,14 @@ export const TooConfigOverrideForm = ({
               <SelectTrigger className="w-full p-4">
                 <SelectValue>Select a configuration to override</SelectValue>
               </SelectTrigger>
-              <SelectContent className="min-w-[180px] max-w-[720px] overflow-y-auto">
+              <SelectContent className="max-w-[720px] min-w-[180px] overflow-y-auto">
                 {properties.map((property, index) => (
                   <SelectItem key={index} value={property.key}>
                     <div className="flex flex-col gap-1">
                       <span className="text-sm font-medium">
                         {property.name}
                       </span>
-                      <span className="text-official-gray-500 text-xs">
+                      <span className="text-text-tertiary text-xs">
                         {property.description}
                       </span>
                     </div>
@@ -160,7 +170,7 @@ export const TooConfigOverrideForm = ({
                 FieldTemplate: (props) => {
                   if (templates.FieldTemplate && props.id !== 'root') {
                     return (
-                      <div className="border-official-gray-750 flex w-full items-center gap-2 rounded-lg border p-2">
+                      <div className="border-divider flex w-full items-center gap-2 rounded-lg border p-2">
                         <div className="flex-grow">
                           <templates.FieldTemplate
                             classNames="w-full"
@@ -176,7 +186,7 @@ export const TooConfigOverrideForm = ({
                             }}
                             size="icon"
                             type="button"
-                            variant="ghost"
+                            variant="tertiary"
                           >
                             <Trash className="h-4 w-4" />
                           </Button>

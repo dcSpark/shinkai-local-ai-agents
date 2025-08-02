@@ -34,7 +34,7 @@ export const PublicKeys = () => {
           <form className="flex flex-col justify-between space-y-8">
             <div className="flex grow flex-col space-y-5">
               <div>
-                <h2 className="text-gray-80 mb-2 text-sm">
+                <h2 className="text-text-secondary mb-2 text-sm">
                   {t('settings.publicKeys.nodePublicKeys')}
                 </h2>
                 <div className="space-y-3">
@@ -49,7 +49,7 @@ export const PublicKeys = () => {
                         endAdornment={
                           <div className="w-8">
                             <CopyToClipboardIcon
-                              className="peer/adornment adornment absolute right-1 top-4 rounded-md border border-gray-200 bg-gray-300 px-2"
+                              className="peer/adornment adornment absolute top-4 right-1 rounded-md border px-2"
                               string={field.value}
                             />
                           </div>
@@ -70,7 +70,7 @@ export const PublicKeys = () => {
                         endAdornment={
                           <div className="w-8">
                             <CopyToClipboardIcon
-                              className="peer/adornment adornment absolute right-1 top-4 rounded-md border border-gray-200 bg-gray-300 px-2"
+                              className="peer/adornment adornment absolute top-4 right-1 rounded-md border px-2"
                               string={field.value}
                             />
                           </div>
@@ -84,7 +84,9 @@ export const PublicKeys = () => {
               </div>
             </div>
             <div>
-              <h2 className="text-gray-80 mb-2 text-sm">API Bearer Token</h2>
+              <h2 className="text-text-secondary mb-2 text-sm">
+                API Bearer Token
+              </h2>
               <div className="space-y-3">
                 <FormField
                   control={form.control}
@@ -97,7 +99,7 @@ export const PublicKeys = () => {
                       endAdornment={
                         <div className="w-8">
                           <CopyToClipboardIcon
-                            className="peer/adornment adornment absolute right-1 top-4 rounded-md border border-gray-200 bg-gray-300 px-2"
+                            className="peer/adornment adornment absolute top-4 right-1 rounded-md border px-2"
                             string={field.value}
                           />
                         </div>

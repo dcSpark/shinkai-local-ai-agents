@@ -22,7 +22,7 @@ type BreadcrumbListProps = React.ComponentPropsWithoutRef<'ol'> & {
 const BreadcrumbList = ({ className, ref, ...props }: BreadcrumbListProps) => (
   <ol
     className={cn(
-      'text-gray-80 flex flex-wrap items-center gap-1.5 break-words text-sm sm:gap-2.5',
+      'text-text-secondary flex flex-wrap items-center gap-1.5 text-sm break-words sm:gap-2.5',
       className,
     )}
     ref={ref}
@@ -59,7 +59,7 @@ const BreadcrumbLink = ({
 
   return (
     <Comp
-      className={cn('transition-colors hover:text-white', className)}
+      className={cn('hover:text-text-default transition-colors', className)}
       ref={ref}
       {...props}
     />
@@ -75,7 +75,7 @@ const BreadcrumbPage = ({ className, ref, ...props }: BreadcrumbPageProps) => (
   <span
     aria-current="page"
     aria-disabled="true"
-    className={cn('font-normal text-white', className)}
+    className={cn('text-text-default font-normal', className)}
     ref={ref}
     role="link"
     {...props}

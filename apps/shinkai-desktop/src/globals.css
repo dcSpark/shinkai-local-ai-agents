@@ -17,8 +17,9 @@
 html,
 body,
 #root {
-  @apply font-inter bg-official-gray-950 h-full rounded-lg border-0 text-white;
+  @apply font-inter bg-bg-dark text-text-default h-full rounded-lg border-0;
 }
+
 html {
   @apply overscroll-none;
 }
@@ -41,13 +42,13 @@ html {
 ::-webkit-scrollbar-thumb,
 .prism-code-editor::-webkit-scrollbar-thumb,
 .playground-scroll::-webkit-scrollbar-thumb {
-  @apply !bg-official-gray-850;
+  @apply !bg-bg-quaternary;
 }
 
 ::-webkit-scrollbar-track,
 .prism-code-editor::-webkit-scrollbar-track,
 .playground-scroll::-webkit-scrollbar-track {
-  @apply !bg-official-gray-950;
+  @apply !bg-bg-default;
 }
 
 /* PrismSyntaxHighlighter table inside code block */

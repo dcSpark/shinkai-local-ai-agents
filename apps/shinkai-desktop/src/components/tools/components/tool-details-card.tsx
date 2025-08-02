@@ -555,7 +555,7 @@ export default function ToolDetailsCard({
   };
 
   const boxContainerClass = cn(
-    'flex flex-col gap-4 rounded-lg bg-gray-300/20 p-8',
+    'bg-bg-secondary flex flex-col gap-4 rounded-lg p-8',
   );
 
   const hasToolCode = 'js_code' in tool || 'py_code' in tool;
@@ -564,7 +564,7 @@ export default function ToolDetailsCard({
     <>
       {hideToolHeaderDetails ? null : (
         <div className="flex w-full flex-col gap-6 md:flex-row">
-          <div className="flex size-12 items-center justify-center overflow-hidden rounded-2xl border bg-gray-500">
+          <div className="bg-bg-quaternary flex size-12 items-center justify-center overflow-hidden rounded-2xl border">
             {toolStoreDetails?.assets?.iconUrl ? (
               <img
                 alt=""
@@ -580,7 +580,7 @@ export default function ToolDetailsCard({
             <h1 className="mb-2 text-lg font-bold">
               {formatText(tool.name ?? '')}
             </h1>
-            <p className="text-gray-80 mb-4 line-clamp-2 text-sm whitespace-pre-wrap">
+            <p className="text-text-secondary mb-4 line-clamp-2 text-sm whitespace-pre-wrap">
               {tool.description}
             </p>
           </div>
@@ -590,7 +590,7 @@ export default function ToolDetailsCard({
                 <label
                   className={cn(
                     'text-sm',
-                    isEnabled ? 'text-gray-50' : 'text-gray-80',
+                    isEnabled ? 'text-text-secondary' : 'text-text-tertiary',
                   )}
                   htmlFor="tool-switch"
                 >
@@ -633,7 +633,7 @@ export default function ToolDetailsCard({
                     <MoreVertical className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="bg-gray-300 p-2.5">
+                <DropdownMenuContent align="end" className="p-2.5">
                   <DropdownMenuItem
                     className="text-xs"
                     disabled={isExportingTool}
@@ -693,9 +693,9 @@ export default function ToolDetailsCard({
               : 'description'
         }
       >
-        <TabsList className="mb-4 flex w-full justify-start gap-6 rounded-none border-b border-gray-200 bg-transparent pb-0">
+        <TabsList className="border-divider mb-4 flex w-full justify-start gap-6 rounded-none border-b bg-transparent pb-0">
           <TabsTrigger
-            className="data-[state=active]:border-b-gray-80 rounded-none px-0.5 data-[state=active]:border-b-2 data-[state=active]:bg-transparent"
+            className="rounded-none px-0.5 data-[state=active]:border-b-2 data-[state=active]:border-b-gray-100 data-[state=active]:bg-transparent"
             value="description"
           >
             About
@@ -703,7 +703,7 @@ export default function ToolDetailsCard({
 
           {hasToolCode && (
             <TabsTrigger
-              className="data-[state=active]:border-b-gray-80 rounded-none px-0.5 data-[state=active]:border-b-2 data-[state=active]:bg-transparent"
+              className="rounded-none px-0.5 data-[state=active]:border-b-2 data-[state=active]:border-b-gray-100 data-[state=active]:bg-transparent"
               value="code"
             >
               Code
@@ -712,7 +712,7 @@ export default function ToolDetailsCard({
 
           {tool && (
             <TabsTrigger
-              className="data-[state=active]:border-b-gray-80 rounded-none px-0.5 data-[state=active]:border-b-2 data-[state=active]:bg-transparent"
+              className="rounded-none px-0.5 data-[state=active]:border-b-2 data-[state=active]:border-b-gray-100 data-[state=active]:bg-transparent"
               value="metadata"
             >
               Metadata
@@ -724,7 +724,7 @@ export default function ToolDetailsCard({
             tool.configurations.properties &&
             Object.keys(tool.configurations.properties).length > 0 && (
               <TabsTrigger
-                className="data-[state=active]:border-b-gray-80 rounded-none px-0.5 data-[state=active]:border-b-2 data-[state=active]:bg-transparent"
+                className="rounded-none px-0.5 data-[state=active]:border-b-2 data-[state=active]:border-b-gray-100 data-[state=active]:bg-transparent"
                 value="configuration"
               >
                 <span className="flex items-center gap-1.5">
@@ -746,14 +746,14 @@ export default function ToolDetailsCard({
             )}
           {'oauth' in tool && tool.oauth && tool.oauth.length > 0 && (
             <TabsTrigger
-              className="data-[state=active]:border-b-gray-80 rounded-none px-0.5 data-[state=active]:border-b-2 data-[state=active]:bg-transparent"
+              className="rounded-none px-0.5 data-[state=active]:border-b-2 data-[state=active]:border-b-gray-100 data-[state=active]:bg-transparent"
               value="oauth"
             >
               OAuth &amp; Permissions
             </TabsTrigger>
           )}
           <TabsTrigger
-            className="data-[state=active]:border-b-gray-80 rounded-none px-0.5 data-[state=active]:border-b-2 data-[state=active]:bg-transparent"
+            className="rounded-none px-0.5 data-[state=active]:border-b-2 data-[state=active]:border-b-gray-100 data-[state=active]:bg-transparent"
             value="try-it-out"
           >
             Try it out
@@ -763,7 +763,7 @@ export default function ToolDetailsCard({
             'author' in tool &&
             tool.author === auth?.shinkai_identity && (
               <TabsTrigger
-                className="data-[state=active]:border-b-gray-80 rounded-none px-0.5 data-[state=active]:border-b-2 data-[state=active]:bg-transparent"
+                className="rounded-none px-0.5 data-[state=active]:border-b-2 data-[state=active]:border-b-gray-100 data-[state=active]:bg-transparent"
                 value="publish"
               >
                 Publish
@@ -812,9 +812,11 @@ export default function ToolDetailsCard({
                 if (href) {
                   return (
                     <div className="flex flex-col gap-1" key={label}>
-                      <span className="text-gray-80 text-xs">{label}</span>
+                      <span className="text-text-secondary text-xs">
+                        {label}
+                      </span>
                       <a
-                        className="inline-flex items-center gap-2 text-sm whitespace-pre-wrap text-white hover:underline"
+                        className="text-text-default inline-flex items-center gap-2 text-sm whitespace-pre-wrap hover:underline"
                         href={href}
                         rel="noreferrer"
                         target="_blank"
@@ -828,7 +830,9 @@ export default function ToolDetailsCard({
                 return (
                   <div className="flex flex-col gap-1" key={label}>
                     <div className="flex items-center justify-between">
-                      <span className="text-gray-80 text-xs">{label}</span>
+                      <span className="text-text-secondary text-xs">
+                        {label}
+                      </span>
                       {(label === 'Description' ||
                         label === 'Keyword' ||
                         label === 'Version') && (
@@ -848,7 +852,7 @@ export default function ToolDetailsCard({
                         />
                       )}
                     </div>
-                    <span className="text-sm whitespace-pre-wrap text-white">
+                    <span className="text-text-default text-sm whitespace-pre-wrap">
                       {value}
                     </span>
                   </div>
@@ -856,7 +860,7 @@ export default function ToolDetailsCard({
               })}
             <div className="flex flex-col gap-1">
               <div className="flex items-center justify-between">
-                <span className="text-gray-80 text-xs">Preview</span>
+                <span className="text-text-secondary text-xs">Preview</span>
                 <EditToolDetailsDialog
                   className="ml-auto"
                   currentValue={toolStoreDetails?.assets?.bannerUrl ?? ''}
@@ -866,7 +870,7 @@ export default function ToolDetailsCard({
                   toolType={toolType}
                 />
               </div>
-              <div className="aspect-video overflow-hidden rounded-lg border border-zinc-800 bg-gray-500 object-cover object-top">
+              <div className="border-divider bg-bg-tertiary aspect-video overflow-hidden rounded-lg border object-cover object-top">
                 <img
                   alt=""
                   className="size-full object-contain"
@@ -879,7 +883,7 @@ export default function ToolDetailsCard({
 
             <div className="flex flex-col gap-1">
               <div className="flex items-center justify-between">
-                <span className="text-gray-80 text-xs">Icon</span>
+                <span className="text-text-secondary text-xs">Icon</span>
                 <EditToolDetailsDialog
                   className="ml-auto"
                   currentValue={toolStoreDetails?.assets?.iconUrl ?? ''}
@@ -889,7 +893,7 @@ export default function ToolDetailsCard({
                   toolType={toolType}
                 />
               </div>
-              <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg border border-zinc-800 bg-gray-500 object-cover object-center">
+              <div className="border-divider bg-bg-tertiary flex h-16 w-16 items-center justify-center overflow-hidden rounded-lg border object-cover object-center">
                 {toolStoreDetails?.assets?.iconUrl ? (
                   <img
                     alt=""
@@ -907,10 +911,10 @@ export default function ToolDetailsCard({
           <div className={boxContainerClass}>
             <div className="flex items-center justify-between gap-4">
               <div className="flex flex-col gap-2">
-                <h2 className="text-base font-medium text-white">
+                <h2 className="text-text-default text-base font-medium">
                   Remove Tool
                 </h2>
-                <p className="text-gray-80 text-xs">
+                <p className="text-text-secondary text-xs">
                   Remove the &quot;{tool.name}&quot; tool from the entire app
                   and all of your workflows
                 </p>
@@ -925,9 +929,11 @@ export default function ToolDetailsCard({
             <div className={boxContainerClass}>
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-2 pr-4">
-                  <h2 className="text-base font-medium text-white">Code</h2>
+                  <h2 className="text-text-default text-base font-medium">
+                    Code
+                  </h2>
                   <CopyToClipboardIcon
-                    className="text-gray-80 h-4 w-auto bg-transparent"
+                    className="text-text-secondary h-4 w-auto bg-transparent"
                     string={
                       'py_code' in tool
                         ? tool.py_code
@@ -971,9 +977,11 @@ export default function ToolDetailsCard({
             <div className={boxContainerClass}>
               <div className="flex flex-col gap-2">
                 <div className="flex items-center justify-between gap-2 pr-4">
-                  <h2 className="text-base font-medium text-white">Metadata</h2>
+                  <h2 className="text-text-default text-base font-medium">
+                    Metadata
+                  </h2>
                   <CopyToClipboardIcon
-                    className="text-gray-80 h-4 w-auto bg-transparent"
+                    className="text-text-secondary h-4 w-auto bg-transparent"
                     string={JSON.stringify(
                       toolPlaygroundMetadata ?? removeEmbeddingFields(tool),
                       null,
@@ -1009,10 +1017,10 @@ export default function ToolDetailsCard({
             <TabsContent value="configuration">
               <div className={boxContainerClass}>
                 <div className="mb-4">
-                  <h2 className="text-base font-medium text-white">
+                  <h2 className="text-text-default text-base font-medium">
                     Configuration
                   </h2>
-                  <p className="text-gray-80 text-xs">
+                  <p className="text-text-secondary text-xs">
                     Configure the settings for this tool
                   </p>
                 </div>
@@ -1051,8 +1059,10 @@ export default function ToolDetailsCard({
           <TabsContent value="oauth">
             <div className={boxContainerClass}>
               <div className="mb-4">
-                <h2 className="text-base font-medium text-white">OAuth</h2>
-                <p className="text-gray-80 text-xs">
+                <h2 className="text-text-default text-base font-medium">
+                  OAuth
+                </h2>
+                <p className="text-text-secondary text-xs">
                   Configure OAuth settings for this tool
                 </p>
               </div>
@@ -1140,8 +1150,10 @@ export default function ToolDetailsCard({
         <TabsContent value="try-it-out">
           <div className={boxContainerClass}>
             <div className="mb-4">
-              <h2 className="text-base font-medium text-white">Try it out</h2>
-              <p className="text-gray-80 text-xs">
+              <h2 className="text-text-default text-base font-medium">
+                Try it out
+              </h2>
+              <p className="text-text-secondary text-xs">
                 Test this tool with different inputs
               </p>
             </div>
@@ -1224,7 +1236,7 @@ export default function ToolDetailsCard({
               !(tool.input_args as any).properties ||
               Object.keys((tool.input_args as any).properties).length ===
                 0) && (
-              <div className="text-official-gray-400 py-2 text-sm">
+              <div className="text-text-secondary py-2 text-sm">
                 No input parameters required.
               </div>
             )}
@@ -1246,10 +1258,12 @@ export default function ToolDetailsCard({
 
             {(isExecutingTool || isExecutionError || toolExecutionResult) && (
               <div className="mt-6 border-t border-gray-200 pt-6">
-                <h3 className="mb-4 text-sm font-medium text-white">Results</h3>
+                <h3 className="text-text-default mb-4 text-sm font-medium">
+                  Results
+                </h3>
 
                 {isExecutingTool && (
-                  <div className="text-gray-80 flex flex-col items-center gap-2 py-4 text-xs">
+                  <div className="text-text-secondary flex flex-col items-center gap-2 py-4 text-xs">
                     <LoaderIcon className="h-5 w-5 animate-spin" />
                     Running Tool...
                   </div>
@@ -1316,13 +1330,13 @@ export default function ToolDetailsCard({
               <div className={cn(boxContainerClass, 'w-full space-y-2')}>
                 <div className="flex flex-row items-center justify-between gap-7">
                   <div className="space-y-2">
-                    <h2 className="text-base font-medium text-white">
+                    <h2 className="text-text-default text-base font-medium">
                       Publish
                     </h2>
-                    <p className="text-gray-80 text-sm">
+                    <p className="text-text-secondary text-sm">
                       Publish your tool to the{' '}
                       <a
-                        className="text-white underline"
+                        className="text-text-default underline"
                         href={SHINKAI_STORE_URL}
                         rel="noreferrer"
                         target="_blank"

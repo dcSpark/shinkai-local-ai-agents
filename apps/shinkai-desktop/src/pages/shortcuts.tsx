@@ -66,7 +66,7 @@ function KeyCombo({ combo }: { combo: string[] }) {
       {combo.map((key, i) => (
         <kbd
           key={i}
-          className="border-official-gray-780 bg-official-gray-950 rounded border px-2 py-1 font-mono text-xs text-white shadow-sm"
+          className="border-divider bg-bg-dark rounded border px-2 py-1 font-mono text-xs text-white shadow-sm"
         >
           {key}
         </kbd>
@@ -78,14 +78,14 @@ function KeyCombo({ combo }: { combo: string[] }) {
 const ShortcutsPage = () => {
   return (
     <SimpleLayout classname="max-w-xl" title="Shortcuts">
-      <p className="text-official-gray-400">
+      <p className="text-text-secondary">
         Here you can view all available keyboard shortcuts for the app.
       </p>
       <div className="space-y-10 py-4">
         {shortcuts.map((section) => (
           <div key={section.section}>
             <h2 className="mt-6 mb-2 text-xl font-medium">{section.section}</h2>
-            <hr className="border-official-gray-780 mb-4" />
+            <hr className="border-divider mb-4" />
             <div className="space-y-6">
               {section.items.map((item) => (
                 <div

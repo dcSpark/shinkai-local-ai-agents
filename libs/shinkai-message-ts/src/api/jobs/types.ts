@@ -137,6 +137,7 @@ export type LLMProviderInterface = {
   OpenRouter?: OpenRouter;
   Claude?: Claude;
   DeepSeek?: DeepSeek;
+  Grok?: Grok;
 } & {
   [model: string]: ModelType;
 };
@@ -177,6 +178,10 @@ export interface Claude {
 }
 
 export interface DeepSeek {
+  model_type: string;
+}
+
+export interface Grok {
   model_type: string;
 }
 

@@ -8,6 +8,7 @@ export enum Models {
   OpenRouter = 'openrouter',
   Claude = 'claude',
   DeepSeek = 'deepseek',
+  Grok = 'grok',
 }
 
 export const modelsConfig = {
@@ -316,6 +317,35 @@ export const modelsConfig = {
       {
         name: 'DeepSeek Reasoner',
         value: 'deepseek-reasoner',
+      },
+    ],
+  },
+  [Models.Grok]: {
+    apiUrl: 'https://api.x.ai',
+    modelTypes: [
+      {
+        name: 'Grok 4',
+        value: 'grok-4',
+      },      
+      {
+        name: 'Grok 3',
+        value: 'grok-3',
+      },
+      {
+        name: 'Grok 3 Mini',
+        value: 'grok-3-mini',
+      },
+      {
+        name: 'Grok 3 Fast',
+        value: 'grok-3-fast',
+      },
+      {
+        name: 'Grok 3 Mini Fast',
+        value: 'grok-3-mini-fast',
+      },
+      {
+        name: 'Grok 2 Vision',
+        value: 'grok-2-vision',
       },
     ],
   },

@@ -6,3 +6,5 @@ export const httpClient = axios.create({
     'ngrok-skip-browser-warning': 'shinkai-app',
   },
 });
+
+httpClient.defaults.headers.common['Accept-Encoding'] = 'gzip';

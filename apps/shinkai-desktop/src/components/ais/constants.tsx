@@ -36,7 +36,7 @@ export enum ModelProvider {
   OpenRouter = 'openrouter',
   Perplexity = 'perplexity',
   Qwen = 'qwen',
-  Shinkai = 'shinkai-backend',
+  'Shinkai-Backend' = 'shinkai-backend',
   TogetherAI = 'togetherai',
 }
 
@@ -59,6 +59,6 @@ export const providerMappings = {
   [ModelProvider.OpenRouter]: OpenRouterIcon,
   [ModelProvider.Perplexity]: PerplexityIcon,
   [ModelProvider.Qwen]: QwenIcon,
-  [ModelProvider.Shinkai]: ShinkaiIcon,
+  [ModelProvider['Shinkai-Backend']]: ShinkaiIcon,
   [ModelProvider.TogetherAI]: TogetherAI,
 };

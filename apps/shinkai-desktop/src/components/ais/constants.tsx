@@ -5,6 +5,7 @@ import {
   ExoIcon,
   GeminiIcon,
   GoogleIcon,
+  GrokIcon,
   GroqIcon,
   LmStudioIcon,
   MetaIcon,
@@ -14,6 +15,7 @@ import {
   OpenRouterIcon,
   PerplexityIcon,
   QwenIcon,
+  ShinkaiIcon,
   TogetherAI,
 } from '@shinkai_network/shinkai-ui/assets';
 
@@ -24,6 +26,7 @@ export enum ModelProvider {
   Exo = 'exo',
   Gemini = 'gemini',
   Google = 'google',
+  Grok = 'grok',
   Groq = 'groq',
   LmStudio = 'lmstudio',
   Meta = 'meta',
@@ -33,6 +36,7 @@ export enum ModelProvider {
   OpenRouter = 'openrouter',
   Perplexity = 'perplexity',
   Qwen = 'qwen',
+  'Shinkai-Backend' = 'shinkai-backend',
   TogetherAI = 'togetherai',
 }
 
@@ -45,6 +49,7 @@ export const providerMappings = {
   [ModelProvider.Exo]: ExoIcon,
   [ModelProvider.Gemini]: GeminiIcon,
   [ModelProvider.Google]: GoogleIcon,
+  [ModelProvider.Grok]: GrokIcon,
   [ModelProvider.Groq]: GroqIcon,
   [ModelProvider.LmStudio]: LmStudioIcon,
   [ModelProvider.Mistral]: MistralIcon,
@@ -54,5 +59,6 @@ export const providerMappings = {
   [ModelProvider.OpenRouter]: OpenRouterIcon,
   [ModelProvider.Perplexity]: PerplexityIcon,
   [ModelProvider.Qwen]: QwenIcon,
+  [ModelProvider['Shinkai-Backend']]: ShinkaiIcon,
   [ModelProvider.TogetherAI]: TogetherAI,
 };

@@ -77,6 +77,10 @@ const modelOptions: { value: Models; label: string }[] = [
     value: Models.DeepSeek,
     label: 'DeepSeek',
   },
+  {
+    value: Models.Grok,
+    label: 'Grok',
+  },
 ];
 
 const getGuideUrl = (model: Models) => {
@@ -95,6 +99,7 @@ const getGuideUrl = (model: Models) => {
     [Models.Exo]: 'https://docs.shinkai.com/advanced/models/exo',
     [Models.Claude]: 'https://docs.shinkai.com/advanced/models/claude',
     [Models.DeepSeek]: 'https://docs.shinkai.com/advanced/models/deepseek',
+    [Models.Grok]: 'https://docs.shinkai.com/advanced/models/grok',
   };
 
   return urlMap[model] || 'https://docs.shinkai.com/advanced/models';
@@ -119,6 +124,8 @@ export const getModelObject = (
       return { Claude: { model_type: modelType } };
     case Models.DeepSeek:
       return { DeepSeek: { model_type: modelType } };
+    case Models.Grok:
+      return { Grok: { model_type: modelType } };
     default:
       return { [model]: { model_type: modelType } };
   }

@@ -215,7 +215,7 @@ jobs:
         env:
           ARCH: ${{ matrix.arch }}
           SHINKAI_NODE_VERSION: v1.1.3
-          OLLAMA_VERSION: v0.9.3
+          OLLAMA_VERSION: v0.11.3
         run: |
           npx ts-node ./ci-scripts/download-side-binaries.ts
 

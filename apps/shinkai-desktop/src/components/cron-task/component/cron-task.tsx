@@ -81,6 +81,7 @@ const createTaskFormSchema = z.object({
     top_p: z.number(),
     stream: z.boolean().optional(),
     use_tools: z.boolean().optional(),
+    thinking: z.boolean().optional(),
   }),
   jobMessage: z.object({
     content: z.string(),
@@ -112,6 +113,7 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
         top_p: DEFAULT_CHAT_CONFIG.top_p,
         stream: DEFAULT_CHAT_CONFIG.stream ?? false,
         use_tools: DEFAULT_CHAT_CONFIG.use_tools ?? false,
+        thinking: DEFAULT_CHAT_CONFIG.thinking,
       },
       llmOrAgentId: defaultAgentId,
       jobMessage: {
@@ -140,6 +142,7 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
           top_p: initialConfig.top_p,
           stream: initialConfig.stream ?? false,
           use_tools: initialConfig.use_tools ?? false,
+          thinking: initialConfig.thinking,
         },
         jobMessage: {
           content:
@@ -511,6 +514,27 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
                             <div className="space-y-1 leading-none">
                               <FormLabel className="text-text-default static space-y-1.5 text-sm">
                                 {t('cronTask.enableTools')}
+                              </FormLabel>
+                            </div>
+                          </div>
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="jobConfig.thinking"
+                      render={({ field }) => (
+                        <FormItem className="flex w-full flex-col gap-3">
+                          <div className="flex gap-3">
+                            <FormControl>
+                              <Switch
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                            <div className="space-y-1 leading-none">
+                              <FormLabel className="text-text-default static space-y-1.5 text-sm">
+                                {t('cronTask.enableThinking')}
                               </FormLabel>
                             </div>
                           </div>

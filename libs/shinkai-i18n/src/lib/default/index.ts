@@ -298,6 +298,8 @@ export default {
         showRecommended: 'Show recommended models',
         visionCapability: 'Image To Text',
         textCapability: 'Text Generation',
+        thinkingCapability: 'Thinking',
+        toolCallingCapability: 'Tool Calling',
       },
       success: {
         modelRemoved: 'Model {{modelName}} removed successfully',
@@ -1042,6 +1044,9 @@ export default {
       enableTools: 'Enable Tools',
       enableToolsDescription:
         'Allows the agent to use tools to complete tasks.',
+      enableThinking: 'Enable Thinking',
+      enableThinkingDescription:
+        'Allows the agent to show its reasoning process before providing answers.',
       temperature: 'Temperature',
       temperatureDescription:
         'Temperature is a parameter that affects the randomness of AI outputs. Higher temp = more unexpected, lower temp = more predictable.',
@@ -1258,6 +1263,7 @@ export default {
     forceToolUsage: 'Force Tool Usage (Optional)',
     enableStream: 'Enable Stream',
     enableTools: 'Enable Tools',
+    enableThinking: 'Enable Thinking',
     temperature: 'Temperature',
     temperatureInfo:
       'Temperature is a parameter that affects the randomness of AI outputs. Higher temp = more unexpected, lower temp = more predictable.',

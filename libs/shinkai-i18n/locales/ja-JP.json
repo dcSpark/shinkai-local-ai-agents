@@ -17,6 +17,8 @@
       "enableStreamDescription": "エージェントの応答を生成しながらストリーミングします",
       "enableTools": "ツールを有効にする",
       "enableToolsDescription": "エージェントがタスクを完了するためにツールを使用できるようにします。",
+      "enableThinking": "思考を有効にする",
+      "enableThinkingDescription": "エージェントが回答を提供する前に推論プロセスを表示することを許可します。",
       "knowledge": "知識",
       "knowledgeAddNewFiles": "新しいファイルを追加",
       "knowledgeBase": "ナレッジベース",
@@ -905,7 +907,9 @@
         "showRecommended": "おすすめのモデルを表示",
         "tags": "タグ",
         "textCapability": "テキスト生成",
-        "visionCapability": "画像からテキストへ"
+        "visionCapability": "画像からテキストへ",
+        "thinkingCapability": "思考",
+        "toolCallingCapability": "ツール呼び出し"
       },
       "poweredByOllama": "Ollamaの提供",
       "success": {

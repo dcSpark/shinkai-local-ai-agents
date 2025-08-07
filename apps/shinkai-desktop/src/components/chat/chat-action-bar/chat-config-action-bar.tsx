@@ -42,6 +42,7 @@ import { actionButtonClassnames } from '../conversation-footer';
 export const chatConfigFormSchema = z.object({
   stream: z.boolean(),
   useTools: z.boolean(),
+  thinking: z.boolean(),
   customPrompt: z.string().optional(),
   temperature: z.number(),
   topP: z.number(),
@@ -74,6 +75,27 @@ function ChatConfigForm({ form }: ChatConfigFormProps) {
               <div className="space-y-1 leading-none">
                 <FormLabel className="static space-y-1.5 text-xs text-white">
                   Enable Stream
+                </FormLabel>
+              </div>
+            </div>
+          </FormItem>
+        )}
+      />
+      <FormField
+        control={form.control}
+        name="thinking"
+        render={({ field }) => (
+          <FormItem className="flex w-full flex-col gap-3">
+            <div className="flex gap-3">
+              <FormControl>
+                <Switch
+                  checked={field.value}
+                  onCheckedChange={field.onChange}
+                />
+              </FormControl>
+              <div className="space-y-1 leading-none">
+                <FormLabel className="static space-y-1.5 text-xs text-white">
+                  Enable Thinking
                 </FormLabel>
               </div>
             </div>
@@ -280,6 +302,7 @@ export function UpdateChatConfigActionBarBase() {
       topP: chatConfig?.top_p,
       topK: chatConfig?.top_k,
       useTools: chatConfig?.use_tools,
+      thinking: chatConfig?.thinking,
     },
   });
 
@@ -303,6 +326,7 @@ export function UpdateChatConfigActionBarBase() {
         topP: chatConfig.top_p,
         topK: chatConfig.top_k,
         useTools: chatConfig.use_tools,
+        thinking: chatConfig.thinking,
       });
     }
   }, [chatConfig, form]);
@@ -320,6 +344,7 @@ export function UpdateChatConfigActionBarBase() {
         top_p: data.topP,
         top_k: data.topK,
         use_tools: data.useTools,
+        thinking: data.thinking,
       },
     });
   };
@@ -337,6 +362,7 @@ export function UpdateChatConfigActionBarBase() {
               topP: chatConfig?.top_p,
               topK: chatConfig?.top_k,
               useTools: chatConfig?.use_tools,
+              thinking: chatConfig?.thinking,
             });
           }
         }}

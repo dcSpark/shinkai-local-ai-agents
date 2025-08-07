@@ -52,6 +52,7 @@ import {
   type ChatConfigFormSchemaType,
 } from '../../../components/chat/chat-action-bar/chat-config-action-bar';
 import { FileSelectionActionBar } from '../../../components/chat/chat-action-bar/file-selection-action-bar';
+import { ThinkingSwitchActionBar } from '../../../components/chat/chat-action-bar/thinking-switch-action-bar';
 import { ToolsSwitchActionBar } from '../../../components/chat/chat-action-bar/tools-switch-action-bar';
 import {
   DropFileActive,
@@ -149,6 +150,7 @@ function QuickAsk() {
       topP: DEFAULT_CHAT_CONFIG.top_p,
       topK: DEFAULT_CHAT_CONFIG.top_k,
       useTools: DEFAULT_CHAT_CONFIG.use_tools,
+      thinking: DEFAULT_CHAT_CONFIG.thinking,
     },
   });
 
@@ -166,6 +168,7 @@ function QuickAsk() {
       topP: DEFAULT_CHAT_CONFIG.top_p,
       topK: DEFAULT_CHAT_CONFIG.top_k,
       useTools: DEFAULT_CHAT_CONFIG.use_tools,
+      thinking: DEFAULT_CHAT_CONFIG.thinking,
     });
     chatInputRef.current?.focus();
   }, [chatConfigForm, chatForm, defaultSpotlightAiId, setInboxId]);
@@ -260,6 +263,7 @@ function QuickAsk() {
         topP: DEFAULT_CHAT_CONFIG.top_p,
         topK: DEFAULT_CHAT_CONFIG.top_k,
         useTools: DEFAULT_CHAT_CONFIG.use_tools,
+        thinking: DEFAULT_CHAT_CONFIG.thinking,
       });
     },
     onError: (error) => {
@@ -308,6 +312,7 @@ function QuickAsk() {
           top_p: chatConfigForm.getValues('topP'),
           top_k: chatConfigForm.getValues('topK'),
           use_tools: chatConfigForm.getValues('useTools'),
+          thinking: chatConfigForm.getValues('thinking'),
         },
       });
       return;
@@ -335,6 +340,7 @@ function QuickAsk() {
       topP: DEFAULT_CHAT_CONFIG.top_p,
       topK: DEFAULT_CHAT_CONFIG.top_k,
       useTools: DEFAULT_CHAT_CONFIG.use_tools,
+      thinking: DEFAULT_CHAT_CONFIG.thinking,
     });
   };
 
@@ -448,6 +454,19 @@ function QuickAsk() {
                           }}
                         />
                       )}
+
+                      {/* TODO: Enable when we have a way to check if the model supports thinking */}
+                      {/* {!selectedTool && !selectedAgent && !inboxId && (
+                        <ThinkingSwitchActionBar
+                          checked={chatConfigForm.watch('thinking')}
+                          onClick={() => {
+                            chatConfigForm.setValue(
+                              'thinking',
+                              !chatConfigForm.watch('thinking'),
+                            );
+                          }}
+                        />
+                      )} */}
                       {!selectedTool && !selectedAgent && inboxId && (
                         <UpdateChatConfigActionBar />
                       )}

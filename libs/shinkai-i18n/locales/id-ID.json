@@ -17,6 +17,8 @@
       "enableStreamDescription": "Mengalirkan respons agen saat dihasilkan",
       "enableTools": "Aktifkan Alat",
       "enableToolsDescription": "Memungkinkan agen menggunakan alat untuk menyelesaikan tugas.",
+      "enableThinking": "Aktifkan Pemikiran",
+      "enableThinkingDescription": "Memungkinkan agen menunjukkan proses penalarannya sebelum memberikan jawaban.",
       "knowledge": "Pengetahuan",
       "knowledgeAddNewFiles": "Tambahkan File Baru",
       "knowledgeBase": "Basis Pengetahuan",
@@ -905,7 +907,9 @@
         "showRecommended": "Tampilkan model yang direkomendasikan",
         "tags": "Tag",
         "textCapability": "Generasi Teks",
-        "visionCapability": "Gambar ke Teks"
+        "visionCapability": "Gambar ke Teks",
+        "thinkingCapability": "Pemikiran",
+        "toolCallingCapability": "Panggil Alat"
       },
       "poweredByOllama": "Didukung oleh Ollama",
       "success": {

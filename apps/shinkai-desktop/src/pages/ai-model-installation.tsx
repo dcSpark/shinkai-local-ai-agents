@@ -95,6 +95,16 @@ const cloudProviders = [
     description:
       'Claude is a powerful AI model that can be used to generate text, images, and code.',
   },
+  {
+    id: Models.Grok,
+    prefix: ModelPrefix.Grok,
+    name: 'Grok',
+    icon: <ProviderIcon provider={ModelProvider.Grok} />,
+    models: [],
+    description:
+      'Grok is a family of Large Language Models (LLMs) developed by xAI. Grok is a maximally truth-seeking AI that provides insightful, unfiltered truths about the universe.',
+    docUrl: 'https://docs.x.ai/docs/overview',
+  },
 ];
 const AIModelInstallation = ({
   isOnboardingStep,

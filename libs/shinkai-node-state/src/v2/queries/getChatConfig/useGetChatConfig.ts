@@ -33,6 +33,7 @@ export const useGetChatConfig = (
         top_p: data.top_p ?? DEFAULT_CHAT_CONFIG.top_p,
         stream: data.stream ?? DEFAULT_CHAT_CONFIG.stream,
         use_tools: data.use_tools ?? DEFAULT_CHAT_CONFIG.use_tools,
+        thinking: data.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
       };
     },
     ...options,

@@ -1,7 +1,7 @@
 import { useTranslation } from '@shinkai_network/shinkai-i18n';
 import { Badge } from '@shinkai_network/shinkai-ui';
 import { cn } from '@shinkai_network/shinkai-ui/utils';
-import { ALargeSmall, Images } from 'lucide-react';
+import { ALargeSmall, Brain, Images, Wrench } from 'lucide-react';
 import { type ReactNode } from 'react';
 
 import { OllamaModelCapability } from '../../../lib/shinkai-node-manager/ollama-models';
@@ -25,6 +25,14 @@ export const ModelCapabilityTag = ({
     [OllamaModelCapability.TextGeneration]: {
       icon: <ALargeSmall className="h-3.5 w-3.5" />,
       text: t('shinkaiNode.models.labels.textCapability'),
+    },
+    [OllamaModelCapability.Thinking]: {
+      icon: <Brain className="h-3.5 w-3.5" />,
+      text: t('shinkaiNode.models.labels.thinkingCapability'),
+    },
+    [OllamaModelCapability.ToolCalling]: {
+      icon: <Wrench className="h-3.5 w-3.5" />,
+      text: t('shinkaiNode.models.labels.toolCallingCapability'),
     },
   };
   return (

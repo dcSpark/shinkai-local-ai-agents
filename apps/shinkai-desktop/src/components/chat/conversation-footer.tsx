@@ -78,6 +78,7 @@ import {
 import { FileSelectionActionBar } from './chat-action-bar/file-selection-action-bar';
 import { OpenChatFolderActionBar } from './chat-action-bar/open-chat-folder-action-bar';
 import PromptSelectionActionBar from './chat-action-bar/prompt-selection-action-bar';
+import { UpdateThinkingSwitchActionBar } from './chat-action-bar/thinking-switch-action-bar';
 import { UpdateToolsSwitchActionBar } from './chat-action-bar/tools-switch-action-bar';
 import {
   UpdateVectorFsActionBar,
@@ -236,6 +237,7 @@ function ConversationChatFooter({
       topP: chatConfig?.top_p ?? DEFAULT_CHAT_CONFIG.top_p,
       topK: chatConfig?.top_k ?? DEFAULT_CHAT_CONFIG.top_k,
       useTools: chatConfig?.use_tools ?? DEFAULT_CHAT_CONFIG.use_tools,
+      thinking: chatConfig?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
     },
   });
 
@@ -259,6 +261,7 @@ function ConversationChatFooter({
         topP: chatConfig.top_p,
         topK: chatConfig.top_k,
         useTools: chatConfig.use_tools,
+        thinking: chatConfig.thinking,
       });
     }
   }, [chatConfig, chatConfigForm]);
@@ -525,6 +528,10 @@ function ConversationChatFooter({
                         )}
                       {isAgentInbox || selectedTool ? null : (
                         <UpdateToolsSwitchActionBar />
+                      )}
+
+                      {isAgentInbox || selectedTool ? null : (
+                        <UpdateThinkingSwitchActionBar />
                       )}
 
                       {isAgentInbox || selectedTool ? null : (

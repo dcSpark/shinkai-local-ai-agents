@@ -17,6 +17,8 @@
       "enableStreamDescription": "在生成时流式传输代理的响应",
       "enableTools": "启用工具",
       "enableToolsDescription": "允许代理使用工具来完成任务。",
+      "enableThinking": "启用思考",
+      "enableThinkingDescription": "允许代理在提供答案之前显示其推理过程。",
       "knowledge": "知识",
       "knowledgeAddNewFiles": "添加新文件",
       "knowledgeBase": "知识库",
@@ -905,7 +907,9 @@
         "showRecommended": "显示推荐模型",
         "tags": "标签",
         "textCapability": "文本生成",
-        "visionCapability": "图像转文本"
+        "visionCapability": "图像转文本",
+        "thinkingCapability": "思考",
+        "toolCallingCapability": "工具调用"
       },
       "poweredByOllama": "由 Ollama 提供支持",
       "success": {

@@ -260,7 +260,9 @@
         "showAll": "Show all models",
         "showRecommended": "Show recommended models",
         "visionCapability": "Image To Text",
-        "textCapability": "Text Generation"
+        "textCapability": "Text Generation",
+        "thinkingCapability": "Thinking",
+        "toolCallingCapability": "Tool Calling"
       },
       "success": {
         "modelRemoved": "Model {{modelName}} removed successfully",
@@ -933,6 +935,8 @@
       "enableStreamDescription": "Streams the agent's response as it generates",
       "enableTools": "Enable Tools",
       "enableToolsDescription": "Allows the agent to use tools to complete tasks.",
+      "enableThinking": "Enable Thinking",
+      "enableThinkingDescription": "Allows the agent to show its reasoning process before providing answers.",
       "temperature": "Temperature",
       "temperatureDescription": "Temperature is a parameter that affects the randomness of AI outputs. Higher temp = more unexpected, lower temp = more predictable.",
       "topP": "Top P",
@@ -1114,6 +1118,7 @@
     "forceToolUsage": "Force Tool Usage (Optional)",
     "enableStream": "Enable Stream",
     "enableTools": "Enable Tools",
+    "enableThinking": "Enable Thinking",
     "temperature": "Temperature",
     "temperatureInfo": "Temperature is a parameter that affects the randomness of AI outputs. Higher temp = more unexpected, lower temp = more predictable.",
     "topP": "Top P",

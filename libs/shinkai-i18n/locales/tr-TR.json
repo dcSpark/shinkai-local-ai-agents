@@ -17,6 +17,8 @@
       "enableStreamDescription": "Ajanın yanıtını oluştururken akış halinde iletin",
       "enableTools": "Araçları Etkinleştir",
       "enableToolsDescription": "Ajanın görevleri tamamlamak için araçları kullanmasına izin verir.",
+      "enableThinking": "Düşünmeyi Etkinleştir",
+      "enableThinkingDescription": "Ajanın cevap vermeden önce mantık yürütme sürecini göstermesine izin verir.",
       "knowledge": "Bilgi",
       "knowledgeAddNewFiles": "Yeni Dosyalar Ekle",
       "knowledgeBase": "Bilgi Tabanı",
@@ -905,7 +907,9 @@
         "showRecommended": "Tavsiye edilen modelleri göster",
         "tags": "Etiketler",
         "textCapability": "Metin Üretimi",
-        "visionCapability": "Görüntüden Metne"
+        "visionCapability": "Görüntüden Metne",
+        "thinkingCapability": "Düşünme",
+        "toolCallingCapability": "Araç Çağrısı"
       },
       "poweredByOllama": "Ollama tarafından desteklenmektedir",
       "success": {

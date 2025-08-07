@@ -70,6 +70,7 @@ import {
 } from '../components/chat/chat-action-bar/chat-config-action-bar';
 import { FileSelectionActionBar } from '../components/chat/chat-action-bar/file-selection-action-bar';
 import PromptSelectionActionBar from '../components/chat/chat-action-bar/prompt-selection-action-bar';
+import { ThinkingSwitchActionBar } from '../components/chat/chat-action-bar/thinking-switch-action-bar';
 import { ToolsSwitchActionBar } from '../components/chat/chat-action-bar/tools-switch-action-bar';
 import { VectorFsActionBar } from '../components/chat/chat-action-bar/vector-fs-action-bar';
 import { useChatStore } from '../components/chat/context/chat-context';
@@ -166,6 +167,7 @@ const EmptyMessage = () => {
       topP: DEFAULT_CHAT_CONFIG.top_p,
       topK: DEFAULT_CHAT_CONFIG.top_k,
       useTools: DEFAULT_CHAT_CONFIG.use_tools,
+      thinking: DEFAULT_CHAT_CONFIG.thinking,
     },
   });
 
@@ -525,6 +527,7 @@ const EmptyMessage = () => {
         top_p: chatConfigForm.getValues('topP'),
         top_k: chatConfigForm.getValues('topK'),
         use_tools: chatConfigForm.getValues('useTools'),
+        thinking: chatConfigForm.getValues('thinking'),
       },
     });
 
@@ -696,6 +699,19 @@ const EmptyMessage = () => {
                             }}
                           />
                         )}
+
+                        {/* TODO: Enable when we have a way to check if the model supports thinking */}
+                        {/* {!selectedTool && !selectedAgent && (
+                          <ThinkingSwitchActionBar
+                            checked={chatConfigForm.watch('thinking')}
+                            onClick={() => {
+                              chatConfigForm.setValue(
+                                'thinking',
+                                !chatConfigForm.watch('thinking'),
+                              );
+                            }}
+                          />
+                        )} */}
                         {/* <WebSearchActionBar
                                       checked={chatConfigForm.watch('useTools')}
                                       onClick={() => {

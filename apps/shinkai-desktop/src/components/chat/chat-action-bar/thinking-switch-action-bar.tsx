@@ -41,7 +41,9 @@ function ThinkingSwitchActionBarBase({
               checked &&
                 'bg-gray-900 text-cyan-400 hover:bg-gray-900 hover:text-cyan-500',
             )}
-            disabled={disabled}
+            // disabled={disabled}
+            // TODO: remove this once ollama thinking bug is fixed
+            disabled
             onClick={onClick}
             type="button"
           >
@@ -56,7 +58,11 @@ function ThinkingSwitchActionBarBase({
         </TooltipTrigger>
         <TooltipPortal>
           <TooltipContent>
-            {checked ? 'Disable' : 'Enable'} AI Thinking Mode
+            {/* {checked ? 'Disable' : 'Enable'} AI Thinking Mode */}
+            <p className="text-text-secondary mt-1 text-xs">
+              Thinking Mode is always enabled for Ollama models and cannot be
+              turned off at this time.
+            </p>
           </TooltipContent>
         </TooltipPortal>
       </Tooltip>
@@ -66,7 +72,9 @@ function ThinkingSwitchActionBarBase({
 
 export const ThinkingSwitchActionBar = memo(
   ThinkingSwitchActionBarBase,
-  (prevProps, nextProps) => prevProps.checked === nextProps.checked,
+  (prevProps, nextProps) =>
+    prevProps.checked === nextProps.checked &&
+    prevProps.disabled === nextProps.disabled,
 );
 
 export function UpdateThinkingSwitchActionBarBase() {

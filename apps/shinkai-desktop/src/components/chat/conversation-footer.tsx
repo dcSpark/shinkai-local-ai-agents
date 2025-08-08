@@ -89,7 +89,7 @@ import { useChatStore } from './context/chat-context';
 import { useSetJobScope } from './context/set-job-scope-context';
 
 export const actionButtonClassnames = cn(
-  'text-text-secondary hover:bg-bg-quaternary inline-flex h-[32px] w-[32px] shrink-0 cursor-pointer items-center justify-center gap-1.5 truncate rounded-full p-[8px] text-left text-[13px] font-normal hover:text-white disabled:opacity-50',
+  'text-text-secondary hover:bg-bg-quaternary inline-flex h-[32px] w-[32px] shrink-0 cursor-pointer items-center justify-center gap-1.5 truncate rounded-full p-[8px] text-left text-[13px] font-normal hover:text-white disabled:cursor-not-allowed disabled:opacity-50',
 );
 
 export type ChatConversationLocationState = {

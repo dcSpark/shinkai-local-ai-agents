@@ -1446,32 +1446,6 @@ function AgentForm({ mode }: AgentFormProps) {
                               />
                               <FormField
                                 control={form.control}
-                                name="config.thinking"
-                                render={({ field }) => (
-                                  <FormItem className="flex w-full flex-col gap-3">
-                                    <div className="flex justify-between gap-3">
-                                      <div className="space-y-1 leading-none">
-                                        <FormLabel className="text-text-default static space-y-1.5 text-sm">
-                                          {t('agents.create.enableThinking')}
-                                        </FormLabel>
-                                        <p className="text-text-secondary text-xs">
-                                          {t(
-                                            'agents.create.enableThinkingDescription',
-                                          )}
-                                        </p>
-                                      </div>
-                                      <FormControl>
-                                        <Switch
-                                          checked={field.value}
-                                          onCheckedChange={field.onChange}
-                                        />
-                                      </FormControl>
-                                    </div>
-                                  </FormItem>
-                                )}
-                              />
-                              <FormField
-                                control={form.control}
                                 name="config.temperature"
                                 render={({ field }) => (
                                   <FormItem className="flex gap-2.5">

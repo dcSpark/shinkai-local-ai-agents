@@ -522,27 +522,6 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
                     />
                     <FormField
                       control={form.control}
-                      name="jobConfig.thinking"
-                      render={({ field }) => (
-                        <FormItem className="flex w-full flex-col gap-3">
-                          <div className="flex gap-3">
-                            <FormControl>
-                              <Switch
-                                checked={field.value}
-                                onCheckedChange={field.onChange}
-                              />
-                            </FormControl>
-                            <div className="space-y-1 leading-none">
-                              <FormLabel className="text-text-default static space-y-1.5 text-sm">
-                                {t('cronTask.enableThinking')}
-                              </FormLabel>
-                            </div>
-                          </div>
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
                       name="jobConfig.temperature"
                       render={({ field }) => (
                         <FormItem className="flex gap-2.5">

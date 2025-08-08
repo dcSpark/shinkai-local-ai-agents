@@ -16,6 +16,18 @@ export const modelsConfig = {
     apiUrl: 'https://api.openai.com',
     modelTypes: [
       {
+        name: 'GPT 5',
+        value: 'gpt-5',
+      },
+      {
+        name: 'GPT 5 Mini',
+        value: 'gpt-5-mini',
+      },
+      {
+        name: 'GPT 5 Nano',
+        value: 'gpt-5-nano',
+      },
+      {
         name: 'GPT 4o Mini',
         value: 'gpt-4o-mini',
       },
@@ -274,36 +286,24 @@ export const modelsConfig = {
     apiUrl: 'https://api.anthropic.com',
     modelTypes: [
       {
-        name: 'Claude 3.5 Sonnet (20241022)',
-        value: 'claude-3-5-sonnet-20241022',
+        name: 'Claude 4.1 Opus',
+        value: 'claude-opus-4-1',
       },
       {
-        name: 'Claude 3 Opus (20240229)',
-        value: 'claude-3-opus-20240229',
+        name: 'Claude 4 Opus',
+        value: 'claude-opus-4-0',
+      },      
+      {
+        name: 'Claude 4 Sonnet',
+        value: 'claude-sonnet-4-0',
       },
       {
-        name: 'Claude 3 Sonnet (20240229)',
-        value: 'claude-3-sonnet-20240229',
+        name: 'Claude 3.7 Sonnet',
+        value: 'claude-3-7-sonnet-latest',
       },
       {
-        name: 'Claude 3 Haiku (20240307)',
-        value: 'claude-3-haiku-20240307',
-      },
-      {
-        name: 'Claude 4 Opus (20250514)',
-        value: 'claude-opus-4-20250514',
-      },
-      {
-        name: 'Claude 4 Sonnet (20250514)',
-        value: 'claude-sonnet-4-20250514',
-      },
-      {
-        name: 'Claude 3.7 Sonnet (20250219)',
-        value: 'claude-3-7-sonnet-20250219',
-      },
-      {
-        name: 'Claude 3.5 Haiku (20241022)',
-        value: 'claude-3-5-haiku-20241022',
+        name: 'Claude 3.5 Haiku',
+        value: 'claude-3-5-haiku-latest',
       },
     ],
   },

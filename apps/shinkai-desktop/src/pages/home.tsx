@@ -55,7 +55,7 @@ import {
   Plus,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useForm } from 'react-hook-form';
 import { useHotkeys } from 'react-hotkeys-hook';
@@ -70,6 +70,7 @@ import {
 } from '../components/chat/chat-action-bar/chat-config-action-bar';
 import { FileSelectionActionBar } from '../components/chat/chat-action-bar/file-selection-action-bar';
 import PromptSelectionActionBar from '../components/chat/chat-action-bar/prompt-selection-action-bar';
+import { ThinkingSwitchActionBar } from '../components/chat/chat-action-bar/thinking-switch-action-bar';
 import { ToolsSwitchActionBar } from '../components/chat/chat-action-bar/tools-switch-action-bar';
 import { VectorFsActionBar } from '../components/chat/chat-action-bar/vector-fs-action-bar';
 import { useChatStore } from '../components/chat/context/chat-context';
@@ -91,6 +92,7 @@ import { useAnalytics } from '../lib/posthog-provider';
 import { useAuth } from '../store/auth';
 import { useSettings } from '../store/settings';
 import { useViewportStore } from '../store/viewport';
+import { OLLAMA_MODELS_WITH_THINKING_SUPPORT } from '../utils/constants';
 // import { SHINKAI_DOCS_URL, SHINKAI_TUTORIALS } from '../utils/constants';
 
 export const showSpotlightWindow = async () => {
@@ -166,6 +168,7 @@ const EmptyMessage = () => {
       topP: DEFAULT_CHAT_CONFIG.top_p,
       topK: DEFAULT_CHAT_CONFIG.top_k,
       useTools: DEFAULT_CHAT_CONFIG.use_tools,
+      thinking: DEFAULT_CHAT_CONFIG.thinking,
     },
   });
 
@@ -525,6 +528,7 @@ const EmptyMessage = () => {
         top_p: chatConfigForm.getValues('topP'),
         top_k: chatConfigForm.getValues('topK'),
         use_tools: chatConfigForm.getValues('useTools'),
+        thinking: chatConfigForm.getValues('thinking'),
       },
     });
 
@@ -539,6 +543,14 @@ const EmptyMessage = () => {
 
   const { requiresConfiguration } =
     useAgentRequiresToolConfigurations(selectedAgent);
+
+  const isCurrentModelSupportsThinking = useMemo(
+    () =>
+      OLLAMA_MODELS_WITH_THINKING_SUPPORT.some((supported) =>
+        (currentAI ?? '').toLowerCase().includes(supported.toLowerCase()),
+      ),
+    [currentAI],
+  );
 
   return (
     <motion.div
@@ -696,6 +708,20 @@ const EmptyMessage = () => {
                             }}
                           />
                         )}
+
+                        {!selectedTool &&
+                          !selectedAgent &&
+                          isCurrentModelSupportsThinking && (
+                            <ThinkingSwitchActionBar
+                              checked={chatConfigForm.watch('thinking')}
+                              onClick={() => {
+                                chatConfigForm.setValue(
+                                  'thinking',
+                                  !chatConfigForm.watch('thinking'),
+                                );
+                              }}
+                            />
+                          )}
                         {/* <WebSearchActionBar
                                       checked={chatConfigForm.watch('useTools')}
                                       onClick={() => {

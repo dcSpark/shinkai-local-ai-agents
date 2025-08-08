@@ -163,6 +163,7 @@ const agentFormSchema = z.object({
       top_p: z.number(),
       use_tools: z.boolean(),
       stream: z.boolean(),
+      thinking: z.boolean(),
       other_model_params: z.record(z.string()),
     })
     .nullable(),
@@ -295,6 +296,7 @@ function AgentSideChat({
           top_p: DEFAULT_CHAT_CONFIG.top_p,
           top_k: DEFAULT_CHAT_CONFIG.top_k,
           use_tools: hasTools,
+          thinking: DEFAULT_CHAT_CONFIG.thinking,
         },
       });
     } else {
@@ -612,6 +614,7 @@ function AgentForm({ mode }: AgentFormProps) {
         custom_system_prompt: '',
         other_model_params: {},
         use_tools: true,
+        thinking: DEFAULT_CHAT_CONFIG.thinking,
       },
       llmProviderId: defaultAgentId,
 
@@ -638,6 +641,7 @@ function AgentForm({ mode }: AgentFormProps) {
         top_k: agent.config?.top_k ?? DEFAULT_CHAT_CONFIG.top_k,
         top_p: agent.config?.top_p ?? DEFAULT_CHAT_CONFIG.top_p,
         use_tools: agent.config?.use_tools ?? true,
+        thinking: agent.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
         stream: agent.config?.stream ?? DEFAULT_CHAT_CONFIG.stream,
         other_model_params: agent.config?.other_model_params ?? {},
       });
@@ -813,6 +817,7 @@ function AgentForm({ mode }: AgentFormProps) {
               top_p: values.config?.top_p,
               top_k: values.config?.top_k,
               use_tools: values.tools.length > 0,
+              thinking: values.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
               stream: true,
             },
             message: values.aiPrompt || values.uiDescription || 'Scheduled run',
@@ -838,6 +843,7 @@ function AgentForm({ mode }: AgentFormProps) {
               top_p: values.config?.top_p,
               top_k: values.config?.top_k,
               use_tools: values.tools.length > 0,
+              thinking: values.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
               stream: true,
             },
             message: values.aiPrompt || values.uiDescription || 'Scheduled run',
@@ -1000,6 +1006,7 @@ function AgentForm({ mode }: AgentFormProps) {
                 top_p: values.config?.top_p,
                 top_k: values.config?.top_k,
                 use_tools: values.tools.length > 0,
+                thinking: values.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
                 stream: true,
               },
               message:
@@ -1026,6 +1033,7 @@ function AgentForm({ mode }: AgentFormProps) {
                 top_p: values.config?.top_p,
                 top_k: values.config?.top_k,
                 use_tools: values.tools.length > 0,
+                thinking: values.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
                 stream: true,
               },
               message:

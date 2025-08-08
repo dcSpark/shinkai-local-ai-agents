@@ -18,6 +18,8 @@ export enum OllamaModelSpeed {
 export enum OllamaModelCapability {
   TextGeneration = 'text-generation',
   ImageToText = 'image-to-text',
+  Thinking = 'thinking',
+  ToolCalling = 'tool-calling',
 }
 
 export interface OllamaModel {
@@ -48,18 +50,22 @@ export const OLLAMA_MODELS: OllamaModel[] = [
   ...(currentPlatform === 'windows' || currentPlatform === 'linux'
     ? [
         {
-          model: 'gemma3n',
-          tag: 'e4b',
-          name: 'Gemma 3n 4B',
+          model: 'gpt-oss',
+          tag: '20b',
+          name: 'gpt-oss',
           description:
-            'Gemma 3n models are designed for efficient execution on everyday devices such as laptops, tablets or phones.',
+            'OpenAI’s open-weight models designed for powerful reasoning, agentic tasks, and versatile developer use cases.',
           contextLength: 32000,
           quality: OllamaModelQuality.Good,
           speed: OllamaModelSpeed.Fast,
-          capabilities: [OllamaModelCapability.TextGeneration],
+          capabilities: [
+            OllamaModelCapability.TextGeneration,
+            OllamaModelCapability.Thinking,
+            OllamaModelCapability.ToolCalling,
+          ],
           size: 7.5,
           fullName: '',
-          provider: ModelProvider.Google,
+          provider: ModelProvider.OpenAI,
         },
         {
           model: 'llama3.1',
@@ -70,7 +76,10 @@ export const OLLAMA_MODELS: OllamaModel[] = [
           contextLength: 128000,
           quality: OllamaModelQuality.Medium,
           speed: OllamaModelSpeed.Fast,
-          capabilities: [OllamaModelCapability.TextGeneration],
+          capabilities: [
+          OllamaModelCapability.TextGeneration,
+            OllamaModelCapability.ToolCalling,
+          ],
           size: 4.7,
           fullName: '',
           provider: ModelProvider.Meta,
@@ -80,18 +89,22 @@ export const OLLAMA_MODELS: OllamaModel[] = [
   ...(currentPlatform === 'macos'
     ? [
         {
-          model: 'gemma3n',
-          tag: 'e4b',
-          name: 'Gemma 3n 4B',
+          model: 'gpt-oss',
+          tag: '20b',
+          name: 'gpt-oss',
           description:
-            'Gemma 3n models are designed for efficient execution on everyday devices such as laptops, tablets or phones.',
-          contextLength: 32000,
+            'OpenAI’s open-weight models designed for powerful reasoning, agentic tasks, and versatile developer use cases.',
+          contextLength: 128000,
           quality: OllamaModelQuality.Good,
           speed: OllamaModelSpeed.Fast,
-          capabilities: [OllamaModelCapability.TextGeneration],
-          size: 7.5,
+          capabilities: [
+            OllamaModelCapability.TextGeneration,
+            OllamaModelCapability.Thinking,
+            OllamaModelCapability.ToolCalling,
+          ],
+          size: 14,
           fullName: '',
-          provider: ModelProvider.Google,
+          provider: ModelProvider.OpenAI,
           platforms: ['macos'],
         },
         {
@@ -106,6 +119,7 @@ export const OLLAMA_MODELS: OllamaModel[] = [
           capabilities: [
             OllamaModelCapability.TextGeneration,
             OllamaModelCapability.ImageToText,
+            OllamaModelCapability.ToolCalling,
           ],
           size: 15,
           fullName: '',
@@ -123,7 +137,11 @@ export const OLLAMA_MODELS: OllamaModel[] = [
     contextLength: 128000,
     quality: OllamaModelQuality.Good,
     speed: OllamaModelSpeed.Fast,
-    capabilities: [OllamaModelCapability.TextGeneration],
+    capabilities: [
+      OllamaModelCapability.TextGeneration,
+      OllamaModelCapability.Thinking,
+      OllamaModelCapability.ToolCalling,
+    ],
     size: 15.6,
     fullName: '',
     provider: ModelProvider.Qwen,
@@ -138,7 +156,11 @@ export const OLLAMA_MODELS: OllamaModel[] = [
     contextLength: 128000,
     quality: OllamaModelQuality.Good,
     speed: OllamaModelSpeed.Average,
-    capabilities: [OllamaModelCapability.TextGeneration],
+    capabilities: [
+      OllamaModelCapability.TextGeneration,
+      OllamaModelCapability.Thinking,
+      OllamaModelCapability.ToolCalling,
+    ],
     size: 40.2,
     fullName: '',
     provider: ModelProvider.DeepSeek,

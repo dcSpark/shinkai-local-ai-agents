@@ -40,7 +40,7 @@ import { listen } from '@tauri-apps/api/event';
 
 import { motion } from 'framer-motion';
 import { ExternalLinkIcon, PlusIcon } from 'lucide-react';
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useForm } from 'react-hook-form';
 import { useHotkeys } from 'react-hotkeys-hook';
@@ -52,6 +52,7 @@ import {
   type ChatConfigFormSchemaType,
 } from '../../../components/chat/chat-action-bar/chat-config-action-bar';
 import { FileSelectionActionBar } from '../../../components/chat/chat-action-bar/file-selection-action-bar';
+import { ThinkingSwitchActionBar } from '../../../components/chat/chat-action-bar/thinking-switch-action-bar';
 import { ToolsSwitchActionBar } from '../../../components/chat/chat-action-bar/tools-switch-action-bar';
 import {
   DropFileActive,
@@ -64,6 +65,7 @@ import {
 import { useChatConversationWithOptimisticUpdates } from '../../../pages/chat/chat-conversation';
 import { useAuth } from '../../../store/auth';
 import { useSettings } from '../../../store/settings';
+import { OLLAMA_MODELS_WITH_THINKING_SUPPORT } from '../../../utils/constants';
 import { useQuickAskStore } from '../context/quick-ask';
 import { AIModelSelector, AiUpdateSelection } from './ai-update-selection';
 import { MessageList } from './message-list';
@@ -149,6 +151,7 @@ function QuickAsk() {
       topP: DEFAULT_CHAT_CONFIG.top_p,
       topK: DEFAULT_CHAT_CONFIG.top_k,
       useTools: DEFAULT_CHAT_CONFIG.use_tools,
+      thinking: DEFAULT_CHAT_CONFIG.thinking,
     },
   });
 
@@ -166,6 +169,7 @@ function QuickAsk() {
       topP: DEFAULT_CHAT_CONFIG.top_p,
       topK: DEFAULT_CHAT_CONFIG.top_k,
       useTools: DEFAULT_CHAT_CONFIG.use_tools,
+      thinking: DEFAULT_CHAT_CONFIG.thinking,
     });
     chatInputRef.current?.focus();
   }, [chatConfigForm, chatForm, defaultSpotlightAiId, setInboxId]);
@@ -260,6 +264,7 @@ function QuickAsk() {
         topP: DEFAULT_CHAT_CONFIG.top_p,
         topK: DEFAULT_CHAT_CONFIG.top_k,
         useTools: DEFAULT_CHAT_CONFIG.use_tools,
+        thinking: DEFAULT_CHAT_CONFIG.thinking,
       });
     },
     onError: (error) => {
@@ -308,6 +313,7 @@ function QuickAsk() {
           top_p: chatConfigForm.getValues('topP'),
           top_k: chatConfigForm.getValues('topK'),
           use_tools: chatConfigForm.getValues('useTools'),
+          thinking: chatConfigForm.getValues('thinking'),
         },
       });
       return;
@@ -335,8 +341,17 @@ function QuickAsk() {
       topP: DEFAULT_CHAT_CONFIG.top_p,
       topK: DEFAULT_CHAT_CONFIG.top_k,
       useTools: DEFAULT_CHAT_CONFIG.use_tools,
+      thinking: DEFAULT_CHAT_CONFIG.thinking,
     });
   };
+
+  const isCurrentModelSupportsThinking = useMemo(
+    () =>
+      OLLAMA_MODELS_WITH_THINKING_SUPPORT.some((supported) =>
+        (currentAI ?? '').toLowerCase().includes(supported.toLowerCase()),
+      ),
+    [currentAI],
+  );
 
   return (
     <div className="relative flex size-full flex-col gap-2">
@@ -448,6 +463,21 @@ function QuickAsk() {
                           }}
                         />
                       )}
+
+                      {!selectedTool &&
+                        !selectedAgent &&
+                        !inboxId &&
+                        isCurrentModelSupportsThinking && (
+                          <ThinkingSwitchActionBar
+                            checked={chatConfigForm.watch('thinking')}
+                            onClick={() => {
+                              chatConfigForm.setValue(
+                                'thinking',
+                                !chatConfigForm.watch('thinking'),
+                              );
+                            }}
+                          />
+                        )}
                       {!selectedTool && !selectedAgent && inboxId && (
                         <UpdateChatConfigActionBar />
                       )}

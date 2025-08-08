@@ -9,11 +9,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@shinkai_network/shinkai-ui';
-import {
-  ToolsDisabledIcon,
-  ToolsIcon,
-} from '@shinkai_network/shinkai-ui/assets';
 import { cn } from '@shinkai_network/shinkai-ui/utils';
+import { Brain } from 'lucide-react';
 import { memo } from 'react';
 import { useParams } from 'react-router';
 import { toast } from 'sonner';
@@ -21,17 +18,17 @@ import { toast } from 'sonner';
 import { useAuth } from '../../../store/auth';
 import { actionButtonClassnames } from '../conversation-footer';
 
-interface ToolsSwitchActionBarProps {
+interface ThinkingSwitchActionBarProps {
   checked: boolean;
   disabled?: boolean;
   onClick: () => void;
 }
 
-function ToolsSwitchActionBarBase({
+function ThinkingSwitchActionBarBase({
   disabled,
   checked,
   onClick,
-}: ToolsSwitchActionBarProps) {
+}: ThinkingSwitchActionBarProps) {
   const { t } = useTranslation();
   return (
     <TooltipProvider delayDuration={0}>
@@ -44,21 +41,28 @@ function ToolsSwitchActionBarBase({
               checked &&
                 'bg-gray-900 text-cyan-400 hover:bg-gray-900 hover:text-cyan-500',
             )}
-            disabled={disabled}
+            // disabled={disabled}
+            // TODO: remove this once ollama thinking bug is fixed
+            disabled
             onClick={onClick}
             type="button"
           >
-            {checked ? (
-              <ToolsIcon className="size-4" />
-            ) : (
-              <ToolsDisabledIcon className="size-4" />
-            )}
-            <span>{t('tools.label')}</span>
+            <Brain
+              className={cn(
+                'size-4',
+                checked ? 'text-cyan-400' : 'text-text-secondary',
+              )}
+            />
+            <span>{t('shinkaiNode.models.labels.thinkingCapability')}</span>
           </button>
         </TooltipTrigger>
         <TooltipPortal>
           <TooltipContent>
-            {checked ? 'Disable' : 'Enable'} AI Actions (Tools)
+            {/* {checked ? 'Disable' : 'Enable'} AI Thinking Mode */}
+            <p className="text-text-secondary mt-1 text-xs">
+              Thinking Mode is always enabled for Ollama models and cannot be
+              turned off at this time.
+            </p>
           </TooltipContent>
         </TooltipPortal>
       </Tooltip>
@@ -66,12 +70,14 @@ function ToolsSwitchActionBarBase({
   );
 }
 
-export const ToolsSwitchActionBar = memo(
-  ToolsSwitchActionBarBase,
-  (prevProps, nextProps) => prevProps.checked === nextProps.checked,
+export const ThinkingSwitchActionBar = memo(
+  ThinkingSwitchActionBarBase,
+  (prevProps, nextProps) =>
+    prevProps.checked === nextProps.checked &&
+    prevProps.disabled === nextProps.disabled,
 );
 
-export function UpdateToolsSwitchActionBarBase() {
+export function UpdateThinkingSwitchActionBarBase() {
   const auth = useAuth((state) => state.auth);
   const { inboxId: encodedInboxId = '' } = useParams();
   const inboxId = decodeURIComponent(encodedInboxId);
@@ -87,13 +93,13 @@ export function UpdateToolsSwitchActionBarBase() {
 
   const { mutateAsync: updateChatConfig, isPending } = useUpdateChatConfig({
     onError: (error) => {
-      toast.error('Use tools update failed', {
+      toast.error('Thinking mode update failed', {
         description: error.response?.data?.message ?? error.message,
       });
     },
   });
 
-  const handleUpdateTool = async () => {
+  const handleUpdateThinking = async () => {
     await updateChatConfig({
       nodeAddress: auth?.node_address ?? '',
       token: auth?.api_v2_key ?? '',
@@ -104,18 +110,20 @@ export function UpdateToolsSwitchActionBarBase() {
         temperature: chatConfig?.temperature,
         top_p: chatConfig?.top_p,
         top_k: chatConfig?.top_k,
-        use_tools: !chatConfig?.use_tools,
-        thinking: chatConfig?.thinking,
+        use_tools: chatConfig?.use_tools,
+        thinking: !chatConfig?.thinking,
       },
     });
   };
 
   return (
-    <ToolsSwitchActionBar
-      checked={!!chatConfig?.use_tools}
+    <ThinkingSwitchActionBar
+      checked={!!chatConfig?.thinking}
       disabled={isPending}
-      onClick={() => handleUpdateTool()}
+      onClick={() => handleUpdateThinking()}
     />
   );
 }
-export const UpdateToolsSwitchActionBar = memo(UpdateToolsSwitchActionBarBase);
+export const UpdateThinkingSwitchActionBar = memo(
+  UpdateThinkingSwitchActionBarBase,
+);

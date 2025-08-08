@@ -59,7 +59,7 @@ import equal from 'fast-deep-equal';
 import { partial } from 'filesize';
 import { AnimatePresence, motion } from 'framer-motion';
 import { EllipsisIcon, Loader2, Paperclip, X, XIcon } from 'lucide-react';
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useForm } from 'react-hook-form';
 import { useHotkeys } from 'react-hotkeys-hook';
@@ -68,6 +68,7 @@ import { toast } from 'sonner';
 
 import { useAnalytics } from '../../lib/posthog-provider';
 import { useAuth } from '../../store/auth';
+import { OLLAMA_MODELS_WITH_THINKING_SUPPORT } from '../../utils/constants';
 import { usePromptSelectionStore } from '../prompt/context/prompt-selection-context';
 import { AiUpdateSelectionActionBar } from './chat-action-bar/ai-update-selection-action-bar';
 import {
@@ -78,6 +79,7 @@ import {
 import { FileSelectionActionBar } from './chat-action-bar/file-selection-action-bar';
 import { OpenChatFolderActionBar } from './chat-action-bar/open-chat-folder-action-bar';
 import PromptSelectionActionBar from './chat-action-bar/prompt-selection-action-bar';
+import { UpdateThinkingSwitchActionBar } from './chat-action-bar/thinking-switch-action-bar';
 import { UpdateToolsSwitchActionBar } from './chat-action-bar/tools-switch-action-bar';
 import {
   UpdateVectorFsActionBar,
@@ -87,7 +89,7 @@ import { useChatStore } from './context/chat-context';
 import { useSetJobScope } from './context/set-job-scope-context';
 
 export const actionButtonClassnames = cn(
-  'text-text-secondary hover:bg-bg-quaternary inline-flex h-[32px] w-[32px] shrink-0 cursor-pointer items-center justify-center gap-1.5 truncate rounded-full p-[8px] text-left text-[13px] font-normal hover:text-white disabled:opacity-50',
+  'text-text-secondary hover:bg-bg-quaternary inline-flex h-[32px] w-[32px] shrink-0 cursor-pointer items-center justify-center gap-1.5 truncate rounded-full p-[8px] text-left text-[13px] font-normal hover:text-white disabled:cursor-not-allowed disabled:opacity-50',
 );
 
 export type ChatConversationLocationState = {
@@ -236,6 +238,7 @@ function ConversationChatFooter({
       topP: chatConfig?.top_p ?? DEFAULT_CHAT_CONFIG.top_p,
       topK: chatConfig?.top_k ?? DEFAULT_CHAT_CONFIG.top_k,
       useTools: chatConfig?.use_tools ?? DEFAULT_CHAT_CONFIG.use_tools,
+      thinking: chatConfig?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
     },
   });
 
@@ -259,6 +262,7 @@ function ConversationChatFooter({
         topP: chatConfig.top_p,
         topK: chatConfig.top_k,
         useTools: chatConfig.use_tools,
+        thinking: chatConfig.thinking,
       });
     }
   }, [chatConfig, chatConfigForm]);
@@ -429,6 +433,16 @@ function ConversationChatFooter({
     textareaRef.current.focus();
   }, [currentMessage]);
 
+  const isCurrentModelSupportsThinking = useMemo(
+    () =>
+      OLLAMA_MODELS_WITH_THINKING_SUPPORT.some((supported) =>
+        (provider?.agent?.id ?? '')
+          .toLowerCase()
+          .includes(supported.toLowerCase()),
+      ),
+    [provider?.agent?.id],
+  );
+
   return (
     <div className="container p-3 pb-1">
       <div
@@ -526,6 +540,12 @@ function ConversationChatFooter({
                       {isAgentInbox || selectedTool ? null : (
                         <UpdateToolsSwitchActionBar />
                       )}
+
+                      {!isAgentInbox &&
+                      !selectedTool &&
+                      isCurrentModelSupportsThinking ? (
+                        <UpdateThinkingSwitchActionBar />
+                      ) : null}
 
                       {isAgentInbox || selectedTool ? null : (
                         <UpdateVectorFsActionBar />

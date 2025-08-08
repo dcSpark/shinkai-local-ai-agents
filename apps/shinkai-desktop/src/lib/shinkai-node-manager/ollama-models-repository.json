@@ -133,7 +133,8 @@
       }
     ],
     "embedding": false,
-    "vision": true
+    "vision": true,
+    "thinking": false
   },
   {
     "name": "qwen3",
@@ -353,7 +354,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": true
   },
   {
     "name": "deepseek-r1",
@@ -537,7 +539,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": true
   },
   {
     "name": "llama4",
@@ -601,7 +604,8 @@
       }
     ],
     "embedding": false,
-    "vision": true
+    "vision": true,
+    "thinking": false
   },
   {
     "name": "qwen2.5vl",
@@ -713,7 +717,8 @@
       }
     ],
     "embedding": false,
-    "vision": true
+    "vision": true,
+    "thinking": false
   },
   {
     "name": "mistral-small3.2",
@@ -753,7 +758,8 @@
       }
     ],
     "embedding": false,
-    "vision": true
+    "vision": true,
+    "thinking": false
   },
   {
     "name": "llama3.3",
@@ -847,7 +853,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "phi4",
@@ -887,7 +894,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "llama3.2",
@@ -1275,7 +1283,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "llama3.1",
@@ -1843,7 +1852,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "nomic-embed-text",
@@ -1871,7 +1881,8 @@
       }
     ],
     "embedding": true,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "mistral",
@@ -2385,7 +2396,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "llama3",
@@ -2803,7 +2815,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "qwen2.5",
@@ -3611,7 +3624,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "llava",
@@ -4209,7 +4223,8 @@
       }
     ],
     "embedding": false,
-    "vision": true
+    "vision": true,
+    "thinking": false
   },
   {
     "name": "qwen2.5-coder",
@@ -5395,7 +5410,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "gemma2",
@@ -5969,7 +5985,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "qwen",
@@ -8253,7 +8270,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "gemma",
@@ -8875,7 +8893,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "qwen2",
@@ -9467,7 +9486,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "llama2",
@@ -10089,7 +10109,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "phi3",
@@ -10531,7 +10552,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "mxbai-embed-large",
@@ -10565,7 +10587,8 @@
       }
     ],
     "embedding": true,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "llama3.2-vision",
@@ -10629,7 +10652,8 @@
       }
     ],
     "embedding": false,
-    "vision": true
+    "vision": true,
+    "thinking": false
   },
   {
     "name": "codellama",
@@ -11833,7 +11857,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "tinyllama",
@@ -12059,7 +12084,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "mistral-nemo",
@@ -12171,7 +12197,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "minicpm-v",
@@ -12283,7 +12310,8 @@
       }
     ],
     "embedding": false,
-    "vision": true
+    "vision": true,
+    "thinking": false
   },
   {
     "name": "qwq",
@@ -12341,7 +12369,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "deepseek-v3",
@@ -12381,7 +12410,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "dolphin3",
@@ -12421,7 +12451,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "llama2-uncensored",
@@ -12635,7 +12666,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "olmo2",
@@ -12699,7 +12731,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "bge-m3",
@@ -12727,7 +12760,8 @@
       }
     ],
     "embedding": true,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "mixtral",
@@ -13157,7 +13191,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "starcoder2",
@@ -13569,7 +13604,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "llava-llama3",
@@ -13603,7 +13639,8 @@
       }
     ],
     "embedding": false,
-    "vision": true
+    "vision": true,
+    "thinking": false
   },
   {
     "name": "deepseek-coder-v2",
@@ -13997,7 +14034,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "mistral-small",
@@ -14133,7 +14171,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "smollm2",
@@ -14437,7 +14476,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "snowflake-arctic-embed",
@@ -14543,7 +14583,8 @@
       }
     ],
     "embedding": true,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "deepseek-coder",
@@ -15165,7 +15206,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "codegemma",
@@ -15685,7 +15727,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "dolphin-mixtral",
@@ -16115,7 +16158,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "phi",
@@ -16233,7 +16277,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "openthinker",
@@ -16333,7 +16378,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "all-minilm",
@@ -16403,7 +16449,8 @@
       }
     ],
     "embedding": true,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "wizardlm2",
@@ -16545,7 +16592,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "dolphin-mistral",
@@ -17275,7 +17323,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "orca-mini",
@@ -17999,7 +18048,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "dolphin-llama3",
@@ -18327,7 +18377,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "command-r",
@@ -18529,7 +18580,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "codestral",
@@ -18641,7 +18693,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "hermes3",
@@ -19041,7 +19094,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "yi",
@@ -20095,7 +20149,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "phi3.5",
@@ -20207,7 +20262,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "zephyr",
@@ -20457,7 +20513,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "smollm",
@@ -21031,7 +21088,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "granite-code",
@@ -22013,7 +22071,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "wizard-vicuna-uncensored",
@@ -22317,7 +22376,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "starcoder",
@@ -22927,7 +22987,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "moondream",
@@ -23045,7 +23106,8 @@
       }
     ],
     "embedding": false,
-    "vision": true
+    "vision": true,
+    "thinking": false
   },
   {
     "name": "vicuna",
@@ -23721,7 +23783,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "mistral-openorca",
@@ -23833,7 +23896,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "openchat",
@@ -24143,7 +24207,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "llama2-chinese",
@@ -24363,7 +24428,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "deepseek-v2",
@@ -24577,7 +24643,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "openhermes",
@@ -24797,7 +24864,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "deepseek-llm",
@@ -25191,7 +25259,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "codeqwen",
@@ -25381,7 +25450,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "codegeex4",
@@ -25493,7 +25563,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "aya",
@@ -25701,7 +25772,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "phi4-mini",
@@ -25741,7 +25813,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "mistral-large",
@@ -25943,7 +26016,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "glm4",
@@ -26145,7 +26219,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "stable-code",
@@ -26371,7 +26446,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "tinydolphin",
@@ -26489,7 +26565,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "qwen2-math",
@@ -26811,7 +26888,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "nous-hermes2",
@@ -27019,7 +27097,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "command-r-plus",
@@ -27155,7 +27234,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "wizardcoder",
@@ -27567,7 +27647,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "bakllava",
@@ -27679,7 +27760,8 @@
       }
     ],
     "embedding": false,
-    "vision": true
+    "vision": true,
+    "thinking": false
   },
   {
     "name": "deepcoder",
@@ -27743,7 +27825,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "stablelm2",
@@ -28257,7 +28340,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "neural-chat",
@@ -28567,7 +28651,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "reflection",
@@ -28679,7 +28764,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "llama3-chatqa",
@@ -28899,7 +28985,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "wizard-math",
@@ -29293,7 +29380,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "sqlcoder",
@@ -29591,7 +29679,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "bge-large",
@@ -29619,7 +29708,8 @@
       }
     ],
     "embedding": true,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "llama3-gradient",
@@ -29839,7 +29929,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "granite3.2",
@@ -29903,7 +29994,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "granite3-dense",
@@ -30111,7 +30203,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "granite3.1-dense",
@@ -30319,7 +30412,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "samantha-mistral",
@@ -30623,7 +30717,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "llava-phi3",
@@ -30657,7 +30752,8 @@
       }
     ],
     "embedding": false,
-    "vision": true
+    "vision": true,
+    "thinking": false
   },
   {
     "name": "dolphincoder",
@@ -30877,7 +30973,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "nous-hermes",
@@ -31265,7 +31362,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "xwinlm",
@@ -31755,7 +31853,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "starling-lm",
@@ -31981,7 +32080,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "phind-codellama",
@@ -32285,7 +32385,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "yi-coder",
@@ -32697,7 +32798,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "solar",
@@ -32899,7 +33001,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "athene-v2",
@@ -33011,7 +33114,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "nemotron-mini",
@@ -33123,7 +33227,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "yarn-llama2",
@@ -33535,7 +33640,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "snowflake-arctic-embed2",
@@ -33563,7 +33669,8 @@
       }
     ],
     "embedding": true,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "deepscaler",
@@ -33603,7 +33710,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "internlm2",
@@ -34003,7 +34111,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "wizardlm",
@@ -34451,7 +34560,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "falcon",
@@ -34689,7 +34799,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "dolphin-phi",
@@ -34789,7 +34900,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "exaone3.5",
@@ -34877,7 +34989,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "nemotron",
@@ -34989,7 +35102,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "cogito",
@@ -35119,7 +35233,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "granite3.2-vision",
@@ -35159,7 +35274,8 @@
       }
     ],
     "embedding": false,
-    "vision": true
+    "vision": true,
+    "thinking": false
   },
   {
     "name": "orca2",
@@ -35367,7 +35483,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "wizardlm-uncensored",
@@ -35485,7 +35602,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "llama3-groq-tool-use",
@@ -35693,7 +35811,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "aya-expanse",
@@ -35901,7 +36020,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "stable-beluga",
@@ -36205,7 +36325,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "paraphrase-multilingual",
@@ -36233,7 +36354,8 @@
       }
     ],
     "embedding": true,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "nous-hermes2-mixtral",
@@ -36351,7 +36473,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "smallthinker",
@@ -36391,7 +36514,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "meditron",
@@ -36533,7 +36657,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "deepseek-v2.5",
@@ -36585,7 +36710,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "falcon3",
@@ -36697,7 +36823,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "medllama2",
@@ -36809,7 +36936,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "granite3-moe",
@@ -37017,7 +37145,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "granite-embedding",
@@ -37063,7 +37192,8 @@
       }
     ],
     "embedding": true,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "llama-pro",
@@ -37271,7 +37401,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "yarn-mistral",
@@ -37479,7 +37610,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "nexusraven",
@@ -37681,7 +37813,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "granite3.1-moe",
@@ -37889,7 +38022,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "codeup",
@@ -38013,7 +38147,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "shieldgemma",
@@ -38317,7 +38452,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "everythinglm",
@@ -38435,7 +38571,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "opencoder",
@@ -38499,7 +38636,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "llama-guard3",
@@ -38707,7 +38845,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "reader-lm",
@@ -38915,7 +39054,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "granite3.3",
@@ -38943,7 +39083,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "exaone-deep",
@@ -39031,7 +39172,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "mathstral",
@@ -39143,7 +39285,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "solar-pro",
@@ -39261,7 +39404,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "marco-o1",
@@ -39301,7 +39445,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "falcon2",
@@ -39413,7 +39558,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "duckdb-nsql",
@@ -39525,7 +39671,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "stablelm-zephyr",
@@ -39637,7 +39784,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "magicoder",
@@ -39755,7 +39903,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "command-r7b",
@@ -39795,7 +39944,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "mistrallite",
@@ -39907,7 +40057,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "codebooga",
@@ -40013,7 +40164,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "phi4-reasoning",
@@ -40077,7 +40229,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "r1-1776",
@@ -40141,7 +40294,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "wizard-vicuna",
@@ -40253,7 +40407,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "nuextract",
@@ -40365,7 +40520,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "bespoke-minicheck",
@@ -40477,7 +40633,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "megadolphin",
@@ -40601,7 +40758,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "tulu3",
@@ -40665,7 +40823,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "notux",
@@ -40783,7 +40942,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "open-orca-platypus2",
@@ -40895,7 +41055,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "notus",
@@ -41013,7 +41174,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "goliath",
@@ -41119,7 +41281,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "firefunction-v2",
@@ -41231,7 +41394,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "dbrx",
@@ -41283,7 +41447,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "granite3-guardian",
@@ -41353,7 +41518,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "alfred",
@@ -41405,7 +41571,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "command-a",
@@ -41445,7 +41612,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "phi4-mini-reasoning",
@@ -41485,7 +41653,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "sailor2",
@@ -41573,7 +41742,8 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
   },
   {
     "name": "command-r7b-arabic",
@@ -41613,6 +41783,36 @@
       }
     ],
     "embedding": false,
-    "vision": false
+    "vision": false,
+    "thinking": false
+  },
+  {
+    "name": "gpt-oss",
+    "description": "OpenAI's open-weight models designed for powerful reasoning, agentic tasks, and versatile developer use cases.",
+    "supportTools": true,
+    "defaultTag": "gpt-oss:20b",
+    "tags": [
+      {
+        "name": "gpt-oss:latest",
+        "hash": "",
+        "size": "14GB",
+        "isDefault": false
+      },
+      {
+        "name": "gpt-oss:20b",
+        "hash": "",
+        "size": "14GB",
+        "isDefault": true
+      },
+      {
+        "name": "gpt-oss:120b",
+        "hash": "",
+        "size": "65GB",
+        "isDefault": false
+      }
+    ],
+    "embedding": false,
+    "vision": false,
+    "thinking": true
   }
 ]

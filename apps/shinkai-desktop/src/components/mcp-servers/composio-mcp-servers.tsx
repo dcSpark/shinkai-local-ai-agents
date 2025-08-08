@@ -122,6 +122,7 @@ export const ComposioMcpServers = ({
         top_p: DEFAULT_CHAT_CONFIG.top_p,
         top_k: DEFAULT_CHAT_CONFIG.top_k,
         use_tools: true,
+        thinking: DEFAULT_CHAT_CONFIG.thinking,
       },
     });
   };

@@ -15,8 +15,8 @@ export const SHINKAI_TUTORIALS = {
 
 export const OLLAMA_MODELS_WITH_THINKING_SUPPORT = Array.from(
   new Set(
-    OLLAMA_MODELS_REPOSITORY.filter((model) => model.thinking).map(
-      (model) => model.name,
-    ),
+    OLLAMA_MODELS_REPOSITORY.filter((model) => model.thinking)
+      .map((model) => model.name)
+      .map((name) => name.toLowerCase().replace(/-/g, '_')),
   ),
 );

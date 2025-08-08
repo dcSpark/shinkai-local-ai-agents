@@ -210,17 +210,17 @@ export const MessageList = memo(
                       ? 'mr-auto ml-0 flex-col'
                       : 'mr-0 ml-auto w-[300px] items-start',
                   )}
-                  key={`${index}`}
+                  key={`skeleton-${index}`}
                 >
                   {index % 2 !== 0 ? (
                     <div className="flex items-center justify-start gap-2">
                       <Skeleton
                         className="size-6 shrink-0 rounded-full"
-                        key={index}
+                        key={`avatar-${index}`}
                       />
                       <Skeleton
                         className="h-6 w-[100px] shrink-0 rounded-md"
-                        key={index}
+                        key={`name-${index}`}
                       />
                     </div>
                   ) : null}
@@ -246,12 +246,12 @@ export const MessageList = memo(
                       ? 'mr-auto ml-0 flex-col'
                       : 'mr-0 ml-auto w-[300px] items-start',
                   )}
-                  key={`${index}`}
+                  key={`skeleton-prev-${index}`}
                 >
                   {index % 2 !== 0 ? (
                     <Skeleton
                       className="bg-bg-quaternary size-6 shrink-0 rounded-full"
-                      key={index}
+                      key={`prev-avatar-${index}`}
                     />
                   ) : null}
                   <Skeleton

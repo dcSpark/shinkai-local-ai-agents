@@ -45,11 +45,11 @@ function ThinkingSwitchActionBarBase({
             onClick={onClick}
             type="button"
           >
-            <Brain 
+            <Brain
               className={cn(
-                "size-4",
-                checked ? "text-cyan-400" : "text-gray-400"
-              )} 
+                'size-4',
+                checked ? 'text-cyan-400' : 'text-text-secondary',
+              )}
             />
             <span>{t('shinkaiNode.models.labels.thinkingCapability')}</span>
           </button>
@@ -116,4 +116,6 @@ export function UpdateThinkingSwitchActionBarBase() {
     />
   );
 }
-export const UpdateThinkingSwitchActionBar = memo(UpdateThinkingSwitchActionBarBase);
+export const UpdateThinkingSwitchActionBar = memo(
+  UpdateThinkingSwitchActionBarBase,
+);

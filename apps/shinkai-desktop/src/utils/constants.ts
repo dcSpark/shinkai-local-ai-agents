@@ -1,3 +1,5 @@
+import OLLAMA_MODELS_REPOSITORY from '../lib/shinkai-node-manager/ollama-models-repository.json';
+
 export const SHINKAI_DOCS_URL = 'https://docs.shinkai.com';
 
 export const SHINKAI_TUTORIALS = {
@@ -10,3 +12,11 @@ export const SHINKAI_TUTORIALS = {
   'shinkai-tools':
     'https://pub-0f9ce9e619a7477aa6e92197a3ec4a1e.r2.dev/assets/tools.mp4',
 } as const;
+
+export const OLLAMA_MODELS_WITH_THINKING_SUPPORT = Array.from(
+  new Set(
+    OLLAMA_MODELS_REPOSITORY.filter((model) => model.thinking).map(
+      (model) => model.name,
+    ),
+  ),
+);

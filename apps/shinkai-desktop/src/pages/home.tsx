@@ -55,7 +55,7 @@ import {
   Plus,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useForm } from 'react-hook-form';
 import { useHotkeys } from 'react-hotkeys-hook';
@@ -92,6 +92,7 @@ import { useAnalytics } from '../lib/posthog-provider';
 import { useAuth } from '../store/auth';
 import { useSettings } from '../store/settings';
 import { useViewportStore } from '../store/viewport';
+import { OLLAMA_MODELS_WITH_THINKING_SUPPORT } from '../utils/constants';
 // import { SHINKAI_DOCS_URL, SHINKAI_TUTORIALS } from '../utils/constants';
 
 export const showSpotlightWindow = async () => {
@@ -543,6 +544,14 @@ const EmptyMessage = () => {
   const { requiresConfiguration } =
     useAgentRequiresToolConfigurations(selectedAgent);
 
+  const isCurrentModelSupportsThinking = useMemo(
+    () =>
+      OLLAMA_MODELS_WITH_THINKING_SUPPORT.some((supported) =>
+        (currentAI ?? '').toLowerCase().includes(supported.toLowerCase()),
+      ),
+    [currentAI],
+  );
+
   return (
     <motion.div
       animate={{ opacity: 1 }}
@@ -700,18 +709,19 @@ const EmptyMessage = () => {
                           />
                         )}
 
-                        {/* TODO: Enable when we have a way to check if the model supports thinking */}
-                        {/* {!selectedTool && !selectedAgent && (
-                          <ThinkingSwitchActionBar
-                            checked={chatConfigForm.watch('thinking')}
-                            onClick={() => {
-                              chatConfigForm.setValue(
-                                'thinking',
-                                !chatConfigForm.watch('thinking'),
-                              );
-                            }}
-                          />
-                        )} */}
+                        {!selectedTool &&
+                          !selectedAgent &&
+                          isCurrentModelSupportsThinking && (
+                            <ThinkingSwitchActionBar
+                              checked={chatConfigForm.watch('thinking')}
+                              onClick={() => {
+                                chatConfigForm.setValue(
+                                  'thinking',
+                                  !chatConfigForm.watch('thinking'),
+                                );
+                              }}
+                            />
+                          )}
                         {/* <WebSearchActionBar
                                       checked={chatConfigForm.watch('useTools')}
                                       onClick={() => {

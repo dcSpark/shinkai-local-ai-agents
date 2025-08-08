@@ -59,7 +59,7 @@ import equal from 'fast-deep-equal';
 import { partial } from 'filesize';
 import { AnimatePresence, motion } from 'framer-motion';
 import { EllipsisIcon, Loader2, Paperclip, X, XIcon } from 'lucide-react';
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useForm } from 'react-hook-form';
 import { useHotkeys } from 'react-hotkeys-hook';
@@ -68,6 +68,7 @@ import { toast } from 'sonner';
 
 import { useAnalytics } from '../../lib/posthog-provider';
 import { useAuth } from '../../store/auth';
+import { OLLAMA_MODELS_WITH_THINKING_SUPPORT } from '../../utils/constants';
 import { usePromptSelectionStore } from '../prompt/context/prompt-selection-context';
 import { AiUpdateSelectionActionBar } from './chat-action-bar/ai-update-selection-action-bar';
 import {
@@ -432,6 +433,16 @@ function ConversationChatFooter({
     textareaRef.current.focus();
   }, [currentMessage]);
 
+  const isCurrentModelSupportsThinking = useMemo(
+    () =>
+      OLLAMA_MODELS_WITH_THINKING_SUPPORT.some((supported) =>
+        (provider?.agent?.id ?? '')
+          .toLowerCase()
+          .includes(supported.toLowerCase()),
+      ),
+    [provider?.agent?.id],
+  );
+
   return (
     <div className="container p-3 pb-1">
       <div
@@ -530,9 +541,11 @@ function ConversationChatFooter({
                         <UpdateToolsSwitchActionBar />
                       )}
 
-                      {isAgentInbox || selectedTool ? null : (
+                      {!isAgentInbox &&
+                      !selectedTool &&
+                      isCurrentModelSupportsThinking ? (
                         <UpdateThinkingSwitchActionBar />
-                      )}
+                      ) : null}
 
                       {isAgentInbox || selectedTool ? null : (
                         <UpdateVectorFsActionBar />

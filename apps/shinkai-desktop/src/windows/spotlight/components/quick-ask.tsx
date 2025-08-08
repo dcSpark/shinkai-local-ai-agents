@@ -40,7 +40,7 @@ import { listen } from '@tauri-apps/api/event';
 
 import { motion } from 'framer-motion';
 import { ExternalLinkIcon, PlusIcon } from 'lucide-react';
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useForm } from 'react-hook-form';
 import { useHotkeys } from 'react-hotkeys-hook';
@@ -65,6 +65,7 @@ import {
 import { useChatConversationWithOptimisticUpdates } from '../../../pages/chat/chat-conversation';
 import { useAuth } from '../../../store/auth';
 import { useSettings } from '../../../store/settings';
+import { OLLAMA_MODELS_WITH_THINKING_SUPPORT } from '../../../utils/constants';
 import { useQuickAskStore } from '../context/quick-ask';
 import { AIModelSelector, AiUpdateSelection } from './ai-update-selection';
 import { MessageList } from './message-list';
@@ -344,6 +345,14 @@ function QuickAsk() {
     });
   };
 
+  const isCurrentModelSupportsThinking = useMemo(
+    () =>
+      OLLAMA_MODELS_WITH_THINKING_SUPPORT.some((supported) =>
+        (currentAI ?? '').toLowerCase().includes(supported.toLowerCase()),
+      ),
+    [currentAI],
+  );
+
   return (
     <div className="relative flex size-full flex-col gap-2">
       <div
@@ -455,18 +464,20 @@ function QuickAsk() {
                         />
                       )}
 
-                      {/* TODO: Enable when we have a way to check if the model supports thinking */}
-                      {/* {!selectedTool && !selectedAgent && !inboxId && (
-                        <ThinkingSwitchActionBar
-                          checked={chatConfigForm.watch('thinking')}
-                          onClick={() => {
-                            chatConfigForm.setValue(
-                              'thinking',
-                              !chatConfigForm.watch('thinking'),
-                            );
-                          }}
-                        />
-                      )} */}
+                      {!selectedTool &&
+                        !selectedAgent &&
+                        !inboxId &&
+                        isCurrentModelSupportsThinking && (
+                          <ThinkingSwitchActionBar
+                            checked={chatConfigForm.watch('thinking')}
+                            onClick={() => {
+                              chatConfigForm.setValue(
+                                'thinking',
+                                !chatConfigForm.watch('thinking'),
+                              );
+                            }}
+                          />
+                        )}
                       {!selectedTool && !selectedAgent && inboxId && (
                         <UpdateChatConfigActionBar />
                       )}

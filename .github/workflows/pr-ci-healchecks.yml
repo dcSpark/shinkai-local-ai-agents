@@ -41,7 +41,7 @@ jobs:
         env:
           ARCH: x86_64-unknown-linux-gnu
           OLLAMA_VERSION: v0.11.3
-          SHINKAI_NODE_VERSION: v1.1.3
+          SHINKAI_NODE_VERSION: v1.1.4
         run: |
           npx ts-node ./ci-scripts/download-side-binaries.ts
 

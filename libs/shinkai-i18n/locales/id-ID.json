@@ -15,10 +15,10 @@
       "descriptionPlaceholder": "misalnya, Buat desain yang berpusat pada pengguna dan tingkatkan interaksi pengguna.",
       "enableStream": "Aktifkan Stream",
       "enableStreamDescription": "Mengalirkan respons agen saat dihasilkan",
-      "enableTools": "Aktifkan Alat",
-      "enableToolsDescription": "Memungkinkan agen menggunakan alat untuk menyelesaikan tugas.",
       "enableThinking": "Aktifkan Pemikiran",
       "enableThinkingDescription": "Memungkinkan agen menunjukkan proses penalarannya sebelum memberikan jawaban.",
+      "enableTools": "Aktifkan Alat",
+      "enableToolsDescription": "Memungkinkan agen menggunakan alat untuk menyelesaikan tugas.",
       "knowledge": "Pengetahuan",
       "knowledgeAddNewFiles": "Tambahkan File Baru",
       "knowledgeBase": "Basis Pengetahuan",
@@ -305,6 +305,7 @@
     "cronExpression": "Ekspresi Cron",
     "cronWillRun": "Cron ini akan berjalan {{schedule}} ({{expression}})",
     "enableStream": "Aktifkan Stream",
+    "enableThinking": "Aktifkan Pemikiran",
     "enableTools": "Aktifkan Alat",
     "forceToolUsage": "Paksa Penggunaan Alat (Opsional)",
     "promptExample": "mis. Berikan saya berita hacker teratas",
@@ -907,9 +908,9 @@
         "showRecommended": "Tampilkan model yang direkomendasikan",
         "tags": "Tag",
         "textCapability": "Generasi Teks",
-        "visionCapability": "Gambar ke Teks",
         "thinkingCapability": "Pemikiran",
-        "toolCallingCapability": "Panggil Alat"
+        "toolCallingCapability": "Panggil Alat",
+        "visionCapability": "Gambar ke Teks"
       },
       "poweredByOllama": "Didukung oleh Ollama",
       "success": {

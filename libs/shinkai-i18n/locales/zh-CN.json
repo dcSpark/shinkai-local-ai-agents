@@ -15,10 +15,10 @@
       "descriptionPlaceholder": "例如，创建以用户为中心的设计并改善用户交互。",
       "enableStream": "启用流",
       "enableStreamDescription": "在生成时流式传输代理的响应",
-      "enableTools": "启用工具",
-      "enableToolsDescription": "允许代理使用工具来完成任务。",
       "enableThinking": "启用思考",
       "enableThinkingDescription": "允许代理在提供答案之前显示其推理过程。",
+      "enableTools": "启用工具",
+      "enableToolsDescription": "允许代理使用工具来完成任务。",
       "knowledge": "知识",
       "knowledgeAddNewFiles": "添加新文件",
       "knowledgeBase": "知识库",
@@ -305,6 +305,7 @@
     "cronExpression": "Cron 表达式",
     "cronWillRun": "此 cron 将在 {{schedule}}（{{expression}}）运行",
     "enableStream": "启用流",
+    "enableThinking": "启用思考",
     "enableTools": "启用工具",
     "forceToolUsage": "强制使用工具（可选）",
     "promptExample": "例如：给我最热门的黑客新闻",
@@ -907,9 +908,9 @@
         "showRecommended": "显示推荐模型",
         "tags": "标签",
         "textCapability": "文本生成",
-        "visionCapability": "图像转文本",
         "thinkingCapability": "思考",
-        "toolCallingCapability": "工具调用"
+        "toolCallingCapability": "工具调用",
+        "visionCapability": "图像转文本"
       },
       "poweredByOllama": "由 Ollama 提供支持",
       "success": {

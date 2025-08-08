@@ -15,10 +15,10 @@
       "descriptionPlaceholder": "örn., Kullanıcı odaklı tasarımlar oluşturun ve kullanıcı etkileşimlerini geliştirin.",
       "enableStream": "Akışı Etkinleştir",
       "enableStreamDescription": "Ajanın yanıtını oluştururken akış halinde iletin",
-      "enableTools": "Araçları Etkinleştir",
-      "enableToolsDescription": "Ajanın görevleri tamamlamak için araçları kullanmasına izin verir.",
       "enableThinking": "Düşünmeyi Etkinleştir",
       "enableThinkingDescription": "Ajanın cevap vermeden önce mantık yürütme sürecini göstermesine izin verir.",
+      "enableTools": "Araçları Etkinleştir",
+      "enableToolsDescription": "Ajanın görevleri tamamlamak için araçları kullanmasına izin verir.",
       "knowledge": "Bilgi",
       "knowledgeAddNewFiles": "Yeni Dosyalar Ekle",
       "knowledgeBase": "Bilgi Tabanı",
@@ -305,6 +305,7 @@
     "cronExpression": "Cron İfadesi",
     "cronWillRun": "Bu cron {{schedule}} ({{expression}}) olarak çalışacak",
     "enableStream": "Akışı Etkinleştir",
+    "enableThinking": "Düşünmeyi Etkinleştir",
     "enableTools": "Araçları Etkinleştir",
     "forceToolUsage": "Araç Kullanımını Zorla (İsteğe Bağlı)",
     "promptExample": "örneğin. En iyi hacker haberlerini ver",
@@ -907,9 +908,9 @@
         "showRecommended": "Tavsiye edilen modelleri göster",
         "tags": "Etiketler",
         "textCapability": "Metin Üretimi",
-        "visionCapability": "Görüntüden Metne",
         "thinkingCapability": "Düşünme",
-        "toolCallingCapability": "Araç Çağrısı"
+        "toolCallingCapability": "Araç Çağrısı",
+        "visionCapability": "Görüntüden Metne"
       },
       "poweredByOllama": "Ollama tarafından desteklenmektedir",
       "success": {

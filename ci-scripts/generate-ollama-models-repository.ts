@@ -1,8 +1,8 @@
-import * as cheerio from 'cheerio';
-import axios from 'axios';
-import * as z from 'zod';
 import fs from 'fs';
 import path from 'path';
+import axios from 'axios';
+import * as cheerio from 'cheerio';
+import * as z from 'zod';
 
 const OllamaModelTag = z.object({
   name: z.string().min(1),
@@ -18,6 +18,7 @@ const OllamaModelSchema = z.object({
   supportTools: z.boolean(),
   embedding: z.boolean(),
   vision: z.boolean(),
+  thinking: z.boolean(),
 });
 
 type OllamaModelTag = z.infer<typeof OllamaModelTag>;
@@ -46,35 +47,47 @@ const modelHtmlToObject = async (
   const supportTools = uiTags.includes('tools');
   const embedding = uiTags.includes('embedding');
   const vision = uiTags.includes('vision');
+  const thinking = uiTags.includes('thinking');
   const modelTagsHtml = await getOllamaModelTagsHtml(name);
   const modelTagsApi = cheerio.load(modelTagsHtml);
 
   const getTags = (): OllamaModelTag[] => {
-    const tags: OllamaModelTag[] = modelTagsApi(
-      `body > main > div > section > div > div > div:not(:first-child)`,
-    )
+    const tags: OllamaModelTag[] = modelTagsApi('.group.px-4.py-3')
       .toArray()
       .map((el) => {
+        // Extract the tag name from the link or span with group-hover:underline class
         const name = modelTagsApi(el)
-          .find('div > div:nth-child(1) a')
+          .find('.group-hover\\:underline')
+          .first()
           .text()
           .trim();
+        
+        // Extract the hash from the font-mono span
         const hash = modelTagsApi(el)
-          .find('div > div:nth-child(2) > span')
+          .find('.font-mono')
+          .first()
           .text()
           .trim();
-        const size = modelTagsApi(el)
-          .find('div > div:nth-child(1) > p:nth-child(2)')
-          .text()
-          .trim();
-        const defaultElementText = modelTagsApi(el)
-          .find('div > div:nth-child(1) span span')
-          .text()
-          .trim();
-        const isDefault = defaultElementText === 'Latest';
+        
+        // Extract size from the text that contains "GB" - look in the same container as hash
+        const sizeContainer = modelTagsApi(el)
+          .find('.text-neutral-500')
+          .text();
+        const sizeMatch = sizeContainer.match(/(\d+(?:\.\d+)?\s*[GM]B)/);
+        const size = sizeMatch ? sizeMatch[1] : 'Unknown';
+        
+        // Check if this is the default/latest tag by looking for "latest" badge
+        const hasLatestBadge = modelTagsApi(el)
+          .find('span')
+          .toArray()
+          .some((span) => modelTagsApi(span).text().trim().toLowerCase() === 'latest');
+        const isDefault = hasLatestBadge;
+        
         return { name, hash, size, isDefault };
-      });
-    return tags.filter((tag) => tag.name !== 'latest');
+      })
+      .filter((tag) => tag.name && tag.name !== 'latest'); // Filter out empty names and 'latest' only tags
+    
+    return tags;
   };
   const tags = getTags();
 
@@ -87,6 +100,7 @@ const modelHtmlToObject = async (
     tags: tags,
     embedding,
     vision,
+    thinking,
   };
 };
 const main = async () => {

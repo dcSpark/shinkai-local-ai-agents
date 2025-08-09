@@ -11,11 +11,23 @@ import {
   Input,
 } from '@shinkai_network/shinkai-ui';
 import { useState, useEffect } from 'react';
+import { useAuth } from '../../store/auth';
+import { useGetAgentNetworkOffering } from '@shinkai_network/shinkai-node-state/v2/queries/getAgentNetworkOffering/useGetAgentNetworkOffering';
 
 export default function AddAgentFromIdModal() {
   const { t } = useTranslation();
+  const auth = useAuth((state) => state.auth);
   const [open, setOpen] = useState(false);
   const [agentId, setAgentId] = useState('');
+
+  const { refetch } = useGetAgentNetworkOffering(
+    {
+      nodeAddress: auth?.node_address ?? '',
+      token: auth?.api_v2_key ?? '',
+      agentId,
+    },
+    { enabled: false },
+  );
 
   useEffect(() => {
     if (open) {
@@ -23,8 +35,10 @@ export default function AddAgentFromIdModal() {
     }
   }, [open]);
 
-  const handleAdd = () => {
-    // TODO: Add agent using the provided Shinkai ID
+  const handleAdd = async () => {
+    if (!auth) return;
+    const result = await refetch();
+    console.log(result.data);
     setOpen(false);
   };
 

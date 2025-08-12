@@ -65,7 +65,7 @@ import {
 import { useChatConversationWithOptimisticUpdates } from '../../../pages/chat/chat-conversation';
 import { useAuth } from '../../../store/auth';
 import { useSettings } from '../../../store/settings';
-import { OLLAMA_MODELS_WITH_THINKING_SUPPORT } from '../../../utils/constants';
+import { MODELS_WITH_THINKING_SUPPORT } from '../../../utils/constants';
 import { useQuickAskStore } from '../context/quick-ask';
 import { AIModelSelector, AiUpdateSelection } from './ai-update-selection';
 import { MessageList } from './message-list';
@@ -152,6 +152,7 @@ function QuickAsk() {
       topK: DEFAULT_CHAT_CONFIG.top_k,
       useTools: DEFAULT_CHAT_CONFIG.use_tools,
       thinking: DEFAULT_CHAT_CONFIG.thinking,
+      reasoningEffort: DEFAULT_CHAT_CONFIG.reasoning_effort,
     },
   });
 
@@ -170,6 +171,7 @@ function QuickAsk() {
       topK: DEFAULT_CHAT_CONFIG.top_k,
       useTools: DEFAULT_CHAT_CONFIG.use_tools,
       thinking: DEFAULT_CHAT_CONFIG.thinking,
+      reasoningEffort: DEFAULT_CHAT_CONFIG.reasoning_effort,
     });
     chatInputRef.current?.focus();
   }, [chatConfigForm, chatForm, defaultSpotlightAiId, setInboxId]);
@@ -265,6 +267,7 @@ function QuickAsk() {
         topK: DEFAULT_CHAT_CONFIG.top_k,
         useTools: DEFAULT_CHAT_CONFIG.use_tools,
         thinking: DEFAULT_CHAT_CONFIG.thinking,
+        reasoningEffort: DEFAULT_CHAT_CONFIG.reasoning_effort,
       });
     },
     onError: (error) => {
@@ -314,6 +317,7 @@ function QuickAsk() {
           top_k: chatConfigForm.getValues('topK'),
           use_tools: chatConfigForm.getValues('useTools'),
           thinking: chatConfigForm.getValues('thinking'),
+          reasoning_effort: chatConfigForm.getValues('reasoningEffort'),
         },
       });
       return;
@@ -342,14 +346,27 @@ function QuickAsk() {
       topK: DEFAULT_CHAT_CONFIG.top_k,
       useTools: DEFAULT_CHAT_CONFIG.use_tools,
       thinking: DEFAULT_CHAT_CONFIG.thinking,
+      reasoningEffort: DEFAULT_CHAT_CONFIG.reasoning_effort,
     });
   };
 
-  const isCurrentModelSupportsThinking = useMemo(
-    () =>
-      OLLAMA_MODELS_WITH_THINKING_SUPPORT.some((supported) =>
-        (currentAI ?? '').toLowerCase().includes(supported.toLowerCase()),
-      ),
+  const thinkingConfig = useMemo(
+    () => {
+      const currentModel = (currentAI ?? '').toLowerCase();
+      const supportedModel = Object.keys(MODELS_WITH_THINKING_SUPPORT).find((supportedModel) =>
+        currentModel.includes(supportedModel.toLowerCase().replace(/-/g, '_'))
+      );
+      
+      if (!supportedModel) {
+        return { supportsThinking: false, forceEnabled: false };
+      }
+      
+      const config = MODELS_WITH_THINKING_SUPPORT[supportedModel as keyof typeof MODELS_WITH_THINKING_SUPPORT];
+      return { 
+        supportsThinking: true, 
+        forceEnabled: config.forceEnabled 
+      };
+    },
     [currentAI],
   );
 
@@ -467,14 +484,18 @@ function QuickAsk() {
                       {!selectedTool &&
                         !selectedAgent &&
                         !inboxId &&
-                        isCurrentModelSupportsThinking && (
+                        thinkingConfig.supportsThinking && (
                           <ThinkingSwitchActionBar
-                            checked={chatConfigForm.watch('thinking')}
+                            checked={thinkingConfig.forceEnabled || chatConfigForm.watch('thinking')}
+                            disabled={thinkingConfig.forceEnabled}
+                            forceEnabled={thinkingConfig.forceEnabled}
                             onClick={() => {
-                              chatConfigForm.setValue(
-                                'thinking',
-                                !chatConfigForm.watch('thinking'),
-                              );
+                              if (!thinkingConfig.forceEnabled) {
+                                chatConfigForm.setValue(
+                                  'thinking',
+                                  !chatConfigForm.watch('thinking'),
+                                );
+                              }
                             }}
                           />
                         )}

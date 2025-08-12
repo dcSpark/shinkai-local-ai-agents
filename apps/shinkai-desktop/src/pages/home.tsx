@@ -92,7 +92,7 @@ import { useAnalytics } from '../lib/posthog-provider';
 import { useAuth } from '../store/auth';
 import { useSettings } from '../store/settings';
 import { useViewportStore } from '../store/viewport';
-import { OLLAMA_MODELS_WITH_THINKING_SUPPORT } from '../utils/constants';
+import { MODELS_WITH_THINKING_SUPPORT } from '../utils/constants';
 // import { SHINKAI_DOCS_URL, SHINKAI_TUTORIALS } from '../utils/constants';
 
 export const showSpotlightWindow = async () => {
@@ -169,6 +169,7 @@ const EmptyMessage = () => {
       topK: DEFAULT_CHAT_CONFIG.top_k,
       useTools: DEFAULT_CHAT_CONFIG.use_tools,
       thinking: DEFAULT_CHAT_CONFIG.thinking,
+      reasoningEffort: DEFAULT_CHAT_CONFIG.reasoning_effort,
     },
   });
 
@@ -529,6 +530,7 @@ const EmptyMessage = () => {
         top_k: chatConfigForm.getValues('topK'),
         use_tools: chatConfigForm.getValues('useTools'),
         thinking: chatConfigForm.getValues('thinking'),
+        reasoning_effort: chatConfigForm.getValues('reasoningEffort'),
       },
     });
 
@@ -544,11 +546,23 @@ const EmptyMessage = () => {
   const { requiresConfiguration } =
     useAgentRequiresToolConfigurations(selectedAgent);
 
-  const isCurrentModelSupportsThinking = useMemo(
-    () =>
-      OLLAMA_MODELS_WITH_THINKING_SUPPORT.some((supported) =>
-        (currentAI ?? '').toLowerCase().includes(supported.toLowerCase()),
-      ),
+  const thinkingConfig = useMemo(
+    () => {
+      const currentModel = (currentAI ?? '').toLowerCase();
+      const supportedModel = Object.keys(MODELS_WITH_THINKING_SUPPORT).find((supportedModel) =>
+        currentModel.includes(supportedModel.toLowerCase().replace(/-/g, '_'))
+      );
+      
+      if (!supportedModel) {
+        return { supportsThinking: false, forceEnabled: false };
+      }
+      
+      const config = MODELS_WITH_THINKING_SUPPORT[supportedModel as keyof typeof MODELS_WITH_THINKING_SUPPORT];
+      return { 
+        supportsThinking: true, 
+        forceEnabled: config.forceEnabled 
+      };
+    },
     [currentAI],
   );
 
@@ -711,14 +725,18 @@ const EmptyMessage = () => {
 
                         {!selectedTool &&
                           !selectedAgent &&
-                          isCurrentModelSupportsThinking && (
+                          thinkingConfig.supportsThinking && (
                             <ThinkingSwitchActionBar
-                              checked={chatConfigForm.watch('thinking')}
+                              checked={thinkingConfig.forceEnabled || chatConfigForm.watch('thinking')}
+                              disabled={thinkingConfig.forceEnabled}
+                              forceEnabled={thinkingConfig.forceEnabled}
                               onClick={() => {
-                                chatConfigForm.setValue(
-                                  'thinking',
-                                  !chatConfigForm.watch('thinking'),
-                                );
+                                if (!thinkingConfig.forceEnabled) {
+                                  chatConfigForm.setValue(
+                                    'thinking',
+                                    !chatConfigForm.watch('thinking'),
+                                  );
+                                }
                               }}
                             />
                           )}

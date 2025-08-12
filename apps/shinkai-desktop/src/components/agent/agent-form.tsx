@@ -164,6 +164,7 @@ const agentFormSchema = z.object({
       use_tools: z.boolean(),
       stream: z.boolean(),
       thinking: z.boolean(),
+      reasoning_effort: z.enum(['low', 'medium', 'high']).optional(),
       other_model_params: z.record(z.string()),
     })
     .nullable(),
@@ -297,6 +298,7 @@ function AgentSideChat({
           top_k: DEFAULT_CHAT_CONFIG.top_k,
           use_tools: hasTools,
           thinking: DEFAULT_CHAT_CONFIG.thinking,
+          reasoning_effort: DEFAULT_CHAT_CONFIG.reasoning_effort,
         },
       });
     } else {
@@ -615,6 +617,7 @@ function AgentForm({ mode }: AgentFormProps) {
         other_model_params: {},
         use_tools: true,
         thinking: DEFAULT_CHAT_CONFIG.thinking,
+        reasoning_effort: DEFAULT_CHAT_CONFIG.reasoning_effort,
       },
       llmProviderId: defaultAgentId,
 
@@ -642,6 +645,7 @@ function AgentForm({ mode }: AgentFormProps) {
         top_p: agent.config?.top_p ?? DEFAULT_CHAT_CONFIG.top_p,
         use_tools: agent.config?.use_tools ?? true,
         thinking: agent.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
+        reasoning_effort: agent.config?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
         stream: agent.config?.stream ?? DEFAULT_CHAT_CONFIG.stream,
         other_model_params: agent.config?.other_model_params ?? {},
       });
@@ -818,6 +822,7 @@ function AgentForm({ mode }: AgentFormProps) {
               top_k: values.config?.top_k,
               use_tools: values.tools.length > 0,
               thinking: values.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
+              reasoning_effort: values.config?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
               stream: true,
             },
             message: values.aiPrompt || values.uiDescription || 'Scheduled run',
@@ -844,6 +849,7 @@ function AgentForm({ mode }: AgentFormProps) {
               top_k: values.config?.top_k,
               use_tools: values.tools.length > 0,
               thinking: values.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
+              reasoning_effort: values.config?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
               stream: true,
             },
             message: values.aiPrompt || values.uiDescription || 'Scheduled run',
@@ -1007,6 +1013,7 @@ function AgentForm({ mode }: AgentFormProps) {
                 top_k: values.config?.top_k,
                 use_tools: values.tools.length > 0,
                 thinking: values.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
+                reasoning_effort: values.config?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
                 stream: true,
               },
               message:
@@ -1034,6 +1041,7 @@ function AgentForm({ mode }: AgentFormProps) {
                 top_k: values.config?.top_k,
                 use_tools: values.tools.length > 0,
                 thinking: values.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
+                reasoning_effort: values.config?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
                 stream: true,
               },
               message:

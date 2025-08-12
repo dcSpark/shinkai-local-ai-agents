@@ -13,10 +13,23 @@ export const SHINKAI_TUTORIALS = {
     'https://pub-0f9ce9e619a7477aa6e92197a3ec4a1e.r2.dev/assets/tools.mp4',
 } as const;
 
-export const OLLAMA_MODELS_WITH_THINKING_SUPPORT = Array.from(
-  new Set(
+export const MODELS_WITH_THINKING_SUPPORT = {
+  // Ollama models with thinking support
+  ...Object.fromEntries(
     OLLAMA_MODELS_REPOSITORY.filter((model) => model.thinking)
-      .map((model) => model.name)
-      .map((name) => name.toLowerCase().replace(/-/g, '_')),
+      .map((model) => [model.name, { forceEnabled: true, reasoningLevel: false }])
   ),
-);
+  
+  // Claude models
+  'claude-opus-4-1-20250805': { forceEnabled: false, reasoningLevel: true },
+  'claude-opus-4-1': { forceEnabled: false, reasoningLevel: true },
+  'claude-opus-4-20250514': { forceEnabled: false, reasoningLevel: true },
+  'claude-opus-4-0': { forceEnabled: false, reasoningLevel: true },
+  'claude-sonnet-4-20250514': { forceEnabled: false, reasoningLevel: true },
+  'claude-sonnet-4-0': { forceEnabled: false, reasoningLevel: true },
+  'claude-3-7-sonnet-20250219': { forceEnabled: false, reasoningLevel: true },
+  'claude-3-7-sonnet-latest': { forceEnabled: false, reasoningLevel: true },
+  
+  // DeepSeek models
+  'deepseek-reasoner': { forceEnabled: true, reasoningLevel: false },
+} as const;

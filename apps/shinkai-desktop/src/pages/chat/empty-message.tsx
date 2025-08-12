@@ -74,6 +74,7 @@ const EmptyMessage = () => {
         top_k: DEFAULT_CHAT_CONFIG.top_k,
         use_tools: DEFAULT_CHAT_CONFIG.use_tools,
         thinking: DEFAULT_CHAT_CONFIG.thinking,
+        reasoning_effort: DEFAULT_CHAT_CONFIG.reasoning_effort,
       },
     });
   };

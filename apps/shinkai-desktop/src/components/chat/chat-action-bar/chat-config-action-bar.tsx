@@ -43,6 +43,7 @@ export const chatConfigFormSchema = z.object({
   stream: z.boolean(),
   useTools: z.boolean(),
   thinking: z.boolean(),
+  reasoningEffort: z.enum(['low', 'medium', 'high']).optional(),
   customPrompt: z.string().optional(),
   temperature: z.number(),
   topP: z.number(),
@@ -282,6 +283,7 @@ export function UpdateChatConfigActionBarBase() {
       topK: chatConfig?.top_k,
       useTools: chatConfig?.use_tools,
       thinking: chatConfig?.thinking,
+      reasoningEffort: chatConfig?.reasoning_effort,
     },
   });
 
@@ -306,6 +308,7 @@ export function UpdateChatConfigActionBarBase() {
         topK: chatConfig.top_k,
         useTools: chatConfig.use_tools,
         thinking: chatConfig.thinking,
+        reasoningEffort: chatConfig.reasoning_effort,
       });
     }
   }, [chatConfig, form]);
@@ -324,6 +327,7 @@ export function UpdateChatConfigActionBarBase() {
         top_k: data.topK,
         use_tools: data.useTools,
         thinking: data.thinking,
+        reasoning_effort: data.reasoningEffort,
       },
     });
   };
@@ -342,6 +346,7 @@ export function UpdateChatConfigActionBarBase() {
               topK: chatConfig?.top_k,
               useTools: chatConfig?.use_tools,
               thinking: chatConfig?.thinking,
+              reasoningEffort: chatConfig?.reasoning_effort,
             });
           }
         }}

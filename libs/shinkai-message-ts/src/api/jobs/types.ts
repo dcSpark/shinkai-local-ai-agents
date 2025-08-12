@@ -256,6 +256,7 @@ export type JobConfig = {
   stream?: boolean;
   use_tools?: boolean;
   thinking?: boolean;
+  reasoning_effort?: 'low' | 'medium' | 'high';
   other_model_params?: Record<string, string>;
 };
 export type GetChatConfigRequest = {

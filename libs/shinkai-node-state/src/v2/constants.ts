@@ -72,6 +72,7 @@ export const DEFAULT_CHAT_CONFIG = {
   stream: true,
   use_tools: true,
   thinking: true,
+  reasoning_effort: 'low',
 } as const;
 
 export const OPTIMISTIC_USER_MESSAGE_ID = 'OPTIMISTIC_USER_MESSAGE_ID';

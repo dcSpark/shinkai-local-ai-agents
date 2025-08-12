@@ -22,12 +22,14 @@ interface ThinkingSwitchActionBarProps {
   checked: boolean;
   disabled?: boolean;
   onClick: () => void;
+  forceEnabled?: boolean;
 }
 
 function ThinkingSwitchActionBarBase({
   disabled,
   checked,
   onClick,
+  forceEnabled = false,
 }: ThinkingSwitchActionBarProps) {
   const { t } = useTranslation();
   return (
@@ -40,10 +42,9 @@ function ThinkingSwitchActionBarBase({
               'w-auto gap-2',
               checked &&
                 'bg-gray-900 text-cyan-400 hover:bg-gray-900 hover:text-cyan-500',
+              forceEnabled && 'opacity-75',
             )}
-            // disabled={disabled}
-            // TODO: remove this once ollama thinking bug is fixed
-            disabled
+            disabled={disabled}
             onClick={onClick}
             type="button"
           >
@@ -58,10 +59,13 @@ function ThinkingSwitchActionBarBase({
         </TooltipTrigger>
         <TooltipPortal>
           <TooltipContent>
-            {/* {checked ? 'Disable' : 'Enable'} AI Thinking Mode */}
             <p className="text-text-secondary mt-1 text-xs">
-              Thinking Mode is always enabled for Ollama models and cannot be
-              turned off at this time.
+              {forceEnabled 
+                ? 'Thinking Mode is always enabled for this model and cannot be turned off.'
+                : checked 
+                  ? 'Click to disable AI Thinking Mode'
+                  : 'Click to enable AI Thinking Mode'
+              }
             </p>
           </TooltipContent>
         </TooltipPortal>
@@ -74,10 +78,11 @@ export const ThinkingSwitchActionBar = memo(
   ThinkingSwitchActionBarBase,
   (prevProps, nextProps) =>
     prevProps.checked === nextProps.checked &&
-    prevProps.disabled === nextProps.disabled,
+    prevProps.disabled === nextProps.disabled &&
+    prevProps.forceEnabled === nextProps.forceEnabled,
 );
 
-export function UpdateThinkingSwitchActionBarBase() {
+export function UpdateThinkingSwitchActionBarBase({ forceEnabled = false }: { forceEnabled?: boolean }) {
   const auth = useAuth((state) => state.auth);
   const { inboxId: encodedInboxId = '' } = useParams();
   const inboxId = decodeURIComponent(encodedInboxId);
@@ -100,6 +105,8 @@ export function UpdateThinkingSwitchActionBarBase() {
   });
 
   const handleUpdateThinking = async () => {
+    if (forceEnabled) return; // Don't allow toggling when forced enabled
+    
     await updateChatConfig({
       nodeAddress: auth?.node_address ?? '',
       token: auth?.api_v2_key ?? '',
@@ -112,15 +119,17 @@ export function UpdateThinkingSwitchActionBarBase() {
         top_k: chatConfig?.top_k,
         use_tools: chatConfig?.use_tools,
         thinking: !chatConfig?.thinking,
+        reasoning_effort: chatConfig?.reasoning_effort,
       },
     });
   };
 
   return (
     <ThinkingSwitchActionBar
-      checked={!!chatConfig?.thinking}
-      disabled={isPending}
+      checked={forceEnabled || !!chatConfig?.thinking}
+      disabled={isPending || forceEnabled}
       onClick={() => handleUpdateThinking()}
+      forceEnabled={forceEnabled}
     />
   );
 }

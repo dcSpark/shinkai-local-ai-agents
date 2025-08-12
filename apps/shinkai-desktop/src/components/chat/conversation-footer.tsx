@@ -68,7 +68,7 @@ import { toast } from 'sonner';
 
 import { useAnalytics } from '../../lib/posthog-provider';
 import { useAuth } from '../../store/auth';
-import { OLLAMA_MODELS_WITH_THINKING_SUPPORT } from '../../utils/constants';
+import { MODELS_WITH_THINKING_SUPPORT } from '../../utils/constants';
 import { usePromptSelectionStore } from '../prompt/context/prompt-selection-context';
 import { AiUpdateSelectionActionBar } from './chat-action-bar/ai-update-selection-action-bar';
 import {
@@ -239,6 +239,7 @@ function ConversationChatFooter({
       topK: chatConfig?.top_k ?? DEFAULT_CHAT_CONFIG.top_k,
       useTools: chatConfig?.use_tools ?? DEFAULT_CHAT_CONFIG.use_tools,
       thinking: chatConfig?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
+      reasoningEffort: chatConfig?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
     },
   });
 
@@ -263,6 +264,7 @@ function ConversationChatFooter({
         topK: chatConfig.top_k,
         useTools: chatConfig.use_tools,
         thinking: chatConfig.thinking,
+        reasoningEffort: chatConfig.reasoning_effort,
       });
     }
   }, [chatConfig, chatConfigForm]);
@@ -433,13 +435,23 @@ function ConversationChatFooter({
     textareaRef.current.focus();
   }, [currentMessage]);
 
-  const isCurrentModelSupportsThinking = useMemo(
-    () =>
-      OLLAMA_MODELS_WITH_THINKING_SUPPORT.some((supported) =>
-        (provider?.agent?.id ?? '')
-          .toLowerCase()
-          .includes(supported.toLowerCase()),
-      ),
+  const thinkingConfig = useMemo(
+    () => {
+      const currentModel = (provider?.agent?.id ?? '').toLowerCase();
+      const supportedModel = Object.keys(MODELS_WITH_THINKING_SUPPORT).find((supportedModel) =>
+        currentModel.includes(supportedModel.toLowerCase().replace(/-/g, '_'))
+      );
+      
+      if (!supportedModel) {
+        return { supportsThinking: false, forceEnabled: false };
+      }
+      
+      const config = MODELS_WITH_THINKING_SUPPORT[supportedModel as keyof typeof MODELS_WITH_THINKING_SUPPORT];
+      return { 
+        supportsThinking: true, 
+        forceEnabled: config.forceEnabled 
+      };
+    },
     [provider?.agent?.id],
   );
 
@@ -541,11 +553,11 @@ function ConversationChatFooter({
                         <UpdateToolsSwitchActionBar />
                       )}
 
-                      {!isAgentInbox &&
-                      !selectedTool &&
-                      isCurrentModelSupportsThinking ? (
-                        <UpdateThinkingSwitchActionBar />
-                      ) : null}
+                                            {!isAgentInbox &&
+                        !selectedTool &&
+                        thinkingConfig.supportsThinking ? (
+                          <UpdateThinkingSwitchActionBar forceEnabled={thinkingConfig.forceEnabled} />
+                        ) : null}
 
                       {isAgentInbox || selectedTool ? null : (
                         <UpdateVectorFsActionBar />

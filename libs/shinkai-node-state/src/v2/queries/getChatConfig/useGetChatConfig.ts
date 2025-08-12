@@ -34,6 +34,7 @@ export const useGetChatConfig = (
         stream: data.stream ?? DEFAULT_CHAT_CONFIG.stream,
         use_tools: data.use_tools ?? DEFAULT_CHAT_CONFIG.use_tools,
         thinking: data.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
+        reasoning_effort: data.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
       };
     },
     ...options,

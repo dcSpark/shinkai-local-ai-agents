@@ -301,6 +301,7 @@ export function AiModelUpdateSelectionToolsBase({
         top_k: chatConfig?.top_k,
         use_tools: enabled,
         thinking: chatConfig?.thinking,
+        reasoning_effort: chatConfig?.reasoning_effort,
       },
     });
   };

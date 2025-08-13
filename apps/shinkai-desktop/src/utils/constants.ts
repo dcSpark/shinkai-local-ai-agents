@@ -21,15 +21,19 @@ export const MODELS_WITH_THINKING_SUPPORT = {
   ),
   
   // Claude models
-  'claude-opus-4-1-20250805': { forceEnabled: false, reasoningLevel: true },
-  'claude-opus-4-1': { forceEnabled: false, reasoningLevel: true },
-  'claude-opus-4-20250514': { forceEnabled: false, reasoningLevel: true },
-  'claude-opus-4-0': { forceEnabled: false, reasoningLevel: true },
-  'claude-sonnet-4-20250514': { forceEnabled: false, reasoningLevel: true },
-  'claude-sonnet-4-0': { forceEnabled: false, reasoningLevel: true },
-  'claude-3-7-sonnet-20250219': { forceEnabled: false, reasoningLevel: true },
-  'claude-3-7-sonnet-latest': { forceEnabled: false, reasoningLevel: true },
+  'claude:claude-opus-4-1-20250805': { forceEnabled: false, reasoningLevel: true },
+  'claude:claude-opus-4-1': { forceEnabled: false, reasoningLevel: true },
+  'claude:claude-opus-4-20250514': { forceEnabled: false, reasoningLevel: true },
+  'claude:claude-opus-4-0': { forceEnabled: false, reasoningLevel: true },
+  'claude:claude-sonnet-4-20250514': { forceEnabled: false, reasoningLevel: true },
+  'claude:claude-sonnet-4-0': { forceEnabled: false, reasoningLevel: true },
+  'claude:claude-3-7-sonnet-20250219': { forceEnabled: false, reasoningLevel: true },
+  'claude:claude-3-7-sonnet-latest': { forceEnabled: false, reasoningLevel: true },
   
   // DeepSeek models
-  'deepseek-reasoner': { forceEnabled: true, reasoningLevel: false },
+  'deepseek:deepseek-reasoner': { forceEnabled: true, reasoningLevel: false },
+
+  // Shinkai Backend
+  'shinkai-backend:free_text_inference': { forceEnabled: true, reasoningLevel: true },
+  'shinkai-backend:standard_text_inference': { forceEnabled: true, reasoningLevel: true },
 } as const;

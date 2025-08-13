@@ -122,6 +122,11 @@ function QuickAsk() {
 
   const chatInputRef = useRef<HTMLTextAreaElement>(null);
 
+  const { llmProviders } = useGetLLMProviders({
+    nodeAddress: auth?.node_address ?? '',
+    token: auth?.api_v2_key ?? '',
+  });
+
   const [isCommandOpen, setIsCommandOpen] = useState(false);
   const { data: toolsList, isSuccess: isToolsListSuccess } = useGetTools(
     {
@@ -352,7 +357,8 @@ function QuickAsk() {
 
   const thinkingConfig = useMemo(
     () => {
-      const currentModel = (currentAI ?? '').toLowerCase();
+      const selectedProviderModel = llmProviders?.find((p: { id: string; model: string }) => p.id === (currentAI ?? ''))?.model;
+      const currentModel = (selectedProviderModel ?? currentAI ?? '').toLowerCase().replace(/-/g, '_');
       const supportedModel = Object.keys(MODELS_WITH_THINKING_SUPPORT).find((supportedModel) =>
         currentModel.includes(supportedModel.toLowerCase().replace(/-/g, '_'))
       );
@@ -367,7 +373,7 @@ function QuickAsk() {
         forceEnabled: config.forceEnabled 
       };
     },
-    [currentAI],
+    [currentAI, llmProviders],
   );
 
   return (

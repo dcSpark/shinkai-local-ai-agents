@@ -437,7 +437,7 @@ function ConversationChatFooter({
 
   const thinkingConfig = useMemo(
     () => {
-      const currentModel = (provider?.agent?.id ?? '').toLowerCase();
+      const currentModel = (provider?.agent?.model ?? provider?.agent?.id ?? '').toLowerCase().replace(/-/g, '_');
       const supportedModel = Object.keys(MODELS_WITH_THINKING_SUPPORT).find((supportedModel) =>
         currentModel.includes(supportedModel.toLowerCase().replace(/-/g, '_'))
       );
@@ -452,7 +452,7 @@ function ConversationChatFooter({
         forceEnabled: config.forceEnabled 
       };
     },
-    [provider?.agent?.id],
+    [provider?.agent?.id, provider?.agent?.model],
   );
 
   return (
@@ -543,7 +543,7 @@ function ConversationChatFooter({
                                   storageLocation: nodeStorageLocation,
                                   chatFolderName: jobChatFolderName.folder_name,
                                 });
-                              } catch (error) {
+                              } catch {
                                 toast.warning(t('chat.failedToOpenChatFolder'));
                               }
                             }}

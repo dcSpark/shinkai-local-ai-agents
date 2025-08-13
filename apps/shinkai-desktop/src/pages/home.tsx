@@ -367,7 +367,7 @@ const EmptyMessage = () => {
   useEffect(() => {
     resetJobScope();
     setPromptSelected(undefined);
-  }, []);
+  }, [resetJobScope, setPromptSelected]);
 
   useEffect(() => {
     chatConfigForm.setValue(
@@ -548,7 +548,8 @@ const EmptyMessage = () => {
 
   const thinkingConfig = useMemo(
     () => {
-      const currentModel = (currentAI ?? '').toLowerCase();
+      const selectedProviderModel = llmProviders?.find((p) => p.id === (currentAI ?? ''))?.model;
+      const currentModel = (selectedProviderModel ?? currentAI ?? '').toLowerCase().replace(/-/g, '_');
       const supportedModel = Object.keys(MODELS_WITH_THINKING_SUPPORT).find((supportedModel) =>
         currentModel.includes(supportedModel.toLowerCase().replace(/-/g, '_'))
       );
@@ -563,7 +564,7 @@ const EmptyMessage = () => {
         forceEnabled: config.forceEnabled 
       };
     },
-    [currentAI],
+    [currentAI, llmProviders],
   );
 
   return (

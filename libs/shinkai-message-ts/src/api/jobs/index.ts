@@ -41,6 +41,8 @@ import {
   type RemoveLLMProviderRequest,
   type RetryMessageRequest,
   type StopGeneratingLLMRequest,
+  type KillJobRequest,
+  type KillJobResponse,
   type UpdateChatConfigRequest,
   type UpdateChatConfigResponse,
   type UpdateInboxNameRequest,
@@ -492,6 +494,22 @@ export const stopGeneratingLLM = async (
     },
   );
   return response.data;
+};
+
+export const killJob = async (
+  nodeAddress: string,
+  bearerToken: string,
+  payload: KillJobRequest,
+) => {
+  const response = await httpClient.post(
+    urlJoin(nodeAddress, '/v2/kill_job'),
+    payload,
+    {
+      headers: { Authorization: `Bearer ${bearerToken}` },
+      responseType: 'json',
+    },
+  );
+  return response.data as KillJobResponse;
 };
 
 export const getJobScope = async (

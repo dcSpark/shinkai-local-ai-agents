@@ -460,7 +460,7 @@ export const MessageBase = ({
                       <TooltipTrigger asChild>
                         <button
                           className={cn(
-                            'text-text-secondary flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
+                            'text-text-secondary border-divider hover:bg-bg-tertiary flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:text-white [&>svg]:h-3 [&>svg]:w-3',
                           )}
                           onClick={() => {
                             setEditing(true);
@@ -482,7 +482,7 @@ export const MessageBase = ({
                         <TooltipTrigger asChild>
                           <button
                             className={cn(
-                              'text-text-secondary flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-transparent transition-colors hover:bg-gray-300 hover:text-white [&>svg]:h-3 [&>svg]:w-3',
+                              'text-text-secondary border-divider hover:bg-bg-tertiary flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors hover:text-white [&>svg]:h-3 [&>svg]:w-3',
                             )}
                             onClick={handleRetryMessage}
                           >
@@ -503,7 +503,7 @@ export const MessageBase = ({
                       <div>
                         <CopyToClipboardIcon
                           className={cn(
-                            'text-text-secondary h-7 w-7 border border-gray-200 bg-transparent hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
+                            'text-text-secondary border-divider hover:bg-bg-tertiary h-7 w-7 border bg-transparent [&>svg]:h-3 [&>svg]:w-3',
                           )}
                           string={extractErrorPropertyOrContent(
                             message.content,

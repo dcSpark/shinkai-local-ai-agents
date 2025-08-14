@@ -131,8 +131,8 @@ export const modelsConfig = {
         value: 'gemini-2.5-flash',
       },
       {
-        name: 'Gemini 2.5 Flash-Lite Preview',
-        value: 'gemini-2.5-flash-lite-preview-06-17',
+        name: 'Gemini 2.5 Flash-Lite',
+        value: 'gemini-2.5-flash-lite',
       },
       {
         name: 'Gemini 2.5 Flash Native Audio',

@@ -33,6 +33,11 @@ export const MODELS_WITH_THINKING_SUPPORT = {
   // DeepSeek models
   'deepseek:deepseek-reasoner': { forceEnabled: true, reasoningLevel: false },
 
+  // Gemini models
+  'gemini:gemini-2.5-pro': { forceEnabled: false, reasoningLevel: true },
+  'gemini:gemini-2.5-flash': { forceEnabled: false, reasoningLevel: true },
+  'gemini:gemini-2.5-flash-lite': { forceEnabled: false, reasoningLevel: true },
+
   // Shinkai Backend
   'shinkai-backend:free_text_inference': { forceEnabled: true, reasoningLevel: true },
   'shinkai-backend:standard_text_inference': { forceEnabled: true, reasoningLevel: true },

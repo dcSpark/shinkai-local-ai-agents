@@ -313,6 +313,7 @@ function QuickAsk() {
         token: auth.api_v2_key,
         llmProvider: data.agent,
         content: data.message,
+        files: currentFiles,
         isHidden: false,
         toolKey: data.tool?.key,
         chatConfig: {
@@ -337,6 +338,7 @@ function QuickAsk() {
       jobId,
       message: data.message,
       parent: '',
+      files: currentFiles,
     });
 
     chatForm.reset({
@@ -356,26 +358,31 @@ function QuickAsk() {
     });
   };
 
-  const thinkingConfig = useMemo(
-    () => {
-      const selectedProviderModel = llmProviders?.find((p: { id: string; model: string }) => p.id === (currentAI ?? ''))?.model;
-      const currentModel = (selectedProviderModel ?? currentAI ?? '').toLowerCase().replace(/-/g, '_');
-      const supportedModel = Object.keys(MODELS_WITH_THINKING_SUPPORT).find((supportedModel) =>
-        currentModel.includes(supportedModel.toLowerCase().replace(/-/g, '_'))
-      );
-      
-      if (!supportedModel) {
-        return { supportsThinking: false, forceEnabled: false };
-      }
-      
-      const config = MODELS_WITH_THINKING_SUPPORT[supportedModel as keyof typeof MODELS_WITH_THINKING_SUPPORT];
-      return { 
-        supportsThinking: true, 
-        forceEnabled: config.forceEnabled 
-      };
-    },
-    [currentAI, llmProviders],
-  );
+  const thinkingConfig = useMemo(() => {
+    const selectedProviderModel = llmProviders?.find(
+      (p: { id: string; model: string }) => p.id === (currentAI ?? ''),
+    )?.model;
+    const currentModel = (selectedProviderModel ?? currentAI ?? '')
+      .toLowerCase()
+      .replace(/-/g, '_');
+    const supportedModel = Object.keys(MODELS_WITH_THINKING_SUPPORT).find(
+      (supportedModel) =>
+        currentModel.includes(supportedModel.toLowerCase().replace(/-/g, '_')),
+    );
+
+    if (!supportedModel) {
+      return { supportsThinking: false, forceEnabled: false };
+    }
+
+    const config =
+      MODELS_WITH_THINKING_SUPPORT[
+        supportedModel as keyof typeof MODELS_WITH_THINKING_SUPPORT
+      ];
+    return {
+      supportsThinking: true,
+      forceEnabled: config.forceEnabled,
+    };
+  }, [currentAI, llmProviders]);
 
   return (
     <div className="relative flex size-full flex-col gap-2">
@@ -493,7 +500,10 @@ function QuickAsk() {
                         !inboxId &&
                         thinkingConfig.supportsThinking && (
                           <ThinkingSwitchActionBar
-                            checked={thinkingConfig.forceEnabled || chatConfigForm.watch('thinking')}
+                            checked={
+                              thinkingConfig.forceEnabled ||
+                              chatConfigForm.watch('thinking')
+                            }
                             disabled={thinkingConfig.forceEnabled}
                             forceEnabled={thinkingConfig.forceEnabled}
                             onClick={() => {
@@ -550,6 +560,7 @@ function QuickAsk() {
                         const file = items[i].getAsFile();
                         if (file) {
                           onDrop([file]);
+                          event.preventDefault();
                         }
                       }
                     }

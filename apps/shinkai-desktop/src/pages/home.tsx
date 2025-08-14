@@ -546,26 +546,31 @@ const EmptyMessage = () => {
   const { requiresConfiguration } =
     useAgentRequiresToolConfigurations(selectedAgent);
 
-  const thinkingConfig = useMemo(
-    () => {
-      const selectedProviderModel = llmProviders?.find((p) => p.id === (currentAI ?? ''))?.model;
-      const currentModel = (selectedProviderModel ?? currentAI ?? '').toLowerCase().replace(/-/g, '_');
-      const supportedModel = Object.keys(MODELS_WITH_THINKING_SUPPORT).find((supportedModel) =>
-        currentModel.includes(supportedModel.toLowerCase().replace(/-/g, '_'))
-      );
-      
-      if (!supportedModel) {
-        return { supportsThinking: false, forceEnabled: false };
-      }
-      
-      const config = MODELS_WITH_THINKING_SUPPORT[supportedModel as keyof typeof MODELS_WITH_THINKING_SUPPORT];
-      return { 
-        supportsThinking: true, 
-        forceEnabled: config.forceEnabled 
-      };
-    },
-    [currentAI, llmProviders],
-  );
+  const thinkingConfig = useMemo(() => {
+    const selectedProviderModel = llmProviders?.find(
+      (p) => p.id === (currentAI ?? ''),
+    )?.model;
+    const currentModel = (selectedProviderModel ?? currentAI ?? '')
+      .toLowerCase()
+      .replace(/-/g, '_');
+    const supportedModel = Object.keys(MODELS_WITH_THINKING_SUPPORT).find(
+      (supportedModel) =>
+        currentModel.includes(supportedModel.toLowerCase().replace(/-/g, '_')),
+    );
+
+    if (!supportedModel) {
+      return { supportsThinking: false, forceEnabled: false };
+    }
+
+    const config =
+      MODELS_WITH_THINKING_SUPPORT[
+        supportedModel as keyof typeof MODELS_WITH_THINKING_SUPPORT
+      ];
+    return {
+      supportsThinking: true,
+      forceEnabled: config.forceEnabled,
+    };
+  }, [currentAI, llmProviders]);
 
   return (
     <motion.div
@@ -728,7 +733,10 @@ const EmptyMessage = () => {
                           !selectedAgent &&
                           thinkingConfig.supportsThinking && (
                             <ThinkingSwitchActionBar
-                              checked={thinkingConfig.forceEnabled || chatConfigForm.watch('thinking')}
+                              checked={
+                                thinkingConfig.forceEnabled ||
+                                chatConfigForm.watch('thinking')
+                              }
                               disabled={thinkingConfig.forceEnabled}
                               forceEnabled={thinkingConfig.forceEnabled}
                               onClick={() => {
@@ -813,6 +821,7 @@ const EmptyMessage = () => {
                           const file = items[i].getAsFile();
                           if (file) {
                             onDrop([file]);
+                            event.preventDefault();
                           }
                         }
                       }

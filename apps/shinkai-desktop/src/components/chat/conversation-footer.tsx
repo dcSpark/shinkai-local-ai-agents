@@ -239,7 +239,8 @@ function ConversationChatFooter({
       topK: chatConfig?.top_k ?? DEFAULT_CHAT_CONFIG.top_k,
       useTools: chatConfig?.use_tools ?? DEFAULT_CHAT_CONFIG.use_tools,
       thinking: chatConfig?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
-      reasoningEffort: chatConfig?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
+      reasoningEffort:
+        chatConfig?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
     },
   });
 
@@ -435,25 +436,28 @@ function ConversationChatFooter({
     textareaRef.current.focus();
   }, [currentMessage]);
 
-  const thinkingConfig = useMemo(
-    () => {
-      const currentModel = (provider?.agent?.model ?? provider?.agent?.id ?? '').toLowerCase().replace(/-/g, '_');
-      const supportedModel = Object.keys(MODELS_WITH_THINKING_SUPPORT).find((supportedModel) =>
-        currentModel.includes(supportedModel.toLowerCase().replace(/-/g, '_'))
-      );
-      
-      if (!supportedModel) {
-        return { supportsThinking: false, forceEnabled: false };
-      }
-      
-      const config = MODELS_WITH_THINKING_SUPPORT[supportedModel as keyof typeof MODELS_WITH_THINKING_SUPPORT];
-      return { 
-        supportsThinking: true, 
-        forceEnabled: config.forceEnabled 
-      };
-    },
-    [provider?.agent?.id, provider?.agent?.model],
-  );
+  const thinkingConfig = useMemo(() => {
+    const currentModel = (provider?.agent?.model ?? provider?.agent?.id ?? '')
+      .toLowerCase()
+      .replace(/-/g, '_');
+    const supportedModel = Object.keys(MODELS_WITH_THINKING_SUPPORT).find(
+      (supportedModel) =>
+        currentModel.includes(supportedModel.toLowerCase().replace(/-/g, '_')),
+    );
+
+    if (!supportedModel) {
+      return { supportsThinking: false, forceEnabled: false };
+    }
+
+    const config =
+      MODELS_WITH_THINKING_SUPPORT[
+        supportedModel as keyof typeof MODELS_WITH_THINKING_SUPPORT
+      ];
+    return {
+      supportsThinking: true,
+      forceEnabled: config.forceEnabled,
+    };
+  }, [provider?.agent?.id, provider?.agent?.model]);
 
   return (
     <div className="container p-3 pb-1">
@@ -553,11 +557,13 @@ function ConversationChatFooter({
                         <UpdateToolsSwitchActionBar />
                       )}
 
-                                            {!isAgentInbox &&
-                        !selectedTool &&
-                        thinkingConfig.supportsThinking ? (
-                          <UpdateThinkingSwitchActionBar forceEnabled={thinkingConfig.forceEnabled} />
-                        ) : null}
+                      {!isAgentInbox &&
+                      !selectedTool &&
+                      thinkingConfig.supportsThinking ? (
+                        <UpdateThinkingSwitchActionBar
+                          forceEnabled={thinkingConfig.forceEnabled}
+                        />
+                      ) : null}
 
                       {isAgentInbox || selectedTool ? null : (
                         <UpdateVectorFsActionBar />
@@ -637,6 +643,7 @@ function ConversationChatFooter({
                         const file = items[i].getAsFile();
                         if (file) {
                           onDrop([file]);
+                          event.preventDefault();
                         }
                       }
                     }

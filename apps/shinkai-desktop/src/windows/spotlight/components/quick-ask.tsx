@@ -225,6 +225,7 @@ function QuickAsk() {
       const newFiles = [...previousFiles, ...acceptedFiles];
       chatForm.setValue('files', newFiles, { shouldValidate: true });
       chatInputRef.current?.focus();
+      invoke('show_spotlight_window_app').catch(console.error);
     },
     [chatForm],
   );

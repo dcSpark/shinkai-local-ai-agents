@@ -44,6 +44,7 @@ export const chatConfigFormSchema = z.object({
   useTools: z.boolean(),
   thinking: z.boolean(),
   reasoningEffort: z.enum(['low', 'medium', 'high']).optional(),
+  webSearchEnabled: z.boolean().optional(),
   customPrompt: z.string().optional(),
   temperature: z.number(),
   topP: z.number(),
@@ -284,6 +285,7 @@ export function UpdateChatConfigActionBarBase() {
       useTools: chatConfig?.use_tools,
       thinking: chatConfig?.thinking,
       reasoningEffort: chatConfig?.reasoning_effort,
+      webSearchEnabled: chatConfig?.web_search_enabled,
     },
   });
 
@@ -309,6 +311,7 @@ export function UpdateChatConfigActionBarBase() {
         useTools: chatConfig.use_tools,
         thinking: chatConfig.thinking,
         reasoningEffort: chatConfig.reasoning_effort,
+        webSearchEnabled: chatConfig.web_search_enabled,
       });
     }
   }, [chatConfig, form]);
@@ -328,6 +331,7 @@ export function UpdateChatConfigActionBarBase() {
         use_tools: data.useTools,
         thinking: data.thinking,
         reasoning_effort: data.reasoningEffort,
+        web_search_enabled: data.webSearchEnabled,
       },
     });
   };
@@ -347,6 +351,7 @@ export function UpdateChatConfigActionBarBase() {
               useTools: chatConfig?.use_tools,
               thinking: chatConfig?.thinking,
               reasoningEffort: chatConfig?.reasoning_effort,
+              webSearchEnabled: chatConfig?.web_search_enabled,
             });
           }
         }}

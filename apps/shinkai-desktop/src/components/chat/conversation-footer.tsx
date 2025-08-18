@@ -81,6 +81,7 @@ import { OpenChatFolderActionBar } from './chat-action-bar/open-chat-folder-acti
 import PromptSelectionActionBar from './chat-action-bar/prompt-selection-action-bar';
 import { UpdateThinkingSwitchActionBar } from './chat-action-bar/thinking-switch-action-bar';
 import { UpdateToolsSwitchActionBar } from './chat-action-bar/tools-switch-action-bar';
+import { UpdateWebSearchActionBar } from './chat-action-bar/web-search-action-bar';
 import {
   UpdateVectorFsActionBar,
   // VectorFsActionBarPreview,
@@ -239,8 +240,8 @@ function ConversationChatFooter({
       topK: chatConfig?.top_k ?? DEFAULT_CHAT_CONFIG.top_k,
       useTools: chatConfig?.use_tools ?? DEFAULT_CHAT_CONFIG.use_tools,
       thinking: chatConfig?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
-      reasoningEffort:
-        chatConfig?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
+      reasoningEffort: chatConfig?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
+      webSearchEnabled: chatConfig?.web_search_enabled ?? DEFAULT_CHAT_CONFIG.web_search_enabled,
     },
   });
 
@@ -266,6 +267,7 @@ function ConversationChatFooter({
         useTools: chatConfig.use_tools,
         thinking: chatConfig.thinking,
         reasoningEffort: chatConfig.reasoning_effort,
+        webSearchEnabled: chatConfig.web_search_enabled,
       });
     }
   }, [chatConfig, chatConfigForm]);
@@ -563,6 +565,10 @@ function ConversationChatFooter({
                         <UpdateThinkingSwitchActionBar
                           forceEnabled={thinkingConfig.forceEnabled}
                         />
+                      ) : null}
+
+                      {!isAgentInbox && !selectedTool ? (
+                        <UpdateWebSearchActionBar />
                       ) : null}
 
                       {isAgentInbox || selectedTool ? null : (

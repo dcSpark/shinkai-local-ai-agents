@@ -54,6 +54,7 @@ import {
 import { FileSelectionActionBar } from '../../../components/chat/chat-action-bar/file-selection-action-bar';
 import { ThinkingSwitchActionBar } from '../../../components/chat/chat-action-bar/thinking-switch-action-bar';
 import { ToolsSwitchActionBar } from '../../../components/chat/chat-action-bar/tools-switch-action-bar';
+import { WebSearchActionBar } from '../../../components/chat/chat-action-bar/web-search-action-bar';
 import {
   DropFileActive,
   FileList,
@@ -158,6 +159,7 @@ function QuickAsk() {
       useTools: DEFAULT_CHAT_CONFIG.use_tools,
       thinking: DEFAULT_CHAT_CONFIG.thinking,
       reasoningEffort: DEFAULT_CHAT_CONFIG.reasoning_effort,
+      webSearchEnabled: DEFAULT_CHAT_CONFIG.web_search_enabled,
     },
   });
 
@@ -177,6 +179,7 @@ function QuickAsk() {
       useTools: DEFAULT_CHAT_CONFIG.use_tools,
       thinking: DEFAULT_CHAT_CONFIG.thinking,
       reasoningEffort: DEFAULT_CHAT_CONFIG.reasoning_effort,
+      webSearchEnabled: DEFAULT_CHAT_CONFIG.web_search_enabled,
     });
     chatInputRef.current?.focus();
   }, [chatConfigForm, chatForm, defaultSpotlightAiId, setInboxId]);
@@ -274,6 +277,7 @@ function QuickAsk() {
         useTools: DEFAULT_CHAT_CONFIG.use_tools,
         thinking: DEFAULT_CHAT_CONFIG.thinking,
         reasoningEffort: DEFAULT_CHAT_CONFIG.reasoning_effort,
+        webSearchEnabled: DEFAULT_CHAT_CONFIG.web_search_enabled,
       });
     },
     onError: (error) => {
@@ -325,6 +329,7 @@ function QuickAsk() {
           use_tools: chatConfigForm.getValues('useTools'),
           thinking: chatConfigForm.getValues('thinking'),
           reasoning_effort: chatConfigForm.getValues('reasoningEffort'),
+          web_search_enabled: chatConfigForm.getValues('webSearchEnabled'),
         },
       });
       return;
@@ -355,6 +360,7 @@ function QuickAsk() {
       useTools: DEFAULT_CHAT_CONFIG.use_tools,
       thinking: DEFAULT_CHAT_CONFIG.thinking,
       reasoningEffort: DEFAULT_CHAT_CONFIG.reasoning_effort,
+      webSearchEnabled: DEFAULT_CHAT_CONFIG.web_search_enabled,
     });
   };
 
@@ -516,6 +522,17 @@ function QuickAsk() {
                             }}
                           />
                         )}
+                      {!selectedTool && !selectedAgent && !inboxId && (
+                        <WebSearchActionBar
+                          checked={chatConfigForm.watch('webSearchEnabled') ?? false}
+                          onClick={() => {
+                            chatConfigForm.setValue(
+                              'webSearchEnabled',
+                              !chatConfigForm.watch('webSearchEnabled'),
+                            );
+                          }}
+                        />
+                      )}
                       {!selectedTool && !selectedAgent && inboxId && (
                         <UpdateChatConfigActionBar />
                       )}

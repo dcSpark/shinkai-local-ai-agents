@@ -29,6 +29,7 @@ export const createAgent = async ({
         use_tools: agent.tools.length > 0,
         thinking: agent.config?.thinking,
         reasoning_effort: agent.config?.reasoning_effort,
+        web_search_enabled: agent.config?.web_search_enabled,
       },
       message: agent.ui_description,
       toolKey: agent.tools.length > 0 ? agent.tools[0] : '',

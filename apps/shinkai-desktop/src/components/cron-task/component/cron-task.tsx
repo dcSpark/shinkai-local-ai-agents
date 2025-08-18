@@ -83,6 +83,7 @@ const createTaskFormSchema = z.object({
     use_tools: z.boolean().optional(),
     thinking: z.boolean().optional(),
     reasoning_effort: z.enum(['low', 'medium', 'high']).optional(),
+    web_search_enabled: z.boolean().optional(),
   }),
   jobMessage: z.object({
     content: z.string(),
@@ -116,6 +117,7 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
         use_tools: DEFAULT_CHAT_CONFIG.use_tools ?? false,
         thinking: DEFAULT_CHAT_CONFIG.thinking,
         reasoning_effort: DEFAULT_CHAT_CONFIG.reasoning_effort,
+        web_search_enabled: DEFAULT_CHAT_CONFIG.web_search_enabled,
       },
       llmOrAgentId: defaultAgentId,
       jobMessage: {
@@ -146,6 +148,7 @@ function CronTask({ mode, initialValues }: CronTaskProps) {
           use_tools: initialConfig.use_tools ?? false,
           thinking: initialConfig.thinking,
           reasoning_effort: initialConfig.reasoning_effort,
+          web_search_enabled: initialConfig.web_search_enabled,
         },
         jobMessage: {
           content:

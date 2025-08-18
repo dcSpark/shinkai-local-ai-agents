@@ -165,6 +165,7 @@ const agentFormSchema = z.object({
       stream: z.boolean(),
       thinking: z.boolean(),
       reasoning_effort: z.enum(['low', 'medium', 'high']).optional(),
+      web_search_enabled: z.boolean().optional(),
       other_model_params: z.record(z.string()),
     })
     .nullable(),
@@ -299,6 +300,7 @@ function AgentSideChat({
           use_tools: hasTools,
           thinking: DEFAULT_CHAT_CONFIG.thinking,
           reasoning_effort: DEFAULT_CHAT_CONFIG.reasoning_effort,
+          web_search_enabled: DEFAULT_CHAT_CONFIG.web_search_enabled,
         },
       });
     } else {
@@ -618,6 +620,7 @@ function AgentForm({ mode }: AgentFormProps) {
         use_tools: true,
         thinking: DEFAULT_CHAT_CONFIG.thinking,
         reasoning_effort: DEFAULT_CHAT_CONFIG.reasoning_effort,
+        web_search_enabled: DEFAULT_CHAT_CONFIG.web_search_enabled,
       },
       llmProviderId: defaultAgentId,
 
@@ -646,6 +649,7 @@ function AgentForm({ mode }: AgentFormProps) {
         use_tools: agent.config?.use_tools ?? true,
         thinking: agent.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
         reasoning_effort: agent.config?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
+        web_search_enabled: agent.config?.web_search_enabled ?? DEFAULT_CHAT_CONFIG.web_search_enabled,
         stream: agent.config?.stream ?? DEFAULT_CHAT_CONFIG.stream,
         other_model_params: agent.config?.other_model_params ?? {},
       });
@@ -823,6 +827,7 @@ function AgentForm({ mode }: AgentFormProps) {
               use_tools: values.tools.length > 0,
               thinking: values.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
               reasoning_effort: values.config?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
+              web_search_enabled: values.config?.web_search_enabled ?? DEFAULT_CHAT_CONFIG.web_search_enabled,
               stream: true,
             },
             message: values.aiPrompt || values.uiDescription || 'Scheduled run',
@@ -850,6 +855,7 @@ function AgentForm({ mode }: AgentFormProps) {
               use_tools: values.tools.length > 0,
               thinking: values.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
               reasoning_effort: values.config?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
+              web_search_enabled: values.config?.web_search_enabled ?? DEFAULT_CHAT_CONFIG.web_search_enabled,
               stream: true,
             },
             message: values.aiPrompt || values.uiDescription || 'Scheduled run',
@@ -1014,6 +1020,7 @@ function AgentForm({ mode }: AgentFormProps) {
                 use_tools: values.tools.length > 0,
                 thinking: values.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
                 reasoning_effort: values.config?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
+                web_search_enabled: values.config?.web_search_enabled ?? DEFAULT_CHAT_CONFIG.web_search_enabled,
                 stream: true,
               },
               message:
@@ -1042,6 +1049,7 @@ function AgentForm({ mode }: AgentFormProps) {
                 use_tools: values.tools.length > 0,
                 thinking: values.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
                 reasoning_effort: values.config?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
+                web_search_enabled: values.config?.web_search_enabled ?? DEFAULT_CHAT_CONFIG.web_search_enabled,
                 stream: true,
               },
               message:

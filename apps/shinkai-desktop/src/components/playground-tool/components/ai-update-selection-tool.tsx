@@ -302,6 +302,7 @@ export function AiModelUpdateSelectionToolsBase({
         use_tools: enabled,
         thinking: chatConfig?.thinking,
         reasoning_effort: chatConfig?.reasoning_effort,
+        web_search_enabled: chatConfig?.web_search_enabled,
       },
     });
   };

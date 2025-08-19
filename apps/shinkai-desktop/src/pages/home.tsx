@@ -73,7 +73,6 @@ import PromptSelectionActionBar from '../components/chat/chat-action-bar/prompt-
 import { ThinkingSwitchActionBar } from '../components/chat/chat-action-bar/thinking-switch-action-bar';
 import { ToolsSwitchActionBar } from '../components/chat/chat-action-bar/tools-switch-action-bar';
 import { VectorFsActionBar } from '../components/chat/chat-action-bar/vector-fs-action-bar';
-import { WebSearchActionBar } from '../components/chat/chat-action-bar/web-search-action-bar';
 import { useChatStore } from '../components/chat/context/chat-context';
 import { useSetJobScope } from '../components/chat/context/set-job-scope-context';
 import {
@@ -751,21 +750,10 @@ const EmptyMessage = () => {
                               }}
                             />
                           )}
-                        {!selectedTool && !selectedAgent && (
-                          <WebSearchActionBar
-                            checked={chatConfigForm.watch('webSearchEnabled') ?? false}
-                            onClick={() => {
-                              chatConfigForm.setValue(
-                                'webSearchEnabled',
-                                !chatConfigForm.watch('webSearchEnabled'),
-                              );
-                            }}
-                          />
-                        )}
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <CreateChatConfigActionBar form={chatConfigForm} />
+                        <CreateChatConfigActionBar form={chatConfigForm} currentAI={currentAI} />
 
                         <Button
                           className={cn('size-[36px] p-2')}

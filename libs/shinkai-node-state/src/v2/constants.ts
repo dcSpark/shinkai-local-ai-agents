@@ -73,7 +73,7 @@ export const DEFAULT_CHAT_CONFIG = {
   use_tools: true,
   thinking: true,
   reasoning_effort: 'low',
-  web_search_enabled: false,
+  web_search_enabled: true,
 } as const;
 
 export const OPTIMISTIC_USER_MESSAGE_ID = 'OPTIMISTIC_USER_MESSAGE_ID';

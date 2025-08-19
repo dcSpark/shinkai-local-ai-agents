@@ -54,7 +54,6 @@ import {
 import { FileSelectionActionBar } from '../../../components/chat/chat-action-bar/file-selection-action-bar';
 import { ThinkingSwitchActionBar } from '../../../components/chat/chat-action-bar/thinking-switch-action-bar';
 import { ToolsSwitchActionBar } from '../../../components/chat/chat-action-bar/tools-switch-action-bar';
-import { WebSearchActionBar } from '../../../components/chat/chat-action-bar/web-search-action-bar';
 import {
   DropFileActive,
   FileList,
@@ -522,17 +521,6 @@ function QuickAsk() {
                             }}
                           />
                         )}
-                      {!selectedTool && !selectedAgent && !inboxId && (
-                        <WebSearchActionBar
-                          checked={chatConfigForm.watch('webSearchEnabled') ?? false}
-                          onClick={() => {
-                            chatConfigForm.setValue(
-                              'webSearchEnabled',
-                              !chatConfigForm.watch('webSearchEnabled'),
-                            );
-                          }}
-                        />
-                      )}
                       {!selectedTool && !selectedAgent && inboxId && (
                         <UpdateChatConfigActionBar />
                       )}

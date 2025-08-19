@@ -32,6 +32,7 @@ import { useUploadVRFiles } from '@shinkai_network/shinkai-node-state/v2/mutatio
 import { useGetAgent } from '@shinkai_network/shinkai-node-state/v2/queries/getAgent/useGetAgent';
 import { useGetListDirectoryContents } from '@shinkai_network/shinkai-node-state/v2/queries/getDirectoryContents/useGetListDirectoryContents';
 import { useGetAgentInboxes } from '@shinkai_network/shinkai-node-state/v2/queries/getInboxes/useGetAgentInboxes';
+import { useGetLLMProviders } from '@shinkai_network/shinkai-node-state/v2/queries/getLLMProviders/useGetLLMProviders';
 import { useGetSearchDirectoryContents } from '@shinkai_network/shinkai-node-state/v2/queries/getSearchDirectoryContents/useGetSearchDirectoryContents';
 import { useGetTool } from '@shinkai_network/shinkai-node-state/v2/queries/getTool/useGetTool';
 import { useGetTools } from '@shinkai_network/shinkai-node-state/v2/queries/getToolsList/useGetToolsList';
@@ -71,6 +72,8 @@ import {
   Select,
   SelectContent,
   SelectItem,
+  SelectTrigger,
+  SelectValue,
   Skeleton,
   Slider,
   Switch,
@@ -133,6 +136,7 @@ import { useAnalytics } from '../../lib/posthog-provider';
 import { useChatConversationWithOptimisticUpdates } from '../../pages/chat/chat-conversation';
 import { useAuth } from '../../store/auth';
 import { useSettings } from '../../store/settings';
+import { getThinkingConfig } from '../../utils/thinking-config';
 import { getToolRequiresConfigurations } from '../../utils/tools-configurations';
 import { AIModelSelector } from '../chat/chat-action-bar/ai-update-selection-action-bar';
 import { MessageList } from '../chat/components/message-list';
@@ -599,6 +603,11 @@ function AgentForm({ mode }: AgentFormProps) {
     nodeAddress: auth?.node_address ?? '',
   });
 
+  const { data: llmProviders } = useGetLLMProviders({
+    nodeAddress: auth?.node_address ?? '',
+    token: auth?.api_v2_key ?? '',
+  });
+
   const form = useForm<AgentFormValues>({
     resolver: zodResolver(agentFormSchema),
     defaultValues: {
@@ -628,6 +637,27 @@ function AgentForm({ mode }: AgentFormProps) {
       aiPrompt: '',
     },
   });
+
+  // Thinking support detection
+  const currentLLMProviderId = form.watch('llmProviderId');
+  const thinkingConfig = useMemo(() => {
+    if (!currentLLMProviderId || !llmProviders) {
+      return { supportsThinking: false, forceEnabled: false, reasoningLevel: false };
+    }
+
+    // Find the provider that matches the selected ID
+    const selectedProvider = llmProviders.find(provider => provider.id === currentLLMProviderId);
+    if (!selectedProvider) {
+      return { supportsThinking: false, forceEnabled: false, reasoningLevel: false };
+    }
+
+    // Use the provider's model for thinking detection
+    return getThinkingConfig(selectedProvider.model);
+  }, [currentLLMProviderId, llmProviders]);
+
+  // Check if thinking is enabled (either forced or manually enabled)
+  const isThinkingEnabled = thinkingConfig.forceEnabled || form.watch('config.thinking');
+  const shouldDisableSliders = thinkingConfig.supportsThinking && isThinkingEnabled;
 
   // Effect to handle initial agent data and schedule type
   useEffect(() => {
@@ -724,6 +754,13 @@ function AgentForm({ mode }: AgentFormProps) {
       setIsSideChatOpen(true);
     }
   }, [mode, isOpenQueryActive]);
+
+  // Auto-enable thinking if force enabled for the model
+  useEffect(() => {
+    if (thinkingConfig.forceEnabled) {
+      form.setValue('config.thinking', true);
+    }
+  }, [thinkingConfig.forceEnabled, form]);
 
   const { data: toolsList } = useGetTools({
     nodeAddress: auth?.node_address ?? '',
@@ -1462,133 +1499,223 @@ function AgentForm({ mode }: AgentFormProps) {
                               />
                               <FormField
                                 control={form.control}
-                                name="config.temperature"
+                                name="config.web_search_enabled"
                                 render={({ field }) => (
-                                  <FormItem className="flex gap-2.5">
-                                    <FormControl>
-                                      <HoverCard openDelay={200}>
-                                        <HoverCardTrigger asChild>
-                                          <div className="grid w-full gap-4">
-                                            <div className="flex items-center justify-between">
-                                              <Label htmlFor="temperature">
-                                                {t('agents.create.temperature')}
-                                              </Label>
-                                              <span className="text-text-secondary hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-sm">
-                                                {field.value}
-                                              </span>
-                                            </div>
-                                            <Slider
-                                              aria-label="Temperature"
-                                              className="[&_[role=slider]]:h-4 [&_[role=slider]]:w-4"
-                                              id="temperature"
-                                              max={1}
-                                              onValueChange={(vals) => {
-                                                field.onChange(vals[0]);
-                                              }}
-                                              step={0.1}
-                                              value={[field.value]}
-                                            />
-                                          </div>
-                                        </HoverCardTrigger>
-                                        <HoverCardContent
-                                          align="start"
-                                          className="w-[260px] px-2 py-3 text-xs"
-                                          side="left"
-                                        >
-                                          {t(
-                                            'agents.create.temperatureDescription',
-                                          )}
-                                        </HoverCardContent>
-                                      </HoverCard>
-                                    </FormControl>
+                                  <FormItem className="flex w-full flex-col gap-3">
+                                    <div className="flex justify-between gap-3">
+                                      <div className="space-y-1 leading-none">
+                                        <FormLabel className="text-text-default static space-y-1.5 text-sm">
+                                          Enable Web Search
+                                        </FormLabel>
+                                        <p className="text-text-secondary text-xs">
+                                          Allows the agent to search the web for real-time information
+                                        </p>
+                                      </div>
+                                      <FormControl>
+                                        <Switch
+                                          checked={field.value ?? false}
+                                          disabled={!form.watch('config.use_tools')}
+                                          onCheckedChange={field.onChange}
+                                        />
+                                      </FormControl>
+                                    </div>
                                   </FormItem>
                                 )}
                               />
-                              <FormField
-                                control={form.control}
-                                name="config.top_p"
-                                render={({ field }) => (
-                                  <FormItem className="flex gap-2.5">
-                                    <FormControl>
-                                      <HoverCard openDelay={200}>
-                                        <HoverCardTrigger asChild>
-                                          <div className="grid w-full gap-4">
-                                            <div className="flex items-center justify-between">
-                                              <Label htmlFor="topP">
-                                                Top P
-                                              </Label>
-                                              <span className="text-text-secondary hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-sm">
-                                                {field.value}
-                                              </span>
+                              {thinkingConfig.supportsThinking && (
+                                <FormField
+                                  control={form.control}
+                                  name="config.thinking"
+                                  render={({ field }) => (
+                                    <FormItem className="flex w-full flex-col gap-3">
+                                      <div className="flex justify-between gap-3">
+                                        <div className="space-y-1 leading-none">
+                                          <FormLabel className="text-text-default static space-y-1.5 text-sm">
+                                            Enable Thinking
+                                          </FormLabel>
+                                          <p className="text-text-secondary text-xs">
+                                            Enables step-by-step reasoning for better responses
+                                          </p>
+                                        </div>
+                                        <FormControl>
+                                          <Switch
+                                            checked={field.value ?? false}
+                                            disabled={thinkingConfig.forceEnabled}
+                                            onCheckedChange={field.onChange}
+                                          />
+                                        </FormControl>
+                                      </div>
+                                    </FormItem>
+                                  )}
+                                />
+                              )}
+                              {thinkingConfig.reasoningLevel && isThinkingEnabled && (
+                                <FormField
+                                  control={form.control}
+                                  name="config.reasoning_effort"
+                                  render={({ field }) => (
+                                    <FormItem className="flex w-full flex-col gap-3">
+                                      <div className="flex justify-between gap-3">
+                                        <div className="space-y-1 leading-none">
+                                          <FormLabel className="text-text-default static space-y-1.5 text-sm">
+                                            Reasoning Effort
+                                          </FormLabel>
+                                          <p className="text-text-secondary text-xs">
+                                            Controls how much effort the model puts into reasoning
+                                          </p>
+                                        </div>
+                                        <FormControl>
+                                          <Select value={field.value} onValueChange={field.onChange}>
+                                            <SelectTrigger className="h-input w-[120px]">
+                                              <SelectValue placeholder="Select effort" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                              <SelectItem value="low">Low</SelectItem>
+                                              <SelectItem value="medium">Medium</SelectItem>
+                                              <SelectItem value="high">High</SelectItem>
+                                            </SelectContent>
+                                          </Select>
+                                        </FormControl>
+                                      </div>
+                                    </FormItem>
+                                  )}
+                                />
+                              )}
+                              {!shouldDisableSliders && (
+                                <FormField
+                                  control={form.control}
+                                  name="config.temperature"
+                                  render={({ field }) => (
+                                    <FormItem className="flex gap-2.5">
+                                      <FormControl>
+                                        <HoverCard openDelay={200}>
+                                          <HoverCardTrigger asChild>
+                                            <div className="grid w-full gap-4">
+                                              <div className="flex items-center justify-between">
+                                                <Label htmlFor="temperature">
+                                                  {t('agents.create.temperature')}
+                                                </Label>
+                                                <span className="text-text-secondary hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-sm">
+                                                  {field.value}
+                                                </span>
+                                              </div>
+                                              <Slider
+                                                aria-label="Temperature"
+                                                className="[&_[role=slider]]:h-4 [&_[role=slider]]:w-4"
+                                                id="temperature"
+                                                max={1}
+                                                onValueChange={(vals) => {
+                                                  field.onChange(vals[0]);
+                                                }}
+                                                step={0.1}
+                                                value={[field.value]}
+                                              />
                                             </div>
-                                            <Slider
-                                              aria-label="Top P"
-                                              className="[&_[role=slider]]:h-4 [&_[role=slider]]:w-4"
-                                              id="topP"
-                                              max={1}
-                                              min={0}
-                                              onValueChange={(vals) => {
-                                                field.onChange(vals[0]);
-                                              }}
-                                              step={0.1}
-                                              value={[field.value]}
-                                            />
-                                          </div>
-                                        </HoverCardTrigger>
-                                        <HoverCardContent
-                                          align="start"
-                                          className="w-[260px] px-2 py-3 text-xs"
-                                          side="left"
-                                        >
-                                          {t('agents.create.topPDescription')}
-                                        </HoverCardContent>
-                                      </HoverCard>
-                                    </FormControl>
-                                  </FormItem>
-                                )}
-                              />
-                              <FormField
-                                control={form.control}
-                                name="config.top_k"
-                                render={({ field }) => (
-                                  <FormItem className="flex gap-2.5">
-                                    <FormControl>
-                                      <HoverCard openDelay={200}>
-                                        <HoverCardTrigger asChild>
-                                          <div className="grid w-full gap-4">
-                                            <div className="flex items-center justify-between">
-                                              <Label htmlFor="topK">
-                                                {t('agents.create.topK')}
-                                              </Label>
-                                              <span className="text-text-secondary hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-sm">
-                                                {field.value}
-                                              </span>
+                                          </HoverCardTrigger>
+                                          <HoverCardContent
+                                            align="start"
+                                            className="w-[260px] px-2 py-3 text-xs"
+                                            side="left"
+                                          >
+                                            {t(
+                                              'agents.create.temperatureDescription',
+                                            )}
+                                          </HoverCardContent>
+                                        </HoverCard>
+                                      </FormControl>
+                                    </FormItem>
+                                  )}
+                                />
+                              )}
+                              {!shouldDisableSliders && (
+                                <FormField
+                                  control={form.control}
+                                  name="config.top_p"
+                                  render={({ field }) => (
+                                    <FormItem className="flex gap-2.5">
+                                      <FormControl>
+                                        <HoverCard openDelay={200}>
+                                          <HoverCardTrigger asChild>
+                                            <div className="grid w-full gap-4">
+                                              <div className="flex items-center justify-between">
+                                                <Label htmlFor="topP">
+                                                  Top P
+                                                </Label>
+                                                <span className="text-text-secondary hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-sm">
+                                                  {field.value}
+                                                </span>
+                                              </div>
+                                              <Slider
+                                                aria-label="Top P"
+                                                className="[&_[role=slider]]:h-4 [&_[role=slider]]:w-4"
+                                                id="topP"
+                                                max={1}
+                                                min={0}
+                                                onValueChange={(vals) => {
+                                                  field.onChange(vals[0]);
+                                                }}
+                                                step={0.1}
+                                                value={[field.value]}
+                                              />
                                             </div>
-                                            <Slider
-                                              aria-label="Top K"
-                                              className="[&_[role=slider]]:h-4 [&_[role=slider]]:w-4"
-                                              id="topK"
-                                              max={100}
-                                              onValueChange={(vals) => {
-                                                field.onChange(vals[0]);
-                                              }}
-                                              step={1}
-                                              value={[field.value]}
-                                            />
-                                          </div>
-                                        </HoverCardTrigger>
-                                        <HoverCardContent
-                                          align="start"
-                                          className="w-[260px] px-2 py-3 text-xs"
-                                          side="left"
-                                        >
-                                          {t('agents.create.topKDescription')}
-                                        </HoverCardContent>
-                                      </HoverCard>
-                                    </FormControl>
-                                  </FormItem>
-                                )}
-                              />
+                                          </HoverCardTrigger>
+                                          <HoverCardContent
+                                            align="start"
+                                            className="w-[260px] px-2 py-3 text-xs"
+                                            side="left"
+                                          >
+                                            {t('agents.create.topPDescription')}
+                                          </HoverCardContent>
+                                        </HoverCard>
+                                      </FormControl>
+                                    </FormItem>
+                                  )}
+                                />
+                              )}
+                              {!shouldDisableSliders && (
+                                <FormField
+                                  control={form.control}
+                                  name="config.top_k"
+                                  render={({ field }) => (
+                                    <FormItem className="flex gap-2.5">
+                                      <FormControl>
+                                        <HoverCard openDelay={200}>
+                                          <HoverCardTrigger asChild>
+                                            <div className="grid w-full gap-4">
+                                              <div className="flex items-center justify-between">
+                                                <Label htmlFor="topK">
+                                                  {t('agents.create.topK')}
+                                                </Label>
+                                                <span className="text-text-secondary hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-sm">
+                                                  {field.value}
+                                                </span>
+                                              </div>
+                                              <Slider
+                                                aria-label="Top K"
+                                                className="[&_[role=slider]]:h-4 [&_[role=slider]]:w-4"
+                                                id="topK"
+                                                max={100}
+                                                onValueChange={(vals) => {
+                                                  field.onChange(vals[0]);
+                                                }}
+                                                step={1}
+                                                value={[field.value]}
+                                              />
+                                            </div>
+                                          </HoverCardTrigger>
+                                          <HoverCardContent
+                                            align="start"
+                                            className="w-[260px] px-2 py-3 text-xs"
+                                            side="left"
+                                          >
+                                            {t('agents.create.topKDescription')}
+                                          </HoverCardContent>
+                                        </HoverCard>
+                                      </FormControl>
+                                    </FormItem>
+                                  )}
+                                />
+                              )}
                             </div>
                           </CollapsibleContent>
                         </Collapsible>

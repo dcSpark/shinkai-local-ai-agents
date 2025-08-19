@@ -214,7 +214,7 @@ jobs:
       - name: Download side binaries
         env:
           ARCH: ${{ matrix.arch }}
-          SHINKAI_NODE_VERSION: v1.1.4
+          SHINKAI_NODE_VERSION: v1.1.5
           OLLAMA_VERSION: v0.11.4
         run: |
           npx ts-node ./ci-scripts/download-side-binaries.ts
@@ -369,8 +369,8 @@ jobs:
         id: generate-updates-next-json
         env:
           JSON_PATH: files-to-r2/updates-next.json
-          VERSION: ${{ needs.prebuild.outputs.version }}
-          NOTES: Automatic update to ${{ needs.prebuild.outputs.version }}
+          VERSION: ${{ needs.prebuild.outputs.version }}.${{ github.run_number }}
+          NOTES: Automatic update to ${{ needs.prebuild.outputs.version }}.${{ github.run_number }}
           LINUX_x86_64_SIGNATURE: ${{ needs.release-shinkai-desktop.outputs.signature-x86_64-unknown-linux-gnu }}
           LINUX_x86_64_URL: ${{ needs.release-shinkai-desktop.outputs.update-url-x86_64-unknown-linux-gnu }}
           DARWIN_AARCH64_SIGNATURE: ${{ needs.release-shinkai-desktop.outputs.signature-aarch64-apple-darwin }}

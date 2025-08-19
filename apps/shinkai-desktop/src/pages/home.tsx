@@ -74,7 +74,6 @@ import { ThinkingSwitchActionBar } from '../components/chat/chat-action-bar/thin
 import { ToolsSwitchActionBar } from '../components/chat/chat-action-bar/tools-switch-action-bar';
 import { VectorFsActionBar } from '../components/chat/chat-action-bar/vector-fs-action-bar';
 import { useChatStore } from '../components/chat/context/chat-context';
-// import { WebSearchActionBar } from '../components/chat/chat-action-bar/web-search-action-bar';
 import { useSetJobScope } from '../components/chat/context/set-job-scope-context';
 import {
   type ChatConversationLocationState,
@@ -170,6 +169,7 @@ const EmptyMessage = () => {
       useTools: DEFAULT_CHAT_CONFIG.use_tools,
       thinking: DEFAULT_CHAT_CONFIG.thinking,
       reasoningEffort: DEFAULT_CHAT_CONFIG.reasoning_effort,
+      webSearchEnabled: DEFAULT_CHAT_CONFIG.web_search_enabled,
     },
   });
 
@@ -531,6 +531,7 @@ const EmptyMessage = () => {
         use_tools: chatConfigForm.getValues('useTools'),
         thinking: chatConfigForm.getValues('thinking'),
         reasoning_effort: chatConfigForm.getValues('reasoningEffort'),
+        web_search_enabled: chatConfigForm.getValues('webSearchEnabled'),
       },
     });
 
@@ -749,19 +750,10 @@ const EmptyMessage = () => {
                               }}
                             />
                           )}
-                        {/* <WebSearchActionBar
-                                      checked={chatConfigForm.watch('useTools')}
-                                      onClick={() => {
-                                        chatConfigForm.setValue(
-                                          'useTools',
-                                          !chatConfigForm.watch('useTools'),
-                                        );
-                                      }}
-                                    /> */}
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <CreateChatConfigActionBar form={chatConfigForm} />
+                        <CreateChatConfigActionBar form={chatConfigForm} currentAI={currentAI} />
 
                         <Button
                           className={cn('size-[36px] p-2')}

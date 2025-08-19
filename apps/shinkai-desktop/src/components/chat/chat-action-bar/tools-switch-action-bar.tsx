@@ -107,6 +107,7 @@ export function UpdateToolsSwitchActionBarBase() {
         use_tools: !chatConfig?.use_tools,
         thinking: chatConfig?.thinking,
         reasoning_effort: chatConfig?.reasoning_effort,
+        web_search_enabled: chatConfig?.web_search_enabled,
       },
     });
   };

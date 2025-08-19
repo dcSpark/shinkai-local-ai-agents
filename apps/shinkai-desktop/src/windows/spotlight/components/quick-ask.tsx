@@ -158,6 +158,7 @@ function QuickAsk() {
       useTools: DEFAULT_CHAT_CONFIG.use_tools,
       thinking: DEFAULT_CHAT_CONFIG.thinking,
       reasoningEffort: DEFAULT_CHAT_CONFIG.reasoning_effort,
+      webSearchEnabled: DEFAULT_CHAT_CONFIG.web_search_enabled,
     },
   });
 
@@ -177,6 +178,7 @@ function QuickAsk() {
       useTools: DEFAULT_CHAT_CONFIG.use_tools,
       thinking: DEFAULT_CHAT_CONFIG.thinking,
       reasoningEffort: DEFAULT_CHAT_CONFIG.reasoning_effort,
+      webSearchEnabled: DEFAULT_CHAT_CONFIG.web_search_enabled,
     });
     chatInputRef.current?.focus();
   }, [chatConfigForm, chatForm, defaultSpotlightAiId, setInboxId]);
@@ -274,6 +276,7 @@ function QuickAsk() {
         useTools: DEFAULT_CHAT_CONFIG.use_tools,
         thinking: DEFAULT_CHAT_CONFIG.thinking,
         reasoningEffort: DEFAULT_CHAT_CONFIG.reasoning_effort,
+        webSearchEnabled: DEFAULT_CHAT_CONFIG.web_search_enabled,
       });
     },
     onError: (error) => {
@@ -325,6 +328,7 @@ function QuickAsk() {
           use_tools: chatConfigForm.getValues('useTools'),
           thinking: chatConfigForm.getValues('thinking'),
           reasoning_effort: chatConfigForm.getValues('reasoningEffort'),
+          web_search_enabled: chatConfigForm.getValues('webSearchEnabled'),
         },
       });
       return;
@@ -355,6 +359,7 @@ function QuickAsk() {
       useTools: DEFAULT_CHAT_CONFIG.use_tools,
       thinking: DEFAULT_CHAT_CONFIG.thinking,
       reasoningEffort: DEFAULT_CHAT_CONFIG.reasoning_effort,
+      webSearchEnabled: DEFAULT_CHAT_CONFIG.web_search_enabled,
     });
   };
 

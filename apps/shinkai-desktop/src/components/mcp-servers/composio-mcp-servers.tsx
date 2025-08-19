@@ -124,6 +124,7 @@ export const ComposioMcpServers = ({
         use_tools: true,
         thinking: DEFAULT_CHAT_CONFIG.thinking,
         reasoning_effort: DEFAULT_CHAT_CONFIG.reasoning_effort,
+        web_search_enabled: DEFAULT_CHAT_CONFIG.web_search_enabled,
       },
     });
   };

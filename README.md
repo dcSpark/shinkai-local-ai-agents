@@ -143,7 +143,7 @@ Before running Shinkai, you'll need to download the embedded Shinkai Node binary
 ```bash
 ARCH="aarch64-apple-darwin" \
 SHINKAI_NODE_VERSION="v1.1.5" \
-OLLAMA_VERSION="v0.11.4" \
+OLLAMA_VERSION="v0.11.5" \
 npx ts-node ./ci-scripts/download-side-binaries.ts
 ```
 
@@ -151,7 +151,7 @@ npx ts-node ./ci-scripts/download-side-binaries.ts
 
 ```bash
 ARCH="x86_64-unknown-linux-gnu" \
-OLLAMA_VERSION="v0.11.4" \
+OLLAMA_VERSION="v0.11.5" \
 SHINKAI_NODE_VERSION="v1.1.5" \
 npx ts-node ./ci-scripts/download-side-binaries.ts
 ```
@@ -159,7 +159,7 @@ npx ts-node ./ci-scripts/download-side-binaries.ts
 **Windows:**
 
 ```powershell
-$ENV:OLLAMA_VERSION="v0.11.4"
+$ENV:OLLAMA_VERSION="v0.11.5"
 $ENV:SHINKAI_NODE_VERSION="v1.1.5"
 $ENV:ARCH="x86_64-pc-windows-msvc"
 npx ts-node ./ci-scripts/download-side-binaries.ts

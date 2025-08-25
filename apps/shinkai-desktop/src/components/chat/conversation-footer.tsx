@@ -89,7 +89,7 @@ import { useChatStore } from './context/chat-context';
 import { useSetJobScope } from './context/set-job-scope-context';
 
 export const actionButtonClassnames = cn(
-  'text-text-secondary hover:bg-bg-quaternary inline-flex h-[32px] w-[32px] shrink-0 cursor-pointer items-center justify-center gap-1.5 truncate rounded-full p-[8px] text-left text-[13px] font-normal hover:text-white disabled:cursor-not-allowed disabled:opacity-50',
+  'text-text-secondary hover:bg-bg-quaternary inline-flex h-[32px] w-[32px] shrink-0 cursor-pointer items-center justify-center gap-1.5 truncate rounded-full p-[8px] px-3 text-left text-[13px] font-normal hover:text-white disabled:cursor-not-allowed disabled:opacity-50',
 );
 
 export type ChatConversationLocationState = {
@@ -239,8 +239,11 @@ function ConversationChatFooter({
       topK: chatConfig?.top_k ?? DEFAULT_CHAT_CONFIG.top_k,
       useTools: chatConfig?.use_tools ?? DEFAULT_CHAT_CONFIG.use_tools,
       thinking: chatConfig?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
-      reasoningEffort: chatConfig?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
-      webSearchEnabled: chatConfig?.web_search_enabled ?? DEFAULT_CHAT_CONFIG.web_search_enabled,
+      reasoningEffort:
+        chatConfig?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
+      webSearchEnabled:
+        chatConfig?.web_search_enabled ??
+        DEFAULT_CHAT_CONFIG.web_search_enabled,
     },
   });
 

@@ -493,7 +493,7 @@ const AddAIPage = () => {
               className="w-full"
               disabled={isPending}
               isLoading={isPending}
-              size="sm"
+              size="md"
               type="submit"
             >
               Test & Add AI

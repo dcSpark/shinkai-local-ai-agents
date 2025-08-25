@@ -204,58 +204,18 @@ export const modelsConfig = {
   [Models.Groq]: {
     apiUrl: 'https://api.groq.com/openai/v1',
     modelTypes: [
+      { name: 'Allam 2 7B', value: 'allam-2-7b' },
+      { name: 'Compound Beta', value: 'compound-beta' },
+      { name: 'Compound Beta Mini', value: 'compound-beta-mini' },
       {
-        name: 'Llama 3.2 90B Vision (Preview)',
-        value: 'llama-3.2-90b-vision-preview',
-      },
-      {
-        name: 'Llama 3.2 11B Vision (Preview)',
-        value: 'llama-3.2-11b-vision-preview',
-      },
-      {
-        name: 'Llama3 Groq 70B (Tool Use Preview)',
-        value: 'llama3-groq-70b-8192-tool-use-preview',
-      },
-      {
-        name: 'Llama3 Groq 8B (Tool Use Preview)',
-        value: 'llama3-groq-8b-8192-tool-use-preview',
-      },
-      {
-        name: 'Llama 3.1 70B Versatile',
-        value: 'llama-3.1-70b-versatile',
-      },
-      {
-        name: 'Llama 3.1 8B Instant',
-        value: 'llama-3.1-8b-instant',
-      },
-      {
-        name: 'Qwen-QWQ-32B',
-        value: 'qwen-qwq-32b',
-      },
-      {
-        name: 'Gemma2 9B IT',
-        value: 'gemma2-9b-it',
-      },
-      {
-        name: 'Llama Guard 4 12B',
-        value: 'meta-llama/llama-guard-4-12b',
-      },
-      {
-        name: 'Llama3 70B 8192',
-        value: 'llama3-70b-8192',
-      },
-      {
-        name: 'Llama3 8B 8192',
-        value: 'llama3-8b-8192',
-      },
-      {
-        name: 'Allam 2 7B',
-        value: 'allam-2-7b',
-      },
-      {
-        name: 'DeepSeek Distill Llama 70B',
+        name: 'DeepSeek R1 Distill Llama 70B',
         value: 'deepseek-r1-distill-llama-70b',
       },
+      { name: 'Gemma2 9B IT', value: 'gemma2-9b-it' },
+      { name: 'Llama 3.1 8B Instant', value: 'llama-3.1-8b-instant' },
+      { name: 'Llama 3.3 70B Versatile', value: 'llama-3.3-70b-versatile' },
+      { name: 'Llama3 70B 8192', value: 'llama3-70b-8192' },
+      { name: 'Llama3 8B 8192', value: 'llama3-8b-8192' },
       {
         name: 'Llama 4 Maverick 17B Instruct',
         value: 'meta-llama/llama-4-maverick-17b-128e-instruct',
@@ -264,6 +224,7 @@ export const modelsConfig = {
         name: 'Llama 4 Scout 17B Instruct',
         value: 'meta-llama/llama-4-scout-17b-16e-instruct',
       },
+      { name: 'Llama Guard 4 12B', value: 'meta-llama/llama-guard-4-12b' },
       {
         name: 'Llama Prompt Guard 2 22M',
         value: 'meta-llama/llama-prompt-guard-2-22m',
@@ -273,9 +234,24 @@ export const modelsConfig = {
         value: 'meta-llama/llama-prompt-guard-2-86m',
       },
       {
-        name: 'Mistral Saba 24B',
-        value: 'mistral-saba-24b',
+        name: 'Moonshot Kimi K2 Instruct',
+        value: 'moonshotai/kimi-k2-instruct',
       },
+      { name: 'OpenAI GPT-OSS 120B', value: 'openai/gpt-oss-120b' },
+      { name: 'OpenAI GPT-OSS 20B', value: 'openai/gpt-oss-20b' },
+      { name: 'Qwen3 32B', value: 'qwen/qwen3-32b' },
+
+      // Speech-to-Text
+      {
+        name: 'Distil Whisper Large v3 EN',
+        value: 'distil-whisper-large-v3-en',
+      },
+      { name: 'Whisper Large v3', value: 'whisper-large-v3' },
+      { name: 'Whisper Large v3 Turbo', value: 'whisper-large-v3-turbo' },
+
+      // Text-to-Speech
+      { name: 'PlayAI TTS', value: 'playai-tts' },
+      { name: 'PlayAI TTS Arabic', value: 'playai-tts-arabic' },
     ],
   },
   [Models.OpenRouter]: {
@@ -292,7 +268,7 @@ export const modelsConfig = {
       {
         name: 'Claude 4 Opus',
         value: 'claude-opus-4-0',
-      },      
+      },
       {
         name: 'Claude 4 Sonnet',
         value: 'claude-sonnet-4-0',
@@ -326,7 +302,7 @@ export const modelsConfig = {
       {
         name: 'Grok 4',
         value: 'grok-4',
-      },      
+      },
       {
         name: 'Grok 3',
         value: 'grok-3',

@@ -388,7 +388,7 @@ function AIModelSelectorBase({
                   >
                     <SelectValue placeholder="Select model" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-h-[300px] overflow-y-auto">
                     {customModelOptions.map((option) => (
                       <SelectItem key={option.id} value={option.id}>
                         {option.name ?? option.id}

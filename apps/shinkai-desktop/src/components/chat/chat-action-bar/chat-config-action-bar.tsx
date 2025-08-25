@@ -35,6 +35,7 @@ import {
 } from '@shinkai_network/shinkai-ui';
 import { ChatSettingsIcon } from '@shinkai_network/shinkai-ui/assets';
 
+import { cn } from '@shinkai_network/shinkai-ui/utils';
 import { memo, useEffect, useMemo } from 'react';
 import { useForm, type UseFormReturn } from 'react-hook-form';
 import { useParams } from 'react-router';
@@ -43,7 +44,10 @@ import { z } from 'zod';
 
 import { useAuth } from '../../../store/auth';
 import { useSettings } from '../../../store/settings';
-import { getThinkingConfig, type ThinkingConfig } from '../../../utils/thinking-config';
+import {
+  getThinkingConfig,
+  type ThinkingConfig,
+} from '../../../utils/thinking-config';
 import { ARTIFACTS_SYSTEM_PROMPT } from '../constants';
 import { actionButtonClassnames } from '../conversation-footer';
 
@@ -68,10 +72,12 @@ interface ChatConfigFormProps {
 
 function ChatConfigForm({ form, thinkingConfig }: ChatConfigFormProps) {
   const optInExperimental = useSettings((state) => state.optInExperimental);
-  
+
   // Check if thinking is enabled (either forced or manually enabled)
-  const isThinkingEnabled = thinkingConfig?.forceEnabled || form.watch('thinking');
-  const shouldDisableSliders = thinkingConfig?.supportsThinking && isThinkingEnabled;
+  const isThinkingEnabled =
+    thinkingConfig?.forceEnabled || form.watch('thinking');
+  const shouldDisableSliders =
+    thinkingConfig?.supportsThinking && isThinkingEnabled;
 
   return (
     <div className="space-y-6">
@@ -127,9 +133,16 @@ function ChatConfigForm({ form, thinkingConfig }: ChatConfigFormProps) {
                 <HoverCardTrigger asChild>
                   <div className="grid w-full gap-1.5">
                     <div className="flex items-center justify-between">
-                      <Label className={`text-xs ${shouldDisableSliders ? 'opacity-50' : ''}`} htmlFor="temperature">
+                      <Label
+                        className={`text-xs ${shouldDisableSliders ? 'opacity-60' : ''}`}
+                        htmlFor="temperature"
+                      >
                         Temperature
-                        {shouldDisableSliders && <span className="ml-1 text-[10px] text-yellow-400">(Disabled for thinking models)</span>}
+                        {shouldDisableSliders && (
+                          <span className="ml-1 text-xs text-white">
+                            (Disabled for thinking models)
+                          </span>
+                        )}
                       </Label>
                       <span className="text-text-secondary hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-xs">
                         {field.value}
@@ -137,7 +150,6 @@ function ChatConfigForm({ form, thinkingConfig }: ChatConfigFormProps) {
                     </div>
                     <Slider
                       aria-label="Temperature"
-                      className={`[&_[role=slider]]:h-4 [&_[role=slider]]:w-4 ${shouldDisableSliders ? 'opacity-50 pointer-events-none' : ''}`}
                       disabled={shouldDisableSliders}
                       id="temperature"
                       max={1}
@@ -175,9 +187,16 @@ function ChatConfigForm({ form, thinkingConfig }: ChatConfigFormProps) {
                 <HoverCardTrigger asChild>
                   <div className="grid w-full gap-1.5">
                     <div className="flex items-center justify-between">
-                      <Label className={`text-xs ${shouldDisableSliders ? 'opacity-50' : ''}`} htmlFor="topP">
+                      <Label
+                        className={`text-xs ${shouldDisableSliders ? 'opacity-60' : ''}`}
+                        htmlFor="topP"
+                      >
                         Top P
-                        {shouldDisableSliders && <span className="ml-1 text-[10px] text-yellow-400">(Disabled for thinking models)</span>}
+                        {shouldDisableSliders && (
+                          <span className="ml-1 text-xs text-white">
+                            (Disabled for thinking models)
+                          </span>
+                        )}
                       </Label>
                       <span className="text-text-secondary hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-xs">
                         {field.value}
@@ -185,7 +204,6 @@ function ChatConfigForm({ form, thinkingConfig }: ChatConfigFormProps) {
                     </div>
                     <Slider
                       aria-label="Top P"
-                      className={`[&_[role=slider]]:h-4 [&_[role=slider]]:w-4 ${shouldDisableSliders ? 'opacity-50 pointer-events-none' : ''}`}
                       disabled={shouldDisableSliders}
                       id="topP"
                       max={1}
@@ -226,9 +244,16 @@ function ChatConfigForm({ form, thinkingConfig }: ChatConfigFormProps) {
                 <HoverCardTrigger asChild>
                   <div className="grid w-full gap-1.5">
                     <div className="flex items-center justify-between">
-                      <Label className={`text-xs ${shouldDisableSliders ? 'opacity-50' : ''}`} htmlFor="topK">
+                      <Label
+                        className={`text-xs ${shouldDisableSliders ? 'opacity-60' : ''}`}
+                        htmlFor="topK"
+                      >
                         Top K
-                        {shouldDisableSliders && <span className="ml-1 text-[10px] text-yellow-400">(Disabled for thinking models)</span>}
+                        {shouldDisableSliders && (
+                          <span className="ml-1 text-xs text-white">
+                            (Disabled for thinking models)
+                          </span>
+                        )}
                       </Label>
                       <span className="text-text-secondary hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-xs">
                         {field.value}
@@ -236,7 +261,6 @@ function ChatConfigForm({ form, thinkingConfig }: ChatConfigFormProps) {
                     </div>
                     <Slider
                       aria-label="Top K"
-                      className={`[&_[role=slider]]:h-4 [&_[role=slider]]:w-4 ${shouldDisableSliders ? 'opacity-50 pointer-events-none' : ''}`}
                       disabled={shouldDisableSliders}
                       id="topK"
                       max={100}
@@ -288,7 +312,9 @@ function ChatConfigForm({ form, thinkingConfig }: ChatConfigFormProps) {
           name="reasoningEffort"
           render={({ field }) => (
             <FormItem>
-              <FormLabel className="text-xs text-white">Reasoning Effort</FormLabel>
+              <FormLabel className="text-xs text-white">
+                Reasoning Effort
+              </FormLabel>
               <FormControl>
                 <Select value={field.value} onValueChange={field.onChange}>
                   <SelectTrigger className="w-full">
@@ -448,7 +474,10 @@ export function UpdateChatConfigActionBarBase() {
           <Tooltip>
             <PopoverTrigger asChild>
               <TooltipTrigger asChild>
-                <button className={actionButtonClassnames} type="button">
+                <button
+                  className={cn(actionButtonClassnames, 'p-2')}
+                  type="button"
+                >
                   <ChatSettingsIcon className="h-full w-full" />
                 </button>
               </TooltipTrigger>
@@ -520,10 +549,16 @@ export function CreateChatConfigActionBar({
 
   const thinkingConfig = useMemo(() => {
     if (!currentAI || !llmProviders) {
-      return { supportsThinking: false, forceEnabled: false, reasoningLevel: false };
+      return {
+        supportsThinking: false,
+        forceEnabled: false,
+        reasoningLevel: false,
+      };
     }
 
-    const selectedProvider = llmProviders.find(provider => provider.id === currentAI);
+    const selectedProvider = llmProviders.find(
+      (provider) => provider.id === currentAI,
+    );
     const modelName = selectedProvider?.model;
     return getThinkingConfig(modelName);
   }, [currentAI, llmProviders]);
@@ -542,7 +577,10 @@ export function CreateChatConfigActionBar({
           <Tooltip>
             <PopoverTrigger asChild>
               <TooltipTrigger asChild>
-                <button className={actionButtonClassnames} type="button">
+                <button
+                  className={cn(actionButtonClassnames, 'p-2')}
+                  type="button"
+                >
                   <ChatSettingsIcon className="h-full w-full" />
                 </button>
               </TooltipTrigger>

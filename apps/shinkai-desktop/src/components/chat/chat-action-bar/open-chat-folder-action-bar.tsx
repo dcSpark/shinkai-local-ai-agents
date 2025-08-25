@@ -26,7 +26,7 @@ function OpenChatFolderActionBarBase({
       <Tooltip>
         <TooltipTrigger asChild>
           <button
-            className={cn(actionButtonClassnames, {
+            className={cn(actionButtonClassnames, 'p-2', {
               'opacity-50': disabled,
             })}
             disabled={disabled}

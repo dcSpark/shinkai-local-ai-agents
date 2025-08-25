@@ -150,7 +150,6 @@ function ChatConfigForm({ form, thinkingConfig }: ChatConfigFormProps) {
                     </div>
                     <Slider
                       aria-label="Temperature"
-                      className={`[&_[role=slider]]:h-4 [&_[role=slider]]:w-4`}
                       disabled={shouldDisableSliders}
                       id="temperature"
                       max={1}
@@ -205,7 +204,6 @@ function ChatConfigForm({ form, thinkingConfig }: ChatConfigFormProps) {
                     </div>
                     <Slider
                       aria-label="Top P"
-                      className={`[&_[role=slider]]:h-4 [&_[role=slider]]:w-4`}
                       disabled={shouldDisableSliders}
                       id="topP"
                       max={1}
@@ -263,7 +261,6 @@ function ChatConfigForm({ form, thinkingConfig }: ChatConfigFormProps) {
                     </div>
                     <Slider
                       aria-label="Top K"
-                      className={`[&_[role=slider]]:h-4 [&_[role=slider]]:w-4`}
                       disabled={shouldDisableSliders}
                       id="topK"
                       max={100}

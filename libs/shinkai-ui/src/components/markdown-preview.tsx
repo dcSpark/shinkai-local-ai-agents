@@ -42,13 +42,13 @@ export type CodeHeaderProps = {
 
 export const CodeHeader: FC<CodeHeaderProps> = ({ language, code }) => {
   return (
-    <div className="code-header-root border-divider bg-bg-default text-text-default flex items-center justify-between gap-4 rounded-t-lg border-b px-4 py-1">
+    <div className="code-header-root bg-bg-darker text-text-default flex items-center justify-between gap-4 rounded-t-lg px-4 py-1">
       <span className="code-header-language text-text-secondary text-xs font-medium lowercase">
         {language}
       </span>
       <CopyToClipboardIcon
         className={cn(
-          'text-text-secondary h-7 w-7 bg-transparent hover:bg-gray-300 [&>svg]:h-3 [&>svg]:w-3',
+          'text-text-secondary h-7 w-7 bg-transparent hover:bg-gray-900 [&>svg]:h-3 [&>svg]:w-3',
         )}
         string={code}
       />
@@ -96,7 +96,7 @@ export const SyntaxHighlighterBase = makePrismAsyncLightSyntaxHighlighter({
   customStyle: {
     margin: 0,
     width: '100%',
-    background: '#0d1117',
+    background: 'var(--color-bg-darker)',
     padding: '1.5rem 1rem',
     fontSize: '0.875em',
   },
@@ -247,7 +247,7 @@ export const defaultComponents = memoizeMarkdownComponents({
   pre: ({ className, ...props }) => (
     <pre
       className={cn(
-        'bg-bg-dark text-text-default overflow-x-auto rounded-b-lg !px-[1em] !py-[0.5em]',
+        'bg-bg-darker text-text-default overflow-x-auto rounded-b-lg !px-[1em] !py-[0.5em]',
         className,
       )}
       {...props}
@@ -259,7 +259,7 @@ export const defaultComponents = memoizeMarkdownComponents({
       <code
         className={cn(
           !isCodeBlock &&
-            'bg-bg-dark text-em-sm border-divider rounded-sm border p-[0.25em] font-semibold',
+            'bg-bg-darker text-em-sm border-divider rounded-sm p-[0.25em] font-semibold',
           className,
         )}
         {...props}

@@ -39,18 +39,6 @@ html {
   }
 }
 
-::-webkit-scrollbar-thumb,
-.prism-code-editor::-webkit-scrollbar-thumb,
-.playground-scroll::-webkit-scrollbar-thumb {
-  @apply !bg-bg-quaternary;
-}
-
-::-webkit-scrollbar-track,
-.prism-code-editor::-webkit-scrollbar-track,
-.playground-scroll::-webkit-scrollbar-track {
-  @apply !bg-bg-default;
-}
-
 /* PrismSyntaxHighlighter table inside code block */
 [class*='language-'] .token.token.table {
   @apply !inline;

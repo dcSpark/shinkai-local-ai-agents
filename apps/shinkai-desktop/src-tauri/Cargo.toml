@@ -40,18 +40,18 @@ kill_tree = { version = "0.2", features = ["tokio"] }
 semver = "1.0"
 sha2 = "0.10"
 
-tauri-plugin-global-shortcut = "2.2"
-tauri-plugin-shell = "2.2"
-tauri-plugin-single-instance = { version = "2.2", features = ["deep-link"] }
-tauri-plugin-updater = "2.6"  
-tauri-plugin-dialog = "2.2"
+tauri-plugin-global-shortcut = "2.3"
+tauri-plugin-shell = "2.3"
+tauri-plugin-single-instance = { version = "2.3", features = ["deep-link"] }
+tauri-plugin-updater = "2.9"  
+tauri-plugin-dialog = "2.3"
 tauri-plugin-fs ="2.2"
 tauri-plugin-os = "2.2"
-tauri-plugin-process = "2.2"
-tauri-plugin-log = "2.3"
+tauri-plugin-process = "2.3"
+tauri-plugin-log = "2.6"
 tauri-plugin-deep-link = "2.2.0"
-tauri-plugin-opener = "2.2.6"
-tauri-plugin-notification = "2.2.3"
+tauri-plugin-opener = "2.5"
+tauri-plugin-notification = "2.3"
 tauri-plugin-http = "2.5"
 
 fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs" }

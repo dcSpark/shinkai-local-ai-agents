@@ -51,20 +51,20 @@ export const useInstallApp = (
   return useMutation({
     ...options,
     mutationFn: async ({ appId, auth }: InstallAppParams) => {
-      const clientId = await api.generateClientId(appId);
-      const data = await api.getAppForClientId(appId, clientId);
-      if (!data.sseUrl) {
+      const app = await api.getApp(appId);
+      const httpUrl = await api.generateHttpUrlForAppId(appId);
+      if (!httpUrl) {
         throw new Error('Composio SSE url not found');
       }
       await addMcpServer({
         nodeAddress: auth.node_address,
         token: auth.api_v2_key,
-        name: data.name,
+        name: app.name,
         type: McpServerType.Http,
-        url: data.sseUrl,
+        url: httpUrl.toString(),
         is_enabled: true,
       });
-      return data;
+      return httpUrl;
     },
   });
 };

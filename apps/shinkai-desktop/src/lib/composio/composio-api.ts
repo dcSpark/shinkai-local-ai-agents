@@ -124,23 +124,15 @@ export class ComposioApi {
     return response.json();
   }
 
-  async generateClientId(appId: string): Promise<string> {
-    console.log('generating client id for app', appId);
-    const response = await fetch(`https://mcp.composio.dev/${appId}`, {});
-    const url = new URL(response.url);
-    const customerId = url.searchParams.get('customerId') || '';
-    return customerId;
-  }
-
-  async getAppForClientId(
-    appId: string,
-    clientId: string,
-  ): Promise<AppDetails> {
-    console.log('getting app for client id', appId, clientId);
+  async generateHttpUrlForAppId(appId: string): Promise<URL> {
+    console.log(`getting http url for composio app: ${appId}`);
     const response = await fetch(
-      `https://mcp.composio.dev/api/apps/${appId}?uuid=${clientId}`,
+      `https://mcp.composio.dev/api/generate?toolkit=${appId}`,
       {},
     );
-    return response.json();
+    const data = await response.json();
+    console.log(`appId: ${appId} http url: ${data.http}`);
+    const url = new URL(data.http);
+    return url;
   }
 }

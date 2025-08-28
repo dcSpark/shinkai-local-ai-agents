@@ -145,6 +145,7 @@ jobs:
           Expand-Archive .\nsisbi.zip -DestinationPath .\
           # Add tauri plugins
           Invoke-WebRequest -Uri "https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.1/nsis_tauri_utils.dll" -MaximumRedirection 5 -OutFile "nsis_tauri_utils.dll" -UserAgent "Wget"
+          mkdir -p .\nsis-binary-7423-3\Plugins\x86-unicode\additional
           mv .\nsis_tauri_utils.dll .\nsis-binary-7423-3\Plugins\x86-unicode\additional\
           mkdir -p C:\Users\runneradmin\AppData\Local\tauri\NSIS
           mv .\nsis-binary-7423-3\* C:\Users\runneradmin\AppData\Local\tauri\NSIS\

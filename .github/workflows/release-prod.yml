@@ -137,17 +137,17 @@ jobs:
           choco install llvm
 
       # This is a workaround for NSIS bundle size limits https://nsis.sourceforge.io/Talk:Special_Builds
-      # - name: (Windows) Override NSIS by NSISBI
-      #   if: ${{ matrix.arch == 'x86_64-pc-windows-msvc' }}
-      #   shell: PowerShell
-      #   run: |
-      #     Invoke-WebRequest -Uri "https://sourceforge.net/projects/nsisbi/files/nsisbi3.10.3/nsis-binary-7423-3.zip/download" -MaximumRedirection 5 -OutFile "nsisbi.zip" -UserAgent "Wget"
-      #     Expand-Archive .\nsisbi.zip -DestinationPath .\
-      #     # Add tauri plugins
-      #     Invoke-WebRequest -Uri "https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.1/nsis_tauri_utils.dll" -MaximumRedirection 5 -OutFile "nsis_tauri_utils.dll" -UserAgent "Wget"
-      #     mv .\nsis_tauri_utils.dll .\nsis-binary-7423-3\Plugins\x86-unicode\additional\
-      #     mkdir -p C:\Users\runneradmin\AppData\Local\tauri\NSIS
-      #     mv .\nsis-binary-7423-3\* C:\Users\runneradmin\AppData\Local\tauri\NSIS\
+      - name: (Windows) Override NSIS by NSISBI
+        if: ${{ matrix.arch == 'x86_64-pc-windows-msvc' }}
+        shell: PowerShell
+        run: |
+          Invoke-WebRequest -Uri "https://sourceforge.net/projects/nsisbi/files/nsisbi3.10.3/nsis-binary-7423-3.zip/download" -MaximumRedirection 5 -OutFile "nsisbi.zip" -UserAgent "Wget"
+          Expand-Archive .\nsisbi.zip -DestinationPath .\
+          # Add tauri plugins
+          Invoke-WebRequest -Uri "https://github.com/tauri-apps/nsis-tauri-utils/releases/download/nsis_tauri_utils-v0.5.1/nsis_tauri_utils.dll" -MaximumRedirection 5 -OutFile "nsis_tauri_utils.dll" -UserAgent "Wget"
+          mv .\nsis_tauri_utils.dll .\nsis-binary-7423-3\Plugins\x86-unicode\additional\
+          mkdir -p C:\Users\runneradmin\AppData\Local\.tauri\NSIS
+          mv .\nsis-binary-7423-3\* C:\Users\runneradmin\AppData\Local\.tauri\NSIS\
 
       - name: (Linux) Install build dependencies
         if: ${{ matrix.arch == 'x86_64-unknown-linux-gnu' }}

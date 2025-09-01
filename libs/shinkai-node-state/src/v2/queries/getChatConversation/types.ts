@@ -124,6 +124,7 @@ export type AssistantMessage = BaseMessage & {
   status: TextStatus;
   toolCalls: ToolCall[];
   artifacts: Artifact[];
+  generatedFiles?: Attachment[];
   reasoning?: ReasoningPart;
   provider?: ProviderDetails;
 };

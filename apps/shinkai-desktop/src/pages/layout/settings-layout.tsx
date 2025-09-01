@@ -170,15 +170,15 @@ export function MainNav() {
       href: '/settings/crypto-wallet',
       icon: <WalletMinimal className="text-text-secondary h-4 w-4" />,
     },
-    {
-      title: t('settings.layout.galxe'),
-      href: '/settings/galxe-validation',
-      icon: (
-        <div className="text-text-secondary">
-          <img alt="galxe icon" className="h-4 w-4" src={galxeIcon} />
-        </div>
-      ),
-    },
+    // {
+    //   title: t('settings.layout.galxe'),
+    //   href: '/settings/galxe-validation',
+    //   icon: (
+    //     <div className="text-text-secondary">
+    //       <img alt="galxe icon" className="h-4 w-4" src={galxeIcon} />
+    //     </div>
+    //   ),
+    // },
   ].filter(Boolean) as NavigationLink[];
 
   return (

@@ -607,8 +607,8 @@ export const MessageBase = ({
                 )}
 
                 {message.role === 'assistant' &&
-                  message.toolCalls?.some((tool) => !!tool.generatedFiles) && (
-                    <GeneratedFiles toolCalls={message.toolCalls} />
+                  (message.toolCalls?.some((tool) => !!tool.generatedFiles) || !!message.generatedFiles) && (
+                    <GeneratedFiles message={message} />
                   )}
               </div>
               {!isPending && !minimalistMode && (
@@ -944,40 +944,54 @@ export function Reasoning({
   );
 }
 
-export const GeneratedFiles = ({ toolCalls }: { toolCalls: ToolCall[] }) => {
+export const GeneratedFiles = ({ message }: { message: AssistantMessage }) => {
+  // Merge all files from both direct generatedFiles and toolCall generatedFiles
+  const allFiles = [
+    // Add direct files
+    ...(message.generatedFiles || []).map((file) => ({
+      name: file.name,
+      path: file.path,
+      type: file.type,
+      size: file?.size,
+      content: file?.content,
+      blob: file?.blob,
+      id: file.id,
+      extension: file.extension,
+      mimeType: file.mimeType,
+      url: file.url,
+    })),
+    // Add files from all tool calls
+    ...message.toolCalls.flatMap((tool) => 
+      (tool.generatedFiles || []).map((file) => ({
+        name: file.name,
+        path: file.path,
+        type: file.type,
+        size: file?.size,
+        content: file?.content,
+        blob: file?.blob,
+        id: file.id,
+        extension: file.extension,
+        mimeType: file.mimeType,
+        url: file.url,
+      }))
+    ),
+  ];
+
+  // If no files exist, don't render anything
+  if (allFiles.length === 0) {
+    return null;
+  }
+
   return (
-    toolCalls.length > 0 &&
-    toolCalls?.some(
-      (tool) => !!tool.generatedFiles && tool.generatedFiles.length > 0,
-    ) && (
-      <div className="mt-4 space-y-1 py-4 pt-1.5">
-        <span className="text-text-secondary text-em-sm">Generated Files</span>
-        <div className="flex flex-wrap items-start gap-4 rounded-md">
-          {toolCalls.map((tool) => {
-            if (!tool.generatedFiles || !tool.generatedFiles.length)
-              return null;
-            return (
-              <FileList
-                className="mt-2"
-                files={tool.generatedFiles.map((file) => ({
-                  name: file.name,
-                  path: file.path,
-                  type: file.type,
-                  size: file?.size,
-                  content: file?.content,
-                  blob: file?.blob,
-                  id: file.id,
-                  extension: file.extension,
-                  mimeType: file.mimeType,
-                  url: file.url,
-                }))}
-                key={tool.name}
-              />
-            );
-          })}
-        </div>
+    <div className="mt-4 space-y-1 py-4 pt-1.5">
+      <span className="text-text-secondary text-em-sm">Generated Files</span>
+      <div className="flex flex-wrap items-start gap-4 rounded-md">
+        <FileList
+          className="mt-2"
+          files={allFiles}
+        />
       </div>
-    )
+    </div>
   );
 };
 

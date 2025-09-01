@@ -17,7 +17,9 @@ export const MODELS_WITH_THINKING_SUPPORT = {
   // Ollama models with thinking support
   ...Object.fromEntries(
     OLLAMA_MODELS_REPOSITORY.filter((model) => model.thinking)
-      .map((model) => [model.name, { forceEnabled: true, reasoningLevel: false }])
+      .map((model) => model.tags)
+      .flat()
+      .map((tags) => [`ollama:${tags.name}`, { forceEnabled: true, reasoningLevel: false }])
   ),
   
   // Claude models
@@ -36,7 +38,10 @@ export const MODELS_WITH_THINKING_SUPPORT = {
   // Gemini models
   'gemini:gemini-2.5-pro': { forceEnabled: false, reasoningLevel: true },
   'gemini:gemini-2.5-flash': { forceEnabled: false, reasoningLevel: true },
+  'gemini:gemini-2.5-flash-preview-05-20': { forceEnabled: false, reasoningLevel: true },
   'gemini:gemini-2.5-flash-lite': { forceEnabled: false, reasoningLevel: true },
+  'gemini:gemini-2.5-flash-lite-preview-06-17': { forceEnabled: false, reasoningLevel: true },
+  'gemini:gemini-2.0-flash-exp': { forceEnabled: false, reasoningLevel: true },
 
   // Shinkai Backend
   'shinkai-backend:free_text_inference': { forceEnabled: true, reasoningLevel: true },

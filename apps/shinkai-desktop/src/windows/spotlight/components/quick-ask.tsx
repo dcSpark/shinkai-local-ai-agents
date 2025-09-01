@@ -65,7 +65,7 @@ import {
 import { useChatConversationWithOptimisticUpdates } from '../../../pages/chat/chat-conversation';
 import { useAuth } from '../../../store/auth';
 import { useSettings } from '../../../store/settings';
-import { MODELS_WITH_THINKING_SUPPORT } from '../../../utils/constants';
+import { getThinkingConfig } from '../../../utils/thinking-config';
 import { useQuickAskStore } from '../context/quick-ask';
 import { AIModelSelector, AiUpdateSelection } from './ai-update-selection';
 import { MessageList } from './message-list';
@@ -367,26 +367,8 @@ function QuickAsk() {
     const selectedProviderModel = llmProviders?.find(
       (p: { id: string; model: string }) => p.id === (currentAI ?? ''),
     )?.model;
-    const currentModel = (selectedProviderModel ?? currentAI ?? '')
-      .toLowerCase()
-      .replace(/-/g, '_');
-    const supportedModel = Object.keys(MODELS_WITH_THINKING_SUPPORT).find(
-      (supportedModel) =>
-        currentModel.includes(supportedModel.toLowerCase().replace(/-/g, '_')),
-    );
-
-    if (!supportedModel) {
-      return { supportsThinking: false, forceEnabled: false };
-    }
-
-    const config =
-      MODELS_WITH_THINKING_SUPPORT[
-        supportedModel as keyof typeof MODELS_WITH_THINKING_SUPPORT
-      ];
-    return {
-      supportsThinking: true,
-      forceEnabled: config.forceEnabled,
-    };
+    const modelName = selectedProviderModel ?? currentAI;
+    return getThinkingConfig(modelName);
   }, [currentAI, llmProviders]);
 
   return (

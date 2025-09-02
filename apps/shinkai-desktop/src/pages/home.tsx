@@ -91,7 +91,7 @@ import { useAnalytics } from '../lib/posthog-provider';
 import { useAuth } from '../store/auth';
 import { useSettings } from '../store/settings';
 import { useViewportStore } from '../store/viewport';
-import { MODELS_WITH_THINKING_SUPPORT } from '../utils/constants';
+import { getThinkingConfig } from '../utils/thinking-config';
 // import { SHINKAI_DOCS_URL, SHINKAI_TUTORIALS } from '../utils/constants';
 
 export const showSpotlightWindow = async () => {
@@ -551,26 +551,8 @@ const EmptyMessage = () => {
     const selectedProviderModel = llmProviders?.find(
       (p) => p.id === (currentAI ?? ''),
     )?.model;
-    const currentModel = (selectedProviderModel ?? currentAI ?? '')
-      .toLowerCase()
-      .replace(/-/g, '_');
-    const supportedModel = Object.keys(MODELS_WITH_THINKING_SUPPORT).find(
-      (supportedModel) =>
-        currentModel.includes(supportedModel.toLowerCase().replace(/-/g, '_')),
-    );
-
-    if (!supportedModel) {
-      return { supportsThinking: false, forceEnabled: false };
-    }
-
-    const config =
-      MODELS_WITH_THINKING_SUPPORT[
-        supportedModel as keyof typeof MODELS_WITH_THINKING_SUPPORT
-      ];
-    return {
-      supportsThinking: true,
-      forceEnabled: config.forceEnabled,
-    };
+    const modelName = selectedProviderModel ?? currentAI;
+    return getThinkingConfig(modelName);
   }, [currentAI, llmProviders]);
 
   return (

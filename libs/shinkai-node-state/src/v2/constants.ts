@@ -71,7 +71,7 @@ export const DEFAULT_CHAT_CONFIG = {
   top_p: 0.9,
   stream: true,
   use_tools: true,
-  thinking: true,
+  thinking: false,
   reasoning_effort: 'low',
   web_search_enabled: true,
 } as const;

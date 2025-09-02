@@ -165,6 +165,32 @@ const createAssistantMessage = async (
     });
   }
 
+  let generatedFiles: Attachment[] | undefined;
+
+  // Extract files from fs_files_paths in job message
+  const filePaths = message.job_message.fs_files_paths || [];
+  if (filePaths.length > 0) {
+    try {
+      const fileResults = await Promise.all(
+        filePaths.map(async (filePath) => {
+          const fullFilePath = `shinkai://file/${filePath.replace('/main/', '/')}`;
+          const response = await getShinkaiFileProtocol(
+            nodeAddress,
+            token,
+            { file: fullFilePath }, // todo: remove this once we fix it in the node
+          );
+          return generateFilePreview(fullFilePath, response);
+        }),
+      );
+      generatedFiles = fileResults;
+      console.log('generatedFiles', generatedFiles);
+    } catch (error) {
+      console.error('Error processing fs_files_paths:', error);
+      generatedFiles = undefined;
+    }
+  }
+  
+
   const provider = await getProviderFromJob(nodeAddress, token, {
     job_id: message.job_message.job_id,
   });
@@ -188,6 +214,7 @@ const createAssistantMessage = async (
     },
     toolCalls,
     artifacts,
+    generatedFiles,
     reasoning:
       text.includes('<think>') && text.includes('</think>')
         ? {

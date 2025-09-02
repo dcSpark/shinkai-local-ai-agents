@@ -19,7 +19,7 @@ export const getThinkingConfig = (modelName: string | undefined): ThinkingConfig
   const supportedModel = Object.keys(MODELS_WITH_THINKING_SUPPORT).find(
     (supportedModel) => {
       const normalizedSupported = supportedModel.toLowerCase();
-      return currentModel === normalizedSupported || currentModel.includes(normalizedSupported);
+      return currentModel === normalizedSupported;
     }
   );
 

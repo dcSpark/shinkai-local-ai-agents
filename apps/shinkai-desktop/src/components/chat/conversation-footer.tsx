@@ -68,7 +68,7 @@ import { toast } from 'sonner';
 
 import { useAnalytics } from '../../lib/posthog-provider';
 import { useAuth } from '../../store/auth';
-import { MODELS_WITH_THINKING_SUPPORT } from '../../utils/constants';
+import { getThinkingConfig } from '../../utils/thinking-config';
 import { usePromptSelectionStore } from '../prompt/context/prompt-selection-context';
 import { AiUpdateSelectionActionBar } from './chat-action-bar/ai-update-selection-action-bar';
 import {
@@ -441,26 +441,8 @@ function ConversationChatFooter({
   }, [currentMessage]);
 
   const thinkingConfig = useMemo(() => {
-    const currentModel = (provider?.agent?.model ?? provider?.agent?.id ?? '')
-      .toLowerCase()
-      .replace(/-/g, '_');
-    const supportedModel = Object.keys(MODELS_WITH_THINKING_SUPPORT).find(
-      (supportedModel) =>
-        currentModel.includes(supportedModel.toLowerCase().replace(/-/g, '_')),
-    );
-
-    if (!supportedModel) {
-      return { supportsThinking: false, forceEnabled: false };
-    }
-
-    const config =
-      MODELS_WITH_THINKING_SUPPORT[
-        supportedModel as keyof typeof MODELS_WITH_THINKING_SUPPORT
-      ];
-    return {
-      supportsThinking: true,
-      forceEnabled: config.forceEnabled,
-    };
+    const modelName = provider?.agent?.model ?? provider?.agent?.id;
+    return getThinkingConfig(modelName);
   }, [provider?.agent?.id, provider?.agent?.model]);
 
   return (

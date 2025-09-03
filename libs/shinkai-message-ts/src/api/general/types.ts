@@ -133,6 +133,7 @@ export type WsMessage = {
   metadata?: {
     id: string;
     is_done: boolean;
+    is_reasoning: boolean;
     done_reason: string;
     total_duration: number;
     eval_count: number;

@@ -388,7 +388,7 @@ export const MessageBase = ({
                   minimalistMode && 'rounded-xs px-2 pt-1.5 pb-1.5',
                 )}
               >
-                {message.role === 'assistant' && message.reasoning != null && (
+                {message.role === 'assistant' && message.reasoning && (
                   <Reasoning
                     reasoning={message.reasoning.text}
                     status={message.reasoning.status}
@@ -469,13 +469,11 @@ export const MessageBase = ({
                 {message.role === 'assistant' && (
                   <MarkdownText
                     className={cn(
-                      message.reasoning?.status?.type === 'running' &&
+                      message?.status?.type === 'running' &&
                         'text-text-secondary',
                     )}
                     content={extractErrorPropertyOrContent(
-                      message.content
-                        .replace(/<think>[\s\S]*?<\/think>/g, '')
-                        .replace('<think>', ''),
+                      message.content,
                       'error_message',
                     )}
                     isRunning={
@@ -607,7 +605,8 @@ export const MessageBase = ({
                 )}
 
                 {message.role === 'assistant' &&
-                  (message.toolCalls?.some((tool) => !!tool.generatedFiles) || !!message.generatedFiles) && (
+                  (message.toolCalls?.some((tool) => !!tool.generatedFiles) ||
+                    !!message.generatedFiles) && (
                     <GeneratedFiles message={message} />
                   )}
               </div>
@@ -772,6 +771,8 @@ export const Message = memo(MessageBase, (prev, next) => {
   return (
     prev.messageId === next.messageId &&
     prev.message.content === next.message.content &&
+    (prev.message as AssistantMessage).reasoning?.text ===
+      (next.message as AssistantMessage).reasoning?.text &&
     prev.minimalistMode === next.minimalistMode &&
     equal(
       (prev.message as AssistantMessage).toolCalls,
@@ -961,7 +962,7 @@ export const GeneratedFiles = ({ message }: { message: AssistantMessage }) => {
       url: file.url,
     })),
     // Add files from all tool calls
-    ...message.toolCalls.flatMap((tool) => 
+    ...message.toolCalls.flatMap((tool) =>
       (tool.generatedFiles || []).map((file) => ({
         name: file.name,
         path: file.path,
@@ -973,7 +974,7 @@ export const GeneratedFiles = ({ message }: { message: AssistantMessage }) => {
         extension: file.extension,
         mimeType: file.mimeType,
         url: file.url,
-      }))
+      })),
     ),
   ];
 
@@ -986,10 +987,7 @@ export const GeneratedFiles = ({ message }: { message: AssistantMessage }) => {
     <div className="mt-4 space-y-1 py-4 pt-1.5">
       <span className="text-text-secondary text-em-sm">Generated Files</span>
       <div className="flex flex-wrap items-start gap-4 rounded-md">
-        <FileList
-          className="mt-2"
-          files={allFiles}
-        />
+        <FileList className="mt-2" files={allFiles} />
       </div>
     </div>
   );

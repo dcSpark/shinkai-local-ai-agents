@@ -349,20 +349,16 @@ export const useWebSocketMessage = ({
               lastMessage.role === 'assistant' &&
               lastMessage.status?.type === 'running'
             ) {
-              lastMessage.content += parseData.message;
-              const isThinkingOpen = lastMessage.content.includes('<think>');
-              const isThinkingClosed = lastMessage.content.includes('</think>');
-
-              if (isThinkingOpen && !isThinkingClosed) {
-                lastMessage.reasoning = {
-                  text: '',
-                  status: { type: 'running' },
-                };
-              } else if (isThinkingOpen && isThinkingClosed) {
-                lastMessage.reasoning = {
-                  text: '',
-                  status: { type: 'complete', reason: 'unknown' },
-                };
+              if (parseData.metadata?.is_reasoning) {
+                if (!lastMessage.reasoning) {
+                  lastMessage.reasoning = {
+                    text: '',
+                    status: { type: 'running' },
+                  };
+                }
+                lastMessage.reasoning.text += parseData.message;
+              } else {
+                lastMessage.content += parseData.message;
               }
             }
           }),

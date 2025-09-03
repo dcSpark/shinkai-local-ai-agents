@@ -78,6 +78,7 @@ export type JobMessage = {
   };
   fs_files_paths?: ShinkaiPath[];
   job_filenames?: string[];
+  reasoning_content: string | null;
 };
 export type ChatMessage = {
   job_message: JobMessage;

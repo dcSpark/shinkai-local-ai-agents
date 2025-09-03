@@ -359,7 +359,11 @@ export const useWebSocketMessage = ({
                   };
                 }
                 lastMessage.reasoning.text += parseData.message;
+                lastMessage.reasoning.status = { type: 'running' };
               } else {
+                if (lastMessage.reasoning) {
+                  lastMessage.reasoning.status = { type: 'complete', reason: 'unknown' };
+                }
                 lastMessage.content += parseData.message;
               }
             }

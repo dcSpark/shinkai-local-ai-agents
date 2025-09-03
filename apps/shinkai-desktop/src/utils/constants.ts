@@ -35,6 +35,12 @@ export const MODELS_WITH_THINKING_SUPPORT = {
   // DeepSeek models
   'deepseek:deepseek-reasoner': { forceEnabled: true, reasoningLevel: false },
 
+  // Groq models
+  'groq:openai/gpt-oss-20b': { forceEnabled: true, reasoningLevel: true },
+  'groq:openai/gpt-oss-120b': { forceEnabled: true, reasoningLevel: true },
+  'groq:qwen/qwen3-32b': { forceEnabled: true, reasoningLevel: false },
+  'groq:deepseek-r1-distill-llama-70b': { forceEnabled: true, reasoningLevel: false },
+
   // Gemini models
   'gemini:gemini-2.5-pro': { forceEnabled: false, reasoningLevel: true },
   'gemini:gemini-2.5-flash': { forceEnabled: false, reasoningLevel: true },

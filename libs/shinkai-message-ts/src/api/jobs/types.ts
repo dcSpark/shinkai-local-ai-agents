@@ -61,7 +61,6 @@ export type JobMessage = {
   job_id: string;
   callback?: null;
   content: string;
-  reasoning_content?: string;
   parent: string | null;
   sheet_job_data?: null;
   tool_key?: string;

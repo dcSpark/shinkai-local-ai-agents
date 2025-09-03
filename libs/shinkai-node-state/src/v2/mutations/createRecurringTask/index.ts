@@ -45,6 +45,7 @@ export const createRecurringTask = async ({
           content: message,
           tool_key: toolKey,
           parent: null,
+          reasoning_content: null,
         },
       },
 

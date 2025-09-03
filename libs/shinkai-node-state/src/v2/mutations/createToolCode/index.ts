@@ -54,6 +54,7 @@ export const createToolCode = async ({
       job_id: currentJobId,
       content: message,
       parent: null,
+      reasoning_content: null,
     },
     tools,
     language,

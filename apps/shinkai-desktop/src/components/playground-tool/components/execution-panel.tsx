@@ -403,10 +403,11 @@ const ToolResult = memo(ToolResultBase, (prevProps, nextProps) => {
 
 const ToolLogsBase = ({
   toolResultFiles,
-  _mountTimestamp,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  mountTimestamp,
 }: {
   toolResultFiles: string[];
-  _mountTimestamp: Date;
+  mountTimestamp: Date;
 }) => {
   const auth = useAuth((state) => state.auth);
 

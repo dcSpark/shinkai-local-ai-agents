@@ -191,7 +191,6 @@ type EditMessageFormSchema = z.infer<typeof editMessageFormSchema>;
 
 export const MessageBase = ({
   message,
-  _messageId,
   // messageId,
   hidePythonExecution,
   isPending,

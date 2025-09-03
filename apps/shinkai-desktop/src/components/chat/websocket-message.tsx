@@ -9,6 +9,8 @@ import {
   OPTIMISTIC_ASSISTANT_MESSAGE_ID,
 } from '@shinkai_network/shinkai-node-state/v2/constants';
 import {
+  type FormattedMessage,
+  type AssistantMessage,
   type ChatConversationInfiniteData,
   type ToolCall,
 } from '@shinkai_network/shinkai-node-state/v2/queries/getChatConversation/types';
@@ -342,25 +344,23 @@ export const useWebSocketMessage = ({
           queryKey,
           produce((draft: ChatConversationInfiniteData | undefined) => {
             if (!draft?.pages?.[0]) return;
-            const lastMessage = draft.pages.at(-1)?.at(-1);
+            const lastMessage: FormattedMessage | undefined = draft.pages.at(-1)?.at(-1);
             if (
               lastMessage &&
               lastMessage.messageId === OPTIMISTIC_ASSISTANT_MESSAGE_ID &&
               lastMessage.role === 'assistant' &&
               lastMessage.status?.type === 'running'
             ) {
-              lastMessage.content += parseData.message;
-              const isThinkingOpen = lastMessage.content.includes('<think>');
-              const isThinkingClosed = lastMessage.content.includes('</think>');
-
-              if (isThinkingOpen && !isThinkingClosed) {
+              const isThinkingOpen = parseData.metadata?.is_reasoning;
+              if (isThinkingOpen) {
                 lastMessage.reasoning = {
-                  text: '',
+                  text: lastMessage.reasoning?.text + parseData.message,
                   status: { type: 'running' },
                 };
-              } else if (isThinkingOpen && isThinkingClosed) {
+              } else {
+                lastMessage.content += parseData.message;
                 lastMessage.reasoning = {
-                  text: '',
+                  text: lastMessage.reasoning?.text ?? '',
                   status: { type: 'complete', reason: 'unknown' },
                 };
               }

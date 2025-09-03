@@ -142,8 +142,8 @@ Shinkai를 실행하기 전에 응용 프로그램의 핵심 기능에 전원을
 
 ```bash
 ARCH="aarch64-apple-darwin" \
-SHINKAI_NODE_VERSION="v1.1.7" \
-OLLAMA_VERSION="v0.11.5" \
+SHINKAI_NODE_VERSION="v1.1.8" \
+OLLAMA_VERSION="v0.11.8" \
 npx ts-node ./ci-scripts/download-side-binaries.ts
 ```
 
@@ -151,16 +151,16 @@ npx ts-node ./ci-scripts/download-side-binaries.ts
 
 ```bash
 ARCH="x86_64-unknown-linux-gnu" \
-OLLAMA_VERSION="v0.11.5" \
-SHINKAI_NODE_VERSION="v1.1.7" \
+OLLAMA_VERSION="v0.11.8" \
+SHINKAI_NODE_VERSION="v1.1.8" \
 npx ts-node ./ci-scripts/download-side-binaries.ts
 ```
 
 ** Windows : **
 
 ```powershell
-$ENV:OLLAMA_VERSION="v0.11.5"
-$ENV:SHINKAI_NODE_VERSION="v1.1.7"
+$ENV:OLLAMA_VERSION="v0.11.8"
+$ENV:SHINKAI_NODE_VERSION="v1.1.8"
 $ENV:ARCH="x86_64-pc-windows-msvc"
 npx ts-node ./ci-scripts/download-side-binaries.ts
 ```

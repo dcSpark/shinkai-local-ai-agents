@@ -345,9 +345,7 @@ export const MessageBase = ({
                         'text-text-secondary',
                     )}
                     content={extractErrorPropertyOrContent(
-                      message.content
-                        .replace(/<think>[\s\S]*?<\/think>/g, '')
-                        .replace('<think>', ''),
+                      message.content,
                       'error_message',
                     )}
                     isRunning={

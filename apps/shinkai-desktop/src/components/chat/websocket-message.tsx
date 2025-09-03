@@ -10,7 +10,6 @@ import {
 } from '@shinkai_network/shinkai-node-state/v2/constants';
 import {
   type FormattedMessage,
-  type AssistantMessage,
   type ChatConversationInfiniteData,
   type ToolCall,
 } from '@shinkai_network/shinkai-node-state/v2/queries/getChatConversation/types';

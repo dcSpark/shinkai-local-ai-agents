@@ -2,7 +2,7 @@ import baseConfig from '../../eslint.config.mjs';
 
 export default [
   {
-    ignores: ['**/dist'],
+    ignores: ['**/dist', '**/src-tauri/target/**'],
   },
   ...baseConfig,
   {

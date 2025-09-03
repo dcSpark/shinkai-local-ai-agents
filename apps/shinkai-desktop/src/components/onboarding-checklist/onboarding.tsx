@@ -12,7 +12,6 @@ import {
   Progress,
 } from '@shinkai_network/shinkai-ui';
 import {
-  CreateAIIcon,
   ToolsIcon,
   // FilesIcon
 } from '@shinkai_network/shinkai-ui/assets';

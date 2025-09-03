@@ -144,7 +144,7 @@ const App = () => {
             'No valid React component found in the provided code',
           );
         }
-      } catch (error) {
+      } catch {
         throw new Error('Error evaluating component code');
       }
     }

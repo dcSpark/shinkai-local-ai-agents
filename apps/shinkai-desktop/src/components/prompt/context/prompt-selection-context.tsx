@@ -1,4 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
+import { useTranslation } from '@shinkai_network/shinkai-i18n';
 import { type Prompt } from '@shinkai_network/shinkai-message-ts/api/tools/types';
 import { useCreatePrompt } from '@shinkai_network/shinkai-node-state/v2/mutations/createPrompt/useCreatePrompt';
 import { useRemovePrompt } from '@shinkai_network/shinkai-node-state/v2/mutations/removePrompt/useRemovePrompt';
@@ -39,7 +40,6 @@ import {
 import React, { createContext, useContext, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
-import { useTranslation } from '@shinkai_network/shinkai-i18n';
 import { z } from 'zod';
 import { createStore, useStore } from 'zustand';
 

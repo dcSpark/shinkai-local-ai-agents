@@ -109,7 +109,7 @@ const createPlaygroundStore = () =>
     toolMetadataError: null,
     setToolMetadataError: (toolMetadataError) => set({ toolMetadataError }),
     updateToolMetadata: (toolMetadata) =>
-      set((state) => ({
+      set((_state) => ({
         toolMetadata,
         toolMetadataStatus: 'success',
         toolMetadataError: null,

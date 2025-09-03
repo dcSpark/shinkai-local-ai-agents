@@ -26,8 +26,8 @@ import { LanguageToolSelector } from './language-tool-selector';
 import { ToolsSelection } from './tools-selection';
 
 const PlaygroundChatBase = ({
-  toolName,
-  chatInboxId,
+  _toolName,
+  _chatInboxId,
   handleCreateToolCode,
   fetchPreviousPage,
   hasPreviousPage,

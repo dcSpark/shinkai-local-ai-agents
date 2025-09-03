@@ -1,6 +1,6 @@
+import { useTranslation } from '@shinkai_network/shinkai-i18n';
 import { type ComponentProps, type ReactNode } from 'react';
 import { ErrorBoundary } from 'react-error-boundary';
-import { useTranslation } from '@shinkai_network/shinkai-i18n';
 
 /**
  * Fallback component shown when the Prism editor crashes

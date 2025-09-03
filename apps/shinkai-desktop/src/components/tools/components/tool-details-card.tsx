@@ -21,8 +21,6 @@ import {
   Alert,
   AlertDescription,
   AlertTitle,
-  Avatar,
-  AvatarFallback,
   Button,
   buttonVariants,
   CopyToClipboardIcon,

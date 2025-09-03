@@ -17,8 +17,6 @@ import {
   AccordionItem,
   AccordionTrigger,
   Button,
-  Card,
-  CardContent,
   ChatInputArea,
   CopyToClipboardIcon,
   DotsLoader,
@@ -34,7 +32,6 @@ import {
 } from '@shinkai_network/shinkai-ui';
 import {
   AIAgentIcon,
-  ReactJsIcon,
   ReasoningIcon,
   ToolsIcon,
 } from '@shinkai_network/shinkai-ui/assets';

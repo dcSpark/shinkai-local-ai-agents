@@ -11,7 +11,7 @@ import {
   TooltipPortal,
   TooltipTrigger,
 } from '@shinkai_network/shinkai-ui';
-import { ToolsIcon } from '@shinkai_network/shinkai-ui/assets';
+
 import {
   formatText,
   getVersionFromTool,

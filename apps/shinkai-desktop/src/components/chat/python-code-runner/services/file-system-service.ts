@@ -145,7 +145,7 @@ export class PyodideFileSystemService implements IFileSystemService {
           this.pyodide.FS.unlink(currentPath);
           this.pyodide.FS.mkdir(currentPath);
         }
-      } catch (err) {
+      } catch {
         try {
           this.pyodide.FS.mkdir(currentPath);
         } catch (mkdirErr) {

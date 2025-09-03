@@ -4,13 +4,12 @@ import { buildInboxIdFromJobId } from '@shinkai_network/shinkai-message-ts/utils
 import { useCreateJob } from '@shinkai_network/shinkai-node-state/v2/mutations/createJob/useCreateJob';
 import { useRemovePrompt } from '@shinkai_network/shinkai-node-state/v2/mutations/removePrompt/useRemovePrompt';
 import { useUpdatePrompt } from '@shinkai_network/shinkai-node-state/v2/mutations/updatePrompt/useUpdatePrompt';
-import { useGetChatConversationWithPagination } from '@shinkai_network/shinkai-node-state/v2/queries/getChatConversation/useGetChatConversationWithPagination';
+
 import { useGetPromptList } from '@shinkai_network/shinkai-node-state/v2/queries/getPromptList/useGetPromptList';
 import { useGetPromptSearch } from '@shinkai_network/shinkai-node-state/v2/queries/getPromptSearch/useGetPromptSearch';
 import {
   Button,
   CopyToClipboardIcon,
-  Input,
   MarkdownText,
   ScrollArea,
   SearchInput,
@@ -28,10 +27,8 @@ import {
   CirclePlayIcon,
   Edit3,
   PlusIcon,
-  SearchIcon,
   StopCircleIcon,
   Trash2Icon,
-  XIcon,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';

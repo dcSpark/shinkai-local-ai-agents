@@ -62,7 +62,7 @@ const createTaskFormSchema = z.object({
           throwExceptionOnParseError: true,
         });
         return true;
-      } catch (error) {
+      } catch {
         return false;
       }
     },

@@ -55,7 +55,7 @@ export default function ConfigureAgentDialog({
       setOpen(false);
       toast.success('Agent updated successfully');
     },
-    onError: (error) => {
+    onError: (_error) => {
       toast.error('Failed to update agent');
     },
   });

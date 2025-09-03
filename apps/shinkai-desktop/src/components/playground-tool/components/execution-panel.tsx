@@ -403,10 +403,10 @@ const ToolResult = memo(ToolResultBase, (prevProps, nextProps) => {
 
 const ToolLogsBase = ({
   toolResultFiles,
-  mountTimestamp,
+  _mountTimestamp,
 }: {
   toolResultFiles: string[];
-  mountTimestamp: Date;
+  _mountTimestamp: Date;
 }) => {
   const auth = useAuth((state) => state.auth);
 
@@ -494,7 +494,7 @@ const ToolLogsBase = ({
 
         try {
           readableDate = formatTimestamp(timestamp);
-        } catch (e) {
+        } catch {
           readableDate = timestamp; // Fallback if timestamp formatting fails
         }
 

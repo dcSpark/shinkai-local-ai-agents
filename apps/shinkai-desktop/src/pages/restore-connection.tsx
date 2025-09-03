@@ -52,7 +52,7 @@ const RestoreConnectionPage = () => {
         // TODO: Add logic to test if setup data is valid to create an authenticated connection with Shinkai Node
         void navigate('/');
       }
-    } catch (_) {
+    } catch {
       setError(true);
     }
   };

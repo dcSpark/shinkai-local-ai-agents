@@ -10,7 +10,6 @@ import {
   type AssistantMessage,
   type FormattedMessage,
   type TextStatus,
-  type ToolCall,
 } from '@shinkai_network/shinkai-node-state/v2/queries/getChatConversation/types';
 import { useGetMessageTraces } from '@shinkai_network/shinkai-node-state/v2/queries/getMessageTraces/useGetMessageTraces';
 import { useGetNetworkAgents } from '@shinkai_network/shinkai-node-state/v2/queries/getNetworkAgents/useGetNetworkAgents';
@@ -19,8 +18,6 @@ import {
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-  Avatar,
-  AvatarFallback,
   Button,
   Card,
   CardContent,
@@ -194,7 +191,7 @@ type EditMessageFormSchema = z.infer<typeof editMessageFormSchema>;
 
 export const MessageBase = ({
   message,
-  messageId,
+  _messageId,
   // messageId,
   hidePythonExecution,
   isPending,
@@ -1336,7 +1333,7 @@ export function TracingDialog({
                               Parameters:
                             </p>
                             {Object.entries(func.parameters.properties).map(
-                              ([key, value]) => (
+                              ([key, _value]) => (
                                 <span
                                   className="text-text-secondary text-xs"
                                   key={key}

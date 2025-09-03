@@ -5,7 +5,7 @@ type ExperimentalStore = {};
 
 export const useExperimental = create<ExperimentalStore>()(
   devtools(
-    persist((set, get) => ({}), {
+    persist((_set, _get) => ({}), {
       name: 'experimental',
     }),
   ),

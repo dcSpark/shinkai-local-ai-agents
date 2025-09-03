@@ -1,6 +1,6 @@
 import { ReloadIcon } from '@radix-ui/react-icons';
-import { Button } from '@shinkai_network/shinkai-ui';
 import { useTranslation } from '@shinkai_network/shinkai-i18n';
+import { Button } from '@shinkai_network/shinkai-ui';
 
 export function ToolErrorFallback({
   error,

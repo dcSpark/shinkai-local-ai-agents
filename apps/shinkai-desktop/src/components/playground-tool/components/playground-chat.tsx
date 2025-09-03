@@ -26,7 +26,9 @@ import { LanguageToolSelector } from './language-tool-selector';
 import { ToolsSelection } from './tools-selection';
 
 const PlaygroundChatBase = ({
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   toolName,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   chatInboxId,
   handleCreateToolCode,
   fetchPreviousPage,

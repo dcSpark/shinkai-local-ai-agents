@@ -10,7 +10,6 @@ import {
 } from '@shinkai_network/shinkai-node-state/v2/constants';
 import {
   type FormattedMessage,
-  type AssistantMessage,
   type ChatConversationInfiniteData,
   type ToolCall,
 } from '@shinkai_network/shinkai-node-state/v2/queries/getChatConversation/types';
@@ -344,25 +343,32 @@ export const useWebSocketMessage = ({
           queryKey,
           produce((draft: ChatConversationInfiniteData | undefined) => {
             if (!draft?.pages?.[0]) return;
-            const lastMessage: FormattedMessage | undefined = draft.pages.at(-1)?.at(-1);
+            const lastMessage: FormattedMessage | undefined = draft.pages
+              .at(-1)
+              ?.at(-1);
             if (
               lastMessage &&
               lastMessage.messageId === OPTIMISTIC_ASSISTANT_MESSAGE_ID &&
               lastMessage.role === 'assistant' &&
               lastMessage.status?.type === 'running'
             ) {
-              const isThinkingOpen = parseData.metadata?.is_reasoning;
-              if (isThinkingOpen) {
-                lastMessage.reasoning = {
-                  text: lastMessage.reasoning?.text + parseData.message,
-                  status: { type: 'running' },
-                };
+              if (parseData.metadata?.is_reasoning) {
+                if (!lastMessage.reasoning) {
+                  lastMessage.reasoning = {
+                    text: '',
+                    status: { type: 'running' },
+                  };
+                }
+                lastMessage.reasoning.text += parseData.message;
+                lastMessage.reasoning.status = { type: 'running' };
               } else {
+                if (lastMessage.reasoning) {
+                  lastMessage.reasoning.status = {
+                    type: 'complete',
+                    reason: 'unknown',
+                  };
+                }
                 lastMessage.content += parseData.message;
-                lastMessage.reasoning = {
-                  text: lastMessage.reasoning?.text ?? '',
-                  status: { type: 'complete', reason: 'unknown' },
-                };
               }
             }
           }),

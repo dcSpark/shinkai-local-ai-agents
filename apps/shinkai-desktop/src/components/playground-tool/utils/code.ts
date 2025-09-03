@@ -5,7 +5,7 @@ export function extractCodeLanguage(input: string): CodeLanguage | null {
   if (!match) {
     return null;
   }
-  const [_, language] = match;
+  const [, language] = match;
   if (language === 'typescript') {
     return CodeLanguage.Typescript;
   }

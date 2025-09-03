@@ -28,6 +28,7 @@ export const sendMessageToJob = async ({
       tool_key: toolKey,
       fs_files_paths: [],
       job_filenames: filenames,
+      reasoning_content: null,
     },
   });
 };

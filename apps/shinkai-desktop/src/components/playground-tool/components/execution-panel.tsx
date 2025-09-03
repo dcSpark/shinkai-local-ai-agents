@@ -403,6 +403,7 @@ const ToolResult = memo(ToolResultBase, (prevProps, nextProps) => {
 
 const ToolLogsBase = ({
   toolResultFiles,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   mountTimestamp,
 }: {
   toolResultFiles: string[];
@@ -494,7 +495,7 @@ const ToolLogsBase = ({
 
         try {
           readableDate = formatTimestamp(timestamp);
-        } catch (e) {
+        } catch {
           readableDate = timestamp; // Fallback if timestamp formatting fails
         }
 

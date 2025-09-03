@@ -10,7 +10,6 @@ import {
   type AssistantMessage,
   type FormattedMessage,
   type TextStatus,
-  type ToolCall,
 } from '@shinkai_network/shinkai-node-state/v2/queries/getChatConversation/types';
 import { useGetMessageTraces } from '@shinkai_network/shinkai-node-state/v2/queries/getMessageTraces/useGetMessageTraces';
 import { useGetNetworkAgents } from '@shinkai_network/shinkai-node-state/v2/queries/getNetworkAgents/useGetNetworkAgents';
@@ -19,8 +18,6 @@ import {
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-  Avatar,
-  AvatarFallback,
   Button,
   Card,
   CardContent,
@@ -67,6 +64,7 @@ import {
   User,
   Cpu,
   BotIcon,
+  Loader,
 } from 'lucide-react';
 import React, { Fragment, memo, useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -194,7 +192,6 @@ type EditMessageFormSchema = z.infer<typeof editMessageFormSchema>;
 
 export const MessageBase = ({
   message,
-  messageId,
   // messageId,
   hidePythonExecution,
   isPending,
@@ -388,7 +385,7 @@ export const MessageBase = ({
                   minimalistMode && 'rounded-xs px-2 pt-1.5 pb-1.5',
                 )}
               >
-                {message.role === 'assistant' && message.reasoning != null && (
+                {message.role === 'assistant' && message.reasoning && (
                   <Reasoning
                     reasoning={message.reasoning.text}
                     status={message.reasoning.status}
@@ -468,10 +465,6 @@ export const MessageBase = ({
 
                 {message.role === 'assistant' && (
                   <MarkdownText
-                    className={cn(
-                      message.reasoning?.status?.type === 'running' &&
-                        'text-text-secondary',
-                    )}
                     content={extractErrorPropertyOrContent(
                       message.content,
                       'error_message',
@@ -605,7 +598,8 @@ export const MessageBase = ({
                 )}
 
                 {message.role === 'assistant' &&
-                  (message.toolCalls?.some((tool) => !!tool.generatedFiles) || !!message.generatedFiles) && (
+                  (message.toolCalls?.some((tool) => !!tool.generatedFiles) ||
+                    !!message.generatedFiles) && (
                     <GeneratedFiles message={message} />
                   )}
               </div>
@@ -770,6 +764,8 @@ export const Message = memo(MessageBase, (prev, next) => {
   return (
     prev.messageId === next.messageId &&
     prev.message.content === next.message.content &&
+    (prev.message as AssistantMessage).reasoning?.text ===
+      (next.message as AssistantMessage).reasoning?.text &&
     prev.minimalistMode === next.minimalistMode &&
     equal(
       (prev.message as AssistantMessage).toolCalls,
@@ -857,6 +853,9 @@ export function ToolCard({
     </AnimatePresence>
   );
 }
+
+const MotionAccordionTrigger = motion(AccordionTrigger);
+
 export function Reasoning({
   reasoning,
   status,
@@ -873,7 +872,7 @@ export function Reasoning({
       return <XCircle className="text-text-secondary size-full" />;
     }
     if (status?.type === 'running') {
-      return null;
+      return <Loader className="text-text-secondary size-full animate-spin" />;
     }
     return null;
   };
@@ -889,19 +888,19 @@ export function Reasoning({
     <Accordion
       className="max-w-full space-y-1.5 self-baseline overflow-x-auto pb-3"
       collapsible
+      value={status?.type === 'running' ? 'reasoning' : undefined}
       type="single"
     >
       <AccordionItem
         className={cn(
-          'bg-bg-tertiary border-divider overflow-hidden rounded-lg border',
-          status?.type === 'running' &&
-            'animate-pulse border-none bg-transparent',
+          'border-divider overflow-hidden rounded-lg border',
+          status?.type === 'running' && 'animate-pulse',
         )}
         value="reasoning"
       >
-        <AccordionTrigger
+        <MotionAccordionTrigger
           className={cn(
-            'inline-flex w-auto gap-3 p-[5px] no-underline hover:no-underline',
+            'bg-bg-secondary inline-flex w-auto gap-3 px-[6px] py-[3px] no-underline hover:text-white hover:no-underline',
             'hover:bg-bg-secondary transition-colors',
             status?.type === 'running' && 'p-0',
           )}
@@ -918,12 +917,12 @@ export function Reasoning({
             >
               <div
                 className={cn(
-                  'text-text-secondary flex items-center gap-1',
+                  'text-text-secondary flex items-center gap-1.5 px-2 py-1',
                   status?.type === 'running' && 'text-text-tertiary',
                 )}
               >
                 {renderStatus() && (
-                  <div className="size-7 shrink-0 px-1.5">{renderStatus()}</div>
+                  <div className="size-4 shrink-0">{renderStatus()}</div>
                 )}
                 <div className="flex items-center gap-1">
                   <span className="text-em-sm">{renderReasoningText()}</span>
@@ -931,10 +930,16 @@ export function Reasoning({
               </div>
             </motion.div>
           </AnimatePresence>
-        </AccordionTrigger>
-        <AccordionContent className="bg-bg-secondary flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3 text-sm">
+        </MotionAccordionTrigger>
+        <AccordionContent className="bg-bg-secondary text-em-sm flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3">
           <span className="text-text-secondary break-words whitespace-pre-line">
-            {reasoning}
+            <MarkdownText
+              className={cn(
+                status?.type === 'running' && 'text-text-secondary',
+              )}
+              content={reasoning}
+              isRunning={!!reasoning && status?.type === 'running'}
+            />
           </span>
         </AccordionContent>
       </AccordionItem>
@@ -959,7 +964,7 @@ export const GeneratedFiles = ({ message }: { message: AssistantMessage }) => {
       url: file.url,
     })),
     // Add files from all tool calls
-    ...message.toolCalls.flatMap((tool) => 
+    ...message.toolCalls.flatMap((tool) =>
       (tool.generatedFiles || []).map((file) => ({
         name: file.name,
         path: file.path,
@@ -971,7 +976,7 @@ export const GeneratedFiles = ({ message }: { message: AssistantMessage }) => {
         extension: file.extension,
         mimeType: file.mimeType,
         url: file.url,
-      }))
+      })),
     ),
   ];
 
@@ -984,10 +989,7 @@ export const GeneratedFiles = ({ message }: { message: AssistantMessage }) => {
     <div className="mt-4 space-y-1 py-4 pt-1.5">
       <span className="text-text-secondary text-em-sm">Generated Files</span>
       <div className="flex flex-wrap items-start gap-4 rounded-md">
-        <FileList
-          className="mt-2"
-          files={allFiles}
-        />
+        <FileList className="mt-2" files={allFiles} />
       </div>
     </div>
   );
@@ -1336,7 +1338,7 @@ export function TracingDialog({
                               Parameters:
                             </p>
                             {Object.entries(func.parameters.properties).map(
-                              ([key, value]) => (
+                              ([key, _value]) => (
                                 <span
                                   className="text-text-secondary text-xs"
                                   key={key}

@@ -33,7 +33,7 @@ import {
 } from '@shinkai_network/shinkai-ui';
 import { cn } from '@shinkai_network/shinkai-ui/utils';
 import { type TFunction } from 'i18next';
-import { BoltIcon, MoveRightIcon, Plus } from 'lucide-react';
+import { BoltIcon, MoveRightIcon } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { toast } from 'sonner';

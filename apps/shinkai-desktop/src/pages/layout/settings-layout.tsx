@@ -17,7 +17,6 @@ import {
   BarChart2,
   CodesandboxIcon,
   LaptopMinimal,
-  NetworkIcon,
   PaintbrushIcon,
   SettingsIcon,
   WalletMinimal,
@@ -25,7 +24,7 @@ import {
 import React from 'react';
 import { Link, Outlet, useMatch } from 'react-router';
 
-import galxeIcon from '../../assets/galxe-icon.png';
+
 import { openShinkaiNodeManagerWindow } from '../../lib/shinkai-node-manager/shinkai-node-manager-windows-utils';
 import { useAuth } from '../../store/auth';
 import { useShinkaiNodeManager } from '../../store/shinkai-node-manager';

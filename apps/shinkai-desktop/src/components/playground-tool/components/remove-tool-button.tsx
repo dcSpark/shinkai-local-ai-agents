@@ -1,5 +1,4 @@
 import { DialogClose } from '@radix-ui/react-dialog';
-import { Slot } from '@radix-ui/react-slot';
 import { useTranslation } from '@shinkai_network/shinkai-i18n';
 import { FunctionKeyV2 } from '@shinkai_network/shinkai-node-state/v2/constants';
 import { useRemoveTool } from '@shinkai_network/shinkai-node-state/v2/mutations/removeTool/useRemoveTool';

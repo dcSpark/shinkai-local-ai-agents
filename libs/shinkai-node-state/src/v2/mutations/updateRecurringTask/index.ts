@@ -37,6 +37,7 @@ export const updateRecurringTask = async ({
         message: {
           job_id: jobId,
           content: message,
+          reasoning_content: null,
           tool_key: toolKey,
           parent: null,
         },

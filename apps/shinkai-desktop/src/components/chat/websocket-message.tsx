@@ -343,7 +343,9 @@ export const useWebSocketMessage = ({
           queryKey,
           produce((draft: ChatConversationInfiniteData | undefined) => {
             if (!draft?.pages?.[0]) return;
-            const lastMessage: FormattedMessage | undefined = draft.pages.at(-1)?.at(-1);
+            const lastMessage: FormattedMessage | undefined = draft.pages
+              .at(-1)
+              ?.at(-1);
             if (
               lastMessage &&
               lastMessage.messageId === OPTIMISTIC_ASSISTANT_MESSAGE_ID &&
@@ -361,7 +363,10 @@ export const useWebSocketMessage = ({
                 lastMessage.reasoning.status = { type: 'running' };
               } else {
                 if (lastMessage.reasoning) {
-                  lastMessage.reasoning.status = { type: 'complete', reason: 'unknown' };
+                  lastMessage.reasoning.status = {
+                    type: 'complete',
+                    reason: 'unknown',
+                  };
                 }
                 lastMessage.content += parseData.message;
               }

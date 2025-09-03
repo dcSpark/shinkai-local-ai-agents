@@ -64,6 +64,7 @@ import {
   User,
   Cpu,
   BotIcon,
+  Loader,
 } from 'lucide-react';
 import React, { Fragment, memo, useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -464,10 +465,6 @@ export const MessageBase = ({
 
                 {message.role === 'assistant' && (
                   <MarkdownText
-                    className={cn(
-                      message?.status?.type === 'running' &&
-                        'text-text-secondary',
-                    )}
                     content={extractErrorPropertyOrContent(
                       message.content,
                       'error_message',
@@ -856,6 +853,9 @@ export function ToolCard({
     </AnimatePresence>
   );
 }
+
+const MotionAccordionTrigger = motion(AccordionTrigger);
+
 export function Reasoning({
   reasoning,
   status,
@@ -872,7 +872,7 @@ export function Reasoning({
       return <XCircle className="text-text-secondary size-full" />;
     }
     if (status?.type === 'running') {
-      return null;
+      return <Loader className="text-text-secondary size-full animate-spin" />;
     }
     return null;
   };
@@ -888,19 +888,19 @@ export function Reasoning({
     <Accordion
       className="max-w-full space-y-1.5 self-baseline overflow-x-auto pb-3"
       collapsible
+      value={status?.type === 'running' ? 'reasoning' : undefined}
       type="single"
     >
       <AccordionItem
         className={cn(
-          'bg-bg-tertiary border-divider overflow-hidden rounded-lg border',
-          status?.type === 'running' &&
-            'animate-pulse border-none bg-transparent',
+          'border-divider overflow-hidden rounded-lg border',
+          status?.type === 'running' && 'animate-pulse',
         )}
         value="reasoning"
       >
-        <AccordionTrigger
+        <MotionAccordionTrigger
           className={cn(
-            'inline-flex w-auto gap-3 p-[5px] no-underline hover:no-underline',
+            'bg-bg-secondary inline-flex w-auto gap-3 px-[6px] py-[3px] no-underline hover:text-white hover:no-underline',
             'hover:bg-bg-secondary transition-colors',
             status?.type === 'running' && 'p-0',
           )}
@@ -917,12 +917,12 @@ export function Reasoning({
             >
               <div
                 className={cn(
-                  'text-text-secondary flex items-center gap-1',
+                  'text-text-secondary flex items-center gap-1.5 px-2 py-1',
                   status?.type === 'running' && 'text-text-tertiary',
                 )}
               >
                 {renderStatus() && (
-                  <div className="size-7 shrink-0 px-1.5">{renderStatus()}</div>
+                  <div className="size-4 shrink-0">{renderStatus()}</div>
                 )}
                 <div className="flex items-center gap-1">
                   <span className="text-em-sm">{renderReasoningText()}</span>
@@ -930,10 +930,16 @@ export function Reasoning({
               </div>
             </motion.div>
           </AnimatePresence>
-        </AccordionTrigger>
-        <AccordionContent className="bg-bg-secondary flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3 text-sm">
+        </MotionAccordionTrigger>
+        <AccordionContent className="bg-bg-secondary text-em-sm flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3">
           <span className="text-text-secondary break-words whitespace-pre-line">
-            {reasoning}
+            <MarkdownText
+              className={cn(
+                status?.type === 'running' && 'text-text-secondary',
+              )}
+              content={reasoning}
+              isRunning={!!reasoning && status?.type === 'running'}
+            />
           </span>
         </AccordionContent>
       </AccordionItem>

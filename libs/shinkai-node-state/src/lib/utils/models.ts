@@ -204,18 +204,24 @@ export const modelsConfig = {
   [Models.Groq]: {
     apiUrl: 'https://api.groq.com/openai/v1',
     modelTypes: [
-      { name: 'Allam 2 7B', value: 'allam-2-7b' },
-      { name: 'Compound Beta', value: 'compound-beta' },
-      { name: 'Compound Beta Mini', value: 'compound-beta-mini' },
+      // Production Models
+      { name: 'Groq Compound', value: 'groq/compound' },
+      { name: 'Groq Compound Mini', value: 'groq/compound-mini' },
+      { name: 'Llama 3.1 8B Instant', value: 'llama-3.1-8b-instant' },
+      { name: 'Llama 3.3 70B Versatile', value: 'llama-3.3-70b-versatile' },
+      { name: 'Llama Guard 4 12B', value: 'meta-llama/llama-guard-4-12b' },
+      { name: 'OpenAI GPT-OSS 120B', value: 'openai/gpt-oss-120b' },
+      { name: 'OpenAI GPT-OSS 20B', value: 'openai/gpt-oss-20b' },
       {
         name: 'DeepSeek R1 Distill Llama 70B',
         value: 'deepseek-r1-distill-llama-70b',
-      },
-      { name: 'Gemma2 9B IT', value: 'gemma2-9b-it' },
-      { name: 'Llama 3.1 8B Instant', value: 'llama-3.1-8b-instant' },
-      { name: 'Llama 3.3 70B Versatile', value: 'llama-3.3-70b-versatile' },
-      { name: 'Llama3 70B 8192', value: 'llama3-70b-8192' },
-      { name: 'Llama3 8B 8192', value: 'llama3-8b-8192' },
+      },      
+
+      // Speech-to-Text (Production)
+      { name: 'Whisper Large v3', value: 'whisper-large-v3' },
+      { name: 'Whisper Large v3 Turbo', value: 'whisper-large-v3-turbo' },
+
+      // Preview Models
       {
         name: 'Llama 4 Maverick 17B Instruct',
         value: 'meta-llama/llama-4-maverick-17b-128e-instruct',
@@ -224,7 +230,6 @@ export const modelsConfig = {
         name: 'Llama 4 Scout 17B Instruct',
         value: 'meta-llama/llama-4-scout-17b-16e-instruct',
       },
-      { name: 'Llama Guard 4 12B', value: 'meta-llama/llama-guard-4-12b' },
       {
         name: 'Llama Prompt Guard 2 22M',
         value: 'meta-llama/llama-prompt-guard-2-22m',
@@ -237,19 +242,9 @@ export const modelsConfig = {
         name: 'Moonshot Kimi K2 Instruct',
         value: 'moonshotai/kimi-k2-instruct',
       },
-      { name: 'OpenAI GPT-OSS 120B', value: 'openai/gpt-oss-120b' },
-      { name: 'OpenAI GPT-OSS 20B', value: 'openai/gpt-oss-20b' },
       { name: 'Qwen3 32B', value: 'qwen/qwen3-32b' },
 
-      // Speech-to-Text
-      {
-        name: 'Distil Whisper Large v3 EN',
-        value: 'distil-whisper-large-v3-en',
-      },
-      { name: 'Whisper Large v3', value: 'whisper-large-v3' },
-      { name: 'Whisper Large v3 Turbo', value: 'whisper-large-v3-turbo' },
-
-      // Text-to-Speech
+      // Text-to-Speech (Preview)
       { name: 'PlayAI TTS', value: 'playai-tts' },
       { name: 'PlayAI TTS Arabic', value: 'playai-tts-arabic' },
     ],

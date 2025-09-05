@@ -42,9 +42,13 @@ const createSmoothMessage = (params: {
   const outputQueue: string[] = [];
   let isAnimationActive = false;
   let animationFrameId: number | null = null;
+  let isForceStopRequested = false;
 
-  const stopAnimation = () => {
+  const stopAnimation = (force = false) => {
     isAnimationActive = false;
+    if (force) {
+      isForceStopRequested = true;
+    }
     if (animationFrameId !== null) {
       cancelAnimationFrame(animationFrameId);
       animationFrameId = null;
@@ -53,7 +57,7 @@ const createSmoothMessage = (params: {
 
   const startAnimation = (speed = startSpeed) =>
     new Promise<void>((resolve) => {
-      if (isAnimationActive) {
+      if (isAnimationActive || isForceStopRequested) {
         resolve();
         return;
       }
@@ -61,7 +65,7 @@ const createSmoothMessage = (params: {
       isAnimationActive = true;
 
       const updateText = () => {
-        if (!isAnimationActive) {
+        if (!isAnimationActive || isForceStopRequested) {
           cancelAnimationFrame(animationFrameId as number);
           animationFrameId = null;
           resolve();
@@ -85,13 +89,21 @@ const createSmoothMessage = (params: {
     });
 
   const pushToQueue = (text: string) => {
+    // Don't add to queue if force stop was requested
+    if (isForceStopRequested) return;
     outputQueue.push(...text.split(''));
   };
 
   const reset = () => {
     buffer = '';
     outputQueue.length = 0;
+    isForceStopRequested = false;
     stopAnimation();
+  };
+
+  const forceStop = () => {
+    stopAnimation(true);
+    outputQueue.length = 0; // Clear the queue immediately
   };
 
   return {
@@ -101,6 +113,7 @@ const createSmoothMessage = (params: {
     startAnimation,
     stopAnimation,
     reset,
+    forceStop,
   };
 };
 
@@ -136,6 +149,7 @@ export const useWebSocketMessageSmooth = ({
   }, [inboxId]);
 
   const isStreamingFinished = useRef(false);
+  const wasUserStoppedRef = useRef(false);
 
   const smoothMessageRef = useRef(
     createSmoothMessage({
@@ -160,12 +174,37 @@ export const useWebSocketMessageSmooth = ({
     }),
   );
 
+  // Effect to handle user-initiated stops via checking if streaming stopped unexpectedly
+  useEffect(() => {
+    const checkForUserStop = () => {
+      const currentData = queryClient.getQueryData(queryKey) as ChatConversationInfiniteData | undefined;
+      const lastMessage = currentData?.pages?.at(-1)?.at(-1);
+      
+      if (
+        lastMessage &&
+        lastMessage.messageId === OPTIMISTIC_ASSISTANT_MESSAGE_ID &&
+        lastMessage.role === 'assistant' &&
+        lastMessage.status?.type === 'complete' && // Status changed to complete
+        smoothMessageRef.current.isAnimationActive // But animation is still running
+      ) {
+        wasUserStoppedRef.current = true;
+        smoothMessageRef.current.forceStop();
+        isStreamingFinished.current = true;
+      }
+    };
+
+    // Check periodically for user stops
+    const interval = setInterval(checkForUserStop, 100);
+    return () => clearInterval(interval);
+  }, [queryClient, queryKey]);
+
   useEffect(() => {
     if (!enabled || !auth) return;
     if (lastMessage?.data) {
       try {
         const parseData: WsMessage = JSON.parse(lastMessage.data);
         if (parseData.inbox !== inboxId) return;
+        
         if (
           parseData.message_type === 'ShinkaiMessage' &&
           parseData.message &&
@@ -174,6 +213,11 @@ export const useWebSocketMessageSmooth = ({
           JSON.parse(parseData.message)?.body.unencrypted.internal_metadata
             .sender_subidentity === auth.profile
         ) {
+          // Reset states for new message
+          isStreamingFinished.current = false;
+          wasUserStoppedRef.current = false;
+          smoothMessageRef.current?.reset();
+          
           queryClient.setQueryData(
             queryKey,
             produce((draft: ChatConversationInfiniteData) => {
@@ -197,32 +241,53 @@ export const useWebSocketMessageSmooth = ({
             JSON.parse(parseData.message)?.body.unencrypted.internal_metadata
               .sender_subidentity !== auth.profile)
         ) {
-          void queryClient.invalidateQueries({ queryKey: queryKey });
+          // Defer query invalidation if animation is active to prevent visual artifacts
+          const delay = smoothMessageRef.current.isAnimationActive ? 200 : 0;
+          setTimeout(() => {
+            void queryClient.invalidateQueries({ queryKey: queryKey });
+          }, delay);
           return;
         }
 
         if (parseData.message_type !== 'Stream') return;
-        isStreamingFinished.current = false;
 
+        // Handle stream completion
         if (parseData.metadata?.is_done === true) {
-          smoothMessageRef.current.stopAnimation();
-          if (smoothMessageRef.current.isTokenRemain()) {
-            void smoothMessageRef.current.startAnimation(END_ANIMATION_SPEED);
-          }
-          void queryClient.invalidateQueries({ queryKey: queryKey });
           isStreamingFinished.current = true;
-          smoothMessageRef.current?.reset();
+          
+          // If user stopped generation, force stop immediately
+          if (wasUserStoppedRef.current) {
+            smoothMessageRef.current.forceStop();
+          } else {
+            // Natural completion - finish remaining tokens with fast animation
+            smoothMessageRef.current.stopAnimation();
+            if (smoothMessageRef.current.isTokenRemain()) {
+              void smoothMessageRef.current.startAnimation(END_ANIMATION_SPEED);
+            }
+          }
+          
+          // Always invalidate queries and reset after completion
+          setTimeout(() => {
+            void queryClient.invalidateQueries({ queryKey: queryKey });
+            smoothMessageRef.current?.reset();
+          }, wasUserStoppedRef.current ? 0 : 100); // Immediate for force stop, slight delay for natural completion
+          
+          return;
         }
 
-        smoothMessageRef.current.pushToQueue(parseData.message);
+        // Only process new stream data if not finished and not force stopped
+        if (!isStreamingFinished.current && !wasUserStoppedRef.current) {
+          smoothMessageRef.current.pushToQueue(parseData.message);
 
-        if (!smoothMessageRef.current.isAnimationActive)
-          void smoothMessageRef.current.startAnimation();
+          if (!smoothMessageRef.current.isAnimationActive) {
+            void smoothMessageRef.current.startAnimation();
+          }
+        }
       } catch (error) {
         console.error('Failed to parse ws message', error);
       }
     }
-  }, [enabled, inboxId, lastMessage?.data, queryClient, queryKey]);
+  }, [auth, enabled, inboxId, lastMessage?.data, queryClient, queryKey]);
 
   useEffect(() => {
     if (!enabled) return;

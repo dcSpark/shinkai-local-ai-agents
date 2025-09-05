@@ -11,6 +11,7 @@ export const createToolCodeFormSchema = z.object({
   llmProviderId: z.string().min(1),
   tools: z.array(z.string()),
   language: z.nativeEnum(CodeLanguage),
+  thinking: z.boolean().optional(),
 });
 
 export type CreateToolCodeFormSchema = z.infer<typeof createToolCodeFormSchema>;
@@ -28,6 +29,7 @@ export const useToolForm = (
       message: '',
       tools: [],
       language: CodeLanguage.Typescript,
+      thinking: false,
       ...initialValues,
     },
   });

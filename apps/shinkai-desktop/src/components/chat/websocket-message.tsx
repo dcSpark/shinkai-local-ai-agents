@@ -117,12 +117,18 @@ export const useWebSocketMessage = ({
           );
           return;
         }
-
         if (isAssistantMessage && !isStreamSupported.current) {
           void queryClient.invalidateQueries({ queryKey: queryKey });
           return;
         }
         isStreamSupported.current = false;
+
+        // invalidate query when we receive the final assistant message
+        if (isAssistantMessage) {
+          void queryClient.invalidateQueries({ queryKey: queryKey });
+          return;
+        }
+
         if (parseData.message_type !== 'Stream') return;
         isStreamSupported.current = true;
 
@@ -176,10 +182,6 @@ export const useWebSocketMessage = ({
               }
             }),
           );
-          // Note: invalidate query only when we receive the assistant message, otherwise we'll miss the final message state.
-          if (isAssistantMessage) {
-            void queryClient.invalidateQueries({ queryKey: queryKey });
-          }
 
           return;
         }

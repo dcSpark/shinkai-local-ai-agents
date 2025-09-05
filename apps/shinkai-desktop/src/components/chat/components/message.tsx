@@ -764,6 +764,8 @@ export const Message = memo(MessageBase, (prev, next) => {
   return (
     prev.messageId === next.messageId &&
     prev.message.content === next.message.content &&
+    (prev.message as AssistantMessage)?.status?.type ===
+      (next.message as AssistantMessage)?.status?.type &&
     (prev.message as AssistantMessage).reasoning?.text ===
       (next.message as AssistantMessage).reasoning?.text &&
     prev.minimalistMode === next.minimalistMode &&

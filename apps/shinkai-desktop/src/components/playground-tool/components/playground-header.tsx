@@ -16,6 +16,7 @@ import {
 } from '@shinkai_network/shinkai-ui';
 import { StoreIcon } from '@shinkai_network/shinkai-ui/assets';
 import { cn } from '@shinkai_network/shinkai-ui/utils';
+import { open } from '@tauri-apps/plugin-shell';
 import {
   ArrowLeft,
   Loader2,
@@ -102,8 +103,8 @@ function PlaygroundHeaderBase({
 
   const { mutateAsync: publishTool, isPending: isPublishingTool } =
     usePublishTool({
-      onSuccess: (response) => {
-        open(
+      onSuccess: async (response) => {
+        await open(
           `${SHINKAI_STORE_URL}/store/revisions/complete?id=${response.response.revisionId}`,
         );
       },

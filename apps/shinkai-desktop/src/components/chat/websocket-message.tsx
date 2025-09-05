@@ -176,8 +176,11 @@ export const useWebSocketMessage = ({
               }
             }),
           );
+          // Note: invalidate query only when we receive the assistant message, otherwise we'll miss the final message state.
+          if (isAssistantMessage) {
+            void queryClient.invalidateQueries({ queryKey: queryKey });
+          }
 
-          void queryClient.invalidateQueries({ queryKey: queryKey });
           return;
         }
       } catch (error) {

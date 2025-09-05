@@ -375,6 +375,21 @@ export const useWebSocketMessage = ({
         );
 
         if (parseData.metadata?.is_done === true) {
+          queryClient.setQueryData(
+            queryKey,
+            produce((draft: ChatConversationInfiniteData | undefined) => {
+              if (!draft?.pages?.[0]) return;
+              const lastMessage = draft.pages.at(-1)?.at(-1);
+              if (
+                lastMessage &&
+                lastMessage.role === 'assistant' &&
+                lastMessage.messageId === OPTIMISTIC_ASSISTANT_MESSAGE_ID
+              ) {
+                lastMessage.status = { type: 'complete', reason: 'unknown' };
+              }
+            }),
+          );
+
           void queryClient.invalidateQueries({ queryKey: queryKey });
           return;
         }
@@ -382,6 +397,7 @@ export const useWebSocketMessage = ({
         console.error('Failed to parse ws message', error);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     auth?.shinkai_identity,
     auth?.profile,

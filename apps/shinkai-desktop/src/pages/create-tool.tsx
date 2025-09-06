@@ -45,6 +45,7 @@ import { Link } from 'react-router';
 import { toast } from 'sonner';
 
 import ProviderIcon from '../components/ais/provider-icon';
+import { ThinkingSwitchActionBar } from '../components/chat/chat-action-bar/thinking-switch-action-bar';
 import { MessageList } from '../components/chat/components/message-list';
 import { FeedbackModal } from '../components/feedback/feedback-modal';
 import { LanguageToolSelector } from '../components/playground-tool/components/language-tool-selector';
@@ -68,6 +69,7 @@ import {
 
 import { useAuth } from '../store/auth';
 import { useSettings } from '../store/settings';
+import { getThinkingConfig } from '../utils/thinking-config';
 
 export const CreateToolPage = () => {
   const { t } = useTranslation();
@@ -289,7 +291,7 @@ function AIModelSelectorBase({
         model: 'custom-model',
       },
     ];
-  }, [llmProviders]);
+  }, [llmProviders, t]);
 
   const customModelOptions = useMemo(
     () =>
@@ -424,6 +426,36 @@ function ToolsHome({
 
   const auth = useAuth((state) => state.auth);
 
+  const { data: llmProviders } = useGetLLMProviders({
+    nodeAddress: auth?.node_address ?? '',
+    token: auth?.api_v2_key ?? '',
+  });
+
+  const currentAI = form.watch('llmProviderId');
+  
+  const thinkingConfig = useMemo(() => {
+    if (!currentAI || !llmProviders) {
+      return {
+        supportsThinking: false,
+        forceEnabled: false,
+        reasoningLevel: false,
+      };
+    }
+
+    const selectedProvider = llmProviders.find(
+      (provider) => provider.id === currentAI,
+    );
+    const modelName = selectedProvider?.model;
+    return getThinkingConfig(modelName);
+  }, [currentAI, llmProviders]);
+
+  // Auto-enable thinking if force enabled for the model
+  useEffect(() => {
+    if (thinkingConfig.forceEnabled) {
+      form.setValue('thinking', true);
+    }
+  }, [thinkingConfig.forceEnabled, form]);
+
   const xShinkaiToolId = usePlaygroundStore((state) => state.xShinkaiToolId);
   const xShinkaiAppId = usePlaygroundStore((state) => state.xShinkaiAppId);
 
@@ -519,6 +551,18 @@ function ToolsHome({
                                   form.setValue('tools', value);
                                 }}
                                 value={form.watch('tools')}
+                              />
+                            )}
+                            {thinkingConfig.supportsThinking && (
+                              <ThinkingSwitchActionBar
+                                checked={thinkingConfig.forceEnabled || !!form.watch('thinking')}
+                                disabled={thinkingConfig.forceEnabled}
+                                onClick={() => {
+                                  if (!thinkingConfig.forceEnabled) {
+                                    form.setValue('thinking', !form.watch('thinking'));
+                                  }
+                                }}
+                                forceEnabled={thinkingConfig.forceEnabled}
                               />
                             )}
                           </div>

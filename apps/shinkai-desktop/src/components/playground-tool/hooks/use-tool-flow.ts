@@ -540,6 +540,7 @@ export const useToolFlow = ({
       jobId: chatInboxId ? extractJobIdFromInbox(chatInboxId) : undefined,
       tools: data.tools,
       language: data.language,
+      thinking: data.thinking,
     });
 
     form.setValue('message', '');
@@ -557,6 +558,7 @@ export const useToolFlow = ({
       jobId: extractJobIdFromInbox(chatInboxId),
       tools: form.watch('tools'),
       language: form.watch('language'),
+      thinking: form.watch('thinking'),
     });
 
     form.setValue('message', '');

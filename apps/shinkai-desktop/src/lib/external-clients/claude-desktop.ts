@@ -12,7 +12,7 @@ export interface McpServerConfig {
 
 export const getClaudeDesktopConfigPath = (): string => {
   const platform = window.navigator.platform.toLowerCase();
-  
+
   if (platform.includes('win')) {
     return '%APPDATA%\\Claude\\claude_desktop_config.json';
   } else if (platform.includes('mac')) {
@@ -30,7 +30,13 @@ export const handleConfigureClaude = async (serverId: string, t: TFunction) => {
   try {
     const denoBinPath = await getDenoBinPath();
     const command = denoBinPath;
-    const args = ['run', '-A', 'npm:supergateway', '--sse', `${nodeUrl}/mcp/sse`];
+    const args = [
+      'run',
+      '-A',
+      'npm:supergateway@3.4.0',
+      '--sse',
+      `${nodeUrl}/mcp/sse`,
+    ];
 
     // Call the actual invoke function
     await invoke('register_server_in_claude', {
@@ -42,7 +48,6 @@ export const handleConfigureClaude = async (serverId: string, t: TFunction) => {
       id: loadingToastId,
       description: t('mcpClients.claudeSuccessDescription'),
     });
-
   } catch (error) {
     toast.dismiss(loadingToastId);
     console.error('Automatic Claude Desktop configuration failed:', error);
@@ -56,7 +61,7 @@ export const handleConfigureClaude = async (serverId: string, t: TFunction) => {
     let helpText: string | null = null; // Declare helpText here
     try {
       const command = 'npx';
-      const args = ['-y','supergateway', '--sse', `${nodeUrl}/mcp/sse`];
+      const args = ['-y', 'supergateway@3.4.0', '--sse', `${nodeUrl}/mcp/sse`];
       helpText = await invoke<string>('get_claude_config_help', {
         serverId: serverId,
         binaryPath: command,
@@ -64,13 +69,17 @@ export const handleConfigureClaude = async (serverId: string, t: TFunction) => {
       });
     } catch (helpError) {
       console.error('Failed to fetch Claude config help text:', helpError);
-      throw new Error(`${errorMessage} Could not retrieve manual setup instructions.`);
+      throw new Error(
+        `${errorMessage} Could not retrieve manual setup instructions.`,
+      );
     }
 
     if (helpText) {
       throw new ConfigError(errorMessage, helpText);
     } else {
-       throw new Error(`${errorMessage} Could not retrieve manual setup instructions (unexpected state).`);
+      throw new Error(
+        `${errorMessage} Could not retrieve manual setup instructions (unexpected state).`,
+      );
     }
   }
 };

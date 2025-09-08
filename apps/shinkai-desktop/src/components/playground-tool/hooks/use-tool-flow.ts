@@ -596,7 +596,8 @@ export const useToolFlow = ({
       toolMetadata &&
       toolCodeStatus === 'success' &&
       toolMetadataStatus === 'success' &&
-      forceAutoSave.current
+      forceAutoSave.current &&
+      !isSavingTool
     ) {
       forceAutoSave.current = false;
       forceGenerateMetadata.current = false;
@@ -627,6 +628,7 @@ export const useToolFlow = ({
     handleSaveTool,
     form,
     setCurrentStep,
+    isSavingTool,
   ]);
 
   const handleApplyChangesCodeSubmit = useCallback(

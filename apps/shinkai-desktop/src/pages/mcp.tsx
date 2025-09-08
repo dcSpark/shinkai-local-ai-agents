@@ -228,7 +228,7 @@ const ExposeToolsAsMcp = () => {
 
     // Generate Command (using deno as requested, referencing the SSE URL)
     const denoBinPath = await getDenoBinPath(); // Get deno path
-    const command = `${denoBinPath} run -A npm:supergateway --sse ${sseUrl}`; // Use deno
+    const command = `${denoBinPath} run -A npm:supergateway@3.4.0 --sse ${sseUrl}`; // Use deno
     setCustomCommand(command);
 
     setCustomDialogOpen(true); // Open the dialog

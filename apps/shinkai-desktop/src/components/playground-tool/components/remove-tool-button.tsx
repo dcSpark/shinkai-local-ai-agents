@@ -30,7 +30,6 @@ export default function RemoveToolButton({ toolKey }: { toolKey: string }) {
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const queryClient = useQueryClient();
-  console.log('toolKey', toolKey);
   const { mutateAsync: removeTool, isPending: isRemoveToolPending } =
     useRemoveTool({
       onSuccess: async () => {

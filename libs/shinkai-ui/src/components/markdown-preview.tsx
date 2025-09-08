@@ -34,6 +34,80 @@ import { CopyToClipboardIcon } from './copy-to-clipboard-icon';
 
 import { MermaidDiagram } from './mermaid';
 
+const isImageUrl = (url: string): boolean => {
+  try {
+    const urlObj = new URL(url);
+    const pathname = urlObj.pathname.toLowerCase();
+    const imageExtensions = [
+      '.png',
+      '.jpg',
+      '.jpeg',
+      '.gif',
+      '.bmp',
+      '.webp',
+      '.svg',
+      '.ico',
+      '.tiff',
+      '.tif',
+      '.avif',
+      '.heic',
+      '.heif',
+      '.jfif',
+      '.pjpeg',
+      '.pjp',
+    ];
+    return imageExtensions.some((ext) => pathname.endsWith(ext));
+  } catch {
+    return false;
+  }
+};
+
+const ImageAwareLink: FC<ComponentPropsWithoutRef<'a'>> = ({
+  href,
+  children,
+  className,
+  ...props
+}) => {
+  if (!href || !isImageUrl(href)) {
+    return (
+      <a
+        className={cn(
+          'font-medium text-blue-400 underline underline-offset-4',
+          className,
+        )}
+        target="_blank"
+        href={href}
+        {...props}
+      >
+        {children}
+      </a>
+    );
+  }
+
+  return (
+    <div className="my-4">
+      <img
+        src={href}
+        alt={typeof children === 'string' ? children : 'Image'}
+        className="h-auto max-w-full cursor-pointer rounded-lg border border-gray-200 shadow-sm transition-opacity hover:opacity-90"
+        onClick={() => window.open(href, '_blank')}
+        onError={(e) => {
+          // Fallback to regular link if image fails to load
+          const target = e.target as HTMLImageElement;
+          const parent = target.parentElement;
+          if (parent) {
+            parent.innerHTML = `<a href="${href}" target="_blank" class="font-medium text-blue-400 underline underline-offset-4">${children}</a>`;
+          }
+        }}
+        loading="lazy"
+      />
+      {children && typeof children === 'string' && children !== href && (
+        <p className="mt-2 text-sm text-gray-600 italic">{children}</p>
+      )}
+    </div>
+  );
+};
+
 export type CodeHeaderProps = {
   node?: Element | undefined;
   language: string | undefined;
@@ -164,12 +238,11 @@ export const defaultComponents = memoizeMarkdownComponents({
     />
   ),
   a: ({ className, ...props }) => (
-    <a
+    <ImageAwareLink
       className={cn(
         'font-medium text-blue-400 underline underline-offset-4',
         className,
       )}
-      target="_blank"
       {...props}
     />
   ),

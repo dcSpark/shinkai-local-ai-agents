@@ -191,25 +191,6 @@ export const useWebSocketMessage = ({
             }
           }),
         );
-
-        if (parseData.metadata?.is_done === true) {
-          queryClient.setQueryData(
-            queryKey,
-            produce((draft: ChatConversationInfiniteData | undefined) => {
-              if (!draft?.pages?.[0]) return;
-              const lastMessage = draft.pages.at(-1)?.at(-1);
-              if (
-                lastMessage &&
-                lastMessage.role === 'assistant' &&
-                lastMessage.messageId === OPTIMISTIC_ASSISTANT_MESSAGE_ID
-              ) {
-                lastMessage.status = { type: 'complete', reason: 'unknown' };
-              }
-            }),
-          );
-
-          return;
-        }
       } catch (error) {
         console.error('Failed to parse ws message', error);
       }
@@ -262,7 +243,6 @@ export const useWebSocketTools = ({
   const { inboxId: encodedInboxId = '' } = useParams();
   const inboxId = defaultInboxId || decodeURIComponent(encodedInboxId);
   const queryClient = useQueryClient();
-  const isToolReceived = useRef(false);
 
   const setWidget = useToolsStore((state) => state.setWidget);
 
@@ -278,22 +258,9 @@ export const useWebSocketTools = ({
         if (parseData.inbox !== inboxId) return;
 
         if (
-          parseData.message_type === 'ShinkaiMessage' &&
-          isToolReceived.current
-        ) {
-          isToolReceived.current = false;
-          const paginationKey = [
-            FunctionKeyV2.GET_CHAT_CONVERSATION_PAGINATION,
-            { inboxId: inboxId as string },
-          ];
-          void queryClient.invalidateQueries({ queryKey: paginationKey });
-          return;
-        }
-        if (
           parseData.message_type === 'Widget' &&
           parseData?.widget?.ToolRequest
         ) {
-          isToolReceived.current = true;
           const tool = parseData.widget.ToolRequest;
           queryClient.setQueryData(
             queryKey,

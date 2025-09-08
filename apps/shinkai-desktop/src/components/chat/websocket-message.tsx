@@ -123,9 +123,34 @@ export const useWebSocketMessage = ({
         }
         isStreamSupported.current = false;
 
-        // invalidate query when we receive the final assistant message
+        // finalize the optimistic assistant message immediately when the final assistant message arrives
         if (isAssistantMessage) {
-          void queryClient.invalidateQueries({ queryKey: queryKey });
+          queryClient.setQueryData(
+            queryKey,
+            produce((draft: ChatConversationInfiniteData | undefined) => {
+              if (!draft?.pages?.[0]) return;
+              const lastMessage = draft.pages.at(-1)?.at(-1);
+              if (
+                lastMessage &&
+                lastMessage.messageId === OPTIMISTIC_ASSISTANT_MESSAGE_ID &&
+                lastMessage.role === 'assistant' &&
+                lastMessage.status?.type === 'running'
+              ) {
+                // Mark as complete so the UI stops "thinking"
+                lastMessage.status = { type: 'complete', reason: 'unknown' };
+                // Optional: also close reasoning if it's still marked running
+                if (lastMessage.reasoning?.status?.type === 'running') {
+                  lastMessage.reasoning.status = {
+                    type: 'complete',
+                    reason: 'unknown',
+                  };
+                }
+              }
+            }),
+          );
+
+          // now fetch the authoritative message to replace optimistic state
+          void queryClient.invalidateQueries({ queryKey });
           return;
         }
 

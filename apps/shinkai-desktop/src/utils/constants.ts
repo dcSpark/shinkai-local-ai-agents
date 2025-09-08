@@ -36,10 +36,21 @@ export const MODELS_WITH_THINKING_SUPPORT = {
   'deepseek:deepseek-reasoner': { forceEnabled: true, reasoningLevel: false },
 
   // Groq models
-  'groq:openai/gpt-oss-20b': { forceEnabled: true, reasoningLevel: true },
-  'groq:openai/gpt-oss-120b': { forceEnabled: true, reasoningLevel: true },
-  'groq:qwen/qwen3-32b': { forceEnabled: true, reasoningLevel: false },
-  'groq:deepseek-r1-distill-llama-70b': { forceEnabled: true, reasoningLevel: false },
+  'groq:openai/gpt-oss-20b': { forceEnabled: false, reasoningLevel: true },
+  'groq:openai/gpt-oss-120b': { forceEnabled: false, reasoningLevel: true },
+  'groq:qwen/qwen3-32b': { forceEnabled: false, reasoningLevel: false },
+  'groq:deepseek-r1-distill-llama-70b': { forceEnabled: false, reasoningLevel: false },
+
+  // OpenAI models
+  'openai:gpt-5': { forceEnabled: false, reasoningLevel: true },
+  'openai:gpt-5-mini': { forceEnabled: false, reasoningLevel: true },
+  'openai:gpt-5-nano': { forceEnabled: false, reasoningLevel: true },
+  'openai:o1': { forceEnabled: false, reasoningLevel: true },
+  'openai:o1-mini': { forceEnabled: false, reasoningLevel: true },
+  'openai:o3': { forceEnabled: false, reasoningLevel: true },
+  'openai:o3-mini': { forceEnabled: false, reasoningLevel: true },
+  'openai:o4': { forceEnabled: false, reasoningLevel: true },
+  'openai:o4-mini': { forceEnabled: false, reasoningLevel: true },  
 
   // Gemini models
   'gemini:gemini-2.5-pro': { forceEnabled: false, reasoningLevel: true },
@@ -50,6 +61,7 @@ export const MODELS_WITH_THINKING_SUPPORT = {
   'gemini:gemini-2.0-flash-exp': { forceEnabled: false, reasoningLevel: true },
 
   // Shinkai Backend
-  'shinkai-backend:free_text_inference': { forceEnabled: true, reasoningLevel: true },
-  'shinkai-backend:standard_text_inference': { forceEnabled: true, reasoningLevel: true },
+  'shinkai-backend:free_text_inference': { forceEnabled: false, reasoningLevel: true },
+  'shinkai-backend:standard_text_inference': { forceEnabled: false, reasoningLevel: true },
+  'shinkai-backend:premium_text_inference': { forceEnabled: false, reasoningLevel: true },
 } as const;

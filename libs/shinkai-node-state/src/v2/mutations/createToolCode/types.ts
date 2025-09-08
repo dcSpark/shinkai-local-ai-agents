@@ -11,6 +11,7 @@ export type CreateToolCodeInput = Token & {
   jobId?: string;
   tools: string[];
   language: CodeLanguage;
+  thinking?: boolean;
 };
 
 export type CreateToolCodeOutput = CreateToolCodeResponse;

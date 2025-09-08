@@ -1,6 +1,7 @@
 import { useTranslation } from '@shinkai_network/shinkai-i18n';
 import { type CodeLanguage } from '@shinkai_network/shinkai-message-ts/api/tools/types';
 import { type ChatConversationInfiniteData } from '@shinkai_network/shinkai-node-state/v2/queries/getChatConversation/types';
+import { useGetLLMProviders } from '@shinkai_network/shinkai-node-state/v2/queries/getLLMProviders/useGetLLMProviders';
 import {
   Button,
   ChatInputArea,
@@ -15,9 +16,12 @@ import {
   type InfiniteQueryObserverResult,
   type FetchPreviousPageOptions,
 } from '@tanstack/react-query';
-import { memo } from 'react';
+import { memo, useMemo, useEffect } from 'react';
 import { useFormContext } from 'react-hook-form';
 
+import { useAuth } from '../../../store/auth';
+import { getThinkingConfig } from '../../../utils/thinking-config';
+import { ThinkingSwitchActionBar } from '../../chat/chat-action-bar/thinking-switch-action-bar';
 import { MessageList } from '../../chat/components/message-list';
 import { usePlaygroundStore } from '../context/playground-context';
 import { type CreateToolCodeFormSchema } from '../hooks/use-tool-code';
@@ -53,6 +57,7 @@ const PlaygroundChatBase = ({
   chatConversationData: ChatConversationInfiniteData | undefined;
 }) => {
   const { t } = useTranslation();
+  const auth = useAuth((state) => state.auth);
 
   const toolCodeStatus = usePlaygroundStore((state) => state.toolCodeStatus);
   const isToolCodeGenerationPending = toolCodeStatus === 'pending';
@@ -63,6 +68,36 @@ const PlaygroundChatBase = ({
   const isMetadataGenerationPending = toolMetadataStatus === 'pending';
 
   const form = useFormContext<CreateToolCodeFormSchema>();
+
+  const { data: llmProviders } = useGetLLMProviders({
+    nodeAddress: auth?.node_address ?? '',
+    token: auth?.api_v2_key ?? '',
+  });
+
+  const currentAI = form.watch('llmProviderId');
+  
+  const thinkingConfig = useMemo(() => {
+    if (!currentAI || !llmProviders) {
+      return {
+        supportsThinking: false,
+        forceEnabled: false,
+        reasoningLevel: false,
+      };
+    }
+
+    const selectedProvider = llmProviders.find(
+      (provider) => provider.id === currentAI,
+    );
+    const modelName = selectedProvider?.model;
+    return getThinkingConfig(modelName);
+  }, [currentAI, llmProviders]);
+
+  // Auto-enable thinking if force enabled for the model
+  useEffect(() => {
+    if (thinkingConfig.forceEnabled) {
+      form.setValue('thinking', true);
+    }
+  }, [thinkingConfig.forceEnabled, form]);
 
   return (
     <>
@@ -116,6 +151,18 @@ const PlaygroundChatBase = ({
                         }}
                         value={form.watch('tools')}
                       />
+                      {thinkingConfig.supportsThinking && (
+                        <ThinkingSwitchActionBar
+                          checked={thinkingConfig.forceEnabled || !!form.watch('thinking')}
+                          disabled={thinkingConfig.forceEnabled}
+                          onClick={() => {
+                            if (!thinkingConfig.forceEnabled) {
+                              form.setValue('thinking', !form.watch('thinking'));
+                            }
+                          }}
+                          forceEnabled={thinkingConfig.forceEnabled}
+                        />
+                      )}
                     </div>
                     <ChatInputArea
                       autoFocus

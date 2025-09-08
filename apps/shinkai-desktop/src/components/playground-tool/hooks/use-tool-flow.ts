@@ -451,6 +451,7 @@ export const useToolFlow = ({
         }
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     metadataConversation?.pages,
     setToolMetadata,
@@ -458,6 +459,9 @@ export const useToolFlow = ({
     setToolMetadataError,
     isPlaygroundMode,
     toolMetadataStatus,
+    sendMetadataGenerationCompleteNotification,
+    setCurrentStep,
+    setToolCreationError,
   ]);
 
   useEffect(() => {
@@ -623,9 +627,6 @@ export const useToolFlow = ({
     handleSaveTool,
     form,
     setCurrentStep,
-    forceAutoSave,
-    forceGenerateMetadata,
-    forceGenerateCode,
   ]);
 
   const handleApplyChangesCodeSubmit = useCallback(

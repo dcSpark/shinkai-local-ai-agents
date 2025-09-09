@@ -451,6 +451,7 @@ export const useToolFlow = ({
         }
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     metadataConversation?.pages,
     setToolMetadata,
@@ -458,6 +459,9 @@ export const useToolFlow = ({
     setToolMetadataError,
     isPlaygroundMode,
     toolMetadataStatus,
+    sendMetadataGenerationCompleteNotification,
+    setCurrentStep,
+    setToolCreationError,
   ]);
 
   useEffect(() => {
@@ -592,7 +596,8 @@ export const useToolFlow = ({
       toolMetadata &&
       toolCodeStatus === 'success' &&
       toolMetadataStatus === 'success' &&
-      forceAutoSave.current
+      forceAutoSave.current &&
+      !isSavingTool
     ) {
       forceAutoSave.current = false;
       forceGenerateMetadata.current = false;
@@ -623,9 +628,7 @@ export const useToolFlow = ({
     handleSaveTool,
     form,
     setCurrentStep,
-    forceAutoSave,
-    forceGenerateMetadata,
-    forceGenerateCode,
+    isSavingTool,
   ]);
 
   const handleApplyChangesCodeSubmit = useCallback(

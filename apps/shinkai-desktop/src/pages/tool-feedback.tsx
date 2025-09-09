@@ -131,7 +131,7 @@ function ToolFeedbackPrompt() {
         (provider) => provider.id === defaultAgentId
       );
       
-      if (targetProvider) {
+      if (targetProvider && targetProvider.id !== currentProvider.agent.id) {
         // Switch the LLM provider for the job after tool creation is complete
         void updateAgentInJob({
           nodeAddress: auth.node_address,

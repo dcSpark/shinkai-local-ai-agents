@@ -6,7 +6,7 @@ import { type ExternalToast, toast } from 'sonner';
 import { openShinkaiNodeManagerWindow } from './shinkai-node-manager-windows-utils';
 
 export const modelNameMap: Record<string, string> = {
-  'snowflake-arctic-embed:xs': "Snowflake's Arctic-embed-xs",
+  'embeddinggemma:300m': "Embedding Gemma 300M",
   'llama3.1:8b-instruct-q4_1': 'Llama 3.1 8B',
   'gemma2:2b-instruct-q4_1': 'Gemma 2 2B',
   'command-r7b:7b-12-2024-q4_K_M': 'Command R 7B',

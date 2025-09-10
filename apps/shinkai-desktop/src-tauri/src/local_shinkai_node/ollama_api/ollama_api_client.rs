@@ -223,7 +223,7 @@ impl OllamaApiClient {
 
         // Create a map for the files parameter
         let mut files = HashMap::new();
-        files.insert("arctic.gguf".to_string(), digest);
+        files.insert("gemma.gguf".to_string(), digest);
 
         // Create the model using the uploaded blob
         let url = format!("{}/api/create", self.base_url);

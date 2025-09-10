@@ -2,7 +2,7 @@ import { getLLMProviders as getLLMProvidersAPI } from '@shinkai_network/shinkai-
 
 import  { type GetLLMProvidersInput } from './types';
 
-const EMBEDDING_MODEL = 'ollama:snowflake-arctic-embed:xs';
+const EMBEDDING_MODEL = 'ollama:embeddinggemma:300m';
 
 export const getLLMProviders = async ({
   nodeAddress,

@@ -1,12 +1,12 @@
 import { exec } from 'child_process';
 import { createWriteStream } from 'fs';
+import { copyFile, cp, mkdir, readdir, rename } from 'fs/promises';
 import path from 'path';
 import axios from 'axios';
 import { ensureFile } from 'fs-extra';
-import { copyFile, cp, mkdir, readdir, rename } from 'fs/promises';
+import { extract } from 'tar';
 import * as zl from 'zip-lib';
 import { z } from 'zod';
-import { extract } from 'tar';
 
 enum Arch {
   x86_64_unknown_linux_gnu = 'x86_64-unknown-linux-gnu',
@@ -246,10 +246,10 @@ const downloadOllama = {
 
 const downloadEmbeddingModel = async () => {
   console.log(`Downloading embedding model`);
-  const downloadUrl = `https://huggingface.co/ChristianAzinn/snowflake-arctic-embed-xs-gguf/resolve/main/snowflake-arctic-embed-xs-f16.GGUF?download=true`;
+  const downloadUrl = `https://huggingface.co/unsloth/embeddinggemma-300m-GGUF/resolve/main/embeddinggemma-300M-BF16.gguf`;
   await downloadFile(
     downloadUrl,
-    path.join(LLM_MODELS_PATH, 'snowflake-arctic-embed-xs-f16.GGUF'),
+    path.join(LLM_MODELS_PATH, 'embeddinggemma-300M-BF16.gguf'),
   );
 };
 

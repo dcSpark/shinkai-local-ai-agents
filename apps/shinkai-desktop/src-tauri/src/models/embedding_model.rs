@@ -10,7 +10,7 @@ pub fn get_model_data(llm_models_path: &Path) -> &'static [u8] {
     static FULL_MODEL_DATA: OnceLock<Vec<u8>> = OnceLock::new();
 
     FULL_MODEL_DATA.get_or_init(|| {
-        let model_path = llm_models_path.join("snowflake-arctic-embed-xs-f16.GGUF");
+        let model_path = llm_models_path.join("embeddinggemma-300M-BF16.gguf");
         
         let mut file = match File::open(&model_path) {
             Ok(file) => file,
@@ -30,7 +30,7 @@ pub fn get_model_data(llm_models_path: &Path) -> &'static [u8] {
     }).as_slice()
 }
 
-pub const MODEL_NAME: &str = "snowflake-arctic-embed:xs";
+pub const MODEL_NAME: &str = "embeddinggemma:300m";
 
 pub fn get_model_name() -> &'static str {
     MODEL_NAME

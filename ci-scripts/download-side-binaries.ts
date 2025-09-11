@@ -246,7 +246,7 @@ const downloadOllama = {
 
 const downloadEmbeddingModel = async () => {
   console.log(`Downloading embedding model`);
-  const downloadUrl = `https://huggingface.co/unsloth/embeddinggemma-300m-GGUF/resolve/main/embeddinggemma-300M-BF16.gguf`;
+  const downloadUrl = `https://download.shinkai.com/llm-models/embeddinggemma-300M-BF16.gguf`;
   await downloadFile(
     downloadUrl,
     path.join(LLM_MODELS_PATH, 'embeddinggemma-300M-BF16.gguf'),

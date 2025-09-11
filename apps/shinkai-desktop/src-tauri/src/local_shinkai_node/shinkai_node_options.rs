@@ -145,18 +145,8 @@ impl ShinkaiNodeOptions {
             ),
             log_all: Some(options.log_all.or(base_options.log_all).unwrap_or_default()),
             rpc_url: Some(options.rpc_url.or(base_options.rpc_url).unwrap_or_default()),
-            default_embedding_model: Some(
-                options
-                    .default_embedding_model
-                    .or(base_options.default_embedding_model)
-                    .unwrap_or_default(),
-            ),
-            supported_embedding_models: Some(
-                options
-                    .supported_embedding_models
-                    .or(base_options.supported_embedding_models)
-                    .unwrap_or_default(),
-            ),
+            default_embedding_model: default_options.default_embedding_model,
+            supported_embedding_models: default_options.supported_embedding_models,
             shinkai_tools_runner_deno_binary_path: Some(
                 options
                     .shinkai_tools_runner_deno_binary_path

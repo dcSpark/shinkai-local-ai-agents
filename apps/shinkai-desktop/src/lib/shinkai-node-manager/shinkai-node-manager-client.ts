@@ -70,6 +70,18 @@ export const useShinkaiNodeGetOllamaVersionQuery = (
   return { ...query } as UseQueryResult<string, Error>;
 };
 
+export const useShinkaiNodeGetDefaultEmbeddingModelQuery = (
+  options?: Omit<QueryObserverOptions, 'queryKey'>,
+): UseQueryResult<string, Error> => {
+  const query = useQuery({
+    queryKey: ['shinkai_node_get_default_embedding_model'],
+    queryFn: (): Promise<string> => invoke('shinkai_node_get_default_embedding_model'),
+    staleTime: Infinity, // This is a static default value, never changes
+    ...options,
+  });
+  return { ...query } as UseQueryResult<string, Error>;
+};
+
 // Mutations
 export const useShinkaiNodeSpawnMutation = (options?: UseMutationOptions) => {
   const queryClient = useQueryClient();

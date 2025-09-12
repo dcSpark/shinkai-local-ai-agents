@@ -88,6 +88,12 @@ pub async fn shinkai_node_get_default_model() -> Result<String, String> {
 }
 
 #[tauri::command]
+pub async fn shinkai_node_get_default_embedding_model() -> Result<String, String> {
+    let default_options = ShinkaiNodeOptions::default();
+    Ok(default_options.default_embedding_model.unwrap_or_else(|| "embeddinggemma:300m".to_string()))
+}
+
+#[tauri::command]
 pub async fn shinkai_node_get_ollama_version(
     app_handle: tauri::AppHandle,
 ) -> Result<String, String> {

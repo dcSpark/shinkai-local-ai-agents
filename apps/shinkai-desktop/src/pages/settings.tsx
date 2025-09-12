@@ -6,12 +6,23 @@ import {
 } from '@shinkai_network/shinkai-i18n';
 import { isShinkaiIdentityLocalhost } from '@shinkai_network/shinkai-message-ts/utils/inbox_name_handler';
 import { useSetMaxChatIterations } from '@shinkai_network/shinkai-node-state/v2/mutations/setMaxChatIterations/useSetMaxChatIterations';
+import { useStartEmbeddingMigration } from '@shinkai_network/shinkai-node-state/v2/mutations/startEmbeddingMigration/useStartEmbeddingMigration';
 import { useUpdateNodeName } from '@shinkai_network/shinkai-node-state/v2/mutations/updateNodeName/useUpdateNodeName';
+import { useGetEmbeddingMigrationStatus } from '@shinkai_network/shinkai-node-state/v2/queries/getEmbeddingMigrationStatus/useGetEmbeddingMigrationStatus';
 import { useGetHealth } from '@shinkai_network/shinkai-node-state/v2/queries/getHealth/useGetHealth';
 import { useGetLLMProviders } from '@shinkai_network/shinkai-node-state/v2/queries/getLLMProviders/useGetLLMProviders';
 import { useGetPreferences } from '@shinkai_network/shinkai-node-state/v2/queries/getPreferences/useGetPreferences';
 import { useGetShinkaiFreeModelQuota } from '@shinkai_network/shinkai-node-state/v2/queries/getShinkaiFreeModelQuota/useGetShinkaiFreeModelQuota';
+import { useScanOllamaModels } from '@shinkai_network/shinkai-node-state/v2/queries/scanOllamaModels/useScanOllamaModels';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   Badge,
   Button,
   buttonVariants,
@@ -48,7 +59,7 @@ import {
   RefreshCw,
   CheckCircle,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
@@ -103,6 +114,9 @@ const SettingsPage = () => {
   const setOptInExperimental = useSettings(
     (state) => state.setOptInExperimental,
   );
+  const setEmbeddingModelMismatchPromptDismissed = useSettings(
+    (state) => state.setEmbeddingModelMismatchPromptDismissed,
+  );
 
   const setAuth = useAuth((authStore) => authStore.setAuth);
 
@@ -112,6 +126,10 @@ const SettingsPage = () => {
   const setDefaultAgentId = useSettings(
     (settingsStore) => settingsStore.setDefaultAgentId,
   );
+
+  const [selectedEmbeddingModel, setSelectedEmbeddingModel] = useState('');
+  const [showMigrationConfirmation, setShowMigrationConfirmation] = useState(false);
+  const [pendingEmbeddingModel, setPendingEmbeddingModel] = useState('');
 
   const { nodeInfo, isSuccess: isNodeInfoSuccess } = useGetHealth({
     nodeAddress: auth?.node_address ?? '',
@@ -249,6 +267,106 @@ const SettingsPage = () => {
     { nodeAddress: auth?.node_address ?? '', token: auth?.api_v2_key ?? '' },
     { enabled: !!auth },
   );
+
+  // Supported embedding models - memoized to prevent re-renders
+  const supportedEmbeddingModels = useMemo(() => [
+    'snowflake-arctic-embed:xs',
+    'embeddinggemma:300m',
+    'jina/jina-embeddings-v2-base-es:latest'
+  ], []);
+
+  const { data: availableOllamaModels } = useScanOllamaModels(
+    { nodeAddress: auth?.node_address ?? '', token: auth?.api_v2_key ?? '' },
+    { enabled: !!auth }
+  );
+
+  const { data: embeddingMigrationStatus, refetch: refetchMigrationStatus } = useGetEmbeddingMigrationStatus(
+    { nodeAddress: auth?.node_address ?? '', token: auth?.api_v2_key ?? '' },
+    { 
+      enabled: !!auth,
+      // Don't auto-refetch in settings - let the global hook handle polling
+      refetchInterval: false
+    }
+  );
+
+  const { mutateAsync: startEmbeddingMigration, isPending: isMigratingEmbedding } = useStartEmbeddingMigration({
+    onSuccess: () => {
+      // Toast will be managed by the global hook
+    },
+    onError: (error) => {
+      toast.error('Failed to start embedding migration', {
+        description: error.message,
+      });
+    },
+  });
+
+  // Filter available models to only show supported embedding models
+  const availableEmbeddingModels = useMemo(() => {
+    if (!availableOllamaModels) return [];
+    
+    return availableOllamaModels
+      .filter(model => supportedEmbeddingModels.includes(model.model))
+      .map(model => ({
+        value: model.model,
+        label: model.model
+      }));
+  }, [availableOllamaModels, supportedEmbeddingModels]);
+
+  // Set initial embedding model from status
+  useEffect(() => {
+    if (embeddingMigrationStatus?.current_embedding_model && !selectedEmbeddingModel) {
+      setSelectedEmbeddingModel(embeddingMigrationStatus.current_embedding_model);
+    }
+  }, [embeddingMigrationStatus, selectedEmbeddingModel]);
+
+  // Handle embedding model change - show confirmation first
+  const handleEmbeddingModelChange = (newModel: string) => {
+    // Don't proceed if model is empty/invalid or same as current
+    if (!newModel || newModel === selectedEmbeddingModel) return;
+    
+    // Don't proceed if auth is not available
+    if (!auth?.node_address || !auth?.api_v2_key) return;
+
+    // Store the pending model and show confirmation
+    setPendingEmbeddingModel(newModel);
+    setShowMigrationConfirmation(true);
+  };
+
+  // Actually perform the migration after confirmation
+  const confirmMigration = async () => {
+    try {
+      await startEmbeddingMigration({
+        nodeAddress: auth!.node_address,
+        token: auth!.api_v2_key,
+        force: true,
+        embedding_model: pendingEmbeddingModel,
+      });
+      
+      // Update the selected model
+      setSelectedEmbeddingModel(pendingEmbeddingModel);
+      
+      // Mark the prompt as dismissed since user took action
+      setEmbeddingModelMismatchPromptDismissed(true);
+      
+      // Trigger immediate status refetch to ensure global hook detects the migration
+      setTimeout(() => {
+        void refetchMigrationStatus();
+      }, 500); // Small delay to allow backend to update
+      
+      setShowMigrationConfirmation(false);
+      setPendingEmbeddingModel('');
+    } catch (error) {
+      console.error('Failed to change embedding model:', error);
+      setShowMigrationConfirmation(false);
+      setPendingEmbeddingModel('');
+    }
+  };
+
+  // Cancel migration
+  const cancelMigration = () => {
+    setShowMigrationConfirmation(false);
+    setPendingEmbeddingModel('');
+  };
 
   const { mutateAsync: respawnShinkaiNode } = useShinkaiNodeRespawnMutation();
   const { mutateAsync: updateNodeName, isPending: isUpdateNodeNamePending } =
@@ -466,6 +584,28 @@ const SettingsPage = () => {
                     </SelectContent>
                   </Select>
 
+                  <FormMessage />
+                </FormItem>
+                <FormItem>
+                  <FormLabel>Embeddings Model</FormLabel>
+                  <Select
+                    disabled={isMigratingEmbedding || embeddingMigrationStatus?.migration_in_progress}
+                    onValueChange={handleEmbeddingModelChange}
+                    value={selectedEmbeddingModel}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select embedding model" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {availableEmbeddingModels.map((model) => (
+                        <SelectItem key={model.value} value={model.value}>
+                          {model.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <FormMessage />
                 </FormItem>
               </form>
@@ -821,6 +961,34 @@ const SettingsPage = () => {
           </div>
         </div>
       </div>
+
+      {/* Embedding Migration Confirmation Dialog */}
+      <AlertDialog open={showMigrationConfirmation} onOpenChange={setShowMigrationConfirmation}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirm Embedding Model Migration</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to migrate to <strong>{pendingEmbeddingModel}</strong>?
+              <br />
+              <br />
+              This process will:
+              <ul className="mt-2 list-disc pl-5 space-y-1">
+                <li>Update your embedding model configuration</li>
+                <li>Re-process existing vectorized data (this may take some time)</li>
+                <li>Temporarily affect search functionality during migration</li>
+              </ul>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="gap-3">
+            <AlertDialogCancel onClick={cancelMigration}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction onClick={confirmMigration}>
+              Yes, Migrate Model
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </SimpleLayout>
   );
 };

@@ -1,5 +1,6 @@
 import { Button } from '@shinkai_network/shinkai-ui';
-import { X, Zap } from 'lucide-react';
+import { PartyIcon } from '@shinkai_network/shinkai-ui/assets';
+
 import { type ExternalToast, toast } from 'sonner';
 
 export const EMBEDDING_MIGRATION_TOAST_ID = 'embedding-migration-toast-id';
@@ -9,30 +10,35 @@ const defaultToastOptions: ExternalToast = {
   position: 'top-right',
 };
 
+const mapModelToName = (model: string) => {
+  switch (model) {
+    case 'snowflake-arctic-embed:xs':
+      return 'Snowflake';
+    case 'embeddinggemma:300m':
+      return 'Gemma';
+    default:
+      return model;
+  }
+};
+
 export const startEmbeddingMigrationToast = () => {
-  return toast.loading(
-    <div className="flex items-center gap-2">
-      {/* <RefreshCw className="h-4 w-4 animate-spin" /> */}
-      <span>Migrating embeddings model...</span>
-    </div>,
-    {
-      ...defaultToastOptions,
-      description: 'This may take a few minutes. You can continue using the app.',
-    }
-  );
+  return toast.loading('Updating embedding model...', {
+    ...defaultToastOptions,
+    description: 'This may take a few minutes, but you can keep using the app.',
+  });
 };
 
 export const embeddingMigrationSuccessToast = (model: string) => {
   toast.dismiss(EMBEDDING_MIGRATION_TOAST_ID);
-  return toast.success(`Successfully migrated embeddings model`, {
+  return toast.success(`Embeddings updated successfully`, {
     position: 'top-right',
-    description: `Embedding model has been updated to ${model}.`,
+    description: `Embeddings are now updated to ${model}. Enjoy smarter and faster results.`,
   });
 };
 
 export const embeddingMigrationErrorToast = (model: string, error?: string) => {
   toast.dismiss(EMBEDDING_MIGRATION_TOAST_ID);
-  return toast.error(`Failed to migrate to ${model}`, {
+  return toast.error(`Failed to update to ${model}`, {
     position: 'top-right',
     description: error || 'Migration process encountered an error.',
   });
@@ -49,44 +55,45 @@ export const embeddingModelMismatchToast = ({
   onMigrateToDefault: () => void;
   onDismiss: () => void;
 }) => {
-  return toast.info(
-    <div className="space-y-3">
-      <div>
-        <h4 className="font-semibold">Embedding Model Update Available</h4>
-        <p className="text-sm opacity-90">
-          You're using <strong>{currentModel}</strong>, but the recommended model is <strong>{defaultModel}</strong>
+  return toast.info('Embeddings Update Available', {
+    description: (
+      <div className="space-y-3">
+        <p className="text-xs">
+          Switch from {mapModelToName(currentModel)} to{' '}
+          {mapModelToName(defaultModel)} embeddings for better search and
+          retrieval results, plus improved performance.
         </p>
+        <div className="flex justify-end gap-2">
+          <Button
+            size="xs"
+            onClick={() => {
+              onMigrateToDefault();
+              toast.dismiss();
+            }}
+            variant="outline"
+          >
+            Update
+          </Button>
+          <Button
+            size="xs"
+            variant="tertiary"
+            onClick={() => {
+              onDismiss();
+              toast.dismiss();
+            }}
+          >
+            Later
+          </Button>
+        </div>
       </div>
-      <div className="flex gap-2">
-        <Button
-          size="sm"
-          onClick={() => {
-            onMigrateToDefault();
-            toast.dismiss();
-          }}
-          className="h-8"
-        >
-          <Zap className="h-3 w-3 mr-1" />
-          Migrate Now
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={() => {
-            onDismiss();
-            toast.dismiss();
-          }}
-          className="h-8"
-        >
-          <X className="h-3 w-3 mr-1" />
-          Dismiss
-        </Button>
-      </div>
-    </div>,
-    {
-      position: 'top-right',
-      duration: 10000, // Show for 10 seconds
-      closeButton: true,
-    }
-  );
+    ),
+
+    position: 'top-right',
+    duration: 10000, // Show for 10 seconds
+    closeButton: true,
+    icon: <PartyIcon className="size-4" />,
+    classNames: {
+      icon: 'self-start pt-2',
+    },
+  });
 };

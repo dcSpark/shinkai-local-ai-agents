@@ -1,12 +1,20 @@
-import { useMutation, useQueryClient, type UseMutationOptions } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQueryClient,
+  type UseMutationOptions,
+} from '@tanstack/react-query';
 
 import { FunctionKeyV2 } from '../../constants';
-import { type StartEmbeddingMigrationInput, type StartEmbeddingMigrationOutput } from './types';
+import { type APIError } from '../../types';
+import {
+  type StartEmbeddingMigrationInput,
+  type StartEmbeddingMigrationOutput,
+} from './types';
 import { startEmbeddingMigration } from '.';
 
 type Options = UseMutationOptions<
   StartEmbeddingMigrationOutput,
-  Error,
+  APIError,
   StartEmbeddingMigrationInput
 >;
 

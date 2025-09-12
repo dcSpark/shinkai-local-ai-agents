@@ -110,6 +110,11 @@ export type ShinkaiNodeOptions = {
    log_all?: string,
    proxy_identity?: string,
    rpc_url?: string,
+   default_embedding_model?: string,
+   supported_embedding_models?: string,
+   shinkai_tools_runner_deno_binary_path?: string,
+   shinkai_tools_runner_uv_binary_path?: string,
+   shinkai_store_url?: string,
    secret_desktop_installation_proof_key?: string,
 };
 

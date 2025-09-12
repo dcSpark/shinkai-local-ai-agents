@@ -3,6 +3,9 @@ import { urlJoin } from '../../utils/url-join';
 import {
   type CheckHealthResponse,
   type DockerStatusResponse,
+  type EmbeddingMigrationRequest,
+  type EmbeddingMigrationResponse,
+  type GetEmbeddingMigrationStatusResponse,
   type GetNodeStorageLocationResponse,
   type GetPreferencesResponse,
   type GetShinkaiFreeModelQuotaResponse,
@@ -119,4 +122,34 @@ export const getPreferences = async (
     },
   );
   return response.data as GetPreferencesResponse;
+};
+
+export const startEmbeddingMigration = async (
+  nodeAddress: string,
+  bearerToken: string,
+  payload: EmbeddingMigrationRequest,
+) => {
+  const response = await httpClient.post(
+    urlJoin(nodeAddress, '/v2/embedding_migration'),
+    payload,
+    {
+      headers: { Authorization: `Bearer ${bearerToken}` },
+      responseType: 'json',
+    },
+  );
+  return response.data as EmbeddingMigrationResponse;
+};
+
+export const getEmbeddingMigrationStatus = async (
+  nodeAddress: string,
+  bearerToken: string,
+) => {
+  const response = await httpClient.get(
+    urlJoin(nodeAddress, '/v2/embedding_migration'),
+    {
+      headers: { Authorization: `Bearer ${bearerToken}` },
+      responseType: 'json',
+    },
+  );
+  return response.data as GetEmbeddingMigrationStatusResponse;
 };

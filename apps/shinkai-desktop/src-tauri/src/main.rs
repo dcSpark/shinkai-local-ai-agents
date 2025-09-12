@@ -7,7 +7,7 @@ use crate::commands::fetch::{get_request, post_request};
 use crate::commands::galxe::galxe_generate_proof;
 use crate::commands::hardware::hardware_get_summary;
 use crate::commands::shinkai_node_manager_commands::{
-    shinkai_node_get_default_model, shinkai_node_get_ollama_api_url,
+    shinkai_node_get_default_model, shinkai_node_get_default_embedding_model, shinkai_node_get_ollama_api_url,
     shinkai_node_get_ollama_version, shinkai_node_get_options, shinkai_node_is_running,
     shinkai_node_kill, shinkai_node_remove_storage, shinkai_node_set_default_options,
     shinkai_node_set_options, shinkai_node_spawn, show_shinkai_node_manager_window,
@@ -120,6 +120,7 @@ fn main() {
             shinkai_node_set_default_options,
             shinkai_node_get_ollama_api_url,
             shinkai_node_get_default_model,
+            shinkai_node_get_default_embedding_model,
             hardware_get_summary,
             galxe_generate_proof,
             get_request,

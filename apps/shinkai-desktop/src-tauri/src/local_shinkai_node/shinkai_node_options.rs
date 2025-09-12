@@ -145,8 +145,18 @@ impl ShinkaiNodeOptions {
             ),
             log_all: Some(options.log_all.or(base_options.log_all).unwrap_or_default()),
             rpc_url: Some(options.rpc_url.or(base_options.rpc_url).unwrap_or_default()),
-            default_embedding_model: default_options.default_embedding_model,
-            supported_embedding_models: default_options.supported_embedding_models,
+            default_embedding_model: Some(
+                options
+                    .default_embedding_model
+                    .or(base_options.default_embedding_model)
+                    .unwrap_or_else(|| default_options.default_embedding_model.unwrap_or_default()),
+            ),
+            supported_embedding_models: Some(
+                options
+                    .supported_embedding_models
+                    .or(base_options.supported_embedding_models)
+                    .unwrap_or_else(|| default_options.supported_embedding_models.unwrap_or_default()),
+            ),
             shinkai_tools_runner_deno_binary_path: Some(
                 options
                     .shinkai_tools_runner_deno_binary_path
@@ -221,7 +231,7 @@ impl Default for ShinkaiNodeOptions {
             proxy_identity: Some("@@libp2p_relayer.sep-shinkai".to_string()),
             rpc_url: Some("https://sepolia.base.org".to_string()),
             default_embedding_model: Some("embeddinggemma:300m".to_string()),
-            supported_embedding_models: Some("embeddinggemma:300m".to_string()),
+            supported_embedding_models: Some("snowflake-arctic-embed:xs,embeddinggemma:300m,jina/jina-embeddings-v2-base-es:latest".to_string()),
             shinkai_tools_runner_deno_binary_path: Some(shinkai_tools_runner_deno_binary_path),
             shinkai_tools_runner_uv_binary_path: Some(shinkai_tools_runner_uv_binary_path),
             shinkai_store_url: Some("https://store-api.shinkai.com".to_string()),

@@ -189,3 +189,19 @@ export type SetPreferencesRequest = {
 };
 
 export type SetPreferencesResponse = string;
+
+export type EmbeddingMigrationRequest = {
+  force: boolean;
+  embedding_model: string;
+};
+
+export type EmbeddingMigrationResponse = {
+  message: string;
+};
+
+export type GetEmbeddingMigrationStatusResponse = {
+  current_embedding_model: string;
+  migration_in_progress: boolean;
+  ready: boolean;
+  status: string;
+};

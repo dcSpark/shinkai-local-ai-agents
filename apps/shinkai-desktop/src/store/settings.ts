@@ -68,6 +68,8 @@ type SettingsStore = {
   setDismissedCommunityAgentsDisclaimer: (dismissed: boolean) => void;
   dismissedTutorialBanners: TutorialBanner[];
   dismissTutorialBanner: (bannerId: TutorialBanner) => void;
+  embeddingModelMismatchPromptDismissed: boolean;
+  setEmbeddingModelMismatchPromptDismissed: (dismissed: boolean) => void;
   // Playground Tool
   playgroundChatPanelSize: number;
   setPlaygroundChatPanelSize: (size: number) => void;
@@ -240,6 +242,11 @@ export const useSettings = create<SettingsStore>()(
         dismissedCommunityAgentsDisclaimer: false,
         setDismissedCommunityAgentsDisclaimer: (dismissed) => {
           set({ dismissedCommunityAgentsDisclaimer: dismissed });
+        },
+
+        embeddingModelMismatchPromptDismissed: false,
+        setEmbeddingModelMismatchPromptDismissed: (dismissed) => {
+          set({ embeddingModelMismatchPromptDismissed: dismissed });
         },
 
         dismissedTutorialBanners: [] as TutorialBanner[],

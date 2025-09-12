@@ -24,13 +24,18 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { Link, type To, useNavigate } from 'react-router';
 
+import { COMPLETION_DESTINATION, OnboardingStep } from '../components/onboarding/constants';
 import { useAuth } from '../store/auth';
+import { useSettings } from '../store/settings';
 
 const RestoreConnectionPage = () => {
   const { t } = useTranslation();
   const setAuth = useAuth((state) => state.setAuth);
   const navigate = useNavigate();
   const [error, setError] = useState<boolean>(false);
+
+  const completeStep = useSettings((state) => state.completeStep);
+  const getNextStep = useSettings((state) => state.getNextStep);
 
   const form = useForm<RestoreConnectionFormSchema>({
     resolver: zodResolver(restoreConnectionFormSchema),
@@ -49,8 +54,19 @@ const RestoreConnectionPage = () => {
       if (decryptedValue) {
         const decryptedSetupData = JSON.parse(decryptedValue);
         setAuth(decryptedSetupData);
+        
+        // Automatically accept terms and conditions since user is restoring an existing connection
+        completeStep(OnboardingStep.TERMS_CONDITIONS, true);
+        
+        // Navigate to next required step or completion
+        const nextStep = getNextStep();
+        if (nextStep) {
+          void navigate(nextStep.path);
+        } else {
+          void navigate(COMPLETION_DESTINATION);
+        }
+        
         // TODO: Add logic to test if setup data is valid to create an authenticated connection with Shinkai Node
-        void navigate('/');
       }
     } catch {
       setError(true);

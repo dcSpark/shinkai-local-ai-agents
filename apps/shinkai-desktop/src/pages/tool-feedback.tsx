@@ -1,4 +1,8 @@
 import { useTranslation } from '@shinkai_network/shinkai-i18n';
+import { extractJobIdFromInbox } from '@shinkai_network/shinkai-message-ts/utils/inbox_name_handler';
+import { useUpdateAgentInJob } from '@shinkai_network/shinkai-node-state/v2/mutations/updateAgentInJob/useUpdateAgentInJob';
+import { useGetLLMProviders } from '@shinkai_network/shinkai-node-state/v2/queries/getLLMProviders/useGetLLMProviders';
+import { useGetProviderFromJob } from '@shinkai_network/shinkai-node-state/v2/queries/getProviderFromJob/useGetProviderFromJob';
 import {
   Button,
   ChatInputArea,
@@ -31,6 +35,12 @@ import {
 import { useToolForm } from '../components/playground-tool/hooks/use-tool-code';
 import { useToolFlow } from '../components/playground-tool/hooks/use-tool-flow';
 import PlaygroundToolLayout from '../components/playground-tool/layout';
+import {
+  CODE_GENERATOR_MODEL_ID,
+  SHINKAI_FREE_TRIAL_MODEL_ID,
+} from '../components/tools/constants';
+import { useAuth } from '../store/auth';
+import { useSettings } from '../store/settings';
 
 function ToolFeedbackPrompt() {
   const { inboxId } = useParams();
@@ -39,6 +49,31 @@ function ToolFeedbackPrompt() {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const [isExitDialogOpen, setIsExitDialogOpen] = useState(false);
+  const auth = useAuth((state) => state.auth);
+  const defaultAgentId = useSettings((state) => state.defaultAgentId);
+  
+  const jobId = inboxId ? extractJobIdFromInbox(inboxId) : undefined;
+  
+  // Get current provider for this job
+  const { data: currentProvider } = useGetProviderFromJob({
+    nodeAddress: auth?.node_address ?? '',
+    token: auth?.api_v2_key ?? '',
+    jobId: jobId ?? '',
+  });
+  
+  // Get all LLM providers to find the free trial model
+  const { data: llmProviders } = useGetLLMProviders({
+    nodeAddress: auth?.node_address ?? '',
+    token: auth?.api_v2_key ?? '',
+  });
+  
+  // Update agent in job mutation
+  const { mutateAsync: updateAgentInJob } = useUpdateAgentInJob({
+    onSuccess: () => {},
+    onError: (error) => {
+      console.error('Failed to switch LLM provider:', error);
+    },
+  });
 
   const {
     currentStep,
@@ -76,6 +111,40 @@ function ToolFeedbackPrompt() {
       void navigate('/tools');
     }
   }, [error, resetPlaygroundStore, navigate]);
+
+  // Effect to switch from CODE_GENERATOR to SHINKAI_FREE_TRIAL model when tool creation is completed
+  useEffect(() => {
+    if (!auth || !currentProvider || !llmProviders || !jobId) return;
+    
+    // Only switch models when the tool creation is completed
+    if (currentStep !== ToolCreationState.COMPLETED) return;
+
+    const isCodeGeneratorModel = currentProvider.agent.model?.toLowerCase() === CODE_GENERATOR_MODEL_ID.toLowerCase();
+    
+    if (isCodeGeneratorModel) {
+      const freeTrialProvider = llmProviders.find(
+        (provider) => provider.model.toLowerCase() === SHINKAI_FREE_TRIAL_MODEL_ID.toLowerCase()
+      );
+      
+      // Use free trial provider if available, otherwise fall back to default provider
+      const targetProvider = freeTrialProvider || llmProviders.find(
+        (provider) => provider.id === defaultAgentId
+      );
+      
+      if (targetProvider && targetProvider.id !== currentProvider.agent.id) {
+        // Switch the LLM provider for the job after tool creation is complete
+        void updateAgentInJob({
+          nodeAddress: auth.node_address,
+          token: auth.api_v2_key,
+          jobId,
+          newAgentId: targetProvider.id,
+        });
+        
+        // Update the form to reflect the new provider
+        form.setValue('llmProviderId', targetProvider.id);
+      }
+    }
+  }, [auth, currentProvider, llmProviders, jobId, currentStep, updateAgentInJob, form, defaultAgentId]);
 
   const renderStep = useCallback(() => {
     switch (currentStep) {

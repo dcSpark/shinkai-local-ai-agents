@@ -16,7 +16,7 @@ import {
 } from '@shinkai_network/shinkai-ui';
 import { cn } from '@shinkai_network/shinkai-ui/utils';
 import { Edit3Icon, ExternalLinkIcon } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useShinkaiNodeRespawnMutation } from '../../lib/shinkai-node-manager/shinkai-node-manager-client';
 import { isHostingShinkaiNode } from '../../lib/shinkai-node-manager/shinkai-node-manager-windows-utils';
@@ -79,6 +79,10 @@ const ShinkaiIdentityDialog = () => {
   const isIdentityLocalhost = isShinkaiIdentityLocalhost(
     auth?.shinkai_identity ?? '',
   );
+
+  useEffect(() => {
+    setNewIdentity(auth?.shinkai_identity ?? '');
+  }, [auth?.shinkai_identity]);
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>

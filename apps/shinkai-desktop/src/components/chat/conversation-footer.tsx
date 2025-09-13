@@ -12,7 +12,7 @@ import {
 } from '@shinkai_network/shinkai-node-state/forms/chat/chat-message';
 import { DEFAULT_CHAT_CONFIG } from '@shinkai_network/shinkai-node-state/v2/constants';
 import { useSendMessageToJob } from '@shinkai_network/shinkai-node-state/v2/mutations/sendMessageToJob/useSendMessageToJob';
-import { useStopGeneratingLLM } from '@shinkai_network/shinkai-node-state/v2/mutations/stopGeneratingLLM/useStopGeneratingLLM';
+import { useKillJob } from '@shinkai_network/shinkai-node-state/v2/mutations/killJob/useKillJob';
 import { useGetAgents } from '@shinkai_network/shinkai-node-state/v2/queries/getAgents/useGetAgents';
 import { useGetChatConfig } from '@shinkai_network/shinkai-node-state/v2/queries/getChatConfig/useGetChatConfig';
 import { useGetJobFolderName } from '@shinkai_network/shinkai-node-state/v2/queries/getJobFolderName/useGetJobFolderName';
@@ -814,18 +814,17 @@ function StopGeneratingButtonBase({
   shouldStopGenerating: boolean;
 }) {
   const auth = useAuth((state) => state.auth);
-  const { mutateAsync: stopGenerating } = useStopGeneratingLLM();
+  const { mutateAsync: killJob } = useKillJob();
   const { inboxId: encodedInboxId = '' } = useParams();
   const inboxId = decodeURIComponent(encodedInboxId);
 
   const onStopGenerating = async () => {
     if (!inboxId) return;
     const decodedInboxId = decodeURIComponent(inboxId);
-    const jobId = extractJobIdFromInbox(decodedInboxId);
-    await stopGenerating({
+    await killJob({
       nodeAddress: auth?.node_address ?? '',
       token: auth?.api_v2_key ?? '',
-      jobId: jobId,
+      conversationInboxName: decodedInboxId,
     });
   };
 

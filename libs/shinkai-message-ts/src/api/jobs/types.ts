@@ -276,6 +276,11 @@ export type UpdateChatConfigResponse = {
 export type StopGeneratingLLMRequest = string;
 export type StopGeneratingLLMResponse = { status: string };
 
+export type KillJobRequest = {
+  conversation_inbox_name: string;
+};
+export type KillJobResponse = { status: string };
+
 export type GetJobScopeRequest = {
   jobId: string;
 };

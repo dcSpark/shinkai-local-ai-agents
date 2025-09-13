@@ -68,7 +68,6 @@ const EmbeddingModelSelectionDialog = () => {
     onSuccess: () => {
       setIsOpen(false);
       setSelectedEmbeddingModel(selectedEmbeddingModel);
-      toast.success('Embedding model updated successfully');
     },
     onError: (error) => {
       setIsOpen(false);
@@ -95,10 +94,10 @@ const EmbeddingModelSelectionDialog = () => {
   };
 
   useEffect(() => {
-    if (currentEmbeddingModel) {
+    if (currentEmbeddingModel && !selectedEmbeddingModel) {
       setSelectedEmbeddingModel(currentEmbeddingModel);
     }
-  }, [currentEmbeddingModel]);
+  }, [currentEmbeddingModel, selectedEmbeddingModel]);
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -127,28 +126,28 @@ const EmbeddingModelSelectionDialog = () => {
             will re-process existing vectorized data.
           </DialogDescription>
 
-          <div className="bg-bg-tertiary border-divider mt-4 rounded-lg border p-4">
-            <h4 className="text-text-default mb-3 text-sm font-medium">
+          <div className="bg-bg-quaternary border-divider mt-4 rounded-lg border p-4 text-xs">
+            <h4 className="text-text-default mb-3 font-medium">
               This process will:
             </h4>
-            <ul className="text-text-secondary space-y-2 text-sm">
+            <ul className="text-text-default space-y-2 text-xs">
               <li className="flex items-start gap-2">
-                <span className="text-text-tertiary mt-1.5 h-1.5 w-1.5 rounded-full bg-current"></span>
+                <span className="text-text-default mt-1.5 h-1.5 w-1.5 rounded-full bg-current"></span>
                 Update your embedding model configuration
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-text-tertiary mt-1.5 h-1.5 w-1.5 rounded-full bg-current"></span>
+                <span className="text-text-default mt-1.5 h-1.5 w-1.5 rounded-full bg-current"></span>
                 Re-process existing vectorized data (this may take some time)
               </li>
               <li className="flex items-start gap-2">
-                <span className="text-text-tertiary mt-1.5 h-1.5 w-1.5 rounded-full bg-current"></span>
+                <span className="text-text-default mt-1.5 h-1.5 w-1.5 rounded-full bg-current"></span>
                 Temporarily affect search functionality during migration
               </li>
             </ul>
           </div>
         </DialogHeader>
 
-        <div className="mt-6">
+        <div className="mt-2">
           <RadioGroup
             value={selectedEmbeddingModel}
             onValueChange={setSelectedEmbeddingModel}
@@ -157,11 +156,7 @@ const EmbeddingModelSelectionDialog = () => {
             {availableEmbeddingModels.map((model) => (
               <div
                 key={model.value}
-                className={`border-divider flex items-center gap-0 rounded-lg border px-4 ${
-                  model.value === currentEmbeddingModel
-                    ? 'ring-brand/20 ring-2'
-                    : ''
-                }`}
+                className={`border-divider flex items-center gap-0 rounded-lg border px-4`}
               >
                 <RadioGroupItem value={model.value} id={model.value} />
                 <Label
@@ -181,11 +176,11 @@ const EmbeddingModelSelectionDialog = () => {
                       </p>
                       <p className="text-text-secondary mt-1 text-xs">
                         {model.value.includes('snowflake') &&
-                          'High-performance embedding model optimized for speed and efficiency'}
+                          'High-quality retrieval embeddings, optimized for performance.'}
                         {model.value.includes('gemma') &&
-                          "Google's Gemma-based embedding model with excellent accuracy"}
+                          'Multilingual, efficient model made for on-device embeddings; great trade-off between speed and quality. '}
                         {model.value.includes('jina') &&
-                          'Multilingual embedding model supporting 100+ languages'}
+                          'Multimodal & multilingual model that handles text + images; best for documents with visuals and long content. '}
                       </p>
                     </div>
                   </div>

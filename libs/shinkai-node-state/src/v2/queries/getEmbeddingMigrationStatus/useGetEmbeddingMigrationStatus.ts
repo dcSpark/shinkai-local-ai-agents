@@ -1,7 +1,10 @@
 import { type QueryObserverOptions, useQuery } from '@tanstack/react-query';
 
 import { FunctionKeyV2 } from '../../constants';
-import { type GetEmbeddingMigrationStatusInput, type GetEmbeddingMigrationStatusOutput } from './types';
+import {
+  type GetEmbeddingMigrationStatusInput,
+  type GetEmbeddingMigrationStatusOutput,
+} from './types';
 import { getEmbeddingMigrationStatus } from '.';
 
 type UseGetEmbeddingMigrationStatus = [

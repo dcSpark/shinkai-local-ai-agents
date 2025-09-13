@@ -5,30 +5,20 @@ import {
   useTranslation,
 } from '@shinkai_network/shinkai-i18n';
 import { isShinkaiIdentityLocalhost } from '@shinkai_network/shinkai-message-ts/utils/inbox_name_handler';
+
 import { useSetMaxChatIterations } from '@shinkai_network/shinkai-node-state/v2/mutations/setMaxChatIterations/useSetMaxChatIterations';
-import { useStartEmbeddingMigration } from '@shinkai_network/shinkai-node-state/v2/mutations/startEmbeddingMigration/useStartEmbeddingMigration';
-import { useUpdateNodeName } from '@shinkai_network/shinkai-node-state/v2/mutations/updateNodeName/useUpdateNodeName';
-import { useGetEmbeddingMigrationStatus } from '@shinkai_network/shinkai-node-state/v2/queries/getEmbeddingMigrationStatus/useGetEmbeddingMigrationStatus';
+
 import { useGetHealth } from '@shinkai_network/shinkai-node-state/v2/queries/getHealth/useGetHealth';
 import { useGetLLMProviders } from '@shinkai_network/shinkai-node-state/v2/queries/getLLMProviders/useGetLLMProviders';
 import { useGetPreferences } from '@shinkai_network/shinkai-node-state/v2/queries/getPreferences/useGetPreferences';
 import { useGetShinkaiFreeModelQuota } from '@shinkai_network/shinkai-node-state/v2/queries/getShinkaiFreeModelQuota/useGetShinkaiFreeModelQuota';
-import { useScanOllamaModels } from '@shinkai_network/shinkai-node-state/v2/queries/scanOllamaModels/useScanOllamaModels';
+
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
   Badge,
   Button,
   buttonVariants,
   Card,
   CardContent,
-  CardFooter,
   Form,
   FormControl,
   FormField,
@@ -41,53 +31,47 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Skeleton,
   Switch,
   TextField,
   Tooltip,
   TooltipContent,
+  TooltipPortal,
   TooltipTrigger,
 } from '@shinkai_network/shinkai-ui';
 import { useDebounce } from '@shinkai_network/shinkai-ui/hooks';
 import { cn } from '@shinkai_network/shinkai-ui/utils';
 import { getVersion } from '@tauri-apps/api/app';
 import { formatDuration, intervalToDuration } from 'date-fns';
-import { motion } from 'framer-motion';
 import {
-  ExternalLinkIcon,
   InfoIcon,
-  ShieldCheck,
   RefreshCw,
   CheckCircle,
+  ShieldCheckIcon,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useForm, useWatch } from 'react-hook-form';
 import { toast } from 'sonner';
 import { z } from 'zod';
 
 import { FeedbackModal } from '../components/feedback/feedback-modal';
 import { OnboardingStep } from '../components/onboarding/constants';
-import {
-  useShinkaiNodeGetOllamaVersionQuery,
-  useShinkaiNodeRespawnMutation,
-} from '../lib/shinkai-node-manager/shinkai-node-manager-client';
-import { isHostingShinkaiNode } from '../lib/shinkai-node-manager/shinkai-node-manager-windows-utils';
+import EmbeddingModelSelectionDialog from '../components/settings/embedding-model-selection-dialog';
+import ShinkaiIdentityDialog from '../components/settings/shinkai-identity-dialog';
+import { useShinkaiNodeGetOllamaVersionQuery } from '../lib/shinkai-node-manager/shinkai-node-manager-client';
 import {
   useCheckUpdateQuery,
   useDownloadUpdateMutation,
   useUpdateStateQuery,
 } from '../lib/updater/updater-client';
-import { type Auth, useAuth } from '../store/auth';
+import { useAuth } from '../store/auth';
 import { useSettings } from '../store/settings';
-import { useShinkaiNodeManager } from '../store/shinkai-node-manager';
 import { SimpleLayout } from './layout/simple-layout';
 
 const formSchema = z.object({
   defaultAgentId: z.string(),
   displayActionButton: z.boolean(),
   nodeAddress: z.string(),
-  shinkaiIdentity: z.string(),
-  nodeVersion: z.string(),
-  ollamaVersion: z.string(),
   optInAnalytics: z.boolean(),
   optInExperimental: z.boolean(),
   language: z.string(),
@@ -97,14 +81,27 @@ const formSchema = z.object({
 
 type FormSchemaType = z.infer<typeof formSchema>;
 
-const MotionButton = motion(Button);
+const SettingsSection = ({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) => {
+  return (
+    <div className="space-y-4">
+      <h2 className="text-text-default text-base font-semibold">{title}</h2>
+      <Card className="bg-bg-secondary border-divider w-full rounded-lg p-0">
+        {children}
+      </Card>
+    </div>
+  );
+};
 
 const SettingsPage = () => {
   const { t } = useTranslation();
   const auth = useAuth((authStore) => authStore.auth);
-  const isLocalShinkaiNodeInUse = useShinkaiNodeManager(
-    (state) => state.isInUse,
-  );
+
   const userLanguage = useSettings((state) => state.userLanguage);
   const setUserLanguage = useSettings((state) => state.setUserLanguage);
   const optInAnalytics = useSettings((state) =>
@@ -118,8 +115,6 @@ const SettingsPage = () => {
     (state) => state.setEmbeddingModelMismatchPromptDismissed,
   );
 
-  const setAuth = useAuth((authStore) => authStore.setAuth);
-
   const defaultAgentId = useSettings(
     (settingsStore) => settingsStore.defaultAgentId,
   );
@@ -127,11 +122,7 @@ const SettingsPage = () => {
     (settingsStore) => settingsStore.setDefaultAgentId,
   );
 
-  const [selectedEmbeddingModel, setSelectedEmbeddingModel] = useState('');
-  const [showMigrationConfirmation, setShowMigrationConfirmation] = useState(false);
-  const [pendingEmbeddingModel, setPendingEmbeddingModel] = useState('');
-
-  const { nodeInfo, isSuccess: isNodeInfoSuccess } = useGetHealth({
+  const { nodeInfo } = useGetHealth({
     nodeAddress: auth?.node_address ?? '',
   });
 
@@ -159,8 +150,6 @@ const SettingsPage = () => {
     defaultValues: {
       defaultAgentId: defaultAgentId,
       nodeAddress: auth?.node_address,
-      shinkaiIdentity: auth?.shinkai_identity,
-      ollamaVersion: '',
       optInAnalytics: !!optInAnalytics,
       optInExperimental,
       language: userLanguage,
@@ -240,9 +229,6 @@ const SettingsPage = () => {
   });
 
   const { data: ollamaVersion } = useShinkaiNodeGetOllamaVersionQuery();
-  useEffect(() => {
-    form.setValue('ollamaVersion', ollamaVersion ?? '');
-  }, [ollamaVersion, form]);
 
   const { data: updateState } = useUpdateStateQuery();
   const { refetch: checkForUpdates, isFetching: isCheckingUpdates } =
@@ -263,158 +249,13 @@ const SettingsPage = () => {
       },
     });
 
-  const { data: shinkaiFreeModelQuota } = useGetShinkaiFreeModelQuota(
+  const {
+    data: shinkaiFreeModelQuota,
+    isPending: isShinkaiFreeModelQuotaPending,
+  } = useGetShinkaiFreeModelQuota(
     { nodeAddress: auth?.node_address ?? '', token: auth?.api_v2_key ?? '' },
     { enabled: !!auth },
   );
-
-  // Supported embedding models - memoized to prevent re-renders
-  const supportedEmbeddingModels = useMemo(() => [
-    'snowflake-arctic-embed:xs',
-    'embeddinggemma:300m',
-    'jina/jina-embeddings-v2-base-es:latest'
-  ], []);
-
-  const { data: availableOllamaModels } = useScanOllamaModels(
-    { nodeAddress: auth?.node_address ?? '', token: auth?.api_v2_key ?? '' },
-    { enabled: !!auth }
-  );
-
-  const { data: embeddingMigrationStatus, refetch: refetchMigrationStatus } = useGetEmbeddingMigrationStatus(
-    { nodeAddress: auth?.node_address ?? '', token: auth?.api_v2_key ?? '' },
-    { 
-      enabled: !!auth,
-      // Don't auto-refetch in settings - let the global hook handle polling
-      refetchInterval: false
-    }
-  );
-
-  const { mutateAsync: startEmbeddingMigration, isPending: isMigratingEmbedding } = useStartEmbeddingMigration({
-    onSuccess: () => {
-      // Toast will be managed by the global hook
-    },
-    onError: (error) => {
-      toast.error('Failed to start embedding migration', {
-        description: error.message,
-      });
-    },
-  });
-
-  // Filter available models to only show supported embedding models
-  const availableEmbeddingModels = useMemo(() => {
-    if (!availableOllamaModels) return [];
-    
-    return availableOllamaModels
-      .filter(model => supportedEmbeddingModels.includes(model.model))
-      .map(model => ({
-        value: model.model,
-        label: model.model
-      }));
-  }, [availableOllamaModels, supportedEmbeddingModels]);
-
-  // Set initial embedding model from status
-  useEffect(() => {
-    if (embeddingMigrationStatus?.current_embedding_model && !selectedEmbeddingModel) {
-      setSelectedEmbeddingModel(embeddingMigrationStatus.current_embedding_model);
-    }
-  }, [embeddingMigrationStatus, selectedEmbeddingModel]);
-
-  // Handle embedding model change - show confirmation first
-  const handleEmbeddingModelChange = (newModel: string) => {
-    // Don't proceed if model is empty/invalid or same as current
-    if (!newModel || newModel === selectedEmbeddingModel) return;
-    
-    // Don't proceed if auth is not available
-    if (!auth?.node_address || !auth?.api_v2_key) return;
-
-    // Store the pending model and show confirmation
-    setPendingEmbeddingModel(newModel);
-    setShowMigrationConfirmation(true);
-  };
-
-  // Actually perform the migration after confirmation
-  const confirmMigration = async () => {
-    try {
-      await startEmbeddingMigration({
-        nodeAddress: auth!.node_address,
-        token: auth!.api_v2_key,
-        force: true,
-        embedding_model: pendingEmbeddingModel,
-      });
-      
-      // Update the selected model
-      setSelectedEmbeddingModel(pendingEmbeddingModel);
-      
-      // Mark the prompt as dismissed since user took action
-      setEmbeddingModelMismatchPromptDismissed(true);
-      
-      // Trigger immediate status refetch to ensure global hook detects the migration
-      setTimeout(() => {
-        void refetchMigrationStatus();
-      }, 500); // Small delay to allow backend to update
-      
-      setShowMigrationConfirmation(false);
-      setPendingEmbeddingModel('');
-    } catch (error) {
-      console.error('Failed to change embedding model:', error);
-      setShowMigrationConfirmation(false);
-      setPendingEmbeddingModel('');
-    }
-  };
-
-  // Cancel migration
-  const cancelMigration = () => {
-    setShowMigrationConfirmation(false);
-    setPendingEmbeddingModel('');
-  };
-
-  const { mutateAsync: respawnShinkaiNode } = useShinkaiNodeRespawnMutation();
-  const { mutateAsync: updateNodeName, isPending: isUpdateNodeNamePending } =
-    useUpdateNodeName({
-      onSuccess: async () => {
-        toast.success(t('settings.shinkaiIdentity.success'));
-        if (!auth) return;
-        const newAuth: Auth = { ...auth };
-        setAuth({
-          ...newAuth,
-          shinkai_identity: currentShinkaiIdentity,
-        });
-        if (isLocalShinkaiNodeInUse) {
-          await respawnShinkaiNode();
-        } else if (!isHostingShinkaiNode(auth.node_address)) {
-          toast.info(t('shinkaiNode.restartNode'));
-        }
-      },
-      onError: (error) => {
-        toast.error(t('settings.shinkaiIdentity.error'), {
-          description: error?.response?.data?.error
-            ? error?.response?.data?.error +
-              ': ' +
-              error?.response?.data?.message
-            : error.message,
-        });
-      },
-    });
-
-  useEffect(() => {
-    if (isNodeInfoSuccess) {
-      form.setValue('nodeVersion', nodeInfo?.version ?? '');
-      form.setValue('shinkaiIdentity', nodeInfo?.node_name ?? '');
-    }
-  }, [form, isNodeInfoSuccess, nodeInfo?.node_name, nodeInfo?.version]);
-
-  const currentShinkaiIdentity = useWatch({
-    control: form.control,
-    name: 'shinkaiIdentity',
-  });
-  const handleUpdateNodeName = async () => {
-    if (!auth) return;
-    await updateNodeName({
-      nodeAddress: auth?.node_address ?? '',
-      token: auth?.api_v2_key ?? '',
-      newNodeName: form.getValues().shinkaiIdentity,
-    });
-  };
 
   useEffect(() => {
     setDefaultAgentId(currentDefaultAgentId);
@@ -425,25 +266,16 @@ const SettingsPage = () => {
   );
 
   return (
-    <SimpleLayout classname="max-w-2xl" title={t('settings.layout.general')}>
-      <div className="mb-6 flex items-center justify-between">
-        <p>{t('settings.description')}</p>
-        <FeedbackModal />
-      </div>
-      <div className="flex flex-col space-y-8 pr-2.5">
+    <SimpleLayout classname="max-w-4xl" title={t('settings.layout.general')}>
+      <FeedbackModal buttonProps={{ className: 'absolute right-6 top-6' }} />
+      <div className="flex flex-col space-y-8 pr-2.5 pb-20">
         <div className="flex flex-col space-y-8">
-          {shinkaiFreeModelQuota && (
-            <div className="bg-bg-secondary space-y-4 rounded-lg p-4">
-              <div>
-                <h2 className="text-text-default text-base font-semibold">
-                  Usage
-                </h2>
-                <p className="text-text-secondary text-sm">
-                  Monitor your AI usage
-                </p>
-              </div>
-              <Card className="w-full border-none p-0">
-                <CardContent className="space-y-2 p-0 py-2">
+          {isShinkaiFreeModelQuotaPending ? (
+            <Skeleton className="h-[140px] w-full" />
+          ) : (
+            shinkaiFreeModelQuota && (
+              <SettingsSection title="Usage">
+                <CardContent className="space-y-2 px-4 py-3">
                   <div className="flex justify-between text-sm">
                     <h3 className="text-base font-semibold">
                       Free Shinkai AI Usage
@@ -493,419 +325,334 @@ const SettingsPage = () => {
                         : 0
                     }
                   />
+                  <div className="p-0">
+                    <span className="text-text-default text-xs">
+                      Your free limit resets in{' '}
+                      {formatDuration(
+                        intervalToDuration({
+                          start: 0,
+                          end: shinkaiFreeModelQuota?.resetTime * 60 * 1000,
+                        }),
+                      )}
+                    </span>
+                  </div>
                 </CardContent>
-
-                <CardFooter className="p-0">
-                  <span className="text-text-default text-xs">
-                    Your free limit resets in{' '}
-                    {formatDuration(
-                      intervalToDuration({
-                        start: 0,
-                        end: shinkaiFreeModelQuota?.resetTime * 60 * 1000,
-                      }),
-                    )}
-                  </span>
-                </CardFooter>
-              </Card>
-            </div>
+              </SettingsSection>
+            )
           )}
-
-          <div className="bg-bg-secondary space-y-4 rounded-lg p-4">
-            <div>
-              <h2 className="text-text-default text-base font-semibold">
-                Preferences
-              </h2>
-              <p className="text-text-secondary text-sm">
-                Customize language, AI models, and application behavior
-              </p>
-            </div>
+          <SettingsSection title="Preferences">
             <Form {...form}>
-              <form className="flex grow flex-col justify-between space-y-6 overflow-hidden">
-                <FormField
-                  control={form.control}
-                  name="language"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('settings.language.label')}</FormLabel>
-                      <Select
-                        defaultValue={field.value}
-                        onValueChange={field.onChange}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue
-                              placeholder={t(
-                                'settings.language.selectLanguage',
-                              )}
-                            />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {[
-                            {
-                              label: 'Automatic',
-                              value: 'auto',
-                            },
-                            ...localeOptions,
-                          ].map((locale) => (
-                            <SelectItem key={locale.value} value={locale.value}>
-                              {locale.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </FormItem>
-                  )}
-                />
-                <FormItem>
-                  <Select
-                    defaultValue={defaultAgentId}
-                    name="defaultAgentId"
-                    onValueChange={(value) => {
-                      form.setValue('defaultAgentId', value);
-                    }}
-                    value={
-                      llmProviders?.find((agent) => agent.id === defaultAgentId)
-                        ?.id
-                    }
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                    </FormControl>
-                    <FormLabel>{t('settings.defaultAgent')}</FormLabel>
-                    <SelectContent>
-                      {llmProviders?.map((llmProvider) => (
-                        <SelectItem key={llmProvider.id} value={llmProvider.id}>
-                          {llmProvider.name || llmProvider.id}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+              <form className="divide-divider flex grow flex-col justify-between divide-y overflow-hidden">
+                <div className="flex justify-between gap-1 px-4 py-3">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-text-default text-sm">
+                      {t('settings.language.label')}
+                    </span>
+                    <span className="text-text-secondary text-xs">
+                      Select the default language used in the app.
+                    </span>
+                  </div>
 
-                  <FormMessage />
-                </FormItem>
-                <FormItem>
-                  <FormLabel>Embeddings Model</FormLabel>
-                  <Select
-                    disabled={isMigratingEmbedding || embeddingMigrationStatus?.migration_in_progress}
-                    onValueChange={handleEmbeddingModelChange}
-                    value={selectedEmbeddingModel}
-                  >
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select embedding model" />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {availableEmbeddingModels.map((model) => (
-                        <SelectItem key={model.value} value={model.value}>
-                          {model.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              </form>
-            </Form>
-          </div>
-
-          <div className="bg-bg-secondary space-y-4 rounded-lg p-4">
-            <div>
-              <h2 className="text-text-default text-base font-semibold">
-                Shinkai Node Configuration
-              </h2>
-              <p className="text-text-secondary text-sm">
-                Configure your Shinkai node connection and identity settings
-              </p>
-            </div>
-            <Form {...form}>
-              <form className="flex grow flex-col justify-between space-y-6 overflow-hidden">
-                <div className="divide-divider flex flex-col divide-y">
-                  {[
-                    {
-                      label: t('shinkaiNode.nodeAddress'),
-                      value: auth?.node_address,
-                    },
-                    {
-                      label: t('shinkaiNode.nodeVersion'),
-                      value: nodeInfo?.version,
-                    },
-                    {
-                      label: t('ollama.version'),
-                      value: ollamaVersion ?? '-',
-                    },
-                  ].map((item) => (
-                    <div
-                      key={item.label}
-                      className="flex items-center justify-between gap-1 py-3"
-                    >
-                      <span className="text-text-secondary text-sm">
-                        {item.label}
-                      </span>
-                      <span className="text-text-default font-mono text-sm">
-                        {item.value}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="space-y-1">
                   <FormField
                     control={form.control}
-                    name="shinkaiIdentity"
+                    name="language"
                     render={({ field }) => (
-                      <TextField
-                        field={{
-                          ...field,
-                          onKeyDown: (event) => {
-                            if (
-                              currentShinkaiIdentity === auth?.shinkai_identity
-                            )
-                              return;
-                            if (event.key === 'Enter') {
-                              void handleUpdateNodeName();
-                            }
-                          },
-                        }}
-                        helperMessage={
-                          <span className="flex items-center justify-start gap-3">
-                            <span className="text-text-secondary hover:text-text-default inline-flex items-center gap-1 px-1 py-2.5">
-                              {isIdentityLocalhost ? (
-                                <a
-                                  className={cn(
-                                    buttonVariants({
-                                      size: 'auto',
-                                      variant: 'link',
-                                    }),
-                                    'rounded-lg p-0 text-xs text-inherit underline',
-                                  )}
-                                  href={`https://shinkai-contracts.pages.dev?encryption_pk=${auth?.encryption_pk}&signature_pk=${auth?.identity_pk}&node_address=${auth?.node_address}`}
-                                  rel="noreferrer"
-                                  target="_blank"
-                                >
-                                  {t(
-                                    'settings.shinkaiIdentity.registerIdentity',
-                                  )}
-                                </a>
-                              ) : (
-                                <a
-                                  className={cn(
-                                    buttonVariants({
-                                      size: 'auto',
-                                      variant: 'link',
-                                    }),
-                                    'rounded-lg p-0 text-xs text-inherit underline',
-                                  )}
-                                  href={`https://shinkai-contracts.pages.dev/identity/${auth?.shinkai_identity?.replace(
-                                    '@@',
-                                    '',
-                                  )}`}
-                                  rel="noreferrer"
-                                  target="_blank"
-                                >
-                                  {t(
-                                    'settings.shinkaiIdentity.goToShinkaiIdentity',
-                                  )}
-                                </a>
-                              )}
-                              <ExternalLinkIcon className="h-4 w-4" />
-                            </span>
-                            <a
-                              className={cn(
-                                buttonVariants({
-                                  size: 'auto',
-                                  variant: 'link',
-                                }),
-                                'text-text-secondary hover:text-text-default rounded-lg p-0 text-xs underline',
-                              )}
-                              href="https://docs.shinkai.com/advanced/shinkai-identity-troubleshooting"
-                              rel="noreferrer"
-                              target="_blank"
-                            >
-                              {t(
-                                'settings.shinkaiIdentity.troubleRegisterIdentity',
-                              )}
-                            </a>
-                          </span>
-                        }
-                        label={t('settings.shinkaiIdentity.label')}
-                      />
+                      <FormItem>
+                        <FormLabel className="sr-only">
+                          {t('settings.language.label')}
+                        </FormLabel>
+                        <Select
+                          defaultValue={field.value}
+                          onValueChange={field.onChange}
+                        >
+                          <FormControl>
+                            <SelectTrigger className="!h-9 border-gray-500 py-2 pr-10 [&>svg]:!top-2.5">
+                              <SelectValue
+                                placeholder={t(
+                                  'settings.language.selectLanguage',
+                                )}
+                              />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {[
+                              {
+                                label: 'Automatic',
+                                value: 'auto',
+                              },
+                              ...localeOptions,
+                            ].map((locale) => (
+                              <SelectItem
+                                key={locale.value}
+                                value={locale.value}
+                              >
+                                {locale.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </FormItem>
                     )}
                   />
-                  {currentShinkaiIdentity !== auth?.shinkai_identity && (
-                    <div className="space-y-1.5">
-                      <p className="text-text-tertiary flex items-center gap-1 text-xs">
-                        <InfoIcon className="size-3" />
-                        {t('settings.shinkaiIdentity.saveWillRestartApp')}
-                      </p>
-                      <div className="flex items-center gap-3">
-                        <MotionButton
-                          className="h-10 min-w-[100px] rounded-lg text-sm"
-                          isLoading={isUpdateNodeNamePending}
-                          layout
-                          onClick={handleUpdateNodeName}
-                          size="auto"
-                          type="button"
-                        >
-                          {t('common.save')}
-                        </MotionButton>
-                        <Button
-                          className="h-10 min-w-10 rounded-lg text-sm"
-                          onClick={() => {
-                            form.setValue(
-                              'shinkaiIdentity',
-                              auth?.shinkai_identity ?? '',
-                            );
-                          }}
-                          type="button"
-                          variant="outline"
-                        >
-                          {t('common.cancel')}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  {!isIdentityLocalhost && (
-                    <a
-                      className={cn(
-                        buttonVariants({
-                          size: 'auto',
-                          variant: 'tertiary',
-                        }),
-                        'flex cursor-pointer items-start justify-start gap-2 rounded-lg text-xs',
-                      )}
-                      href={`https://shinkai-contracts.pages.dev/identity/${auth?.shinkai_identity?.replace(
-                        '@@',
-                        '',
-                      )}?encryption_pk=${auth?.encryption_pk}&signature_pk=${auth?.identity_pk}`}
-                      rel="noreferrer"
-                      target="_blank"
+                </div>
+                <div className="flex justify-between gap-1 px-4 py-3">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-text-default text-sm">
+                      {t('settings.defaultAgent')}
+                    </span>
+                    <span className="text-text-secondary text-xs">
+                      Choose the AI model that will be used by default.
+                    </span>
+                  </div>
+                  <FormItem>
+                    <Select
+                      defaultValue={defaultAgentId}
+                      name="defaultAgentId"
+                      onValueChange={(value) => {
+                        form.setValue('defaultAgentId', value);
+                      }}
+                      value={
+                        llmProviders?.find(
+                          (agent) => agent.id === defaultAgentId,
+                        )?.id
+                      }
                     >
-                      <ShieldCheck className="h-5 w-5" />
-                      <span className="flex flex-col gap-0.5">
-                        <span className="capitalize">
-                          {t('settings.shinkaiIdentity.checkIdentityInSync')}
-                        </span>
-                        <span className="text-text-tertiary">
-                          {t(
-                            'settings.shinkaiIdentity.checkIdentityInSyncDescription',
-                          )}
-                        </span>
-                      </span>
-                    </a>
-                  )}
+                      <FormControl>
+                        <SelectTrigger className="!h-9 border-gray-500 py-2 pr-10 [&>svg]:!top-2.5">
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <FormLabel className="sr-only">
+                        {t('settings.defaultAgent')}
+                      </FormLabel>
+                      <SelectContent>
+                        {llmProviders?.map((llmProvider) => (
+                          <SelectItem
+                            key={llmProvider.id}
+                            value={llmProvider.id}
+                          >
+                            {llmProvider.name || llmProvider.id}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+
+                    <FormMessage />
+                  </FormItem>
                 </div>
               </form>
             </Form>
-          </div>
+          </SettingsSection>
+          <SettingsSection title="Shinkai Node Configuration">
+            <div className="divide-divider flex flex-col divide-y">
+              {[
+                {
+                  label: t('shinkaiNode.nodeAddress'),
+                  description: 'The URL of your Shinkai node connection',
+                  value: auth?.node_address,
+                },
+                {
+                  label: t('shinkaiNode.nodeVersion'),
+                  description: 'Current version of your Shinkai node.',
+                  value: nodeInfo?.version,
+                },
+                {
+                  label: t('ollama.version'),
+                  description: 'Installed version of Ollama running.',
+                  value: ollamaVersion ?? '-',
+                },
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  className="flex items-center justify-between gap-1 px-4 py-3"
+                >
+                  <div className="flex flex-col gap-1">
+                    <span className="text-text-default text-sm">
+                      {item.label}
+                    </span>
+                    <span className="text-text-secondary text-xs">
+                      {item.description}
+                    </span>
+                  </div>
+                  <span className="text-text-default font-mono text-sm">
+                    {item.value}
+                  </span>
+                </div>
+              ))}
 
-          <div className="bg-bg-secondary space-y-4 rounded-lg p-4">
-            <div>
-              <h2 className="text-text-default text-base font-semibold">
-                Advanced Settings
-              </h2>
-              <p className="text-text-secondary text-sm">
-                Configure advanced features and experimental options
-              </p>
-            </div>
-            <Form {...form}>
-              <form className="flex grow flex-col justify-between space-y-6 overflow-hidden">
-                <FormField
-                  control={form.control}
-                  name="maxChatIterations"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        {t('settings.maxChatIterations.label')}
-                      </FormLabel>
-                      <FormControl>
-                        <TextField
-                          field={{ ...field, value: field.value ?? '' }}
-                          helperMessage={t(
-                            'settings.maxChatIterations.description',
+              <div className="border-border flex items-center justify-between border-b px-4 py-3">
+                <div className="flex flex-1 flex-col gap-1">
+                  <div className="flex flex-col gap-1">
+                    <h3 className="text-text-default text-sm">
+                      Shinkai Identity
+                    </h3>
+                    <p className="text-text-secondary text-xs">
+                      Connects your app to the Shinkai Network with peer-to-peer
+                      access.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <ShinkaiIdentityDialog />
+                  {!isIdentityLocalhost && (
+                    <Tooltip>
+                      <TooltipTrigger>
+                        <a
+                          className={cn(
+                            buttonVariants({
+                              size: 'sm',
+                              variant: 'outline',
+                            }),
                           )}
-                          label={t('settings.maxChatIterations.label')}
-                          max={100}
-                          min={1}
-                          type="number"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
+                          href={`https://shinkai-contracts.pages.dev/identity/${auth?.shinkai_identity?.replace(
+                            '@@',
+                            '',
+                          )}?encryption_pk=${auth?.encryption_pk}&signature_pk=${auth?.identity_pk}`}
+                          rel="noreferrer"
+                          target="_blank"
+                        >
+                          <span className="flex gap-1">
+                            <ShieldCheckIcon className="h-4 w-4" />
+                            <span className="capitalize">Verify</span>
+                          </span>
+                        </a>
+                      </TooltipTrigger>
+                      <TooltipPortal>
+                        <TooltipContent>
+                          <p>
+                            {t(
+                              'settings.shinkaiIdentity.checkIdentityInSyncDescription',
+                            )}
+                          </p>
+                        </TooltipContent>
+                      </TooltipPortal>
+                    </Tooltip>
                   )}
-                />
-                <FormField
-                  control={form.control}
-                  name="optInExperimental"
-                  render={({ field }) => (
-                    <FormItem className="flex gap-2.5">
-                      <FormControl>
-                        <Switch
-                          aria-readonly
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                          className="data-[state=unchecked]:bg-gray-400"
-                        />
-                      </FormControl>
-                      <div className="space-y-1 leading-none">
-                        <FormLabel className="text-text-default static space-y-1.5 text-sm">
-                          {t('settings.experimentalFeature.label')}
-                        </FormLabel>
-                      </div>
-                    </FormItem>
-                  )}
-                />
-              </form>
-            </Form>
-          </div>
-
-          <div className="bg-bg-secondary mb-10 space-y-4 rounded-lg p-4">
-            <div className="flex items-center justify-between gap-3">
+                </div>
+              </div>
+            </div>
+          </SettingsSection>
+          <SettingsSection title="Advanced Settings">
+            <div className="flex items-center justify-between border-b px-4 py-3">
               <div className="flex flex-col gap-1">
-                <h2 className="text-text-default flex items-center gap-2 text-base font-semibold">
-                  Updates
-                </h2>
-
-                <p className="text-text-secondary text-sm">
-                  Manage application updates and version information.
+                <h3 className="text-text-default text-sm">Embedding Model</h3>
+                <p className="text-text-secondary text-xs">
+                  Choose the model used to generate embeddings, which power
+                  search, <br /> recommendations, and semantic understanding in
+                  the app.
                 </p>
               </div>
-              <Button
-                disabled={isCheckingUpdates}
-                onClick={() => checkForUpdates()}
-                size="sm"
-                variant="outline"
-                className="w-full sm:w-auto"
-              >
-                {isCheckingUpdates ? (
-                  <>
-                    <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                    Checking...
-                  </>
-                ) : (
-                  <>
-                    <RefreshCw className="mr-2 h-4 w-4" />
-                    Check for Updates
-                  </>
-                )}
-              </Button>
+
+              <div className="flex items-center gap-2">
+                <EmbeddingModelSelectionDialog />
+              </div>
             </div>
 
+            <Form {...form}>
+              <form className="divide-divider flex grow flex-col justify-between divide-y overflow-hidden">
+                <div className="flex justify-between gap-1 px-4 py-3">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-text-default text-sm">
+                      {t('settings.maxChatIterations.label')}
+                    </span>
+                    <span className="text-text-secondary text-xs">
+                      {t('settings.maxChatIterations.description')}
+                    </span>
+                  </div>
+                  <FormField
+                    control={form.control}
+                    name="maxChatIterations"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel className="sr-only">
+                          {t('settings.maxChatIterations.label')}
+                        </FormLabel>
+                        <FormControl>
+                          <TextField
+                            field={{ ...field, value: field.value ?? '' }}
+                            label={null}
+                            classes={{
+                              input: '!h-9 py-2 w-auto border-gray-500',
+                            }}
+                            max={100}
+                            min={1}
+                            type="number"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-1 px-4 py-3">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-text-default text-sm">
+                      {t('settings.experimentalFeature.label')}
+                    </span>
+                    <span className="text-text-secondary text-xs">
+                      Access early previews of features to test and give
+                      feedback. <br /> These may be unstable and can change or
+                      be removed.
+                    </span>
+                  </div>
+                  <FormField
+                    control={form.control}
+                    name="optInExperimental"
+                    render={({ field }) => (
+                      <FormItem className="flex gap-2.5">
+                        <FormControl>
+                          <Switch
+                            aria-readonly
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                            className="data-[state=unchecked]:bg-gray-400"
+                          />
+                        </FormControl>
+                        <div className="space-y-1 leading-none">
+                          <FormLabel className="sr-only">
+                            {t('settings.experimentalFeature.label')}
+                          </FormLabel>
+                        </div>
+                      </FormItem>
+                    )}
+                  />
+                </div>
+              </form>
+            </Form>
+          </SettingsSection>
+          <SettingsSection title="Updates">
             <div className="divide-divider flex flex-col gap-1 divide-y text-sm">
-              <div className="flex items-center justify-between gap-1 py-3">
-                <span className="text-text-secondary text-sm">
+              <div className="flex items-center justify-between gap-1 px-4 py-3">
+                <span className="text-text-default text-sm">
                   Current Shinkai App Version
                 </span>
-                <span className="text-text-default font-mono text-sm">
-                  {appVersion}
-                </span>
+                <div className="flex items-center gap-6">
+                  <span className="text-text-default font-mono text-sm">
+                    v.{appVersion}
+                  </span>
+                  <Button
+                    disabled={isCheckingUpdates}
+                    onClick={() => checkForUpdates()}
+                    size="sm"
+                    variant="outline"
+                    className="w-full sm:w-auto"
+                  >
+                    {isCheckingUpdates ? (
+                      <>
+                        <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                        Checking...
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                        Check for Updates
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
 
-              <div className="space-y-5 p-2">
+              <div className="space-y-5 px-4 py-3">
                 {updateState?.update?.available && (
                   <div className="flex items-center justify-between gap-2">
                     {updateState?.update?.available && (
@@ -958,37 +705,9 @@ const SettingsPage = () => {
                   )}
               </div>
             </div>
-          </div>
+          </SettingsSection>
         </div>
       </div>
-
-      {/* Embedding Migration Confirmation Dialog */}
-      <AlertDialog open={showMigrationConfirmation} onOpenChange={setShowMigrationConfirmation}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Confirm Embedding Model Migration</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to migrate to <strong>{pendingEmbeddingModel}</strong>?
-              <br />
-              <br />
-              This process will:
-              <ul className="mt-2 list-disc pl-5 space-y-1">
-                <li>Update your embedding model configuration</li>
-                <li>Re-process existing vectorized data (this may take some time)</li>
-                <li>Temporarily affect search functionality during migration</li>
-              </ul>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="gap-3">
-            <AlertDialogCancel onClick={cancelMigration}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction onClick={confirmMigration}>
-              Yes, Migrate Model
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </SimpleLayout>
   );
 };

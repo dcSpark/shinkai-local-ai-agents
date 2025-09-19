@@ -43,7 +43,7 @@ export const createToolCode = async ({
         use_tools: DEFAULT_CHAT_CONFIG.use_tools,
         thinking: thinking ?? DEFAULT_CHAT_CONFIG.thinking,
         reasoning_effort: DEFAULT_CHAT_CONFIG.reasoning_effort,
-        web_search_enabled: DEFAULT_CHAT_CONFIG.web_search_enabled,
+        web_search_enabled: false, // disable web search for tool builder
       },
     });
     currentJobId = newJobId;

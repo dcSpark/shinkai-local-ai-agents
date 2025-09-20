@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/dcspark-shinkai-local-ai-agents-badge.png)](https://mseep.ai/app/dcspark-shinkai-local-ai-agents)
+
 <h1 align="center">
 <img width="36" height="36" src="assets/icon.png"/>
   Shinkai

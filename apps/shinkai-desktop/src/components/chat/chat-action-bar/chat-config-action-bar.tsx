@@ -355,10 +355,12 @@ function ChatConfigForm({ form, thinkingConfig }: ChatConfigFormProps) {
   );
 }
 
-export function UpdateChatConfigActionBarBase() {
+export function UpdateChatConfigActionBarBase({
+  inboxId,
+}: {
+  inboxId: string;
+}) {
   const auth = useAuth((state) => state.auth);
-  const { inboxId: encodedInboxId = '' } = useParams();
-  const inboxId = decodeURIComponent(encodedInboxId);
   const { data: chatConfig } = useGetChatConfig(
     {
       nodeAddress: auth?.node_address ?? '',
@@ -530,7 +532,10 @@ export function UpdateChatConfigActionBarBase() {
   );
 }
 
-export const UpdateChatConfigActionBar = memo(UpdateChatConfigActionBarBase);
+export const UpdateChatConfigActionBar = memo(
+  UpdateChatConfigActionBarBase,
+  (prevProps, nextProps) => prevProps.inboxId === nextProps.inboxId,
+);
 
 export function CreateChatConfigActionBar({
   form,

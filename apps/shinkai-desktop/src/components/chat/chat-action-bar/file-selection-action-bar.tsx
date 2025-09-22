@@ -32,7 +32,7 @@ function FileSelectionActionBarBase({
         <Tooltip>
           <TooltipTrigger asChild>
             <button
-              className={cn(actionButtonClassnames)}
+              className={cn(actionButtonClassnames, 'p-2')}
               disabled={disabled}
               onClick={onClick}
               type="button"

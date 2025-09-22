@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { PlusCircledIcon, StopIcon } from '@radix-ui/react-icons';
+import { PlusCircledIcon } from '@radix-ui/react-icons';
 import validator from '@rjsf/validator-ajv8';
 import { useTranslation } from '@shinkai_network/shinkai-i18n';
 import {
@@ -62,7 +62,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useForm } from 'react-hook-form';
 import { useHotkeys } from 'react-hotkeys-hook';
-import { Link, useLocation, useParams } from 'react-router';
+import { Link, useLocation } from 'react-router';
 import { toast } from 'sonner';
 
 import { useAnalytics } from '../../lib/posthog-provider';
@@ -80,10 +80,7 @@ import { OpenChatFolderActionBar } from './chat-action-bar/open-chat-folder-acti
 import PromptSelectionActionBar from './chat-action-bar/prompt-selection-action-bar';
 import { UpdateThinkingSwitchActionBar } from './chat-action-bar/thinking-switch-action-bar';
 import { UpdateToolsSwitchActionBar } from './chat-action-bar/tools-switch-action-bar';
-import {
-  UpdateVectorFsActionBar,
-  // VectorFsActionBarPreview,
-} from './chat-action-bar/vector-fs-action-bar';
+import { UpdateVectorFsActionBar } from './chat-action-bar/vector-fs-action-bar';
 import { useChatStore } from './context/chat-context';
 import { useSetJobScope } from './context/set-job-scope-context';
 
@@ -514,29 +511,36 @@ function ConversationChatFooter({
                             {!selectedTool && (
                               <PromptSelectionActionBar showLabel />
                             )}
+                            {!selectedTool &&
+                              jobChatFolderName &&
+                              nodeStorageLocation && (
+                                <OpenChatFolderActionBar
+                                  showLabel
+                                  onClick={async () => {
+                                    try {
+                                      await invoke(
+                                        'shinkai_node_open_chat_folder',
+                                        {
+                                          storageLocation: nodeStorageLocation,
+                                          chatFolderName:
+                                            jobChatFolderName.folder_name,
+                                        },
+                                      );
+                                    } catch {
+                                      toast.warning(
+                                        t('chat.failedToOpenChatFolder'),
+                                      );
+                                    }
+                                  }}
+                                />
+                              )}
                           </div>
                         </PopoverContent>
                       </Popover>
                       <AiUpdateSelectionActionBar inboxId={inboxId} />
 
-                      {!selectedTool &&
-                        jobChatFolderName &&
-                        nodeStorageLocation && (
-                          <OpenChatFolderActionBar
-                            onClick={async () => {
-                              try {
-                                await invoke('shinkai_node_open_chat_folder', {
-                                  storageLocation: nodeStorageLocation,
-                                  chatFolderName: jobChatFolderName.folder_name,
-                                });
-                              } catch {
-                                toast.warning(t('chat.failedToOpenChatFolder'));
-                              }
-                            }}
-                          />
-                        )}
                       {isAgentInbox || selectedTool ? null : (
-                        <UpdateToolsSwitchActionBar />
+                        <UpdateToolsSwitchActionBar inboxId={inboxId} />
                       )}
 
                       {!isAgentInbox &&
@@ -544,6 +548,7 @@ function ConversationChatFooter({
                       thinkingConfig.supportsThinking ? (
                         <UpdateThinkingSwitchActionBar
                           forceEnabled={thinkingConfig.forceEnabled}
+                          inboxId={inboxId}
                         />
                       ) : null}
 
@@ -553,7 +558,7 @@ function ConversationChatFooter({
                     </div>
                     <div className="flex items-center gap-2">
                       {isAgentInbox || selectedTool ? null : (
-                        <UpdateChatConfigActionBar />
+                        <UpdateChatConfigActionBar inboxId={inboxId} />
                       )}
 
                       {selectedTool ? (
@@ -570,7 +575,7 @@ function ConversationChatFooter({
                           </span>
                         </Button>
                       ) : isLoadingMessage ? (
-                        <StopGeneratingButtonInPlace />
+                        <StopGeneratingButtonInPlace inboxId={inboxId} />
                       ) : (
                         <Button
                           className={cn('size-[36px] p-2')}
@@ -805,11 +810,9 @@ export default memo(
     prev.isLoadingMessage === next.isLoadingMessage,
 );
 
-function StopGeneratingButtonInPlaceBase() {
+function StopGeneratingButtonInPlaceBase({ inboxId }: { inboxId: string }) {
   const auth = useAuth((state) => state.auth);
   const { mutateAsync: stopGenerating } = useStopGeneratingLLM();
-  const { inboxId: encodedInboxId = '' } = useParams();
-  const inboxId = decodeURIComponent(encodedInboxId);
 
   const onStopGenerating = async () => {
     if (!inboxId) return;
@@ -855,7 +858,10 @@ function StopGeneratingButtonInPlaceBase() {
   );
 }
 
-const StopGeneratingButtonInPlace = memo(StopGeneratingButtonInPlaceBase);
+export const StopGeneratingButtonInPlace = memo(
+  StopGeneratingButtonInPlaceBase,
+  (prevProps, nextProps) => prevProps.inboxId === nextProps.inboxId,
+);
 
 type FileListProps = {
   currentFiles: File[];

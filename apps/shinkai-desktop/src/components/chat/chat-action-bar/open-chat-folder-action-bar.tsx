@@ -13,13 +13,28 @@ import { actionButtonClassnames } from '../conversation-footer';
 type OpenChatFolderActionBarProps = {
   onClick: () => void;
   disabled?: boolean;
+  showLabel?: boolean;
 };
 
 function OpenChatFolderActionBarBase({
   onClick,
   disabled,
+  showLabel,
 }: OpenChatFolderActionBarProps) {
   const { t } = useTranslation();
+  if (showLabel) {
+    return (
+      <button
+        className={cn(actionButtonClassnames, 'w-full justify-start gap-2.5')}
+        disabled={disabled}
+        onClick={onClick}
+        type="button"
+      >
+        <Folder className="size-4" />
+        <span className="">{t('chat.openChatFolder')}</span>
+      </button>
+    );
+  }
 
   return (
     <>

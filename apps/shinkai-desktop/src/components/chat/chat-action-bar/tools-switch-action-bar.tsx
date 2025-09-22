@@ -71,10 +71,12 @@ export const ToolsSwitchActionBar = memo(
   (prevProps, nextProps) => prevProps.checked === nextProps.checked,
 );
 
-export function UpdateToolsSwitchActionBarBase() {
+export function UpdateToolsSwitchActionBarBase({
+  inboxId,
+}: {
+  inboxId: string;
+}) {
   const auth = useAuth((state) => state.auth);
-  const { inboxId: encodedInboxId = '' } = useParams();
-  const inboxId = decodeURIComponent(encodedInboxId);
 
   const { data: chatConfig } = useGetChatConfig(
     {
@@ -120,4 +122,7 @@ export function UpdateToolsSwitchActionBarBase() {
     />
   );
 }
-export const UpdateToolsSwitchActionBar = memo(UpdateToolsSwitchActionBarBase);
+export const UpdateToolsSwitchActionBar = memo(
+  UpdateToolsSwitchActionBarBase,
+  (prevProps, nextProps) => prevProps.inboxId === nextProps.inboxId,
+);

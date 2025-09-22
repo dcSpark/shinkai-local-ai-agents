@@ -59,6 +59,7 @@
     "@uiw/react-json-view": "^2.0.0-alpha.30",
     "@zxing/browser": "^0.1.5",
     "axios": "^1.7.7",
+    "boring-avatars": "^2.0.1",
     "class-variance-authority": "^0.7.0",
     "classnames": "^2.5.1",
     "clsx": "^2.1.1",

@@ -52,11 +52,19 @@ import {
   type ChatConfigFormSchemaType,
 } from '../../../components/chat/chat-action-bar/chat-config-action-bar';
 import { FileSelectionActionBar } from '../../../components/chat/chat-action-bar/file-selection-action-bar';
-import { ThinkingSwitchActionBar } from '../../../components/chat/chat-action-bar/thinking-switch-action-bar';
-import { ToolsSwitchActionBar } from '../../../components/chat/chat-action-bar/tools-switch-action-bar';
+import {
+  ThinkingSwitchActionBar,
+  UpdateThinkingSwitchActionBar,
+} from '../../../components/chat/chat-action-bar/thinking-switch-action-bar';
+import {
+  ToolsSwitchActionBar,
+  UpdateToolsSwitchActionBar,
+} from '../../../components/chat/chat-action-bar/tools-switch-action-bar';
+import { MessageList } from '../../../components/chat/components/message-list';
 import {
   DropFileActive,
   FileList,
+  StopGeneratingButtonInPlace,
 } from '../../../components/chat/conversation-footer';
 import {
   useWebSocketMessage,
@@ -68,7 +76,6 @@ import { useSettings } from '../../../store/settings';
 import { getThinkingConfig } from '../../../utils/thinking-config';
 import { useQuickAskStore } from '../context/quick-ask';
 import { AIModelSelector, AiUpdateSelection } from './ai-update-selection';
-import { MessageList } from './message-list';
 
 export const hideSpotlightWindow = async () => {
   return invoke('hide_spotlight_window_app');
@@ -303,6 +310,17 @@ function QuickAsk() {
 
   const selectedAgent = agents?.find((agent) => agent.agent_id === currentAI);
 
+  const isExistingChat = Boolean(inboxId);
+  const isToolSelected = Boolean(selectedTool);
+  const hasSelectedAgent = Boolean(selectedAgent);
+  const isUsingTools = chatConfigForm.watch('useTools');
+  const isThinkingEnabled = chatConfigForm.watch('thinking');
+
+  const buildFileInputProps = () => ({
+    ...chatForm.register('files'),
+    ...getInputFileProps(),
+  });
+
   useEffect(() => {
     chatForm.setValue('agent', defaultSpotlightAiId);
   }, [chatForm, defaultSpotlightAiId]);
@@ -334,7 +352,7 @@ function QuickAsk() {
       return;
     }
 
-    const jobId = inboxId ? extractJobIdFromInbox(inboxId) : '';
+    const jobId = extractJobIdFromInbox(inboxId);
 
     await sendMessageToJob({
       nodeAddress: auth.node_address,
@@ -447,78 +465,101 @@ function QuickAsk() {
                 bottomAddons={
                   <div className="flex items-center justify-between gap-4 px-3 pb-2">
                     <div className="flex items-center gap-2.5">
-                      {inboxId ? (
-                        <AiUpdateSelection inboxId={inboxId ?? ''} />
+                      {isExistingChat ? (
+                        <>
+                          <AiUpdateSelection inboxId={inboxId ?? ''} />
+                          {!isToolSelected && (
+                            <FileSelectionActionBar
+                              disabled={isToolSelected}
+                              inputProps={buildFileInputProps()}
+                              onClick={openFilePicker}
+                            />
+                          )}
+                          {!isToolSelected && !hasSelectedAgent && (
+                            <UpdateToolsSwitchActionBar
+                              inboxId={inboxId ?? ''}
+                            />
+                          )}
+                          {!isToolSelected && !hasSelectedAgent && (
+                            <UpdateThinkingSwitchActionBar
+                              inboxId={inboxId ?? ''}
+                              forceEnabled={thinkingConfig.forceEnabled}
+                            />
+                          )}
+                        </>
                       ) : (
-                        <AIModelSelector
-                          onValueChange={(value) => {
-                            chatForm.setValue('agent', value);
-                            setDefaultSpotlightAiId(value);
-                          }}
-                          value={chatForm.watch('agent')}
-                        />
-                      )}
-
-                      {!selectedTool && (
-                        <FileSelectionActionBar
-                          disabled={!!selectedTool}
-                          inputProps={{
-                            ...chatForm.register('files'),
-                            ...getInputFileProps(),
-                          }}
-                          onClick={openFilePicker}
-                        />
-                      )}
-
-                      {!selectedTool && !selectedAgent && !inboxId && (
-                        <ToolsSwitchActionBar
-                          checked={chatConfigForm.watch('useTools')}
-                          onClick={() => {
-                            chatConfigForm.setValue(
-                              'useTools',
-                              !chatConfigForm.watch('useTools'),
-                            );
-                          }}
-                        />
-                      )}
-
-                      {!selectedTool &&
-                        !selectedAgent &&
-                        !inboxId &&
-                        thinkingConfig.supportsThinking && (
-                          <ThinkingSwitchActionBar
-                            checked={
-                              thinkingConfig.forceEnabled ||
-                              chatConfigForm.watch('thinking')
-                            }
-                            disabled={thinkingConfig.forceEnabled}
-                            forceEnabled={thinkingConfig.forceEnabled}
-                            onClick={() => {
-                              if (!thinkingConfig.forceEnabled) {
-                                chatConfigForm.setValue(
-                                  'thinking',
-                                  !chatConfigForm.watch('thinking'),
-                                );
-                              }
+                        <>
+                          <AIModelSelector
+                            onValueChange={(value) => {
+                              chatForm.setValue('agent', value);
+                              setDefaultSpotlightAiId(value);
                             }}
+                            value={currentAI}
                           />
-                        )}
-                      {!selectedTool && !selectedAgent && inboxId && (
-                        <UpdateChatConfigActionBar />
+                          {!isToolSelected && (
+                            <FileSelectionActionBar
+                              disabled={isToolSelected}
+                              inputProps={buildFileInputProps()}
+                              onClick={openFilePicker}
+                            />
+                          )}
+                          {!isToolSelected && !hasSelectedAgent && (
+                            <ToolsSwitchActionBar
+                              checked={isUsingTools}
+                              onClick={() => {
+                                chatConfigForm.setValue(
+                                  'useTools',
+                                  !isUsingTools,
+                                );
+                              }}
+                            />
+                          )}
+                          {!isToolSelected &&
+                            !hasSelectedAgent &&
+                            thinkingConfig.supportsThinking && (
+                              <ThinkingSwitchActionBar
+                                checked={
+                                  thinkingConfig.forceEnabled ||
+                                  isThinkingEnabled
+                                }
+                                disabled={thinkingConfig.forceEnabled}
+                                forceEnabled={thinkingConfig.forceEnabled}
+                                onClick={() => {
+                                  if (!thinkingConfig.forceEnabled) {
+                                    chatConfigForm.setValue(
+                                      'thinking',
+                                      !isThinkingEnabled,
+                                    );
+                                  }
+                                }}
+                              />
+                            )}
+                        </>
                       )}
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <Button
-                        className={cn('size-[36px] p-2')}
-                        disabled={isLoadingResponse}
-                        isLoading={isLoadingResponse}
-                        onClick={chatForm.handleSubmit(onSubmit)}
-                        size="icon"
-                      >
-                        <SendIcon className="h-full w-full" />
-                        <span className="sr-only">{t('chat.sendMessage')}</span>
-                      </Button>
+                      {!isToolSelected &&
+                        !hasSelectedAgent &&
+                        isExistingChat && (
+                          <UpdateChatConfigActionBar inboxId={inboxId ?? ''} />
+                        )}
+                      {isLoadingResponse ? (
+                        <StopGeneratingButtonInPlace inboxId={inboxId ?? ''} />
+                      ) : (
+                        <Button
+                          className={cn('size-[36px] p-2')}
+                          disabled={isLoadingResponse}
+                          isLoading={isLoadingResponse}
+                          onClick={chatForm.handleSubmit(onSubmit)}
+                          size="icon"
+                        >
+                          <SendIcon className="h-full w-full" />
+                          <span className="sr-only">
+                            {t('chat.sendMessage')}
+                          </span>
+                        </Button>
+                      )}
                     </div>
                   </div>
                 }
@@ -697,7 +738,7 @@ const QuickAskBodyWithResponseBase = ({ inboxId }: { inboxId: string }) => {
     content: string,
     parentHash: string,
   ) => {
-    if (!auth) return;
+    if (!auth || !inboxId) return;
     const decodedInboxId = decodeURIComponent(inboxId ?? '');
     const jobId = extractJobIdFromInbox(decodedInboxId);
 
@@ -743,6 +784,7 @@ const QuickAskBodyWithResponseBase = ({ inboxId }: { inboxId: string }) => {
       containerClassName="px-4 py-2"
       editAndRegenerateMessage={editAndRegenerateMessage}
       fetchPreviousPage={fetchPreviousPage}
+      hidePythonExecution
       hasPreviousPage={hasPreviousPage}
       isFetchingPreviousPage={isFetchingPreviousPage}
       isLoading={isChatConversationLoading}

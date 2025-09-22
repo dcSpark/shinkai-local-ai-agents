@@ -53,7 +53,7 @@ const ContextMenuSubContent = ({
 }: React.ComponentProps<typeof ContextMenuPrimitive.SubContent>) => (
   <ContextMenuPrimitive.SubContent
     className={cn(
-      'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 min-w-[8rem] overflow-hidden rounded-md border bg-gray-300 p-1 text-white shadow-md',
+      'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 bg-bg-dark z-50 min-w-[8rem] overflow-hidden rounded-md border p-1 text-white shadow-md',
       className,
     )}
     {...props}
@@ -68,7 +68,7 @@ const ContextMenuContent = ({
   <ContextMenuPrimitive.Portal>
     <ContextMenuPrimitive.Content
       className={cn(
-        'animate-in fade-in-80 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 z-50 min-w-[8rem] overflow-hidden rounded-md border border-gray-600 bg-gray-300 p-1 text-gray-50 shadow-md',
+        'animate-in fade-in-80 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 bg-bg-dark border-divider z-50 min-w-[8rem] overflow-hidden rounded-md border p-1 text-white shadow-md',
         className,
       )}
       {...props}
@@ -86,7 +86,7 @@ const ContextMenuItem = ({
 }) => (
   <ContextMenuPrimitive.Item
     className={cn(
-      'relative flex cursor-default items-center rounded-xs px-2 py-1.5 text-sm outline-hidden select-none focus:bg-gray-200 focus:text-white data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+      'focus:bg-bg-secondary relative flex cursor-default items-center rounded-xs px-2 py-1.5 text-sm outline-hidden select-none focus:text-white data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
       inset && 'pl-8',
       className,
     )}
@@ -104,7 +104,7 @@ const ContextMenuCheckboxItem = ({
   <ContextMenuPrimitive.CheckboxItem
     checked={checked}
     className={cn(
-      'focus:bg-accent focus:text-accent-foreground relative flex cursor-default items-center rounded-xs py-1.5 pr-2 pl-8 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
+      'focus:bg-accent relative flex cursor-default items-center rounded-xs py-1.5 pr-2 pl-8 text-sm outline-hidden select-none focus:text-white data-[disabled]:pointer-events-none data-[disabled]:opacity-50',
       className,
     )}
     {...props}

@@ -20,7 +20,7 @@ import {
 } from '@shinkai_network/shinkai-ui';
 import { ImportIcon } from '@shinkai_network/shinkai-ui/assets';
 import { cn } from '@shinkai_network/shinkai-ui/utils';
-import { XIcon } from 'lucide-react';
+
 import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router';
@@ -80,7 +80,6 @@ export default function ImportAgentModal() {
       onOpenChange={(open) => {
         if (!open) {
           importAgentForm.reset();
-          return;
         }
         setImportModalOpen(open);
       }}
@@ -98,73 +97,50 @@ export default function ImportAgentModal() {
         <ImportIcon className="size-4" />
         <span>{t('agents.importModal.action')} </span>
       </DialogTrigger>
-      <DialogContent
-        className="max-w-[500px]"
-        onInteractOutside={(e) => {
-          e.preventDefault();
-        }}
-      >
-        <Button
-          className="absolute top-6 right-4"
-          onClick={() => {
-            setImportModalOpen(false);
-          }}
-          size="icon"
-          variant="tertiary"
-        >
-          <XIcon className="text-text-secondary h-5 w-5" />
-        </Button>
-        <div className="px-2 pt-2.5 antialiased">
-          <div>
-            <DialogHeader>
-              <DialogTitle className="text-center">
-                {t('agents.importModal.title')}
-              </DialogTitle>
-            </DialogHeader>
-            <Form {...importAgentForm}>
-              <form
-                className="mt-8 flex flex-col gap-6"
-                onSubmit={importAgentForm.handleSubmit(onSubmit)}
+      <DialogContent showCloseButton className="max-w-[500px]">
+        <DialogHeader className="pb-0">
+          <DialogTitle>{t('agents.importModal.title')}</DialogTitle>
+        </DialogHeader>
+        <Form {...importAgentForm}>
+          <form
+            className="flex flex-col gap-6"
+            onSubmit={importAgentForm.handleSubmit(onSubmit)}
+          >
+            <FormField
+              control={importAgentForm.control}
+              name="file"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="sr-only">{t('common.file')}</FormLabel>
+                  <FormControl>
+                    <FileUploader
+                      accept={['zip'].join(',')}
+                      descriptionText={t('agents.importModal.chooseFile')}
+                      maxFiles={1}
+                      onChange={(acceptedFiles) => {
+                        field.onChange(acceptedFiles);
+                      }}
+                      shouldDisableScrolling
+                      value={field.value}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <DialogFooter>
+              <Button
+                className="w-full"
+                disabled={isPending}
+                isLoading={isPending}
+                size="auto"
+                type="submit"
               >
-                <FormField
-                  control={importAgentForm.control}
-                  name="file"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel className="sr-only">
-                        {t('common.file')}
-                      </FormLabel>
-                      <FormControl>
-                        <FileUploader
-                          accept={['zip'].join(',')}
-                          descriptionText={t('agents.importModal.chooseFile')}
-                          maxFiles={1}
-                          onChange={(acceptedFiles) => {
-                            field.onChange(acceptedFiles);
-                          }}
-                          shouldDisableScrolling
-                          value={field.value}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <DialogFooter>
-                  <Button
-                    className="w-full"
-                    disabled={isPending}
-                    isLoading={isPending}
-                    size="auto"
-                    type="submit"
-                  >
-                    {t('agents.importModal.action')}
-                  </Button>
-                </DialogFooter>
-              </form>
-            </Form>
-          </div>
-        </div>
+                {t('agents.importModal.action')}
+              </Button>
+            </DialogFooter>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );

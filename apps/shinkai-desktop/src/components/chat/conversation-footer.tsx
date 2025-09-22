@@ -22,7 +22,6 @@ import { useGetTools } from '@shinkai_network/shinkai-node-state/v2/queries/getT
 import { useGetSearchTools } from '@shinkai_network/shinkai-node-state/v2/queries/getToolsSearch/useGetToolsSearch';
 import {
   Button,
-  buttonVariants,
   ChatInput,
   ChatInputArea,
   Command,
@@ -57,7 +56,7 @@ import { cn } from '@shinkai_network/shinkai-ui/utils';
 import { invoke } from '@tauri-apps/api/core';
 import equal from 'fast-deep-equal';
 import { partial } from 'filesize';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { EllipsisIcon, Loader2, Paperclip, X, XIcon } from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
@@ -452,9 +451,6 @@ function ConversationChatFooter({
           className: 'relative shrink-0 pb-[40px]',
         })}
       >
-        <StopGeneratingButton
-          shouldStopGenerating={isLoadingMessage && !!inboxId}
-        />
         <div className="relative z-[1]">
           <Popover onOpenChange={setIsCommandOpen} open={isCommandOpen}>
             <PopoverAnchor>
@@ -573,10 +569,12 @@ function ConversationChatFooter({
                             {t('chat.sendMessage')}
                           </span>
                         </Button>
+                      ) : isLoadingMessage ? (
+                        <StopGeneratingButtonInPlace />
                       ) : (
                         <Button
                           className={cn('size-[36px] p-2')}
-                          disabled={isLoadingMessage || !currentMessage}
+                          disabled={!currentMessage}
                           onClick={chatForm.handleSubmit(onSubmit)}
                           size="icon"
                         >
@@ -710,7 +708,6 @@ function ConversationChatFooter({
             </PopoverContent>
           </Popover>
         </div>
-
         <motion.div
           animate={{ opacity: 1 }}
           className={cn(
@@ -808,11 +805,7 @@ export default memo(
     prev.isLoadingMessage === next.isLoadingMessage,
 );
 
-function StopGeneratingButtonBase({
-  shouldStopGenerating,
-}: {
-  shouldStopGenerating: boolean;
-}) {
+function StopGeneratingButtonInPlaceBase() {
   const auth = useAuth((state) => state.auth);
   const { mutateAsync: stopGenerating } = useStopGeneratingLLM();
   const { inboxId: encodedInboxId = '' } = useParams();
@@ -830,31 +823,39 @@ function StopGeneratingButtonBase({
   };
 
   return (
-    <AnimatePresence>
-      {shouldStopGenerating && !!inboxId && (
-        <motion.button
-          animate={{ opacity: 1, y: 0 }}
-          className={cn(
-            buttonVariants({
-              variant: 'outline',
-              size: 'xs',
-              rounded: 'full',
-            }),
-            'absolute -top-11 left-[calc(50%-40px)]',
-          )}
-          exit={{ opacity: 0, y: 10 }}
-          initial={{ opacity: 0, y: 10 }}
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          className={cn('bg-bg-quaternary size-[36px] fill-white p-2')}
           onClick={onStopGenerating}
-          transition={{ duration: 0.2 }}
+          size="icon"
+          variant="tertiary"
         >
-          <StopIcon className="h-4 w-4" />
-          Stop generating
-        </motion.button>
-      )}
-    </AnimatePresence>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            width="24"
+            height="24"
+            fill="var(--color-text-white)"
+          >
+            <path
+              d="M4 12C4 8.72077 4 7.08116 4.81382 5.91891C5.1149 5.48891 5.48891 5.1149 5.91891 4.81382C7.08116 4 8.72077 4 12 4C15.2792 4 16.9188 4 18.0811 4.81382C18.5111 5.1149 18.8851 5.48891 19.1862 5.91891C20 7.08116 20 8.72077 20 12C20 15.2792 20 16.9188 19.1862 18.0811C18.8851 18.5111 18.5111 18.8851 18.0811 19.1862C16.9188 20 15.2792 20 12 20C8.72077 20 7.08116 20 5.91891 19.1862C5.48891 18.8851 5.1149 18.5111 4.81382 18.0811C4 16.9188 4 15.2792 4 12Z"
+              stroke="var(--color-text-white)"
+              strokeWidth="1.5"
+            />
+          </svg>
+        </Button>
+      </TooltipTrigger>
+      <TooltipPortal>
+        <TooltipContent align="center" side="top">
+          Stop generating response
+        </TooltipContent>
+      </TooltipPortal>
+    </Tooltip>
   );
 }
-const StopGeneratingButton = memo(StopGeneratingButtonBase);
+
+const StopGeneratingButtonInPlace = memo(StopGeneratingButtonInPlaceBase);
 
 type FileListProps = {
   currentFiles: File[];

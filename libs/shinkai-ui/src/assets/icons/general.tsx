@@ -1,5 +1,7 @@
+import BoringAvatar from 'boring-avatars';
 import React from 'react';
 
+import { DEFAULT_AGENT_AVATAR_COLORS } from '../../constants/avatars';
 import { cn } from '../../utils';
 import { fileIconMap } from './file';
 
@@ -1414,64 +1416,49 @@ export const ReactJsIcon = ({ className }: { className?: string }) => (
   </svg>
 );
 
-type AgentGradientAvatarProps = {
+type AgentAvatarVariant =
+  | 'marble'
+  | 'beam'
+  | 'pixel'
+  | 'sunset'
+  | 'ring'
+  | 'bauhaus';
+
+type AgentAvatarProps = {
   name: string;
   size?: 'xs' | 'sm' | 'md' | 'lg';
   className?: string;
+  colors?: string[];
+  variant?: AgentAvatarVariant;
+  square?: boolean;
+  title?: string;
 };
 
-export const AIAgentIcon: React.FC<AgentGradientAvatarProps> = ({
+const agentAvatarSizeMap: Record<
+  NonNullable<AgentAvatarProps['size']> | 'default',
+  { className: string; pixelSize: number }
+> = {
+  xs: { className: 'h-6 w-6', pixelSize: 24 },
+  sm: { className: 'h-8 w-8', pixelSize: 32 },
+  md: { className: 'h-10 w-10', pixelSize: 40 },
+  lg: { className: 'h-12 w-12', pixelSize: 48 },
+  default: { className: 'h-10 w-10', pixelSize: 40 },
+};
+
+export const AIAgentIcon: React.FC<AgentAvatarProps> = ({
   name,
   size = 'md',
   className,
+  colors = DEFAULT_AGENT_AVATAR_COLORS,
+  variant = 'marble',
+  square,
+  title,
 }) => {
-  const getGradientByLetter = (letter: string) => {
-    const gradients = {
-      a: 'bg-gradient-to-br from-green-400 to-yellow-300',
-      b: 'bg-gradient-to-br from-blue-400 to-purple-500',
-      c: 'bg-gradient-to-br from-red-400 to-pink-500',
-      d: 'bg-gradient-to-br from-indigo-400 to-cyan-400',
-      e: 'bg-gradient-to-br from-yellow-200 to-yellow-500',
-      f: 'bg-gradient-to-br from-green-500 to-emerald-700',
-      g: 'bg-gradient-to-br from-purple-400 to-indigo-500',
-      h: 'bg-gradient-to-br from-red-500 to-orange-500',
-      i: 'bg-gradient-to-br from-blue-400 to-indigo-600',
-      j: 'bg-gradient-to-br from-amber-200 to-amber-600',
-      k: 'bg-gradient-to-br from-emerald-400 to-cyan-500',
-      l: 'bg-gradient-to-br from-purple-500 to-pink-500',
-      m: 'bg-gradient-to-br from-blue-500 to-purple-600',
-      n: 'bg-gradient-to-br from-green-300 to-blue-400',
-      o: 'bg-gradient-to-br from-orange-300 to-red-500',
-      p: 'bg-gradient-to-br from-pink-400 to-rose-600',
-      q: 'bg-gradient-to-br from-indigo-300 to-indigo-600',
-      r: 'bg-gradient-to-br from-red-400 to-red-700',
-      s: 'bg-gradient-to-br from-sky-300 to-blue-500',
-      t: 'bg-gradient-to-br from-teal-300 to-emerald-500',
-      u: 'bg-gradient-to-br from-violet-300 to-purple-600',
-      v: 'bg-gradient-to-br from-amber-300 to-orange-600',
-      w: 'bg-gradient-to-br from-emerald-400 to-teal-700',
-      x: 'bg-gradient-to-br from-zinc-400 to-slate-700',
-      y: 'bg-gradient-to-br from-yellow-300 to-amber-600',
-      z: 'bg-gradient-to-br from-blue-300 to-cyan-600',
-    };
+  const normalizedName = name?.trim() || 'Shinkai Agent';
+  const { className: sizeClass, pixelSize } =
+    agentAvatarSizeMap[size] ?? agentAvatarSizeMap.default;
 
-    const firstLetter = letter.toLowerCase()[0];
-    return (
-      gradients[firstLetter as keyof typeof gradients] ||
-      'bg-gradient-to-br from-gray-400 to-gray-600'
-    );
-  };
-
-  const sizeClasses = {
-    xs: 'h-6 w-6 text-xs rounded-lg',
-    sm: 'h-8 w-8 text-xs',
-    md: 'h-10 w-10 text-sm',
-    lg: 'h-12 w-12 text-base',
-  };
-  const initial = name ? name[0] : null;
-  const last = name ? name[name.length - 2] : null;
-
-  if (!initial || !last) {
+  if (!name) {
     return (
       <svg
         className={cn('shrink-0', className)}
@@ -1535,17 +1522,24 @@ export const AIAgentIcon: React.FC<AgentGradientAvatarProps> = ({
   }
 
   return (
-    <div
+    <span
       className={cn(
-        'font-clash flex shrink-0 items-center justify-center rounded-xl font-semibold text-white uppercase',
-        getGradientByLetter(initial),
-        sizeClasses[size],
+        'bg-bg-secondary/60 inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full',
+        sizeClass,
         className,
       )}
+      aria-label={title ?? normalizedName}
+      role="img"
     >
-      {initial}
-      {last}
-    </div>
+      <BoringAvatar
+        colors={colors}
+        name={normalizedName}
+        size={pixelSize}
+        square={square}
+        // title={title ?? normalizedName}
+        variant={variant}
+      />
+    </span>
   );
 };
 

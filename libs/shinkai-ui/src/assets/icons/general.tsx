@@ -1536,7 +1536,6 @@ export const AIAgentIcon: React.FC<AgentAvatarProps> = ({
         name={normalizedName}
         size={pixelSize}
         square={square}
-        // title={title ?? normalizedName}
         variant={variant}
       />
     </span>

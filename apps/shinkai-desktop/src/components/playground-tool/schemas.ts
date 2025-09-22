@@ -8,7 +8,7 @@ export const ToolMetadataSchema = z.object({
     .string({ message: 'Tool name is required' })
     .min(1, 'Tool name is required')
     .max(100, 'Tool name must be less than 100 characters'),
-  homePage: z.string().optional().default(''),
+  homepage: z.string().optional().default(''),
   description: z
     .string({ message: 'Tool description is required' })
     .min(1, 'Tool description is required')
@@ -98,7 +98,7 @@ export const ToolMetadataSchema = z.object({
 export type ToolMetadataSchemaType = z.infer<typeof ToolMetadataSchema>;
 
 export const ToolMetadataRawSchema = ToolMetadataSchema.pick({
-  homePage: true,
+  homepage: true,
   configurations: true,
   parameters: true,
   result: true,

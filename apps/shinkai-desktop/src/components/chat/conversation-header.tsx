@@ -476,10 +476,7 @@ const ConversationHeaderWithInboxId = () => {
               <DotsVerticalIcon className="text-text-secondary" />
             </div>
           </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="end"
-            className="w-[200px] border bg-gray-500 px-2.5 py-2"
-          >
+          <DropdownMenuContent align="end" className="w-[200px] px-2.5 py-2">
             <DropdownMenuItem
               onClick={async () => {
                 await exportMessages({

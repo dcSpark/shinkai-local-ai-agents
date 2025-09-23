@@ -2,6 +2,11 @@ import { useGetEmbeddingMigrationStatus } from '@shinkai_network/shinkai-node-st
 import { useEffect, useRef, useState } from 'react';
 
 import { useAuth } from '../../store/auth';
+import { useShinkaiNodeManager } from '../../store/shinkai-node-manager';
+import {
+  useShinkaiNodeGetOptionsQuery,
+  useShinkaiNodeSetOptionsMutation,
+} from '../shinkai-node-manager/shinkai-node-manager-client';
 import {
   embeddingMigrationErrorToast,
   embeddingMigrationSuccessToast,
@@ -17,6 +22,19 @@ export const useEmbeddingMigrationToast = () => {
     status: string;
   } | null>(null);
   const targetModelRef = useRef<string>('');
+
+  const { data: shinkaiNodeOptions } = useShinkaiNodeGetOptionsQuery();
+
+  const setShinkaiNodeOptions = useShinkaiNodeManager(
+    (state) => state.setShinkaiNodeOptions,
+  );
+
+  const { mutateAsync: shinkaiNodeSetOptions } =
+    useShinkaiNodeSetOptionsMutation({
+      onSuccess: (options) => {
+        setShinkaiNodeOptions(options);
+      },
+    });
 
   const { data: embeddingMigrationStatus } = useGetEmbeddingMigrationStatus(
     { nodeAddress: auth?.node_address ?? '', token: auth?.api_v2_key ?? '' },
@@ -81,6 +99,10 @@ export const useEmbeddingMigrationToast = () => {
       !currentStatus.migration_in_progress &&
       currentStatus.status === 'ready'
     ) {
+      void shinkaiNodeSetOptions({
+        ...shinkaiNodeOptions,
+        default_embedding_model: currentStatus.current_embedding_model,
+      });
       void embeddingMigrationSuccessToast(
         currentStatus.current_embedding_model,
       );
@@ -104,5 +126,5 @@ export const useEmbeddingMigrationToast = () => {
       current_embedding_model: currentStatus.current_embedding_model,
       status: currentStatus.status,
     };
-  }, [embeddingMigrationStatus]);
+  }, [embeddingMigrationStatus, shinkaiNodeOptions, shinkaiNodeSetOptions]);
 };

@@ -20,12 +20,12 @@ export const useEmbeddingMigrationToast = () => {
 
   const { data: embeddingMigrationStatus } = useGetEmbeddingMigrationStatus(
     { nodeAddress: auth?.node_address ?? '', token: auth?.api_v2_key ?? '' },
-    { 
-      enabled: !!auth, 
+    {
+      enabled: !!auth,
       // Only poll when migration is in progress
       refetchInterval: shouldPoll ? 2000 : false,
-      refetchIntervalInBackground: true
-    }
+      refetchIntervalInBackground: true,
+    },
   );
 
   // Control polling based on migration status
@@ -33,7 +33,7 @@ export const useEmbeddingMigrationToast = () => {
     if (embeddingMigrationStatus) {
       const isInProgress = embeddingMigrationStatus.migration_in_progress;
       setShouldPoll(isInProgress);
-      
+
       // If migration started, ensure we start polling immediately
       if (isInProgress && !shouldPoll) {
         console.log('Migration started, beginning polling...');
@@ -48,13 +48,15 @@ export const useEmbeddingMigrationToast = () => {
     if (!previousStatusRef.current) {
       previousStatusRef.current = {
         migration_in_progress: embeddingMigrationStatus.migration_in_progress,
-        current_embedding_model: embeddingMigrationStatus.current_embedding_model,
+        current_embedding_model:
+          embeddingMigrationStatus.current_embedding_model,
         status: embeddingMigrationStatus.status,
       };
-      
+
       // If migration is already in progress on first load, show toast immediately
       if (embeddingMigrationStatus.migration_in_progress) {
-        targetModelRef.current = embeddingMigrationStatus.current_embedding_model;
+        targetModelRef.current =
+          embeddingMigrationStatus.current_embedding_model;
         startEmbeddingMigrationToast();
       }
       return;
@@ -64,7 +66,10 @@ export const useEmbeddingMigrationToast = () => {
     const currentStatus = embeddingMigrationStatus;
 
     // Migration started (wasn't in progress before, now it is)
-    if (!previousStatus.migration_in_progress && currentStatus.migration_in_progress) {
+    if (
+      !previousStatus.migration_in_progress &&
+      currentStatus.migration_in_progress
+    ) {
       // Store the target model (the one we're migrating to)
       targetModelRef.current = currentStatus.current_embedding_model;
       startEmbeddingMigrationToast();
@@ -72,22 +77,24 @@ export const useEmbeddingMigrationToast = () => {
 
     // Migration completed successfully
     if (
-      previousStatus.migration_in_progress && 
+      previousStatus.migration_in_progress &&
       !currentStatus.migration_in_progress &&
       currentStatus.status === 'ready'
     ) {
-      embeddingMigrationSuccessToast(currentStatus.current_embedding_model);
+      void embeddingMigrationSuccessToast(
+        currentStatus.current_embedding_model,
+      );
     }
 
     // Migration failed
     if (
-      previousStatus.migration_in_progress && 
+      previousStatus.migration_in_progress &&
       !currentStatus.migration_in_progress &&
       currentStatus.status !== 'ready'
     ) {
       embeddingMigrationErrorToast(
         targetModelRef.current || currentStatus.current_embedding_model,
-        `Migration status: ${currentStatus.status}`
+        `Migration status: ${currentStatus.status}`,
       );
     }
 

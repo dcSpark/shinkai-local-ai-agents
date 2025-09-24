@@ -20,12 +20,12 @@ export const useSetToolOffering = (
   return useMutation({
     mutationFn: setToolOffering,
     ...options,
-    onSuccess: async (data, variables, context) => {
+    onSuccess: async (...args) => {
       await queryClient.invalidateQueries({
         queryKey: [FunctionKeyV2.GET_TOOLS_WITH_OFFERINGS],
       });
       if (options?.onSuccess) {
-        options.onSuccess(data, variables, context);
+        options.onSuccess(...args);
       }
     },
   });

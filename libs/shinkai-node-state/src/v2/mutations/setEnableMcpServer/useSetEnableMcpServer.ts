@@ -1,12 +1,15 @@
 import {
-  MutationOptions,
+  type MutationOptions,
   useMutation,
   useQueryClient,
 } from '@tanstack/react-query';
 
 import { FunctionKeyV2 } from '../../constants';
+import {
+  type SetEnableMcpServerInput,
+  type SetEnableMcpServerOutput,
+} from './types';
 import { setEnableMcpServer } from './index';
-import { SetEnableMcpServerInput, SetEnableMcpServerOutput } from './types';
 
 type Options = MutationOptions<
   SetEnableMcpServerOutput,
@@ -20,13 +23,13 @@ export const useSetEnableMcpServer = (options?: Options) => {
   return useMutation({
     mutationFn: (input: SetEnableMcpServerInput) => setEnableMcpServer(input),
     ...options,
-    onSuccess: async (data, variables) => {
+    onSuccess: async (...args) => {
       await queryClient.invalidateQueries({
         queryKey: [FunctionKeyV2.GET_MCP_SERVERS],
       });
 
       if (options?.onSuccess) {
-        options.onSuccess(data, variables, undefined);
+        options.onSuccess(...args);
       }
     },
   });

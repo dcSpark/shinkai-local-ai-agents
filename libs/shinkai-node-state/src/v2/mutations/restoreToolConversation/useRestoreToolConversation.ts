@@ -24,12 +24,12 @@ export const useRestoreToolConversation = (options?: Options) => {
   return useMutation({
     mutationFn: restoreToolConversation,
     ...options,
-    onSuccess: async (response, variables, context) => {
+    onSuccess: async (response, variables, onMutateResult, context) => {
       await queryClient.invalidateQueries({
         queryKey: [FunctionKeyV2.GET_CHAT_CONVERSATION_PAGINATION],
       });
       if (options?.onSuccess) {
-        options.onSuccess(response, variables, context);
+        options.onSuccess(response, variables, onMutateResult, context);
       }
     },
   });

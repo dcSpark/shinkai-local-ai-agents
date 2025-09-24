@@ -23,7 +23,7 @@ export const useToggleEnableTool = (options?: Options) => {
   return useMutation({
     mutationFn: toggleEnableTool,
     ...options,
-    onSuccess: async (response, variables, context) => {
+    onSuccess: async (response, variables, onMutateResult, context) => {
       await queryClient.invalidateQueries({
         queryKey: [FunctionKeyV2.GET_LIST_TOOLS],
       });
@@ -31,7 +31,7 @@ export const useToggleEnableTool = (options?: Options) => {
         queryKey: [FunctionKeyV2.GET_SEARCH_TOOLS],
       });
       if (options?.onSuccess) {
-        options.onSuccess(response, variables, context);
+        options.onSuccess(response, variables, onMutateResult, context);
       }
     },
   });

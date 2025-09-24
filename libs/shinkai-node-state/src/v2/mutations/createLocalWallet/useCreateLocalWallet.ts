@@ -23,7 +23,7 @@ export const useCreateLocalWallet = (options?: Options) => {
   return useMutation({
     mutationFn: createLocalWallet,
     ...options,
-    onSuccess: async (response, variables, context) => {
+    onSuccess: async (response, variables, onMutateResult, context) => {
       await queryClient.invalidateQueries({
         queryKey: [
           FunctionKeyV2.GET_WALLET_LIST,
@@ -34,7 +34,7 @@ export const useCreateLocalWallet = (options?: Options) => {
         ],
       });
       if (options?.onSuccess) {
-        options.onSuccess(response, variables, context);
+        options.onSuccess(response, variables, onMutateResult, context);
       }
     },
   });

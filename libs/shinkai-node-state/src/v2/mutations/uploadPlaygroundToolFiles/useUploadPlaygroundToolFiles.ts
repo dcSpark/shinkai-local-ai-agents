@@ -23,13 +23,13 @@ export const useUploadPlaygroundToolFiles = (options?: Options) => {
   return useMutation({
     mutationFn: uploadPlaygroundToolFiles,
     ...options,
-    onSuccess: async (response, variables, context) => {
+    onSuccess: async (response, variables, onMutateResult, context) => {
       await queryClient.invalidateQueries({
         queryKey: [FunctionKeyV2.GET_ALL_TOOL_ASSETS],
       });
 
       if (options?.onSuccess) {
-        options.onSuccess(response, variables, context);
+        options.onSuccess(response, variables, onMutateResult, context);
       }
     },
   });

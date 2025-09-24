@@ -21,7 +21,7 @@ export const useCopyToolAssets = (options?: Options) => {
   return useMutation({
     mutationFn: copyToolAssets,
     ...options,
-    onSuccess: async (response, variables, context) => {
+    onSuccess: async (response, variables, onMutateResult, context) => {
       await queryClient.invalidateQueries({
         queryKey: [
           FunctionKeyV2.GET_ALL_TOOL_ASSETS,
@@ -42,7 +42,7 @@ export const useCopyToolAssets = (options?: Options) => {
       });
 
       if (options?.onSuccess) {
-        options.onSuccess(response, variables, context);
+        options.onSuccess(response, variables, onMutateResult, context);
       }
     },
   });

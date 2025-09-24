@@ -29,7 +29,7 @@ export const generateSignatureKeys = async (): Promise<{
   my_identity_sk_string: HexString;
   my_identity_pk_string: HexString;
 }> => {
-  const privKey = ed.utils.randomPrivateKey();
+  const privKey = ed.utils.randomSecretKey();
   const pubKey = await ed.getPublicKeyAsync(privKey);
 
   const my_identity_sk_string: string = toHexString(privKey);

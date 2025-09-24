@@ -79,7 +79,7 @@ export const useSendMessageToJob = (options?: Options) => {
         queryClient.setQueryData(queryKey, snapshot);
       };
     },
-    onSuccess: async (response, variables, context) => {
+    onSuccess: async (response, variables, onMutateResult, context) => {
       await queryClient.invalidateQueries({
         queryKey: [FunctionKeyV2.GET_JOB_SCOPE],
       });
@@ -88,10 +88,10 @@ export const useSendMessageToJob = (options?: Options) => {
         queryKey: [FunctionKeyV2.GET_VR_FILES],
       });
       if (options?.onSuccess) {
-        options.onSuccess(response, variables, context);
+        options.onSuccess(response, variables, onMutateResult, context);
       }
     },
-    onError: async (error, variables, rollback) => {
+    onError: async (error, variables, rollback, context) => {
       rollback?.();
       const queryKey = [
         FunctionKeyV2.GET_CHAT_CONVERSATION_PAGINATION,
@@ -103,7 +103,7 @@ export const useSendMessageToJob = (options?: Options) => {
         queryKey: queryKey,
       });
       if (options?.onError) {
-        options.onError(error, variables, rollback);
+        options.onError(error, variables, rollback, context);
       }
     },
   });

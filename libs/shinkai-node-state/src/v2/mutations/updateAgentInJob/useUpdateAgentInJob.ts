@@ -23,7 +23,7 @@ export const useUpdateAgentInJob = (options?: Options) => {
   return useMutation({
     mutationFn: updateAgentInJob,
     ...options,
-    onSuccess: async (response, variables, context) => {
+    onSuccess: async (response, variables, onMutateResult, context) => {
       await queryClient.invalidateQueries({
         queryKey: [
           FunctionKeyV2.GET_PROVIDER_FROM_JOB,
@@ -32,7 +32,7 @@ export const useUpdateAgentInJob = (options?: Options) => {
       });
 
       if (options?.onSuccess) {
-        options.onSuccess(response, variables, context);
+        options.onSuccess(response, variables, onMutateResult, context);
       }
     },
   });

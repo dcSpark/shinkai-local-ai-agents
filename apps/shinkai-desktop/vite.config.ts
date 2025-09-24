@@ -59,6 +59,7 @@ export default defineConfig(() => ({
     'TAURI_DEBUG',
   ],
 
+  cacheDir: '../../node_modules/.vitest/apps/shinkai-desktop',
   build: {
     rollupOptions: {
       input: {
@@ -80,7 +81,6 @@ export default defineConfig(() => ({
     watch: false,
     setupFiles: './src/test-setup.ts',
     globals: true,
-    cache: { dir: '../../node_modules/.vitest/apps/shinkai-desktop' },
     environment: 'jsdom',
     include: ['src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
     reporters: ['default'],

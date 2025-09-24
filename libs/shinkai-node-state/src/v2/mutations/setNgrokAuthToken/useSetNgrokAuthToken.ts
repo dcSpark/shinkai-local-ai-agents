@@ -22,12 +22,12 @@ export const useSetNgrokAuthToken = (options?: Options) => {
   const { onSuccess: onOptionsSuccess, ...restOptions } = options || {};
   return useMutation({
     mutationFn: setNgrokAuthToken,
-    onSuccess: async (data, variables, context) => {
+    onSuccess: async (...args) => {
       await queryClient.invalidateQueries({
         queryKey: [FunctionKeyV2.GET_NGROK_STATUS],
       });
       if (onOptionsSuccess) {
-        onOptionsSuccess(data, variables, context);
+        onOptionsSuccess(...args);
       }
     },
     ...restOptions,

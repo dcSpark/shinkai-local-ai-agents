@@ -1,4 +1,4 @@
-import { type UseMutationOptions, useMutation  } from '@tanstack/react-query';
+import { type UseMutationOptions, useMutation } from '@tanstack/react-query';
 
 import { type APIError } from '../../types';
 import { type UpdateNodeNameInput, type UpdateNodeNameOutput } from './types';
@@ -14,9 +14,9 @@ export const useUpdateNodeName = (options?: Options) => {
   return useMutation({
     mutationFn: updateNodeName,
     ...options,
-    onSuccess: (response, variables, context) => {
+    onSuccess: (response, variables, onMutateResult, context) => {
       if (options?.onSuccess) {
-        options.onSuccess(response, variables, context);
+        options.onSuccess(response, variables, onMutateResult, context);
       }
     },
   });

@@ -21,7 +21,7 @@ export const useSaveToolCode = (options?: Options) => {
   return useMutation({
     mutationFn: saveToolCode,
     ...options,
-    onSuccess: async (response, variables, context) => {
+    onSuccess: async (response, variables, onMutateResult, context) => {
       if (!variables.shouldPrefetchPlaygroundTool) {
         await queryClient.invalidateQueries({
           queryKey: [
@@ -51,7 +51,7 @@ export const useSaveToolCode = (options?: Options) => {
           }),
       });
       if (options?.onSuccess) {
-        options.onSuccess(response, variables, context);
+        options.onSuccess(response, variables, onMutateResult, context);
       }
     },
   });

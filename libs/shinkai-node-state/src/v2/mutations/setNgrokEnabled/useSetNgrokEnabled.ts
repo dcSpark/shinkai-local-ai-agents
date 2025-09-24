@@ -19,12 +19,12 @@ export const useSetNgrokEnabled = (options?: Options) => {
   const { onSuccess: onOptionsSuccess, ...restOptions } = options || {};
   return useMutation({
     mutationFn: setNgrokEnabled,
-    onSuccess: async (data, variables, context) => {
+    onSuccess: async (data, variables, onMutateResult, context) => {
       await queryClient.invalidateQueries({
         queryKey: [FunctionKeyV2.GET_NGROK_STATUS],
       });
       if (onOptionsSuccess) {
-        onOptionsSuccess(data, variables, context);
+        onOptionsSuccess(data, variables, onMutateResult, context);
       }
     },
     ...restOptions,

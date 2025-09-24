@@ -1,7 +1,10 @@
 import { useMutation, type UseMutationOptions } from '@tanstack/react-query';
 
 import { type APIError } from '../../types';
-import { type CreateToolMetadataInput, type CreateToolMetadataOutput } from './types';
+import {
+  type CreateToolMetadataInput,
+  type CreateToolMetadataOutput,
+} from './types';
 import { createToolMetadata } from '.';
 
 type Options = UseMutationOptions<
@@ -14,9 +17,9 @@ export const useCreateToolMetadata = (options?: Options) => {
   return useMutation({
     mutationFn: createToolMetadata,
     ...options,
-    onSuccess: (response, variables, context) => {
+    onSuccess: (response, variables, onMutateResult, context) => {
       if (options?.onSuccess) {
-        options.onSuccess(response, variables, context);
+        options.onSuccess(response, variables, onMutateResult, context);
       }
     },
   });

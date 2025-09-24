@@ -24,12 +24,12 @@ export const useUpdateToolCodeImplementation = (options?: Options) => {
   return useMutation({
     mutationFn: updateToolCodeImplementation,
     ...options,
-    onSuccess: async (response, variables, context) => {
+    onSuccess: async (response, variables, onMutateResult, context) => {
       await queryClient.invalidateQueries({
         queryKey: [FunctionKey.GET_CHAT_CONVERSATION_PAGINATION],
       });
       if (options?.onSuccess) {
-        options.onSuccess(response, variables, context);
+        options.onSuccess(response, variables, onMutateResult, context);
       }
     },
   });

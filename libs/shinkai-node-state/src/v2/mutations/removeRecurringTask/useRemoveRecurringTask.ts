@@ -23,13 +23,13 @@ export const useRemoveRecurringTask = (options?: Options) => {
   return useMutation({
     mutationFn: removeRecurringTask,
     ...options,
-    onSuccess: async (response, variables, context) => {
+    onSuccess: async (response, variables, onMutateResult, context) => {
       await queryClient.invalidateQueries({
         queryKey: [FunctionKeyV2.GET_RECURRING_TASKS],
       });
 
       if (options?.onSuccess) {
-        options.onSuccess(response, variables, context);
+        options.onSuccess(response, variables, onMutateResult, context);
       }
     },
   });

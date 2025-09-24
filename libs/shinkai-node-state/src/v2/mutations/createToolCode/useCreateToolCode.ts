@@ -20,7 +20,7 @@ export const useCreateToolCode = (options?: Options) => {
   return useMutation({
     mutationFn: createToolCode,
     ...options,
-    onSuccess: async (response, variables, context) => {
+    onSuccess: async (response, variables, onMutateResult, context) => {
       await queryClient.invalidateQueries({
         queryKey: [
           FunctionKeyV2.GET_CHAT_CONVERSATION_PAGINATION,
@@ -28,7 +28,7 @@ export const useCreateToolCode = (options?: Options) => {
         ],
       });
       if (options?.onSuccess) {
-        options.onSuccess(response, variables, context);
+        options.onSuccess(response, variables, onMutateResult, context);
       }
     },
   });

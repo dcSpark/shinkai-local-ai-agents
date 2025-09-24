@@ -16,12 +16,12 @@ export const useAddNetworkTool = (
   return useMutation({
     mutationFn: addNetworkTool,
     ...options,
-    onSuccess: async (data, variables, context) => {
+    onSuccess: async (...args) => {
       await queryClient.invalidateQueries({
         queryKey: [FunctionKeyV2.GET_INSTALLED_NETWORK_TOOLS],
       });
       if (options?.onSuccess) {
-        await options.onSuccess(data, variables, context);
+        await options.onSuccess(...args);
       }
     },
   });

@@ -21,13 +21,13 @@ export const useForkJobMessages = (options?: Options) => {
   return useMutation({
     mutationFn: forkJobMessages,
     ...options,
-    onSuccess: async (response, variables, context) => {
+    onSuccess: async (response, variables, onMutateResult, context) => {
       await queryClient.invalidateQueries({
         queryKey: [FunctionKeyV2.GET_INBOXES_WITH_PAGINATION],
       });
 
       if (options?.onSuccess) {
-        options.onSuccess(response, variables, context);
+        options.onSuccess(response, variables, onMutateResult, context);
       }
     },
   });

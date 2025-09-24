@@ -1,5 +1,7 @@
 import { Button } from '@shinkai_network/shinkai-ui';
 import { PartyIcon } from '@shinkai_network/shinkai-ui/assets';
+import { invoke } from '@tauri-apps/api/core';
+import { relaunch } from '@tauri-apps/plugin-process';
 
 import { type ExternalToast, toast } from 'sonner';
 
@@ -24,16 +26,21 @@ const mapModelToName = (model: string) => {
 export const startEmbeddingMigrationToast = () => {
   return toast.loading('Updating embedding model...', {
     ...defaultToastOptions,
-    description: 'This may take a few minutes, but you can keep using the app.',
+    description:
+      'This may take a few minutes, but you can keep using the app. The app will restart automatically when complete.',
   });
 };
 
-export const embeddingMigrationSuccessToast = (model: string) => {
+export const embeddingMigrationSuccessToast = async (model: string) => {
   toast.dismiss(EMBEDDING_MIGRATION_TOAST_ID);
-  return toast.success(`Embeddings updated successfully`, {
+  toast.success(`Embeddings updated successfully`, {
     position: 'top-right',
-    description: `Embeddings are now updated to ${model}. Enjoy smarter and faster results.`,
+    description: `Embeddings are now updated to ${model}. Enjoy smarter and faster results. Restarting the app...`,
   });
+  setTimeout(async () => {
+    await invoke('shinkai_node_kill');
+    await relaunch();
+  }, 3000);
 };
 
 export const embeddingMigrationErrorToast = (model: string, error?: string) => {

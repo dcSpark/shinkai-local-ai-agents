@@ -143,6 +143,10 @@ const EmbeddingModelSelectionDialog = () => {
                 <span className="text-text-default mt-1.5 h-1.5 w-1.5 rounded-full bg-current"></span>
                 Temporarily affect search functionality during migration
               </li>
+              <li className="flex items-start gap-2">
+                <span className="text-text-default mt-1.5 h-1.5 w-1.5 rounded-full bg-current"></span>
+                Require an app restart to apply the changes
+              </li>
             </ul>
           </div>
         </DialogHeader>

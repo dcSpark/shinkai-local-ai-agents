@@ -274,12 +274,12 @@ export const MessageBase = ({
       );
     }
     if (message.provider?.provider_type === 'Agent') {
-      return <AIAgentIcon name={message.provider?.agent.id} size={'xs'} />;
+      return <AIAgentIcon name={message.provider?.agent.name} size={'xs'} />;
     }
     return <BotIcon className="mr-1 size-4" />;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    (message as AssistantMessage)?.provider?.agent.id,
+    (message as AssistantMessage)?.provider?.agent.name,
     (message as AssistantMessage)?.provider?.agent.model,
     (message as AssistantMessage)?.provider?.provider_type,
     message.role,

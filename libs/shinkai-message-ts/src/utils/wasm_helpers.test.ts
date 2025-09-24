@@ -1,11 +1,6 @@
-import * as ed from '@noble/ed25519';
-import { sha512 } from '@noble/hashes/sha512';
 import { Crypto } from '@peculiar/webcrypto';
 
 import { generateEncryptionKeys, generateSignatureKeys } from './wasm_helpers';
-
-// Enable synchronous methods
-ed.etc.sha512Sync = (...m) => sha512(ed.etc.concatBytes(...m));
 
 const crypto = new Crypto();
 Object.defineProperty(globalThis, 'crypto', {

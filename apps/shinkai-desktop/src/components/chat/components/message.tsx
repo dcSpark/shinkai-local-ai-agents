@@ -279,7 +279,7 @@ export const MessageBase = ({
     return <BotIcon className="mr-1 size-4" />;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    (message as AssistantMessage)?.provider?.agent.id,
+    (message as AssistantMessage)?.provider?.agent.name,
     (message as AssistantMessage)?.provider?.agent.model,
     (message as AssistantMessage)?.provider?.provider_type,
     message.role,

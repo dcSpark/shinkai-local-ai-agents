@@ -107,12 +107,21 @@ const createAssistantMessage = async (
       if (tool.response) {
         try {
           const response = JSON.parse(tool.response);
+          
+          // Check for __created_files__ in multiple locations
+          let files: string[] | undefined;
+          
           if ('data' in response && '__created_files__' in response.data) {
-            const files: string[] = response.data.__created_files__;
-            const filteredFiles = files;
-
+            // Case 1: response.data.__created_files__
+            files = response.data.__created_files__;
+          } else if ('__created_files__' in response) {
+            // Case 2: response.__created_files__ (when .data doesn't exist)
+            files = response.__created_files__;
+          }
+          
+          if (files && files.length > 0) {
             const fileResults = await Promise.all(
-              filteredFiles.map(async (file) => {
+              files.map(async (file) => {
                 const response = await getShinkaiFileProtocol(
                   nodeAddress,
                   token,

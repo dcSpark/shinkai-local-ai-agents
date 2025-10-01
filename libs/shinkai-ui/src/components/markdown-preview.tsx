@@ -399,6 +399,7 @@ export type MarkdownTextPrimitiveProps = Omit<
   Options,
   'components' | 'children'
 > & {
+  className?: string;
   containerProps?: Omit<PrimitiveDivProps, 'children' | 'asChild'> | undefined;
   containerComponent?: ElementType;
   componentsByLanguage?:

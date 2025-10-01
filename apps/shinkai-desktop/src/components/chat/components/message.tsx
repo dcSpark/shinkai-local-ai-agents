@@ -700,30 +700,30 @@ export const MessageBase = ({
                         </Tooltip>
                       )}
 
-                    {(message.role === 'assistant' &&
+                    {((message.role === 'assistant' &&
                       message.status.type === 'complete') ||
-                      (message.role === 'user' && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <div>
-                              <CopyToClipboardIcon
-                                className={cn(
-                                  'text-text-secondary border-divider hover:bg-bg-tertiary h-7 w-7 border bg-transparent [&>svg]:h-3 [&>svg]:w-3',
-                                )}
-                                string={extractErrorPropertyOrContent(
-                                  message.content,
-                                  'error_message',
-                                )}
-                              />
-                            </div>
-                          </TooltipTrigger>
-                          <TooltipPortal>
-                            <TooltipContent>
-                              <p>{t('common.copy')}</p>
-                            </TooltipContent>
-                          </TooltipPortal>
-                        </Tooltip>
-                      ))}
+                      message.role === 'user') && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div>
+                            <CopyToClipboardIcon
+                              className={cn(
+                                'text-text-secondary border-divider hover:bg-bg-tertiary h-7 w-7 border bg-transparent [&>svg]:h-3 [&>svg]:w-3',
+                              )}
+                              string={extractErrorPropertyOrContent(
+                                message.content,
+                                'error_message',
+                              )}
+                            />
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipPortal>
+                          <TooltipContent>
+                            <p>{t('common.copy')}</p>
+                          </TooltipContent>
+                        </TooltipPortal>
+                      </Tooltip>
+                    )}
                   </div>
                   {message.role === 'assistant' &&
                     message.status.type === 'complete' && (

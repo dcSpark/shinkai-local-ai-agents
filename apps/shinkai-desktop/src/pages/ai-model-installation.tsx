@@ -256,7 +256,7 @@ const AIModelInstallation = () => {
                       variant="outline"
                     >
                       <PlusIcon className="h-4 w-4" />
-                      Add Installed Model
+                      Add Ollama Model
                     </Button>
                   </TooltipTrigger>
                   <TooltipPortal>
@@ -291,7 +291,7 @@ const AIModelInstallation = () => {
                 variant="outline"
               >
                 <Plus className="h-4 w-4" />
-                <span className="capitalize">Add Custom AI Model </span>
+                <span className="capitalize">Add Custom AI Model</span>
               </Button>
             </div>
             <div className="grid grid-cols-4 gap-4">

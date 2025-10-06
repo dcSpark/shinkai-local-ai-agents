@@ -4,6 +4,7 @@ import {
   Badge,
   Form,
   FormField,
+  SearchInput,
   Select,
   SelectContent,
   SelectItem,
@@ -15,7 +16,6 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-  TextField,
 } from '@shinkai_network/shinkai-ui';
 import { useDebounce, useMap } from '@shinkai_network/shinkai-ui/hooks';
 import { cn } from '@shinkai_network/shinkai-ui/utils';
@@ -30,6 +30,7 @@ import {
   useReactTable,
 } from '@tanstack/react-table';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { ArrowDown, ArrowUp } from 'lucide-react';
 import { type ModelResponse } from 'ollama/browser';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
@@ -152,7 +153,7 @@ export const OllamaModelsRepository = ({
               }}
               value={selectedTagMap.get(model.name)}
             >
-              <SelectTrigger className="w-[220px] p-2 text-xs">
+              <SelectTrigger className="!h-10 w-[222px] border-gray-500 py-2 pr-10 [&>svg]:!top-3">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="h-[200px]">
@@ -254,7 +255,6 @@ export const OllamaModelsRepository = ({
     >
       <Form {...form}>
         <form
-          className="flex w-[300px] grow flex-col justify-between space-y-6 overflow-hidden"
           onSubmit={(e) => {
             e.preventDefault();
           }}
@@ -263,7 +263,14 @@ export const OllamaModelsRepository = ({
             control={form.control}
             name="search"
             render={({ field }) => (
-              <TextField field={field} label={t('common.search')} />
+              <SearchInput
+                onChange={field.onChange}
+                classNames={{
+                  input: 'bg-transparent',
+                  container: 'mt-2 mx-1 mb-4',
+                }}
+                value={field.value}
+              />
             )}
           />
         </form>
@@ -273,18 +280,22 @@ export const OllamaModelsRepository = ({
         style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
       >
         <Table>
-          <TableHeader className="bg-gray-400 text-xs">
+          <TableHeader className="border-border border-b text-xs">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => {
                   return (
-                    <TableHead key={header.id}>
+                    <TableHead
+                      key={header.id}
+                      className="text-text-secondary h-8"
+                    >
                       <div
                         className={cn(
                           header.column.getCanSort()
                             ? 'cursor-pointer select-none'
                             : '',
                           header.id === 'actions' ? 'w-[50px]' : '',
+                          'flex items-center gap-2',
                         )}
                         onClick={header.column.getToggleSortingHandler()}
                       >
@@ -293,8 +304,8 @@ export const OllamaModelsRepository = ({
                           header.getContext(),
                         )}
                         {{
-                          asc: ' 🔼',
-                          desc: ' 🔽',
+                          asc: <ArrowUp className="h-4 w-4" />,
+                          desc: <ArrowDown className="h-4 w-4" />,
                         }[header.column.getIsSorted() as string] ?? null}
                       </div>
                     </TableHead>
@@ -307,7 +318,7 @@ export const OllamaModelsRepository = ({
             {!rowVirtualizer.getVirtualItems()?.length && (
               <TableRow>
                 <TableCell className="h-24 text-center">
-                  <span className="text-white">
+                  <span className="text-text-default">
                     {t('llmProviders.notFound.title')}
                   </span>
                 </TableCell>
@@ -317,7 +328,7 @@ export const OllamaModelsRepository = ({
               const row = rows[virtualRow.index] as Row<OllamaModelDefinition>;
               return (
                 <TableRow
-                  className="transition-colors hover:bg-gray-300/50"
+                  className="transition-colors"
                   key={row.id}
                   style={{
                     height: `${virtualRow.size}px`,

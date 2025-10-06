@@ -49,7 +49,7 @@ const TableRow = ({
 }: React.HTMLAttributes<HTMLTableRowElement>) => (
   <tr
     className={cn(
-      'data-[state=selected]:bg-muted transition-colors hover:bg-gray-300/50',
+      'data-[state=selected]:bg-bg-secondary hover:bg-bg-secondary transition-colors',
       className,
     )}
     {...props}

@@ -181,7 +181,7 @@ export const OllamaModels = ({
           </AutoSizer>
         </div>
       )}
-      <span className="text-text-secondary w-full text-right text-xs">
+      <span className="text-text-secondary w-full pt-2 text-right text-xs">
         {t('shinkaiNode.models.poweredByOllama')}
       </span>
       {parentShowAllOllamaModels == null && (

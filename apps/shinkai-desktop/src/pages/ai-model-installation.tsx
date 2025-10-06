@@ -13,10 +13,15 @@ import {
   TabsContent,
   TabsList,
   TabsTrigger,
+  Tooltip,
+  TooltipContent,
+  TooltipPortal,
+  TooltipTrigger,
 } from '@shinkai_network/shinkai-ui';
+
 import { cn } from '@shinkai_network/shinkai-ui/utils';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { ArrowRight, Plus, Sparkles } from 'lucide-react';
+import { Plus, PlusIcon, Sparkles } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 
@@ -106,11 +111,7 @@ const cloudProviders = [
     docUrl: 'https://docs.x.ai/docs/overview',
   },
 ];
-const AIModelInstallation = ({
-  isOnboardingStep,
-}: {
-  isOnboardingStep?: boolean;
-}) => {
+const AIModelInstallation = () => {
   const [selectedProvider, setSelectedProvider] = useState<'local' | 'cloud'>(
     'local',
   );
@@ -223,48 +224,54 @@ const AIModelInstallation = ({
           <ResourcesBanner />
           <TabsContent className="h-full" value="local">
             <div className="flex items-center justify-between gap-10 space-y-2 pb-4">
-              <div className="max-w-3xl">
+              <div className="flex-1">
                 <h1 className="font-clash text-lg font-medium">Local AI</h1>
                 <p className="text-text-secondary text-sm">
                   Local AI operates directly on your device, providing immediate
-                  responses and strict data privacy with no internet required.
-                  Ideal for consistent, secure AI access anywhere.
+                  responses and strict data privacy <br />
+                  with no internet required. Ideal for consistent, secure AI
+                  access anywhere.
                 </p>
               </div>
-              <Button
-                className={cn('shrink-0')}
-                onClick={() => setShowAllOllamaModels(!showAllOllamaModels)}
-                size="sm"
-                variant="outline"
-              >
-                <Sparkles className="h-4 w-4" />
-                <span className="capitalize">
-                  {showAllOllamaModels
-                    ? t('shinkaiNode.models.labels.showRecommended')
-                    : t('shinkaiNode.models.labels.showAll')}
-                </span>
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  className={cn('shrink-0')}
+                  onClick={() => setShowAllOllamaModels(!showAllOllamaModels)}
+                  size="sm"
+                  variant="outline"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  <span className="capitalize">
+                    {showAllOllamaModels
+                      ? t('shinkaiNode.models.labels.showRecommended')
+                      : t('shinkaiNode.models.labels.showAll')}
+                  </span>
+                </Button>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      className={cn('shrink-0')}
+                      onClick={() => navigate('/add-ai?aiProvider=ollama')}
+                      size="sm"
+                      variant="outline"
+                    >
+                      <PlusIcon className="h-4 w-4" />
+                      Add Installed Model
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipPortal>
+                    <TooltipContent align="end" side="bottom">
+                      Already installed a model with Ollama on your machine?
+                      Connect it here without reinstalling.
+                    </TooltipContent>
+                  </TooltipPortal>
+                </Tooltip>
+              </div>
             </div>
             <OllamaModels
               parentSetShowAllOllamaModels={setShowAllOllamaModels}
               parentShowAllOllamaModels={showAllOllamaModels}
             />
-            {isOnboardingStep && (
-              <div className="flex w-full justify-center">
-                <Link
-                  className={cn(
-                    buttonVariants({
-                      size: 'sm',
-                    }),
-                    'gap-2 rounded-lg px-6',
-                  )}
-                  to={{ pathname: '/' }}
-                >
-                  {t('common.continue')}
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              </div>
-            )}
           </TabsContent>
           <TabsContent className="h-full" value="cloud">
             <div className="flex items-center justify-between gap-10 space-y-2 pb-4">
@@ -283,7 +290,7 @@ const AIModelInstallation = ({
                 size="sm"
                 variant="outline"
               >
-                <Sparkles className="h-4 w-4" />
+                <Plus className="h-4 w-4" />
                 <span className="capitalize">Add Custom AI Model </span>
               </Button>
             </div>
@@ -363,22 +370,6 @@ const AIModelInstallation = ({
                 </Card>
               ))}
             </div>
-            {isOnboardingStep && (
-              <div className="flex w-full justify-center pt-6">
-                <Link
-                  className={cn(
-                    buttonVariants({
-                      size: 'sm',
-                    }),
-                    'gap-2 rounded-lg px-6',
-                  )}
-                  to={{ pathname: '/' }}
-                >
-                  {t('common.continue')}
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              </div>
-            )}
           </TabsContent>
         </FixedHeaderLayout>
       </QueryClientProvider>

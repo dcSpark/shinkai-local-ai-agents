@@ -13,17 +13,21 @@ import {
   CardHeader,
   CardTitle,
   ChatInputArea,
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
   Form,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
   Skeleton,
 } from '@shinkai_network/shinkai-ui';
 import { SendIcon, ToolsIcon } from '@shinkai_network/shinkai-ui/assets';
@@ -33,7 +37,9 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUpRight,
+  Check,
   CheckCircle,
+  ChevronDown,
   CircleAlert,
   ExternalLink,
   LogOut,
@@ -312,13 +318,20 @@ function AIModelSelectorBase({
   const [customModel, setCustomModel] = useState(
     customModelOptions?.[0]?.id ?? '',
   );
+  const [open, setOpen] = useState(false);
 
   const handleCustomModelSelect = (value: string) => {
     setCustomModel(value);
     onModelSelect(value);
+    setOpen(false);
   };
 
   const isCustomModelCategory = selectedModelId === 'custom-model';
+
+  const selectedModel = customModelOptions.find(
+    (model) =>
+      model.id === (isSpecificCustomModel ? selectedModelId : customModel),
+  );
 
   return (
     <div className="mb-2 grid grid-cols-1 gap-4 md:grid-cols-3">
@@ -333,7 +346,7 @@ function AIModelSelectorBase({
             className={cn(
               'border-divider bg-bg-tertiary hover:bg-bg-secondary flex cursor-pointer flex-col gap-2.5 border p-4 transition-all',
               isSelected
-                ? 'ring-bg-secondary border-divider bg-bg-secondary ring-1'
+                ? 'ring-bg-secondary bg-bg-secondary border-gray-400 ring-1'
                 : '',
             )}
             key={model.id}
@@ -377,27 +390,67 @@ function AIModelSelectorBase({
                 <SupportedProtocols />
               )}
               {model.placeholderId === 'custom-model' && (
-                <Select
-                  onValueChange={handleCustomModelSelect}
-                  value={isSpecificCustomModel ? selectedModelId : customModel}
-                >
-                  <SelectTrigger
-                    className={cn(
-                      'bg-bg-quaternary hover:bg-bg-secondary flex !h-auto !w-auto max-w-[300px] items-center justify-between border py-2 pr-10 focus:ring-0 [&>svg]:top-[10px]',
-                      isSelected ? 'text-text-default' : 'text-text-secondary',
-                    )}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <SelectValue placeholder="Select model" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-[300px] overflow-y-auto">
-                    {customModelOptions.map((option) => (
-                      <SelectItem key={option.id} value={option.id}>
-                        {option.name ?? option.id}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Popover open={open} onOpenChange={setOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={open}
+                      className={cn(
+                        'bg-bg-quaternary flex !h-auto w-full items-center justify-between border py-2 text-white focus:ring-0 [&>svg]:top-[10px]',
+                      )}
+                      size="sm"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="line-clamp-1 flex items-center gap-2">
+                        <ProviderIcon
+                          className="size-4"
+                          provider={selectedModel?.model?.split(':')[0] ?? ''}
+                        />
+                        {selectedModel
+                          ? (selectedModel.name ?? selectedModel.id)
+                          : 'Select model'}
+                      </div>
+                      <ChevronDown className="h-4 w-4" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[300px] p-0" align="start">
+                    <Command>
+                      <CommandInput placeholder="Search models..." />
+                      <CommandList>
+                        <CommandEmpty>No models found.</CommandEmpty>
+                        <CommandGroup>
+                          {customModelOptions.map((option) => (
+                            <CommandItem
+                              key={option.id}
+                              value={option.name ?? option.id}
+                              className="flex items-center gap-2 truncate"
+                              onSelect={() =>
+                                handleCustomModelSelect(option.id)
+                              }
+                            >
+                              <Check
+                                className={cn(
+                                  'mr-2 h-4 w-4',
+                                  (isSpecificCustomModel
+                                    ? selectedModelId
+                                    : customModel) === option.id
+                                    ? 'opacity-100'
+                                    : 'opacity-0',
+                                )}
+                              />
+                              <ProviderIcon
+                                className="size-4"
+                                provider={option.model?.split(':')[0] ?? ''}
+                              />
+                              {option.name ?? option.id}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               )}
             </CardContent>
           </Card>
@@ -432,7 +485,7 @@ function ToolsHome({
   });
 
   const currentAI = form.watch('llmProviderId');
-  
+
   const thinkingConfig = useMemo(() => {
     if (!currentAI || !llmProviders) {
       return {
@@ -555,11 +608,17 @@ function ToolsHome({
                             )}
                             {thinkingConfig.supportsThinking && (
                               <ThinkingSwitchActionBar
-                                checked={thinkingConfig.forceEnabled || !!form.watch('thinking')}
+                                checked={
+                                  thinkingConfig.forceEnabled ||
+                                  !!form.watch('thinking')
+                                }
                                 disabled={thinkingConfig.forceEnabled}
                                 onClick={() => {
                                   if (!thinkingConfig.forceEnabled) {
-                                    form.setValue('thinking', !form.watch('thinking'));
+                                    form.setValue(
+                                      'thinking',
+                                      !form.watch('thinking'),
+                                    );
                                   }
                                 }}
                                 forceEnabled={thinkingConfig.forceEnabled}

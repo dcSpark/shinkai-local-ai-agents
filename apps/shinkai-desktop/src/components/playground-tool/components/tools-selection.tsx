@@ -1,13 +1,18 @@
 import { useGetTools } from '@shinkai_network/shinkai-node-state/v2/queries/getToolsList/useGetToolsList';
 import {
   Badge,
+  Button,
+  Checkbox,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
   FormControl,
   FormField,
   FormItem,
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-  Switch,
+  SearchInput,
   Tooltip,
   TooltipContent,
   TooltipPortal,
@@ -18,7 +23,8 @@ import { ToolsIcon } from '@shinkai_network/shinkai-ui/assets';
 import { formatText } from '@shinkai_network/shinkai-ui/helpers';
 import { cn } from '@shinkai_network/shinkai-ui/utils';
 import { BoltIcon } from 'lucide-react';
-import { InfoCircleIcon } from 'primereact/icons/infocircle';
+
+import { useMemo, useState } from 'react';
 import { useFormContext } from 'react-hook-form';
 import { Link } from 'react-router';
 import { toast } from 'sonner';
@@ -35,6 +41,8 @@ export function ToolsSelection({
   onChange: (value: string[]) => void;
 }) {
   const auth = useAuth((state) => state.auth);
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const { data: toolsList } = useGetTools({
     nodeAddress: auth?.node_address ?? '',
@@ -43,10 +51,57 @@ export function ToolsSelection({
 
   const form = useFormContext<CreateToolCodeFormSchema>();
 
+  const filteredTools = useMemo(() => {
+    if (!toolsList) return [];
+    if (!searchQuery.trim()) return toolsList;
+
+    const query = searchQuery.toLowerCase();
+    return toolsList.filter(
+      (tool) =>
+        tool.name.toLowerCase().includes(query) ||
+        tool.description?.toLowerCase().includes(query) ||
+        tool.tool_router_key.toLowerCase().includes(query),
+    );
+  }, [toolsList, searchQuery]);
+
+  const handleEnableAll = (checked: boolean) => {
+    const targetTools = searchQuery.trim() ? filteredTools : toolsList;
+    const isAllConfigFilled = targetTools
+      ?.map((tool) => tool.config)
+      .filter((item) => !!item)
+      .flat()
+      ?.map((conf) => ({
+        key_name: conf.BasicConfig.key_name,
+        key_value: conf.BasicConfig.key_value ?? '',
+        required: conf.BasicConfig.required,
+      }))
+      .every(
+        (conf) => !conf.required || (conf.required && conf.key_value !== ''),
+      );
+
+    if (!isAllConfigFilled) {
+      toast.error('Tool configuration', {
+        description: 'Please fill in the config required in tool details',
+      });
+      return;
+    }
+
+    if (checked && targetTools) {
+      const toolsToAdd = targetTools.map((tool) => tool.tool_router_key);
+      const uniqueTools = Array.from(new Set([...value, ...toolsToAdd]));
+      onChange(uniqueTools);
+    } else if (targetTools) {
+      const toolsToRemove = new Set(
+        targetTools.map((tool) => tool.tool_router_key),
+      );
+      onChange(value.filter((key) => !toolsToRemove.has(key)));
+    }
+  };
+
   return (
     <TooltipProvider delayDuration={0}>
-      <Popover>
-        <PopoverTrigger asChild>
+      <Dialog open={isOpen} onOpenChange={setIsOpen}>
+        <DialogTrigger asChild>
           <div
             className={cn(
               actionButtonClassnames,
@@ -66,154 +121,158 @@ export function ToolsSelection({
             )}
             Tools
           </div>
-        </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          className="flex w-full max-w-xl flex-col gap-3 p-4 pr-1 text-xs"
-        >
-          <div className="flex items-center justify-between pr-3">
-            <p className="font-semibold text-white">Available tools</p>
-            <div className="flex items-center gap-3">
-              <Switch
-                checked={value.length === toolsList?.length}
-                id="all"
-                onCheckedChange={(checked) => {
-                  const isAllConfigFilled = toolsList
-                    ?.map((tool) => tool.config)
-                    .filter((item) => !!item)
-                    .flat()
-                    ?.map((conf) => ({
-                      key_name: conf.BasicConfig.key_name,
-                      key_value: conf.BasicConfig.key_value ?? '',
-                      required: conf.BasicConfig.required,
-                    }))
-                    .every(
-                      (conf) =>
-                        !conf.required ||
-                        (conf.required && conf.key_value !== ''),
-                    );
-                  if (!isAllConfigFilled) {
-                    toast.error('Tool configuration', {
-                      description:
-                        'Please fill in the config required in tool details',
-                    });
-                    return;
-                  }
+        </DialogTrigger>
+        <DialogContent className="flex max-h-[85vh] w-full max-w-2xl flex-col gap-4 p-6">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-semibold">
+              Select Tools
+            </DialogTitle>
+            <DialogDescription className="text-text-secondary text-sm">
+              Choose the tools you want to enable for this agent.{' '}
+            </DialogDescription>
+          </DialogHeader>
 
-                  if (checked && toolsList) {
-                    onChange(toolsList.map((tool) => tool.tool_router_key));
-                  } else {
-                    onChange([]);
-                  }
-                }}
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-3">
+              <SearchInput
+                className="flex-1"
+                classNames={{ input: 'bg-transparent' }}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search tools by name or description..."
+                value={searchQuery}
               />
-              <label className="text-text-secondary text-xs" htmlFor="all">
-                Enabled All
-              </label>
+              <div className="flex h-10 items-center justify-between gap-2 px-3 pt-1">
+                <span className="text-text-default text-sm">
+                  {value.length} tool{value.length > 1 ? 's' : ''} selected
+                </span>
+                <div>
+                  <Button
+                    variant="tertiary"
+                    size="xs"
+                    onClick={() => {
+                      onChange([]);
+                    }}
+                  >
+                    Clear
+                  </Button>
+                  <Button
+                    variant="tertiary"
+                    size="xs"
+                    onClick={() => {
+                      handleEnableAll(true);
+                    }}
+                  >
+                    Select All
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex max-h-[calc(85vh-240px)] min-h-[300px] flex-col gap-2.5 overflow-auto pr-2">
+              {filteredTools.length === 0 ? (
+                <div className="text-text-secondary flex flex-1 items-center justify-center text-sm">
+                  {searchQuery.trim()
+                    ? 'No tools found matching your search'
+                    : 'No tools available'}
+                </div>
+              ) : (
+                filteredTools.map((tool) => (
+                  <FormField
+                    control={form.control}
+                    key={tool.tool_router_key}
+                    name="tools"
+                    render={({ field }) => (
+                      <FormItem className="flex w-full flex-col gap-3">
+                        <FormControl>
+                          <div className="border-divider hover:bg-bg-secondary flex w-full items-center gap-3 rounded-lg border p-3 transition-colors">
+                            <Checkbox
+                              checked={field.value.includes(
+                                tool.tool_router_key,
+                              )}
+                              id={tool.tool_router_key}
+                              onCheckedChange={() => {
+                                const configs = tool?.config ?? [];
+                                if (
+                                  configs
+                                    .map((conf) => ({
+                                      key_name: conf.BasicConfig.key_name,
+                                      key_value:
+                                        conf.BasicConfig.key_value ?? '',
+                                      required: conf.BasicConfig.required,
+                                    }))
+                                    .every(
+                                      (conf) =>
+                                        !conf.required ||
+                                        (conf.required &&
+                                          conf.key_value !== ''),
+                                    )
+                                ) {
+                                  field.onChange(
+                                    field.value.includes(tool.tool_router_key)
+                                      ? field.value.filter(
+                                          (item) =>
+                                            item !== tool.tool_router_key,
+                                        )
+                                      : [...field.value, tool.tool_router_key],
+                                  );
+                                  return;
+                                }
+                                toast.error('Tool configuration is required', {
+                                  description:
+                                    'Please fill in the config required in tool details',
+                                });
+                              }}
+                            />
+                            <div className="flex flex-1 flex-col gap-1">
+                              <label
+                                className="text-text-default cursor-pointer text-sm font-medium"
+                                htmlFor={tool.tool_router_key}
+                              >
+                                {formatText(tool.name)}
+                              </label>
+
+                              {tool.description && (
+                                <p className="text-text-secondary line-clamp-2 text-xs">
+                                  {tool.description}
+                                </p>
+                              )}
+                            </div>
+                            {(tool.config ?? []).length > 0 && (
+                              <Tooltip>
+                                <TooltipTrigger
+                                  asChild
+                                  className="flex shrink-0 items-center gap-1"
+                                >
+                                  <Link
+                                    className="text-text-secondary hover:text-text-default flex size-8 items-center justify-center rounded-lg transition-colors hover:bg-gray-800"
+                                    to={`/tools/${tool.tool_router_key}`}
+                                  >
+                                    <BoltIcon className="size-4" />
+                                  </Link>
+                                </TooltipTrigger>
+                                <TooltipPortal>
+                                  <TooltipContent
+                                    align="center"
+                                    alignOffset={-10}
+                                    className="max-w-md"
+                                    side="top"
+                                  >
+                                    <p>Configure tool</p>
+                                  </TooltipContent>
+                                </TooltipPortal>
+                              </Tooltip>
+                            )}
+                          </div>
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                ))
+              )}
             </div>
           </div>
-
-          <div className="flex max-h-[28vh] flex-col gap-2.5 overflow-auto pr-2">
-            {toolsList?.map((tool) => (
-              <FormField
-                control={form.control}
-                key={tool.tool_router_key}
-                name="tools"
-                render={({ field }) => (
-                  <FormItem className="flex w-full flex-col gap-3">
-                    <FormControl>
-                      <div className="flex w-full items-center gap-3">
-                        <Switch
-                          checked={field.value.includes(tool.tool_router_key)}
-                          id={tool.tool_router_key}
-                          onCheckedChange={() => {
-                            const configs = tool?.config ?? [];
-                            if (
-                              configs
-                                .map((conf) => ({
-                                  key_name: conf.BasicConfig.key_name,
-                                  key_value: conf.BasicConfig.key_value ?? '',
-                                  required: conf.BasicConfig.required,
-                                }))
-                                .every(
-                                  (conf) =>
-                                    !conf.required ||
-                                    (conf.required && conf.key_value !== ''),
-                                )
-                            ) {
-                              field.onChange(
-                                field.value.includes(tool.tool_router_key)
-                                  ? field.value.filter(
-                                      (item) => item !== tool.tool_router_key,
-                                    )
-                                  : [...field.value, tool.tool_router_key],
-                              );
-
-                              return;
-                            }
-                            toast.error('Tool configuration is required', {
-                              description:
-                                'Please fill in the config required in tool details',
-                            });
-                          }}
-                        />
-                        <div className="inline-flex flex-1 items-center gap-2 leading-none">
-                          <label
-                            className="text-text-default max-w-[40ch] truncate text-xs"
-                            htmlFor={tool.tool_router_key}
-                          >
-                            {formatText(tool.name)}
-                          </label>
-                          <Tooltip>
-                            <TooltipTrigger className="flex shrink-0 items-center gap-1">
-                              <InfoCircleIcon className="text-text-tertiary h-3 w-3" />
-                            </TooltipTrigger>
-                            <TooltipPortal>
-                              <TooltipContent
-                                align="center"
-                                alignOffset={-10}
-                                className="max-w-md"
-                                side="top"
-                              >
-                                {tool.description}
-                              </TooltipContent>
-                            </TooltipPortal>
-                          </Tooltip>
-                        </div>
-                        {(tool.config ?? []).length > 0 && (
-                          <Tooltip>
-                            <TooltipTrigger
-                              asChild
-                              className="flex shrink-0 items-center gap-1"
-                            >
-                              <Link
-                                className="text-text-secondary hover:text-text-default size-3.5 rounded-lg"
-                                to={`/tools/${tool.tool_router_key}`}
-                              >
-                                <BoltIcon className="size-full" />
-                              </Link>
-                            </TooltipTrigger>
-                            <TooltipPortal>
-                              <TooltipContent
-                                align="center"
-                                alignOffset={-10}
-                                className="max-w-md"
-                                side="top"
-                              >
-                                <p>Configure tool</p>
-                              </TooltipContent>
-                            </TooltipPortal>
-                          </Tooltip>
-                        )}
-                      </div>
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-            ))}
-          </div>
-        </PopoverContent>
-      </Popover>
+        </DialogContent>
+      </Dialog>
     </TooltipProvider>
   );
 }

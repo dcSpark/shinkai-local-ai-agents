@@ -143,6 +143,272 @@ const FileInfo = ({
   </div>
 );
 
+const MAX_CSV_ROWS = 120;
+const MAX_CSV_COLUMNS = 20;
+
+const parseCsvRows = (input: string): string[][] => {
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentValue = '';
+  let inQuotes = false;
+  let lastCharWasNewline = false;
+
+  const commitValue = () => {
+    currentRow.push(currentValue);
+    currentValue = '';
+  };
+
+  const commitRow = () => {
+    commitValue();
+    rows.push(currentRow);
+    currentRow = [];
+  };
+
+  for (let index = 0; index < input.length; index += 1) {
+    const char = input[index];
+
+    if (inQuotes) {
+      if (char === '"') {
+        if (input[index + 1] === '"') {
+          currentValue += '"';
+          index += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        currentValue += char;
+      }
+      lastCharWasNewline = false;
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = true;
+      lastCharWasNewline = false;
+      continue;
+    }
+
+    if (char === ',') {
+      commitValue();
+      lastCharWasNewline = false;
+      continue;
+    }
+
+    if (char === '\r' || char === '\n') {
+      commitRow();
+      lastCharWasNewline = true;
+      if (char === '\r' && input[index + 1] === '\n') {
+        index += 1;
+      }
+      continue;
+    }
+
+    currentValue += char;
+    lastCharWasNewline = false;
+  }
+
+  if (inQuotes) {
+    commitValue();
+    rows.push(currentRow);
+  } else if (
+    currentValue !== '' ||
+    currentRow.length > 0 ||
+    (!lastCharWasNewline && input.length > 0)
+  ) {
+    commitValue();
+    rows.push(currentRow);
+  }
+
+  if (rows.length === 1 && rows[0]?.length === 1 && rows[0]?.[0] === '') {
+    return [];
+  }
+
+  return rows;
+};
+
+const CsvPreview = ({
+  blob,
+  content,
+  name,
+}: Pick<Attachment, 'blob' | 'content' | 'name'>) => {
+  const [csvText, setCsvText] = useState<string | null>(content ?? null);
+  const [rows, setRows] = useState<string[][]>([]);
+  const [isLoading, setIsLoading] = useState<boolean>(!content && !!blob);
+  const [error, setError] = useState<string | null>(null);
+  const [isRowTruncated, setIsRowTruncated] = useState(false);
+  const [isColumnTruncated, setIsColumnTruncated] = useState(false);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    if (content !== undefined && content !== null) {
+      setCsvText(content);
+      setIsLoading(false);
+      setError(null);
+      return;
+    }
+
+    if (!blob) {
+      setCsvText(null);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+
+    blob
+      .text()
+      .then((value) => {
+        if (isCancelled) return;
+        setCsvText(value);
+        setError(null);
+      })
+      .catch((err) => {
+        if (isCancelled) return;
+        console.error('Failed to read CSV blob:', err);
+        setError('Unable to preview this CSV file');
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [blob, content]);
+
+  useEffect(() => {
+    if (csvText === null) {
+      setRows([]);
+      setIsRowTruncated(false);
+      setIsColumnTruncated(false);
+      return;
+    }
+
+    try {
+      const parsedRows = parseCsvRows(csvText);
+
+      if (!parsedRows?.length) {
+        setRows([]);
+        setIsRowTruncated(false);
+        setIsColumnTruncated(false);
+        return;
+      }
+
+      const limitedRows = parsedRows
+        .slice(0, Math.min(parsedRows.length, MAX_CSV_ROWS + 1))
+        .map((row) => row.slice(0, MAX_CSV_COLUMNS));
+
+      setRows(limitedRows);
+      setIsRowTruncated(parsedRows.length > limitedRows.length);
+      setIsColumnTruncated(
+        parsedRows.some((row) => row.length > MAX_CSV_COLUMNS),
+      );
+      setError(null);
+    } catch (err) {
+      console.error('Failed to parse CSV content:', err);
+      setError('Unable to preview this CSV file');
+      setRows([]);
+    }
+  }, [csvText]);
+
+  if (isLoading) {
+    return (
+      <div className="text-text-secondary flex h-full w-full items-center justify-center">
+        <span>Loading preview...</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-text-secondary flex h-full w-full items-center justify-center">
+        <span>{error}</span>
+      </div>
+    );
+  }
+
+  if (csvText === null) {
+    return (
+      <div className="text-text-secondary flex h-full w-full items-center justify-center">
+        <span>Preview not available for this CSV file</span>
+      </div>
+    );
+  }
+
+  if (rows.length === 0) {
+    return (
+      <div className="text-text-secondary flex h-full w-full items-center justify-center">
+        <span>No data in this CSV file</span>
+      </div>
+    );
+  }
+
+  const columnCount = rows.reduce(
+    (max, row) => (row.length > max ? row.length : max),
+    0,
+  );
+  const [headerRow, ...dataRows] = rows;
+
+  return (
+    <div className="flex h-full w-full flex-col overflow-hidden">
+      <div className="border-divider bg-bg-secondary text-text-secondary flex items-center justify-between gap-2 border-b px-4 py-2 text-xs">
+        <span className="truncate" title={name}>
+          CSV Preview
+        </span>
+        {(isRowTruncated || isColumnTruncated) && (
+          <span>
+            Showing first {Math.max(rows.length - 1, 0)} rows
+            {isColumnTruncated ? ` and ${MAX_CSV_COLUMNS} columns` : ''}
+          </span>
+        )}
+      </div>
+      <div className="bg-bg-default relative flex-1 overflow-auto">
+        <table className="min-w-full border-collapse text-left text-xs">
+          <thead className="sticky top-0 z-10 bg-bg-tertiary">
+            <tr>
+              {Array.from({ length: columnCount }).map((_, index) => (
+                <th
+                  className="border-divider text-text-default border px-3 py-2 font-semibold"
+                  key={`header-${index}`}
+                >
+                  {headerRow?.[index] ?? ''}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {dataRows.map((row, rowIndex) => (
+              <tr
+                className={cn(
+                  rowIndex % 2 === 0 ? 'bg-bg-default' : 'bg-bg-secondary',
+                )}
+                key={`row-${rowIndex}`}
+              >
+                {Array.from({ length: columnCount }).map((_, columnIndex) => (
+                  <td
+                    className="border-divider text-text-secondary whitespace-pre-line border px-3 py-2 align-top"
+                    key={`cell-${rowIndex}-${columnIndex}`}
+                  >
+                    {row?.[columnIndex] ?? ''}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {(isRowTruncated || isColumnTruncated) && (
+        <div className="text-text-secondary border-divider bg-bg-secondary border-t px-4 py-2 text-xs">
+          Preview truncated for performance. Download the file to view it in full.
+        </div>
+      )}
+    </div>
+  );
+};
+
 const themeVariables = [
   '--color-bg-default',
   '--color-bg-secondary',
@@ -369,6 +635,9 @@ export const FileContentViewer: React.FC<FileContentViewerProps> = ({
           </audio>
         </div>
       );
+    }
+    case FileTypeSupported.Csv: {
+      return <CsvPreview blob={blob} content={content} name={name} />;
     }
     case FileTypeSupported.Html: {
       return (

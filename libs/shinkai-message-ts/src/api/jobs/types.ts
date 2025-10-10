@@ -130,6 +130,7 @@ export type GetLLMProvidersResponse = LLMProvider[];
 
 export type LLMProviderInterface = {
   OpenAI?: OpenAI;
+  OpenAILegacy?: OpenAILegacy;
   TogetherAI?: TogetherAI;
   Ollama?: Ollama;
   Gemini?: Gemini;
@@ -163,6 +164,10 @@ export interface OpenRouter {
 }
 
 export interface OpenAI {
+  model_type: string;
+}
+
+export interface OpenAILegacy {
   model_type: string;
 }
 

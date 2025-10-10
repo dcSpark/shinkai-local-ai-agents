@@ -277,6 +277,7 @@ export const getLLMProviders = async (
 
 export enum ModelPrefix {
   OpenAI = 'openai',
+  OpenAILegacy = 'openai-legacy',
   TogetherAI = 'togetherai',
   Ollama = 'ollama',
   Gemini = 'gemini',
@@ -291,6 +292,8 @@ export enum ModelPrefix {
 function getModelString(model: LLMProviderInterface): string {
   if (model?.OpenAI?.model_type) {
     return ModelPrefix.OpenAI + ':' + model.OpenAI.model_type;
+  } else if (model?.OpenAILegacy?.model_type) {
+    return ModelPrefix.OpenAILegacy + ':' + model.OpenAILegacy.model_type;
   } else if (model?.TogetherAI?.model_type) {
     return ModelPrefix.TogetherAI + ':' + model.TogetherAI.model_type;
   } else if (model?.Ollama?.model_type) {

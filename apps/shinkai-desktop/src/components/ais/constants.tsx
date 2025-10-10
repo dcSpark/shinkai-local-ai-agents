@@ -56,6 +56,7 @@ export const providerMappings = {
   [ModelProvider.Meta]: MetaIcon,
   [ModelProvider.Ollama]: OllamaIcon,
   [ModelProvider.OpenAI]: OpenAIIcon,
+  'openai-legacy': OpenAIIcon,
   [ModelProvider.OpenRouter]: OpenRouterIcon,
   [ModelProvider.Perplexity]: PerplexityIcon,
   [ModelProvider.Qwen]: QwenIcon,

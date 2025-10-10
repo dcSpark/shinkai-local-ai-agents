@@ -20,6 +20,7 @@ export enum OllamaModelCapability {
   ImageToText = 'image-to-text',
   Thinking = 'thinking',
   ToolCalling = 'tool-calling',
+  Cloud = 'cloud',
 }
 
 export interface OllamaModel {
@@ -43,6 +44,26 @@ export const FILTERED_OLLAMA_MODELS_REPOSITORY =
 export const ALLOWED_OLLAMA_MODELS = FILTERED_OLLAMA_MODELS_REPOSITORY.flatMap(
   (model) => model.tags.map((tag) => tag.name),
 );
+
+// Helper function to convert JSON model properties to capabilities array
+export function getCapabilitiesFromModel(model: OllamaModelDefinition): OllamaModelCapability[] {
+  const capabilities: OllamaModelCapability[] = [OllamaModelCapability.TextGeneration];
+  
+  if (model.vision) {
+    capabilities.push(OllamaModelCapability.ImageToText);
+  }
+  if (model.thinking) {
+    capabilities.push(OllamaModelCapability.Thinking);
+  }
+  if (model.supportTools) {
+    capabilities.push(OllamaModelCapability.ToolCalling);
+  }
+  if (model.cloud) {
+    capabilities.push(OllamaModelCapability.Cloud);
+  }
+  
+  return capabilities;
+}
 
 const currentPlatform = platform();
 

@@ -30,6 +30,7 @@
       "messageContextLabel": "Contexto del Mensaje",
       "overrideConfigurations": "Sobrescribir Configuraciones",
       "persona": "Persona",
+      "resetAdvancedOptions": "Restablece a los valores predeterminados",
       "saveAndTestAgent": "Guardar y Probar Agente",
       "schedule": "Programar",
       "scheduleAIInstructions": "Instrucciones de IA",

@@ -35,6 +35,7 @@ export enum FileTypeSupported {
   Error = 'error',
   Unknown = 'unknown',
   Html = 'html',
+  Csv = 'csv',
   SqliteDatabase = 'sqlite-database',
 }
 

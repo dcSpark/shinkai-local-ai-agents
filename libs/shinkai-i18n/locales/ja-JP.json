@@ -30,6 +30,7 @@
       "messageContextLabel": "メッセージコンテキスト",
       "overrideConfigurations": "設定を上書き",
       "persona": "ペルソナ",
+      "resetAdvancedOptions": "デフォルトにリセット",
       "saveAndTestAgent": "エージェントを保存してテスト",
       "schedule": "スケジュール",
       "scheduleAIInstructions": "AI指示",

@@ -30,6 +30,7 @@
       "messageContextLabel": "消息上下文",
       "overrideConfigurations": "覆盖配置",
       "persona": "角色",
+      "resetAdvancedOptions": "重置为默认值",
       "saveAndTestAgent": "保存并测试代理",
       "schedule": "计划",
       "scheduleAIInstructions": "AI 指令",

@@ -933,6 +933,7 @@
       "messageContextLabel": "Message Context",
       "messageContextDescription": "(Optional) You can control the message context here by forcing a static message with the user message e.g. {{user_message}}. And then say: Chao amigo!. This will add \"And then say: Chao amigo!\" to every message sent.",
       "advanceOptionsLabel": "Advanced Options",
+      "resetAdvancedOptions": "Resets to default",
       "enableStream": "Enable Stream",
       "enableStreamDescription": "Streams the agent's response as it generates",
       "enableTools": "Enable Tools",

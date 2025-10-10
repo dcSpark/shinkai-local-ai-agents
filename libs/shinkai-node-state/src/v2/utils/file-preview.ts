@@ -98,6 +98,16 @@ export const generateFilePreview = async (
       };
     }
 
+    if (file.match(/\.(csv)$/i)) {
+      const textContent = await data.text();
+      return {
+        ...baseFileInfo,
+        type: FileTypeSupported.Csv,
+        mimeType: 'text/csv',
+        content: textContent,
+      };
+    }
+
     // Text files
     if (file.match(/\.(md|markdown|txt|log|tsx|json|js|jsx)$/i)) {
       const textContent = await data.text();

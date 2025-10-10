@@ -116,7 +116,7 @@ import {
 } from 'lucide-react';
 import { Tree, type TreeCheckboxSelectionKeys } from 'primereact/tree';
 import { type TreeNode } from 'primereact/treenode';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import {
   Link,
@@ -642,13 +642,23 @@ function AgentForm({ mode }: AgentFormProps) {
   const currentLLMProviderId = form.watch('llmProviderId');
   const thinkingConfig = useMemo(() => {
     if (!currentLLMProviderId || !llmProviders) {
-      return { supportsThinking: false, forceEnabled: false, reasoningLevel: false };
+      return {
+        supportsThinking: false,
+        forceEnabled: false,
+        reasoningLevel: false,
+      };
     }
 
     // Find the provider that matches the selected ID
-    const selectedProvider = llmProviders.find(provider => provider.id === currentLLMProviderId);
+    const selectedProvider = llmProviders.find(
+      (provider) => provider.id === currentLLMProviderId,
+    );
     if (!selectedProvider) {
-      return { supportsThinking: false, forceEnabled: false, reasoningLevel: false };
+      return {
+        supportsThinking: false,
+        forceEnabled: false,
+        reasoningLevel: false,
+      };
     }
 
     // Use the provider's model for thinking detection
@@ -656,8 +666,49 @@ function AgentForm({ mode }: AgentFormProps) {
   }, [currentLLMProviderId, llmProviders]);
 
   // Check if thinking is enabled (either forced or manually enabled)
-  const isThinkingEnabled = thinkingConfig.forceEnabled || form.watch('config.thinking');
-  const shouldDisableSliders = thinkingConfig.supportsThinking && isThinkingEnabled;
+  const isThinkingEnabled =
+    thinkingConfig.forceEnabled || form.watch('config.thinking');
+  const shouldDisableSliders =
+    thinkingConfig.supportsThinking && isThinkingEnabled;
+
+  const handleResetAdvancedOptions = useCallback(() => {
+    const existingConfig =
+      form.getValues('config') ??
+      ({
+        custom_prompt: '',
+        custom_system_prompt: '',
+        other_model_params: {},
+        stream: DEFAULT_CHAT_CONFIG.stream,
+        temperature: DEFAULT_CHAT_CONFIG.temperature,
+        top_p: DEFAULT_CHAT_CONFIG.top_p,
+        top_k: DEFAULT_CHAT_CONFIG.top_k,
+        use_tools: DEFAULT_CHAT_CONFIG.use_tools,
+        thinking: thinkingConfig.forceEnabled
+          ? true
+          : DEFAULT_CHAT_CONFIG.thinking,
+        reasoning_effort: DEFAULT_CHAT_CONFIG.reasoning_effort,
+        web_search_enabled: DEFAULT_CHAT_CONFIG.web_search_enabled,
+      } as NonNullable<AgentFormValues['config']>);
+
+    const resetConfig: NonNullable<AgentFormValues['config']> = {
+      ...existingConfig,
+      stream: DEFAULT_CHAT_CONFIG.stream,
+      use_tools: DEFAULT_CHAT_CONFIG.use_tools,
+      web_search_enabled: DEFAULT_CHAT_CONFIG.web_search_enabled,
+      thinking: thinkingConfig.forceEnabled
+        ? true
+        : DEFAULT_CHAT_CONFIG.thinking,
+      reasoning_effort: DEFAULT_CHAT_CONFIG.reasoning_effort,
+      temperature: DEFAULT_CHAT_CONFIG.temperature,
+      top_p: DEFAULT_CHAT_CONFIG.top_p,
+      top_k: DEFAULT_CHAT_CONFIG.top_k,
+    };
+
+    form.setValue('config', resetConfig, {
+      shouldDirty: true,
+      shouldTouch: true,
+    });
+  }, [form, thinkingConfig.forceEnabled]);
 
   // Effect to handle initial agent data and schedule type
   useEffect(() => {
@@ -678,8 +729,12 @@ function AgentForm({ mode }: AgentFormProps) {
         top_p: agent.config?.top_p ?? DEFAULT_CHAT_CONFIG.top_p,
         use_tools: agent.config?.use_tools ?? true,
         thinking: agent.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
-        reasoning_effort: agent.config?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
-        web_search_enabled: agent.config?.web_search_enabled ?? DEFAULT_CHAT_CONFIG.web_search_enabled,
+        reasoning_effort:
+          agent.config?.reasoning_effort ??
+          DEFAULT_CHAT_CONFIG.reasoning_effort,
+        web_search_enabled:
+          agent.config?.web_search_enabled ??
+          DEFAULT_CHAT_CONFIG.web_search_enabled,
         stream: agent.config?.stream ?? DEFAULT_CHAT_CONFIG.stream,
         other_model_params: agent.config?.other_model_params ?? {},
       });
@@ -863,8 +918,12 @@ function AgentForm({ mode }: AgentFormProps) {
               top_k: values.config?.top_k,
               use_tools: values.tools.length > 0,
               thinking: values.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
-              reasoning_effort: values.config?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
-              web_search_enabled: values.config?.web_search_enabled ?? DEFAULT_CHAT_CONFIG.web_search_enabled,
+              reasoning_effort:
+                values.config?.reasoning_effort ??
+                DEFAULT_CHAT_CONFIG.reasoning_effort,
+              web_search_enabled:
+                values.config?.web_search_enabled ??
+                DEFAULT_CHAT_CONFIG.web_search_enabled,
               stream: true,
             },
             message: values.aiPrompt || values.uiDescription || 'Scheduled run',
@@ -891,8 +950,12 @@ function AgentForm({ mode }: AgentFormProps) {
               top_k: values.config?.top_k,
               use_tools: values.tools.length > 0,
               thinking: values.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
-              reasoning_effort: values.config?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
-              web_search_enabled: values.config?.web_search_enabled ?? DEFAULT_CHAT_CONFIG.web_search_enabled,
+              reasoning_effort:
+                values.config?.reasoning_effort ??
+                DEFAULT_CHAT_CONFIG.reasoning_effort,
+              web_search_enabled:
+                values.config?.web_search_enabled ??
+                DEFAULT_CHAT_CONFIG.web_search_enabled,
               stream: true,
             },
             message: values.aiPrompt || values.uiDescription || 'Scheduled run',
@@ -1055,9 +1118,14 @@ function AgentForm({ mode }: AgentFormProps) {
                 top_p: values.config?.top_p,
                 top_k: values.config?.top_k,
                 use_tools: values.tools.length > 0,
-                thinking: values.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
-                reasoning_effort: values.config?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
-                web_search_enabled: values.config?.web_search_enabled ?? DEFAULT_CHAT_CONFIG.web_search_enabled,
+                thinking:
+                  values.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
+                reasoning_effort:
+                  values.config?.reasoning_effort ??
+                  DEFAULT_CHAT_CONFIG.reasoning_effort,
+                web_search_enabled:
+                  values.config?.web_search_enabled ??
+                  DEFAULT_CHAT_CONFIG.web_search_enabled,
                 stream: true,
               },
               message:
@@ -1084,9 +1152,14 @@ function AgentForm({ mode }: AgentFormProps) {
                 top_p: values.config?.top_p,
                 top_k: values.config?.top_k,
                 use_tools: values.tools.length > 0,
-                thinking: values.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
-                reasoning_effort: values.config?.reasoning_effort ?? DEFAULT_CHAT_CONFIG.reasoning_effort,
-                web_search_enabled: values.config?.web_search_enabled ?? DEFAULT_CHAT_CONFIG.web_search_enabled,
+                thinking:
+                  values.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
+                reasoning_effort:
+                  values.config?.reasoning_effort ??
+                  DEFAULT_CHAT_CONFIG.reasoning_effort,
+                web_search_enabled:
+                  values.config?.web_search_enabled ??
+                  DEFAULT_CHAT_CONFIG.web_search_enabled,
                 stream: true,
               },
               message:
@@ -1444,7 +1517,7 @@ function AgentForm({ mode }: AgentFormProps) {
                             <ChevronRight className="ml-1 size-4" />
                           </CollapsibleTrigger>
                           <CollapsibleContent>
-                            <div className="space-y-4 py-6">
+                            <div className="space-y-4 py-6 pr-2">
                               <FormField
                                 control={form.control}
                                 name="config.stream"
@@ -1508,13 +1581,16 @@ function AgentForm({ mode }: AgentFormProps) {
                                           Enable Web Search
                                         </FormLabel>
                                         <p className="text-text-secondary text-xs">
-                                          Allows the agent to search the web for real-time information
+                                          Allows the agent to search the web for
+                                          real-time information
                                         </p>
                                       </div>
                                       <FormControl>
                                         <Switch
                                           checked={field.value ?? false}
-                                          disabled={!form.watch('config.use_tools')}
+                                          disabled={
+                                            !form.watch('config.use_tools')
+                                          }
                                           onCheckedChange={field.onChange}
                                         />
                                       </FormControl>
@@ -1534,13 +1610,16 @@ function AgentForm({ mode }: AgentFormProps) {
                                             Enable Thinking
                                           </FormLabel>
                                           <p className="text-text-secondary text-xs">
-                                            Enables step-by-step reasoning for better responses
+                                            Enables step-by-step reasoning for
+                                            better responses
                                           </p>
                                         </div>
                                         <FormControl>
                                           <Switch
                                             checked={field.value ?? false}
-                                            disabled={thinkingConfig.forceEnabled}
+                                            disabled={
+                                              thinkingConfig.forceEnabled
+                                            }
                                             onCheckedChange={field.onChange}
                                           />
                                         </FormControl>
@@ -1549,38 +1628,49 @@ function AgentForm({ mode }: AgentFormProps) {
                                   )}
                                 />
                               )}
-                              {thinkingConfig.reasoningLevel && isThinkingEnabled && (
-                                <FormField
-                                  control={form.control}
-                                  name="config.reasoning_effort"
-                                  render={({ field }) => (
-                                    <FormItem className="flex w-full flex-col gap-3">
-                                      <div className="flex justify-between gap-3">
-                                        <div className="space-y-1 leading-none">
-                                          <FormLabel className="text-text-default static space-y-1.5 text-sm">
-                                            Reasoning Effort
-                                          </FormLabel>
-                                          <p className="text-text-secondary text-xs">
-                                            Controls how much effort the model puts into reasoning
-                                          </p>
+                              {thinkingConfig.reasoningLevel &&
+                                isThinkingEnabled && (
+                                  <FormField
+                                    control={form.control}
+                                    name="config.reasoning_effort"
+                                    render={({ field }) => (
+                                      <FormItem className="flex w-full flex-col gap-3">
+                                        <div className="flex justify-between gap-3">
+                                          <div className="space-y-1 leading-none">
+                                            <FormLabel className="text-text-default static space-y-1.5 text-sm">
+                                              Reasoning Effort
+                                            </FormLabel>
+                                            <p className="text-text-secondary text-xs">
+                                              Controls how much effort the model
+                                              puts into reasoning
+                                            </p>
+                                          </div>
+                                          <FormControl>
+                                            <Select
+                                              value={field.value}
+                                              onValueChange={field.onChange}
+                                            >
+                                              <SelectTrigger className="!h-10 w-[120px] py-2 pr-10 [&>svg]:!top-2.5">
+                                                <SelectValue placeholder="Select effort" />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                <SelectItem value="low">
+                                                  Low
+                                                </SelectItem>
+                                                <SelectItem value="medium">
+                                                  Medium
+                                                </SelectItem>
+                                                <SelectItem value="high">
+                                                  High
+                                                </SelectItem>
+                                              </SelectContent>
+                                            </Select>
+                                          </FormControl>
                                         </div>
-                                        <FormControl>
-                                          <Select value={field.value} onValueChange={field.onChange}>
-                                            <SelectTrigger className="h-input w-[120px]">
-                                              <SelectValue placeholder="Select effort" />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                              <SelectItem value="low">Low</SelectItem>
-                                              <SelectItem value="medium">Medium</SelectItem>
-                                              <SelectItem value="high">High</SelectItem>
-                                            </SelectContent>
-                                          </Select>
-                                        </FormControl>
-                                      </div>
-                                    </FormItem>
-                                  )}
-                                />
-                              )}
+                                      </FormItem>
+                                    )}
+                                  />
+                                )}
                               {!shouldDisableSliders && (
                                 <FormField
                                   control={form.control}
@@ -1593,7 +1683,9 @@ function AgentForm({ mode }: AgentFormProps) {
                                             <div className="grid w-full gap-4">
                                               <div className="flex items-center justify-between">
                                                 <Label htmlFor="temperature">
-                                                  {t('agents.create.temperature')}
+                                                  {t(
+                                                    'agents.create.temperature',
+                                                  )}
                                                 </Label>
                                                 <span className="text-text-secondary hover:border-border w-12 rounded-md border border-transparent px-2 py-0.5 text-right text-sm">
                                                   {field.value}
@@ -1716,6 +1808,17 @@ function AgentForm({ mode }: AgentFormProps) {
                                   )}
                                 />
                               )}
+                              <div className="flex justify-start">
+                                <Button
+                                  className="text-text-secondary"
+                                  onClick={handleResetAdvancedOptions}
+                                  size="sm"
+                                  type="button"
+                                  variant="tertiary"
+                                >
+                                  {t('agents.create.resetAdvancedOptions')}
+                                </Button>
+                              </div>
                             </div>
                           </CollapsibleContent>
                         </Collapsible>

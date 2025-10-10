@@ -58,10 +58,10 @@ import equal from 'fast-deep-equal';
 import { partial } from 'filesize';
 import { motion } from 'framer-motion';
 import {
+  CornerDownRight,
   EllipsisIcon,
   Loader2,
   Paperclip,
-  Quote,
   X,
   XIcon,
 } from 'lucide-react';
@@ -661,7 +661,7 @@ function ConversationChatFooter({
                   <>
                     {quotedText && (
                       <div className="bg-bg-quaternary mx-3 mt-3 flex items-start gap-2 rounded-lg p-3">
-                        <Quote className="text-text-secondary mt-0.5 h-4 w-4 shrink-0" />
+                        <CornerDownRight className="text-text-secondary mt-0.5 h-4 w-4 shrink-0" />
                         <div className="flex-1">
                           <p className="text-text-secondary line-clamp-3 text-xs">
                             "{quotedText}"
@@ -716,7 +716,6 @@ function ConversationChatFooter({
                     {isToolsListSuccess &&
                       toolsList?.map((tool) => (
                         <CommandItem
-                          className="data-[selected='true']:bg-gray-200"
                           key={tool.tool_router_key}
                           onSelect={() => {
                             setIsCommandOpen(false);

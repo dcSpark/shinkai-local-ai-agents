@@ -3,16 +3,23 @@ import {
   type Attachment,
   FileTypeSupported,
 } from '@shinkai_network/shinkai-node-state/v2/queries/getChatConversation/types';
+import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
 import * as fs from '@tauri-apps/plugin-fs';
 import { BaseDirectory } from '@tauri-apps/plugin-fs';
 import { partial } from 'filesize';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CircleSlashIcon, XIcon } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
-import { fileIconMap, FileTypeIcon, PaperClipIcon } from '../../assets/icons';
+import {
+  DownloadIcon,
+  ExternalLinkIcon,
+  fileIconMap,
+  FileTypeIcon,
+  PaperClipIcon,
+} from '../../assets/icons';
 import { getFileExt } from '../../helpers/file';
 import { cn } from '../../utils';
 import { Avatar, AvatarFallback, AvatarImage } from '../avatar';
@@ -36,6 +43,60 @@ export const isImageFile = (file: string) => {
 };
 
 const size = partial({ standard: 'jedec' });
+
+const resolveNodeStorageRelativePath = (filePath?: string | null) => {
+  if (!filePath) return null;
+
+  let normalizedPath = filePath.trim();
+  if (!normalizedPath) return null;
+
+  if (normalizedPath.startsWith('shinkai://file/')) {
+    normalizedPath = normalizedPath.slice('shinkai://file/'.length);
+  }
+
+  if (normalizedPath.startsWith('@@')) {
+    normalizedPath = normalizedPath.slice(2);
+    const segments = normalizedPath.split('/').filter(Boolean);
+
+    if (segments.length === 0) return null;
+
+    segments.shift();
+
+    if (segments[0] && segments[0].toLowerCase() === 'main') {
+      segments.shift();
+    }
+
+    normalizedPath = segments.join('/');
+  }
+
+  normalizedPath = normalizedPath.replace(/^\/+/, '');
+
+  if (!normalizedPath) return null;
+
+  const segments = normalizedPath.split('/').filter(Boolean);
+  if (segments.length === 0) return null;
+
+  const firstSegment = segments[0];
+
+  if (
+    firstSegment === 'tools_storage' ||
+    firstSegment === 'filesystem' ||
+    firstSegment === 'internal_tools_storage' ||
+    firstSegment === 'main_db'
+  ) {
+    return segments.join('/');
+  }
+
+  if (firstSegment === 'global-cache') {
+    return ['tools_storage', ...segments].join('/');
+  }
+
+  if (firstSegment.startsWith('jobid_')) {
+    return ['tools_storage', ...segments].join('/');
+  }
+
+  return ['tools_storage', ...segments].join('/');
+};
 
 const ImagePreview = ({
   name,
@@ -162,10 +223,14 @@ const FullscreenDialog = ({
   content,
   setOpen,
   onDownload,
+  onOpenInSystem,
+  isOpeningInSystem,
 }: Pick<Attachment, 'name' | 'url' | 'content' | 'type'> & {
   open: boolean;
   setOpen: (open: boolean) => void;
   onDownload?: () => void;
+  onOpenInSystem?: () => void | Promise<void>;
+  isOpeningInSystem?: boolean;
 }) => (
   <Dialog onOpenChange={setOpen} open={open}>
     <DialogContent className="flex size-full max-h-[99vh] max-w-[99vw] flex-col gap-2 bg-transparent p-1 py-8">
@@ -174,7 +239,22 @@ const FullscreenDialog = ({
           {name}
         </div>
         <div className="flex items-center gap-4">
+          {onOpenInSystem && (
+            <Button
+              disabled={isOpeningInSystem}
+              isLoading={isOpeningInSystem}
+              onClick={() => {
+                void onOpenInSystem();
+              }}
+              size="xs"
+              variant="outline"
+            >
+              <ExternalLinkIcon className="size-4" />
+              Open in default app
+            </Button>
+          )}
           <Button onClick={onDownload} size="xs" variant="outline">
+            <DownloadIcon className="size-4" />
             Download
           </Button>
           <DialogClose>
@@ -226,8 +306,14 @@ export const FilePreview = ({
   content,
   blob,
   type,
+  path,
 }: Attachment) => {
   const [open, setOpen] = useState(false);
+  const [isOpeningInSystem, setIsOpeningInSystem] = useState(false);
+  const resolvedRelativePath = useMemo(
+    () => resolveNodeStorageRelativePath(path),
+    [path],
+  );
 
   const fileName = decodeURIComponent(name).split('/').at(-1) ?? '';
 
@@ -278,6 +364,25 @@ export const FilePreview = ({
 
           toast.success(`${fileName} downloaded successfully`);
         }}
+        onOpenInSystem={
+          resolvedRelativePath
+            ? async () => {
+                try {
+                  console.log('resolvedRelativePath', resolvedRelativePath);
+                  setIsOpeningInSystem(true);
+                  await invoke('shinkai_node_open_storage_location_with_path', {
+                    relativePath: resolvedRelativePath,
+                  });
+                } catch (error) {
+                  console.error('Failed to open file in system:', error);
+                  toast.error('Failed to open file in system');
+                } finally {
+                  setIsOpeningInSystem(false);
+                }
+              }
+            : undefined
+        }
+        isOpeningInSystem={isOpeningInSystem}
         open={open}
         setOpen={setOpen}
         type={type}

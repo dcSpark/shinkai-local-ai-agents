@@ -502,6 +502,7 @@
       "description": "最初のAIを接続して、Shinkai AIに質問を始めてください。OpenAIを接続してみてください。",
       "title": "利用可能なAIがありません"
     },
+    "searchPlaceholder": "AIを検索",
     "success": {
       "createAgent": "AIが正常に作成されました",
       "deleteAgent": "AIが正常に削除されました",

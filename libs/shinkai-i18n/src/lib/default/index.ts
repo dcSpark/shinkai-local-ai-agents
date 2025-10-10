@@ -632,6 +632,7 @@ export default {
   llmProviders: {
     label: 'AIs',
     add: 'Add AI',
+    searchPlaceholder: 'Search AIs',
     addManually: 'Manually Add AI',
     delete: {
       label: 'Delete AI',

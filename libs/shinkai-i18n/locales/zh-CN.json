@@ -502,6 +502,7 @@
       "description": "连接您的第一个人工智能以开始向Shinkai AI提问。尝试连接OpenAI",
       "title": "没有可用的人工智能"
     },
+    "searchPlaceholder": "搜索 AI",
     "success": {
       "createAgent": "成功创建人工智能",
       "deleteAgent": "成功删除人工智能",

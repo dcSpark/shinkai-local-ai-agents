@@ -31,6 +31,7 @@ import {
   SheetHeader,
   SheetTitle,
   TextField,
+  SearchInput,
   Tooltip,
   TooltipContent,
   TooltipPortal,
@@ -63,6 +64,29 @@ const AIsPage = () => {
   const isLocalShinkaiNodeIsUse = useShinkaiNodeManager(
     (state) => state.isInUse,
   );
+
+  const [searchQuery, setSearchQuery] = React.useState('');
+
+  const filteredLLMProviders = React.useMemo(() => {
+    if (!llmProviders) return [];
+
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    if (!normalizedQuery) return llmProviders;
+
+    return llmProviders.filter((provider) => {
+      const valuesToMatch = [
+        provider.name ?? '',
+        provider.description ?? '',
+        provider.id ?? '',
+        provider.model ?? '',
+        provider.external_url ?? '',
+      ];
+
+      return valuesToMatch.some((value) =>
+        value.toLowerCase().includes(normalizedQuery),
+      );
+    });
+  }, [llmProviders, searchQuery]);
 
   const onAddAgentClick = () => {
     if (isLocalShinkaiNodeIsUse) {
@@ -116,17 +140,33 @@ const AIsPage = () => {
             </div>
           ) : (
             <div className="flex flex-col gap-3">
-              {llmProviders?.map((llmProvider) => (
-                <LLMProviderCard
-                  agentApiKey={llmProvider.api_key ?? ''}
-                  description={llmProvider.description}
-                  externalUrl={llmProvider.external_url ?? ''}
-                  key={llmProvider.id}
-                  llmProviderId={llmProvider.id}
-                  model={llmProvider.model}
-                  name={llmProvider.name ?? ''}
-                />
-              ))}
+              <SearchInput
+                classNames={{ input: 'bg-transparent' }}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder={t('llmProviders.searchPlaceholder')}
+                value={searchQuery}
+              />
+              {filteredLLMProviders.length ? (
+                <div className="flex flex-col gap-3">
+                  {filteredLLMProviders.map((llmProvider) => (
+                    <LLMProviderCard
+                      agentApiKey={llmProvider.api_key ?? ''}
+                      description={llmProvider.description}
+                      externalUrl={llmProvider.external_url ?? ''}
+                      key={llmProvider.id}
+                      llmProviderId={llmProvider.id}
+                      model={llmProvider.model}
+                      name={llmProvider.name ?? ''}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center text-center">
+                  <p className="text-text-secondary text-sm font-medium">
+                    {t('common.noResultsFound')}
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>

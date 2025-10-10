@@ -57,7 +57,14 @@ import { invoke } from '@tauri-apps/api/core';
 import equal from 'fast-deep-equal';
 import { partial } from 'filesize';
 import { motion } from 'framer-motion';
-import { EllipsisIcon, Loader2, Paperclip, X, XIcon } from 'lucide-react';
+import {
+  EllipsisIcon,
+  Loader2,
+  Paperclip,
+  Quote,
+  X,
+  XIcon,
+} from 'lucide-react';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
 import { useForm } from 'react-hook-form';
@@ -198,6 +205,9 @@ function ConversationChatFooter({
   const promptSelected = usePromptSelectionStore(
     (state) => state.promptSelected,
   );
+
+  const quotedText = useChatStore((state) => state.quotedText);
+  const setQuotedText = useChatStore((state) => state.setQuotedText);
 
   const chatForm = useForm<ChatMessageFormSchema>({
     resolver: zodResolver(chatMessageFormSchema),
@@ -402,6 +412,11 @@ function ConversationChatFooter({
 
       let content = data.message;
 
+      // Prepend quoted text if present
+      if (quotedText) {
+        content = `> ${quotedText}\n\n${data.message}`;
+      }
+
       if (selectedTool) {
         content = `${selectedTool.name} \n ${formattedToolMessage}`;
       }
@@ -422,6 +437,7 @@ function ConversationChatFooter({
     }
     chatForm.reset();
     setToolFormData(null);
+    setQuotedText(null); // Clear quoted text after sending
   };
 
   useEffect(() => {
@@ -643,6 +659,24 @@ function ConversationChatFooter({
                 textareaClassName="p-4 text-sm"
                 topAddons={
                   <>
+                    {quotedText && (
+                      <div className="bg-bg-quaternary mx-3 mt-3 flex items-start gap-2 rounded-lg p-3">
+                        <Quote className="text-text-secondary mt-0.5 h-4 w-4 shrink-0" />
+                        <div className="flex-1">
+                          <p className="text-text-secondary line-clamp-3 text-xs">
+                            "{quotedText}"
+                          </p>
+                        </div>
+                        <Button
+                          className="h-6 w-6 shrink-0"
+                          onClick={() => setQuotedText(null)}
+                          size="icon"
+                          variant="tertiary"
+                        >
+                          <X className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    )}
                     {isDragActive && <DropFileActive />}
                     {!isDragActive &&
                       currentFiles &&

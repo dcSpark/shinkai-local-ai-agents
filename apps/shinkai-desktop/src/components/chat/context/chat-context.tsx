@@ -1,6 +1,6 @@
 import { type Artifact } from '@shinkai_network/shinkai-node-state/v2/queries/getChatConversation/types';
 import { createContext, useContext, useState } from 'react';
-import { createStore, useStore  } from 'zustand';
+import { createStore, useStore } from 'zustand';
 
 export type ToolView = 'form' | 'raw';
 
@@ -12,6 +12,9 @@ type ChatStore = {
   setChatToolView: (chatToolView: ToolView) => void;
   toolRawInput: string;
   setToolRawInput: (toolRawInput: string) => void;
+  // quoted text from message selection
+  quotedText: string | null;
+  setQuotedText: (quotedText: string | null) => void;
 };
 
 const createChatStore = () =>
@@ -25,6 +28,9 @@ const createChatStore = () =>
 
     toolRawInput: '',
     setToolRawInput: (toolRawInput: string) => set({ toolRawInput }),
+
+    quotedText: null,
+    setQuotedText: (quotedText: string | null) => set({ quotedText }),
   }));
 
 const ChatContext = createContext<ReturnType<typeof createChatStore> | null>(

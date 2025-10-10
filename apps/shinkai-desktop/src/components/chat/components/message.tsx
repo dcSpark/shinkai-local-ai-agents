@@ -53,20 +53,29 @@ import { format } from 'date-fns';
 import equal from 'fast-deep-equal';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
+  BotIcon,
+  Cpu,
   Edit3,
   GitFork,
   InfoIcon,
+  Loader,
   Loader2,
+  QuoteIcon,
   RotateCcw,
   Unplug,
+  User,
   XCircle,
   Zap,
-  User,
-  Cpu,
-  BotIcon,
-  Loader,
 } from 'lucide-react';
-import React, { Fragment, memo, useEffect, useMemo, useState } from 'react';
+import React, {
+  Fragment,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useForm } from 'react-hook-form';
 import { Link } from 'react-router';
 import { z } from 'zod';
@@ -206,6 +215,7 @@ export const MessageBase = ({
 
   const selectedArtifact = useChatStore((state) => state.selectedArtifact);
   const setArtifact = useChatStore((state) => state.setSelectedArtifact);
+  const setQuotedText = useChatStore((state) => state.setQuotedText);
 
   const auth = useAuth((state) => state.auth);
 
@@ -215,6 +225,14 @@ export const MessageBase = ({
 
   const [editing, setEditing] = useState(false);
   const [tracingOpen, setTracingOpen] = useState(false);
+  const [selectedText, setSelectedText] = useState<string | null>(null);
+  const [selectionRect, setSelectionRect] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    containerWidth: number;
+  } | null>(null);
+  const messageContentRef = useRef<HTMLDivElement>(null);
 
   const editMessageForm = useForm<EditMessageFormSchema>({
     resolver: zodResolver(editMessageFormSchema),
@@ -226,6 +244,90 @@ export const MessageBase = ({
   const { message: currentMessage } = editMessageForm.watch();
 
   const parentMessageId = message.metadata.parentMessageId;
+
+  const clearWindowSelection = useCallback(() => {
+    const selection = window.getSelection();
+    if (!selection) return;
+    selection.removeAllRanges();
+  }, []);
+
+  const handleSelectionUpdate = useCallback(() => {
+    if (editing) return;
+    const container = messageContentRef.current;
+    if (!container) return;
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed) {
+      setSelectedText(null);
+      setSelectionRect(null);
+      return;
+    }
+
+    const anchorNode = selection.anchorNode;
+    const focusNode = selection.focusNode;
+    if (!anchorNode || !focusNode) {
+      setSelectedText(null);
+      setSelectionRect(null);
+      return;
+    }
+
+    if (!container.contains(anchorNode) || !container.contains(focusNode)) {
+      setSelectedText(null);
+      setSelectionRect(null);
+      return;
+    }
+
+    if (selection.rangeCount === 0) {
+      setSelectedText(null);
+      setSelectionRect(null);
+      return;
+    }
+
+    const text = selection.toString().trim();
+    if (!text) {
+      setSelectedText(null);
+      setSelectionRect(null);
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    const rangeRect = range.getBoundingClientRect();
+    const firstRect =
+      rangeRect.width === 0 && rangeRect.height === 0
+        ? range.getClientRects()[0]
+        : rangeRect;
+
+    if (!firstRect) {
+      setSelectedText(null);
+      setSelectionRect(null);
+      return;
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const top = firstRect.top - containerRect.top + container.scrollTop;
+    const left = firstRect.left - containerRect.left + container.scrollLeft;
+
+    setSelectionRect({
+      top,
+      left,
+      width: Math.max(firstRect.width, 1),
+      containerWidth: containerRect.width,
+    });
+    setSelectedText((prev) => (prev === text ? prev : text));
+  }, [editing]);
+
+  const handleAskShinkai = useCallback(() => {
+    if (!selectedText) return;
+    setQuotedText(selectedText);
+    setSelectedText(null);
+    clearWindowSelection();
+    setSelectionRect(null);
+  }, [clearWindowSelection, selectedText, setQuotedText]);
+
+  const handleClearSelection = useCallback(() => {
+    setSelectedText(null);
+    clearWindowSelection();
+    setSelectionRect(null);
+  }, [clearWindowSelection]);
 
   const onSubmit = async (data: z.infer<typeof editMessageFormSchema>) => {
     if (message.role === 'user') {
@@ -248,6 +350,72 @@ export const MessageBase = ({
     }
     return null;
   }, [message.content]);
+
+  useEffect(() => {
+    if (!selectedText) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        handleClearSelection();
+      }
+    };
+
+    const handleReposition = () => {
+      handleSelectionUpdate();
+    };
+
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!messageContentRef.current) return;
+      if (messageContentRef.current.contains(event.target as Node)) {
+        return;
+      }
+      handleClearSelection();
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener('mousedown', handleClickOutside);
+    window.addEventListener('scroll', handleReposition, true);
+    window.addEventListener('resize', handleReposition);
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('scroll', handleReposition, true);
+      window.removeEventListener('resize', handleReposition);
+    };
+  }, [handleClearSelection, handleSelectionUpdate, selectedText]);
+
+  useEffect(() => {
+    if (editing) {
+      handleClearSelection();
+    }
+  }, [editing, handleClearSelection]);
+
+  useEffect(() => {
+    handleClearSelection();
+  }, [handleClearSelection, message.content, message.messageId]);
+
+  const truncatedSelection = useMemo(() => {
+    if (!selectedText) return null;
+    const maxLength = 200;
+    if (selectedText.length <= maxLength) {
+      return selectedText;
+    }
+    return `${selectedText.slice(0, maxLength)}…`;
+  }, [selectedText]);
+
+  const selectionButtonStyle = useMemo(() => {
+    if (!selectionRect) return null;
+    const offsetTop = Math.max(selectionRect.top - 2, 0);
+    const centerLeft = selectionRect.left + selectionRect.width / 2;
+    const clampedLeft = Math.min(
+      Math.max(centerLeft, 16),
+      selectionRect.containerWidth - 16,
+    );
+    return {
+      top: offsetTop,
+      left: clampedLeft,
+    };
+  }, [selectionRect]);
 
   const oauthUrl = useMemo(() => {
     return oauthUrlMatcherFromErrorMessage(message.content);
@@ -384,6 +552,10 @@ export const MessageBase = ({
                     'relative overflow-hidden pb-4 before:absolute before:right-0 before:bottom-0 before:left-0 before:h-10 before:animate-pulse before:bg-gradient-to-l before:from-gray-200 before:to-gray-200/10',
                   minimalistMode && 'rounded-xs px-2 pt-1.5 pb-1.5',
                 )}
+                onMouseUp={handleSelectionUpdate}
+                onPointerUp={handleSelectionUpdate}
+                onTouchEnd={handleSelectionUpdate}
+                ref={messageContentRef}
               >
                 {message.role === 'assistant' && message.reasoning && (
                   <Reasoning
@@ -602,6 +774,29 @@ export const MessageBase = ({
                     !!message.generatedFiles) && (
                     <GeneratedFiles message={message} />
                   )}
+
+                {selectedText && selectionButtonStyle && (
+                  <div
+                    className="pointer-events-none absolute z-10"
+                    style={{
+                      left: selectionButtonStyle.left,
+                      top: selectionButtonStyle.top,
+                      transform: 'translate(-50%, calc(-100% - 8px))',
+                    }}
+                  >
+                    <Button
+                      className="bg-bg-secondary text-text-default pointer-events-auto shadow-md"
+                      onClick={handleAskShinkai}
+                      size="xs"
+                      variant="outline"
+                      aria-label="Ask Shinkai about selection"
+                      title={truncatedSelection ?? undefined}
+                    >
+                      <QuoteIcon className="size-4" />
+                      Ask AI
+                    </Button>
+                  </div>
+                )}
               </div>
               {!isPending && !minimalistMode && (
                 <motion.div

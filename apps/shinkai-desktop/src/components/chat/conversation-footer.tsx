@@ -716,7 +716,6 @@ function ConversationChatFooter({
                     {isToolsListSuccess &&
                       toolsList?.map((tool) => (
                         <CommandItem
-                          className="data-[selected='true']:bg-gray-200"
                           key={tool.tool_router_key}
                           onSelect={() => {
                             setIsCommandOpen(false);

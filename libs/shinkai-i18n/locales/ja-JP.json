@@ -911,7 +911,8 @@
         "textCapability": "テキスト生成",
         "thinkingCapability": "思考",
         "toolCallingCapability": "ツール呼び出し",
-        "visionCapability": "画像からテキストへ"
+        "visionCapability": "画像からテキストへ",
+        "cloudCapability": "クラウド"
       },
       "poweredByOllama": "Ollamaの提供",
       "success": {

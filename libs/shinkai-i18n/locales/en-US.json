@@ -262,7 +262,8 @@
         "visionCapability": "Image To Text",
         "textCapability": "Text Generation",
         "thinkingCapability": "Thinking",
-        "toolCallingCapability": "Tool Calling"
+        "toolCallingCapability": "Tool Calling",
+        "cloudCapability": "Cloud"
       },
       "success": {
         "modelRemoved": "Model {{modelName}} removed successfully",

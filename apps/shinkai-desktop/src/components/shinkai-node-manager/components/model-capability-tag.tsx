@@ -1,7 +1,7 @@
 import { useTranslation } from '@shinkai_network/shinkai-i18n';
 import { Badge } from '@shinkai_network/shinkai-ui';
 import { cn } from '@shinkai_network/shinkai-ui/utils';
-import { ALargeSmall, Brain, Images, Wrench } from 'lucide-react';
+import { ALargeSmall, Brain, Cloud, Images, Wrench } from 'lucide-react';
 import { type ReactNode } from 'react';
 
 import { OllamaModelCapability } from '../../../lib/shinkai-node-manager/ollama-models';
@@ -33,6 +33,10 @@ export const ModelCapabilityTag = ({
     [OllamaModelCapability.ToolCalling]: {
       icon: <Wrench className="h-3.5 w-3.5" />,
       text: t('shinkaiNode.models.labels.toolCallingCapability'),
+    },
+    [OllamaModelCapability.Cloud]: {
+      icon: <Cloud className="h-3.5 w-3.5" />,
+      text: t('shinkaiNode.models.labels.cloudCapability'),
     },
   };
   return (

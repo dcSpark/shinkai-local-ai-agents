@@ -300,6 +300,7 @@ export default {
         textCapability: 'Text Generation',
         thinkingCapability: 'Thinking',
         toolCallingCapability: 'Tool Calling',
+        cloudCapability: 'Cloud',
       },
       success: {
         modelRemoved: 'Model {{modelName}} removed successfully',

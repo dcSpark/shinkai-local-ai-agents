@@ -911,7 +911,8 @@
         "textCapability": "Generasi Teks",
         "thinkingCapability": "Pemikiran",
         "toolCallingCapability": "Panggil Alat",
-        "visionCapability": "Gambar ke Teks"
+        "visionCapability": "Gambar ke Teks",
+        "cloudCapability": "Awan"
       },
       "poweredByOllama": "Didukung oleh Ollama",
       "success": {

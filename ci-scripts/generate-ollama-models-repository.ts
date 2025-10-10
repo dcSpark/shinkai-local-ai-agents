@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 import * as cheerio from 'cheerio';
 import * as z from 'zod';
 
@@ -19,18 +19,69 @@ const OllamaModelSchema = z.object({
   embedding: z.boolean(),
   vision: z.boolean(),
   thinking: z.boolean(),
+  cloud: z.boolean(),
 });
 
 type OllamaModelTag = z.infer<typeof OllamaModelTag>;
 export type OllamaModel = z.infer<typeof OllamaModelSchema>;
 
+// Add delay utility for rate limiting
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Retry logic with exponential backoff
+async function retryWithBackoff<T>(
+  fn: () => Promise<T>,
+  retries = 3,
+  delayMs = 1000,
+  context = ''
+): Promise<T> {
+  for (let i = 0; i < retries; i++) {
+    try {
+      return await fn();
+    } catch (error) {
+      const isLastRetry = i === retries - 1;
+      if (isLastRetry) {
+        throw error;
+      }
+      
+      const waitTime = delayMs * Math.pow(2, i);
+      console.warn(
+        `${context} - Attempt ${i + 1} failed. Retrying in ${waitTime}ms...`,
+        error instanceof Error ? error.message : String(error)
+      );
+      await delay(waitTime);
+    }
+  }
+  throw new Error('Unreachable');
+}
+
 const getOllamaModelsHtml = async (): Promise<string> => {
-  const response = await axios.get('https://ollama.com/library');
+  const response = await retryWithBackoff(
+    () => axios.get('https://ollama.com/library', {
+      timeout: 30000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      },
+    }),
+    3,
+    2000,
+    'Fetching models list'
+  );
   return response.data;
 };
 
 const getOllamaModelTagsHtml = async (model: string): Promise<string> => {
-  const response = await axios.get(`https://ollama.com/library/${model}/tags`);
+  const response = await retryWithBackoff(
+    () => axios.get(`https://ollama.com/library/${model}/tags`, {
+      timeout: 30000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
+      },
+    }),
+    3,
+    2000,
+    `Fetching tags for ${model}`
+  );
   return response.data;
 };
 
@@ -48,6 +99,7 @@ const modelHtmlToObject = async (
   const embedding = uiTags.includes('embedding');
   const vision = uiTags.includes('vision');
   const thinking = uiTags.includes('thinking');
+  const cloud = uiTags.includes('cloud');
   const modelTagsHtml = await getOllamaModelTagsHtml(name);
   const modelTagsApi = cheerio.load(modelTagsHtml);
 
@@ -101,35 +153,97 @@ const modelHtmlToObject = async (
     embedding,
     vision,
     thinking,
+    cloud,
   };
 };
 const main = async () => {
-  const modelsHtml = await getOllamaModelsHtml();
-  const $ = cheerio.load(modelsHtml);
-  const modelsElement = $('#repo ul li a');
-  const models: OllamaModel[] = await Promise.all(
-    modelsElement.toArray().map(async (el) => {
-      const model = await modelHtmlToObject(el, $);
-      return model;
-    }),
-  );
-  models
-    .filter((model) => !model.name.includes('llama3.2'))
-    .forEach((model) => {
-      console.log('model', model);
-      const result = OllamaModelSchema.safeParse(model);
-      if (result.error) {
-        throw new Error(
-          `Error in model ${model.name}\n${JSON.stringify(result.error, undefined, 2)}`,
-        );
+  try {
+    console.log('Starting Ollama models repository generation...\n');
+    
+    console.log('Fetching models list from ollama.com...');
+    const modelsHtml = await getOllamaModelsHtml();
+    const $ = cheerio.load(modelsHtml);
+    const modelsElement = $('#repo ul li a');
+    const modelElements = modelsElement.toArray();
+    
+    console.log(`Found ${modelElements.length} models. Processing...\n`);
+    
+    // Process models sequentially with delay to avoid overwhelming the server
+    const models: OllamaModel[] = [];
+    const failedModels: { name: string; error: string }[] = [];
+    
+    for (let i = 0; i < modelElements.length; i++) {
+      const el = modelElements[i];
+      const modelName = $(el).find('div h2 span').text().trim();
+      
+      try {
+        console.log(`[${i + 1}/${modelElements.length}] Processing ${modelName}...`);
+        const model = await modelHtmlToObject(el, $);
+        models.push(model);
+        
+        // Add delay between requests to be respectful to the server
+        if (i < modelElements.length - 1) {
+          await delay(100); // 100ms delay between requests
+        }
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        console.error(`  ✗ Failed to process ${modelName}: ${errorMsg}`);
+        failedModels.push({ name: modelName, error: errorMsg });
       }
-    });
-  const outputPath = path.join(
-    __dirname,
-    '../apps/shinkai-desktop/src/lib/shinkai-node-manager/ollama-models-repository.json',
-  );
-  fs.writeFileSync(outputPath, JSON.stringify(models, null, 2), 'utf8');
-  console.log(`Models data has been written to ${outputPath}`);
+    }
+    
+    console.log(`\n✓ Successfully processed ${models.length} models`);
+    if (failedModels.length > 0) {
+      console.warn(`✗ Failed to process ${failedModels.length} models:`);
+      failedModels.forEach(({ name, error }) => {
+        console.warn(`  - ${name}: ${error}`);
+      });
+    }
+    
+    // Validate models
+    console.log('\nValidating models...');
+    const validatedModels = models
+      .filter((model) => !model.name.includes('llama3.2'))
+      .filter((model) => {
+        const result = OllamaModelSchema.safeParse(model);
+        if (result.error) {
+          console.error(
+            `Validation error in model ${model.name}:\n${JSON.stringify(result.error, undefined, 2)}`
+          );
+          return false;
+        }
+        return true;
+      });
+    
+    console.log(`✓ ${validatedModels.length} models validated successfully\n`);
+    
+    // Write to file
+    const outputPath = path.join(
+      __dirname,
+      '../apps/shinkai-desktop/src/lib/shinkai-node-manager/ollama-models-repository.json',
+    );
+    fs.writeFileSync(outputPath, JSON.stringify(validatedModels, null, 2), 'utf8');
+    console.log(`✓ Models data has been written to ${outputPath}`);
+    console.log(`\nTotal models saved: ${validatedModels.length}`);
+    
+    if (failedModels.length > 0) {
+      console.warn(`\nWarning: ${failedModels.length} models could not be processed.`);
+      process.exit(1);
+    }
+  } catch (error) {
+    console.error('\n✗ Fatal error:', error instanceof Error ? error.message : String(error));
+    if (error instanceof AxiosError) {
+      console.error('\nNetwork error details:');
+      console.error('  - Code:', error.code);
+      console.error('  - Message:', error.message);
+      if (error.code === 'ENOTFOUND') {
+        console.error('\n  This appears to be a DNS resolution error.');
+        console.error('  Please check your internet connection and DNS settings.');
+        console.error('  You may also need to check if ollama.com is accessible from your network.');
+      }
+    }
+    process.exit(1);
+  }
 };
 
-main();
+void main();

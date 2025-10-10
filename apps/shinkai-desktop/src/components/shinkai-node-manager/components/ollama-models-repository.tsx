@@ -38,6 +38,7 @@ import { z } from 'zod';
 
 import {
   FILTERED_OLLAMA_MODELS_REPOSITORY,
+  getCapabilitiesFromModel,
   type OllamaModelDefinition,
 } from '../../..//lib/shinkai-node-manager/ollama-models';
 import {
@@ -48,6 +49,7 @@ import {
   useShinkaiNodeGetDefaultModel,
   useShinkaiNodeGetOllamaApiUrlQuery,
 } from '../../../lib/shinkai-node-manager/shinkai-node-manager-client';
+import { ModelCapabilityTag } from './model-capability-tag';
 import { OllamaModelInstallButton } from './ollama-model-install-button';
 
 export const OllamaModelsRepository = ({
@@ -128,6 +130,14 @@ export const OllamaModelsRepository = ({
               <span className="text-text-secondary line-clamp-3 text-xs text-ellipsis">
                 {model.description}
               </span>
+              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                {getCapabilitiesFromModel(model).map((capability) => (
+                  <ModelCapabilityTag
+                    capability={capability}
+                    key={capability}
+                  />
+                ))}
+              </div>
             </div>
           );
         },

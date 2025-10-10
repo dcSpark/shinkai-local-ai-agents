@@ -62,7 +62,6 @@ import {
   EllipsisIcon,
   Loader2,
   Paperclip,
-  Quote,
   X,
   XIcon,
 } from 'lucide-react';

@@ -574,50 +574,78 @@ export const MessageBase = ({
                       {message.toolCalls.map((tool, index) => {
                         return (
                           <AccordionItem
-                            className="bg-bg-secondary border-divider overflow-hidden rounded-lg border"
+                            className="bg-bg-secondary border-divider flex w-full flex-col overflow-hidden rounded-lg border"
                             disabled={tool.status !== ToolStatusType.Complete}
                             key={`${tool.name}-${index}`}
                             value={`${tool.name}-${index}`}
                           >
-                            <div className="flex items-center">
-                              <AccordionTrigger
-                                className={cn(
-                                  'min-w-[10rem] flex-1 gap-3 py-0 pr-2 no-underline hover:no-underline',
-                                  'hover:bg-bg-default [&[data-state=open]]:bg-bg-default transition-colors',
-                                  tool.status !== ToolStatusType.Complete &&
-                                    '[&>svg]:hidden',
-                                )}
-                              >
-                                <ToolCard
-                                  args={tool.args}
-                                  name={tool.name}
-                                  status={
-                                    tool.status ?? ToolStatusType.Complete
-                                  }
-                                  toolRouterKey={tool.toolRouterKey}
-                                />
-                              </AccordionTrigger>
-                            </div>
-                            <AccordionContent className="bg-bg-secondary flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3 text-xs">
+                            <AccordionTrigger
+                              className={cn(
+                                'w-full min-w-[10rem] gap-3 py-0 pr-2 no-underline hover:no-underline',
+                                'hover:bg-bg-default transition-colors [&[data-state=open]]:w-full [&[data-state=open]]:border-b',
+                                tool.status !== ToolStatusType.Complete &&
+                                  '[&>svg]:hidden',
+                              )}
+                            >
+                              <ToolCard
+                                args={tool.args}
+                                name={tool.name}
+                                status={tool.status ?? ToolStatusType.Complete}
+                                toolRouterKey={tool.toolRouterKey}
+                              />
+                            </AccordionTrigger>
+
+                            <AccordionContent className="bg-bg-secondary divide-divider flex flex-col gap-1 divide-y rounded-b-lg pb-3 text-xs">
                               {Object.keys(tool.args).length > 0 && (
-                                <span className="text-text-default font-medium">
-                                  {tool.name}(
+                                <div className="flex flex-col gap-2 px-3 py-2">
+                                  <span className="text-text-secondary font-medium">
+                                    Params
+                                  </span>
                                   {Object.keys(tool.args).length > 0 && (
-                                    <span className="text-text-secondary font-mono font-medium">
+                                    <span className="text-text-default font-mono font-medium">
                                       <PrettyJsonPrint json={tool.args} />
                                     </span>
                                   )}
-                                  )
-                                </span>
+                                </div>
                               )}
                               {tool.result && (
-                                <div>
-                                  <span>Response:</span>
-                                  <span className="text-text-secondary font-mono break-all">
+                                <div className="flex flex-col gap-2 px-3 py-2">
+                                  <div className="flex flex-col gap-1">
+                                    <span className="text-text-secondary font-medium">
+                                      Result
+                                    </span>
+                                  </div>
+                                  <span className="text-text-default font-mono break-all">
                                     <PrettyJsonPrint json={tool.result} />
                                   </span>
                                 </div>
                               )}
+
+                              {tool.generatedFiles &&
+                                tool.generatedFiles.length > 0 &&
+                                tool.generatedFiles.some(
+                                  (file) => file.extension === 'log',
+                                ) && (
+                                  <div className="flex flex-col gap-2 px-3 py-2">
+                                    <span className="text-text-secondary font-medium">
+                                      View Logs
+                                    </span>
+                                    {tool.generatedFiles.length > 0 && (
+                                      <div className="flex flex-wrap gap-2">
+                                        {tool.generatedFiles
+                                          .filter(
+                                            (file) => file.extension === 'log',
+                                          )
+                                          .map((file) => (
+                                            <FileList
+                                              key={file.id}
+                                              files={[file]}
+                                            />
+                                          ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
                             </AccordionContent>
                           </AccordionItem>
                         );
@@ -1022,14 +1050,14 @@ export function ToolCard({
         transition={{ type: 'spring', duration: 0.3, bounce: 0 }}
         variants={variants}
       >
-        <div className="flex items-center gap-1 p-[5px]">
+        <div className="flex w-full items-center gap-1 p-[5px]">
           <div className="size-7 shrink-0 px-1.5">{renderStatus()}</div>
           <div className="flex items-center gap-1">
-            <span className="text-text-secondary text-em-sm">
-              {renderLabelText()}
+            <span className="text-text-secondary text-em-sm font-light">
+              {renderLabelText()}:
             </span>
             <Link
-              className="text-em-sm font-semibold hover:underline"
+              className="text-em-sm text-text-default font-semibold hover:underline"
               to={`/tools/${toolRouterKey}`}
             >
               {formatText(name)}
@@ -1165,7 +1193,7 @@ export const GeneratedFiles = ({ message }: { message: AssistantMessage }) => {
         url: file.url,
       })),
     ),
-  ];
+  ].filter((file) => file.extension !== 'log');
 
   // If no files exist, don't render anything
   if (allFiles.length === 0) {

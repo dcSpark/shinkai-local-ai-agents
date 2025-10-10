@@ -502,6 +502,7 @@
       "description": "Sambungkan AI pertama Anda untuk mulai bertanya kepada Shinkai AI. Coba sambungkan OpenAI",
       "title": "Tidak Ada AI Tersedia"
     },
+    "searchPlaceholder": "Cari AI",
     "success": {
       "createAgent": "AI berhasil dibuat",
       "deleteAgent": "AI berhasil dihapus",

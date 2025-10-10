@@ -502,6 +502,7 @@
       "description": "Conecta tu primera IA para empezar a preguntar a Shinkai IA. Intenta conectar OpenAI",
       "title": "No hay IA disponibles"
     },
+    "searchPlaceholder": "Buscar IA",
     "success": {
       "createAgent": "IA creada exitosamente",
       "deleteAgent": "IA eliminada exitosamente",

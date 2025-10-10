@@ -502,6 +502,7 @@
       "description": "İlk yapay zekanızı bağlayarak Shinkai AI ile soru sormaya başlayın. OpenAI'yi bağlamayı deneyin.",
       "title": "Mevcut Yapay Zeka Yok"
     },
+    "searchPlaceholder": "Yapay zeka ara",
     "success": {
       "createAgent": "Yapay Zeka başarıyla oluşturuldu",
       "deleteAgent": "Yapay Zeka başarıyla silindi",

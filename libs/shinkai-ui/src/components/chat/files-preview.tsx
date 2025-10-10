@@ -10,7 +10,7 @@ import { BaseDirectory } from '@tauri-apps/plugin-fs';
 import { partial } from 'filesize';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CircleSlashIcon, XIcon } from 'lucide-react';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
 
 import {
@@ -143,9 +143,187 @@ const FileInfo = ({
   </div>
 );
 
+const themeVariables = [
+  '--color-bg-default',
+  '--color-bg-secondary',
+  '--color-text-default',
+  '--color-text-secondary',
+  '--color-divider',
+  '--color-brand-500',
+  '--font-family-inter',
+] as const;
+
+const fallbackThemeValues: Record<(typeof themeVariables)[number], string> = {
+  '--color-bg-default': '#1e1e1e',
+  '--color-bg-secondary': '#262525',
+  '--color-text-default': '#f7f5f5',
+  '--color-text-secondary': '#b2aeae',
+  '--color-divider': 'rgba(255, 255, 255, 0.1)',
+  '--color-brand-500': '#fe6162',
+  '--font-family-inter':
+    "Inter, ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji'",
+};
+
+const HtmlPreview = ({
+  blob,
+  content,
+  name,
+  url,
+}: Pick<Attachment, 'blob' | 'content' | 'name' | 'url'>) => {
+  const [htmlContent, setHtmlContent] = useState<string | null>(
+    content ?? null,
+  );
+  const [isLoading, setIsLoading] = useState<boolean>(!content && !!blob);
+  const [error, setError] = useState<string | null>(null);
+  const [themeCss, setThemeCss] = useState<string>(
+    themeVariables
+      .map((variable) => `${variable}: ${fallbackThemeValues[variable]};`)
+      .join(' '),
+  );
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    if (content !== undefined && content !== null) {
+      setHtmlContent(content);
+      setIsLoading(false);
+      setError(null);
+      return;
+    }
+
+    if (!blob) {
+      setHtmlContent(null);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+
+    blob
+      .text()
+      .then((value) => {
+        if (isCancelled) return;
+        setHtmlContent(value);
+        setError(null);
+      })
+      .catch((err) => {
+        if (isCancelled) return;
+        console.error('Failed to read HTML blob:', err);
+        setError('Unable to preview this HTML file');
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setIsLoading(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [blob, content]);
+
+  useEffect(() => {
+    try {
+      const root = document.documentElement;
+      const computedStyle = getComputedStyle(root);
+      const cssVariables = themeVariables
+        .map((variable) => {
+          const value = computedStyle.getPropertyValue(variable).trim();
+          const resolved = value || fallbackThemeValues[variable];
+          return resolved ? `${variable}: ${resolved};` : null;
+        })
+        .filter(Boolean)
+        .join(' ');
+
+      if (cssVariables) {
+        setThemeCss(cssVariables);
+      }
+    } catch (err) {
+      console.warn('Failed to resolve theme variables for HTML preview:', err);
+    }
+  }, []);
+
+  const styleTag = useMemo(() => {
+    const baseStyles = `:root { ${themeCss} }
+body { margin: 0; padding: 1.5rem; background: var(--color-bg-default); color: var(--color-text-default); font-family: var(--font-family-inter); line-height: 1.6; }
+a { color: var(--color-brand-500); }
+table { width: 100%; border-collapse: collapse; }
+th, td { border: 1px solid var(--color-divider); padding: 0.5rem 0.75rem; text-align: left; }
+pre { background: var(--color-bg-secondary); padding: 0.75rem 1rem; border-radius: 0.75rem; overflow: auto; }
+code { font-family: inherit; }
+img, video, iframe { max-width: 100%; height: auto; }
+h1, h2, h3, h4, h5, h6 { color: var(--color-text-default); }
+p { color: var(--color-text-secondary); }
+`;
+
+    return `<style>${baseStyles}</style>`;
+  }, [themeCss]);
+
+  const htmlWithStyles = useMemo(() => {
+    if (htmlContent === null) return null;
+    const trimmed = htmlContent.trim();
+
+    if (!trimmed) {
+      return `<!doctype html><html><head>${styleTag}</head><body></body></html>`;
+    }
+
+    const hasHtmlTag = /<html[\s>]/i.test(trimmed);
+    const hasHeadTag = /<head[\s>]/i.test(trimmed);
+
+    if (hasHtmlTag) {
+      if (hasHeadTag) {
+        return trimmed.replace(/<head[^>]*>/i, (match) => `${match}${styleTag}`);
+      }
+
+      return trimmed.replace(
+        /<html[^>]*>/i,
+        (match) => `${match}<head>${styleTag}</head>`,
+      );
+    }
+
+    return `<!doctype html><html><head>${styleTag}</head><body>${trimmed}</body></html>`;
+  }, [htmlContent, styleTag]);
+
+  if (isLoading) {
+    return (
+      <div className="text-text-secondary flex h-full w-full items-center justify-center">
+        <span>Loading preview...</span>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-text-secondary flex h-full w-full items-center justify-center">
+        <span>{error}</span>
+      </div>
+    );
+  }
+
+  if (htmlContent === null && !url) {
+    return (
+      <div className="text-text-secondary flex h-full w-full items-center justify-center">
+        <span>Preview not available for this HTML file</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full w-full items-center justify-center">
+      <iframe
+        className="bg-bg-quaternary text-text-default h-full w-full"
+        sandbox="allow-same-origin"
+        src={htmlContent === null ? url : undefined}
+        srcDoc={htmlWithStyles ?? undefined}
+        title={name}
+      />
+    </div>
+  );
+};
+
 type FileContentViewerProps = Pick<
   Attachment,
-  'name' | 'url' | 'content' | 'type'
+  'name' | 'url' | 'content' | 'type' | 'blob'
 >;
 
 export const FileContentViewer: React.FC<FileContentViewerProps> = ({
@@ -153,6 +331,7 @@ export const FileContentViewer: React.FC<FileContentViewerProps> = ({
   content,
   url,
   type,
+  blob,
 }) => {
   switch (type) {
     case FileTypeSupported.Text: {
@@ -193,14 +372,7 @@ export const FileContentViewer: React.FC<FileContentViewerProps> = ({
     }
     case FileTypeSupported.Html: {
       return (
-        <div className="flex h-full w-full items-center justify-center">
-          <iframe
-            className="h-full w-full bg-gray-100"
-            sandbox="allow-same-origin"
-            src={url}
-            title={name}
-          />
-        </div>
+        <HtmlPreview blob={blob} content={content} name={name} url={url} />
       );
     }
     case FileTypeSupported.SqliteDatabase: {
@@ -221,11 +393,12 @@ const FullscreenDialog = ({
   type,
   url,
   content,
+  blob,
   setOpen,
   onDownload,
   onOpenInSystem,
   isOpeningInSystem,
-}: Pick<Attachment, 'name' | 'url' | 'content' | 'type'> & {
+}: Pick<Attachment, 'name' | 'url' | 'content' | 'type' | 'blob'> & {
   open: boolean;
   setOpen: (open: boolean) => void;
   onDownload?: () => void;
@@ -266,6 +439,7 @@ const FullscreenDialog = ({
       <div className="text-text-default flex size-full flex-col overflow-hidden rounded-l-xl p-10">
         <FileContentViewer
           content={content}
+          blob={blob}
           name={name}
           type={type}
           url={url}
@@ -335,6 +509,7 @@ export const FilePreview = ({
       </TooltipPortal>
       <FullscreenDialog
         content={content}
+        blob={blob}
         name={fileName}
         onDownload={async () => {
           const currentFile =

@@ -54,13 +54,13 @@ import equal from 'fast-deep-equal';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   BotIcon,
+  CornerDownRight,
   Cpu,
   Edit3,
   GitFork,
   InfoIcon,
   Loader,
   Loader2,
-  QuoteIcon,
   RotateCcw,
   Unplug,
   User,
@@ -597,16 +597,6 @@ export const MessageBase = ({
                                   toolRouterKey={tool.toolRouterKey}
                                 />
                               </AccordionTrigger>
-                              <Button
-                                variant="outline"
-                                size="xs"
-                                className="mr-2 ml-2 h-6 px-2"
-                                onClick={() => setTracingOpen(true)}
-                                onMouseDown={(e) => e.stopPropagation()}
-                                onKeyDown={(e) => e.stopPropagation()}
-                              >
-                                Network Tracing
-                              </Button>
                             </div>
                             <AccordionContent className="bg-bg-secondary flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3 text-xs">
                               {Object.keys(tool.args).length > 0 && (
@@ -792,8 +782,8 @@ export const MessageBase = ({
                       aria-label="Ask Shinkai about selection"
                       title={truncatedSelection ?? undefined}
                     >
-                      <QuoteIcon className="size-4" />
-                      Ask AI
+                      <CornerDownRight className="size-4" />
+                      Add to Chat
                     </Button>
                   </div>
                 )}

@@ -46,6 +46,10 @@ const modelOptions: { value: Models; label: string }[] = [
     label: 'OpenAI',
   },
   {
+    value: Models.OpenAILegacy,
+    label: 'OpenAI Legacy',
+  },
+  {
     value: Models.TogetherComputer,
     label: 'Together AI',
   },
@@ -90,6 +94,7 @@ const getGuideUrl = (model: Models) => {
 
   const urlMap = {
     [Models.OpenAI]: 'https://docs.shinkai.com/advanced/models/gpt',
+    [Models.OpenAILegacy]: 'https://docs.shinkai.com/advanced/models/gpt',
     [Models.TogetherComputer]:
       'https://docs.shinkai.com/advanced/models/together-ai',
     [Models.Ollama]: 'https://docs.shinkai.com/advanced/models/ollama',
@@ -112,6 +117,8 @@ export const getModelObject = (
   switch (model) {
     case Models.OpenAI:
       return { OpenAI: { model_type: modelType } };
+    case Models.OpenAILegacy:
+      return { OpenAILegacy: { model_type: modelType } };
     case Models.TogetherComputer:
       return { TogetherAI: { model_type: modelType } };
     case Models.Ollama:

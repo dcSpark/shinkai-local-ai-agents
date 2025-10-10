@@ -1,5 +1,6 @@
 export enum Models {
   OpenAI = 'open-ai',
+  OpenAILegacy = 'open-ai-legacy',
   TogetherComputer = 'togethercomputer',
   Ollama = 'ollama',
   Gemini = 'gemini',
@@ -13,6 +14,75 @@ export enum Models {
 
 export const modelsConfig = {
   [Models.OpenAI]: {
+    apiUrl: 'https://api.openai.com',
+    modelTypes: [
+      {
+        name: 'GPT 5',
+        value: 'gpt-5',
+      },
+      {
+        name: 'GPT 5 Mini',
+        value: 'gpt-5-mini',
+      },
+      {
+        name: 'GPT 5 Nano',
+        value: 'gpt-5-nano',
+      },
+      {
+        name: 'GPT 4o Mini',
+        value: 'gpt-4o-mini',
+      },
+      {
+        name: 'GPT 4o',
+        value: 'gpt-4o',
+      },
+      {
+        name: 'GPT 4-1106 Preview',
+        value: 'gpt-4-1106-preview',
+      },
+      {
+        name: 'GPT 4 Vision Preview',
+        value: 'gpt-4-vision-preview',
+      },
+      {
+        name: 'GPT 3.5 Turbo 1106',
+        value: 'gpt-3.5-turbo-1106',
+      },
+      {
+        name: 'GPT 4.1',
+        value: 'gpt-4.1',
+      },
+      {
+        name: 'GPT 4.1 Mini',
+        value: 'gpt-4.1-mini',
+      },
+      {
+        name: 'GPT 4.1 Nano',
+        value: 'gpt-4.1-nano',
+      },
+      {
+        name: '4o Preview',
+        value: '4o-preview',
+      },
+      {
+        name: '4o Mini',
+        value: '4o-mini',
+      },
+      {
+        name: 'o1',
+        value: 'o1',
+      },
+      {
+        name: 'o1 Mini',
+        value: 'o1-mini',
+      },
+      {
+        name: 'o3 Mini',
+        value: 'o3-mini',
+      },
+    ],
+  },
+  [Models.OpenAILegacy]: {
     apiUrl: 'https://api.openai.com',
     modelTypes: [
       {

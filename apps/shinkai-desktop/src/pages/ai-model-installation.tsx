@@ -45,6 +45,15 @@ const cloudProviders = [
       'OpenAI is an AI research lab that aims to ensure that artificial general intelligence benefits all of humanity.',
   },
   {
+    id: Models.OpenAILegacy,
+    prefix: ModelPrefix.OpenAILegacy,
+    name: 'OpenAI Legacy',
+    icon: <ProviderIcon provider={ModelProvider.OpenAI} />,
+    models: [],
+    description:
+      'OpenAI Legacy provider using the /chat/completions API endpoint for compatibility with older integrations.',
+  },
+  {
     id: Models.TogetherComputer,
     prefix: ModelPrefix.TogetherAI,
     name: 'Together AI',

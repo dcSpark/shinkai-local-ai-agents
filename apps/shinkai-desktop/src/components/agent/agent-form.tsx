@@ -152,37 +152,8 @@ import {
   useWebSocketTools,
 } from '../chat/websocket-message';
 import ToolDetailsCard from '../tools/components/tool-details-card';
+import { agentFormSchema, type AgentFormValues } from './agent-schema';
 import { TooConfigOverrideForm } from './tool-config-override-form';
-
-const agentFormSchema = z.object({
-  name: z.string(),
-  llmProviderId: z.string(),
-  uiDescription: z.string(),
-  storage_path: z.string(),
-  knowledge: z.array(z.string()),
-  tools: z.array(z.string()),
-  tools_config_override: z.record(z.record(z.any())).optional(),
-  debugMode: z.boolean(),
-  config: z
-    .object({
-      custom_prompt: z.string(),
-      custom_system_prompt: z.string(),
-      temperature: z.number(),
-      top_k: z.number(),
-      top_p: z.number(),
-      use_tools: z.boolean(),
-      stream: z.boolean(),
-      thinking: z.boolean(),
-      reasoning_effort: z.enum(['low', 'medium', 'high']).optional(),
-      web_search_enabled: z.boolean().optional(),
-      other_model_params: z.record(z.string()),
-    })
-    .nullable(),
-  cronExpression: z.string().optional(),
-  aiPrompt: z.string().optional(),
-});
-
-type AgentFormValues = z.infer<typeof agentFormSchema>;
 
 const TAB_VALUES = [
   'persona',
@@ -552,9 +523,8 @@ function AgentSideChat({
   );
 }
 
-function AgentForm({ mode }: AgentFormProps) {
+function AgentForm() {
   const { agentId } = useParams();
-  const { captureAnalyticEvent } = useAnalytics();
 
   const defaultAgentId = useSettings((state) => state.defaultAgentId);
   const auth = useAuth((state) => state.auth);
@@ -641,6 +611,8 @@ function AgentForm({ mode }: AgentFormProps) {
     token: auth?.api_v2_key ?? '',
     nodeAddress: auth?.node_address ?? '',
   });
+
+  console.log(agent, 'agent');
 
   const { data: llmProviders } = useGetLLMProviders({
     nodeAddress: auth?.node_address ?? '',
@@ -749,9 +721,8 @@ function AgentForm({ mode }: AgentFormProps) {
     });
   }, [form, thinkingConfig.forceEnabled]);
 
-  // Effect to handle initial agent data and schedule type
   useEffect(() => {
-    if (mode === 'edit' && agent) {
+    if (agent) {
       form.setValue('name', agent.name);
       form.setValue('uiDescription', agent.ui_description);
       form.setValue('storage_path', agent.storage_path);
@@ -762,20 +733,18 @@ function AgentForm({ mode }: AgentFormProps) {
       form.setValue('config', {
         custom_prompt: agent.config?.custom_prompt ?? '',
         custom_system_prompt: agent.config?.custom_system_prompt ?? '',
-        temperature:
-          agent.config?.temperature ?? DEFAULT_CHAT_CONFIG.temperature,
-        top_k: agent.config?.top_k ?? DEFAULT_CHAT_CONFIG.top_k,
-        top_p: agent.config?.top_p ?? DEFAULT_CHAT_CONFIG.top_p,
+        temperature: agent.config?.temperature as number,
+        top_k: agent.config?.top_k as number,
+        top_p: agent.config?.top_p as number,
         use_tools: agent.config?.use_tools ?? true,
-        thinking: agent.config?.thinking ?? DEFAULT_CHAT_CONFIG.thinking,
-        reasoning_effort:
-          agent.config?.reasoning_effort ??
-          DEFAULT_CHAT_CONFIG.reasoning_effort,
-        web_search_enabled:
-          agent.config?.web_search_enabled ??
-          DEFAULT_CHAT_CONFIG.web_search_enabled,
-        stream: agent.config?.stream ?? DEFAULT_CHAT_CONFIG.stream,
-        other_model_params: agent.config?.other_model_params ?? {},
+        thinking: agent.config?.thinking as boolean,
+        reasoning_effort: agent.config?.reasoning_effort,
+        web_search_enabled: agent.config?.web_search_enabled,
+        stream: agent.config?.stream as boolean,
+        other_model_params: agent.config?.other_model_params as Record<
+          string,
+          string
+        >,
       });
       form.setValue('llmProviderId', agent.llm_provider_id);
 
@@ -801,7 +770,6 @@ function AgentForm({ mode }: AgentFormProps) {
         form.setValue('aiPrompt', '');
       }
 
-      // Set selected files and folders
       if (
         agent.scope?.vector_fs_items?.length ||
         agent.scope?.vector_fs_folders?.length
@@ -837,17 +805,16 @@ function AgentForm({ mode }: AgentFormProps) {
   }, [
     agent,
     form,
-    mode,
     onSelectedKeysChange,
     selectedFileKeysRef,
     selectedFolderKeysRef,
   ]);
 
   useEffect(() => {
-    if (mode === 'edit' && isOpenQueryActive) {
+    if (isOpenQueryActive) {
       setIsSideChatOpen(true);
     }
-  }, [mode, isOpenQueryActive]);
+  }, [isOpenQueryActive]);
 
   // Auto-enable thinking if force enabled for the model
   useEffect(() => {
@@ -861,36 +828,15 @@ function AgentForm({ mode }: AgentFormProps) {
     token: auth?.api_v2_key ?? '',
   });
 
-  const { mutateAsync: createAgent, isPending: isCreating } = useCreateAgent({
-    onError: (error) => {
-      toast.error('Failed to create agent', {
-        description: error.response?.data?.message ?? error.message,
-      });
-    },
-  });
-
   const { mutateAsync: updateAgent, isPending: isUpdating } = useUpdateAgent({
     onError: (error) => {
-      toast.error('Failed to update agent core data', {
+      toast.error('Failed to update agent', {
         description: error.response?.data?.message ?? error.message,
       });
     },
   });
 
-  // Create a separate mutation for quick save without navigation
-  const { mutateAsync: quickSaveAgentMutation, isPending: isQuickSavePending } =
-    useUpdateAgent({
-      onError: (error) => {
-        toast.error('Failed to update agent', {
-          description: error.response?.data?.message ?? error.message,
-        });
-      },
-      onSuccess: () => {
-        toast.success('Agent updated successfully');
-      },
-    });
-
-  const quickSaveAgent = async () => {
+  const handleSaveAgent = async () => {
     if (!agent || !auth) return;
 
     try {
@@ -931,7 +877,7 @@ function AgentForm({ mode }: AgentFormProps) {
         },
       };
       // Call the update mutation WITHOUT cronExpression
-      await quickSaveAgentMutation({
+      await updateAgent({
         nodeAddress: auth.node_address,
         token: auth.api_v2_key,
         agent: agentData,
@@ -1015,7 +961,7 @@ function AgentForm({ mode }: AgentFormProps) {
     } catch (error: any) {
       console.error('Quick save error:', error);
       if (!error.response?.data?.message) {
-        toast.error('Failed to quick save agent schedule', {
+        toast.error('Failed to save agent schedule', {
           description: error.message || 'An unexpected error occurred.',
         });
       }
@@ -1101,10 +1047,12 @@ function AgentForm({ mode }: AgentFormProps) {
       return;
     }
 
-    const agentIdToUse =
-      mode === 'edit' && agent
-        ? agent.agent_id
-        : values.name.replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
+    const agentIdToUse = agent?.agent_id;
+    if (!agentIdToUse) {
+      toast.error('Agent ID is required');
+      return;
+    }
+
     const agentData = {
       agent_id: agentIdToUse,
       full_identity_name: `${auth.shinkai_identity}/main/agent/${agentIdToUse}`,
@@ -1124,7 +1072,7 @@ function AgentForm({ mode }: AgentFormProps) {
       },
     };
     try {
-      if (mode === 'edit' && agent) {
+      if (agent) {
         // Step 1: Update Agent Core Data
         await updateAgent({
           nodeAddress: auth.node_address,
@@ -1215,37 +1163,6 @@ function AgentForm({ mode }: AgentFormProps) {
             recurringTaskId: existingTask.task_id.toString(),
           });
         }
-
-        // --- End Cron Handling ---
-
-        // Step 3: Show success and navigate ONLY if all above steps succeeded
-        toast.success('Agent updated successfully!');
-        await navigate('/agents');
-      } else {
-        // --- Create New Agent ---
-        const cronToPass =
-          scheduleType === 'scheduled' ? values.cronExpression : undefined;
-        await createAgent(
-          {
-            // createAgent handles cron internally
-            nodeAddress: auth.node_address,
-            token: auth.api_v2_key,
-            agent: agentData,
-            cronExpression: cronToPass,
-          },
-          {
-            onSuccess: async () => {
-              toast.success('Agent created successfully!');
-              captureAnalyticEvent('Agent Created', undefined);
-
-              if (options?.openChat) {
-                await navigate(`/agents/edit/${agentIdToUse}?openChat=true`);
-              } else {
-                await navigate('/agents');
-              }
-            },
-          },
-        );
       }
     } catch (error: any) {
       // Catch errors from ANY await above
@@ -1257,14 +1174,10 @@ function AgentForm({ mode }: AgentFormProps) {
           description: error.message || 'An unexpected error occurred.',
         });
       }
-      // Do NOT navigate on error
     }
   };
 
-  const isPending =
-    mode === 'edit'
-      ? isUpdating || isCreatingTask || isRemovingTask
-      : isCreating || isCreatingTask;
+  const isPending = isUpdating || isCreatingTask || isRemovingTask;
 
   const currentCronExpression = form.watch('cronExpression');
 
@@ -1357,12 +1270,12 @@ function AgentForm({ mode }: AgentFormProps) {
                   : t('agents.form.createAgent')}
               </h1> */}
             </div>
-            {mode === 'edit' && agent && (
+            {agent && (
               <div className="flex gap-2">
                 <Button
                   className="flex items-center gap-2"
-                  isLoading={isQuickSavePending}
-                  onClick={quickSaveAgent}
+                  isLoading={isPending}
+                  onClick={handleSaveAgent}
                   size="sm"
                   variant="outline"
                 >
@@ -1429,15 +1342,12 @@ function AgentForm({ mode }: AgentFormProps) {
                             <TextField
                               autoFocus
                               field={field}
-                              helperMessage={
-                                mode === 'edit'
-                                  ? t('agents.create.agentNameHelperEdit', {
-                                      agentName: agent?.agent_id,
-                                    })
-                                  : t('agents.create.agentNameHelperCreate', {
-                                      agentName: form.watch('name'),
-                                    })
-                              }
+                              helperMessage={t(
+                                'agents.create.agentNameHelperEdit',
+                                {
+                                  agentName: agent?.agent_id,
+                                },
+                              )}
                               label={t('agents.create.agentName')}
                             />
                           )}
@@ -2615,10 +2525,8 @@ function AgentForm({ mode }: AgentFormProps) {
                         </div>
                         {/* Conditional rendering logic for schedule options */}
                         {/* Only show radio group if mode is 'add' OR if mode is 'edit' AND there are no existing tasks */}
-                        {(mode === 'add' ||
-                          (mode === 'edit' &&
-                            (!agent?.cron_tasks ||
-                              agent.cron_tasks.length === 0))) && (
+                        {(!agent?.cron_tasks ||
+                          agent.cron_tasks.length === 0) && (
                           <RadioGroup
                             className="space-y-3"
                             onValueChange={(value) => {
@@ -2789,62 +2697,60 @@ function AgentForm({ mode }: AgentFormProps) {
                           </RadioGroup>
                         )}
                         {/* Show current tasks only in edit mode if they exist */}
-                        {mode === 'edit' &&
-                          agent?.cron_tasks &&
-                          agent?.cron_tasks?.length > 0 && (
-                            <div className="mt-2 space-y-4">
-                              <div className="mb-2 flex items-center gap-2">
-                                <ScheduledTasksIcon className="text-text-default size-4" />
-                                <h4 className="text-sm font-medium">
-                                  Current Scheduled Task
-                                </h4>
-                              </div>
-                              <div className="mt-2 space-y-3">
-                                {/* Assuming only one task is manageable via this form */}
-                                {agent?.cron_tasks?.slice(0, 1).map((task) => (
-                                  <div
-                                    className="bg-bg-secondary flex items-center justify-between rounded-md border p-2"
-                                    key={task.task_id}
-                                  >
-                                    <div className="flex items-center gap-2 pl-1">
-                                      <div className="bg-brand/70 h-2 w-2 rounded-full" />
-                                      <span className="text-sm">
-                                        {cronstrue.toString(task.cron, {
-                                          throwExceptionOnParseError: false,
-                                        })}{' '}
-                                        ({task.cron})
-                                      </span>
-                                    </div>
-
-                                    <Button
-                                      className="text-text-secondary p-2 hover:bg-red-900/10 hover:text-red-400/90"
-                                      isLoading={isRemovingTask}
-                                      onClick={() =>
-                                        onDeleteTask(task.task_id.toString())
-                                      }
-                                      size="auto"
-                                      type="button"
-                                      variant="tertiary"
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                  </div>
-                                ))}
-                              </div>
-                              {/* Option to switch back to normal if a task exists */}
-                              <Button
-                                className="h-auto p-0 text-xs text-blue-400"
-                                onClick={() => {
-                                  setScheduleType('normal');
-                                  form.setValue('cronExpression', ''); // Clear expression when switching
-                                }}
-                                variant="link"
-                              >
-                                Switch back to Normal Usage (will remove
-                                schedule on save)
-                              </Button>
+                        {agent?.cron_tasks && agent?.cron_tasks?.length > 0 && (
+                          <div className="mt-2 space-y-4">
+                            <div className="mb-2 flex items-center gap-2">
+                              <ScheduledTasksIcon className="text-text-default size-4" />
+                              <h4 className="text-sm font-medium">
+                                Current Scheduled Task
+                              </h4>
                             </div>
-                          )}
+                            <div className="mt-2 space-y-3">
+                              {/* Assuming only one task is manageable via this form */}
+                              {agent?.cron_tasks?.slice(0, 1).map((task) => (
+                                <div
+                                  className="bg-bg-secondary flex items-center justify-between rounded-md border p-2"
+                                  key={task.task_id}
+                                >
+                                  <div className="flex items-center gap-2 pl-1">
+                                    <div className="bg-brand/70 h-2 w-2 rounded-full" />
+                                    <span className="text-sm">
+                                      {cronstrue.toString(task.cron, {
+                                        throwExceptionOnParseError: false,
+                                      })}{' '}
+                                      ({task.cron})
+                                    </span>
+                                  </div>
+
+                                  <Button
+                                    className="text-text-secondary p-2 hover:bg-red-900/10 hover:text-red-400/90"
+                                    isLoading={isRemovingTask}
+                                    onClick={() =>
+                                      onDeleteTask(task.task_id.toString())
+                                    }
+                                    size="auto"
+                                    type="button"
+                                    variant="tertiary"
+                                  >
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              ))}
+                            </div>
+                            {/* Option to switch back to normal if a task exists */}
+                            <Button
+                              className="h-auto p-0 text-xs text-blue-400"
+                              onClick={() => {
+                                setScheduleType('normal');
+                                form.setValue('cronExpression', ''); // Clear expression when switching
+                              }}
+                              variant="link"
+                            >
+                              Switch back to Normal Usage (will remove schedule
+                              on save)
+                            </Button>
+                          </div>
+                        )}
                       </div>
                     </TabsContent>
                   </Tabs>
@@ -2921,7 +2827,7 @@ function AgentForm({ mode }: AgentFormProps) {
                       ? t('common.save')
                       : t('common.next')}
                   </Button>
-                  {mode === 'add' && currentTab === 'schedule' && (
+                  {currentTab === 'schedule' && (
                     <Button
                       isLoading={isPending}
                       onClick={() => {
@@ -2986,7 +2892,7 @@ function AgentForm({ mode }: AgentFormProps) {
         onOpenChange={setIsAddFilesDialogOpen}
       />
       {/* Side Chat Panel */}
-      {isSideChatOpen && mode === 'edit' && agent && (
+      {isSideChatOpen && agent && (
         <>
           <ResizableHandle className="bg-divider" />
           <ResizablePanel

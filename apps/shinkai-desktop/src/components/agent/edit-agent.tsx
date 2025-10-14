@@ -1,7 +1,7 @@
 import AgentForm from './agent-form';
 
 function EditAgentPage() {
-  return <AgentForm mode="edit" />;
+  return <AgentForm />;
 }
 
 export default EditAgentPage;

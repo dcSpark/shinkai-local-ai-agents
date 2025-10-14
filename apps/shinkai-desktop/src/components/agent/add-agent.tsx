@@ -129,7 +129,6 @@ function AddAgentPage() {
               Give your agent a name that describes its role or function
             </p>
           </div>
-          {/* set name of agent */}
           <FormField
             control={form.control}
             name="name"

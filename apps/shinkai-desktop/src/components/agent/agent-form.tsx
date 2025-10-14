@@ -21,7 +21,6 @@ import {
   DEFAULT_CHAT_CONFIG,
   FunctionKeyV2,
 } from '@shinkai_network/shinkai-node-state/v2/constants';
-import { useCreateAgent } from '@shinkai_network/shinkai-node-state/v2/mutations/createAgent/useCreateAgent';
 import { useCreateJob } from '@shinkai_network/shinkai-node-state/v2/mutations/createJob/useCreateJob';
 import { useCreateRecurringTask } from '@shinkai_network/shinkai-node-state/v2/mutations/createRecurringTask/useCreateRecurringTask';
 import { useRemoveRecurringTask } from '@shinkai_network/shinkai-node-state/v2/mutations/removeRecurringTask/useRemoveRecurringTask';
@@ -114,30 +113,21 @@ import {
   ChevronDownIcon,
   ChevronRight,
   HistoryIcon,
-  LucideArrowLeft,
   MessageSquare,
   Trash2,
   XIcon,
 } from 'lucide-react';
 import { Tree, type TreeCheckboxSelectionKeys } from 'primereact/tree';
 import { type TreeNode } from 'primereact/treenode';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
-import {
-  Link,
-  type To,
-  useNavigate,
-  useParams,
-  useSearchParams,
-} from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
 import { toast } from 'sonner';
 import { merge } from 'ts-deepmerge';
-import { z } from 'zod';
 
 import { useSetJobScope } from '../../components/chat/context/set-job-scope-context';
 import { useURLQueryParams } from '../../hooks/use-url-query-params';
 import { treeOptions } from '../../lib/constants';
-import { useAnalytics } from '../../lib/posthog-provider';
 import { useChatConversationWithOptimisticUpdates } from '../../pages/chat/chat-conversation';
 import { useAuth } from '../../store/auth';
 import { useSettings } from '../../store/settings';
@@ -168,30 +158,6 @@ type TabValue = (typeof TAB_VALUES)[number];
 const isTabValue = (value: string | null): value is TabValue =>
   typeof value === 'string' &&
   TAB_VALUES.some((tabValue) => tabValue === value);
-
-const getPreviousTab = (tab: TabValue): TabValue | null => {
-  const index = TAB_VALUES.indexOf(tab);
-
-  if (index <= 0) {
-    return null;
-  }
-
-  return TAB_VALUES[index - 1];
-};
-
-const getNextTab = (tab: TabValue): TabValue | null => {
-  const index = TAB_VALUES.indexOf(tab);
-
-  if (index === -1 || index >= TAB_VALUES.length - 1) {
-    return null;
-  }
-
-  return TAB_VALUES[index + 1];
-};
-
-interface AgentFormProps {
-  mode: 'add' | 'edit';
-}
 
 const TabNavigation = () => {
   const { t } = useTranslation();
@@ -232,6 +198,23 @@ const TabNavigation = () => {
       </TabsTrigger>
     </TabsList>
   );
+};
+
+const cloneAgentFormValues = (values: AgentFormValues): AgentFormValues =>
+  JSON.parse(JSON.stringify(values)) as AgentFormValues;
+
+const cloneTreeSelection = (
+  keys: TreeCheckboxSelectionKeys | null,
+): TreeCheckboxSelectionKeys | null =>
+  keys ? (JSON.parse(JSON.stringify(keys)) as TreeCheckboxSelectionKeys) : null;
+
+const arraysHaveSameItems = (a: string[], b: string[]) => {
+  if (a.length !== b.length) {
+    return false;
+  }
+  const sortedA = [...a].sort();
+  const sortedB = [...b].sort();
+  return sortedA.every((value, index) => value === sortedB[index]);
 };
 
 function AgentSideChat({
@@ -649,6 +632,20 @@ function AgentForm() {
     },
   });
 
+  const initialFormValuesRef = useRef<AgentFormValues>(
+    cloneAgentFormValues(form.getValues()),
+  );
+  const initialScopeRef = useRef<{
+    selectedKeys: TreeCheckboxSelectionKeys | null;
+    files: string[];
+    folders: string[];
+  }>({
+    selectedKeys: cloneTreeSelection(selectedKeys),
+    files: Array.from(selectedFileKeysRef.values()),
+    folders: Array.from(selectedFolderKeysRef.values()),
+  });
+  const initialScheduleTypeRef = useRef<'normal' | 'scheduled'>(scheduleType);
+
   // Thinking support detection
   const currentLLMProviderId = form.watch('llmProviderId');
   const thinkingConfig = useMemo(() => {
@@ -722,86 +719,114 @@ function AgentForm() {
   }, [form, thinkingConfig.forceEnabled]);
 
   useEffect(() => {
-    if (agent) {
-      form.setValue('name', agent.name);
-      form.setValue('uiDescription', agent.ui_description);
-      form.setValue('storage_path', agent.storage_path);
-      form.setValue('knowledge', agent.knowledge);
-      form.setValue('tools', agent.tools);
-      form.setValue('tools_config_override', agent.tools_config_override ?? {});
-      form.setValue('debugMode', agent.debug_mode);
-      form.setValue('config', {
-        custom_prompt: agent.config?.custom_prompt ?? '',
-        custom_system_prompt: agent.config?.custom_system_prompt ?? '',
-        temperature: agent.config?.temperature as number,
-        top_k: agent.config?.top_k as number,
-        top_p: agent.config?.top_p as number,
-        use_tools: agent.config?.use_tools ?? true,
-        thinking: agent.config?.thinking as boolean,
-        reasoning_effort: agent.config?.reasoning_effort,
-        web_search_enabled: agent.config?.web_search_enabled,
-        stream: agent.config?.stream as boolean,
-        other_model_params: agent.config?.other_model_params as Record<
-          string,
-          string
-        >,
-      });
-      form.setValue('llmProviderId', agent.llm_provider_id);
+    if (!agent) {
+      selectedFileKeysRef.clear();
+      selectedFolderKeysRef.clear();
+      onSelectedKeysChange(null);
+      const snapshotValues = cloneAgentFormValues(form.getValues());
+      initialFormValuesRef.current = snapshotValues;
+      initialScopeRef.current = {
+        selectedKeys: null,
+        files: [],
+        folders: [],
+      };
+      initialScheduleTypeRef.current = 'normal';
+      return;
+    }
 
-      // Set schedule type and cron expression based on existing tasks
-      if (agent.cron_tasks && agent.cron_tasks.length > 0) {
-        setScheduleType('scheduled');
-        // Assuming only one cron task per agent for this form
-        form.setValue('cronExpression', agent.cron_tasks[0]?.cron ?? '');
+    form.setValue('name', agent.name);
+    form.setValue('uiDescription', agent.ui_description);
+    form.setValue('storage_path', agent.storage_path);
+    form.setValue('knowledge', agent.knowledge);
+    form.setValue('tools', agent.tools);
+    form.setValue('tools_config_override', agent.tools_config_override ?? {});
+    form.setValue('debugMode', agent.debug_mode);
+    form.setValue('config', {
+      custom_prompt: agent.config?.custom_prompt ?? '',
+      custom_system_prompt: agent.config?.custom_system_prompt ?? '',
+      temperature: agent.config?.temperature as number,
+      top_k: agent.config?.top_k as number,
+      top_p: agent.config?.top_p as number,
+      use_tools: agent.config?.use_tools ?? true,
+      thinking: agent.config?.thinking as boolean,
+      reasoning_effort: agent.config?.reasoning_effort,
+      web_search_enabled: agent.config?.web_search_enabled,
+      stream: agent.config?.stream as boolean,
+      other_model_params: agent.config?.other_model_params as Record<
+        string,
+        string
+      >,
+    });
+    form.setValue('llmProviderId', agent.llm_provider_id);
 
-        if (
-          agent.cron_tasks[0]?.action &&
-          'CreateJobWithConfigAndMessage' in agent.cron_tasks[0].action
-        ) {
-          form.setValue(
-            'aiPrompt',
-            agent.cron_tasks[0].action.CreateJobWithConfigAndMessage.message
-              .content ?? '',
-          );
-        }
-      } else {
-        setScheduleType('normal');
-        form.setValue('cronExpression', '');
-        form.setValue('aiPrompt', '');
-      }
+    const nextScheduleType =
+      agent.cron_tasks && agent.cron_tasks.length > 0 ? 'scheduled' : 'normal';
+    setScheduleType(nextScheduleType);
+
+    if (nextScheduleType === 'scheduled') {
+      form.setValue('cronExpression', agent?.cron_tasks?.[0]?.cron ?? '');
 
       if (
-        agent.scope?.vector_fs_items?.length ||
-        agent.scope?.vector_fs_folders?.length
+        agent?.cron_tasks?.[0]?.action &&
+        'CreateJobWithConfigAndMessage' in agent.cron_tasks[0].action
       ) {
-        const selectedVRFilesPathMap = agent.scope.vector_fs_items.reduce<
-          Record<string, { checked: boolean }>
-        >((acc: Record<string, { checked: boolean }>, filePath: string) => {
-          acc[filePath] = {
-            checked: true,
-          };
-          // Also populate the selectedFileKeysRef
-          selectedFileKeysRef.set(String(filePath), filePath);
-          return acc;
-        }, {});
-
-        const selectedVRFoldersPathMap = agent.scope.vector_fs_folders.reduce<
-          Record<string, { checked: boolean }>
-        >((acc: Record<string, { checked: boolean }>, folderPath: string) => {
-          acc[folderPath] = {
-            checked: true,
-          };
-          // Also populate the selectedFolderKeysRef
-          selectedFolderKeysRef.set(String(folderPath), folderPath);
-          return acc;
-        }, {});
-
-        onSelectedKeysChange({
-          ...selectedVRFilesPathMap,
-          ...selectedVRFoldersPathMap,
-        });
+        form.setValue(
+          'aiPrompt',
+          agent.cron_tasks[0].action.CreateJobWithConfigAndMessage.message
+            .content ?? '',
+        );
       }
+    } else {
+      form.setValue('cronExpression', '');
+      form.setValue('aiPrompt', '');
     }
+
+    selectedFileKeysRef.clear();
+    selectedFolderKeysRef.clear();
+
+    let selectionKeys: TreeCheckboxSelectionKeys | null = null;
+
+    if (
+      agent.scope?.vector_fs_items?.length ||
+      agent.scope?.vector_fs_folders?.length
+    ) {
+      const selectedVRFilesPathMap = agent.scope.vector_fs_items.reduce<
+        Record<string, { checked: boolean }>
+      >((acc: Record<string, { checked: boolean }>, filePath: string) => {
+        acc[filePath] = {
+          checked: true,
+        };
+        selectedFileKeysRef.set(String(filePath), filePath);
+        return acc;
+      }, {});
+
+      const selectedVRFoldersPathMap = agent.scope.vector_fs_folders.reduce<
+        Record<string, { checked: boolean }>
+      >((acc: Record<string, { checked: boolean }>, folderPath: string) => {
+        acc[folderPath] = {
+          checked: true,
+        };
+        selectedFolderKeysRef.set(String(folderPath), folderPath);
+        return acc;
+      }, {});
+
+      selectionKeys = {
+        ...selectedVRFilesPathMap,
+        ...selectedVRFoldersPathMap,
+      };
+      onSelectedKeysChange(selectionKeys);
+    } else {
+      onSelectedKeysChange(null);
+    }
+
+    const snapshotValues = cloneAgentFormValues(form.getValues());
+    initialFormValuesRef.current = snapshotValues;
+    initialScopeRef.current = {
+      selectedKeys: cloneTreeSelection(selectionKeys),
+      files: Array.from(selectedFileKeysRef.values()),
+      folders: Array.from(selectedFolderKeysRef.values()),
+    };
+    initialScheduleTypeRef.current = nextScheduleType;
   }, [
     agent,
     form,
@@ -958,6 +983,16 @@ function AgentForm() {
         // toast.error("Invalid Cron Expression. Quick save did not update schedule.");
       }
       // --- End Cron Handling ---
+
+      const snapshotValues = cloneAgentFormValues(values);
+      form.reset(snapshotValues);
+      initialFormValuesRef.current = snapshotValues;
+      initialScopeRef.current = {
+        selectedKeys: cloneTreeSelection(selectedKeys),
+        files: Array.from(selectedFileKeysRef.values()),
+        folders: Array.from(selectedFolderKeysRef.values()),
+      };
+      initialScheduleTypeRef.current = scheduleType;
     } catch (error: any) {
       console.error('Quick save error:', error);
       if (!error.response?.data?.message) {
@@ -966,6 +1001,27 @@ function AgentForm() {
         });
       }
     }
+  };
+
+  const handleClearChanges = () => {
+    const baselineValues = cloneAgentFormValues(initialFormValuesRef.current);
+    form.reset(baselineValues);
+    setScheduleType(initialScheduleTypeRef.current);
+
+    selectedFileKeysRef.clear();
+    selectedFolderKeysRef.clear();
+
+    initialScopeRef.current.files.forEach((path) => {
+      selectedFileKeysRef.set(String(path), path);
+    });
+    initialScopeRef.current.folders.forEach((path) => {
+      selectedFolderKeysRef.set(String(path), path);
+    });
+
+    const baselineSelectedKeys = cloneTreeSelection(
+      initialScopeRef.current.selectedKeys,
+    );
+    onSelectedKeysChange(baselineSelectedKeys);
   };
 
   const queryClient = useQueryClient();
@@ -1028,10 +1084,7 @@ function AgentForm() {
       },
     });
 
-  const submit = async (
-    values: AgentFormValues,
-    options?: { openChat?: boolean },
-  ) => {
+  const submit = async (values: AgentFormValues) => {
     if (!auth) {
       toast.error('Authentication details are missing.');
       return;
@@ -1164,6 +1217,16 @@ function AgentForm() {
           });
         }
       }
+
+      const snapshotValues = cloneAgentFormValues(values);
+      form.reset(snapshotValues);
+      initialFormValuesRef.current = snapshotValues;
+      initialScopeRef.current = {
+        selectedKeys: cloneTreeSelection(selectedKeys),
+        files: Array.from(selectedFileKeysRef.values()),
+        folders: Array.from(selectedFolderKeysRef.values()),
+      };
+      initialScheduleTypeRef.current = scheduleType;
     } catch (error: any) {
       // Catch errors from ANY await above
       console.error('Submit error:', error);
@@ -1199,6 +1262,25 @@ function AgentForm() {
       return null; // Invalid cron expression
     }
   }, [currentCronExpression]);
+
+  const currentSelectedFiles = Array.from(selectedFileKeysRef.values());
+  const currentSelectedFolders = Array.from(selectedFolderKeysRef.values());
+
+  const hasScopeChanges =
+    !arraysHaveSameItems(currentSelectedFiles, initialScopeRef.current.files) ||
+    !arraysHaveSameItems(
+      currentSelectedFolders,
+      initialScopeRef.current.folders,
+    );
+
+  const hasUnsavedChanges =
+    form.formState.isDirty ||
+    scheduleType !== initialScheduleTypeRef.current ||
+    hasScopeChanges;
+
+  const isCronInvalid =
+    scheduleType === 'scheduled' &&
+    (!currentCronExpression || !readableCronExpression);
 
   // --- Helper function to find a TreeNode by its key (path) in the tree ---
   const findNodeByKey = (
@@ -1313,7 +1395,7 @@ function AgentForm() {
           <Form {...form}>
             <form
               className="flex min-h-0 w-full flex-1 flex-col justify-between space-y-2"
-              // Pass values directly, options are handled inside submit
+              // Pass values directly to submit handler
               onSubmit={form.handleSubmit((values) => submit(values))}
             >
               <div className="mx-auto min-h-0 w-full flex-1 overflow-hidden">
@@ -2757,109 +2839,41 @@ function AgentForm() {
                 </div>
               </div>
 
-              <div className="bg-bg-default sticky bottom-0 bg-gradient-to-t to-transparent pb-10">
-                <div className="flex items-center justify-end gap-2">
-                  <Button
-                    className="min-w-[120px]"
-                    disabled={isPending}
-                    onClick={() => {
-                      const previousTab = getPreviousTab(currentTab);
-
-                      if (!previousTab) {
-                        void navigate(-1);
-                        return;
-                      }
-
-                      setCurrentTab(previousTab);
-                    }}
-                    size="sm"
-                    type="button"
-                    variant="outline"
-                  >
-                    {currentTab === 'persona'
-                      ? t('common.cancel')
-                      : t('common.back')}
-                  </Button>
-                  <Button
-                    isLoading={isPending}
-                    onClick={(e) => {
-                      // Check validity before navigating or submitting
-                      if (
-                        scheduleType === 'scheduled' &&
-                        (!form.watch('cronExpression') ||
-                          !readableCronExpression)
-                      ) {
-                        toast.error(
-                          'Invalid or empty Cron Expression for scheduled execution.',
-                        );
-                        e.preventDefault(); // Prevent moving forward
-                        setCurrentTab('schedule'); // Stay on schedule tab
-                        return;
-                      }
-
-                      const nextTab = getNextTab(currentTab);
-
-                      if (nextTab) {
-                        e.preventDefault();
-                        setCurrentTab(nextTab);
-                      }
-                      // If no next tab (i.e. current tab is 'schedule'), the button type is 'submit',
-                      // so default form submission occurs (handled by onSubmit)
-                    }}
-                    size="sm"
-                    title={
-                      scheduleType === 'scheduled' &&
-                      (!form.watch('cronExpression') || !readableCronExpression)
-                        ? 'Please enter a valid Cron Expression'
-                        : ''
-                    }
-                    type={currentTab === 'schedule' ? 'submit' : 'button'}
-                    className="min-w-[120px]"
-                    // Disable Next/Save if scheduleType is 'scheduled' but cron expression is invalid or empty
-                    disabled={
-                      isPending ||
-                      (scheduleType === 'scheduled' &&
-                        (!form.watch('cronExpression') ||
-                          !readableCronExpression))
-                    }
-                  >
-                    {currentTab === 'schedule'
-                      ? t('common.save')
-                      : t('common.next')}
-                  </Button>
-                  {currentTab === 'schedule' && (
-                    <Button
-                      isLoading={isPending}
-                      onClick={() => {
-                        // Trigger form validation and submission with the openChat option
-                        void form.handleSubmit((values) =>
-                          submit(values, { openChat: true }),
-                        )();
-                      }}
-                      size="sm"
-                      title={
-                        scheduleType === 'scheduled' &&
-                        (!form.watch('cronExpression') ||
-                          !readableCronExpression)
-                          ? 'Please enter a valid Cron Expression'
-                          : ''
-                      }
-                      type="button"
-                      className="flex min-w-[120px] items-center gap-2"
-                      // Also disable if schedule invalid
-                      disabled={
-                        isPending ||
-                        (scheduleType === 'scheduled' &&
-                          (!form.watch('cronExpression') ||
-                            !readableCronExpression))
-                      }
-                    >
-                      <MessageSquare className="h-4 w-4" />
-                      {t('agents.create.saveAndTestAgent')}
-                    </Button>
-                  )}
+              {hasUnsavedChanges && (
+                <div className="bg-bg-default border-divider sticky bottom-0 border-t px-4 py-4">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="text-text-secondary flex items-center gap-2 text-sm">
+                      <AlertCircle className="h-4 w-4 text-amber-500" />
+                      <span>You have unsaved changes</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        disabled={isPending}
+                        onClick={handleClearChanges}
+                        size="sm"
+                        type="button"
+                        variant="tertiary"
+                      >
+                        {t('common.clear')}
+                      </Button>
+                      <Button
+                        className="min-w-[120px]"
+                        disabled={isPending || isCronInvalid}
+                        isLoading={isPending}
+                        size="sm"
+                        title={
+                          isCronInvalid
+                            ? 'Please enter a valid Cron Expression'
+                            : ''
+                        }
+                        type="submit"
+                      >
+                        {t('common.save')}
+                      </Button>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              )}
             </form>
           </Form>
         </div>

@@ -1,7 +1,7 @@
 import z from 'zod';
 
 export const agentFormSchema = z.object({
-  name: z.string(),
+  name: z.string().max(50, 'Name must be 50 characters or less'),
   llmProviderId: z.string(),
   uiDescription: z.string(),
   storage_path: z.string(),

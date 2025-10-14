@@ -1,7 +1,15 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { DEFAULT_CHAT_CONFIG } from '@shinkai_network/shinkai-node-state/v2/constants';
 import { useCreateAgent } from '@shinkai_network/shinkai-node-state/v2/mutations/createAgent/useCreateAgent';
-import { Button, Form, Input } from '@shinkai_network/shinkai-ui';
+import {
+  Button,
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormMessage,
+  Input,
+} from '@shinkai_network/shinkai-ui';
 
 import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router';
@@ -24,8 +32,8 @@ function AddAgentPage() {
         description: error.response?.data?.message ?? error.message,
       });
     },
-    onSuccess: async (variables) => {
-      await navigate(`/agents/edit/${variables.agent_id}`);
+    onSuccess: async (_, variables) => {
+      await navigate(`/agents/edit/${variables.agent.agent_id}`);
       captureAnalyticEvent('Agent Created', undefined);
 
       // if (options?.openChat) {
@@ -112,17 +120,46 @@ function AddAgentPage() {
     <div className="flex h-full w-full flex-col items-center justify-center">
       <Form {...form}>
         <form
-          className="w-full max-w-md"
+          className="w-full max-w-md space-y-4"
           onSubmit={form.handleSubmit((values) => submit(values))}
         >
-          <div>
-            <h1>New Agent</h1>
-            {/* set name of agent */}
-            <Input {...form.register('name')} placeholder="Name of agent" />
-            <Button type="submit" disabled={isCreating} isLoading={isCreating}>
-              Create Agent
-            </Button>
+          <div className="space-y-1">
+            <h1 className="font-clash text-2xl font-medium">New Agent</h1>
+            <p className="text-text-secondary text-sm">
+              Give your agent a name that describes its role or function
+            </p>
           </div>
+          {/* set name of agent */}
+          <FormField
+            control={form.control}
+            name="name"
+            render={({ field }) => (
+              <FormItem>
+                <FormControl>
+                  <div className="relative">
+                    <Input
+                      className="h-10 w-full pt-2 pr-14"
+                      {...field}
+                      placeholder="eg: Sales Assistant, Customer Support, etc."
+                      maxLength={50}
+                    />
+                    <span className="text-text-secondary absolute top-1/2 right-3 -translate-y-1/2 text-xs">
+                      {field.value.length}/50
+                    </span>
+                  </div>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={isCreating}
+            isLoading={isCreating}
+          >
+            Create Agent
+          </Button>
         </form>
       </Form>
     </div>

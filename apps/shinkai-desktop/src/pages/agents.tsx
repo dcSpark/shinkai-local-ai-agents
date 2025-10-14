@@ -265,7 +265,19 @@ const AgentCard = ({
 
   return (
     <React.Fragment>
-      <div className="border-divider bg-bg-secondary flex items-center justify-between gap-1 rounded-lg border p-3.5">
+      <div
+        className="border-divider bg-bg-secondary hover:bg-bg-tertiary flex cursor-pointer items-center justify-between gap-1 rounded-lg border p-3.5 transition-colors"
+        onClick={() => {
+          void navigate(`/agents/edit/${agentId}`);
+        }}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            void navigate(`/agents/edit/${agentId}`);
+          }
+        }}
+      >
         <div className="flex items-start gap-3">
           <div className="flex size-8 items-center justify-center rounded-lg">
             <AIAgentIcon name={agentName} size="sm" />
@@ -296,6 +308,7 @@ const AgentCard = ({
                           className="text-text-secondary bg-bg-quaternary hover:text-text-default flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors"
                           key={task.task_id}
                           to={`/tasks/${task.task_id}`}
+                          onClick={(e) => e.stopPropagation()}
                         >
                           <ScheduledTasksIcon className="h-3 w-3" />
                           <span>
@@ -318,7 +331,10 @@ const AgentCard = ({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-4">
+        <div
+          className="flex items-center gap-4"
+          onClick={(e) => e.stopPropagation()}
+        >
           <TooltipProvider delayDuration={0}>
             <Tooltip>
               <TooltipTrigger asChild>

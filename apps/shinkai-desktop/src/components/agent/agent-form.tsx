@@ -39,6 +39,11 @@ import { useGetTools } from '@shinkai_network/shinkai-node-state/v2/queries/getT
 import { useGetSearchTools } from '@shinkai_network/shinkai-node-state/v2/queries/getToolsSearch/useGetToolsSearch';
 import {
   Badge,
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbSeparator,
   Button,
   buttonVariants,
   ChatInputArea,
@@ -179,6 +184,40 @@ const agentFormSchema = z.object({
 
 type AgentFormValues = z.infer<typeof agentFormSchema>;
 
+const TAB_VALUES = [
+  'persona',
+  'workflow',
+  'knowledge',
+  'tools',
+  'schedule',
+] as const;
+
+type TabValue = (typeof TAB_VALUES)[number];
+
+const isTabValue = (value: string | null): value is TabValue =>
+  typeof value === 'string' &&
+  TAB_VALUES.some((tabValue) => tabValue === value);
+
+const getPreviousTab = (tab: TabValue): TabValue | null => {
+  const index = TAB_VALUES.indexOf(tab);
+
+  if (index <= 0) {
+    return null;
+  }
+
+  return TAB_VALUES[index - 1];
+};
+
+const getNextTab = (tab: TabValue): TabValue | null => {
+  const index = TAB_VALUES.indexOf(tab);
+
+  if (index === -1 || index >= TAB_VALUES.length - 1) {
+    return null;
+  }
+
+  return TAB_VALUES[index + 1];
+};
+
 interface AgentFormProps {
   mode: 'add' | 'edit';
 }
@@ -186,41 +225,38 @@ interface AgentFormProps {
 const TabNavigation = () => {
   const { t } = useTranslation();
   return (
-    <TabsList className="border-divider flex h-auto justify-start gap-4 rounded-full bg-transparent px-0.5 py-1">
+    <TabsList className="border-divider flex h-auto justify-center gap-4 rounded-full bg-transparent px-0.5 py-1">
       <TabsTrigger
         className="data-[state=active]:bg-bg-secondary text-text-secondary border-divider data-[state=active]:text-text-default h-full gap-2 rounded-full border bg-transparent px-4 py-2 text-xs font-medium"
         value="persona"
       >
-        <Badge className="bg-bg-quaternary border-divider text-text-secondary inline-flex size-5 items-center justify-center rounded-full border-none p-0 text-center text-[10px]">
-          1
-        </Badge>
         <span>{t('agents.create.persona')}</span>
+      </TabsTrigger>
+      <TabsTrigger
+        className="data-[state=active]:bg-bg-secondary text-text-secondary border-divider data-[state=active]:text-text-default h-full gap-2 rounded-full border bg-transparent px-4 py-2 text-xs font-medium"
+        value="workflow"
+      >
+        <span>Workflow</span>
+        <Badge className="bg-bg-quaternary border-divider text-text-secondary inline-flex items-center justify-center rounded-full border-none p-0 text-center text-[10px]">
+          NEW
+        </Badge>
       </TabsTrigger>
       <TabsTrigger
         className="data-[state=active]:bg-bg-secondary text-text-secondary border-divider data-[state=active]:text-text-default h-full gap-2 rounded-full border bg-transparent px-4 py-2 text-xs font-medium"
         value="knowledge"
       >
-        <Badge className="bg-bg-quaternary border-divider text-text-secondary inline-flex size-5 items-center justify-center rounded-full border-none p-0 text-center text-[10px]">
-          2
-        </Badge>
         <span>{t('agents.create.knowledge')}</span>
       </TabsTrigger>
       <TabsTrigger
         className="data-[state=active]:bg-bg-secondary text-text-secondary border-divider data-[state=active]:text-text-default h-full gap-2 rounded-full border bg-transparent px-4 py-2 text-xs font-medium"
         value="tools"
       >
-        <Badge className="bg-bg-quaternary border-divider text-text-secondary inline-flex size-5 items-center justify-center rounded-full border-none p-0 text-center text-[10px]">
-          3
-        </Badge>
         <span>{t('agents.create.tools')}</span>
       </TabsTrigger>
       <TabsTrigger
         className="data-[state=active]:bg-bg-secondary text-text-secondary border-divider data-[state=active]:text-text-default h-full gap-2 rounded-full border bg-transparent px-4 py-2 text-xs font-medium"
         value="schedule"
       >
-        <Badge className="bg-bg-quaternary border-divider text-text-secondary inline-flex size-5 items-center justify-center rounded-full border-none p-0 text-center text-[10px]">
-          4
-        </Badge>
         <span>{t('agents.create.schedule')}</span>
       </TabsTrigger>
     </TabsList>
@@ -525,10 +561,13 @@ function AgentForm({ mode }: AgentFormProps) {
   const navigate = useNavigate();
   const { t } = useTranslation();
   const [searchParams] = useSearchParams();
-  type TabValue = 'persona' | 'knowledge' | 'tools' | 'schedule';
-  const defaultTabValue =
-    (searchParams.get('defaultTab') as TabValue) || 'persona';
+  const defaultTabParam = searchParams.get('defaultTab');
+  const defaultTabValue = isTabValue(defaultTabParam)
+    ? defaultTabParam
+    : 'persona';
+
   const [currentTab, setCurrentTab] = useState<TabValue>(defaultTabValue);
+  const isWorkflowTab = currentTab === 'workflow';
 
   const [isSideChatOpen, setIsSideChatOpen] = useState(false);
   const [selectedToolConfig, setSelectedToolConfig] = useState<null | string>(
@@ -1289,18 +1328,34 @@ function AgentForm({ mode }: AgentFormProps) {
         defaultSize={70}
         minSize={50}
       >
-        <div className="container flex h-full min-h-0 max-w-3xl flex-col">
+        <div
+          className={cn(
+            'flex h-full min-h-0 w-full flex-col',
+            isWorkflowTab ? 'px-6' : 'container max-w-3xl',
+          )}
+        >
           <div className="flex items-center justify-between pt-10 pb-6">
             <div className="flex items-center gap-5">
-              <Link to={isSideChatOpen ? '/agents' : (-1 as To)}>
-                <LucideArrowLeft />
-                <span className="sr-only">{t('common.back')}</span>
-              </Link>
-              <h1 className="font-clash text-2xl font-medium">
+              <Breadcrumb>
+                <BreadcrumbList>
+                  <BreadcrumbItem>
+                    <BreadcrumbLink asChild>
+                      <Link to="/agents">Agents</Link>
+                    </BreadcrumbLink>
+                  </BreadcrumbItem>
+                  <BreadcrumbSeparator />
+                  <BreadcrumbItem>
+                    <span className="text-text-default">
+                      {agent?.name || t('agents.form.createAgent')}
+                    </span>
+                  </BreadcrumbItem>
+                </BreadcrumbList>
+              </Breadcrumb>
+              {/* <h1 className="font-clash text-2xl font-medium">
                 {mode === 'edit'
                   ? t('agents.form.updateAgent')
                   : t('agents.form.createAgent')}
-              </h1>
+              </h1> */}
             </div>
             {mode === 'edit' && agent && (
               <div className="flex gap-2">
@@ -1353,11 +1408,11 @@ function AgentForm({ mode }: AgentFormProps) {
                   <Tabs
                     className="flex h-full min-h-0 flex-col gap-4"
                     defaultValue={defaultTabValue}
-                    onValueChange={(value) =>
-                      setCurrentTab(
-                        value as 'persona' | 'knowledge' | 'tools' | 'schedule',
-                      )
-                    }
+                    onValueChange={(value) => {
+                      if (isTabValue(value)) {
+                        setCurrentTab(value);
+                      }
+                    }}
                     value={currentTab}
                   >
                     <TabNavigation />
@@ -1822,6 +1877,15 @@ function AgentForm({ mode }: AgentFormProps) {
                             </div>
                           </CollapsibleContent>
                         </Collapsible>
+                      </div>
+                    </TabsContent>
+                    <TabsContent value="workflow">
+                      <div className="space-y-4">
+                        <div className="space-y-1">
+                          <h2 className="inline-flex items-center gap-2 text-base font-medium">
+                            Workflow
+                          </h2>
+                        </div>
                       </div>
                     </TabsContent>
 
@@ -2793,15 +2857,14 @@ function AgentForm({ mode }: AgentFormProps) {
                     className="min-w-[120px]"
                     disabled={isPending}
                     onClick={() => {
-                      if (currentTab === 'persona') {
+                      const previousTab = getPreviousTab(currentTab);
+
+                      if (!previousTab) {
                         void navigate(-1);
-                      } else if (currentTab === 'knowledge') {
-                        setCurrentTab('persona');
-                      } else if (currentTab === 'tools') {
-                        setCurrentTab('knowledge');
-                      } else if (currentTab === 'schedule') {
-                        setCurrentTab('tools'); // Go back to tools from schedule
+                        return;
                       }
+
+                      setCurrentTab(previousTab);
                     }}
                     size="sm"
                     type="button"
@@ -2828,17 +2891,13 @@ function AgentForm({ mode }: AgentFormProps) {
                         return;
                       }
 
-                      if (currentTab === 'persona') {
+                      const nextTab = getNextTab(currentTab);
+
+                      if (nextTab) {
                         e.preventDefault();
-                        setCurrentTab('knowledge');
-                      } else if (currentTab === 'knowledge') {
-                        e.preventDefault();
-                        setCurrentTab('tools');
-                      } else if (currentTab === 'tools') {
-                        e.preventDefault();
-                        setCurrentTab('schedule');
+                        setCurrentTab(nextTab);
                       }
-                      // If currentTab is 'schedule', the button type is 'submit',
+                      // If no next tab (i.e. current tab is 'schedule'), the button type is 'submit',
                       // so default form submission occurs (handled by onSubmit)
                     }}
                     size="sm"

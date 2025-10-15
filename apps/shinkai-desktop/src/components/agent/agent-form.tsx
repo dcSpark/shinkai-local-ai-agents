@@ -144,6 +144,7 @@ import {
 import ToolDetailsCard from '../tools/components/tool-details-card';
 import { agentFormSchema, type AgentFormValues } from './agent-schema';
 import { TooConfigOverrideForm } from './tool-config-override-form';
+import WorkflowEditor from './workflow-editor';
 
 const TAB_VALUES = [
   'persona',
@@ -530,6 +531,9 @@ function AgentForm() {
   const [scheduleType, setScheduleType] = useState<'normal' | 'scheduled'>(
     'normal',
   );
+  const [isWorkflowDirty, setIsWorkflowDirty] = useState(false);
+  const [workflowBaselineVersion, setWorkflowBaselineVersion] = useState(0);
+  const [workflowRestoreVersion, setWorkflowRestoreVersion] = useState(0);
 
   const [searchQueryKnowledge, setSearchQueryKnowledge] = useState('');
   const debouncedSearchQueryKnowledge = useDebounce(searchQueryKnowledge, 600);
@@ -594,8 +598,6 @@ function AgentForm() {
     token: auth?.api_v2_key ?? '',
     nodeAddress: auth?.node_address ?? '',
   });
-
-  console.log(agent, 'agent');
 
   const { data: llmProviders } = useGetLLMProviders({
     nodeAddress: auth?.node_address ?? '',
@@ -731,6 +733,9 @@ function AgentForm() {
         folders: [],
       };
       initialScheduleTypeRef.current = 'normal';
+      setWorkflowRestoreVersion((value) => value + 1);
+      setWorkflowBaselineVersion((value) => value + 1);
+      setIsWorkflowDirty(false);
       return;
     }
 
@@ -827,6 +832,9 @@ function AgentForm() {
       folders: Array.from(selectedFolderKeysRef.values()),
     };
     initialScheduleTypeRef.current = nextScheduleType;
+    setWorkflowRestoreVersion((value) => value + 1);
+    setWorkflowBaselineVersion((value) => value + 1);
+    setIsWorkflowDirty(false);
   }, [
     agent,
     form,
@@ -993,6 +1001,8 @@ function AgentForm() {
         folders: Array.from(selectedFolderKeysRef.values()),
       };
       initialScheduleTypeRef.current = scheduleType;
+      setWorkflowBaselineVersion((value) => value + 1);
+      setIsWorkflowDirty(false);
     } catch (error: any) {
       console.error('Quick save error:', error);
       if (!error.response?.data?.message) {
@@ -1022,6 +1032,8 @@ function AgentForm() {
       initialScopeRef.current.selectedKeys,
     );
     onSelectedKeysChange(baselineSelectedKeys);
+    setWorkflowRestoreVersion((value) => value + 1);
+    setIsWorkflowDirty(false);
   };
 
   const queryClient = useQueryClient();
@@ -1227,6 +1239,8 @@ function AgentForm() {
         folders: Array.from(selectedFolderKeysRef.values()),
       };
       initialScheduleTypeRef.current = scheduleType;
+      setWorkflowBaselineVersion((value) => value + 1);
+      setIsWorkflowDirty(false);
     } catch (error: any) {
       // Catch errors from ANY await above
       console.error('Submit error:', error);
@@ -1276,7 +1290,8 @@ function AgentForm() {
   const hasUnsavedChanges =
     form.formState.isDirty ||
     scheduleType !== initialScheduleTypeRef.current ||
-    hasScopeChanges;
+    hasScopeChanges ||
+    isWorkflowDirty;
 
   const isCronInvalid =
     scheduleType === 'scheduled' &&
@@ -1326,11 +1341,11 @@ function AgentForm() {
         <div
           className={cn(
             'flex h-full min-h-0 w-full flex-col',
-            isWorkflowTab ? 'px-6' : 'container max-w-3xl',
+            isWorkflowTab ? 'px-2' : 'container max-w-3xl',
           )}
         >
-          <div className="flex items-center justify-between pt-10 pb-6">
-            <div className="flex items-center gap-5">
+          <div className="flex items-center justify-between pt-6 pb-3">
+            <div className="flex items-center gap-5 px-4">
               <Breadcrumb>
                 <BreadcrumbList>
                   <BreadcrumbItem>
@@ -1346,11 +1361,6 @@ function AgentForm() {
                   </BreadcrumbItem>
                 </BreadcrumbList>
               </Breadcrumb>
-              {/* <h1 className="font-clash text-2xl font-medium">
-                {mode === 'edit'
-                  ? t('agents.form.updateAgent')
-                  : t('agents.form.createAgent')}
-              </h1> */}
             </div>
             {agent && (
               <div className="flex gap-2">
@@ -1871,14 +1881,15 @@ function AgentForm() {
                         </Collapsible>
                       </div>
                     </TabsContent>
-                    <TabsContent value="workflow">
-                      <div className="space-y-4">
-                        <div className="space-y-1">
-                          <h2 className="inline-flex items-center gap-2 text-base font-medium">
-                            Workflow
-                          </h2>
-                        </div>
-                      </div>
+                    <TabsContent
+                      className="min-h-0 flex-1 overflow-hidden"
+                      value="workflow"
+                    >
+                      <WorkflowEditor
+                        baselineKey={workflowBaselineVersion}
+                        onDirtyChange={setIsWorkflowDirty}
+                        restoreKey={workflowRestoreVersion}
+                      />
                     </TabsContent>
 
                     <TabsContent

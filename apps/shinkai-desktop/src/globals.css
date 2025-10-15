@@ -43,3 +43,8 @@ html {
 [class*='language-'] .token.token.table {
   @apply !inline;
 }
+
+.react-flow__attribution {
+  display: none !important;
+  pointer-events: none;
+}

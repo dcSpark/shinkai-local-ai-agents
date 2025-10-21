@@ -56,6 +56,10 @@ tauri-plugin-http = "2.5"
 
 fix-path-env = { git = "https://github.com/tauri-apps/fix-path-env-rs" }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc = "0.2"
+cocoa = "0.25"
+
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem
 # DO NOT REMOVE!!

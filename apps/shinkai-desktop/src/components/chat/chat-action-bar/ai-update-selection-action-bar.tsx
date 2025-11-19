@@ -69,11 +69,13 @@ const nonOllamaProviderModels = {
   'openai:gpt-4.1': 'Newest GPT‑4.1 model for high quality responses.',
   'openai:gpt-4.1-mini': 'Smaller GPT‑4.1 model offering lower cost.',
   'openai:gpt-4.1-nano': 'Fastest GPT‑4.1 variant for quick replies.',
+  'openai:gpt-5.1': 'OpenAI flagship model for coding and agentic tasks with configurable reasoning effort.',
   'openai:4o-preview': 'Preview version of GPT‑4o with multimodal support.',
   'openai:4o-mini': 'Compact GPT‑4o model balancing speed and quality.',
   'openai:o1': 'OpenAI lightweight reasoning model.',
   'openai:o1-mini': 'Smaller variant of OpenAI o1 model.',
   'openai:o3-mini': 'Mini version of OpenAI o3 model.',
+  'gemini:gemini-3-pro-preview': 'Google flagship model for complex reasoning across modalities with advanced thinking and coding capabilities.',
 } as Record<string, string>;
 
 export function AIModelSelectorBase({

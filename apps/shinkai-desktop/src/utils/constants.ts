@@ -45,6 +45,7 @@ export const MODELS_WITH_THINKING_SUPPORT = {
   'openai:gpt-5': { forceEnabled: false, reasoningLevel: true },
   'openai:gpt-5-mini': { forceEnabled: false, reasoningLevel: true },
   'openai:gpt-5-nano': { forceEnabled: false, reasoningLevel: true },
+  'openai:gpt-5.1': { forceEnabled: false, reasoningLevel: true },
   'openai:o1': { forceEnabled: false, reasoningLevel: true },
   'openai:o1-mini': { forceEnabled: false, reasoningLevel: true },
   'openai:o3': { forceEnabled: false, reasoningLevel: true },
@@ -53,6 +54,7 @@ export const MODELS_WITH_THINKING_SUPPORT = {
   'openai:o4-mini': { forceEnabled: false, reasoningLevel: true },  
 
   // Gemini models
+  'gemini:gemini-3-pro-preview': { forceEnabled: false, reasoningLevel: true },
   'gemini:gemini-2.5-pro': { forceEnabled: false, reasoningLevel: true },
   'gemini:gemini-2.5-flash': { forceEnabled: false, reasoningLevel: true },
   'gemini:gemini-2.5-flash-preview-05-20': { forceEnabled: false, reasoningLevel: true },

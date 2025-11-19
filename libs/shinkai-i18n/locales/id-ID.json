@@ -904,6 +904,7 @@
       },
       "labels": {
         "bookPages": "Hingga {{pages}} Halaman Konten",
+        "cloudCapability": "Awan",
         "models": "Model",
         "quality": "Kualitas",
         "showAll": "Tampilkan semua model",
@@ -912,8 +913,7 @@
         "textCapability": "Generasi Teks",
         "thinkingCapability": "Pemikiran",
         "toolCallingCapability": "Panggil Alat",
-        "visionCapability": "Gambar ke Teks",
-        "cloudCapability": "Awan"
+        "visionCapability": "Gambar ke Teks"
       },
       "poweredByOllama": "Didukung oleh Ollama",
       "success": {
@@ -940,6 +940,12 @@
       "stoppedNode": "Node Shinkai lokal Anda telah dihentikan",
       "stoppedOllama": "Ollama lokal Anda telah dihentikan",
       "syncedOllama": "Model Ollama lokal disinkronkan dengan Node Shinkai Anda"
+    },
+    "resetConfirmDialog": {
+      "cancel": "Batal",
+      "confirm": "Atur Ulang",
+      "description": "Apakah Anda yakin ingin mengatur ulang Shinkai Node Anda? Ini akan menghapus semua data Anda secara permanen, termasuk alat yang diinstal, agen, dan konfigurasi apa pun. Kami sangat menyarankan Anda untuk mencadangkan informasi penting terlebih dahulu.",
+      "title": "Atur Ulang Shinkai Node Anda"
     },
     "resetNodeWarning": {
       "description": "Node Shinkai Anda saat ini terkunci oleh kunci yang ada. Untuk terhubung kembali, Anda memiliki tiga pilihan:",

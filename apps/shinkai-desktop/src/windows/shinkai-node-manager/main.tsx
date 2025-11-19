@@ -2,6 +2,7 @@ import './globals.css';
 
 import { zodResolver } from '@hookform/resolvers/zod';
 import { PlayIcon, StopIcon } from '@radix-ui/react-icons';
+import { useTranslation } from '@shinkai_network/shinkai-i18n';
 import { useSyncOllamaModels } from '@shinkai_network/shinkai-node-state/v2/mutations/syncOllamaModels/useSyncOllamaModels';
 import {
   AlertDialog,
@@ -71,6 +72,7 @@ import { useSyncStorageSecondary } from '../../store/sync-utils';
 import { Logs } from './components/logs';
 
 const App = () => {
+  const { t } = useTranslation();
   useEffect(() => {
     void info('initializing shinkai-node-manager');
   }, []);
@@ -408,13 +410,14 @@ const App = () => {
       >
         <AlertDialogContent className="w-[75%]">
           <AlertDialogHeader>
-            <AlertDialogTitle>Reset your Shinkai Node</AlertDialogTitle>
+            <AlertDialogTitle>
+              {t('shinkaiNode.resetConfirmDialog.title')}
+            </AlertDialogTitle>
             <AlertDialogDescription>
               <div className="flex flex-col space-y-3 text-left text-white/70">
                 <div className="flex flex-col space-y-1">
                   <span className="text-sm">
-                    Are you sure you want to reset your Shinkai Node? This will
-                    permanently delete all your data.
+                    {t('shinkaiNode.resetConfirmDialog.description')}
                   </span>
                 </div>
               </div>
@@ -427,13 +430,13 @@ const App = () => {
                 setIsConfirmResetDialogOpened(false);
               }}
             >
-              Cancel
+              {t('shinkaiNode.resetConfirmDialog.cancel')}
             </AlertDialogCancel>
             <AlertDialogAction
               className="min-w-[120px]"
               onClick={() => handleReset()}
             >
-              Reset
+              {t('shinkaiNode.resetConfirmDialog.confirm')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

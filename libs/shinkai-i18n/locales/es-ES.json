@@ -904,6 +904,7 @@
       },
       "labels": {
         "bookPages": "Hasta {{pages}} páginas de contenido",
+        "cloudCapability": "Nube",
         "models": "Modelos",
         "quality": "Calidad",
         "showAll": "Mostrar todos los modelos",
@@ -912,8 +913,7 @@
         "textCapability": "Generación de Texto",
         "thinkingCapability": "Pensamiento",
         "toolCallingCapability": "Herramientas",
-        "visionCapability": "Imagen a Texto",
-        "cloudCapability": "Nube"
+        "visionCapability": "Imagen a Texto"
       },
       "poweredByOllama": "Desarrollado por Ollama",
       "success": {
@@ -940,6 +940,12 @@
       "stoppedNode": "Tu Nodo Shinkai local se detuvo",
       "stoppedOllama": "Tu Ollama local se detuvo",
       "syncedOllama": "Los modelos locales de Ollama se han sincronizado con tu Nodo Shinkai"
+    },
+    "resetConfirmDialog": {
+      "cancel": "Cancelar",
+      "confirm": "Restablecer",
+      "description": "¿Estás seguro de que deseas restablecer tu Nodo Shinkai? Esto eliminará permanentemente todos tus datos, incluidos las herramientas instaladas, agentes y cualquier configuración. Te recomendamos encarecidamente que hagas una copia de seguridad de la información importante primero.",
+      "title": "Restablecer tu Nodo Shinkai"
     },
     "resetNodeWarning": {
       "description": "Tu nodo Shinkai está actualmente bloqueado por claves existentes. Para volver a conectarte, puedes restablecer todos los datos de tu nodo Shinkai.",

@@ -288,6 +288,13 @@ export default {
       option3:
         '<b>Reset All:</b> Permanently delete all your Shinkai Node data including the encryption and signing keys.',
     },
+    resetConfirmDialog: {
+      title: 'Reset your Shinkai Node',
+      description:
+        'Are you sure you want to reset your Shinkai Node? This will permanently delete all your data, including installed tools, agents and any configuration. We strongly recommend you to backup important information first.',
+      cancel: 'Cancel',
+      confirm: 'Reset',
+    },
     models: {
       labels: {
         models: 'Models',

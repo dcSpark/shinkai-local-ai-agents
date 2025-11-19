@@ -904,6 +904,7 @@
       },
       "labels": {
         "bookPages": "İçerik için {{pages}} Sayfaya Kadar",
+        "cloudCapability": "Bulut",
         "models": "Modeller",
         "quality": "Kalite",
         "showAll": "Tüm modelleri göster",
@@ -912,8 +913,7 @@
         "textCapability": "Metin Üretimi",
         "thinkingCapability": "Düşünme",
         "toolCallingCapability": "Araç Çağrısı",
-        "visionCapability": "Görüntüden Metne",
-        "cloudCapability": "Bulut"
+        "visionCapability": "Görüntüden Metne"
       },
       "poweredByOllama": "Ollama tarafından desteklenmektedir",
       "success": {
@@ -940,6 +940,12 @@
       "stoppedNode": "Yerel Shinkai Düğümünüz durduruldu",
       "stoppedOllama": "Yerel Ollama'nız durduruldu",
       "syncedOllama": "Yerel Ollama modelleri Shinkai Düğümünüzle senkronize edildi"
+    },
+    "resetConfirmDialog": {
+      "cancel": "İptal",
+      "confirm": "Sıfırla",
+      "description": "Shinkai Düğümünüzü sıfırlamak istediğinize emin misiniz? Bu, yüklü araçlar, ajanlar ve tüm yapılandırmalar dahil olmak üzere tüm verilerinizi kalıcı olarak silecektir. Öncelikle önemli bilgilerinizi yedeklemenizi şiddetle tavsiye ederiz.",
+      "title": "Shinkai Düğümünüzü Sıfırlayın"
     },
     "resetNodeWarning": {
       "description": "Shinkai Düğümünüz mevcut anahtarlar tarafından kilitlenmiş durumda. Yeniden bağlanmak için tüm Shinkai Düğüm verilerinizi sıfırlayabilirsiniz.",

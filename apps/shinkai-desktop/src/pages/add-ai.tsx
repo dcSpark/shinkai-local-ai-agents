@@ -384,7 +384,7 @@ const AddAIPage = () => {
                           <SelectValue />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent className="max-h-[150px] overflow-y-auto text-xs">
+                      <SelectContent className="max-h-[300px] overflow-y-auto text-xs">
                         {modelTypeOptions.map((modelType) => (
                           <SelectItem
                             key={modelType.value}

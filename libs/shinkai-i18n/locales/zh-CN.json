@@ -904,6 +904,7 @@
       },
       "labels": {
         "bookPages": "最多 {{pages}} 页内容",
+        "cloudCapability": "云端",
         "models": "模型",
         "quality": "质量",
         "showAll": "显示所有模型",
@@ -912,8 +913,7 @@
         "textCapability": "文本生成",
         "thinkingCapability": "思考",
         "toolCallingCapability": "工具调用",
-        "visionCapability": "图像转文本",
-        "cloudCapability": "云端"
+        "visionCapability": "图像转文本"
       },
       "poweredByOllama": "由 Ollama 提供支持",
       "success": {
@@ -940,6 +940,12 @@
       "stoppedNode": "您的本地 Shinkai 节点已停止",
       "stoppedOllama": "您的本地 Ollama 已停止",
       "syncedOllama": "本地 Ollama 模型已与您的 Shinkai 节点同步"
+    },
+    "resetConfirmDialog": {
+      "cancel": "取消",
+      "confirm": "重置",
+      "description": "您确定要重置您的 Shinkai 节点吗？这将永久删除您所有的数据，包括已安装的工具、代理和任何配置。我们强烈建议您先备份重要信息。",
+      "title": "重置您的 Shinkai 节点"
     },
     "resetNodeWarning": {
       "description": "您的 Shinkai 节点当前被现有密钥锁定。要重新连接，您有三个选项：",

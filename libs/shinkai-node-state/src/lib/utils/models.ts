@@ -17,6 +17,10 @@ export const modelsConfig = {
     apiUrl: 'https://api.openai.com',
     modelTypes: [
       {
+        name: 'GPT 5.1',
+        value: 'gpt-5.1',
+      },
+      {
         name: 'GPT 5',
         value: 'gpt-5',
       },
@@ -85,6 +89,10 @@ export const modelsConfig = {
   [Models.OpenAILegacy]: {
     apiUrl: 'https://api.openai.com',
     modelTypes: [
+      {
+        name: 'GPT 5.1',
+        value: 'gpt-5.1',
+      },
       {
         name: 'GPT 5',
         value: 'gpt-5',
@@ -192,6 +200,10 @@ export const modelsConfig = {
   [Models.Gemini]: {
     apiUrl: 'https://generativelanguage.googleapis.com/v1beta/models',
     modelTypes: [
+      {
+        name: 'Gemini 3 Pro Preview',
+        value: 'gemini-3-pro-preview',
+      },
       {
         name: 'Gemini 2.5 Pro',
         value: 'gemini-2.5-pro',

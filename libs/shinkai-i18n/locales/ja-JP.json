@@ -904,6 +904,7 @@
       },
       "labels": {
         "bookPages": "最大{{pages}}ページのコンテンツ",
+        "cloudCapability": "クラウド",
         "models": "モデル",
         "quality": "品質",
         "showAll": "すべてのモデルを表示",
@@ -912,8 +913,7 @@
         "textCapability": "テキスト生成",
         "thinkingCapability": "思考",
         "toolCallingCapability": "ツール呼び出し",
-        "visionCapability": "画像からテキストへ",
-        "cloudCapability": "クラウド"
+        "visionCapability": "画像からテキストへ"
       },
       "poweredByOllama": "Ollamaの提供",
       "success": {
@@ -940,6 +940,12 @@
       "stoppedNode": "ローカルシンカイノードが停止されました",
       "stoppedOllama": "ローカルオラマが停止されました",
       "syncedOllama": "ローカルオラマモデルがシンカイノードと同期されました"
+    },
+    "resetConfirmDialog": {
+      "cancel": "キャンセル",
+      "confirm": "リセット",
+      "description": "本当にシンカイノードをリセットしてもよろしいですか？これにより、インストールされたツール、エージェント、およびすべての設定を含むすべてのデータが永久に削除されます。重要な情報は必ずバックアップを取ることを強くお勧めします。",
+      "title": "シンカイノードのリセット"
     },
     "resetNodeWarning": {
       "description": "あなたのShinkaiノードは現在、既存のキーによってロックされています。再接続するには3つの選択肢があります：",

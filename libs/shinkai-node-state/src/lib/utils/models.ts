@@ -17,6 +17,10 @@ export const modelsConfig = {
     apiUrl: 'https://api.openai.com',
     modelTypes: [
       {
+        name: 'GPT 5.1',
+        value: 'gpt-5.1',
+      },
+      {
         name: 'GPT 5',
         value: 'gpt-5',
       },
@@ -27,10 +31,6 @@ export const modelsConfig = {
       {
         name: 'GPT 5 Nano',
         value: 'gpt-5-nano',
-      },
-      {
-        name: 'GPT 5.1',
-        value: 'gpt-5.1',
       },
       {
         name: 'GPT 4o Mini',
@@ -90,6 +90,10 @@ export const modelsConfig = {
     apiUrl: 'https://api.openai.com',
     modelTypes: [
       {
+        name: 'GPT 5.1',
+        value: 'gpt-5.1',
+      },
+      {
         name: 'GPT 5',
         value: 'gpt-5',
       },
@@ -100,10 +104,6 @@ export const modelsConfig = {
       {
         name: 'GPT 5 Nano',
         value: 'gpt-5-nano',
-      },
-      {
-        name: 'GPT 5.1',
-        value: 'gpt-5.1',
       },
       {
         name: 'GPT 4o Mini',

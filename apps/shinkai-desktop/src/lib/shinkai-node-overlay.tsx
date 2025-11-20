@@ -1,9 +1,10 @@
 import { ReloadIcon } from '@radix-ui/react-icons';
 import { useGetHealth } from '@shinkai_network/shinkai-node-state/v2/queries/getHealth/useGetHealth';
 import { Button } from '@shinkai_network/shinkai-ui';
+import { listen } from '@tauri-apps/api/event';
 import { openPath } from '@tauri-apps/plugin-opener';
 import { AlertCircle, DownloadIcon, Loader2 } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { ResetConnectionDialog } from '../components/reset-connection-dialog';
@@ -29,6 +30,7 @@ export const ShinkaiNodeRunningOverlay = ({
     isPending: isHealthPending,
     error: healthError,
     isError: isHealthError,
+    refetch: refetchHealth,
   } = useGetHealth(
     { nodeAddress: auth?.node_address ?? '' },
     { refetchInterval: 35000 },
@@ -57,6 +59,18 @@ export const ShinkaiNodeRunningOverlay = ({
     useState(false);
 
   const isShinkaiNodeHealthy = isHealthSuccess && health.status === 'ok';
+
+  useEffect(() => {
+    const handleFocus = () => {
+      void refetchHealth();
+    };
+
+    const unlistenPromise = listen('tauri://focus', handleFocus);
+
+    return () => {
+      void unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, [auth?.node_address, refetchHealth]);
 
   if (isHealthPending || isShinkaiNodeRunningPending) {
     return (

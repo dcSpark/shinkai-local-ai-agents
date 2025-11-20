@@ -1,9 +1,10 @@
 import { ReloadIcon } from '@radix-ui/react-icons';
 import { useGetHealth } from '@shinkai_network/shinkai-node-state/v2/queries/getHealth/useGetHealth';
 import { Button } from '@shinkai_network/shinkai-ui';
+import { listen } from '@tauri-apps/api/event';
 import { openPath } from '@tauri-apps/plugin-opener';
-import { DownloadIcon, Loader2 } from 'lucide-react';
-import React, { useState } from 'react';
+import { AlertCircle, DownloadIcon, Loader2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 
 import { ResetConnectionDialog } from '../components/reset-connection-dialog';
@@ -29,6 +30,7 @@ export const ShinkaiNodeRunningOverlay = ({
     isPending: isHealthPending,
     error: healthError,
     isError: isHealthError,
+    refetch: refetchHealth,
   } = useGetHealth(
     { nodeAddress: auth?.node_address ?? '' },
     { refetchInterval: 35000 },
@@ -58,6 +60,18 @@ export const ShinkaiNodeRunningOverlay = ({
 
   const isShinkaiNodeHealthy = isHealthSuccess && health.status === 'ok';
 
+  useEffect(() => {
+    const handleFocus = () => {
+      void refetchHealth();
+    };
+
+    const unlistenPromise = listen('tauri://focus', handleFocus);
+
+    return () => {
+      void unlistenPromise.then((unlisten) => unlisten());
+    };
+  }, [auth?.node_address, refetchHealth]);
+
   if (isHealthPending || isShinkaiNodeRunningPending) {
     return (
       <div className="flex size-full flex-col items-center justify-center gap-3 py-8">
@@ -69,48 +83,33 @@ export const ShinkaiNodeRunningOverlay = ({
     );
   }
 
-  if (isHealthError) {
+  if (isHealthError && !isShinkaiNodeRunning && isInUse) {
     return (
-      <div className="flex size-full items-center justify-center">
-        <div
-          className="flex flex-col items-center gap-6 px-3 py-4 text-sm"
-          role="alert"
-        >
-          <div className="space-y-2 text-center text-red-400">
-            <p>Unable to connect to Shinkai Node.</p>
-            <pre className="px-4 whitespace-break-spaces">
-              {healthError.message}
-            </pre>
+      <div className="flex size-full flex-col items-center justify-center gap-6 px-8">
+        <div className="flex max-w-lg flex-col items-center gap-4 text-center">
+          <div className="flex size-12 items-center justify-center rounded-full bg-red-500/10">
+            <AlertCircle className="size-6 text-red-400" />
           </div>
-          <div className="flex items-center gap-4">
-            <Button
-              className="min-w-[140px]"
-              onClick={() => {
-                downloadTauriLogs();
-              }}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              <DownloadIcon className="size-3.5" />
-              Download Logs
-            </Button>
-            <Button
-              className="min-w-[140px]"
-              onClick={() => setIsResetConnectionDialogOpen(true)}
-              size="sm"
-              type="button"
-            >
-              <ReloadIcon className="size-3.5" />
-              Reset App
-            </Button>
-            <ResetConnectionDialog
-              allowClose
-              isOpen={isResetConnectionDialogOpen}
-              onOpenChange={setIsResetConnectionDialogOpen}
-            />
+          <div className="space-y-2">
+            <h1 className="text-2xl font-semibold">
+              Connection Issue Detected
+            </h1>
+            <p className="text-text-secondary text-base">
+              We're unable to connect to your Shinkai node. Simply start or
+              reconnect to your node to continue.
+            </p>
           </div>
         </div>
+        <Button
+          onClick={async () => {
+            await openShinkaiNodeManagerWindow();
+          }}
+          size="md"
+          className="min-w-[160px]"
+          type="button"
+        >
+          Open Shinkai Node Manager
+        </Button>
       </div>
     );
   }
@@ -120,25 +119,46 @@ export const ShinkaiNodeRunningOverlay = ({
   }
 
   return (
-    <div className="flex h-screen flex-col items-center justify-center gap-10">
-      <div className="mx-auto flex max-w-lg flex-col items-center gap-4">
-        <span className="text-4xl">⚠️</span>
-        <h1 className="text-3xl font-bold">
-          Unable to Connect to Shinkai Node
-        </h1>
-        <p className="text-text-secondary text-base">
-          Please make sure the Shinkai Node is running and try again.
-        </p>
+    <div className="flex size-full items-center justify-center">
+      <div
+        className="flex flex-col items-center gap-6 px-3 py-4 text-sm"
+        role="alert"
+      >
+        <div className="space-y-2 text-center text-red-400">
+          <p>Unable to connect to Shinkai Node.</p>
+          <pre className="px-4 whitespace-break-spaces">
+            {healthError?.message ?? 'Unknown error'}
+          </pre>
+        </div>
+        <div className="flex items-center gap-4">
+          <Button
+            className="min-w-[140px]"
+            onClick={() => {
+              downloadTauriLogs();
+            }}
+            size="sm"
+            type="button"
+            variant="outline"
+          >
+            <DownloadIcon className="size-3.5" />
+            Download Logs
+          </Button>
+          <Button
+            className="min-w-[140px]"
+            onClick={() => setIsResetConnectionDialogOpen(true)}
+            size="sm"
+            type="button"
+          >
+            <ReloadIcon className="size-3.5" />
+            Reset App
+          </Button>
+          <ResetConnectionDialog
+            allowClose
+            isOpen={isResetConnectionDialogOpen}
+            onOpenChange={setIsResetConnectionDialogOpen}
+          />
+        </div>
       </div>
-      {isInUse && !isShinkaiNodeRunning && (
-        <Button
-          onClick={async () => {
-            await openShinkaiNodeManagerWindow();
-          }}
-        >
-          Launch Shinkai Node
-        </Button>
-      )}
     </div>
   );
 };

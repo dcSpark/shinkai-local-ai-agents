@@ -13,6 +13,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  Badge,
   Button,
   Form,
   FormField,
@@ -23,11 +24,7 @@ import {
   TabsTrigger,
   TextField,
   Toaster,
-  Tooltip,
-  TooltipContent,
-  TooltipPortal,
   TooltipProvider,
-  TooltipTrigger,
 } from '@shinkai_network/shinkai-ui';
 import { cn } from '@shinkai_network/shinkai-ui/utils';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -208,111 +205,94 @@ const App = () => {
         className="absolute top-0 z-50 h-6 w-full"
         data-tauri-drag-region={true}
       />
-      <div className="flex flex-row items-center p-4">
+      <div className="flex flex-row items-center p-4 pt-8">
         <img alt="shinkai logo" className="h-10 w-10" src={logo} />
         <div className="ml-4 flex flex-col">
-          <span className="text-lg">Local Shinkai Node</span>
+          <div className="flex items-center gap-2">
+            <span className="text-lg">Local Shinkai Node</span>
+            <Badge
+              className={cn(
+                'border-transparent',
+                shinkaiNodeIsRunning
+                  ? 'bg-green-500/10 text-green-400'
+                  : 'bg-red-500/10 text-red-400',
+              )}
+              variant="outline"
+            >
+              {shinkaiNodeIsRunning ? 'Running' : 'Stopped'}
+            </Badge>
+          </div>
           <span className="text-text-secondary text-sm">{`API URL: http://${shinkaiNodeOptions?.node_api_ip}:${shinkaiNodeOptions?.node_api_port}`}</span>
         </div>
-        <div className="flex grow flex-row items-center justify-end space-x-4">
-          <Tooltip>
-            <TooltipTrigger>
-              <Button
-                disabled={
-                  shinkaiNodeSpawnIsPending ||
-                  shinkaiNodeKillIsPending ||
-                  shinkaiNodeIsRunning
-                }
-                onClick={() => {
-                  console.log('spawning');
-                  void shinkaiNodeSpawn();
-                }}
-                variant={'outline'}
-                size={'icon'}
-              >
-                {shinkaiNodeSpawnIsPending || shinkaiNodeKillIsPending ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <PlayIcon className="size-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipPortal>
-              <TooltipContent side="bottom">
-                <p>Start Shinkai Node</p>
-              </TooltipContent>
-            </TooltipPortal>
-          </Tooltip>
+        <div className="flex grow flex-row items-center justify-end gap-2">
+          {!shinkaiNodeIsRunning && (
+            <Button
+              disabled={
+                shinkaiNodeSpawnIsPending ||
+                shinkaiNodeKillIsPending ||
+                shinkaiNodeIsRunning
+              }
+              onClick={() => {
+                console.log('spawning');
+                void shinkaiNodeSpawn();
+              }}
+              variant={'outline'}
+              size="sm"
+            >
+              {shinkaiNodeSpawnIsPending || shinkaiNodeKillIsPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <PlayIcon className="size-4" />
+              )}
+              <span className="text-sm">Start</span>
+            </Button>
+          )}
 
-          <Tooltip>
-            <TooltipTrigger>
-              <Button
-                disabled={
-                  shinkaiNodeSpawnIsPending ||
-                  shinkaiNodeKillIsPending ||
-                  !shinkaiNodeIsRunning
-                }
-                onClick={() => shinkaiNodeKill()}
-                variant={'outline'}
-                size={'icon'}
-              >
-                {shinkaiNodeKillIsPending ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <StopIcon className="size-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipPortal>
-              <TooltipContent side="bottom">
-                <p>Stop Shinkai Node</p>
-              </TooltipContent>
-            </TooltipPortal>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger>
-              <Button
-                disabled={shinkaiNodeIsRunning}
-                onClick={() => setIsConfirmResetDialogOpened(true)}
-                variant={'outline'}
-                size={'icon'}
-              >
-                {shinkaiNodeRemoveStorageIsPending ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Trash2 className="size-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipPortal>
-              <TooltipContent side="bottom">
-                <p>Reset Shinkai Node</p>
-              </TooltipContent>
-            </TooltipPortal>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger>
-              <Button
-                disabled={!shinkaiNodeIsRunning}
-                onClick={() => startSyncOllamaModels()}
-                variant={'outline'}
-                size={'icon'}
-              >
-                {syncOllamaModelsIsPending ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <RefreshCcwIcon className="size-4" />
-                )}
-              </Button>
-            </TooltipTrigger>
-            <TooltipPortal>
-              <TooltipContent side="bottom">
-                <p>Sync Ollama Models</p>
-              </TooltipContent>
-            </TooltipPortal>
-          </Tooltip>
+          {shinkaiNodeIsRunning && (
+            <Button
+              disabled={
+                shinkaiNodeSpawnIsPending ||
+                shinkaiNodeKillIsPending ||
+                !shinkaiNodeIsRunning
+              }
+              onClick={() => shinkaiNodeKill()}
+              variant={'outline'}
+              size="sm"
+            >
+              {shinkaiNodeKillIsPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <StopIcon className="size-4" />
+              )}
+              <span className="text-sm">Stop</span>
+            </Button>
+          )}
+          <Button
+            disabled={shinkaiNodeIsRunning}
+            onClick={() => setIsConfirmResetDialogOpened(true)}
+            variant={'outline'}
+            size="sm"
+          >
+            {shinkaiNodeRemoveStorageIsPending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Trash2 className="size-4" />
+            )}
+            <span className="text-sm">Reset</span>
+          </Button>
+          <Button
+            disabled={!shinkaiNodeIsRunning}
+            onClick={() => startSyncOllamaModels()}
+            variant={'outline'}
+            size="sm"
+          >
+            {syncOllamaModelsIsPending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <RefreshCcwIcon className="size-4" />
+            )}
+            <span className="text-sm">Sync Models</span>
+          </Button>
         </div>
       </div>
 

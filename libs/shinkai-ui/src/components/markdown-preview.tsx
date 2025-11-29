@@ -89,7 +89,7 @@ const ImageAwareLink: FC<ComponentPropsWithoutRef<'a'>> = ({
       <img
         src={href}
         alt={typeof children === 'string' ? children : 'Image'}
-        className="aspect-square h-auto max-w-full cursor-pointer rounded-lg border border-gray-600 shadow-sm transition-opacity hover:opacity-90"
+        className="h-auto max-w-full cursor-pointer rounded-lg border border-gray-600 shadow-sm transition-opacity hover:opacity-90"
         onClick={() => window.open(href, '_blank')}
         onError={(e) => {
           // Fallback to regular link if image fails to load

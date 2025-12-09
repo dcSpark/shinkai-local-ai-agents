@@ -1,5 +1,6 @@
 import { type JobConfig } from '../jobs/types';
 import { type RecurringTask } from '../recurring-tasks/types';
+import { type ToolUsageType } from '../tools/types';
 
 export type Agent = {
   name: string;
@@ -48,3 +49,12 @@ export type ImportAgentRequest = {
 };
 
 export type ImportAgentResponse = Agent;
+
+export type GetAgentNetworkOfferingResponse = {
+  last_updated: string;
+  offerings: {
+    meta_description: string;
+    tool_key: string;
+    usage_type: ToolUsageType;
+  }[];
+};

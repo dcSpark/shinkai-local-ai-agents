@@ -12,6 +12,7 @@ import {
   type RemoveAgentResponse,
   type UpdateAgentRequest,
   type UpdateAgentResponse,
+  type GetAgentNetworkOfferingResponse,
 } from './types';
 
 export const createAgent = async (
@@ -146,4 +147,20 @@ export const importAgentFromUrl = async (
     },
   );
   return response.data as ImportAgentResponse;
+};
+
+export const getAgentNetworkOffering = async (
+  nodeAddress: string,
+  bearerToken: string,
+  agentId: string,
+) => {
+  const response = await httpClient.post(
+    urlJoin(nodeAddress, '/v2/get_agent_network_offering'),
+    { node_name: agentId },
+    {
+      headers: { Authorization: `Bearer ${bearerToken}` },
+      responseType: 'json',
+    },
+  );
+  return response.data as GetAgentNetworkOfferingResponse;
 };

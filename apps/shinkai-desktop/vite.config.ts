@@ -85,7 +85,7 @@ export default defineConfig(() => ({
     include: ['src/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
     reporters: ['default'],
     coverage: {
-      reportsDirectory: '../../coverage/libs/shinkai-message-ts',
+      reportsDirectory: '../../coverage/apps/shinkai-desktop',
       provider: 'v8',
     },
   },

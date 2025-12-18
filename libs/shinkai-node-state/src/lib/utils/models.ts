@@ -17,6 +17,18 @@ export const modelsConfig = {
     apiUrl: 'https://api.openai.com',
     modelTypes: [
       {
+        name: 'GPT 5.2',
+        value: 'gpt-5.2',
+      },
+      {
+        name: 'GPT 5.2 Pro',
+        value: 'gpt-5.2-pro',
+      },
+      {
+        name: 'GPT 5 Pro',
+        value: 'gpt-5-pro',
+      },
+      {
         name: 'GPT 5.1',
         value: 'gpt-5.1',
       },
@@ -89,6 +101,18 @@ export const modelsConfig = {
   [Models.OpenAILegacy]: {
     apiUrl: 'https://api.openai.com',
     modelTypes: [
+      {
+        name: 'GPT 5.2',
+        value: 'gpt-5.2',
+      },
+      {
+        name: 'GPT 5.2 Pro',
+        value: 'gpt-5.2-pro',
+      },
+      {
+        name: 'GPT 5 Pro',
+        value: 'gpt-5-pro',
+      },
       {
         name: 'GPT 5.1',
         value: 'gpt-5.1',
@@ -205,6 +229,10 @@ export const modelsConfig = {
         value: 'gemini-3-pro-preview',
       },
       {
+        name: 'Gemini 3 Flash',
+        value: 'gemini-3-flash',
+      },
+      {
         name: 'Gemini 2.5 Pro',
         value: 'gemini-2.5-pro',
       },
@@ -297,7 +325,7 @@ export const modelsConfig = {
       {
         name: 'DeepSeek R1 Distill Llama 70B',
         value: 'deepseek-r1-distill-llama-70b',
-      },      
+      },
 
       // Speech-to-Text (Production)
       { name: 'Whisper Large v3', value: 'whisper-large-v3' },
@@ -339,6 +367,18 @@ export const modelsConfig = {
     apiUrl: 'https://api.anthropic.com',
     modelTypes: [
       {
+        name: 'Claude 4.5 Opus',
+        value: 'claude-opus-4-5',
+      },
+      {
+        name: 'Claude 4.5 Sonnet',
+        value: 'claude-sonnet-4-5',
+      },
+      {
+        name: 'Claude 4.5 Haiku',
+        value: 'claude-haiku-4-5',
+      },
+      {
         name: 'Claude 4.1 Opus',
         value: 'claude-opus-4-1',
       },
@@ -379,6 +419,10 @@ export const modelsConfig = {
       {
         name: 'Grok 4',
         value: 'grok-4',
+      },
+      {
+        name: 'Grok 4.1 Fast',
+        value: 'grok-4-1-fast',
       },
       {
         name: 'Grok 3',

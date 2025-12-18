@@ -69,13 +69,31 @@ const nonOllamaProviderModels = {
   'openai:gpt-4.1': 'Newest GPT‑4.1 model for high quality responses.',
   'openai:gpt-4.1-mini': 'Smaller GPT‑4.1 model offering lower cost.',
   'openai:gpt-4.1-nano': 'Fastest GPT‑4.1 variant for quick replies.',
-  'openai:gpt-5.1': 'OpenAI flagship model for coding and agentic tasks with configurable reasoning effort.',
+  'openai:gpt-5.1':
+    'OpenAI flagship model for coding and agentic tasks with configurable reasoning effort.',
+  'openai:gpt-5.2':
+    'Latest OpenAI GPT‑5.2 model for high quality reasoning and generation.',
+  'openai:gpt-5.2-pro':
+    'Higher‑end GPT‑5.2 variant optimized for deeper reasoning and longer tasks.',
+  'openai:gpt-5-pro':
+    'Premium GPT‑5 variant optimized for reliability on complex tasks.',
   'openai:4o-preview': 'Preview version of GPT‑4o with multimodal support.',
   'openai:4o-mini': 'Compact GPT‑4o model balancing speed and quality.',
   'openai:o1': 'OpenAI lightweight reasoning model.',
   'openai:o1-mini': 'Smaller variant of OpenAI o1 model.',
   'openai:o3-mini': 'Mini version of OpenAI o3 model.',
-  'gemini:gemini-3-pro-preview': 'Google flagship model for complex reasoning across modalities with advanced thinking and coding capabilities.',
+  'gemini:gemini-3-pro-preview':
+    'Google flagship model for complex reasoning across modalities with advanced thinking and coding capabilities.',
+  'gemini:gemini-3-flash':
+    'Fast Google Gemini 3 model optimized for low latency and high throughput.',
+  'claude:claude-opus-4-5':
+    'Anthropic Claude Opus 4.5 for top-tier reasoning and writing.',
+  'claude:claude-sonnet-4-5':
+    'Anthropic Claude Sonnet 4.5 balancing speed and quality.',
+  'claude:claude-haiku-4-5':
+    'Anthropic Claude Haiku 4.5 optimized for fast responses.',
+  'grok:grok-4-1-fast':
+    'xAI Grok 4.1 Fast optimized for speed with strong general capabilities.',
 } as Record<string, string>;
 
 export function AIModelSelectorBase({
@@ -109,6 +127,7 @@ export function AIModelSelectorBase({
               description = ollamaDescriptionMap[model[1]] || '';
             } else if (provider.model.includes('claude')) {
               description =
+                nonOllamaProviderModels[provider.model] ||
                 'Safe and thoughtful Anthropic AI model with advanced coding capabilities';
             } else {
               description = nonOllamaProviderModels[provider.model] || '';
@@ -185,6 +204,7 @@ export function AIModelSelectorBase({
         <TooltipTrigger asChild>
           <DialogTrigger asChild>
             <button
+              type="button"
               className={cn(
                 actionButtonClassnames,
 

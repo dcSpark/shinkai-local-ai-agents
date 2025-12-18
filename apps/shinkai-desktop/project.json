@@ -60,10 +60,10 @@
       }
     },
     "test": {
-      "executor": "@nx/vite:test",
-      "outputs": ["{options.reportsDirectory}"],
+      "executor": "@nx/vitest:test",
+      "outputs": ["{workspaceRoot}/coverage/{projectRoot}"],
       "options": {
-        "reportsDirectory": "../../coverage/apps/shinkai-desktop"
+        "config": "apps/shinkai-desktop/vite.config.ts"
       }
     }
   }

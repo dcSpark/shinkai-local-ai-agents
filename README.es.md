@@ -67,7 +67,7 @@ Lea esto en:
 
 /
 
-_ Los agentes de Shinkai de observación colaboran para analizar los datos del mercado, ejecutar operaciones y administrar flujos de trabajo complejos de forma autónoma.
+\_ Los agentes de Shinkai de observación colaboran para analizar los datos del mercado, ejecutar operaciones y administrar flujos de trabajo complejos de forma autónoma.
 
 ## 📋 Ejemplos
 
@@ -109,8 +109,8 @@ Shinkai se construye como un monoreso moderno que usa ** nx ** para la orquestac
 
 ** Bibliotecas compartidas: **
 
--** Shinkai-Message-TS **-Protocolos de mensajes y comunicación de red con Shinkai Node
--** Shinkai-Node-State **-Gestión de estado basada en consultas de reacción para datos de nodo
+-** Shinkai-Message-TS **-Protocolos de mensajes y comunicación de red con Shinkai Node -** Shinkai-Node-State **-Gestión de estado basada en consultas de reacción para datos de nodo
+
 - ** Shinkai-ui **- Componentes reactivos reutilizables con sistema de diseño
 - ** Shinkai-Artifacts **- Primitivas de usuario de estilo construidas en Radix y CSS de viento de cola
 - ** Shinkai-i18n **- Utilidades de internacionalización impulsadas por i18Next
@@ -142,7 +142,7 @@ Antes de ejecutar Shinkai, deberá descargar el binario de nodo Shinkai incrusta
 
 ```bash
 ARCH="aarch64-apple-darwin" \
-SHINKAI_NODE_VERSION="v1.1.16" \
+SHINKAI_NODE_VERSION="v1.1.17" \
 OLLAMA_VERSION="v0.12.3" \
 npx ts-node ./ci-scripts/download-side-binaries.ts
 ```
@@ -152,7 +152,7 @@ npx ts-node ./ci-scripts/download-side-binaries.ts
 ```bash
 ARCH="x86_64-unknown-linux-gnu" \
 OLLAMA_VERSION="v0.12.3" \
-SHINKAI_NODE_VERSION="v1.1.16" \
+SHINKAI_NODE_VERSION="v1.1.17" \
 npx ts-node ./ci-scripts/download-side-binaries.ts
 ```
 
@@ -160,7 +160,7 @@ npx ts-node ./ci-scripts/download-side-binaries.ts
 
 ```powershell
 $ENV:OLLAMA_VERSION="v0.12.3"
-$ENV:SHINKAI_NODE_VERSION="v1.1.16"
+$ENV:SHINKAI_NODE_VERSION="v1.1.17"
 $ENV:ARCH="x86_64-pc-windows-msvc"
 npx ts-node ./ci-scripts/download-side-binaries.ts
 ```

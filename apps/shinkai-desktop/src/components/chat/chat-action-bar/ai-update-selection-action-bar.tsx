@@ -82,7 +82,7 @@ const nonOllamaProviderModels = {
   'openai:o3-mini': 'Mini version of OpenAI o3 model.',
   'gemini:gemini-3-pro-preview':
     'Google flagship model for complex reasoning across modalities with advanced thinking and coding capabilities.',
-  'gemini:gemini-3-flash':
+  'gemini:gemini-3-flash-preview':
     'Fast Google Gemini 3 model optimized for low latency and high throughput.',
   'claude:claude-opus-4-5':
     'Anthropic Claude Opus 4.5 for top-tier reasoning and writing.',

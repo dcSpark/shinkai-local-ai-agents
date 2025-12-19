@@ -81,7 +81,10 @@ export const MODELS_WITH_THINKING_SUPPORT = {
 
   // Gemini models
   'gemini:gemini-3-pro-preview': { forceEnabled: false, reasoningLevel: true },
-  'gemini:gemini-3-flash': { forceEnabled: false, reasoningLevel: true },
+  'gemini:gemini-3-flash-preview': {
+    forceEnabled: false,
+    reasoningLevel: true,
+  },
   'gemini:gemini-2.5-pro': { forceEnabled: false, reasoningLevel: true },
   'gemini:gemini-2.5-flash': { forceEnabled: false, reasoningLevel: true },
   'gemini:gemini-2.5-flash-preview-05-20': {

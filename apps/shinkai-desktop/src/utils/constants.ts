@@ -72,7 +72,6 @@ export const MODELS_WITH_THINKING_SUPPORT = {
   'openai:gpt-5.1': { forceEnabled: false, reasoningLevel: true },
   'openai:gpt-5.2': { forceEnabled: false, reasoningLevel: true },
   'openai:gpt-5.2-pro': { forceEnabled: false, reasoningLevel: true },
-  'openai:gpt-5-pro': { forceEnabled: false, reasoningLevel: true },
   'openai:o1': { forceEnabled: false, reasoningLevel: true },
   'openai:o1-mini': { forceEnabled: false, reasoningLevel: true },
   'openai:o3': { forceEnabled: false, reasoningLevel: true },

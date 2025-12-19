@@ -25,10 +25,6 @@ export const modelsConfig = {
         value: 'gpt-5.2-pro',
       },
       {
-        name: 'GPT 5 Pro',
-        value: 'gpt-5-pro',
-      },
-      {
         name: 'GPT 5.1',
         value: 'gpt-5.1',
       },
@@ -108,10 +104,6 @@ export const modelsConfig = {
       {
         name: 'GPT 5.2 Pro',
         value: 'gpt-5.2-pro',
-      },
-      {
-        name: 'GPT 5 Pro',
-        value: 'gpt-5-pro',
       },
       {
         name: 'GPT 5.1',
@@ -230,7 +222,7 @@ export const modelsConfig = {
       },
       {
         name: 'Gemini 3 Flash',
-        value: 'gemini-3-flash',
+        value: 'gemini-3-flash-preview',
       },
       {
         name: 'Gemini 2.5 Pro',

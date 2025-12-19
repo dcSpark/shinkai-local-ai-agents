@@ -75,8 +75,6 @@ const nonOllamaProviderModels = {
     'Latest OpenAI GPT‑5.2 model for high quality reasoning and generation.',
   'openai:gpt-5.2-pro':
     'Higher‑end GPT‑5.2 variant optimized for deeper reasoning and longer tasks.',
-  'openai:gpt-5-pro':
-    'Premium GPT‑5 variant optimized for reliability on complex tasks.',
   'openai:4o-preview': 'Preview version of GPT‑4o with multimodal support.',
   'openai:4o-mini': 'Compact GPT‑4o model balancing speed and quality.',
   'openai:o1': 'OpenAI lightweight reasoning model.',

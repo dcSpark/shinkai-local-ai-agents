@@ -4,7 +4,7 @@ Shinkai
 </ h1>
 <div align =“中心”>
 
->使用本地或远程AIS创建强大的AI代理
+> 使用本地或远程AIS创建强大的AI代理
 
 </div>
 
@@ -49,37 +49,37 @@ Shinkai是一个免费的开源平台，使AI代理创建民主化。
 
 ##🚀功能
 
-**🎯无代理构建器**  - 通过直观的视觉界面在几分钟内创建专业的AI代理。无需编程经验。
+**🎯无代理构建器** - 通过直观的视觉界面在几分钟内创建专业的AI代理。无需编程经验。
 
-**🤖多代理编排**  - 部署代理团队，它们会自动协作，共享上下文和协调复杂的多步骤工作流程。
+**🤖多代理编排** - 部署代理团队，它们会自动协作，共享上下文和协调复杂的多步骤工作流程。
 
-**💰加密本地体系结构**  - 对分散付款，Fefi互动和可以独立交易的自治经济代理人的内置支持。
+**💰加密本地体系结构** - 对分散付款，Fefi互动和可以独立交易的自治经济代理人的内置支持。
 
-**🔗通用协议支持**  - 与模型上下文协议（MCP）无缝集成，使您的代理与Claude，Cursor和更广泛的AI生态系统兼容。
+**🔗通用协议支持** - 与模型上下文协议（MCP）无缝集成，使您的代理与Claude，Cursor和更广泛的AI生态系统兼容。
 
-**⚡混合部署**  - 在本地运行所有内容以获得最大的隐私，连接到云模型以增强功能，或根据需要组合这两种方法。
+**⚡混合部署** - 在本地运行所有内容以获得最大的隐私，连接到云模型以增强功能，或根据需要组合这两种方法。
 
-**🔐安全优先设计**  - 您的加密密钥，敏感数据和计算在本地优先架构中保持在您的控制之下。
+**🔐安全优先设计** - 您的加密密钥，敏感数据和计算在本地优先架构中保持在您的控制之下。
 
-**🌐跨平台兼容性**  - 在Windows，MacOS和Linux上工作，具有一致的性能和用户体验。
+**🌐跨平台兼容性** - 在Windows，MacOS和Linux上工作，具有一致的性能和用户体验。
 
 ##🎬演示
 
 [！[demo Video]（Assets/shinkai-screenshot.png）]（https://github.com/user-user-attachments/assets/bc5bbb7da-7ca5-7ca5-477d-838a-a-8238a-8239951b6c01）
 
-_watch Shinkai代理商合作分析市场数据，执行交易并自动管理复杂工作流程。
+\_watch Shinkai代理商合作分析市场数据，执行交易并自动管理复杂工作流程。
 
 ##📋示例
 
-**💹自动交易机器人**  - 部署一种监视社会情绪，分析市场趋势并根据预定义务策略执行交易的代理商。
+**💹自动交易机器人** - 部署一种监视社会情绪，分析市场趋势并根据预定义务策略执行交易的代理商。
 
-**📧智能电子邮件助理**  - 创建一个代理，该代理将传入的电子邮件，草稿上下文响应以及自动安排后续行动进行分类。
+**📧智能电子邮件助理** - 创建一个代理，该代理将传入的电子邮件，草稿上下文响应以及自动安排后续行动进行分类。
 
-**📊数据情报代理**  - 构建刮擦Web数据，执行趋势分析并通过可行的见解生成全面报告的代理。
+**📊数据情报代理** - 构建刮擦Web数据，执行趋势分析并通过可行的见解生成全面报告的代理。
 
-**🔄工作流动自动化中心**  - 编排多种专门处理复杂业务流程的不同组件的专用代理。
+**🔄工作流动自动化中心** - 编排多种专门处理复杂业务流程的不同组件的专用代理。
 
-**🏦defi投资组合经理**  - 设置代理商来监视您的加密货币投资，重新平衡投资组合并执行产量耕作策略。
+**🏦defi投资组合经理** - 设置代理商来监视您的加密货币投资，重新平衡投资组合并执行产量耕作策略。
 
 ##🚀快速开始
 
@@ -91,9 +91,9 @@ _watch Shinkai代理商合作分析市场数据，执行交易并自动管理复
 
 ###系统要求
 
--  **内存**：4GB RAM最低（建议8GB）
--  **存储**：2GB自由空间
--  ** OS **：Windows 10+，MacOS 10.15+或Linux（Ubuntu 20.04+）
+- **内存**：4GB RAM最低（建议8GB）
+- **存储**：2GB自由空间
+- ** OS **：Windows 10+，MacOS 10.15+或Linux（Ubuntu 20.04+）
 
 ---
 
@@ -105,23 +105,23 @@ Shinkai是用** nx **进行编排和依赖管理的现代Monorepo建造的。该
 
 **核心应用程序：**
 
--  ** shinkai-desktop **  - 跨平台陶里（Tauri Tauri）应用于React前端
+- ** shinkai-desktop ** - 跨平台陶里（Tauri Tauri）应用于React前端
 
 **共享库：**
 
--  ** Shinkai-Message-TS **  - 消息协议和与Shinkai节点的网络通信
--  ** Shinkai-Node-State **  - 基于REACT查询的节点数据的状态管理
--  ** Shinkai-UI **  - 可重复使用的反应组件与设计系统
--  ** Shinkai-Artifacts **  - 构建基于Radix和Tailwind CSS的样式的UI原语
--  ** shinkai-i18n **  - 由I18Next提供支持的国际化公用事业
+- ** Shinkai-Message-TS ** - 消息协议和与Shinkai节点的网络通信
+- ** Shinkai-Node-State ** - 基于REACT查询的节点数据的状态管理
+- ** Shinkai-UI ** - 可重复使用的反应组件与设计系统
+- ** Shinkai-Artifacts ** - 构建基于Radix和Tailwind CSS的样式的UI原语
+- ** shinkai-i18n ** - 由I18Next提供支持的国际化公用事业
 
 **技术堆栈：**
 
--  **前端**：React 18，打字稿，尾风CSS，Radix UI
--  **桌面**：Tauri（Rust + React）
--  **状态管理**：Zustand（UI状态） + React Query（服务器状态）
--  **构建系统**：Vite，NX Monorepo
--  **测试**：vitest，React测试库
+- **前端**：React 18，打字稿，尾风CSS，Radix UI
+- **桌面**：Tauri（Rust + React）
+- **状态管理**：Zustand（UI状态） + React Query（服务器状态）
+- **构建系统**：Vite，NX Monorepo
+- **测试**：vitest，React测试库
 
 ###🚀入门
 
@@ -142,7 +142,7 @@ npm ci
 
 ```bash
 ARCH="aarch64-apple-darwin" \
-SHINKAI_NODE_VERSION="v1.1.16" \
+SHINKAI_NODE_VERSION="v1.1.17" \
 OLLAMA_VERSION="v0.12.3" \
 npx ts-node ./ci-scripts/download-side-binaries.ts
 ```
@@ -152,7 +152,7 @@ npx ts-node ./ci-scripts/download-side-binaries.ts
 ```bash
 ARCH="x86_64-unknown-linux-gnu" \
 OLLAMA_VERSION="v0.12.3" \
-SHINKAI_NODE_VERSION="v1.1.16" \
+SHINKAI_NODE_VERSION="v1.1.17" \
 npx ts-node ./ci-scripts/download-side-binaries.ts
 ```
 
@@ -160,7 +160,7 @@ npx ts-node ./ci-scripts/download-side-binaries.ts
 
 ```powershell
 $ENV:OLLAMA_VERSION="v0.12.3"
-$ENV:SHINKAI_NODE_VERSION="v1.1.16"
+$ENV:SHINKAI_NODE_VERSION="v1.1.17"
 $ENV:ARCH="x86_64-pc-windows-msvc"
 npx ts-node ./ci-scripts/download-side-binaries.ts
 ```
@@ -235,14 +235,14 @@ shinkai-apps/
 
 **组件库：**
 
--  ** radix ui **  - 未风格的，可访问的组件原始图
--  ** tailwind CSS **  - 公用事业领先的样式和响应式设计
--  ** shadcn/ui **  - 预构建的组件模式
+- ** radix ui ** - 未风格的，可访问的组件原始图
+- ** tailwind CSS ** - 公用事业领先的样式和响应式设计
+- ** shadcn/ui ** - 预构建的组件模式
 
 **国家管理：**
 
--  **条件**  - 客户端UI状态管理
--  ** REACT查询**  - 服务器状态，缓存和同步
+- **条件** - 客户端UI状态管理
+- ** REACT查询** - 服务器状态，缓存和同步
 
 ###🌍国际化
 
@@ -275,13 +275,13 @@ npx nx run shinkai-i18n:i18n
 2。**创建**功能分支：`git Checkout -b feature/Amazing -feature`
 3。**提交您的更改：`git commit -m'添加惊人的功能
 4。
-5。**打开**拉动请求
+5。**打开\*\*拉动请求
 
 ###📚其他资源
 
--  ** [官方文档]（https://docs.shinkai.com）**  - 全面的指南和API参考
--  ** [DISCORD社区]（https：//discord.gg/eua45u3seu）**  - 获得帮助并与其他开发人员建立联系
--  ** [Twitter更新]（https://x.com/shinkailocalai）**  - 最新新闻和公告
+- ** [官方文档]（https://docs.shinkai.com）** - 全面的指南和API参考
+- ** [DISCORD社区]（https：//discord.gg/eua45u3seu）** - 获得帮助并与其他开发人员建立联系
+- ** [Twitter更新]（https://x.com/shinkailocalai）** - 最新新闻和公告
 
 ---
 

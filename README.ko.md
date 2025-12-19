@@ -109,8 +109,8 @@ Shinkai는 오케스트레이션 및 의존성 관리를 위해 ** nx **를 사�
 
 ** 공유 도서관 : **
 
--** Shinkai-Message-TS **-Shinkai 노드와의 메시지 프로토콜 및 네트워크 통신
--** Shinkai-Node-State **-노드 데이터에 대한 쿼리 기반 상태 관리 반응
+-** Shinkai-Message-TS **-Shinkai 노드와의 메시지 프로토콜 및 네트워크 통신 -** Shinkai-Node-State **-노드 데이터에 대한 쿼리 기반 상태 관리 반응
+
 - ** Shinkai-ui **- 재사용 가능한 반응 구성 요소와 디자인 시스템
 - ** Shinkai-Artifacts **- Radix 및 Tailwind CSS에 구축 된 스타일의 UI 프리미티브
 - ** Shinkai-I18N **- I18NEXT로 구동되는 국제화 유틸리티
@@ -142,7 +142,7 @@ Shinkai를 실행하기 전에 응용 프로그램의 핵심 기능에 전원을
 
 ```bash
 ARCH="aarch64-apple-darwin" \
-SHINKAI_NODE_VERSION="v1.1.16" \
+SHINKAI_NODE_VERSION="v1.1.17" \
 OLLAMA_VERSION="v0.12.3" \
 npx ts-node ./ci-scripts/download-side-binaries.ts
 ```
@@ -152,7 +152,7 @@ npx ts-node ./ci-scripts/download-side-binaries.ts
 ```bash
 ARCH="x86_64-unknown-linux-gnu" \
 OLLAMA_VERSION="v0.12.3" \
-SHINKAI_NODE_VERSION="v1.1.16" \
+SHINKAI_NODE_VERSION="v1.1.17" \
 npx ts-node ./ci-scripts/download-side-binaries.ts
 ```
 
@@ -160,7 +160,7 @@ npx ts-node ./ci-scripts/download-side-binaries.ts
 
 ```powershell
 $ENV:OLLAMA_VERSION="v0.12.3"
-$ENV:SHINKAI_NODE_VERSION="v1.1.16"
+$ENV:SHINKAI_NODE_VERSION="v1.1.17"
 $ENV:ARCH="x86_64-pc-windows-msvc"
 npx ts-node ./ci-scripts/download-side-binaries.ts
 ```

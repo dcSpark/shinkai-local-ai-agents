@@ -4,4 +4,5 @@ Shinkai UI is a library of reusable components for Shinkai applications.
 
 ## Running unit tests
 
-Run `nx test shinkai-ui` to execute the unit tests via [Jest](https://jestjs.io).
+Run `npx nx test shinkai-ui` to execute the unit tests.
+Unit tests use [Vitest](https://vitest.dev/) and results are reported to `coverage/libs/shinkai-ui`.

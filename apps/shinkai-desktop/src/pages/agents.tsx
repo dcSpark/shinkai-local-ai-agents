@@ -295,7 +295,7 @@ const AgentCard = ({
 
   return (
     <React.Fragment>
-      <div className="border-divider bg-bg-secondary flex items-center justify-between gap-3 rounded-lg border p-3.5">
+      <div className="border-divider bg-bg-secondary flex items-center justify-between gap-1 rounded-lg border p-3.5">
         <div className="flex items-start gap-3">
           <div className="flex size-8 items-center justify-center rounded-lg">
             <AIAgentIcon name={agentName} size="sm" />
@@ -313,7 +313,7 @@ const AgentCard = ({
               )}
             </span>
 
-            <div className="flex flex-col gap-1">
+            <div className="flex flex-col gap-1 pr-3">
               <span
                 className={cn(
                   'text-text-secondary text-sm whitespace-pre-wrap',
@@ -375,7 +375,7 @@ const AgentCard = ({
             )}
           </div>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
           <TooltipProvider delayDuration={0}>
             <Tooltip>
               <TooltipTrigger asChild>

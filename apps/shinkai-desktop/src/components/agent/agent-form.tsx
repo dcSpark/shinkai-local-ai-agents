@@ -92,6 +92,7 @@ import {
   FileTypeIcon,
   ScheduledTasksIcon,
   SendIcon,
+  ToolsIcon,
 } from '@shinkai_network/shinkai-ui/assets';
 import {
   formatDateToLocaleStringWithTime,
@@ -108,6 +109,7 @@ import {
   BoltIcon,
   ChevronDownIcon,
   ChevronRight,
+  ExternalLinkIcon,
   HistoryIcon,
   LucideArrowLeft,
   MessageSquare,
@@ -2152,6 +2154,7 @@ function AgentForm({ mode }: AgentFormProps) {
                                           Configure
                                         </Button>
                                       )}
+
                                       <Switch
                                         checked={form
                                           .watch('tools')
@@ -2231,6 +2234,14 @@ function AgentForm({ mode }: AgentFormProps) {
                                           </CollapsibleContent>
                                         </Collapsible>
                                       </div>
+                                    )}
+                                    {tool.tool_type === 'Agent' && (
+                                      <AgentToolToolsList
+                                        setSelectedToolConfig={
+                                          setSelectedToolConfig
+                                        }
+                                        toolRouterKey={tool.tool_router_key}
+                                      />
                                     )}
                                   </div>
                                 );
@@ -2363,6 +2374,14 @@ function AgentForm({ mode }: AgentFormProps) {
                                         </div>
                                       </FormControl>
                                     </div>
+                                    {tool.tool_type === 'Agent' && (
+                                      <AgentToolToolsList
+                                        setSelectedToolConfig={
+                                          setSelectedToolConfig
+                                        }
+                                        toolRouterKey={tool.tool_router_key}
+                                      />
+                                    )}
                                   </FormItem>
                                 )}
                               />
@@ -2532,6 +2551,14 @@ function AgentForm({ mode }: AgentFormProps) {
                                           </div>
                                         </FormControl>
                                       </div>
+                                      {tool.tool_type === 'Agent' && (
+                                        <AgentToolToolsList
+                                          setSelectedToolConfig={
+                                            setSelectedToolConfig
+                                          }
+                                          toolRouterKey={tool.tool_router_key}
+                                        />
+                                      )}
                                     </FormItem>
                                   )}
                                 />
@@ -2953,6 +2980,111 @@ function AgentForm({ mode }: AgentFormProps) {
 }
 
 export default AgentForm;
+
+const AgentToolToolsList = ({
+  toolRouterKey,
+  setSelectedToolConfig,
+}: {
+  toolRouterKey: string;
+  setSelectedToolConfig: (toolKey: string) => void;
+}) => {
+  const { t } = useTranslation();
+  const auth = useAuth((state) => state.auth);
+  const { data: toolData } = useGetTool({
+    nodeAddress: auth?.node_address ?? '',
+    token: auth?.api_v2_key ?? '',
+    toolKey: toolRouterKey,
+  });
+
+  const agentTool = toolData?.content?.[0] as ShinkaiTool | undefined;
+  const agentId =
+    agentTool && 'agent_id' in agentTool ? agentTool.agent_id : undefined;
+
+  const { data: agent, isSuccess } = useGetAgent({
+    agentId: agentId ?? '',
+    nodeAddress: auth?.node_address ?? '',
+    token: auth?.api_v2_key ?? '',
+  });
+
+  const { data: toolsList } = useGetTools({
+    nodeAddress: auth?.node_address ?? '',
+    token: auth?.api_v2_key ?? '',
+  });
+
+  const tools = agent?.tools ?? [];
+
+  if (!agentId || !isSuccess || !agent || tools.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="flex flex-col">
+      <Collapsible className="rounded-2xl border">
+        <CollapsibleTrigger asChild>
+          <Button
+            className={cn(
+              buttonVariants({
+                variant: 'tertiary',
+                size: 'sm',
+              }),
+              'w-full justify-between [data-state=open]:border-none [&[data-state=open]>svg]:rotate-180',
+            )}
+          >
+            <span className="flex items-center gap-2">
+              <ToolsIcon className="h-4 w-4" />
+              Agent Tools ({tools.length})
+            </span>
+            <ChevronDownIcon className="h-4 w-4" />
+          </Button>
+        </CollapsibleTrigger>
+        <CollapsibleContent className="space-y-2">
+          <div className="flex flex-col px-4">
+            {tools.map((toolKey) => {
+              const toolName = toolKey.split(':::')?.at(-1) ?? toolKey;
+              const tool = toolsList?.find(
+                (t) => t.tool_router_key === toolKey,
+              );
+              const hasConfig = (tool?.config ?? []).length > 0;
+              return (
+                <div
+                  key={toolKey}
+                  className="flex h-10 items-center justify-between gap-2 py-1"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-text-secondary text-sm">
+                      {formatText(toolName)}
+                    </span>
+                  </div>
+                  {hasConfig && (
+                    <Button
+                      className={cn(
+                        buttonVariants({
+                          variant: 'tertiary',
+                          size: 'xs',
+                        }),
+                        'text-text-secondary hover:text-text-default shrink-0 border-none',
+                      )}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setSelectedToolConfig(toolKey);
+                        window.location.hash = '#configuration';
+                      }}
+                      type="button"
+                    >
+                      <BoltIcon className="size-3" />
+                      {t('common.configure')}
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    </div>
+  );
+};
 
 const ToolConfigModal = ({
   toolRouterKey,

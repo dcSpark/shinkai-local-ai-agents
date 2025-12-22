@@ -50,7 +50,14 @@ import * as fs from '@tauri-apps/plugin-fs';
 import { BaseDirectory } from '@tauri-apps/plugin-fs';
 import { open } from '@tauri-apps/plugin-shell';
 import cronstrue from 'cronstrue';
-import { Edit, Plus, Rocket, TrashIcon } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronUp,
+  Edit,
+  Plus,
+  Rocket,
+  TrashIcon,
+} from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { toast } from 'sonner';
@@ -133,23 +140,19 @@ function AgentsPage() {
             </div>
             <p className="text-text-secondary text-sm">
               {selectedTab === 'my' ? (
-                <>
-                  <Trans
-                    i18nKey="agentsPage.description"
-                    components={{
-                      br: <br />,
-                    }}
-                  />
-                </>
+                <Trans
+                  i18nKey="agentsPage.description"
+                  components={{
+                    br: <br />,
+                  }}
+                />
               ) : (
-                <>
-                  <Trans
-                    i18nKey="agentsPage.exploreDescription"
-                    components={{
-                      br: <br />,
-                    }}
-                  />
-                </>
+                <Trans
+                  i18nKey="agentsPage.exploreDescription"
+                  components={{
+                    br: <br />,
+                  }}
+                />
               )}
             </p>
           </div>
@@ -227,8 +230,13 @@ const AgentCard = ({
   const { t } = useTranslation();
   const [isDeleteAgentDrawerOpen, setIsDeleteAgentDrawerOpen] =
     React.useState(false);
+  const [isDescriptionExpanded, setIsDescriptionExpanded] =
+    React.useState(false);
   const auth = useAuth((state) => state.auth);
   const navigate = useNavigate();
+
+  const description = agentDescription ?? 'No description';
+  const shouldShowExpandButton = description.length > 120;
 
   const { mutateAsync: exportAgent } = useExportAgent({
     onSuccess: async (response) => {
@@ -287,7 +295,7 @@ const AgentCard = ({
 
   return (
     <React.Fragment>
-      <div className="border-divider bg-bg-secondary flex items-center justify-between gap-1 rounded-lg border p-3.5">
+      <div className="border-divider bg-bg-secondary flex items-center justify-between gap-3 rounded-lg border p-3.5">
         <div className="flex items-start gap-3">
           <div className="flex size-8 items-center justify-center rounded-lg">
             <AIAgentIcon name={agentName} size="sm" />
@@ -305,9 +313,36 @@ const AgentCard = ({
               )}
             </span>
 
-            <span className="text-text-secondary text-sm">
-              {agentDescription ?? 'No description'}
-            </span>
+            <div className="flex flex-col gap-1">
+              <span
+                className={cn(
+                  'text-text-secondary text-sm whitespace-pre-wrap',
+                  !isDescriptionExpanded &&
+                    shouldShowExpandButton &&
+                    'line-clamp-2',
+                )}
+              >
+                {description}
+              </span>
+              {shouldShowExpandButton && (
+                <button
+                  className="text-text-tertiary hover:text-text-default flex w-fit items-center gap-1 text-xs font-medium underline transition-colors"
+                  onClick={() =>
+                    setIsDescriptionExpanded(!isDescriptionExpanded)
+                  }
+                  type="button"
+                >
+                  {isDescriptionExpanded
+                    ? t('common.showLess')
+                    : t('common.showMore')}
+                  {isDescriptionExpanded ? (
+                    <ChevronUp className="h-3 w-3" />
+                  ) : (
+                    <ChevronDown className="h-3 w-3" />
+                  )}
+                </button>
+              )}
+            </div>
             {hasScheduledTasks && (
               <div className="mt-2 inline-flex gap-2">
                 {scheduledTasks.map((task) => (

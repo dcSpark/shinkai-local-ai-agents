@@ -48,3 +48,17 @@ export type ImportAgentRequest = {
 };
 
 export type ImportAgentResponse = Agent;
+
+export type PublishAgentRequest = {
+  agent_id: string;
+};
+
+export type PublishAgentResponse = {
+  message: string;
+  response: {
+    message: string;
+    revisionId: string;
+  };
+  status: string;
+  agent_id: string;
+};

@@ -3,6 +3,7 @@ import { DotsVerticalIcon } from '@radix-ui/react-icons';
 import { useTranslation } from '@shinkai_network/shinkai-i18n';
 import { type RecurringTask } from '@shinkai_network/shinkai-message-ts/api/recurring-tasks/types';
 import { useExportAgent } from '@shinkai_network/shinkai-node-state/v2/mutations/exportAgent/useExportAgent';
+import { usePublishAgent } from '@shinkai_network/shinkai-node-state/v2/mutations/publishAgent/usePublishAgent';
 import { useRemoveAgent } from '@shinkai_network/shinkai-node-state/v2/mutations/removeAgent/useRemoveAgent';
 import { useGetAgents } from '@shinkai_network/shinkai-node-state/v2/queries/getAgents/useGetAgents';
 import {
@@ -47,8 +48,9 @@ import { cn } from '@shinkai_network/shinkai-ui/utils';
 import { save } from '@tauri-apps/plugin-dialog';
 import * as fs from '@tauri-apps/plugin-fs';
 import { BaseDirectory } from '@tauri-apps/plugin-fs';
+import { open } from '@tauri-apps/plugin-shell';
 import cronstrue from 'cronstrue';
-import { Edit, Plus, TrashIcon } from 'lucide-react';
+import { Edit, Plus, Rocket, TrashIcon } from 'lucide-react';
 import React, { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { toast } from 'sonner';
@@ -57,6 +59,7 @@ import ImportAgentModal from '../components/agent/import-agent-modal';
 import { useGetStoreAgents } from '../components/store/store-client';
 
 import { useAuth } from '../store/auth';
+import { SHINKAI_STORE_URL } from '../utils/store';
 
 function AgentsPage() {
   const auth = useAuth((state) => state.auth);
@@ -260,6 +263,25 @@ const AgentCard = ({
     },
   });
 
+  const { mutateAsync: publishAgent, isPending: isPublishingAgent } =
+    usePublishAgent({
+      onSuccess: async (response) => {
+        const storeUrl = `${SHINKAI_STORE_URL}/store/revisions/complete?id=${response.response.revisionId}`;
+        try {
+          await open(storeUrl);
+        } catch (error) {
+          toast.error('Agent published, but failed to open the store', {
+            description: `${error instanceof Error ? error.message : String(error)}. Please open: ${storeUrl}`,
+          });
+        }
+      },
+      onError: (error) => {
+        toast.error('Failed to publish agent', {
+          description: error.response?.data?.message ?? error.message,
+        });
+      },
+    });
+
   const hasScheduledTasks =
     scheduledTasks?.length && scheduledTasks?.length > 0;
 
@@ -375,6 +397,7 @@ const AgentCard = ({
                   onClick: () => {
                     void navigate(`/agents/edit/${agentId}`);
                   },
+                  disabled: false,
                 },
                 {
                   name: 'Export',
@@ -386,6 +409,19 @@ const AgentCard = ({
                       token: auth?.api_v2_key ?? '',
                     });
                   },
+                  disabled: false,
+                },
+                {
+                  name: t('agents.publishDialog.publish'),
+                  icon: <Rocket className="mr-3 h-4 w-4" />,
+                  onClick: () => {
+                    void publishAgent({
+                      agentId,
+                      nodeAddress: auth?.node_address ?? '',
+                      token: auth?.api_v2_key ?? '',
+                    });
+                  },
+                  disabled: isPublishingAgent,
                 },
                 {
                   name: t('common.delete'),
@@ -393,12 +429,16 @@ const AgentCard = ({
                   onClick: () => {
                     setIsDeleteAgentDrawerOpen(true);
                   },
+                  disabled: false,
                 },
               ].map((option) => (
                 <React.Fragment key={option.name}>
-                  {option.name === 'Delete' && <DropdownMenuSeparator />}
+                  {option.name === t('common.delete') && (
+                    <DropdownMenuSeparator />
+                  )}
                   <DropdownMenuItem
                     key={option.name}
+                    disabled={option.disabled}
                     onClick={(event) => {
                       event.stopPropagation();
                       option.onClick();

@@ -26,7 +26,11 @@ export const usePublishTool = (options?: Options) => {
       });
 
       if (options?.onSuccess) {
-        options.onSuccess(response, variables, context);
+        try {
+          await options.onSuccess(response, variables, context);
+        } catch (error) {
+          console.error(error);
+        }
       }
     },
   });

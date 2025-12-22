@@ -156,9 +156,14 @@ export default function ToolDetailsCard({
     isSuccess: isPublishToolSuccess,
   } = usePublishTool({
     onSuccess: async (response) => {
-      await open(
-        `${SHINKAI_STORE_URL}/store/revisions/complete?id=${response.response.revisionId}`,
-      );
+      const storeUrl = `${SHINKAI_STORE_URL}/store/revisions/complete?id=${response.response.revisionId}`;
+      try {
+        await open(storeUrl);
+      } catch (error) {
+        toast.error('Tool published, but failed to open the store', {
+          description: `${error instanceof Error ? error.message : String(error)}. Please open: ${storeUrl}`,
+        });
+      }
     },
     onError: (error) => {
       toast.error('Failed to publish tool', {

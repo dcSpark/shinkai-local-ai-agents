@@ -2337,37 +2337,38 @@ function AgentForm({ mode }: AgentFormProps) {
                                             )}
                                             className="shrink-0"
                                             id={tool.tool_router_key}
-                                            onCheckedChange={() => {
+                                            onCheckedChange={(checked) => {
                                               const configs =
                                                 tool?.config ?? [];
-                                              const toolConfigurationNeeded =
+                                              const toolConfigurationMissing =
                                                 getToolRequiresConfigurations(
                                                   configs,
                                                 );
-                                              if (toolConfigurationNeeded) {
-                                                field.onChange(
-                                                  field.value.includes(
-                                                    tool.tool_router_key,
-                                                  )
-                                                    ? field.value.filter(
-                                                        (value) =>
-                                                          value !==
-                                                          tool.tool_router_key,
-                                                      )
-                                                    : [
-                                                        ...field.value,
-                                                        tool.tool_router_key,
-                                                      ],
+                                              if (
+                                                checked &&
+                                                toolConfigurationMissing
+                                              ) {
+                                                toast.error(
+                                                  'Tool configuration is required',
+                                                  {
+                                                    description:
+                                                      'Please fill in the config required in tool details',
+                                                  },
                                                 );
-
                                                 return;
                                               }
-                                              toast.error(
-                                                'Tool configuration is required',
-                                                {
-                                                  description:
-                                                    'Please fill in the config required in tool details',
-                                                },
+
+                                              field.onChange(
+                                                checked
+                                                  ? [
+                                                      ...field.value,
+                                                      tool.tool_router_key,
+                                                    ]
+                                                  : field.value.filter(
+                                                      (value) =>
+                                                        value !==
+                                                        tool.tool_router_key,
+                                                    ),
                                               );
                                             }}
                                           />

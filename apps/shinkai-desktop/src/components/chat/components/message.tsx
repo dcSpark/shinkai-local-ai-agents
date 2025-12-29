@@ -692,7 +692,7 @@ export const MessageBase = ({
                     </div>
                   )}
                 {message.role === 'user' && (
-                  <div className="whitespace-pre-line">{message.content}</div>
+                  <div className="whitespace-pre-wrap">{message.content}</div>
                 )}
                 {message.role === 'assistant' &&
                   message.toolCalls?.some(
@@ -1147,7 +1147,7 @@ export function Reasoning({
           </AnimatePresence>
         </MotionAccordionTrigger>
         <AccordionContent className="bg-bg-secondary text-em-sm flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3">
-          <span className="text-text-secondary break-words whitespace-pre-line">
+          <span className="text-text-secondary break-words whitespace-pre-wrap">
             <MarkdownText
               className={cn(
                 status?.type === 'running' && 'text-text-secondary',

@@ -15,14 +15,12 @@ export function useScrollToBottom() {
   const autoScroll = useChatStore((state) => state.autoScroll);
   const setAutoScroll = useChatStore((state) => state.setAutoScroll);
 
-  // Check if we're near the bottom of the container
   const checkIsAtBottom = useCallback(() => {
     if (!containerRef.current) return true;
     const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
     return scrollTop + clientHeight >= scrollHeight - SCROLL_THRESHOLD;
   }, []);
 
-  // Handle scroll events
   const handleScroll = useCallback(() => {
     if (!containerRef.current) return;
 
@@ -32,22 +30,21 @@ export function useScrollToBottom() {
       scrollTop + clientHeight >= scrollHeight - SCROLL_THRESHOLD;
 
     setIsAtBottom(isNearBottom);
-    setAutoScroll(isNearBottom);
-    previousScrollHeightRef.current = scrollHeight;
+    if (isNearBottom) {
+      setAutoScroll(true);
+    }
   }, [setAutoScroll]);
 
-  // Instant scroll to bottom (no animation)
   const scrollDomToBottom = useCallback(() => {
     const container = containerRef.current;
     if (container) {
       requestAnimationFrame(() => {
-        setAutoScroll(true);
         container.scrollTo(0, container.scrollHeight);
+        setIsAtBottom(true);
       });
     }
-  }, [setAutoScroll]);
+  }, []);
 
-  // Smooth scroll to bottom with behavior option
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = 'smooth') => {
       setScrollBehavior(behavior);
@@ -55,7 +52,12 @@ export function useScrollToBottom() {
     [setScrollBehavior],
   );
 
-  // Preserve scroll position when content is prepended (for pagination)
+  const storeScrollHeight = useCallback(() => {
+    if (containerRef.current) {
+      previousScrollHeightRef.current = containerRef.current.scrollHeight;
+    }
+  }, []);
+
   const preserveScrollPosition = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -64,64 +66,48 @@ export function useScrollToBottom() {
     const previousHeight = previousScrollHeightRef.current;
     const heightDiff = currentHeight - previousHeight;
 
-    if (heightDiff > 0 && !autoScroll) {
+    if (heightDiff > 0) {
       container.scrollTop = container.scrollTop + heightDiff;
     }
 
     previousScrollHeightRef.current = currentHeight;
-  }, [autoScroll]);
+  }, []);
 
-  // Set up scroll event listener
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
     container.addEventListener('scroll', handleScroll, { passive: true });
-    handleScroll(); // Check initial state
+    handleScroll();
 
     return () => {
       container.removeEventListener('scroll', handleScroll);
     };
   }, [handleScroll]);
 
-  // Set up resize and mutation observers for auto-scroll
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const resizeObserver = new ResizeObserver(() => {
-      requestAnimationFrame(() => {
-        if (autoScroll) {
-          scrollDomToBottom();
-        }
-        handleScroll();
-      });
-    });
-
     const mutationObserver = new MutationObserver(() => {
-      requestAnimationFrame(() => {
-        if (autoScroll) {
+      if (autoScroll) {
+        requestAnimationFrame(() => {
           scrollDomToBottom();
-        }
-        handleScroll();
-      });
+        });
+      }
     });
 
-    resizeObserver.observe(container);
     mutationObserver.observe(container, {
       childList: true,
       subtree: true,
-      attributes: true,
-      attributeFilter: ['style', 'class', 'data-state'],
+      characterData: true, // For text content changes during streaming
     });
 
     return () => {
-      resizeObserver.disconnect();
       mutationObserver.disconnect();
     };
-  }, [autoScroll, handleScroll, scrollDomToBottom]);
+  }, [autoScroll, scrollDomToBottom]);
 
-  // Handle scroll behavior changes (for smooth scrolling)
   useEffect(() => {
     if (scrollBehavior && containerRef.current) {
       const container = containerRef.current;
@@ -130,8 +116,9 @@ export function useScrollToBottom() {
         behavior: scrollBehavior,
       });
       setScrollBehavior(false);
+      setAutoScroll(true);
     }
-  }, [scrollBehavior, setScrollBehavior]);
+  }, [scrollBehavior, setScrollBehavior, setAutoScroll]);
 
   return {
     containerRef,
@@ -141,6 +128,7 @@ export function useScrollToBottom() {
     setAutoScroll,
     scrollToBottom,
     scrollDomToBottom,
+    storeScrollHeight,
     preserveScrollPosition,
     checkIsAtBottom,
     previousScrollHeightRef,

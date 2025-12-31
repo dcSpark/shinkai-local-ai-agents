@@ -20,11 +20,42 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
 } from 'react';
 import { useInView } from 'react-intersection-observer';
 
 import { useMessages } from '../use-messages';
 import { Message } from './message';
+
+type ChatStatus = 'submitted' | 'streaming' | 'ready' | 'error';
+
+function getMessageStatus(messageList: unknown[]): ChatStatus {
+  const lastMessage = messageList.at(-1);
+  if (!lastMessage) return 'ready';
+
+  // Check if last message is from assistant
+  if ((lastMessage as { role?: string }).role !== 'assistant') {
+    return 'ready';
+  }
+
+  const assistantMessage = lastMessage as AssistantMessage;
+  const isRunning = assistantMessage.status?.type === 'running';
+  const isComplete = assistantMessage.status?.type === 'complete';
+  const hasContent = Boolean(assistantMessage.content);
+
+  if (isRunning && !hasContent) {
+    return 'submitted';
+  }
+
+  if (isRunning && hasContent) {
+    return 'streaming';
+  }
+  if (isComplete) {
+    return 'ready';
+  }
+
+  return 'ready';
+}
 
 export const MessageList = memo(
   ({
@@ -67,34 +98,33 @@ export const MessageList = memo(
     minimalistMode?: boolean;
   }) => {
     const { ref: loadMoreRef, inView } = useInView();
-    const messageList = paginatedMessages?.pages.flat() ?? [];
+    const messageList = useMemo(
+      () => paginatedMessages?.pages.flat() ?? [],
+      [paginatedMessages],
+    );
 
-    const lastMessageStatus =
-      (messageList ?? []).at(-1)?.role === 'assistant' &&
-      ((messageList ?? []).at(-1) as AssistantMessage)?.status?.type ===
-        'running' &&
-      (messageList?.at(-1) as AssistantMessage)?.content === ''
-        ? 'submitted'
-        : (messageList?.at(-1) as AssistantMessage)?.status?.type === 'running'
-          ? 'ready'
-          : 'streaming';
+    const lastMessageStatus = useMemo(
+      () => getMessageStatus(messageList),
+      [messageList],
+    );
 
     const {
       containerRef,
       isAtBottom,
-      autoScroll,
       setAutoScroll,
       scrollToBottom,
       scrollDomToBottom,
+      storeScrollHeight,
       preserveScrollPosition,
       hasSentMessage,
     } = useMessages({ status: lastMessageStatus });
 
     // Fetch previous messages when scrolled to top
     const fetchPreviousMessages = useCallback(async () => {
-      setAutoScroll(false);
+      storeScrollHeight(); // Store height before fetching
+      setAutoScroll(false); // Disable auto-scroll during pagination
       await fetchPreviousPage();
-    }, [fetchPreviousPage, setAutoScroll]);
+    }, [fetchPreviousPage, setAutoScroll, storeScrollHeight]);
 
     // Trigger fetch when load more sentinel is in view
     useEffect(() => {
@@ -113,26 +143,15 @@ export const MessageList = memo(
       if (!isFetchingPreviousPage && inView) {
         preserveScrollPosition();
       }
-    }, [
-      paginatedMessages,
-      isFetchingPreviousPage,
-      inView,
-      preserveScrollPosition,
-    ]);
+    }, [isFetchingPreviousPage, inView, preserveScrollPosition]);
 
-    // Scroll to bottom when new user message is sent (odd number = user message)
-    useEffect(() => {
-      if (messageList?.length % 2 === 1 && autoScroll) {
-        scrollDomToBottom();
-      }
-    }, [messageList?.length, autoScroll, scrollDomToBottom]);
-
-    // Scroll to bottom when chat is first loaded
-    useEffect(() => {
-      if (isSuccess) {
-        scrollDomToBottom();
-      }
-    }, [isSuccess, scrollDomToBottom]);
+    // // Scroll to bottom when chat is first loaded
+    // useEffect(() => {
+    //   if (isSuccess && messageList.length > 0) {
+    //     scrollDomToBottom();
+    //   }
+    //   // eslint-disable-next-line react-hooks/exhaustive-deps
+    // }, [isSuccess]);
 
     return (
       <div

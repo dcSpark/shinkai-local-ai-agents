@@ -121,11 +121,7 @@ export type MarkdownTextProps = {
   isRunning?: boolean;
 };
 
-export const MarkdownTextBase = ({
-  content,
-  className,
-  isRunning,
-}: MarkdownTextProps) => {
+export const MarkdownText = ({ content, className }: MarkdownTextProps) => {
   return (
     <Streamdown
       className={cn(
@@ -133,7 +129,6 @@ export const MarkdownTextBase = ({
         '[&>*:first-child]:mt-0 [&>*:last-child]:mb-0',
         '[&_code]:break-words [&_code]:whitespace-pre-wrap',
         '[&_pre]:max-w-full [&_pre]:overflow-x-auto',
-        isRunning && 'md-running',
         className,
       )}
       components={{
@@ -150,11 +145,3 @@ export const MarkdownTextBase = ({
     </Streamdown>
   );
 };
-
-export const MarkdownText = memo(
-  MarkdownTextBase,
-  (prev, next) =>
-    prev.content === next.content &&
-    prev.isRunning === next.isRunning &&
-    prev.className === next.className,
-);

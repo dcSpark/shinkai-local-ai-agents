@@ -540,6 +540,7 @@ export const MessageBase = ({
             </Form>
           ) : (
             <Fragment>
+              {/** biome-ignore lint/a11y/noStaticElementInteractions: <ignnore> */}
               <div
                 className={cn(
                   'text-text-default relative container mt-1 flex flex-col rounded-lg px-0 pt-3',
@@ -832,6 +833,7 @@ export const MessageBase = ({
                             className={cn(
                               'text-text-secondary border-divider hover:text-text-default hover:bg-bg-tertiary flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors [&>svg]:h-3 [&>svg]:w-3',
                             )}
+                            type="button"
                             onClick={() => {
                               setEditing(true);
                             }}
@@ -856,6 +858,7 @@ export const MessageBase = ({
                                 className={cn(
                                   'text-text-secondary border-divider hover:text-text-default hover:bg-bg-tertiary flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors [&>svg]:h-3 [&>svg]:w-3',
                                 )}
+                                type="button"
                                 onClick={handleForkMessage}
                               >
                                 <GitFork />
@@ -873,6 +876,7 @@ export const MessageBase = ({
                                 className={cn(
                                   'text-text-secondary border-divider hover:text-text-default hover:bg-bg-tertiary flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors [&>svg]:h-3 [&>svg]:w-3',
                                 )}
+                                type="button"
                                 onClick={handleRetryMessage}
                               >
                                 <RotateCcw />
@@ -895,6 +899,7 @@ export const MessageBase = ({
                               className={cn(
                                 'text-text-secondary border-divider hover:bg-bg-tertiary flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors [&>svg]:h-3 [&>svg]:w-3',
                               )}
+                              type="button"
                               onClick={() => setTracingOpen(true)}
                             >
                               <TracingIcon />

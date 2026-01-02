@@ -1,8 +1,5 @@
-import {
-  type AssistantMessage,
-  type ChatConversationInfiniteData,
-} from '@shinkai_network/shinkai-node-state/v2/queries/getChatConversation/types';
-import { Button, Skeleton } from '@shinkai_network/shinkai-ui';
+import { type ChatConversationInfiniteData } from '@shinkai_network/shinkai-node-state/v2/queries/getChatConversation/types';
+import { Skeleton } from '@shinkai_network/shinkai-ui';
 import {
   getRelativeDateLabel,
   groupMessagesByDate,
@@ -12,49 +9,47 @@ import {
   type FetchPreviousPageOptions,
   type InfiniteQueryObserverResult,
 } from '@tanstack/react-query';
-import { ArrowDownIcon } from 'lucide-react';
-import {
+import React, {
   Fragment,
   memo,
-  type ReactNode,
+  type RefObject,
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
+  useRef,
+  useState,
 } from 'react';
 import { useInView } from 'react-intersection-observer';
 
-import { useMessages } from '../use-messages';
 import { Message } from './message';
 
-type ChatStatus = 'submitted' | 'streaming' | 'ready' | 'error';
-
-function getMessageStatus(messageList: unknown[]): ChatStatus {
-  const lastMessage = messageList.at(-1);
-  if (!lastMessage) return 'ready';
-
-  // Check if last message is from assistant
-  if ((lastMessage as { role?: string }).role !== 'assistant') {
-    return 'ready';
+function useScrollToBottom(
+  scrollRef: RefObject<HTMLDivElement | null>,
+  detach = false,
+) {
+  const [autoScroll, setAutoScroll] = useState(true);
+  function scrollDomToBottom() {
+    const scrollContainer = scrollRef.current;
+    if (scrollContainer) {
+      requestAnimationFrame(() => {
+        setAutoScroll(true);
+        scrollContainer.scrollTo(0, scrollContainer.scrollHeight);
+      });
+    }
   }
 
-  const assistantMessage = lastMessage as AssistantMessage;
-  const isRunning = assistantMessage.status?.type === 'running';
-  const isComplete = assistantMessage.status?.type === 'complete';
-  const hasContent = Boolean(assistantMessage.content);
+  useEffect(() => {
+    if (autoScroll && !detach) {
+      scrollDomToBottom();
+    }
+  });
 
-  if (isRunning && !hasContent) {
-    return 'submitted';
-  }
-
-  if (isRunning && hasContent) {
-    return 'streaming';
-  }
-  if (isComplete) {
-    return 'ready';
-  }
-
-  return 'ready';
+  return {
+    scrollRef,
+    autoScroll,
+    setAutoScroll,
+    scrollDomToBottom,
+  };
 }
 
 export const MessageList = memo(
@@ -91,67 +86,100 @@ export const MessageList = memo(
     forkMessage?: (messageId: string) => void;
     editAndRegenerateMessage?: (content: string, messageHash: string) => void;
     containerClassName?: string;
-    lastMessageContent?: ReactNode;
+    lastMessageContent?: React.ReactNode;
     disabledRetryAndEdit?: boolean;
-    messageExtra?: ReactNode;
+    messageExtra?: React.ReactNode;
     hidePythonExecution?: boolean;
     minimalistMode?: boolean;
   }) => {
-    const { ref: loadMoreRef, inView } = useInView();
-    const messageList = useMemo(
-      () => paginatedMessages?.pages.flat() ?? [],
-      [paginatedMessages],
-    );
+    const chatContainerRef = useRef<HTMLDivElement>(null);
+    const previousChatHeightRef = useRef<number>(0);
+    const { ref, inView } = useInView();
+    const messageList = paginatedMessages?.pages.flat() ?? [];
 
-    const lastMessageStatus = useMemo(
-      () => getMessageStatus(messageList),
-      [messageList],
-    );
+    const { autoScroll, setAutoScroll, scrollDomToBottom } =
+      useScrollToBottom(chatContainerRef);
 
-    const {
-      containerRef,
-      isAtBottom,
-      setAutoScroll,
-      scrollToBottom,
-      scrollDomToBottom,
-      storeScrollHeight,
-      preserveScrollPosition,
-      hasSentMessage,
-    } = useMessages({ status: lastMessageStatus });
-
-    // Fetch previous messages when scrolled to top
     const fetchPreviousMessages = useCallback(async () => {
-      storeScrollHeight(); // Store height before fetching
-      setAutoScroll(false); // Disable auto-scroll during pagination
+      setAutoScroll(false);
       await fetchPreviousPage();
-    }, [fetchPreviousPage, setAutoScroll, storeScrollHeight]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [fetchPreviousPage]);
 
-    // Trigger fetch when load more sentinel is in view
     useEffect(() => {
-      if (hasPreviousPage && inView && !isFetchingPreviousPage) {
+      if (hasPreviousPage && inView) {
         void fetchPreviousMessages();
       }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [hasPreviousPage, inView]);
+
+    // adjust the scroll position of a chat container after new messages are fetched
+    useLayoutEffect(() => {
+      if (!isFetchingPreviousPage && inView) {
+        const chatContainerElement = chatContainerRef.current;
+        if (!chatContainerElement) return;
+        const currentHeight = chatContainerElement.scrollHeight;
+        const previousHeight = previousChatHeightRef.current;
+
+        if (!autoScroll) {
+          chatContainerElement.scrollTop =
+            currentHeight - previousHeight + chatContainerElement.scrollTop;
+        } else {
+          scrollDomToBottom();
+        }
+
+        chatContainerElement.scrollTop = currentHeight - previousHeight;
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [paginatedMessages, isFetchingPreviousPage, inView]);
+
+    useEffect(() => {
+      const chatContainerElement = chatContainerRef.current;
+      if (!chatContainerElement) return;
+      const handleScroll = async () => {
+        const currentHeight = chatContainerElement.scrollHeight;
+        const currentScrollTop = chatContainerElement.scrollTop;
+        previousChatHeightRef.current = currentHeight;
+        const scrollThreshold = 20;
+        const isNearBottom =
+          currentScrollTop + chatContainerElement.clientHeight >=
+          currentHeight - scrollThreshold;
+
+        setAutoScroll(isNearBottom);
+
+        if (inView && hasPreviousPage && !isFetchingPreviousPage) {
+          previousChatHeightRef.current = currentHeight - currentScrollTop;
+        }
+      };
+
+      chatContainerElement.addEventListener('scroll', handleScroll, {
+        passive: true,
+      });
+      return () => {
+        chatContainerElement.removeEventListener('scroll', handleScroll);
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [
+      fetchPreviousMessages,
       hasPreviousPage,
       inView,
       isFetchingPreviousPage,
-      fetchPreviousMessages,
+      paginatedMessages?.pages?.length,
     ]);
 
-    // Preserve scroll position after fetching previous messages
-    useLayoutEffect(() => {
-      if (!isFetchingPreviousPage && inView) {
-        preserveScrollPosition();
+    useEffect(() => {
+      if (messageList?.length % 2 === 1) {
+        scrollDomToBottom();
       }
-    }, [isFetchingPreviousPage, inView, preserveScrollPosition]);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [messageList?.length]);
 
-    // // Scroll to bottom when chat is first loaded
-    // useEffect(() => {
-    //   if (isSuccess && messageList.length > 0) {
-    //     scrollDomToBottom();
-    //   }
-    //   // eslint-disable-next-line react-hooks/exhaustive-deps
-    // }, [isSuccess]);
+    useEffect(() => {
+      if (isSuccess) {
+        scrollDomToBottom();
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isSuccess]);
 
     return (
       <div
@@ -160,7 +188,7 @@ export const MessageList = memo(
           'flex-1 overflow-y-auto',
           containerClassName,
         )}
-        ref={containerRef}
+        ref={chatContainerRef}
         style={{ contain: 'strict' }}
       >
         {isSuccess &&
@@ -209,7 +237,7 @@ export const MessageList = memo(
             </div>
           )}
           {(hasPreviousPage || isFetchingPreviousPage) && (
-            <div className="flex flex-col space-y-3" ref={loadMoreRef}>
+            <div className="flex flex-col space-y-3" ref={ref}>
               {[...Array(4).keys()].map((index) => (
                 <div
                   className={cn(
@@ -291,10 +319,6 @@ export const MessageList = memo(
                               message={message}
                               messageId={message.messageId}
                               minimalistMode={minimalistMode}
-                              requiresScrollPadding={
-                                hasSentMessage &&
-                                messageIndex === messages.length - 1
-                              }
                             />
                           );
                         })}
@@ -308,18 +332,6 @@ export const MessageList = memo(
             </Fragment>
           )}
         </div>
-        {!isAtBottom && (
-          <Button
-            aria-label="Scroll to bottom"
-            className="absolute bottom-40 left-1/2 z-10 -translate-x-1/2 rounded-full border p-2 shadow-lg transition-colors"
-            onClick={() => scrollToBottom('smooth')}
-            size="icon"
-            type="button"
-            variant="default"
-          >
-            <ArrowDownIcon className="size-4" />
-          </Button>
-        )}
       </div>
     );
   },

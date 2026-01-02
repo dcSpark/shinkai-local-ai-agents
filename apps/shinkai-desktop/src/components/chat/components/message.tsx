@@ -458,7 +458,7 @@ export const MessageBase = ({
   return (
     <motion.div
       // animate="rest"
-      className={cn('container px-0 px-3.5 pb-10', minimalistMode && 'pb-3')}
+      className={cn('container px-0 px-3.5 pb-4', minimalistMode && 'pb-3')}
       data-testid={`message-${
         message.role === 'user' ? 'local' : 'remote'
       }-${message.messageId}`}
@@ -485,7 +485,7 @@ export const MessageBase = ({
         ) : null}
         <div
           className={cn(
-            'text-em-base text-text-default flex flex-col overflow-hidden bg-transparent',
+            'group text-em-base text-text-default flex flex-col overflow-hidden bg-transparent',
             editing && 'w-full py-1',
           )}
         >
@@ -814,8 +814,10 @@ export const MessageBase = ({
               {!isPending && !minimalistMode && (
                 <motion.div
                   className={cn(
-                    'mt-2 flex items-center gap-3',
-                    message.role === 'user' ? 'justify-end' : 'justify-start',
+                    'mt-2 flex items-center gap-3 transition-opacity duration-200',
+                    message.role === 'user'
+                      ? 'justify-end opacity-0 group-hover:opacity-100'
+                      : 'justify-start',
                   )}
                   variants={actionBar}
                 >
@@ -858,7 +860,7 @@ export const MessageBase = ({
                           </button>
                         </TooltipTrigger>
                         <TooltipPortal>
-                          <TooltipContent>
+                          <TooltipContent side="bottom">
                             <p>{t('common.editMessage')}</p>
                           </TooltipContent>
                         </TooltipPortal>
@@ -881,7 +883,7 @@ export const MessageBase = ({
                               </button>
                             </TooltipTrigger>
                             <TooltipPortal>
-                              <TooltipContent>
+                              <TooltipContent side="bottom">
                                 <p>Fork</p>
                               </TooltipContent>
                             </TooltipPortal>
@@ -899,7 +901,7 @@ export const MessageBase = ({
                               </button>
                             </TooltipTrigger>
                             <TooltipPortal>
-                              <TooltipContent>
+                              <TooltipContent side="bottom">
                                 <p>{t('common.retry')}</p>
                               </TooltipContent>
                             </TooltipPortal>
@@ -922,7 +924,7 @@ export const MessageBase = ({
                             </button>
                           </TooltipTrigger>
                           <TooltipPortal>
-                            <TooltipContent>
+                            <TooltipContent side="bottom">
                               <p>{t('chat.tracing.title')}</p>
                             </TooltipContent>
                           </TooltipPortal>
@@ -952,7 +954,7 @@ export const MessageBase = ({
                           </div>
                         </TooltipTrigger>
                         <TooltipPortal>
-                          <TooltipContent>
+                          <TooltipContent side="bottom">
                             <p>{t('common.copy')}</p>
                           </TooltipContent>
                         </TooltipPortal>

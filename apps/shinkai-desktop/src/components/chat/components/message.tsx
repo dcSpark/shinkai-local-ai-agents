@@ -49,7 +49,7 @@ import {
 } from '@shinkai_network/shinkai-ui/assets';
 import { formatText } from '@shinkai_network/shinkai-ui/helpers';
 import { cn } from '@shinkai_network/shinkai-ui/utils';
-import { format } from 'date-fns';
+import { format, isToday } from 'date-fns';
 import equal from 'fast-deep-equal';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -820,6 +820,28 @@ export const MessageBase = ({
                   variants={actionBar}
                 >
                   <div className="flex items-center gap-1.5">
+                    {message.role === 'user' && message.createdAt && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="text-text-tertiary mr-1 cursor-default text-xs">
+                            {isToday(new Date(message.createdAt))
+                              ? format(new Date(message.createdAt), 'p')
+                              : format(new Date(message.createdAt), 'MMM d')}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipPortal>
+                          <TooltipContent side="bottom">
+                            <p>
+                              {format(
+                                new Date(message.createdAt),
+                                "EEEE, MMMM d, yyyy 'at' h:mm a",
+                              )}
+                            </p>
+                          </TooltipContent>
+                        </TooltipPortal>
+                      </Tooltip>
+                    )}
+
                     {message.role === 'user' && !disabledEdit && (
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -937,29 +959,44 @@ export const MessageBase = ({
                       </Tooltip>
                     )}
                   </div>
+
                   {message.role === 'assistant' &&
                     message.status.type === 'complete' && (
                       <div
                         className={cn(
-                          'text-text-tertiary flex items-center gap-1.5',
+                          'text-text-tertiary flex items-center gap-1.5 text-xs',
                         )}
                       >
-                        <span>
-                          {format(new Date(message?.createdAt ?? ''), 'p')}
-                        </span>
-                        {message.role === 'assistant' &&
-                          message?.metadata?.tps && (
-                            <>
-                              {' '}
-                              ⋅
-                              <span>
-                                {Math.round(
-                                  Number(message?.metadata?.tps) * 10,
-                                ) / 10}{' '}
-                                tokens/s
-                              </span>
-                            </>
-                          )}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-default">
+                              {isToday(new Date(message.createdAt))
+                                ? format(new Date(message.createdAt), 'p')
+                                : format(new Date(message.createdAt), 'MMM d')}
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipPortal>
+                            <TooltipContent side="bottom">
+                              <p>
+                                {format(
+                                  new Date(message.createdAt),
+                                  "EEEE, MMMM d, yyyy 'at' h:mm a",
+                                )}
+                              </p>
+                            </TooltipContent>
+                          </TooltipPortal>
+                        </Tooltip>
+                        {message?.metadata?.tps && (
+                          <>
+                            {' '}
+                            ⋅
+                            <span>
+                              {Math.round(Number(message?.metadata?.tps) * 10) /
+                                10}{' '}
+                              tokens/s
+                            </span>
+                          </>
+                        )}
                       </div>
                     )}
                 </motion.div>

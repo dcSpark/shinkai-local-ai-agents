@@ -716,11 +716,8 @@ export const MessageBase = ({
                     </div>
                   )}
                 {message.role === 'assistant' &&
-                  message.status.type === 'running' &&
-                  message.content === '' && (
-                    <div className="pt-1.5 whitespace-pre-line">
-                      <DotsLoader />
-                    </div>
+                  message.status.type === 'running' && (
+                    <DotsLoader className="py-5" />
                   )}
                 {pythonCode &&
                   !hidePythonExecution &&

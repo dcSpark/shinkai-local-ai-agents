@@ -152,7 +152,7 @@ import ToolDetailsCard from '../tools/components/tool-details-card';
 import { TooConfigOverrideForm } from './tool-config-override-form';
 
 const agentFormSchema = z.object({
-  name: z.string(),
+  name: z.string().min(1, 'Agent name is required'),
   llmProviderId: z.string(),
   uiDescription: z.string(),
   storage_path: z.string(),
@@ -1051,6 +1051,12 @@ function AgentForm({ mode }: AgentFormProps) {
   ) => {
     if (!auth) {
       toast.error('Authentication details are missing.');
+      return;
+    }
+
+    if (!values.name.trim()) {
+      toast.error('Agent name is required.');
+      setCurrentTab('persona');
       return;
     }
 

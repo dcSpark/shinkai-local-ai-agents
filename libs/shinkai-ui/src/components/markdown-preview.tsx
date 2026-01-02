@@ -118,10 +118,9 @@ const MediaAwareLink: FC<ComponentPropsWithoutRef<'a'>> = ({
 export type MarkdownTextProps = {
   content: string;
   className?: string;
-  isRunning?: boolean;
 };
 
-export const MarkdownText = ({ content, className }: MarkdownTextProps) => {
+export const MarkdownTextBase = ({ content, className }: MarkdownTextProps) => {
   return (
     <Streamdown
       className={cn(
@@ -145,3 +144,9 @@ export const MarkdownText = ({ content, className }: MarkdownTextProps) => {
     </Streamdown>
   );
 };
+
+export const MarkdownText = memo(
+  MarkdownTextBase,
+  (prev, next) =>
+    prev.content === next.content && prev.className === next.className,
+);

@@ -1,9 +1,8 @@
 import { type Artifact } from '@shinkai_network/shinkai-node-state/v2/queries/getChatConversation/types';
-import { type ReactNode, createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState } from 'react';
 import { createStore, useStore } from 'zustand';
 
 export type ToolView = 'form' | 'raw';
-export type ScrollFlag = ScrollBehavior | false;
 
 type ChatStore = {
   selectedArtifact: Artifact | null;
@@ -16,11 +15,6 @@ type ChatStore = {
   // quoted text from message selection
   quotedText: string | null;
   setQuotedText: (quotedText: string | null) => void;
-  // scroll management
-  scrollBehavior: ScrollFlag;
-  setScrollBehavior: (scrollBehavior: ScrollFlag) => void;
-  autoScroll: boolean;
-  setAutoScroll: (autoScroll: boolean) => void;
 };
 
 const createChatStore = () =>
@@ -37,19 +31,13 @@ const createChatStore = () =>
 
     quotedText: null,
     setQuotedText: (quotedText: string | null) => set({ quotedText }),
-
-    scrollBehavior: false,
-    setScrollBehavior: (scrollBehavior: ScrollFlag) => set({ scrollBehavior }),
-
-    autoScroll: true,
-    setAutoScroll: (autoScroll: boolean) => set({ autoScroll }),
   }));
 
 const ChatContext = createContext<ReturnType<typeof createChatStore> | null>(
   null,
 );
 
-export const ChatProvider = ({ children }: { children: ReactNode }) => {
+export const ChatProvider = ({ children }: { children: React.ReactNode }) => {
   const [store] =
     useState<ReturnType<typeof createChatStore>>(createChatStore());
 

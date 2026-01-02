@@ -121,7 +121,6 @@ type MessageProps = {
   messageExtra?: React.ReactNode;
   hidePythonExecution?: boolean;
   minimalistMode?: boolean;
-  requiresScrollPadding?: boolean;
 };
 
 const actionBar = {
@@ -202,7 +201,6 @@ type EditMessageFormSchema = z.infer<typeof editMessageFormSchema>;
 
 export const MessageBase = ({
   message,
-  requiresScrollPadding,
   // messageId,
   hidePythonExecution,
   isPending,
@@ -474,7 +472,7 @@ export const MessageBase = ({
           'relative flex flex-col gap-2',
           message.role === 'user' &&
             'mr-0 ml-auto flex-row-reverse space-x-reverse',
-          message.role === 'assistant' && requiresScrollPadding && 'min-h-96',
+          // message.role === 'assistant' && 'mr-auto ml-0 flex-row items-end',
         )}
       >
         {message.role === 'assistant' ? (
@@ -989,7 +987,6 @@ export const Message = memo(MessageBase, (prev, next) => {
     (prev.message as AssistantMessage).reasoning?.text ===
       (next.message as AssistantMessage).reasoning?.text &&
     prev.minimalistMode === next.minimalistMode &&
-    prev.requiresScrollPadding === next.requiresScrollPadding &&
     equal(
       (prev.message as AssistantMessage).toolCalls,
       (next.message as AssistantMessage).toolCalls,

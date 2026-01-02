@@ -660,9 +660,6 @@ export const MessageBase = ({
                       message.content,
                       'error_message',
                     )}
-                    isRunning={
-                      !!message.content && message.status.type === 'running'
-                    }
                   />
                 )}
                 {message.role === 'assistant' &&
@@ -1158,7 +1155,6 @@ export function Reasoning({
                 status?.type === 'running' && 'text-text-secondary',
               )}
               content={reasoning}
-              isRunning={!!reasoning && status?.type === 'running'}
             />
           </span>
         </AccordionContent>

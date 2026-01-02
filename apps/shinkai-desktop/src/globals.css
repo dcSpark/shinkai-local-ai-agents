@@ -43,3 +43,12 @@ html {
 [class*='language-'] .token.token.table {
   @apply !inline;
 }
+
+/* style code block in markdown preview */
+[data-streamdown='code-block'] {
+  @apply bg-bg-secondary;
+}
+
+[data-streamdown='code-block-download-button'] {
+  @apply hidden;
+}

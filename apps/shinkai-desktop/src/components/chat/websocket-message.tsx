@@ -117,40 +117,38 @@ export const useWebSocketMessage = ({
           );
           return;
         }
-        if (isAssistantMessage && !isStreamSupported.current) {
-          void queryClient.invalidateQueries({ queryKey: queryKey });
-          return;
-        }
-        isStreamSupported.current = false;
-
-        // finalize the optimistic assistant message immediately when the final assistant message arrives
+        // Handle final assistant message - update optimistic message in place to avoid flash
         if (isAssistantMessage) {
-          queryClient.setQueryData(
-            queryKey,
-            produce((draft: ChatConversationInfiniteData | undefined) => {
-              if (!draft?.pages?.[0]) return;
-              const lastMessage = draft.pages.at(-1)?.at(-1);
-              if (
-                lastMessage &&
-                lastMessage.messageId === OPTIMISTIC_ASSISTANT_MESSAGE_ID &&
-                lastMessage.role === 'assistant' &&
-                lastMessage.status?.type === 'running'
-              ) {
-                // Mark as complete so the UI stops "thinking"
-                lastMessage.status = { type: 'complete', reason: 'unknown' };
-                // Optional: also close reasoning if it's still marked running
-                if (lastMessage.reasoning?.status?.type === 'running') {
-                  lastMessage.reasoning.status = {
-                    type: 'complete',
-                    reason: 'unknown',
-                  };
-                }
-              }
-            }),
-          );
+          const wasStreaming = isStreamSupported.current;
+          isStreamSupported.current = false;
 
-          // now fetch the authoritative message to replace optimistic state
-          void queryClient.invalidateQueries({ queryKey });
+          // If streaming happened, we already have the content - just mark as complete
+          if (wasStreaming) {
+            queryClient.setQueryData(
+              queryKey,
+              produce((draft: ChatConversationInfiniteData | undefined) => {
+                if (!draft?.pages?.[0]) return;
+                const lastMessage = draft.pages.at(-1)?.at(-1);
+
+                if (
+                  lastMessage &&
+                  lastMessage.messageId === OPTIMISTIC_ASSISTANT_MESSAGE_ID &&
+                  lastMessage.role === 'assistant'
+                ) {
+                  lastMessage.status = { type: 'complete', reason: 'unknown' };
+
+                  if (lastMessage.reasoning?.status?.type === 'running') {
+                    lastMessage.reasoning.status = {
+                      type: 'complete',
+                      reason: 'unknown',
+                    };
+                  }
+                }
+              }),
+            );
+          } else {
+            void queryClient.invalidateQueries({ queryKey });
+          }
           return;
         }
 

@@ -49,7 +49,7 @@ import {
 } from '@shinkai_network/shinkai-ui/assets';
 import { formatText } from '@shinkai_network/shinkai-ui/helpers';
 import { cn } from '@shinkai_network/shinkai-ui/utils';
-import { format } from 'date-fns';
+import { format, isToday } from 'date-fns';
 import equal from 'fast-deep-equal';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -540,6 +540,7 @@ export const MessageBase = ({
             </Form>
           ) : (
             <Fragment>
+              {/** biome-ignore lint/a11y/noStaticElementInteractions: <ignnore> */}
               <div
                 className={cn(
                   'text-text-default relative container mt-1 flex flex-col rounded-lg px-0 pt-3',
@@ -659,9 +660,6 @@ export const MessageBase = ({
                       message.content,
                       'error_message',
                     )}
-                    isRunning={
-                      !!message.content && message.status.type === 'running'
-                    }
                   />
                 )}
                 {message.role === 'assistant' &&
@@ -718,11 +716,8 @@ export const MessageBase = ({
                     </div>
                   )}
                 {message.role === 'assistant' &&
-                  message.status.type === 'running' &&
-                  message.content === '' && (
-                    <div className="pt-1.5 whitespace-pre-line">
-                      <DotsLoader />
-                    </div>
+                  message.status.type === 'running' && (
+                    <DotsLoader className="py-5" />
                   )}
                 {pythonCode &&
                   !hidePythonExecution &&
@@ -825,6 +820,28 @@ export const MessageBase = ({
                   variants={actionBar}
                 >
                   <div className="flex items-center gap-1.5">
+                    {message.role === 'user' && message.createdAt && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="text-text-tertiary mr-1 cursor-default text-xs">
+                            {isToday(new Date(message.createdAt))
+                              ? format(new Date(message.createdAt), 'p')
+                              : format(new Date(message.createdAt), 'MMM d')}
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipPortal>
+                          <TooltipContent side="bottom">
+                            <p>
+                              {format(
+                                new Date(message.createdAt),
+                                "EEEE, MMMM d, yyyy 'at' h:mm a",
+                              )}
+                            </p>
+                          </TooltipContent>
+                        </TooltipPortal>
+                      </Tooltip>
+                    )}
+
                     {message.role === 'user' && !disabledEdit && (
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -832,6 +849,7 @@ export const MessageBase = ({
                             className={cn(
                               'text-text-secondary border-divider hover:text-text-default hover:bg-bg-tertiary flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors [&>svg]:h-3 [&>svg]:w-3',
                             )}
+                            type="button"
                             onClick={() => {
                               setEditing(true);
                             }}
@@ -856,6 +874,7 @@ export const MessageBase = ({
                                 className={cn(
                                   'text-text-secondary border-divider hover:text-text-default hover:bg-bg-tertiary flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors [&>svg]:h-3 [&>svg]:w-3',
                                 )}
+                                type="button"
                                 onClick={handleForkMessage}
                               >
                                 <GitFork />
@@ -873,6 +892,7 @@ export const MessageBase = ({
                                 className={cn(
                                   'text-text-secondary border-divider hover:text-text-default hover:bg-bg-tertiary flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors [&>svg]:h-3 [&>svg]:w-3',
                                 )}
+                                type="button"
                                 onClick={handleRetryMessage}
                               >
                                 <RotateCcw />
@@ -895,6 +915,7 @@ export const MessageBase = ({
                               className={cn(
                                 'text-text-secondary border-divider hover:bg-bg-tertiary flex h-7 w-7 items-center justify-center rounded-lg border bg-transparent transition-colors [&>svg]:h-3 [&>svg]:w-3',
                               )}
+                              type="button"
                               onClick={() => setTracingOpen(true)}
                             >
                               <TracingIcon />
@@ -938,29 +959,44 @@ export const MessageBase = ({
                       </Tooltip>
                     )}
                   </div>
+
                   {message.role === 'assistant' &&
                     message.status.type === 'complete' && (
                       <div
                         className={cn(
-                          'text-text-tertiary flex items-center gap-1.5',
+                          'text-text-tertiary flex items-center gap-1.5 text-xs',
                         )}
                       >
-                        <span>
-                          {format(new Date(message?.createdAt ?? ''), 'p')}
-                        </span>
-                        {message.role === 'assistant' &&
-                          message?.metadata?.tps && (
-                            <>
-                              {' '}
-                              ⋅
-                              <span>
-                                {Math.round(
-                                  Number(message?.metadata?.tps) * 10,
-                                ) / 10}{' '}
-                                tokens/s
-                              </span>
-                            </>
-                          )}
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span className="cursor-default">
+                              {isToday(new Date(message.createdAt))
+                                ? format(new Date(message.createdAt), 'p')
+                                : format(new Date(message.createdAt), 'MMM d')}
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipPortal>
+                            <TooltipContent side="bottom">
+                              <p>
+                                {format(
+                                  new Date(message.createdAt),
+                                  "EEEE, MMMM d, yyyy 'at' h:mm a",
+                                )}
+                              </p>
+                            </TooltipContent>
+                          </TooltipPortal>
+                        </Tooltip>
+                        {message?.metadata?.tps && (
+                          <>
+                            {' '}
+                            ⋅
+                            <span>
+                              {Math.round(Number(message?.metadata?.tps) * 10) /
+                                10}{' '}
+                              tokens/s
+                            </span>
+                          </>
+                        )}
                       </div>
                     )}
                 </motion.div>
@@ -1153,7 +1189,6 @@ export function Reasoning({
                 status?.type === 'running' && 'text-text-secondary',
               )}
               content={reasoning}
-              isRunning={!!reasoning && status?.type === 'running'}
             />
           </span>
         </AccordionContent>

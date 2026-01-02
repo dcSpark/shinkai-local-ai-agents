@@ -1,6 +1,6 @@
 {
   "name": "@shinkai/source",
-  "version": "1.1.29",
+  "version": "1.1.30",
   "license": "SEE LICENSE IN LICENSE",
   "files": [
     "LICENSE"
@@ -115,6 +115,7 @@
     "rxjs": "^7.8.1",
     "sonner": "^2.0.3",
     "sql.js": "^1.13.0",
+    "streamdown": "^1.6.10",
     "svg-pan-zoom": "^3.6.2",
     "tailwind-merge": "^2.3.0",
     "tailwindcss-animate": "^1.0.7",
@@ -143,8 +144,8 @@
     "@nx/js": "22.3.1",
     "@nx/playwright": "22.3.1",
     "@nx/react": "22.3.1",
-    "@nx/vitest": "22.3.1",
     "@nx/vite": "22.3.1",
+    "@nx/vitest": "22.3.1",
     "@nx/web": "22.3.1",
     "@nx/workspace": "22.3.1",
     "@peculiar/webcrypto": "^1.5.0",

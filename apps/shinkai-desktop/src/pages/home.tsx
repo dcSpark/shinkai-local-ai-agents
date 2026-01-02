@@ -57,7 +57,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { useHotkeys } from 'react-hotkeys-hook';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { toast } from 'sonner';
@@ -173,10 +173,22 @@ const EmptyMessage = () => {
     },
   });
 
-  const selectedTool = chatForm.watch('tool');
-  const currentMessage = chatForm.watch('message');
-  const currentFiles = chatForm.watch('files');
-  const currentAI = chatForm.watch('agent');
+  const selectedTool = useWatch({ control: chatForm.control, name: 'tool' });
+  const currentMessage = useWatch({
+    control: chatForm.control,
+    name: 'message',
+  });
+  const currentFiles = useWatch({ control: chatForm.control, name: 'files' });
+  const currentAI = useWatch({ control: chatForm.control, name: 'agent' });
+
+  const useToolsEnabled = useWatch({
+    control: chatConfigForm.control,
+    name: 'useTools',
+  });
+  const thinkingEnabled = useWatch({
+    control: chatConfigForm.control,
+    name: 'thinking',
+  });
 
   const promptSelected = usePromptSelectionStore(
     (state) => state.promptSelected,
@@ -431,6 +443,68 @@ const EmptyMessage = () => {
   const toolRawInput = useChatStore((state) => state.toolRawInput);
   const chatToolView = useChatStore((state) => state.chatToolView);
 
+  const handleMessageChange = useCallback(
+    (value: string) => {
+      chatForm.setValue('message', value);
+    },
+    [chatForm],
+  );
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (
+        e.key === '/' &&
+        !e.shiftKey &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !chatForm.getValues('message').trim()
+      ) {
+        e.preventDefault();
+        setIsCommandOpen(true);
+      }
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        e.key === 'z' &&
+        promptSelected?.prompt === chatForm.getValues('message')
+      ) {
+        chatForm.setValue('message', '');
+      }
+    },
+    [chatForm, promptSelected?.prompt],
+  );
+
+  const handlePaste = useCallback(
+    (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+      const items = event.clipboardData?.items;
+      if (items) {
+        for (let i = 0; i < items.length; i++) {
+          if (items[i].type.indexOf('image') !== -1) {
+            const file = items[i].getAsFile();
+            if (file) {
+              onDrop([file]);
+              event.preventDefault();
+            }
+          }
+        }
+      }
+    },
+    [onDrop],
+  );
+
+  const handleToggleUseTools = useCallback(() => {
+    chatConfigForm.setValue('useTools', !chatConfigForm.getValues('useTools'));
+  }, [chatConfigForm]);
+
+  const handleToggleThinking = useCallback(() => {
+    chatConfigForm.setValue('thinking', !chatConfigForm.getValues('thinking'));
+  }, [chatConfigForm]);
+
+  const handleRemoveTool = useCallback(() => {
+    chatForm.setValue('tool', undefined);
+    chatForm.setValue('message', '');
+    setToolFormData(null);
+  }, [chatForm]);
+
   // for suggested tools
   useHotkeys(
     ['mod+1', 'ctrl+1', 'mod+2', 'ctrl+2', 'mod+3', 'ctrl+3'],
@@ -471,7 +545,7 @@ const EmptyMessage = () => {
       const currentIndex = allAIs.indexOf(currentAI ?? '');
       if (currentIndex === -1) return;
 
-      let newIndex;
+      let newIndex: number;
       if (event.key === '[') {
         newIndex = currentIndex === 0 ? allAIs.length - 1 : currentIndex - 1;
       } else {
@@ -486,59 +560,79 @@ const EmptyMessage = () => {
     },
   );
 
-  const onSubmit = async (data: ChatMessageFormSchema) => {
-    if (!auth || data.message.trim() === '' || !data.agent) return;
-    const selectedVRFiles =
-      selectedFileKeysRef.size > 0
-        ? Array.from(selectedFileKeysRef.values())
-        : [];
-    const selectedVRFolders =
-      selectedFolderKeysRef.size > 0
-        ? Array.from(selectedFolderKeysRef.values())
-        : [];
+  const onSubmit = useCallback(
+    async (data: ChatMessageFormSchema) => {
+      if (!auth || data.message.trim() === '' || !data.agent) return;
+      const selectedVRFiles =
+        selectedFileKeysRef.size > 0
+          ? Array.from(selectedFileKeysRef.values())
+          : [];
+      const selectedVRFolders =
+        selectedFolderKeysRef.size > 0
+          ? Array.from(selectedFolderKeysRef.values())
+          : [];
 
-    const formattedToolMessage = Object.keys(toolFormData ?? {})
-      .map((key) => {
-        return `${key}: ${toolFormData?.[key]}`;
-      })
-      .join('\n');
+      const formattedToolMessage = Object.keys(toolFormData ?? {})
+        .map((key) => {
+          return `${key}: ${toolFormData?.[key]}`;
+        })
+        .join('\n');
 
-    let content = data.message;
+      let content = data.message;
 
-    if (selectedTool) {
-      content = `${selectedTool.name} \n ${formattedToolMessage}`;
-    }
-    if (toolRawInput && chatToolView === 'raw') {
-      content = `${toolRawInput}`;
-    }
+      if (selectedTool) {
+        content = `${selectedTool.name} \n ${formattedToolMessage}`;
+      }
+      if (toolRawInput && chatToolView === 'raw') {
+        content = `${toolRawInput}`;
+      }
 
-    await createJob({
-      nodeAddress: auth.node_address,
-      token: auth.api_v2_key,
-      llmProvider: data.agent,
-      content: content,
-      files: currentFiles,
-      isHidden: false,
-      toolKey: data.tool?.key,
-      selectedVRFiles,
-      selectedVRFolders,
-      chatConfig: {
-        stream: chatConfigForm.getValues('stream'),
-        custom_prompt: chatConfigForm.getValues('customPrompt') ?? '',
-        temperature: chatConfigForm.getValues('temperature'),
-        top_p: chatConfigForm.getValues('topP'),
-        top_k: chatConfigForm.getValues('topK'),
-        use_tools: chatConfigForm.getValues('useTools'),
-        thinking: chatConfigForm.getValues('thinking'),
-        reasoning_effort: chatConfigForm.getValues('reasoningEffort'),
-        web_search_enabled: chatConfigForm.getValues('webSearchEnabled'),
-      },
-    });
+      await createJob({
+        nodeAddress: auth.node_address,
+        token: auth.api_v2_key,
+        llmProvider: data.agent,
+        content: content,
+        files: currentFiles,
+        isHidden: false,
+        toolKey: data.tool?.key,
+        selectedVRFiles,
+        selectedVRFolders,
+        chatConfig: {
+          stream: chatConfigForm.getValues('stream'),
+          custom_prompt: chatConfigForm.getValues('customPrompt') ?? '',
+          temperature: chatConfigForm.getValues('temperature'),
+          top_p: chatConfigForm.getValues('topP'),
+          top_k: chatConfigForm.getValues('topK'),
+          use_tools: chatConfigForm.getValues('useTools'),
+          thinking: chatConfigForm.getValues('thinking'),
+          reasoning_effort: chatConfigForm.getValues('reasoningEffort'),
+          web_search_enabled: chatConfigForm.getValues('webSearchEnabled'),
+        },
+      });
 
-    chatForm.reset();
-    clearSelectedFiles();
-    setToolFormData(null);
-  };
+      chatForm.reset();
+      clearSelectedFiles();
+      setToolFormData(null);
+    },
+    [
+      auth,
+      chatConfigForm,
+      chatForm,
+      chatToolView,
+      clearSelectedFiles,
+      createJob,
+      currentFiles,
+      selectedFileKeysRef,
+      selectedFolderKeysRef,
+      selectedTool,
+      toolFormData,
+      toolRawInput,
+    ],
+  );
+
+  const handleToolSubmit = useCallback(() => {
+    void chatForm.handleSubmit(onSubmit)();
+  }, [chatForm, onSubmit]);
 
   const mainLayoutContainerRef = useViewportStore(
     (state) => state.mainLayoutContainerRef,
@@ -630,15 +724,9 @@ const EmptyMessage = () => {
                         args={selectedTool.args}
                         description={selectedTool.description}
                         name={formatText(selectedTool.name)}
-                        onSubmit={() => {
-                          void chatForm.handleSubmit(onSubmit)();
-                        }}
+                        onSubmit={handleToolSubmit}
                         onToolFormChange={setToolFormData}
-                        remove={() => {
-                          chatForm.setValue('tool', undefined);
-                          chatForm.setValue('message', '');
-                          setToolFormData(null);
-                        }}
+                        remove={handleRemoveTool}
                         toolFormData={toolFormData}
                       />
                     ),
@@ -702,13 +790,8 @@ const EmptyMessage = () => {
 
                         {!selectedTool && !selectedAgent && (
                           <ToolsSwitchActionBar
-                            checked={chatConfigForm.watch('useTools')}
-                            onClick={() => {
-                              chatConfigForm.setValue(
-                                'useTools',
-                                !chatConfigForm.watch('useTools'),
-                              );
-                            }}
+                            checked={useToolsEnabled}
+                            onClick={handleToggleUseTools}
                           />
                         )}
 
@@ -717,25 +800,20 @@ const EmptyMessage = () => {
                           thinkingConfig.supportsThinking && (
                             <ThinkingSwitchActionBar
                               checked={
-                                thinkingConfig.forceEnabled ||
-                                chatConfigForm.watch('thinking')
+                                thinkingConfig.forceEnabled || thinkingEnabled
                               }
                               disabled={thinkingConfig.forceEnabled}
                               forceEnabled={thinkingConfig.forceEnabled}
-                              onClick={() => {
-                                if (!thinkingConfig.forceEnabled) {
-                                  chatConfigForm.setValue(
-                                    'thinking',
-                                    !chatConfigForm.watch('thinking'),
-                                  );
-                                }
-                              }}
+                              onClick={handleToggleThinking}
                             />
                           )}
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <CreateChatConfigActionBar form={chatConfigForm} currentAI={currentAI} />
+                        <CreateChatConfigActionBar
+                          form={chatConfigForm}
+                          currentAI={currentAI}
+                        />
 
                         <Button
                           className={cn('size-[36px] p-2')}
@@ -765,42 +843,9 @@ const EmptyMessage = () => {
                   }
                   className="rounded-2xl"
                   disabled={isPending}
-                  onChange={(value) => {
-                    chatForm.setValue('message', value);
-                  }}
-                  onKeyDown={(e) => {
-                    if (
-                      e.key === '/' &&
-                      !e.shiftKey &&
-                      !e.ctrlKey &&
-                      !e.metaKey &&
-                      !currentMessage.trim()
-                    ) {
-                      e.preventDefault();
-                      setIsCommandOpen(true);
-                    }
-                    if (
-                      (e.ctrlKey || e.metaKey) &&
-                      e.key === 'z' &&
-                      promptSelected?.prompt === chatForm.watch('message')
-                    ) {
-                      chatForm.setValue('message', '');
-                    }
-                  }}
-                  onPaste={(event) => {
-                    const items = event.clipboardData?.items;
-                    if (items) {
-                      for (let i = 0; i < items.length; i++) {
-                        if (items[i].type.indexOf('image') !== -1) {
-                          const file = items[i].getAsFile();
-                          if (file) {
-                            onDrop([file]);
-                            event.preventDefault();
-                          }
-                        }
-                      }
-                    }
-                  }}
+                  onChange={handleMessageChange}
+                  onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
                   onSubmit={chatForm.handleSubmit(onSubmit)}
                   ref={textareaRef}
                   textareaClassName={cn(
@@ -856,6 +901,7 @@ const EmptyMessage = () => {
                                       delete newKeys[file];
                                       onSelectedKeysChange(newKeys);
                                     }}
+                                    type="button"
                                   >
                                     <X className="h-full w-full" />
                                   </button>
@@ -866,7 +912,7 @@ const EmptyMessage = () => {
                         )}
                     </>
                   }
-                  value={chatForm.watch('message')}
+                  value={currentMessage}
                 />
               </PopoverAnchor>
               <PopoverContent

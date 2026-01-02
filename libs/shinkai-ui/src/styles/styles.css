@@ -242,28 +242,6 @@
   }
 }
 
-/* markdown dot loader */
-:where(.md-running):empty::after,
-:where(.md-running) > :where(:not(ol):not(ul):not(pre)):last-child::after,
-:where(.md-running) > pre:last-child code::after,
-:where(.md-running)
-  > :where(:is(ol, ul):last-child)
-  > :where(li:last-child:not(:has(* > li)))::after,
-:where(.md-running)
-  > :where(:is(ol, ul):last-child)
-  > :where(li:last-child)
-  > :where(:is(ol, ul):last-child)
-  > :where(li:last-child:not(:has(* > li)))::after,
-:where(.md-running)
-  > :where(:is(ol, ul):last-child)
-  > :where(li:last-child)
-  > :where(:is(ol, ul):last-child)
-  > :where(li:last-child)
-  > :where(:is(ol, ul):last-child)
-  > :where(li:last-child)::after {
-  @apply ml-1 animate-pulse font-sans text-[10px] text-gray-50 content-['\25CF'];
-}
-
 /* react tree view */
 .p-checkbox {
   @apply h-[18px] w-[18px] shrink-0;

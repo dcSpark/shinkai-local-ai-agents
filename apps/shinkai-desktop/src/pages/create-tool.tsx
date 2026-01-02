@@ -260,28 +260,17 @@ function AIModelSelectorBase({
   });
 
   const modelOptions = useMemo(() => {
-    const codeGeneratorModel = llmProviders?.find(
-      (provider) =>
-        provider.model.toLowerCase() === CODE_GENERATOR_MODEL_ID.toLowerCase(),
-    );
-
     const freeTrialModel = llmProviders?.find(
       (provider) =>
         provider.model.toLowerCase() ===
         SHINKAI_FREE_TRIAL_MODEL_ID.toLowerCase(),
     );
 
-    if (!codeGeneratorModel || !freeTrialModel) {
+    if (!freeTrialModel) {
       return [];
     }
 
     return [
-      {
-        id: codeGeneratorModel?.id ?? '',
-        name: t('tools.create.shinkaiCodeGenerator'),
-        placeholderId: 'code-generator',
-        description: t('tools.create.shinkaiCodeGeneratorDescription'),
-      },
       {
         id: freeTrialModel?.id ?? '',
         name: t('tools.create.shinkaiFreeTrial'),
@@ -334,7 +323,7 @@ function AIModelSelectorBase({
   );
 
   return (
-    <div className="mb-2 grid grid-cols-1 gap-4 md:grid-cols-3">
+    <div className="mb-2 grid grid-cols-1 gap-4 md:grid-cols-2">
       {modelOptions.map((model) => {
         const isSelected =
           model.id === 'custom-model'

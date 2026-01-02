@@ -414,7 +414,14 @@ const AppRoutes = () => {
             path={'tools'}
           >
             <Route element={<ToolsPage />} index />
-            <Route element={<ToolDetails />} path={':toolKey'} />
+            <Route
+              element={
+                <PlaygroundProvider>
+                  <ToolDetails />
+                </PlaygroundProvider>
+              }
+              path={':toolKey'}
+            />
             <Route
               element={
                 <PlaygroundProvider>

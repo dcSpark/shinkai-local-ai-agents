@@ -1,5 +1,5 @@
 import { type ComponentPropsWithoutRef, type FC, memo } from 'react';
-import { Streamdown } from 'streamdown';
+import { defaultRehypePlugins, Streamdown } from 'streamdown';
 
 import { cn } from '../utils';
 
@@ -130,6 +130,7 @@ export const MarkdownTextBase = ({ content, className }: MarkdownTextProps) => {
         '[&_pre]:max-w-full [&_pre]:overflow-x-auto',
         className,
       )}
+      rehypePlugins={[defaultRehypePlugins.katex, defaultRehypePlugins.harden]}
       components={{
         a: MediaAwareLink,
       }}

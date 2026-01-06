@@ -30,6 +30,20 @@ const shortcuts = [
           ['Ctrl', ']'],
         ],
       },
+      {
+        label: 'Open Local AI Files',
+        keys: [
+          ['⇧', '⌘', 'L'],
+          ['⇧', 'Ctrl', 'L'],
+        ],
+      },
+      {
+        label: 'Open Prompt Library',
+        keys: [
+          ['⇧', '⌘', 'P'],
+          ['⇧', 'Ctrl', 'P'],
+        ],
+      },
     ],
   },
   {

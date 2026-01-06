@@ -30,6 +30,7 @@ type OpenChatFolderActionBarProps = {
   disabled?: boolean;
   aiFilesCount?: number;
   showLabel?: boolean;
+  shortcut?: string;
 };
 
 function VectorFsActionBarBase({
@@ -37,6 +38,7 @@ function VectorFsActionBarBase({
   aiFilesCount = 0,
   disabled,
   showLabel,
+  shortcut,
 }: OpenChatFolderActionBarProps) {
   const { t } = useTranslation();
   if (!showLabel) {
@@ -69,6 +71,11 @@ function VectorFsActionBarBase({
           <TooltipPortal>
             <TooltipContent align="center" side="top">
               {t('vectorFs.localFiles')}
+              {shortcut && (
+                <span className="text-text-secondary ml-2 text-xs">
+                  {shortcut}
+                </span>
+              )}
             </TooltipContent>
           </TooltipPortal>
         </Tooltip>
@@ -77,18 +84,29 @@ function VectorFsActionBarBase({
   }
   return (
     <button
-      className={cn(actionButtonClassnames, 'w-full justify-start gap-2.5')}
+      className={cn(
+        actionButtonClassnames,
+        'w-full justify-between gap-2.5',
+        shortcut && 'pr-2',
+      )}
       disabled={disabled}
       onClick={onClick}
       type="button"
     >
-      <FilesIcon className="size-4" />
-      <span className="">{t('vectorFs.localFiles')}</span>
-      {aiFilesCount > 0 ? (
-        <Badge className="bg-bg-dark border-divider text-text-default inline-flex size-4 items-center justify-center rounded-full p-0 text-center text-[10px]">
-          {aiFilesCount}
-        </Badge>
-      ) : null}
+      <div className="flex items-center gap-2.5">
+        <FilesIcon className="size-4" />
+        <span>{t('vectorFs.localFiles')}</span>
+        {aiFilesCount > 0 ? (
+          <Badge className="bg-bg-dark border-divider text-text-default inline-flex size-4 items-center justify-center rounded-full p-0 text-center text-[10px]">
+            {aiFilesCount}
+          </Badge>
+        ) : null}
+      </div>
+      {shortcut && (
+        <span className="text-text-secondary ml-auto text-[10px]">
+          {shortcut}
+        </span>
+      )}
     </button>
   );
 }

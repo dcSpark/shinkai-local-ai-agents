@@ -194,6 +194,10 @@ const EmptyMessage = () => {
     (state) => state.promptSelected,
   );
 
+  const setPromptSelectionDrawerOpen = usePromptSelectionStore(
+    (state) => state.setPromptSelectionDrawerOpen,
+  );
+
   const onDrop = useCallback(
     (acceptedFiles: File[]) => {
       const previousFiles = chatForm.getValues('files') ?? [];
@@ -538,7 +542,7 @@ const EmptyMessage = () => {
     (event) => {
       if (!llmProviders || !agents) return;
       const allAIs = [
-        ...(agents ?? []).map((a) => a.name),
+        ...(agents ?? []).map((a) => a.agent_id),
         ...(llmProviders ?? []).map((l) => l.id),
       ];
 
@@ -557,6 +561,34 @@ const EmptyMessage = () => {
     {
       enableOnFormTags: true,
       enabled: !!llmProviders?.length && !!agents?.length && !!currentAI,
+    },
+  );
+
+  // For opening Local AI Files
+  useHotkeys(
+    ['mod+shift+l', 'ctrl+shift+l'],
+    () => {
+      if (selectedTool) return;
+      setSetJobScopeOpen(true);
+    },
+    {
+      enableOnFormTags: true,
+      enabled: !selectedTool,
+      preventDefault: true,
+    },
+  );
+
+  // For opening Prompt Library
+  useHotkeys(
+    ['mod+shift+p', 'ctrl+shift+p'],
+    () => {
+      if (selectedTool) return;
+      setPromptSelectionDrawerOpen(true);
+    },
+    {
+      enableOnFormTags: true,
+      enabled: !selectedTool,
+      preventDefault: true,
     },
   );
 
@@ -755,7 +787,7 @@ const EmptyMessage = () => {
                               </TooltipContent>
                             </TooltipPortal>
                           </Tooltip>
-                          <PopoverContent align="start" className="w-48 p-2">
+                          <PopoverContent align="start" className="w-56 p-2">
                             <div className="flex flex-col items-start gap-1">
                               {!selectedTool && (
                                 <VectorFsActionBar
@@ -766,11 +798,15 @@ const EmptyMessage = () => {
                                   onClick={() => {
                                     setSetJobScopeOpen(true);
                                   }}
+                                  shortcut="⌘⇧L"
                                   showLabel
                                 />
                               )}
                               {!selectedTool && (
-                                <PromptSelectionActionBar showLabel />
+                                <PromptSelectionActionBar
+                                  shortcut="⌘⇧P"
+                                  showLabel
+                                />
                               )}
                             </div>
                           </PopoverContent>

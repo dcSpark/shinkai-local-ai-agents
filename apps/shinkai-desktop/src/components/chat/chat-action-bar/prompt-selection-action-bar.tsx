@@ -15,9 +15,11 @@ import { actionButtonClassnames } from '../conversation-footer';
 function PromptSelectionActionBarBase({
   disabled,
   showLabel,
+  shortcut,
 }: {
   disabled?: boolean;
   showLabel?: boolean;
+  shortcut?: string;
 }) {
   const setPromptSelectionDrawerOpen = usePromptSelectionStore(
     (state) => state.setPromptSelectionDrawerOpen,
@@ -42,6 +44,11 @@ function PromptSelectionActionBarBase({
           <TooltipPortal>
             <TooltipContent align="center" side="top">
               Prompt Library
+              {shortcut && (
+                <span className="text-text-secondary ml-2 text-xs">
+                  {shortcut}
+                </span>
+              )}
             </TooltipContent>
           </TooltipPortal>
         </Tooltip>
@@ -50,15 +57,26 @@ function PromptSelectionActionBarBase({
   }
   return (
     <button
-      className={cn(actionButtonClassnames, 'w-full justify-start gap-2.5')}
+      className={cn(
+        actionButtonClassnames,
+        'w-full justify-between gap-2.5',
+        shortcut && 'pr-2',
+      )}
       disabled={disabled}
       onClick={() => {
         setPromptSelectionDrawerOpen(true);
       }}
       type="button"
     >
-      <PromptLibraryIcon className="size-4" />
-      <span className="">Prompt Library</span>
+      <div className="flex items-center gap-2.5">
+        <PromptLibraryIcon className="size-4" />
+        <span>Prompt Library</span>
+      </div>
+      {shortcut && (
+        <span className="text-text-secondary ml-auto text-[10px]">
+          {shortcut}
+        </span>
+      )}
     </button>
   );
 }

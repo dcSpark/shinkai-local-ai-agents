@@ -1012,18 +1012,39 @@ export const MessageBase = ({
 };
 
 export const Message = memo(MessageBase, (prev, next) => {
+  if (
+    prev.message === next.message &&
+    prev.minimalistMode === next.minimalistMode
+  ) {
+    return true;
+  }
+
+  const prevMsg = prev.message as AssistantMessage;
+  const nextMsg = next.message as AssistantMessage;
+
+  if (prev.message.content.length !== next.message.content.length) {
+    return false;
+  }
+
+  const prevReasoningLen = prevMsg.reasoning?.text?.length ?? 0;
+  const nextReasoningLen = nextMsg.reasoning?.text?.length ?? 0;
+  if (prevReasoningLen !== nextReasoningLen) {
+    return false;
+  }
+
+  const prevToolCallsLen = prevMsg.toolCalls?.length ?? 0;
+  const nextToolCallsLen = nextMsg.toolCalls?.length ?? 0;
+  if (prevToolCallsLen !== nextToolCallsLen) {
+    return false;
+  }
+
   return (
     prev.messageId === next.messageId &&
     prev.message.content === next.message.content &&
-    (prev.message as AssistantMessage)?.status?.type ===
-      (next.message as AssistantMessage)?.status?.type &&
-    (prev.message as AssistantMessage).reasoning?.text ===
-      (next.message as AssistantMessage).reasoning?.text &&
+    prevMsg?.status?.type === nextMsg?.status?.type &&
+    prevMsg.reasoning?.text === nextMsg.reasoning?.text &&
     prev.minimalistMode === next.minimalistMode &&
-    equal(
-      (prev.message as AssistantMessage).toolCalls,
-      (next.message as AssistantMessage).toolCalls,
-    )
+    (prevToolCallsLen === 0 || equal(prevMsg.toolCalls, nextMsg.toolCalls))
   );
 });
 

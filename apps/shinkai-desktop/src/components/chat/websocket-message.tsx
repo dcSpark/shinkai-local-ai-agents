@@ -16,13 +16,15 @@ import {
 import { useGetProviderFromJob } from '@shinkai_network/shinkai-node-state/v2/queries/getProviderFromJob/useGetProviderFromJob';
 import { useQueryClient } from '@tanstack/react-query';
 import { produce } from 'immer';
-import { createContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useParams } from 'react-router';
 import useWebSocket from 'react-use-websocket';
-import { create } from 'zustand';
 
 import { useAuth } from '../../store/auth';
 import { useToolsStore } from './context/tools-context';
+
+// Token buffering configuration for smooth streaming
+const FLUSH_INTERVAL_MS = 50; // 20 FPS - smooth enough for human perception
 
 type UseWebSocketMessage = {
   enabled?: boolean;
@@ -42,6 +44,12 @@ export const useWebSocketMessage = ({
     : `ws://${nodeAddressUrl.hostname}${Number(nodeAddressUrl.port) !== 0 ? `:${Number(nodeAddressUrl.port)}` : ''}/ws`;
   const queryClient = useQueryClient();
   const isStreamSupported = useRef(false);
+  const hasStreamCompletedRef = useRef(false);
+
+  // Token buffering refs for smooth streaming updates
+  const tokenBufferRef = useRef('');
+  const reasoningBufferRef = useRef('');
+  const flushScheduledRef = useRef(false);
 
   const { sendMessage, lastMessage, readyState } = useWebSocket(
     socketUrl,
@@ -60,6 +68,73 @@ export const useWebSocketMessage = ({
     token: auth?.api_v2_key ?? '',
     nodeAddress: auth?.node_address ?? '',
   });
+
+  // Flush buffered tokens to React Query state
+  const flushTokenBuffer = useCallback(
+    (options?: { finalMessageId?: string; markComplete?: boolean }) => {
+      flushScheduledRef.current = false;
+      const hasTokens = tokenBufferRef.current || reasoningBufferRef.current;
+      const shouldFinalize = options?.markComplete;
+
+      if (!hasTokens && !shouldFinalize) return;
+
+      queryClient.setQueryData(
+        queryKey,
+        produce((draft: ChatConversationInfiniteData | undefined) => {
+          if (!draft?.pages?.[0]) return;
+          const lastMessage = draft.pages.at(-1)?.at(-1) as
+            | FormattedMessage
+            | undefined;
+          if (
+            lastMessage?.messageId === OPTIMISTIC_ASSISTANT_MESSAGE_ID &&
+            lastMessage?.role === 'assistant' &&
+            (lastMessage?.status?.type === 'running' || shouldFinalize)
+          ) {
+            // Apply reasoning buffer first
+            if (reasoningBufferRef.current) {
+              if (!lastMessage.reasoning) {
+                lastMessage.reasoning = {
+                  text: '',
+                  status: { type: 'running' },
+                };
+              }
+              lastMessage.reasoning.text += reasoningBufferRef.current;
+              lastMessage.reasoning.status = { type: 'running' };
+              reasoningBufferRef.current = '';
+            }
+            // Apply content buffer
+            if (tokenBufferRef.current) {
+              // Mark reasoning as complete when content starts
+              if (lastMessage.reasoning) {
+                lastMessage.reasoning.status = {
+                  type: 'complete',
+                  reason: 'unknown',
+                };
+              }
+              lastMessage.content += tokenBufferRef.current;
+              tokenBufferRef.current = '';
+            }
+
+            // Finalize the message if streaming is complete
+            if (shouldFinalize) {
+              // Update to the real message ID if provided
+              if (options?.finalMessageId) {
+                lastMessage.messageId = options.finalMessageId;
+              }
+              lastMessage.status = { type: 'complete', reason: 'unknown' };
+              if (lastMessage.reasoning?.status?.type === 'running') {
+                lastMessage.reasoning.status = {
+                  type: 'complete',
+                  reason: 'unknown',
+                };
+              }
+            }
+          }
+        }),
+      );
+    },
+    [queryClient, queryKey],
+  );
 
   useEffect(() => {
     if (!enabled || !auth) return;
@@ -87,6 +162,11 @@ export const useWebSocketMessage = ({
           );
 
         if (isUserMessage) {
+          // Reset streaming state for new message
+          hasStreamCompletedRef.current = false;
+          tokenBufferRef.current = '';
+          reasoningBufferRef.current = '';
+
           queryClient.setQueryData(
             queryKey,
             produce((draft: ChatConversationInfiniteData) => {
@@ -125,77 +205,80 @@ export const useWebSocketMessage = ({
 
         // finalize the optimistic assistant message immediately when the final assistant message arrives
         if (isAssistantMessage) {
-          queryClient.setQueryData(
-            queryKey,
-            produce((draft: ChatConversationInfiniteData | undefined) => {
-              if (!draft?.pages?.[0]) return;
-              const lastMessage = draft.pages.at(-1)?.at(-1);
-              if (
-                lastMessage &&
-                lastMessage.messageId === OPTIMISTIC_ASSISTANT_MESSAGE_ID &&
-                lastMessage.role === 'assistant' &&
-                lastMessage.status?.type === 'running'
-              ) {
-                // Mark as complete so the UI stops "thinking"
-                lastMessage.status = { type: 'complete', reason: 'unknown' };
-                // Optional: also close reasoning if it's still marked running
-                if (lastMessage.reasoning?.status?.type === 'running') {
-                  lastMessage.reasoning.status = {
-                    type: 'complete',
-                    reason: 'unknown',
-                  };
-                }
-              }
-            }),
-          );
+          // If streaming already completed via is_done, skip redundant processing
+          if (hasStreamCompletedRef.current) {
+            return;
+          }
 
-          // now fetch the authoritative message to replace optimistic state
-          void queryClient.invalidateQueries({ queryKey });
+          // Flush any remaining buffered tokens before finalizing
+          if (tokenBufferRef.current || reasoningBufferRef.current) {
+            flushTokenBuffer({ markComplete: true });
+          } else {
+            // Only update status if no tokens to flush
+            queryClient.setQueryData(
+              queryKey,
+              produce((draft: ChatConversationInfiniteData | undefined) => {
+                if (!draft?.pages?.[0]) return;
+                const lastMessage = draft.pages.at(-1)?.at(-1);
+                if (
+                  lastMessage &&
+                  lastMessage.messageId === OPTIMISTIC_ASSISTANT_MESSAGE_ID &&
+                  lastMessage.role === 'assistant' &&
+                  lastMessage.status?.type === 'running'
+                ) {
+                  // Mark as complete so the UI stops "thinking"
+                  lastMessage.status = { type: 'complete', reason: 'unknown' };
+                  // Optional: also close reasoning if it's still marked running
+                  if (lastMessage.reasoning?.status?.type === 'running') {
+                    lastMessage.reasoning.status = {
+                      type: 'complete',
+                      reason: 'unknown',
+                    };
+                  }
+                }
+              }),
+            );
+          }
+
+          // Mark streaming as completed to prevent duplicate processing
+          hasStreamCompletedRef.current = true;
+          // Don't refetch - the streamed content is already correct and visible
+          // This prevents the UI flash that occurs when invalidateQueries replaces the cache
           return;
         }
 
         if (parseData.message_type !== 'Stream') return;
         isStreamSupported.current = true;
 
-        queryClient.setQueryData(
-          queryKey,
-          produce((draft: ChatConversationInfiniteData | undefined) => {
-            if (!draft?.pages?.[0]) return;
-            const lastMessage: FormattedMessage | undefined = draft.pages
-              .at(-1)
-              ?.at(-1);
-            if (
-              lastMessage &&
-              lastMessage.messageId === OPTIMISTIC_ASSISTANT_MESSAGE_ID &&
-              lastMessage.role === 'assistant' &&
-              lastMessage.status?.type === 'running'
-            ) {
-              if (parseData.metadata?.is_reasoning) {
-                if (!lastMessage.reasoning) {
-                  lastMessage.reasoning = {
-                    text: '',
-                    status: { type: 'running' },
-                  };
-                }
-                lastMessage.reasoning.text += parseData.message;
-                lastMessage.reasoning.status = { type: 'running' };
-              } else {
-                if (lastMessage.reasoning) {
-                  lastMessage.reasoning.status = {
-                    type: 'complete',
-                    reason: 'unknown',
-                  };
-                }
-                lastMessage.content += parseData.message;
-              }
-            }
-          }),
-        );
+        // Buffer tokens instead of updating state directly for smoother streaming
+        if (parseData.metadata?.is_reasoning) {
+          reasoningBufferRef.current += parseData.message;
+        } else {
+          tokenBufferRef.current += parseData.message;
+        }
+
+        // Check if streaming is complete via metadata
+        if (parseData.metadata?.is_done && !hasStreamCompletedRef.current) {
+          hasStreamCompletedRef.current = true;
+          // Flush any remaining tokens and finalize with the real message ID
+          flushTokenBuffer({
+            finalMessageId: parseData.metadata?.id,
+            markComplete: true,
+          });
+          // Don't refetch - the streamed content is already correct
+          // The message will be properly synced on next conversation load or pagination
+          return;
+        }
+
+        // Schedule flush at ~20 FPS for smooth updates
+        if (!flushScheduledRef.current) {
+          flushScheduledRef.current = true;
+          setTimeout(() => flushTokenBuffer(), FLUSH_INTERVAL_MS);
+        }
       } catch (error) {
         console.error('Failed to parse ws message', error);
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     auth?.shinkai_identity,
     auth?.profile,
@@ -204,6 +287,7 @@ export const useWebSocketMessage = ({
     lastMessage?.data,
     queryClient,
     queryKey,
+    flushTokenBuffer,
   ]);
 
   useEffect(() => {
@@ -327,72 +411,4 @@ export const useWebSocketTools = ({
   }, [auth?.api_v2_key, auth?.shinkai_identity, enabled, inboxId, sendMessage]);
 
   return { readyState };
-};
-
-type ContentPartState = {
-  type: 'text';
-  text: string;
-  part: {
-    type: 'text';
-    text: string;
-  };
-  status: {
-    type: 'complete' | 'running';
-  };
-};
-
-export const ContentPartContext = createContext({});
-const COMPLETE_STATUS = {
-  type: 'complete' as const,
-};
-
-const RUNNING_STATUS = {
-  type: 'running' as const,
-};
-
-export const TextContentPartProvider = ({
-  isRunning,
-  text,
-  children,
-}: {
-  text: string;
-  isRunning?: boolean | undefined;
-  children: React.ReactNode;
-}) => {
-  const [store] = useState(() => {
-    return create<ContentPartState>(() => ({
-      status: isRunning ? RUNNING_STATUS : COMPLETE_STATUS,
-      part: { type: 'text', text },
-      type: 'text',
-      text: '',
-    }));
-  });
-
-  useEffect(() => {
-    const state = store.getState() as ContentPartState & {
-      type: 'text';
-    };
-
-    const textUpdated = state.text !== text;
-    const targetStatus = isRunning ? RUNNING_STATUS : COMPLETE_STATUS;
-    const statusUpdated = state.status !== targetStatus;
-
-    if (!textUpdated && !statusUpdated) return;
-
-    store.setState(
-      {
-        type: 'text',
-        text,
-        part: { type: 'text', text },
-        status: targetStatus,
-      } satisfies ContentPartState,
-      true,
-    );
-  }, [store, isRunning, text]);
-
-  return (
-    <ContentPartContext.Provider value={store}>
-      {children}
-    </ContentPartContext.Provider>
-  );
 };

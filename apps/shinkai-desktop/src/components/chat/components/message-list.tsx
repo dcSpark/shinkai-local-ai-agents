@@ -27,6 +27,81 @@ import { Message } from './message';
 
 const SCROLL_THRESHOLD = 50;
 
+// Skeleton components for better loading UI
+const MessageSkeleton = ({
+  isUser,
+  index,
+  lines = 3,
+}: {
+  isUser: boolean;
+  index: number;
+  lines?: number;
+}) => {
+  const animationDelay = `${index * 100}ms`;
+
+  if (isUser) {
+    return (
+      <div
+        className="container flex justify-end px-3.5 pt-4 pb-4"
+        style={{ animationDelay }}
+      >
+        <div className="flex max-w-[70%] flex-col items-end gap-2">
+          <Skeleton
+            className="h-10 w-48 rounded-lg sm:w-64"
+            style={{ animationDelay }}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="container px-3.5 pb-10" style={{ animationDelay }}>
+      <div className="flex flex-col gap-2">
+        {/* Avatar and name */}
+        <div className="mt-2 flex items-center gap-2">
+          <Skeleton
+            className="size-5 rounded-full"
+            style={{ animationDelay }}
+          />
+          <Skeleton
+            className="h-4 w-24 rounded-md"
+            style={{ animationDelay }}
+          />
+        </div>
+        {/* Content bubble */}
+        <div className="bg-transparent pt-1">
+          <div className="flex flex-col gap-2">
+            {[...Array(lines)].map((_, lineIndex) => (
+              <Skeleton
+                key={lineIndex}
+                className={cn(
+                  'h-4 rounded-md',
+                  lineIndex === 0 && 'w-[90%]',
+                  lineIndex === 1 && 'w-[75%]',
+                  lineIndex === 2 && 'w-[60%]',
+                  lineIndex > 2 && 'w-[45%]',
+                )}
+                style={{ animationDelay: `${index * 100 + lineIndex * 50}ms` }}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const LoadingMoreSkeleton = () => (
+  <div className="flex flex-col gap-2 px-3.5 py-4">
+    <div className="flex items-center justify-center gap-2">
+      <div className="bg-brand/20 size-2 animate-bounce rounded-full [animation-delay:0ms]" />
+      <div className="bg-brand/20 size-2 animate-bounce rounded-full [animation-delay:150ms]" />
+      <div className="bg-brand/20 size-2 animate-bounce rounded-full [animation-delay:300ms]" />
+    </div>
+  </div>
+);
+
 function useScrollToBottom(scrollRef: RefObject<HTMLDivElement | null>) {
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -74,23 +149,39 @@ function useScrollToBottom(scrollRef: RefObject<HTMLDivElement | null>) {
     const container = scrollRef.current;
     if (!container) return;
 
+    // Use requestAnimationFrame to throttle scroll updates during streaming
+    let rafId: number | null = null;
+
     const handleContentChange = () => {
-      if (autoScrollRef.current) {
-        container.scrollTo({
-          top: container.scrollHeight,
-          behavior: 'instant',
-        });
-      }
+      // Skip if already scheduled or not auto-scrolling
+      if (rafId !== null || !autoScrollRef.current) return;
+
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        if (autoScrollRef.current && container) {
+          container.scrollTo({
+            top: container.scrollHeight,
+            behavior: 'instant',
+          });
+        }
+      });
     };
 
     const observer = new MutationObserver(handleContentChange);
+    // Only observe childList changes, not characterData (text changes)
+    // This significantly reduces observer callbacks during streaming
     observer.observe(container, {
       childList: true,
       subtree: true,
-      characterData: true,
+      characterData: false, // Disabled for performance during streaming
     });
 
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+      }
+    };
   }, [scrollRef]);
 
   return {
@@ -249,69 +340,21 @@ export const MessageList = memo(
             )}
           <div className="">
             {isLoading && (
-              <div className="container flex flex-col space-y-8">
-                {[...Array(10).keys()].map((index) => (
-                  <div
-                    className={cn(
-                      'flex w-[85%] gap-2',
-                      index % 2 !== 0
-                        ? 'mr-auto ml-0 flex-col'
-                        : 'mr-0 ml-auto w-[300px] items-start',
-                    )}
+              <div className="flex flex-col">
+                {/* Simulate a conversation pattern: user, assistant, user, assistant... */}
+                {[...Array(6).keys()].map((index) => (
+                  <MessageSkeleton
                     key={`skeleton-${index}`}
-                  >
-                    {index % 2 !== 0 ? (
-                      <div className="flex items-center justify-start gap-2">
-                        <Skeleton
-                          className="size-6 shrink-0 rounded-full"
-                          key={`avatar-${index}`}
-                        />
-                        <Skeleton
-                          className="h-6 w-[100px] shrink-0 rounded-md"
-                          key={`name-${index}`}
-                        />
-                      </div>
-                    ) : null}
-                    <Skeleton
-                      className={cn(
-                        'w-full rounded-lg px-2.5 py-3',
-                        index % 2 !== 0
-                          ? 'bg-bg-secondary h-32 rounded-bl-none'
-                          : 'h-10',
-                      )}
-                    />
-                  </div>
+                    index={index}
+                    isUser={index % 2 === 0}
+                    lines={index % 2 === 0 ? 1 : [2, 4, 3][index % 3]}
+                  />
                 ))}
               </div>
             )}
             {(hasPreviousPage || isFetchingPreviousPage) && (
-              <div className="flex flex-col space-y-3" ref={ref}>
-                {[...Array(4).keys()].map((index) => (
-                  <div
-                    className={cn(
-                      'flex w-[85%] gap-2',
-                      index % 2 === 0
-                        ? 'mr-auto ml-0 flex-col'
-                        : 'mr-0 ml-auto w-[300px] items-start',
-                    )}
-                    key={`skeleton-prev-${index}`}
-                  >
-                    {index % 2 !== 0 ? (
-                      <Skeleton
-                        className="bg-bg-quaternary size-6 shrink-0 rounded-full"
-                        key={`prev-avatar-${index}`}
-                      />
-                    ) : null}
-                    <Skeleton
-                      className={cn(
-                        'w-full rounded-lg px-2.5 py-3',
-                        index % 2 !== 0
-                          ? 'bg-bg-secondary h-32 rounded-bl-none'
-                          : 'h-10',
-                      )}
-                    />
-                  </div>
-                ))}
+              <div ref={ref}>
+                <LoadingMoreSkeleton />
               </div>
             )}
             {isSuccess && messageList?.length > 0 && (

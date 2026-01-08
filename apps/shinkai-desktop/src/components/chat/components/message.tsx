@@ -206,7 +206,7 @@ type EditMessageFormSchema = z.infer<typeof editMessageFormSchema>;
 
 export const MessageBase = ({
   message,
-  // messageId,
+  messageId,
   hidePythonExecution,
   isPending,
   handleRetryMessage,
@@ -218,6 +218,11 @@ export const MessageBase = ({
   isLastMessage = false,
 }: MessageProps) => {
   const { t } = useTranslation();
+  const { inboxId: encodedInboxId = '' } = useParams();
+  const inboxId = useMemo(
+    () => decodeURIComponent(encodedInboxId),
+    [encodedInboxId],
+  );
 
   const selectedArtifact = useChatStore((state) => state.selectedArtifact);
   const setArtifact = useChatStore((state) => state.setSelectedArtifact);
@@ -566,6 +571,7 @@ export const MessageBase = ({
               >
                 {message.role === 'assistant' && message.reasoning && (
                   <MessageReasoning
+                    inboxId={inboxId}
                     isLastMessage={isLastMessage}
                     isStreaming={message.reasoning.status?.type === 'running'}
                     reasoning={message.reasoning.text ?? ''}
@@ -1142,20 +1148,17 @@ export function ToolCard({
 type MessageReasoningProps = {
   isStreaming: boolean;
   reasoning: string;
+  inboxId: string;
   isLastMessage?: boolean;
 };
 
 export function MessageReasoning({
   isStreaming,
   reasoning,
+  inboxId,
   isLastMessage = false,
 }: MessageReasoningProps) {
-  const { inboxId: encodedInboxId = '' } = useParams();
-  const inboxId = useMemo(
-    () => decodeURIComponent(encodedInboxId),
-    [encodedInboxId],
-  );
-  // Only get streaming duration for the last message (we only store one per inbox)
+  // Only get reasoning duration for the last message (by inboxId, persists after clearInbox)
   const streamingDuration = useReasoningDuration(isLastMessage ? inboxId : '');
   const [hasBeenStreaming, setHasBeenStreaming] = useState(isStreaming);
 

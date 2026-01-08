@@ -65,6 +65,10 @@ export const useWebSocketMessage = ({
   const appendContent = useStreamingStore((state) => state.appendContent);
   const appendReasoning = useStreamingStore((state) => state.appendReasoning);
   const endStreaming = useStreamingStore((state) => state.endStreaming);
+  const clearInbox = useStreamingStore((state) => state.clearInbox);
+  const saveReasoningDuration = useStreamingStore(
+    (state) => state.saveReasoningDuration,
+  );
   const getStreamingContent = useStreamingStore(
     (state) => state.getStreamingContent,
   );
@@ -73,6 +77,9 @@ export const useWebSocketMessage = ({
   const tokenBufferRef = useRef('');
   const reasoningBufferRef = useRef('');
   const flushScheduledRef = useRef(false);
+  const flushTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const clearInboxTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const invalidateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Track the previous inboxId to handle unsubscription
   const previousInboxIdRef = useRef<string | null>(null);
@@ -100,6 +107,10 @@ export const useWebSocketMessage = ({
       createdAt?: string;
       metadata?: { tps?: number; durationMs?: number };
     }) => {
+      if (flushTimeoutRef.current) {
+        clearTimeout(flushTimeoutRef.current);
+        flushTimeoutRef.current = null;
+      }
       flushScheduledRef.current = false;
 
       const hasTokens = tokenBufferRef.current || reasoningBufferRef.current;
@@ -191,27 +202,64 @@ export const useWebSocketMessage = ({
           },
         );
 
+        // Save reasoning duration for the last message (by inboxId) before clearing inbox
+        // This preserves the duration after clearInbox is called
+        if (streamedContent) {
+          // Calculate final duration (already calculated in endStreaming, but get it from content)
+          let durationToSave = streamedContent.reasoningDuration;
+          if (durationToSave === 0 && streamedContent.reasoningStartTime) {
+            // Fallback calculation if not already calculated
+            durationToSave = Math.round(
+              (Date.now() - streamedContent.reasoningStartTime) / 1000,
+            );
+          }
+          if (durationToSave > 0) {
+            // Save by inboxId - only tracks the last message duration
+            saveReasoningDuration(inboxId, durationToSave);
+          }
+        }
+
         // Mark streaming as ended but KEEP the data (especially reasoningDuration)
         // The data will be reset when a new stream starts in this inbox
         endStreaming(inboxId);
+
+        // Cancel any pending cleanup timeouts for this inbox
+        if (clearInboxTimeoutRef.current) {
+          clearTimeout(clearInboxTimeoutRef.current);
+          clearInboxTimeoutRef.current = null;
+        }
+        if (invalidateTimeoutRef.current) {
+          clearTimeout(invalidateTimeoutRef.current);
+          invalidateTimeoutRef.current = null;
+        }
 
         // Only invalidate if there are tool calls that might have generated files
         // For non-tool messages, the content from setQueryData is sufficient
         // and invalidation would cause unnecessary flash
         const hasToolCalls = finalToolCalls.length > 0;
         if (hasToolCalls) {
-          setTimeout(() => {
+          invalidateTimeoutRef.current = setTimeout(() => {
+            invalidateTimeoutRef.current = null;
             void queryClient.invalidateQueries({
               queryKey,
             });
           }, 1000);
         }
+
+        // Clear streaming state after a delay to allow StreamingMessage to use final data
+        // This prevents memory leaks from accumulating streaming state
+        clearInboxTimeoutRef.current = setTimeout(() => {
+          clearInboxTimeoutRef.current = null;
+          clearInbox(inboxId);
+        }, 2000); // 2s delay ensures React Query update has propagated
       }
     },
     [
       appendContent,
       appendReasoning,
       endStreaming,
+      clearInbox,
+      saveReasoningDuration,
       getStreamingContent,
       inboxId,
       queryClient,
@@ -243,12 +291,26 @@ export const useWebSocketMessage = ({
         const isAssistantMessage = isShinkaiMessage && !isFromCurrentUser;
 
         if (isUserMessage) {
-          // Reset streaming state for new message
-          // NOTE: The optimistic assistant message is already created in useSendMessageToJob.onMutate
-          // We just need to initialize the streaming store here
+          clearInbox(inboxId);
+
           hasStreamCompletedRef.current = false;
+
           tokenBufferRef.current = '';
           reasoningBufferRef.current = '';
+
+          if (flushTimeoutRef.current) {
+            clearTimeout(flushTimeoutRef.current);
+            flushTimeoutRef.current = null;
+          }
+          if (clearInboxTimeoutRef.current) {
+            clearTimeout(clearInboxTimeoutRef.current);
+            clearInboxTimeoutRef.current = null;
+          }
+          if (invalidateTimeoutRef.current) {
+            clearTimeout(invalidateTimeoutRef.current);
+            invalidateTimeoutRef.current = null;
+          }
+          flushScheduledRef.current = false;
 
           // Start streaming in the dedicated store
           startStreaming(inboxId);
@@ -397,7 +459,10 @@ export const useWebSocketMessage = ({
         // Schedule flush at ~20 FPS for smooth updates
         if (!flushScheduledRef.current) {
           flushScheduledRef.current = true;
-          setTimeout(() => flushTokenBuffer(), FLUSH_INTERVAL_MS);
+          flushTimeoutRef.current = setTimeout(() => {
+            flushTimeoutRef.current = null;
+            flushTokenBuffer();
+          }, FLUSH_INTERVAL_MS);
         }
       } catch (error) {
         console.error('Failed to parse ws message', error);
@@ -412,8 +477,27 @@ export const useWebSocketMessage = ({
     queryKey,
     flushTokenBuffer,
     startStreaming,
+    clearInbox,
     getStreamingContent,
   ]);
+
+  // Cleanup all timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (flushTimeoutRef.current) {
+        clearTimeout(flushTimeoutRef.current);
+        flushTimeoutRef.current = null;
+      }
+      if (clearInboxTimeoutRef.current) {
+        clearTimeout(clearInboxTimeoutRef.current);
+        clearInboxTimeoutRef.current = null;
+      }
+      if (invalidateTimeoutRef.current) {
+        clearTimeout(invalidateTimeoutRef.current);
+        invalidateTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   // Subscribe/unsubscribe to inbox topic with proper cleanup
   useEffect(() => {
@@ -441,12 +525,6 @@ export const useWebSocketMessage = ({
       sendMessage(JSON.stringify(wsMessage));
     };
 
-    // Unsubscribe from previous inbox if different
-    if (previousInboxIdRef.current && previousInboxIdRef.current !== inboxId) {
-      unsubscribe(previousInboxIdRef.current);
-      // NOTE: Don't clear streaming state here! User might switch back to this chat
-    }
-
     // Subscribe to current inbox
     subscribe(inboxId);
     previousInboxIdRef.current = inboxId;
@@ -455,7 +533,6 @@ export const useWebSocketMessage = ({
     return () => {
       unsubscribe(inboxId);
       previousInboxIdRef.current = null;
-      // NOTE: Don't clear streaming state on navigation/unmount!
     };
   }, [auth?.api_v2_key, enabled, inboxId, sendMessage]);
 
@@ -509,12 +586,13 @@ export const useWebSocketTools = ({
         ) {
           const tool = parseData.widget.ToolRequest;
 
-          // Check if we're currently streaming - if so, update the streaming store
+          // Check if streaming content exists (even if streaming has ended)
+          // The store now allows tool call updates after streaming ends
           const streamingContent = getStreamingContent(inboxId);
-          if (streamingContent?.isStreaming) {
+          if (streamingContent) {
             const toolCall: ToolCall = {
               name: tool.tool_name,
-              args: tool?.args ?? tool?.args?.arguments,
+              args: tool?.args?.arguments ?? {},
               status: tool.status.type_,
               toolRouterKey: tool?.tool_router_key ?? '',
               result: tool.result?.data.message,
@@ -554,7 +632,7 @@ export const useWebSocketTools = ({
                   } else {
                     newToolCalls.push({
                       name: tool.tool_name,
-                      args: tool?.args ?? tool?.args?.arguments,
+                      args: tool?.args?.arguments ?? {},
                       status: tool.status.type_,
                       toolRouterKey: tool?.tool_router_key ?? '',
                       result: tool.result?.data.message,

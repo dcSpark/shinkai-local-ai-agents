@@ -33,6 +33,12 @@ type StreamingStore = {
   streams: Map<string, StreamingContent>;
 
   /**
+   * Map of inboxId -> reasoning duration (in seconds) for the last message
+   * Persists after clearInbox to preserve duration for the last completed message
+   */
+  reasoningDurations: Map<string, number>;
+
+  /**
    * Get streaming content for a specific inbox
    */
   getStreamingContent: (inboxId: string) => StreamingContent | undefined;
@@ -75,6 +81,17 @@ type StreamingStore = {
   clearInbox: (inboxId: string) => void;
 
   /**
+   * Save reasoning duration for the last message in an inbox
+   * This persists after clearInbox to preserve duration for the last completed message
+   */
+  saveReasoningDuration: (inboxId: string, duration: number) => void;
+
+  /**
+   * Get reasoning duration for the last message in an inbox
+   */
+  getReasoningDuration: (inboxId: string) => number | undefined;
+
+  /**
    * Clear all streaming state (useful on logout/cleanup)
    */
   clearAll: () => void;
@@ -86,9 +103,13 @@ const calculateReasoningDuration = (content: StreamingContent): number => {
   return Math.round((Date.now() - content.reasoningStartTime) / 1000);
 };
 
+// Maximum number of inboxes to keep reasoning durations for
+const MAX_REASONING_DURATIONS = 5;
+
 const createStreamingStore = () =>
   createStore<StreamingStore>((set, get) => ({
     streams: new Map(),
+    reasoningDurations: new Map(),
 
     getStreamingContent: (inboxId: string) => {
       return get().streams.get(inboxId);
@@ -97,6 +118,8 @@ const createStreamingStore = () =>
     startStreaming: (inboxId: string) => {
       set((state) => {
         const newStreams = new Map(state.streams);
+        const newDurations = new Map(state.reasoningDurations);
+        newDurations.delete(inboxId);
         newStreams.set(inboxId, {
           content: '',
           reasoning: null,
@@ -105,7 +128,7 @@ const createStreamingStore = () =>
           reasoningStartTime: null,
           reasoningDuration: 0,
         });
-        return { streams: newStreams };
+        return { streams: newStreams, reasoningDurations: newDurations };
       });
     },
 
@@ -178,7 +201,7 @@ const createStreamingStore = () =>
     updateToolCall: (inboxId: string, toolCall: ToolCall, index: number) => {
       set((state) => {
         const current = state.streams.get(inboxId);
-        if (!current?.isStreaming) return state;
+        if (!current) return state;
 
         const newStreams = new Map(state.streams);
         const newToolCalls = [...current.toolCalls];
@@ -227,8 +250,39 @@ const createStreamingStore = () =>
       });
     },
 
+    saveReasoningDuration: (inboxId: string, duration: number) => {
+      set((state) => {
+        const newDurations = new Map(state.reasoningDurations);
+        // Remove the inbox if it already exists (to update its position to "most recent")
+        if (newDurations.has(inboxId)) {
+          newDurations.delete(inboxId);
+        }
+        // Add the new/updated inbox duration
+        newDurations.set(inboxId, duration);
+
+        // Keep only the last MAX_REASONING_DURATIONS inboxes
+        // Map iterates in insertion order, so remove oldest entries first
+        if (newDurations.size > MAX_REASONING_DURATIONS) {
+          const entriesToRemove = newDurations.size - MAX_REASONING_DURATIONS;
+          const keysToRemove = Array.from(newDurations.keys()).slice(
+            0,
+            entriesToRemove,
+          );
+          for (const key of keysToRemove) {
+            newDurations.delete(key);
+          }
+        }
+
+        return { reasoningDurations: newDurations };
+      });
+    },
+
+    getReasoningDuration: (inboxId: string) => {
+      return get().reasoningDurations.get(inboxId);
+    },
+
     clearAll: () => {
-      set({ streams: new Map() });
+      set({ streams: new Map(), reasoningDurations: new Map() });
     },
   }));
 
@@ -285,13 +339,22 @@ export function useIsStreaming(inboxId: string) {
 }
 
 /**
- * Hook to get the reasoning duration for a specific inbox
+ * Hook to get the reasoning duration for the last message in an inbox
  * Returns the calculated duration in seconds, or 0 if not available
+ * Only tracks the last message duration (persists after clearInbox)
+ * Returns 0 if inboxId is empty string (to avoid showing duration for non-last messages)
  */
 export function useReasoningDuration(inboxId: string) {
   const selector = useCallback(
-    (state: StreamingStore) =>
-      state.streams.get(inboxId)?.reasoningDuration ?? 0,
+    (state: StreamingStore) => {
+      // Return 0 if inboxId is empty (means it's not the last message)
+      if (!inboxId) return 0;
+      // Check persistent storage for the last message duration
+      const persisted = state.reasoningDurations.get(inboxId);
+      if (persisted !== undefined) return persisted;
+      // Fallback to 0 if not found
+      return 0;
+    },
     [inboxId],
   );
   return useStreamingStore(selector);

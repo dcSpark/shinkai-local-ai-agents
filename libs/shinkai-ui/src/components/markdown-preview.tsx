@@ -116,11 +116,11 @@ const MediaAwareLink: FC<ComponentPropsWithoutRef<'a'>> = ({
 };
 
 export type MarkdownTextProps = {
-  content: string;
+  children: string;
   className?: string;
 };
 
-export const MarkdownTextBase = ({ content, className }: MarkdownTextProps) => {
+const MarkdownTextBase = ({ children, className }: MarkdownTextProps) => {
   return (
     <Streamdown
       className={cn(
@@ -139,9 +139,19 @@ export const MarkdownTextBase = ({ content, className }: MarkdownTextProps) => {
           theme: 'dark',
         },
       }}
+      controls={{
+        table: false, // Show table download button
+        code: true, // Show code copy button
+        mermaid: {
+          download: false, // Show mermaid download button
+          copy: true, // Show mermaid copy button
+          fullscreen: false, // Show mermaid fullscreen button
+          panZoom: true, // Show mermaid pan/zoom controls
+        },
+      }}
       shikiTheme={['github-dark', 'github-dark']}
     >
-      {content}
+      {children}
     </Streamdown>
   );
 };
@@ -149,5 +159,5 @@ export const MarkdownTextBase = ({ content, className }: MarkdownTextProps) => {
 export const MarkdownText = memo(
   MarkdownTextBase,
   (prev, next) =>
-    prev.content === next.content && prev.className === next.className,
+    prev.children === next.children && prev.className === next.className,
 );

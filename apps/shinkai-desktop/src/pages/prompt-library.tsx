@@ -351,10 +351,9 @@ function PromptPreview({
               setPromptEditContent={setPromptEditContent}
             />
           ) : (
-            <MarkdownText
-              className="prose-h1:!text-text-secondary prose-h1:!text-xs !text-text-secondary"
-              content={selectedPrompt?.prompt ?? ''}
-            />
+            <MarkdownText className="prose-h1:!text-text-secondary prose-h1:!text-xs !text-text-secondary">
+              {selectedPrompt?.prompt ?? ''}
+            </MarkdownText>
           )}
         </div>
       </div>
@@ -521,10 +520,9 @@ export const PromptTryOut = ({
               Output
             </p>
             <div className="p-4">
-              <MarkdownText
-                className="prose-h1:!text-text-default prose-h1:!text-xs !text-text-secondary !text-xs"
-                content={data?.pages?.at(-1)?.at(-1)?.content ?? ''}
-              />
+              <MarkdownText className="prose-h1:!text-text-default prose-h1:!text-xs !text-text-secondary !text-xs">
+                {data?.pages?.at(-1)?.at(-1)?.content ?? ''}
+              </MarkdownText>
             </div>
           </motion.div>
         )}

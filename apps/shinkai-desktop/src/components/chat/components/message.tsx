@@ -658,12 +658,12 @@ export const MessageBase = ({
                   )}
 
                 {message.role === 'assistant' && (
-                  <MarkdownText
-                    content={extractErrorPropertyOrContent(
+                  <MarkdownText>
+                    {extractErrorPropertyOrContent(
                       message.content,
                       'error_message',
                     )}
-                  />
+                  </MarkdownText>
                 )}
                 {message.role === 'assistant' &&
                   message.artifacts?.length > 0 && (
@@ -1214,8 +1214,9 @@ export function Reasoning({
               className={cn(
                 status?.type === 'running' && 'text-text-secondary',
               )}
-              content={reasoning}
-            />
+            >
+              {reasoning}
+            </MarkdownText>
           </span>
         </AccordionContent>
       </AccordionItem>

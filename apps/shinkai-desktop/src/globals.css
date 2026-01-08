@@ -1,6 +1,8 @@
 @import '../../../libs/shinkai-ui/src/styles/styles.css';
 @import 'primereact/resources/themes/lara-light-blue/theme.css';
 @import 'primereact/resources/primereact.min.css';
+/* Include Streamdown styles for Tailwind v4 */
+@source "../../../node_modules/streamdown/dist/*.js";
 
 @font-face {
   font-family: 'Clash Display';

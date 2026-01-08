@@ -466,6 +466,9 @@ export const MessageBase = ({
       // initial="rest"
       style={{ fontSize: `${getChatFontSizeInPts()}px` }}
       // whileHover="hover"
+      animate={{ opacity: 1 }}
+      data-role={message.role}
+      initial={{ opacity: 0 }}
     >
       <div
         className={cn(

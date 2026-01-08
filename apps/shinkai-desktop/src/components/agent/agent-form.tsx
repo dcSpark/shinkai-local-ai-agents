@@ -143,6 +143,7 @@ import { getToolRequiresConfigurations } from '../../utils/tools-configurations'
 import { AIModelSelector } from '../chat/chat-action-bar/ai-update-selection-action-bar';
 import { MessageList } from '../chat/components/message-list';
 import { ChatProvider } from '../chat/context/chat-context';
+import { StreamingProvider } from '../chat/context/streaming-context';
 import { ToolsProvider } from '../chat/context/tools-context';
 import {
   useWebSocketMessage,
@@ -2957,12 +2958,14 @@ function AgentForm({ mode }: AgentFormProps) {
             minSize={20}
           >
             <div className="h-full min-h-0 overflow-hidden">
-              <ToolsProvider>
-                <AgentSideChat
-                  agentId={agent.agent_id}
-                  onClose={() => setIsSideChatOpen(false)}
-                />
-              </ToolsProvider>
+              <StreamingProvider>
+                <ToolsProvider>
+                  <AgentSideChat
+                    agentId={agent.agent_id}
+                    onClose={() => setIsSideChatOpen(false)}
+                  />
+                </ToolsProvider>
+              </StreamingProvider>
             </div>
           </ResizablePanel>
         </>

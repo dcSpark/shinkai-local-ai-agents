@@ -18,6 +18,7 @@ import AddAgentPage from '../components/agent/add-agent';
 import EditAgentPage from '../components/agent/edit-agent';
 import { ChatProvider } from '../components/chat/context/chat-context';
 import { SetJobScopeProvider } from '../components/chat/context/set-job-scope-context';
+import { StreamingProvider } from '../components/chat/context/streaming-context';
 import { ToolsProvider as ToolsProviderChat } from '../components/chat/context/tools-context';
 import { WalletsProvider } from '../components/crypto-wallet/context/wallets-context';
 import DefaultLlmProviderUpdater from '../components/default-llm-provider/default-llm-provider-updater';
@@ -316,9 +317,11 @@ const AppRoutes = () => {
                   <ChatProvider>
                     <SetJobScopeProvider>
                       <PromptSelectionProvider>
-                        <ToolsProviderChat>
-                          <Outlet />
-                        </ToolsProviderChat>
+                        <StreamingProvider>
+                          <ToolsProviderChat>
+                            <Outlet />
+                          </ToolsProviderChat>
+                        </StreamingProvider>
                       </PromptSelectionProvider>
                     </SetJobScopeProvider>
                   </ChatProvider>
@@ -335,9 +338,11 @@ const AppRoutes = () => {
                   <ChatProvider>
                     <SetJobScopeProvider>
                       <PromptSelectionProvider>
-                        <ToolsProviderChat>
-                          <ChatLayout />
-                        </ToolsProviderChat>
+                        <StreamingProvider>
+                          <ToolsProviderChat>
+                            <ChatLayout />
+                          </ToolsProviderChat>
+                        </StreamingProvider>
                       </PromptSelectionProvider>
                     </SetJobScopeProvider>
                   </ChatProvider>

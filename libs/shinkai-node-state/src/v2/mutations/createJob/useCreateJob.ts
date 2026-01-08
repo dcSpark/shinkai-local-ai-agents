@@ -11,6 +11,10 @@ import { createJob } from '.';
 
 type Options = UseMutationOptions<CreateJobOutput, APIError, CreateJobInput>;
 
+// Note: For new chats, the optimistic assistant message is added by a useEffect
+// in useChatConversationWithOptimisticUpdates after the conversation is fetched.
+// This handles the case where the user navigates to the chat and the server
+// returns the user message but the assistant hasn't started responding yet.
 export const useCreateJob = (options?: Options) => {
   const queryClient = useQueryClient();
   return useMutation({

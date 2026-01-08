@@ -2,25 +2,23 @@ import {
   type WidgetToolType,
   type WsMessage,
 } from '@shinkai_network/shinkai-message-ts/api/general/types';
-import { extractJobIdFromInbox } from '@shinkai_network/shinkai-message-ts/utils/inbox_name_handler';
 import {
   FunctionKeyV2,
-  generateOptimisticAssistantMessage,
   OPTIMISTIC_ASSISTANT_MESSAGE_ID,
 } from '@shinkai_network/shinkai-node-state/v2/constants';
 import {
   type FormattedMessage,
   type ChatConversationInfiniteData,
   type ToolCall,
+  FileTypeSupported,
 } from '@shinkai_network/shinkai-node-state/v2/queries/getChatConversation/types';
-import { useGetProviderFromJob } from '@shinkai_network/shinkai-node-state/v2/queries/getProviderFromJob/useGetProviderFromJob';
 import { useQueryClient } from '@tanstack/react-query';
-import { produce } from 'immer';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useParams } from 'react-router';
 import useWebSocket from 'react-use-websocket';
 
 import { useAuth } from '../../store/auth';
+import { useStreamingStore } from './context/streaming-context';
 import { useToolsStore } from './context/tools-context';
 
 // Token buffering configuration for smooth streaming
@@ -31,25 +29,53 @@ type UseWebSocketMessage = {
   inboxId: string;
 };
 
+/**
+ * Constructs the WebSocket URL from the node address
+ * Handles both local development and production scenarios
+ */
+const getWebSocketUrl = (nodeAddress: string): string => {
+  const nodeAddressUrl = new URL(nodeAddress);
+  const isLocalhost = ['localhost', '0.0.0.0', '127.0.0.1'].includes(
+    nodeAddressUrl.hostname,
+  );
+
+  if (isLocalhost) {
+    return `ws://${nodeAddressUrl.hostname}:${Number(nodeAddressUrl.port) + 1}/ws`;
+  }
+
+  const portSuffix =
+    Number(nodeAddressUrl.port) !== 0 ? `:${Number(nodeAddressUrl.port)}` : '';
+  return `ws://${nodeAddressUrl.hostname}${portSuffix}/ws`;
+};
+
 export const useWebSocketMessage = ({
   enabled,
   inboxId: defaultInboxId,
 }: UseWebSocketMessage) => {
   const auth = useAuth((state) => state.auth);
-  const nodeAddressUrl = new URL(auth?.node_address ?? 'http://localhost:9850');
-  const socketUrl = ['localhost', '0.0.0.0', '127.0.0.1'].includes(
-    nodeAddressUrl.hostname,
-  )
-    ? `ws://${nodeAddressUrl.hostname}:${Number(nodeAddressUrl.port) + 1}/ws`
-    : `ws://${nodeAddressUrl.hostname}${Number(nodeAddressUrl.port) !== 0 ? `:${Number(nodeAddressUrl.port)}` : ''}/ws`;
+  const socketUrl = getWebSocketUrl(
+    auth?.node_address ?? 'http://localhost:9850',
+  );
   const queryClient = useQueryClient();
   const isStreamSupported = useRef(false);
   const hasStreamCompletedRef = useRef(false);
 
-  // Token buffering refs for smooth streaming updates
+  // Streaming store actions - only subscribe to the methods we need
+  const startStreaming = useStreamingStore((state) => state.startStreaming);
+  const appendContent = useStreamingStore((state) => state.appendContent);
+  const appendReasoning = useStreamingStore((state) => state.appendReasoning);
+  const endStreaming = useStreamingStore((state) => state.endStreaming);
+  const getStreamingContent = useStreamingStore(
+    (state) => state.getStreamingContent,
+  );
+
+  // Token buffering refs for batched updates to streaming store
   const tokenBufferRef = useRef('');
   const reasoningBufferRef = useRef('');
   const flushScheduledRef = useRef(false);
+
+  // Track the previous inboxId to handle unsubscription
+  const previousInboxIdRef = useRef<string | null>(null);
 
   const { sendMessage, lastMessage, readyState } = useWebSocket(
     socketUrl,
@@ -63,77 +89,135 @@ export const useWebSocketMessage = ({
     return [FunctionKeyV2.GET_CHAT_CONVERSATION_PAGINATION, { inboxId }];
   }, [inboxId]);
 
-  const { data: provider } = useGetProviderFromJob({
-    jobId: inboxId ? extractJobIdFromInbox(inboxId) : '',
-    token: auth?.api_v2_key ?? '',
-    nodeAddress: auth?.node_address ?? '',
-  });
-
-  // Flush buffered tokens to React Query state
+  // Flush buffered tokens to streaming store (NOT React Query)
   const flushTokenBuffer = useCallback(
-    (options?: { finalMessageId?: string; markComplete?: boolean }) => {
+    (options?: {
+      finalMessageId?: string;
+      markComplete?: boolean;
+      realContent?: string;
+      realReasoning?: string;
+      toolCalls?: ToolCall[];
+      createdAt?: string;
+      metadata?: { tps?: number; durationMs?: number };
+    }) => {
       flushScheduledRef.current = false;
+
       const hasTokens = tokenBufferRef.current || reasoningBufferRef.current;
       const shouldFinalize = options?.markComplete;
 
       if (!hasTokens && !shouldFinalize) return;
 
-      queryClient.setQueryData(
-        queryKey,
-        produce((draft: ChatConversationInfiniteData | undefined) => {
-          if (!draft?.pages?.[0]) return;
-          const lastMessage = draft.pages.at(-1)?.at(-1) as
-            | FormattedMessage
-            | undefined;
-          if (
-            lastMessage?.messageId === OPTIMISTIC_ASSISTANT_MESSAGE_ID &&
-            lastMessage?.role === 'assistant' &&
-            (lastMessage?.status?.type === 'running' || shouldFinalize)
-          ) {
-            // Apply reasoning buffer first
-            if (reasoningBufferRef.current) {
-              if (!lastMessage.reasoning) {
-                lastMessage.reasoning = {
-                  text: '',
-                  status: { type: 'running' },
-                };
-              }
-              lastMessage.reasoning.text += reasoningBufferRef.current;
-              lastMessage.reasoning.status = { type: 'running' };
-              reasoningBufferRef.current = '';
-            }
-            // Apply content buffer
-            if (tokenBufferRef.current) {
-              // Mark reasoning as complete when content starts
-              if (lastMessage.reasoning) {
-                lastMessage.reasoning.status = {
-                  type: 'complete',
-                  reason: 'unknown',
-                };
-              }
-              lastMessage.content += tokenBufferRef.current;
-              tokenBufferRef.current = '';
-            }
+      // Apply buffered tokens to streaming store
+      if (reasoningBufferRef.current) {
+        appendReasoning(inboxId, reasoningBufferRef.current);
+        reasoningBufferRef.current = '';
+      }
+      if (tokenBufferRef.current) {
+        appendContent(inboxId, tokenBufferRef.current);
+        tokenBufferRef.current = '';
+      }
 
-            // Finalize the message if streaming is complete
-            if (shouldFinalize) {
-              // Update to the real message ID if provided
-              if (options?.finalMessageId) {
-                lastMessage.messageId = options.finalMessageId;
-              }
-              lastMessage.status = { type: 'complete', reason: 'unknown' };
-              if (lastMessage.reasoning?.status?.type === 'running') {
-                lastMessage.reasoning.status = {
-                  type: 'complete',
-                  reason: 'unknown',
-                };
-              }
+      // Finalize if streaming is complete
+      if (shouldFinalize) {
+        // Get the accumulated content BEFORE clearing the streaming store
+        const streamedContent = getStreamingContent(inboxId);
+
+        // Use real data from ShinkaiMessage if available, otherwise use streamed content
+        const finalContent =
+          options?.realContent ?? streamedContent?.content ?? '';
+        const finalReasoning = options?.realReasoning
+          ? {
+              text: options.realReasoning,
+              status: { type: 'complete' as const, reason: 'unknown' as const },
             }
-          }
-        }),
-      );
+          : streamedContent?.reasoning
+            ? {
+                ...streamedContent.reasoning,
+                status: {
+                  type: 'complete' as const,
+                  reason: 'unknown' as const,
+                },
+              }
+            : undefined;
+        const finalToolCalls =
+          options?.toolCalls ??
+          (streamedContent?.toolCalls && streamedContent.toolCalls.length > 0
+            ? streamedContent.toolCalls
+            : []);
+
+        // IMPORTANT: Update React Query FIRST, then clear streaming store
+        // This prevents a brief flash where StreamingMessage falls back to
+        // stale React Query data before the update propagates
+        queryClient.setQueryData(
+          queryKey,
+          (old: ChatConversationInfiniteData | undefined) => {
+            if (!old?.pages?.length) return old;
+
+            const pages = old.pages.slice();
+            const lastPageIdx = pages.length - 1;
+            const lastPage = pages[lastPageIdx].slice();
+            const lastMsgIdx = lastPage.length - 1;
+            const lastMsg = lastPage[lastMsgIdx];
+
+            if (lastMsg?.messageId !== OPTIMISTIC_ASSISTANT_MESSAGE_ID)
+              return old;
+            if (
+              lastMsg.role !== 'assistant' ||
+              lastMsg.status?.type !== 'running'
+            )
+              return old;
+
+            const updated: FormattedMessage = {
+              ...lastMsg,
+              messageId: options?.finalMessageId ?? lastMsg.messageId,
+              createdAt: options?.createdAt ?? lastMsg.createdAt,
+              content: finalContent || lastMsg.content,
+              status: { type: 'complete', reason: 'unknown' },
+              reasoning: finalReasoning ?? lastMsg.reasoning,
+              toolCalls:
+                finalToolCalls.length > 0 ? finalToolCalls : lastMsg.toolCalls,
+              metadata: {
+                ...lastMsg.metadata,
+                // Convert tps to string since BaseMessage.metadata.tps expects string
+                tps:
+                  options?.metadata?.tps?.toString() ?? lastMsg.metadata?.tps,
+              },
+            };
+
+            lastPage[lastMsgIdx] = updated;
+            pages[lastPageIdx] = lastPage;
+
+            return { ...old, pages };
+          },
+        );
+
+        // Clear streaming store AFTER React Query is updated
+        // This way when StreamingMessage falls back to React Query data,
+        // it already has the correct content
+        endStreaming(inboxId);
+
+        // Only invalidate if there are tool calls that might have generated files
+        // This avoids unnecessary refetch when there's just text content
+        // The query has placeholderData: keepPreviousData to prevent flash during refetch
+        const hasToolCalls = finalToolCalls.length > 0;
+        if (hasToolCalls) {
+          setTimeout(() => {
+            void queryClient.invalidateQueries({
+              queryKey,
+            });
+          }, 1000);
+        }
+      }
     },
-    [queryClient, queryKey],
+    [
+      appendContent,
+      appendReasoning,
+      endStreaming,
+      getStreamingContent,
+      inboxId,
+      queryClient,
+      queryKey,
+    ],
   );
 
   useEffect(() => {
@@ -143,58 +227,32 @@ export const useWebSocketMessage = ({
         const parseData: WsMessage = JSON.parse(lastMessage.data);
         if (parseData.inbox !== inboxId) return;
 
-        const isUserMessage =
-          parseData.message_type === 'ShinkaiMessage' &&
-          parseData.message &&
-          JSON.parse(parseData.message)?.external_metadata.sender ===
-            auth.shinkai_identity &&
-          JSON.parse(parseData.message)?.body.unencrypted.internal_metadata
-            .sender_subidentity === auth.profile;
+        // Parse the ShinkaiMessage once to avoid repeated JSON.parse calls
+        const isShinkaiMessage =
+          parseData.message_type === 'ShinkaiMessage' && parseData.message;
+        const shinkaiMsg = isShinkaiMessage
+          ? JSON.parse(parseData.message)
+          : null;
 
-        const isAssistantMessage =
-          parseData.message_type === 'ShinkaiMessage' &&
-          parseData.message &&
-          !(
-            JSON.parse(parseData.message)?.external_metadata.sender ===
-              auth.shinkai_identity &&
-            JSON.parse(parseData.message)?.body.unencrypted.internal_metadata
-              .sender_subidentity === auth.profile
-          );
+        // Determine if this is a user message or assistant message
+        const isFromCurrentUser =
+          shinkaiMsg?.external_metadata.sender === auth.shinkai_identity &&
+          shinkaiMsg?.body.unencrypted.internal_metadata.sender_subidentity ===
+            auth.profile;
+
+        const isUserMessage = isShinkaiMessage && isFromCurrentUser;
+        const isAssistantMessage = isShinkaiMessage && !isFromCurrentUser;
 
         if (isUserMessage) {
           // Reset streaming state for new message
+          // NOTE: The optimistic assistant message is already created in useSendMessageToJob.onMutate
+          // We just need to initialize the streaming store here
           hasStreamCompletedRef.current = false;
           tokenBufferRef.current = '';
           reasoningBufferRef.current = '';
 
-          queryClient.setQueryData(
-            queryKey,
-            produce((draft: ChatConversationInfiniteData) => {
-              if (!draft?.pages?.[0]) return;
-
-              const lastPage = draft.pages[draft.pages.length - 1];
-              const lastMessage = lastPage?.[lastPage.length - 1];
-
-              // validate if optimistic message is already there
-              if (
-                lastMessage &&
-                lastMessage.messageId === OPTIMISTIC_ASSISTANT_MESSAGE_ID &&
-                lastMessage.role === 'assistant' &&
-                lastMessage.status?.type === 'running'
-              ) {
-                lastMessage.content = '';
-              } else {
-                const newMessages = [
-                  generateOptimisticAssistantMessage(provider),
-                ];
-                if (lastPage) {
-                  lastPage.push(...newMessages);
-                } else {
-                  draft.pages.push(newMessages);
-                }
-              }
-            }),
-          );
+          // Start streaming in the dedicated store
+          startStreaming(inboxId);
           return;
         }
         if (isAssistantMessage && !isStreamSupported.current) {
@@ -204,51 +262,120 @@ export const useWebSocketMessage = ({
         isStreamSupported.current = false;
 
         // finalize the optimistic assistant message immediately when the final assistant message arrives
-        if (isAssistantMessage) {
+        if (isAssistantMessage && shinkaiMsg) {
           // If streaming already completed via is_done, skip redundant processing
           if (hasStreamCompletedRef.current) {
             return;
           }
 
-          // Flush any remaining buffered tokens before finalizing
-          if (tokenBufferRef.current || reasoningBufferRef.current) {
-            flushTokenBuffer({ markComplete: true });
-          } else {
-            // Only update status if no tokens to flush
-            queryClient.setQueryData(
-              queryKey,
-              produce((draft: ChatConversationInfiniteData | undefined) => {
-                if (!draft?.pages?.[0]) return;
-                const lastMessage = draft.pages.at(-1)?.at(-1);
-                if (
-                  lastMessage &&
-                  lastMessage.messageId === OPTIMISTIC_ASSISTANT_MESSAGE_ID &&
-                  lastMessage.role === 'assistant' &&
-                  lastMessage.status?.type === 'running'
-                ) {
-                  // Mark as complete so the UI stops "thinking"
-                  lastMessage.status = { type: 'complete', reason: 'unknown' };
-                  // Optional: also close reasoning if it's still marked running
-                  if (lastMessage.reasoning?.status?.type === 'running') {
-                    lastMessage.reasoning.status = {
-                      type: 'complete',
-                      reason: 'unknown',
-                    };
+          // Extract metadata from the already-parsed ShinkaiMessage
+          // This contains the real message ID (signature), content, reasoning, and tool calls
+          try {
+            const messageRawContent = JSON.parse(
+              shinkaiMsg.body?.unencrypted?.message_data?.unencrypted
+                ?.message_raw_content ?? '{}',
+            );
+
+            // Extract the real message ID from internal signature (this is the node_message_hash)
+            const realMessageId =
+              shinkaiMsg.body?.unencrypted?.internal_metadata?.signature ??
+              shinkaiMsg.external_metadata?.signature;
+
+            // Extract timestamp for createdAt
+            const createdAt =
+              shinkaiMsg.external_metadata?.scheduled_time ??
+              new Date().toISOString();
+
+            // Extract the real content and metadata
+            const realContent = messageRawContent?.content ?? '';
+            const realReasoning = messageRawContent?.reasoning_content;
+            const functionCalls =
+              messageRawContent?.metadata?.function_calls ?? [];
+
+            // Extract TPS and duration metadata
+            const tps = messageRawContent?.metadata?.tps;
+            const durationMs = messageRawContent?.metadata?.duration_ms;
+
+            // Convert function calls to tool calls format, extracting generated files
+            const toolCalls: ToolCall[] = functionCalls.map(
+              (fc: {
+                name: string;
+                arguments: Record<string, unknown>;
+                tool_router_key: string;
+                response?: string;
+              }) => {
+                // Extract __created_files__ from the response
+                let generatedFiles: ToolCall['generatedFiles'];
+                if (fc.response) {
+                  try {
+                    const responseData = JSON.parse(fc.response);
+                    // Check for __created_files__ in multiple locations
+                    const files: string[] | undefined =
+                      responseData?.data?.__created_files__ ??
+                      responseData?.__created_files__;
+
+                    if (files && files.length > 0) {
+                      // Create attachment objects with file paths
+                      // Full previews will be loaded by the invalidation or lazily
+                      generatedFiles = files.map((filePath: string) => {
+                        const fileName =
+                          filePath.split('/').pop() ?? 'unknown_file';
+                        const extension = fileName.split('.').pop() ?? '';
+                        return {
+                          id: filePath,
+                          path: filePath,
+                          name: fileName,
+                          extension,
+                          type: FileTypeSupported.Unknown,
+                          mimeType: 'application/octet-stream',
+                        };
+                      });
+                    }
+                  } catch {
+                    // Failed to parse response, no generated files
                   }
                 }
-              }),
+
+                return {
+                  toolRouterKey: fc.tool_router_key,
+                  name: fc.name,
+                  args: fc.arguments,
+                  status: 'Complete' as const,
+                  result: fc.response ?? '',
+                  generatedFiles,
+                };
+              },
             );
+
+            // Flush any remaining buffered tokens and finalize with real data
+            flushTokenBuffer({
+              markComplete: true,
+              finalMessageId: realMessageId,
+              createdAt,
+              realContent,
+              realReasoning,
+              toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+              metadata: { tps, durationMs },
+            });
+          } catch (parseError) {
+            console.error('Failed to parse ShinkaiMessage:', parseError);
+            // Fallback to basic finalization
+            flushTokenBuffer({ markComplete: true });
           }
 
           // Mark streaming as completed to prevent duplicate processing
           hasStreamCompletedRef.current = true;
-          // Don't refetch - the streamed content is already correct and visible
-          // This prevents the UI flash that occurs when invalidateQueries replaces the cache
           return;
         }
 
         if (parseData.message_type !== 'Stream') return;
         isStreamSupported.current = true;
+
+        // Ensure streaming is started - handles cases where user message wasn't echoed via WebSocket
+        // or when the stream starts before we detect the user message
+        if (!getStreamingContent(inboxId)?.isStreaming) {
+          startStreaming(inboxId);
+        }
 
         // Buffer tokens instead of updating state directly for smoother streaming
         if (parseData.metadata?.is_reasoning) {
@@ -265,8 +392,6 @@ export const useWebSocketMessage = ({
             finalMessageId: parseData.metadata?.id,
             markComplete: true,
           });
-          // Don't refetch - the streamed content is already correct
-          // The message will be properly synced on next conversation load or pagination
           return;
         }
 
@@ -280,28 +405,60 @@ export const useWebSocketMessage = ({
       }
     }
   }, [
-    auth?.shinkai_identity,
-    auth?.profile,
+    auth,
     enabled,
     inboxId,
     lastMessage?.data,
     queryClient,
     queryKey,
     flushTokenBuffer,
+    startStreaming,
+    getStreamingContent,
   ]);
 
+  // Subscribe/unsubscribe to inbox topic with proper cleanup
   useEffect(() => {
-    if (!enabled) return;
-    const wsMessage = {
-      bearer_auth: auth?.api_v2_key ?? '',
-      message: {
-        subscriptions: [{ topic: 'inbox', subtopic: inboxId }],
-        unsubscriptions: [],
-      },
+    if (!enabled || !auth?.api_v2_key) return;
+
+    const subscribe = (targetInboxId: string) => {
+      const wsMessage = {
+        bearer_auth: auth.api_v2_key,
+        message: {
+          subscriptions: [{ topic: 'inbox', subtopic: targetInboxId }],
+          unsubscriptions: [],
+        },
+      };
+      sendMessage(JSON.stringify(wsMessage));
     };
-    const wsMessageString = JSON.stringify(wsMessage);
-    sendMessage(wsMessageString);
-  }, [auth?.api_v2_key, auth?.shinkai_identity, enabled, inboxId, sendMessage]);
+
+    const unsubscribe = (targetInboxId: string) => {
+      const wsMessage = {
+        bearer_auth: auth.api_v2_key,
+        message: {
+          subscriptions: [],
+          unsubscriptions: [{ topic: 'inbox', subtopic: targetInboxId }],
+        },
+      };
+      sendMessage(JSON.stringify(wsMessage));
+    };
+
+    // Unsubscribe from previous inbox if different
+    if (previousInboxIdRef.current && previousInboxIdRef.current !== inboxId) {
+      unsubscribe(previousInboxIdRef.current);
+      // NOTE: Don't clear streaming state here! User might switch back to this chat
+    }
+
+    // Subscribe to current inbox
+    subscribe(inboxId);
+    previousInboxIdRef.current = inboxId;
+
+    // Cleanup: unsubscribe on unmount or when disabled
+    return () => {
+      unsubscribe(inboxId);
+      previousInboxIdRef.current = null;
+      // NOTE: Don't clear streaming state on navigation/unmount!
+    };
+  }, [auth?.api_v2_key, enabled, inboxId, sendMessage]);
 
   return {
     readyState,
@@ -313,12 +470,9 @@ export const useWebSocketTools = ({
   inboxId: defaultInboxId,
 }: UseWebSocketMessage) => {
   const auth = useAuth((state) => state.auth);
-  const nodeAddressUrl = new URL(auth?.node_address ?? 'http://localhost:9850');
-  const socketUrl = ['localhost', '0.0.0.0', '127.0.0.1'].includes(
-    nodeAddressUrl.hostname,
-  )
-    ? `ws://${nodeAddressUrl.hostname}:${Number(nodeAddressUrl.port) + 1}/ws`
-    : `ws://${nodeAddressUrl.hostname}${Number(nodeAddressUrl.port) !== 0 ? `:${Number(nodeAddressUrl.port)}` : ''}/ws`;
+  const socketUrl = getWebSocketUrl(
+    auth?.node_address ?? 'http://localhost:9850',
+  );
   const { sendMessage, lastMessage, readyState } = useWebSocket(
     socketUrl,
     { share: true },
@@ -329,6 +483,15 @@ export const useWebSocketTools = ({
   const queryClient = useQueryClient();
 
   const setWidget = useToolsStore((state) => state.setWidget);
+
+  // Streaming store for tool calls
+  const updateToolCall = useStreamingStore((state) => state.updateToolCall);
+  const getStreamingContent = useStreamingStore(
+    (state) => state.getStreamingContent,
+  );
+
+  // Track the previous inboxId for unsubscription
+  const previousInboxIdRef = useRef<string | null>(null);
 
   const queryKey = useMemo(() => {
     return [FunctionKeyV2.GET_CHAT_CONVERSATION_PAGINATION, { inboxId }];
@@ -346,39 +509,71 @@ export const useWebSocketTools = ({
           parseData?.widget?.ToolRequest
         ) {
           const tool = parseData.widget.ToolRequest;
-          queryClient.setQueryData(
-            queryKey,
-            produce((draft: ChatConversationInfiniteData | undefined) => {
-              if (!draft?.pages?.[0]) return;
-              const lastMessage = draft.pages.at(-1)?.at(-1);
-              if (
-                lastMessage &&
-                lastMessage.messageId === OPTIMISTIC_ASSISTANT_MESSAGE_ID &&
-                lastMessage.role === 'assistant' &&
-                lastMessage.status?.type === 'running'
-              ) {
-                const existingToolCall: ToolCall | undefined =
-                  lastMessage.toolCalls?.[tool.index];
 
-                if (existingToolCall) {
-                  lastMessage.toolCalls[tool.index] = {
-                    ...lastMessage.toolCalls[tool.index],
-                    status: tool.status.type_,
-                    result: tool.result?.data.message,
+          // Check if we're currently streaming - if so, update the streaming store
+          const streamingContent = getStreamingContent(inboxId);
+          if (streamingContent?.isStreaming) {
+            const toolCall: ToolCall = {
+              name: tool.tool_name,
+              args: tool?.args ?? tool?.args?.arguments,
+              status: tool.status.type_,
+              toolRouterKey: tool?.tool_router_key ?? '',
+              result: tool.result?.data.message,
+            };
+            updateToolCall(inboxId, toolCall, tool.index);
+          } else {
+            // Fallback to React Query update for non-streaming scenarios
+            // Use shallow copy instead of immer
+            queryClient.setQueryData(
+              queryKey,
+              (old: ChatConversationInfiniteData | undefined) => {
+                if (!old?.pages?.[0]) return old;
+
+                const pages = old.pages.slice();
+                const lastPageIdx = pages.length - 1;
+                const lastPage = pages[lastPageIdx].slice();
+                const lastMsgIdx = lastPage.length - 1;
+                const lastMsg = lastPage[lastMsgIdx];
+
+                if (
+                  lastMsg &&
+                  lastMsg.messageId === OPTIMISTIC_ASSISTANT_MESSAGE_ID &&
+                  lastMsg.role === 'assistant' &&
+                  lastMsg.status?.type === 'running'
+                ) {
+                  const existingToolCall: ToolCall | undefined =
+                    lastMsg.toolCalls?.[tool.index];
+
+                  const newToolCalls = [...(lastMsg.toolCalls || [])];
+
+                  if (existingToolCall) {
+                    newToolCalls[tool.index] = {
+                      ...newToolCalls[tool.index],
+                      status: tool.status.type_,
+                      result: tool.result?.data.message,
+                    };
+                  } else {
+                    newToolCalls.push({
+                      name: tool.tool_name,
+                      args: tool?.args ?? tool?.args?.arguments,
+                      status: tool.status.type_,
+                      toolRouterKey: tool?.tool_router_key ?? '',
+                      result: tool.result?.data.message,
+                    });
+                  }
+
+                  const updated: FormattedMessage = {
+                    ...lastMsg,
+                    toolCalls: newToolCalls,
                   };
-                } else {
-                  lastMessage.toolCalls.push({
-                    name: tool.tool_name,
-                    // TODO: fix this based on backend
-                    args: tool?.args ?? tool?.args?.arguments,
-                    status: tool.status.type_,
-                    toolRouterKey: tool?.tool_router_key ?? '',
-                    result: tool.result?.data.message,
-                  });
+                  lastPage[lastMsgIdx] = updated;
+                  pages[lastPageIdx] = lastPage;
+                  return { ...old, pages };
                 }
-              }
-            }),
-          );
+                return old;
+              },
+            );
+          }
         }
 
         if (
@@ -395,20 +590,58 @@ export const useWebSocketTools = ({
         console.error('Failed to parse ws message', error);
       }
     }
-  }, [enabled, inboxId, lastMessage?.data, queryClient]);
+  }, [
+    enabled,
+    inboxId,
+    lastMessage?.data,
+    queryClient,
+    queryKey,
+    getStreamingContent,
+    updateToolCall,
+    setWidget,
+  ]);
 
+  // Subscribe/unsubscribe to widget topic with proper cleanup
   useEffect(() => {
-    if (!enabled) return;
-    const wsMessage = {
-      bearer_auth: auth?.api_v2_key ?? '',
-      message: {
-        subscriptions: [{ topic: 'widget', subtopic: inboxId }],
-        unsubscriptions: [],
-      },
+    if (!enabled || !auth?.api_v2_key) return;
+
+    const subscribe = (targetInboxId: string) => {
+      const wsMessage = {
+        bearer_auth: auth.api_v2_key,
+        message: {
+          subscriptions: [{ topic: 'widget', subtopic: targetInboxId }],
+          unsubscriptions: [],
+        },
+      };
+      sendMessage(JSON.stringify(wsMessage));
     };
-    const wsMessageString = JSON.stringify(wsMessage);
-    sendMessage(wsMessageString);
-  }, [auth?.api_v2_key, auth?.shinkai_identity, enabled, inboxId, sendMessage]);
+
+    const unsubscribe = (targetInboxId: string) => {
+      const wsMessage = {
+        bearer_auth: auth.api_v2_key,
+        message: {
+          subscriptions: [],
+          unsubscriptions: [{ topic: 'widget', subtopic: targetInboxId }],
+        },
+      };
+      sendMessage(JSON.stringify(wsMessage));
+    };
+
+    // Unsubscribe from previous inbox if different
+    if (previousInboxIdRef.current && previousInboxIdRef.current !== inboxId) {
+      unsubscribe(previousInboxIdRef.current);
+    }
+
+    // Subscribe to current inbox
+    subscribe(inboxId);
+    previousInboxIdRef.current = inboxId;
+
+    // Cleanup: unsubscribe on unmount or when disabled
+    return () => {
+      unsubscribe(inboxId);
+      previousInboxIdRef.current = null;
+    };
+  }, [auth?.api_v2_key, enabled, inboxId, sendMessage]);
 
   return { readyState };
 };

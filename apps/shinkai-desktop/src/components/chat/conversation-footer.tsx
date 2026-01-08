@@ -433,6 +433,7 @@ function ConversationChatFooter({
         parent: '', // Note: we should set the parent if we want to retry or branch out
         files: currentFiles,
         toolKey: selectedTool?.key,
+        provider: provider, // Pass provider for optimistic assistant message
       });
     }
     chatForm.reset();

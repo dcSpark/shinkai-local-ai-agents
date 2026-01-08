@@ -1,3 +1,4 @@
+import { OPTIMISTIC_ASSISTANT_MESSAGE_ID } from '@shinkai_network/shinkai-node-state/v2/constants';
 import { type ChatConversationInfiniteData } from '@shinkai_network/shinkai-node-state/v2/queries/getChatConversation/types';
 import { Button, Skeleton } from '@shinkai_network/shinkai-ui';
 import {
@@ -24,6 +25,7 @@ import React, {
 import { useInView } from 'react-intersection-observer';
 
 import { Message } from './message';
+import { StreamingMessage } from './streaming-message';
 
 const SCROLL_THRESHOLD = 50;
 
@@ -398,6 +400,29 @@ export const MessageList = memo(
                                 previousMessage?.messageId ?? '',
                               );
                             };
+
+                            // Use StreamingMessage for the optimistic assistant message
+                            // to enable efficient streaming updates without re-rendering the whole list
+                            const isOptimisticMessage =
+                              message.messageId ===
+                                OPTIMISTIC_ASSISTANT_MESSAGE_ID &&
+                              message.role === 'assistant';
+
+                            if (isOptimisticMessage) {
+                              return (
+                                <StreamingMessage
+                                  disabledEdit={disabledRetryAndEditValue}
+                                  handleEditMessage={handleEditMessage}
+                                  handleForkMessage={handleForkMessage}
+                                  handleRetryMessage={handleRetryMessage}
+                                  hidePythonExecution={hidePythonExecution}
+                                  key={`${message.messageId}::${messageIndex}`}
+                                  message={message}
+                                  messageId={message.messageId}
+                                  minimalistMode={minimalistMode}
+                                />
+                              );
+                            }
 
                             return (
                               <Message

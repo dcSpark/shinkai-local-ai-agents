@@ -5,7 +5,11 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 
-import { FunctionKeyV2, generateOptimisticUserMessage } from '../../constants';
+import {
+  FunctionKeyV2,
+  generateOptimisticAssistantMessage,
+  generateOptimisticUserMessage,
+} from '../../constants';
 import {
   type ChatConversationInfiniteData,
   FileTypeSupported,
@@ -48,6 +52,8 @@ export const useSendMessageToJob = (options?: Options) => {
       queryClient.setQueryData(
         queryKey,
         (old: ChatConversationInfiniteData) => {
+          // Create both optimistic user message AND assistant message
+          // This ensures the UI shows both immediately without needing a separate useEffect
           const newMessages = [
             generateOptimisticUserMessage(
               variables.message,
@@ -63,6 +69,8 @@ export const useSendMessageToJob = (options?: Options) => {
                 mimeType: file.type,
               })),
             ),
+            // Add optimistic assistant message with running status
+            generateOptimisticAssistantMessage(variables.provider),
           ];
 
           return {

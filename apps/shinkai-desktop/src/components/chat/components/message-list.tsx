@@ -1,10 +1,7 @@
 import { OPTIMISTIC_ASSISTANT_MESSAGE_ID } from '@shinkai_network/shinkai-node-state/v2/constants';
 import { type ChatConversationInfiniteData } from '@shinkai_network/shinkai-node-state/v2/queries/getChatConversation/types';
 import { Button, Skeleton } from '@shinkai_network/shinkai-ui';
-import {
-  getRelativeDateLabel,
-  groupMessagesByDate,
-} from '@shinkai_network/shinkai-ui/helpers';
+import { getRelativeDateLabel } from '@shinkai_network/shinkai-ui/helpers';
 import { cn } from '@shinkai_network/shinkai-ui/utils';
 import {
   type FetchPreviousPageOptions,
@@ -361,88 +358,75 @@ export const MessageList = memo(
             )}
             {isSuccess && messageList?.length > 0 && (
               <Fragment>
-                {Object.entries(groupMessagesByDate(messageList)).map(
-                  ([date, messages]) => {
+                <div className="flex flex-col">
+                  {messageList.map((message, index) => {
+                    // Get previous message from the flat list (correct across date boundaries)
+                    const previousMessage = messageList[index - 1];
+
+                    // Determine if we need a date separator
+                    const currentDateKey = message.createdAt
+                      ? new Date(message.createdAt).toDateString()
+                      : '';
+                    const previousDateKey = previousMessage?.createdAt
+                      ? new Date(previousMessage.createdAt).toDateString()
+                      : '';
+                    const showDateSeparator =
+                      !minimalistMode && currentDateKey !== previousDateKey;
+
+                    // Disable edit/retry for the first message in the entire list
+                    const disabledRetryAndEditValue =
+                      disabledRetryAndEdit ?? index === 0;
+
+                    const handleRetryMessage = () => {
+                      regenerateMessage?.(message?.messageId ?? '');
+                    };
+
+                    const handleForkMessage = () => {
+                      forkMessage?.(message?.messageId ?? '');
+                    };
+
+                    const handleEditMessage = (content: string) => {
+                      editAndRegenerateMessage?.(
+                        content,
+                        previousMessage?.messageId ?? '',
+                      );
+                    };
+
+                    // Use StreamingMessage for the optimistic assistant message
+                    // to enable efficient streaming updates without re-rendering the whole list
+                    const isOptimisticMessage =
+                      message.messageId === OPTIMISTIC_ASSISTANT_MESSAGE_ID &&
+                      message.role === 'assistant';
+
+                    const MessageComponent = isOptimisticMessage
+                      ? StreamingMessage
+                      : Message;
+
                     return (
-                      <div key={date}>
-                        {!minimalistMode && (
-                          <div
-                            className={cn(
-                              'bg-bg-tertiary relative z-10 m-auto my-2 flex h-[26px] w-fit min-w-[100px] items-center justify-center rounded-xl px-2.5 capitalize',
-                              'sticky top-5',
-                            )}
-                          >
+                      <Fragment key={message.messageId}>
+                        {showDateSeparator && (
+                          <div className="bg-bg-tertiary relative z-10 m-auto my-2 flex h-[26px] w-fit min-w-[100px] items-center justify-center rounded-xl px-2.5 capitalize">
                             <span className="text-text-tertiary text-sm font-medium">
                               {getRelativeDateLabel(
-                                new Date(messages[0].createdAt || ''),
+                                new Date(message.createdAt || ''),
                               )}
                             </span>
                           </div>
                         )}
-                        <div className="flex flex-col">
-                          {messages.map((message, messageIndex) => {
-                            const previousMessage = messages[messageIndex - 1];
-
-                            const disabledRetryAndEditValue =
-                              disabledRetryAndEdit ?? messageIndex === 0;
-
-                            const handleRetryMessage = () => {
-                              regenerateMessage?.(message?.messageId ?? '');
-                            };
-
-                            const handleForkMessage = () => {
-                              forkMessage?.(message?.messageId ?? '');
-                            };
-
-                            const handleEditMessage = (message: string) => {
-                              editAndRegenerateMessage?.(
-                                message,
-                                previousMessage?.messageId ?? '',
-                              );
-                            };
-
-                            // Use StreamingMessage for the optimistic assistant message
-                            // to enable efficient streaming updates without re-rendering the whole list
-                            const isOptimisticMessage =
-                              message.messageId ===
-                                OPTIMISTIC_ASSISTANT_MESSAGE_ID &&
-                              message.role === 'assistant';
-
-                            if (isOptimisticMessage) {
-                              return (
-                                <StreamingMessage
-                                  disabledEdit={disabledRetryAndEditValue}
-                                  handleEditMessage={handleEditMessage}
-                                  handleForkMessage={handleForkMessage}
-                                  handleRetryMessage={handleRetryMessage}
-                                  hidePythonExecution={hidePythonExecution}
-                                  key={`${message.messageId}::${messageIndex}`}
-                                  message={message}
-                                  messageId={message.messageId}
-                                  minimalistMode={minimalistMode}
-                                />
-                              );
-                            }
-
-                            return (
-                              <Message
-                                disabledEdit={disabledRetryAndEditValue}
-                                handleEditMessage={handleEditMessage}
-                                handleForkMessage={handleForkMessage}
-                                handleRetryMessage={handleRetryMessage}
-                                hidePythonExecution={hidePythonExecution}
-                                key={`${message.messageId}::${messageIndex}`}
-                                message={message}
-                                messageId={message.messageId}
-                                minimalistMode={minimalistMode}
-                              />
-                            );
-                          })}
-                        </div>
-                      </div>
+                        <MessageComponent
+                          disabledEdit={disabledRetryAndEditValue}
+                          handleEditMessage={handleEditMessage}
+                          handleForkMessage={handleForkMessage}
+                          handleRetryMessage={handleRetryMessage}
+                          hidePythonExecution={hidePythonExecution}
+                          message={message}
+                          messageId={message.messageId}
+                          minimalistMode={minimalistMode}
+                        />
+                      </Fragment>
                     );
-                  },
-                )}
+                  })}
+                </div>
                 {messageExtra}
                 {lastMessageContent}
               </Fragment>

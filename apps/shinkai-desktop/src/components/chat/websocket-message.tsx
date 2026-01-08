@@ -191,9 +191,8 @@ export const useWebSocketMessage = ({
           },
         );
 
-        // Clear streaming store AFTER React Query is updated
-        // This way when StreamingMessage falls back to React Query data,
-        // it already has the correct content
+        // Mark streaming as ended but KEEP the data (especially reasoningDuration)
+        // The data will be reset when a new stream starts in this inbox
         endStreaming(inboxId);
 
         // Only invalidate if there are tool calls that might have generated files

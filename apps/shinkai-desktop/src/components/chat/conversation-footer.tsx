@@ -90,6 +90,7 @@ import { UpdateToolsSwitchActionBar } from './chat-action-bar/tools-switch-actio
 import { UpdateVectorFsActionBar } from './chat-action-bar/vector-fs-action-bar';
 import { useChatStore } from './context/chat-context';
 import { useSetJobScope } from './context/set-job-scope-context';
+import { useIsStreaming } from './context/streaming-context';
 
 export const actionButtonClassnames = cn(
   'text-text-secondary hover:bg-bg-quaternary inline-flex h-[32px] w-[32px] shrink-0 cursor-pointer items-center justify-center gap-1.5 truncate rounded-full p-[8px] px-3 text-left text-[13px] font-normal hover:text-white disabled:cursor-not-allowed disabled:opacity-50',
@@ -188,6 +189,18 @@ function ConversationChatFooter({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const toolListRef = useRef<HTMLDivElement>(null);
+
+  const isStreaming = useIsStreaming(inboxId);
+  const wasStreamingRef = useRef(false);
+
+  useEffect(() => {
+    if (wasStreamingRef.current && !isStreaming) {
+      requestAnimationFrame(() => {
+        textareaRef.current?.focus();
+      });
+    }
+    wasStreamingRef.current = isStreaming;
+  }, [isStreaming]);
 
   const scrollUpWhenSearchingTools = useCallback(() => {
     requestAnimationFrame(() => {

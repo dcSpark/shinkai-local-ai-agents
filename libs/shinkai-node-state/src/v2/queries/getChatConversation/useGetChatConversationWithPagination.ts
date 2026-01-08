@@ -1,5 +1,5 @@
 import { isJobInbox } from '@shinkai_network/shinkai-message-ts/utils';
-import { useInfiniteQuery } from '@tanstack/react-query';
+import { keepPreviousData, useInfiniteQuery } from '@tanstack/react-query';
 
 import { FunctionKeyV2 } from '../../constants';
 import { type APIError } from '../../types';
@@ -71,6 +71,8 @@ export const useGetChatConversationWithPagination = (
     // Cache data for 30 seconds so switching back to visited chats is instant
     // This prevents showing stale placeholder data from a different chat
     staleTime: 30_000,
+    // Keep previous data while refetching to prevent content flash during invalidation
+    placeholderData: keepPreviousData,
   });
   return response;
 };

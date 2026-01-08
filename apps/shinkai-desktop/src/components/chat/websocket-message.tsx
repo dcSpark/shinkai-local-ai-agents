@@ -197,8 +197,8 @@ export const useWebSocketMessage = ({
         endStreaming(inboxId);
 
         // Only invalidate if there are tool calls that might have generated files
-        // This avoids unnecessary refetch when there's just text content
-        // The query has placeholderData: keepPreviousData to prevent flash during refetch
+        // For non-tool messages, the content from setQueryData is sufficient
+        // and invalidation would cause unnecessary flash
         const hasToolCalls = finalToolCalls.length > 0;
         if (hasToolCalls) {
           setTimeout(() => {

@@ -148,39 +148,23 @@ function useScrollToBottom(scrollRef: RefObject<HTMLDivElement | null>) {
     const container = scrollRef.current;
     if (!container) return;
 
-    // Use requestAnimationFrame to throttle scroll updates during streaming
-    let rafId: number | null = null;
-
     const handleContentChange = () => {
-      // Skip if already scheduled or not auto-scrolling
-      if (rafId !== null || !autoScrollRef.current) return;
-
-      rafId = requestAnimationFrame(() => {
-        rafId = null;
-        if (autoScrollRef.current && container) {
-          container.scrollTo({
-            top: container.scrollHeight,
-            behavior: 'instant',
-          });
-        }
-      });
+      if (autoScrollRef.current) {
+        container.scrollTo({
+          top: container.scrollHeight,
+          behavior: 'instant',
+        });
+      }
     };
 
     const observer = new MutationObserver(handleContentChange);
-    // Only observe childList changes, not characterData (text changes)
-    // This significantly reduces observer callbacks during streaming
     observer.observe(container, {
       childList: true,
       subtree: true,
-      characterData: false, // Disabled for performance during streaming
+      characterData: true,
     });
 
-    return () => {
-      observer.disconnect();
-      if (rafId !== null) {
-        cancelAnimationFrame(rafId);
-      }
-    };
+    return () => observer.disconnect();
   }, [scrollRef]);
 
   return {
@@ -233,9 +217,12 @@ export const MessageList = memo(
     minimalistMode?: boolean;
   }) => {
     const chatContainerRef = useRef<HTMLDivElement>(null);
-    const storedScrollHeightRef = useRef<number>(0);
-    const prevMessageCountRef = useRef<number>(0);
+    // Store both scrollTop and scrollHeight for accurate restoration after prepending
+    const scrollRestoreRef = useRef<{ top: number; height: number } | null>(
+      null,
+    );
     const hasInitiallyScrolledRef = useRef(false);
+    const prevLastMessageIdRef = useRef<string | null>(null);
     const { ref, inView } = useInView();
     const messageList = useMemo(
       () => paginatedMessages?.pages.flat() ?? [],
@@ -250,18 +237,26 @@ export const MessageList = memo(
       scrollToBottom,
     } = useScrollToBottom(chatContainerRef);
 
-    const storeScrollHeight = useCallback(() => {
-      const container = chatContainerRef.current;
-      if (container) {
-        storedScrollHeightRef.current = container.scrollHeight;
-      }
-    }, []);
+    // Reset scroll state when switching to a different chat
+    const pagesKey = paginatedMessages?.pages?.[0]?.[0]?.messageId;
+    useEffect(() => {
+      hasInitiallyScrolledRef.current = false;
+      scrollRestoreRef.current = null;
+      prevLastMessageIdRef.current = null;
+    }, [pagesKey]);
 
     const fetchPreviousMessages = useCallback(async () => {
-      storeScrollHeight();
+      const container = chatContainerRef.current;
+      if (!container) return;
+
+      // Store current scroll position before fetching
+      scrollRestoreRef.current = {
+        top: container.scrollTop,
+        height: container.scrollHeight,
+      };
       setAutoScroll(false);
       await fetchPreviousPage();
-    }, [fetchPreviousPage, setAutoScroll, storeScrollHeight]);
+    }, [fetchPreviousPage, setAutoScroll]);
 
     // Trigger fetch when load more sentinel is in view
     useEffect(() => {
@@ -275,41 +270,50 @@ export const MessageList = memo(
       fetchPreviousMessages,
     ]);
 
+    // Restore scroll position after prepending older messages
     useLayoutEffect(() => {
-      if (
-        !isFetchingPreviousPage &&
-        inView &&
-        storedScrollHeightRef.current > 0
-      ) {
-        const container = chatContainerRef.current;
-        if (!container) return;
+      const container = chatContainerRef.current;
+      const restore = scrollRestoreRef.current;
 
-        const currentHeight = container.scrollHeight;
-        const previousHeight = storedScrollHeightRef.current;
-        const heightDiff = currentHeight - previousHeight;
+      // Only restore if we have stored position and fetch completed
+      if (!container || !restore || isFetchingPreviousPage) return;
 
-        if (heightDiff > 0 && !autoScroll) {
-          container.scrollTop = container.scrollTop + heightDiff;
-        }
+      const newHeight = container.scrollHeight;
+      const heightDiff = newHeight - restore.height;
 
-        storedScrollHeightRef.current = 0; // Reset after use
+      if (heightDiff > 0) {
+        container.scrollTop = restore.top + heightDiff;
       }
-    }, [paginatedMessages, isFetchingPreviousPage, inView, autoScroll]);
 
+      scrollRestoreRef.current = null;
+    }, [messageList.length, isFetchingPreviousPage]);
+
+    // Detect new messages appended at the bottom and scroll appropriately
     useEffect(() => {
-      const prevCount = prevMessageCountRef.current;
-      const currentCount = messageList.length;
-      prevMessageCountRef.current = currentCount;
+      const lastMessage = messageList.at(-1);
+      if (!lastMessage) return;
 
-      // Detect new user message (count increased and last message is from user)
-      if (currentCount > prevCount && prevCount > 0) {
-        const newMessage = messageList[currentCount - 1];
-        if (newMessage?.role === 'user') {
-          scrollDomToBottom();
-        }
+      const prevLastId = prevLastMessageIdRef.current;
+      prevLastMessageIdRef.current = lastMessage.messageId;
+
+      // Skip if this is the initial load or same message
+      if (!prevLastId || prevLastId === lastMessage.messageId) return;
+
+      // Detect if this is a local send (user message or optimistic assistant)
+      const isLocalSend =
+        lastMessage.role === 'user' ||
+        lastMessage.messageId === OPTIMISTIC_ASSISTANT_MESSAGE_ID;
+
+      if (isLocalSend) {
+        // Force scroll on send, even if user scrolled up
+        scrollDomToBottom();
+      } else if (autoScroll) {
+        // For other messages (e.g., assistant response), only scroll if already at bottom
+        scrollDomToBottom();
       }
-    }, [messageList, scrollDomToBottom]);
+    }, [messageList, autoScroll, scrollDomToBottom]);
 
+    // Initial scroll to bottom when chat loads
     useEffect(() => {
       if (isSuccess && !hasInitiallyScrolledRef.current) {
         hasInitiallyScrolledRef.current = true;

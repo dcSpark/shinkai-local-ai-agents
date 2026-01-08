@@ -461,15 +461,12 @@ export const MessageBase = ({
 
   return (
     <motion.div
-      // animate="rest"
-      className={cn('container px-0 px-3.5 pb-4', minimalistMode && 'pb-3')}
+      className={cn('container px-3.5 pb-4', minimalistMode && 'pb-3')}
       data-testid={`message-${
         message.role === 'user' ? 'local' : 'remote'
       }-${message.messageId}`}
       id={message.messageId}
-      // initial="rest"
       style={{ fontSize: `${getChatFontSizeInPts()}px` }}
-      // whileHover="hover"
       animate={{ opacity: 1 }}
       data-role={message.role}
       initial={{ opacity: 0 }}

@@ -3,7 +3,7 @@ import {
   type TextStatus,
 } from '@shinkai_network/shinkai-node-state/v2/queries/getChatConversation/types';
 import type React from 'react';
-import { createContext, useContext, useState } from 'react';
+import { createContext, useCallback, useContext, useState } from 'react';
 import { createStore, useStore } from 'zustand';
 
 /**
@@ -18,6 +18,11 @@ export type StreamingContent = {
   } | null;
   toolCalls: ToolCall[];
   isStreaming: boolean;
+  // reasoning client-side only for now
+  /** Timestamp when reasoning started (for duration calculation) */
+  reasoningStartTime: number | null;
+  /** Calculated reasoning duration in seconds */
+  reasoningDuration: number;
 };
 
 type StreamingStore = {
@@ -75,6 +80,12 @@ type StreamingStore = {
   clearAll: () => void;
 };
 
+const calculateReasoningDuration = (content: StreamingContent): number => {
+  if (content.reasoningDuration > 0) return content.reasoningDuration;
+  if (!content.reasoningStartTime) return 0;
+  return Math.round((Date.now() - content.reasoningStartTime) / 1000);
+};
+
 const createStreamingStore = () =>
   createStore<StreamingStore>((set, get) => ({
     streams: new Map(),
@@ -91,6 +102,8 @@ const createStreamingStore = () =>
           reasoning: null,
           toolCalls: [],
           isStreaming: true,
+          reasoningStartTime: null,
+          reasoningDuration: 0,
         });
         return { streams: newStreams };
       });
@@ -112,6 +125,8 @@ const createStreamingStore = () =>
                 status: { type: 'complete', reason: 'unknown' },
               }
             : null,
+          // Calculate reasoning duration when content starts (reasoning ends)
+          reasoningDuration: calculateReasoningDuration(current),
         });
         return { streams: newStreams };
       });
@@ -127,6 +142,8 @@ const createStreamingStore = () =>
           text: '',
           status: { type: 'running' as const },
         };
+        // Track start time when first reasoning token arrives
+        const reasoningStartTime = current.reasoningStartTime ?? Date.now();
         newStreams.set(inboxId, {
           ...current,
           reasoning: {
@@ -134,6 +151,7 @@ const createStreamingStore = () =>
             text: currentReasoning.text + reasoning,
             status: { type: 'running' },
           },
+          reasoningStartTime,
         });
         return { streams: newStreams };
       });
@@ -151,6 +169,7 @@ const createStreamingStore = () =>
             ...current.reasoning,
             status: { type: 'complete', reason: 'unknown' },
           },
+          reasoningDuration: calculateReasoningDuration(current),
         });
         return { streams: newStreams };
       });
@@ -192,6 +211,7 @@ const createStreamingStore = () =>
         newStreams.set(inboxId, {
           ...current,
           isStreaming: false,
+          reasoningDuration: calculateReasoningDuration(current),
         });
         return { streams: newStreams };
       });
@@ -245,7 +265,11 @@ export function useStreamingStore<T>(selector: (state: StreamingStore) => T) {
  * Returns undefined if not streaming
  */
 export function useStreamingContent(inboxId: string) {
-  return useStreamingStore((state) => state.streams.get(inboxId));
+  const selector = useCallback(
+    (state: StreamingStore) => state.streams.get(inboxId),
+    [inboxId],
+  );
+  return useStreamingStore(selector);
 }
 
 /**
@@ -253,7 +277,22 @@ export function useStreamingContent(inboxId: string) {
  * Returns true only when actively streaming (not when content is preserved after completion)
  */
 export function useIsStreaming(inboxId: string) {
-  return useStreamingStore(
-    (state) => state.streams.get(inboxId)?.isStreaming ?? false,
+  const selector = useCallback(
+    (state: StreamingStore) => state.streams.get(inboxId)?.isStreaming ?? false,
+    [inboxId],
   );
+  return useStreamingStore(selector);
+}
+
+/**
+ * Hook to get the reasoning duration for a specific inbox
+ * Returns the calculated duration in seconds, or 0 if not available
+ */
+export function useReasoningDuration(inboxId: string) {
+  const selector = useCallback(
+    (state: StreamingStore) =>
+      state.streams.get(inboxId)?.reasoningDuration ?? 0,
+    [inboxId],
+  );
+  return useStreamingStore(selector);
 }

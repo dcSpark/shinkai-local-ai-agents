@@ -38,6 +38,9 @@ import {
   TooltipPortal,
   TooltipTrigger,
   PrettyJsonPrint,
+  ReasoningTrigger,
+  Reasoning,
+  ReasoningContent,
 } from '@shinkai_network/shinkai-ui';
 import {
   AIAgentIcon,
@@ -77,7 +80,7 @@ import React, {
   useState,
 } from 'react';
 import { useForm } from 'react-hook-form';
-import { Link } from 'react-router';
+import { Link, useParams } from 'react-router';
 import { z } from 'zod';
 
 import { useAuth } from '../../../store/auth';
@@ -87,6 +90,7 @@ import { oauthUrlMatcherFromErrorMessage } from '../../../utils/oauth';
 
 import ProviderIcon from '../../ais/provider-icon';
 import { useChatStore } from '../context/chat-context';
+import { useReasoningDuration } from '../context/streaming-context';
 import { PythonCodeRunner } from '../python-code-runner/python-code-runner';
 
 export const extractErrorPropertyOrContent = (
@@ -562,9 +566,9 @@ export const MessageBase = ({
                 ref={messageContentRef}
               >
                 {message.role === 'assistant' && message.reasoning && (
-                  <Reasoning
-                    reasoning={message.reasoning.text}
-                    status={message.reasoning.status}
+                  <MessageReasoning
+                    isStreaming={message.reasoning.status?.type === 'running'}
+                    reasoning={message.reasoning.text ?? ''}
                   />
                 )}
 
@@ -1131,96 +1135,39 @@ export function ToolCard({
   );
 }
 
-const MotionAccordionTrigger = motion(AccordionTrigger);
-
-export function Reasoning({
-  reasoning,
-  status,
-}: {
+type MessageReasoningProps = {
+  isStreaming: boolean;
   reasoning: string;
-  status?: TextStatus;
-}) {
-  const { t } = useTranslation();
-  const renderStatus = () => {
-    if (status?.type === 'complete') {
-      return <ReasoningIcon className="text-brand size-full" />;
-    }
-    if (status?.type === 'incomplete') {
-      return <XCircle className="text-text-secondary size-full" />;
-    }
-    if (status?.type === 'running') {
-      return <Loader className="text-text-secondary size-full animate-spin" />;
-    }
-    return null;
-  };
+};
 
-  const renderReasoningText = () => {
-    if (status?.type === 'complete') {
-      return t('common.reasoning');
+export function MessageReasoning({
+  isStreaming,
+  reasoning,
+}: MessageReasoningProps) {
+  const { inboxId: encodedInboxId = '' } = useParams();
+  const inboxId = useMemo(
+    () => decodeURIComponent(encodedInboxId),
+    [encodedInboxId],
+  );
+  const streamingDuration = useReasoningDuration(inboxId);
+  const [hasBeenStreaming, setHasBeenStreaming] = useState(isStreaming);
+
+  useEffect(() => {
+    if (isStreaming) {
+      setHasBeenStreaming(true);
     }
-    return t('common.thinking');
-  };
+  }, [isStreaming]);
 
   return (
-    <Accordion
-      className="max-w-full space-y-1.5 self-baseline overflow-x-auto pb-3"
-      collapsible
-      value={status?.type === 'running' ? 'reasoning' : undefined}
-      type="single"
+    <Reasoning
+      className="mb-4"
+      defaultOpen={hasBeenStreaming}
+      duration={streamingDuration > 0 ? streamingDuration : undefined}
+      isStreaming={isStreaming}
     >
-      <AccordionItem
-        className={cn(
-          'border-divider overflow-hidden rounded-lg border',
-          status?.type === 'running' && 'animate-pulse',
-        )}
-        value="reasoning"
-      >
-        <MotionAccordionTrigger
-          className={cn(
-            'bg-bg-secondary inline-flex w-auto gap-3 px-[6px] py-[3px] no-underline hover:text-white hover:no-underline',
-            'hover:bg-bg-secondary transition-colors',
-            status?.type === 'running' && 'p-0',
-          )}
-          hideArrow={status?.type === 'running'}
-        >
-          <AnimatePresence initial={false} mode="popLayout">
-            <motion.div
-              animate="visible"
-              exit="exit"
-              initial="initial"
-              key={status?.type}
-              transition={{ type: 'spring', duration: 0.3, bounce: 0 }}
-              variants={variants}
-            >
-              <div
-                className={cn(
-                  'text-text-secondary flex items-center gap-1.5 px-2 py-1',
-                  status?.type === 'running' && 'text-text-tertiary',
-                )}
-              >
-                {renderStatus() && (
-                  <div className="size-4 shrink-0">{renderStatus()}</div>
-                )}
-                <div className="flex items-center gap-1">
-                  <span className="text-em-sm">{renderReasoningText()}</span>
-                </div>
-              </div>
-            </motion.div>
-          </AnimatePresence>
-        </MotionAccordionTrigger>
-        <AccordionContent className="bg-bg-secondary text-em-sm flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3">
-          <span className="text-text-secondary break-words whitespace-pre-wrap">
-            <MarkdownText
-              className={cn(
-                status?.type === 'running' && 'text-text-secondary',
-              )}
-            >
-              {reasoning}
-            </MarkdownText>
-          </span>
-        </AccordionContent>
-      </AccordionItem>
-    </Accordion>
+      <ReasoningTrigger />
+      <ReasoningContent>{reasoning}</ReasoningContent>
+    </Reasoning>
   );
 }
 

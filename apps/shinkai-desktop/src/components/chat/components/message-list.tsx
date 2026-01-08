@@ -402,6 +402,8 @@ export const MessageList = memo(
                       ? StreamingMessage
                       : Message;
 
+                    const isLastMessage = index === messageList.length - 1;
+
                     return (
                       <Fragment key={message.messageId}>
                         {showDateSeparator && (
@@ -419,6 +421,7 @@ export const MessageList = memo(
                           handleForkMessage={handleForkMessage}
                           handleRetryMessage={handleRetryMessage}
                           hidePythonExecution={hidePythonExecution}
+                          isLastMessage={isLastMessage}
                           message={message}
                           messageId={message.messageId}
                           minimalistMode={minimalistMode}

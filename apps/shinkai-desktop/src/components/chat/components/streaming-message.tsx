@@ -19,6 +19,7 @@ type StreamingMessageProps = {
   handleEditMessage?: (message: string) => void;
   hidePythonExecution?: boolean;
   minimalistMode?: boolean;
+  isLastMessage?: boolean;
 };
 
 /**
@@ -36,6 +37,7 @@ export const StreamingMessage = memo(function StreamingMessage({
   handleEditMessage,
   hidePythonExecution,
   minimalistMode,
+  isLastMessage,
 }: StreamingMessageProps) {
   const { inboxId: encodedInboxId = '' } = useParams();
   const inboxId = decodeURIComponent(encodedInboxId);
@@ -92,6 +94,7 @@ export const StreamingMessage = memo(function StreamingMessage({
       handleForkMessage={handleForkMessage}
       handleRetryMessage={handleRetryMessage}
       hidePythonExecution={hidePythonExecution}
+      isLastMessage={isLastMessage}
       key={`${messageId}::streaming`}
       message={mergedMessage}
       messageId={messageId}

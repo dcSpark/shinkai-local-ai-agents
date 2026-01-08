@@ -125,6 +125,7 @@ type MessageProps = {
   messageExtra?: React.ReactNode;
   hidePythonExecution?: boolean;
   minimalistMode?: boolean;
+  isLastMessage?: boolean;
 };
 
 const actionBar = {
@@ -214,6 +215,7 @@ export const MessageBase = ({
   disabledEdit,
   handleEditMessage,
   minimalistMode = false,
+  isLastMessage = false,
 }: MessageProps) => {
   const { t } = useTranslation();
 
@@ -564,6 +566,7 @@ export const MessageBase = ({
               >
                 {message.role === 'assistant' && message.reasoning && (
                   <MessageReasoning
+                    isLastMessage={isLastMessage}
                     isStreaming={message.reasoning.status?.type === 'running'}
                     reasoning={message.reasoning.text ?? ''}
                   />
@@ -1016,6 +1019,10 @@ export const MessageBase = ({
 };
 
 export const Message = memo(MessageBase, (prev, next) => {
+  if (prev.isLastMessage !== next.isLastMessage) {
+    return false;
+  }
+
   if (
     prev.message === next.message &&
     prev.minimalistMode === next.minimalistMode
@@ -1135,18 +1142,21 @@ export function ToolCard({
 type MessageReasoningProps = {
   isStreaming: boolean;
   reasoning: string;
+  isLastMessage?: boolean;
 };
 
 export function MessageReasoning({
   isStreaming,
   reasoning,
+  isLastMessage = false,
 }: MessageReasoningProps) {
   const { inboxId: encodedInboxId = '' } = useParams();
   const inboxId = useMemo(
     () => decodeURIComponent(encodedInboxId),
     [encodedInboxId],
   );
-  const streamingDuration = useReasoningDuration(inboxId);
+  // Only get streaming duration for the last message (we only store one per inbox)
+  const streamingDuration = useReasoningDuration(isLastMessage ? inboxId : '');
   const [hasBeenStreaming, setHasBeenStreaming] = useState(isStreaming);
 
   useEffect(() => {

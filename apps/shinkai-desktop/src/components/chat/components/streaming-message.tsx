@@ -74,6 +74,12 @@ export const StreamingMessage = memo(function StreamingMessage({
         streamingContent.reasoning?.text ||
         streamingContent.toolCalls.length > 0);
 
+    // If streaming has ended (isStreaming === false), update status to complete
+    // This immediately hides the dots loader even before React Query updates
+    // We check streamingContent exists (not null/undefined) and isStreaming is false
+    const shouldMarkComplete =
+      streamingContent && streamingContent.isStreaming === false;
+
     if (hasStreamingContent) {
       return {
         ...assistantMsg,
@@ -83,6 +89,19 @@ export const StreamingMessage = memo(function StreamingMessage({
           streamingContent.toolCalls.length > 0
             ? streamingContent.toolCalls
             : assistantMsg.toolCalls,
+        // Update status to complete if streaming has ended
+        status: shouldMarkComplete
+          ? { type: 'complete' as const, reason: 'unknown' as const }
+          : assistantMsg.status,
+      } as FormattedMessage;
+    }
+
+    // If streaming has ended but no content yet, still mark as complete
+    // This handles the edge case where is_stream: false arrives before any Stream messages
+    if (shouldMarkComplete && assistantMsg.status.type === 'running') {
+      return {
+        ...assistantMsg,
+        status: { type: 'complete' as const, reason: 'unknown' as const },
       } as FormattedMessage;
     }
 

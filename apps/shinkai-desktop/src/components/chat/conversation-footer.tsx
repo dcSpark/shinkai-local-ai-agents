@@ -218,6 +218,9 @@ function ConversationChatFooter({
   const promptSelected = usePromptSelectionStore(
     (state) => state.promptSelected,
   );
+  const setPromptSelected = usePromptSelectionStore(
+    (state) => state.setPromptSelected,
+  );
 
   const quotedText = useChatStore((state) => state.quotedText);
   const setQuotedText = useChatStore((state) => state.setQuotedText);
@@ -452,6 +455,7 @@ function ConversationChatFooter({
     chatForm.reset();
     setToolFormData(null);
     setQuotedText(null); // Clear quoted text after sending
+    setPromptSelected(undefined); // Clear prompt selection after sending
   };
 
   useEffect(() => {

@@ -1158,7 +1158,6 @@ export function MessageReasoning({
   inboxId,
   isLastMessage = false,
 }: MessageReasoningProps) {
-  // Only get reasoning duration for the last message (by inboxId, persists after clearInbox)
   const streamingDuration = useReasoningDuration(isLastMessage ? inboxId : '');
   const [hasBeenStreaming, setHasBeenStreaming] = useState(isStreaming);
 

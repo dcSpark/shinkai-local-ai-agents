@@ -159,6 +159,7 @@ export const CreateToolPage = () => {
                   fetchPreviousPage={fetchPreviousPage}
                   hasPreviousPage={hasPreviousPage}
                   hidePythonExecution={true}
+                  inboxId={chatInboxId}
                   isFetchingPreviousPage={isFetchingPreviousPage}
                   isLoading={isChatConversationLoading}
                   isSuccess={isChatConversationSuccess}

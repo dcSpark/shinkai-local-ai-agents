@@ -51,22 +51,22 @@ function ToolFeedbackPrompt() {
   const [isExitDialogOpen, setIsExitDialogOpen] = useState(false);
   const auth = useAuth((state) => state.auth);
   const defaultAgentId = useSettings((state) => state.defaultAgentId);
-  
+
   const jobId = inboxId ? extractJobIdFromInbox(inboxId) : undefined;
-  
+
   // Get current provider for this job
   const { data: currentProvider } = useGetProviderFromJob({
     nodeAddress: auth?.node_address ?? '',
     token: auth?.api_v2_key ?? '',
     jobId: jobId ?? '',
   });
-  
+
   // Get all LLM providers to find the free trial model
   const { data: llmProviders } = useGetLLMProviders({
     nodeAddress: auth?.node_address ?? '',
     token: auth?.api_v2_key ?? '',
   });
-  
+
   // Update agent in job mutation
   const { mutateAsync: updateAgentInJob } = useUpdateAgentInJob({
     onSuccess: () => {},
@@ -115,22 +115,22 @@ function ToolFeedbackPrompt() {
   // Effect to switch from CODE_GENERATOR to SHINKAI_FREE_TRIAL model when tool creation is completed
   useEffect(() => {
     if (!auth || !currentProvider || !llmProviders || !jobId) return;
-    
+
     // Only switch models when the tool creation is completed
     if (currentStep !== ToolCreationState.COMPLETED) return;
 
     const isCodeGeneratorModel = currentProvider.agent.model?.toLowerCase() === CODE_GENERATOR_MODEL_ID.toLowerCase();
-    
+
     if (isCodeGeneratorModel) {
       const freeTrialProvider = llmProviders.find(
         (provider) => provider.model.toLowerCase() === SHINKAI_FREE_TRIAL_MODEL_ID.toLowerCase()
       );
-      
+
       // Use free trial provider if available, otherwise fall back to default provider
       const targetProvider = freeTrialProvider || llmProviders.find(
         (provider) => provider.id === defaultAgentId
       );
-      
+
       if (targetProvider && targetProvider.id !== currentProvider.agent.id) {
         // Switch the LLM provider for the job after tool creation is complete
         void updateAgentInJob({
@@ -139,7 +139,7 @@ function ToolFeedbackPrompt() {
           jobId,
           newAgentId: targetProvider.id,
         });
-        
+
         // Update the form to reflect the new provider
         form.setValue('llmProviderId', targetProvider.id);
       }
@@ -234,6 +234,7 @@ function ToolFeedbackPrompt() {
                   fetchPreviousPage={fetchPreviousPage}
                   hasPreviousPage={hasPreviousPage}
                   hidePythonExecution={true}
+                  inboxId={inboxId ?? ''}
                   isFetchingPreviousPage={isFetchingPreviousPage}
                   isLoading={isChatConversationLoading}
                   isSuccess={isChatConversationSuccess}
@@ -338,6 +339,7 @@ function ToolFeedbackPrompt() {
                     fetchPreviousPage={fetchPreviousPage}
                     hasPreviousPage={hasPreviousPage}
                     hidePythonExecution={true}
+                    inboxId={inboxId ?? ''}
                     isFetchingPreviousPage={isFetchingPreviousPage}
                     isLoading={isChatConversationLoading}
                     isSuccess={isChatConversationSuccess}

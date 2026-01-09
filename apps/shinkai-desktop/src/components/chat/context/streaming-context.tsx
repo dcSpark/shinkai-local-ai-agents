@@ -253,15 +253,11 @@ const createStreamingStore = () =>
     saveReasoningDuration: (inboxId: string, duration: number) => {
       set((state) => {
         const newDurations = new Map(state.reasoningDurations);
-        // Remove the inbox if it already exists (to update its position to "most recent")
         if (newDurations.has(inboxId)) {
           newDurations.delete(inboxId);
         }
-        // Add the new/updated inbox duration
         newDurations.set(inboxId, duration);
 
-        // Keep only the last MAX_REASONING_DURATIONS inboxes
-        // Map iterates in insertion order, so remove oldest entries first
         if (newDurations.size > MAX_REASONING_DURATIONS) {
           const entriesToRemove = newDurations.size - MAX_REASONING_DURATIONS;
           const keysToRemove = Array.from(newDurations.keys()).slice(

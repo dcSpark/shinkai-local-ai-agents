@@ -33,6 +33,7 @@ import { useGetAgent } from '@shinkai_network/shinkai-node-state/v2/queries/getA
 import { useGetListDirectoryContents } from '@shinkai_network/shinkai-node-state/v2/queries/getDirectoryContents/useGetListDirectoryContents';
 import { useGetAgentInboxes } from '@shinkai_network/shinkai-node-state/v2/queries/getInboxes/useGetAgentInboxes';
 import { useGetLLMProviders } from '@shinkai_network/shinkai-node-state/v2/queries/getLLMProviders/useGetLLMProviders';
+import { useGetProviderFromJob } from '@shinkai_network/shinkai-node-state/v2/queries/getProviderFromJob/useGetProviderFromJob';
 import { useGetSearchDirectoryContents } from '@shinkai_network/shinkai-node-state/v2/queries/getSearchDirectoryContents/useGetSearchDirectoryContents';
 import { useGetTool } from '@shinkai_network/shinkai-node-state/v2/queries/getTool/useGetTool';
 import { useGetTools } from '@shinkai_network/shinkai-node-state/v2/queries/getToolsList/useGetToolsList';
@@ -265,6 +266,12 @@ function AgentSideChat({
     },
   });
 
+  const { data: provider } = useGetProviderFromJob({
+    nodeAddress: auth?.node_address ?? '',
+    token: auth?.api_v2_key ?? '',
+    jobId: chatInboxId ? extractJobIdFromInbox(chatInboxId) : '',
+  });
+
   const { mutateAsync: sendMessageToJob } = useSendMessageToJob({});
   const { mutateAsync: retryMessage } = useRetryMessage();
 
@@ -317,6 +324,7 @@ function AgentSideChat({
         jobId: extractJobIdFromInbox(chatInboxId),
         message: message,
         parent: '',
+        provider: provider, // Pass provider for optimistic assistant message
       });
     }
     setMessage('');
@@ -327,8 +335,7 @@ function AgentSideChat({
     parentHash: string,
   ) => {
     if (!auth) return;
-    const decodedInboxId = decodeURIComponent(chatInboxId ?? '');
-    const jobId = extractJobIdFromInbox(decodedInboxId);
+    const jobId = extractJobIdFromInbox(chatInboxId ?? '');
 
     await sendMessageToJob({
       nodeAddress: auth.node_address,
@@ -336,17 +343,17 @@ function AgentSideChat({
       jobId,
       message: content,
       parent: parentHash,
+      provider: provider, // Pass provider for optimistic assistant message
     });
   };
 
   const regenerateMessage = async (messageId: string) => {
     if (!auth) return;
-    const decodedInboxId = decodeURIComponent(chatInboxId ?? '');
 
     await retryMessage({
       nodeAddress: auth.node_address,
       token: auth.api_v2_key,
-      inboxId: decodedInboxId,
+      inboxId: chatInboxId ?? '',
       messageId: messageId,
     });
   };
@@ -452,7 +459,7 @@ function AgentSideChat({
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="h-full flex-1 overflow-y-auto p-4">
             {!chatInboxId ? (
               <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
                 <span aria-hidden className="text-4xl">
@@ -471,6 +478,7 @@ function AgentSideChat({
                 editAndRegenerateMessage={editAndRegenerateMessage}
                 fetchPreviousPage={fetchPreviousPage}
                 hasPreviousPage={hasPreviousPage}
+                inboxId={chatInboxId ?? ''}
                 isFetchingPreviousPage={isFetchingPreviousPage}
                 isLoading={isChatConversationLoading}
                 isSuccess={isChatConversationSuccess}

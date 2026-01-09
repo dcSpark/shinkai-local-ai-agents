@@ -194,6 +194,7 @@ export const MessageList = memo(
     messageExtra,
     hidePythonExecution,
     minimalistMode,
+    inboxId,
   }: {
     noMoreMessageLabel: string;
     isSuccess: boolean;
@@ -215,6 +216,7 @@ export const MessageList = memo(
     messageExtra?: React.ReactNode;
     hidePythonExecution?: boolean;
     minimalistMode?: boolean;
+    inboxId?: string;
   }) => {
     const chatContainerRef = useRef<HTMLDivElement>(null);
     // Store both scrollTop and scrollHeight for accurate restoration after prepending
@@ -324,7 +326,7 @@ export const MessageList = memo(
     }, [isSuccess, scrollDomToBottom]);
 
     return (
-      <div className="relative flex-1">
+      <div className="relative h-full flex-1">
         <div
           className={cn(
             'scroll size-full overflow-y-auto overscroll-none will-change-scroll',
@@ -425,6 +427,7 @@ export const MessageList = memo(
                           handleForkMessage={handleForkMessage}
                           handleRetryMessage={handleRetryMessage}
                           hidePythonExecution={hidePythonExecution}
+                          inboxId={inboxId || ''}
                           isLastMessage={isLastMessage}
                           message={message}
                           messageId={message.messageId}

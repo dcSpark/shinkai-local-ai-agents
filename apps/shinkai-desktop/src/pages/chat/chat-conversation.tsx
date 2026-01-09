@@ -289,6 +289,7 @@ const ChatConversation = () => {
           fetchPreviousPage={fetchPreviousPage}
           forkMessage={handleForkMessage}
           hasPreviousPage={hasPreviousPage}
+          inboxId={inboxId}
           isFetchingPreviousPage={isFetchingPreviousPage}
           isLoading={isChatConversationLoading}
           isSuccess={isChatConversationSuccess}

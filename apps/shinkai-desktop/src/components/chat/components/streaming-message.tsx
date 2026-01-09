@@ -12,6 +12,7 @@ import { Message } from './message';
 type StreamingMessageProps = {
   message: FormattedMessage;
   messageId: string;
+  inboxId: string;
   handleRetryMessage?: () => void;
   handleForkMessage?: () => void;
   disabledRetry?: boolean;
@@ -30,6 +31,7 @@ type StreamingMessageProps = {
 export const StreamingMessage = memo(function StreamingMessage({
   message,
   messageId,
+  inboxId: inboxIdProp,
   handleRetryMessage,
   handleForkMessage,
   disabledRetry,
@@ -39,8 +41,12 @@ export const StreamingMessage = memo(function StreamingMessage({
   minimalistMode,
   isLastMessage,
 }: StreamingMessageProps) {
+  // Try to get inboxId from prop first, fallback to useParams for backwards compatibility
   const { inboxId: encodedInboxId = '' } = useParams();
-  const inboxId = decodeURIComponent(encodedInboxId);
+  const inboxIdFromParams = encodedInboxId
+    ? decodeURIComponent(encodedInboxId)
+    : '';
+  const inboxId = inboxIdProp || inboxIdFromParams;
 
   // Only subscribe to streaming content for the optimistic message
   const isOptimisticMessage =

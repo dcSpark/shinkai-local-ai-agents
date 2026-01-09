@@ -429,9 +429,11 @@ const AppRoutes = () => {
             />
             <Route
               element={
-                <PlaygroundProvider>
-                  <CreateToolPage />
-                </PlaygroundProvider>
+                <StreamingProvider>
+                  <PlaygroundProvider>
+                    <CreateToolPage />
+                  </PlaygroundProvider>
+                </StreamingProvider>
               }
               path={'create'}
             />
@@ -445,9 +447,11 @@ const AppRoutes = () => {
             />
             <Route
               element={
-                <PlaygroundProvider>
-                  <EditToolPage />
-                </PlaygroundProvider>
+                <StreamingProvider>
+                  <PlaygroundProvider>
+                    <EditToolPage />
+                  </PlaygroundProvider>
+                </StreamingProvider>
               }
               path={'edit/:toolRouterKey'}
             />

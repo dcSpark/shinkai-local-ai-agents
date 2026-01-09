@@ -645,6 +645,7 @@ const EmptyMessage = () => {
       chatForm.reset();
       clearSelectedFiles();
       setToolFormData(null);
+      setPromptSelected(undefined);
     },
     [
       auth,
@@ -657,6 +658,7 @@ const EmptyMessage = () => {
       selectedFileKeysRef,
       selectedFolderKeysRef,
       selectedTool,
+      setPromptSelected,
       toolFormData,
       toolRawInput,
     ],

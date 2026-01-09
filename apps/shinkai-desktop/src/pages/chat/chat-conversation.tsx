@@ -10,14 +10,11 @@ import {
 import { useForkJobMessages } from '@shinkai_network/shinkai-node-state/v2/mutations/forkJobMessages/useForkJobMessages';
 import { useRetryMessage } from '@shinkai_network/shinkai-node-state/v2/mutations/retryMessage/useRetryMessage';
 import { useSendMessageToJob } from '@shinkai_network/shinkai-node-state/v2/mutations/sendMessageToJob/useSendMessageToJob';
-
 import { useGetChatConfig } from '@shinkai_network/shinkai-node-state/v2/queries/getChatConfig/useGetChatConfig';
 import { type ChatConversationInfiniteData } from '@shinkai_network/shinkai-node-state/v2/queries/getChatConversation/types';
 import { useGetChatConversationWithPagination } from '@shinkai_network/shinkai-node-state/v2/queries/getChatConversation/useGetChatConversationWithPagination';
-
 import { useGetProviderFromJob } from '@shinkai_network/shinkai-node-state/v2/queries/getProviderFromJob/useGetProviderFromJob';
 import { useQueryClient } from '@tanstack/react-query';
-import { produce } from 'immer';
 import { useEffect, useMemo } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
@@ -85,6 +82,7 @@ export const useChatConversationWithOptimisticUpdates = ({
   useEffect(() => {
     if (
       isChatConversationSuccess &&
+      data.content.length > 0 &&
       data.content.length % 2 === 1 &&
       data.content.at(-1)?.role === 'user'
     ) {
@@ -93,23 +91,32 @@ export const useChatConversationWithOptimisticUpdates = ({
         { inboxId },
       ];
 
-      void queryClient.cancelQueries({ queryKey });
       queryClient.setQueryData(
         queryKey,
-        produce((draft: ChatConversationInfiniteData | undefined) => {
-          if (!draft?.pages?.[0]) return;
-          draft?.pages
-            ?.at(-1)
-            ?.push(generateOptimisticAssistantMessage(provider));
-        }),
+        (old: ChatConversationInfiniteData | undefined) => {
+          if (!old?.pages?.length) return old;
+
+          const pages = old.pages.slice();
+          const lastPageIdx = pages.length - 1;
+          const lastPage = [...pages[lastPageIdx]];
+
+          const lastMsg = lastPage.at(-1);
+          if (lastMsg?.role === 'assistant') return old;
+
+          lastPage.push(generateOptimisticAssistantMessage(provider));
+          pages[lastPageIdx] = lastPage;
+
+          return { ...old, pages };
+        },
       );
     }
   }, [
     data?.content.length,
+    data?.content,
     inboxId,
     isChatConversationSuccess,
+    provider,
     queryClient,
-    data?.content,
   ]);
 
   useEffect(() => {
@@ -134,6 +141,7 @@ export const useChatConversationWithOptimisticUpdates = ({
     isChatConversationSuccess,
     isError,
     chatConversationError,
+    provider,
   };
 };
 
@@ -166,6 +174,7 @@ const ChatConversation = () => {
     isChatConversationSuccess,
     isError,
     chatConversationError,
+    provider,
   } = useChatConversationWithOptimisticUpdates({
     inboxId,
   });
@@ -266,6 +275,7 @@ const ChatConversation = () => {
       jobId,
       message: content,
       parent: parentHash,
+      provider,
     });
   };
 
@@ -279,6 +289,7 @@ const ChatConversation = () => {
           fetchPreviousPage={fetchPreviousPage}
           forkMessage={handleForkMessage}
           hasPreviousPage={hasPreviousPage}
+          inboxId={inboxId}
           isFetchingPreviousPage={isFetchingPreviousPage}
           isLoading={isChatConversationLoading}
           isSuccess={isChatConversationSuccess}

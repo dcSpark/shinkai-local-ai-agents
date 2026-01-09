@@ -15,6 +15,7 @@ import { useRetryMessage } from '@shinkai_network/shinkai-node-state/v2/mutation
 import { useSendMessageToJob } from '@shinkai_network/shinkai-node-state/v2/mutations/sendMessageToJob/useSendMessageToJob';
 import { useGetAgents } from '@shinkai_network/shinkai-node-state/v2/queries/getAgents/useGetAgents';
 import { useGetLLMProviders } from '@shinkai_network/shinkai-node-state/v2/queries/getLLMProviders/useGetLLMProviders';
+import { useGetProviderFromJob } from '@shinkai_network/shinkai-node-state/v2/queries/getProviderFromJob/useGetProviderFromJob';
 import { useGetTools } from '@shinkai_network/shinkai-node-state/v2/queries/getToolsList/useGetToolsList';
 import {
   Button,
@@ -306,6 +307,12 @@ function QuickAsk() {
     token: auth?.api_v2_key ?? '',
   });
 
+  const { data: provider } = useGetProviderFromJob({
+    nodeAddress: auth?.node_address ?? '',
+    token: auth?.api_v2_key ?? '',
+    jobId: inboxId ? extractJobIdFromInbox(inboxId) : '',
+  });
+
   const { mutateAsync: sendMessageToJob } = useSendMessageToJob({});
 
   const selectedAgent = agents?.find((agent) => agent.agent_id === currentAI);
@@ -361,6 +368,7 @@ function QuickAsk() {
       message: data.message,
       parent: '',
       files: currentFiles,
+      provider: provider, // Pass provider for optimistic assistant message
     });
 
     chatForm.reset({
@@ -713,6 +721,12 @@ const QuickAskBodyWithResponseBase = ({ inboxId }: { inboxId: string }) => {
     (state) => state.setMessageResponse,
   );
 
+  const { data: provider } = useGetProviderFromJob({
+    nodeAddress: auth?.node_address ?? '',
+    token: auth?.api_v2_key ?? '',
+    jobId: extractJobIdFromInbox(inboxId),
+  });
+
   const { mutateAsync: sendMessageToJob } = useSendMessageToJob({});
   const { mutateAsync: retryMessage } = useRetryMessage();
 
@@ -739,8 +753,7 @@ const QuickAskBodyWithResponseBase = ({ inboxId }: { inboxId: string }) => {
     parentHash: string,
   ) => {
     if (!auth || !inboxId) return;
-    const decodedInboxId = decodeURIComponent(inboxId ?? '');
-    const jobId = extractJobIdFromInbox(decodedInboxId);
+    const jobId = extractJobIdFromInbox(inboxId);
 
     await sendMessageToJob({
       nodeAddress: auth.node_address,
@@ -748,6 +761,7 @@ const QuickAskBodyWithResponseBase = ({ inboxId }: { inboxId: string }) => {
       jobId,
       message: content,
       parent: parentHash,
+      provider: provider, // Pass provider for optimistic assistant message
     });
   };
 
@@ -786,6 +800,7 @@ const QuickAskBodyWithResponseBase = ({ inboxId }: { inboxId: string }) => {
       fetchPreviousPage={fetchPreviousPage}
       hidePythonExecution
       hasPreviousPage={hasPreviousPage}
+      inboxId={inboxId}
       isFetchingPreviousPage={isFetchingPreviousPage}
       isLoading={isChatConversationLoading}
       isSuccess={isChatConversationSuccess}

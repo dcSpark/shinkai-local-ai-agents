@@ -21,6 +21,10 @@ export default defineConfig(() => ({
     }),
     nxCopyAssetsPlugin(['*.md']),
   ],
+  // Pre-bundle heavy dependencies to avoid lazy loading delays
+  optimizeDeps: {
+    include: ['streamdown', 'shiki', 'shiki/bundle/web', 'katex', 'mermaid'],
+  },
   esbuild: {
     // Important for wasm plugin
     supported: {

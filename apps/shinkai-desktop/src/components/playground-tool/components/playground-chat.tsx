@@ -32,7 +32,7 @@ import { ToolsSelection } from './tools-selection';
 const PlaygroundChatBase = ({
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   toolName,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
   chatInboxId,
   handleCreateToolCode,
   fetchPreviousPage,
@@ -75,7 +75,7 @@ const PlaygroundChatBase = ({
   });
 
   const currentAI = form.watch('llmProviderId');
-  
+
   const thinkingConfig = useMemo(() => {
     if (!currentAI || !llmProviders) {
       return {
@@ -108,6 +108,7 @@ const PlaygroundChatBase = ({
           fetchPreviousPage={fetchPreviousPage}
           hasPreviousPage={hasPreviousPage}
           hidePythonExecution={true}
+          inboxId={chatInboxId}
           isFetchingPreviousPage={isFetchingPreviousPage}
           isLoading={isChatConversationLoading}
           isSuccess={isChatConversationSuccess}
@@ -153,11 +154,17 @@ const PlaygroundChatBase = ({
                       />
                       {thinkingConfig.supportsThinking && (
                         <ThinkingSwitchActionBar
-                          checked={thinkingConfig.forceEnabled || !!form.watch('thinking')}
+                          checked={
+                            thinkingConfig.forceEnabled ||
+                            !!form.watch('thinking')
+                          }
                           disabled={thinkingConfig.forceEnabled}
                           onClick={() => {
                             if (!thinkingConfig.forceEnabled) {
-                              form.setValue('thinking', !form.watch('thinking'));
+                              form.setValue(
+                                'thinking',
+                                !form.watch('thinking'),
+                              );
                             }
                           }}
                           forceEnabled={thinkingConfig.forceEnabled}

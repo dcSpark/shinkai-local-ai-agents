@@ -157,7 +157,7 @@ export const ComposioAppDetailsModal = ({
                         </p>
                         {action.description && (
                           <div className="text-text-secondary mt-2 text-sm">
-                            <MarkdownText content={action.description} />
+                            <MarkdownText>{action.description}</MarkdownText>
                           </div>
                         )}
                       </div>

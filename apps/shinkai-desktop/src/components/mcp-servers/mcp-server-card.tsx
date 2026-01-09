@@ -173,10 +173,9 @@ export const McpServerCard = ({
                               )}
                             </div>
                             {tool.description && (
-                              <MarkdownText
-                                className="text-text-secondary"
-                                content={tool.description}
-                              />
+                              <MarkdownText className="text-text-secondary">
+                                {tool.description}
+                              </MarkdownText>
                             )}
                           </div>
                           {Object.keys((tool.input_args || {}).properties || {})

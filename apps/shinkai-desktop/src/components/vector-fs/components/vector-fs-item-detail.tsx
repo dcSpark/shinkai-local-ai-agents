@@ -69,7 +69,7 @@ export const FilePreview: React.FC<FilePreviewProps> = ({
       const textContent = new TextDecoder('utf-8').decode(bytes);
       return (
         <div className="h-full overflow-auto p-4">
-          <MarkdownText content={textContent} />
+          <MarkdownText>{textContent}</MarkdownText>
         </div>
       );
     }

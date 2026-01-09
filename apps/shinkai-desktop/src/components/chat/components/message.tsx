@@ -38,6 +38,9 @@ import {
   TooltipPortal,
   TooltipTrigger,
   PrettyJsonPrint,
+  ReasoningTrigger,
+  Reasoning,
+  ReasoningContent,
 } from '@shinkai_network/shinkai-ui';
 import {
   AIAgentIcon,
@@ -77,7 +80,7 @@ import React, {
   useState,
 } from 'react';
 import { useForm } from 'react-hook-form';
-import { Link } from 'react-router';
+import { Link, useParams } from 'react-router';
 import { z } from 'zod';
 
 import { useAuth } from '../../../store/auth';
@@ -87,6 +90,7 @@ import { oauthUrlMatcherFromErrorMessage } from '../../../utils/oauth';
 
 import ProviderIcon from '../../ais/provider-icon';
 import { useChatStore } from '../context/chat-context';
+import { useReasoningDuration } from '../context/streaming-context';
 import { PythonCodeRunner } from '../python-code-runner/python-code-runner';
 
 export const extractErrorPropertyOrContent = (
@@ -121,6 +125,7 @@ type MessageProps = {
   messageExtra?: React.ReactNode;
   hidePythonExecution?: boolean;
   minimalistMode?: boolean;
+  isLastMessage?: boolean;
 };
 
 const actionBar = {
@@ -201,7 +206,7 @@ type EditMessageFormSchema = z.infer<typeof editMessageFormSchema>;
 
 export const MessageBase = ({
   message,
-  // messageId,
+  messageId,
   hidePythonExecution,
   isPending,
   handleRetryMessage,
@@ -210,8 +215,14 @@ export const MessageBase = ({
   disabledEdit,
   handleEditMessage,
   minimalistMode = false,
+  isLastMessage = false,
 }: MessageProps) => {
   const { t } = useTranslation();
+  const { inboxId: encodedInboxId = '' } = useParams();
+  const inboxId = useMemo(
+    () => decodeURIComponent(encodedInboxId),
+    [encodedInboxId],
+  );
 
   const selectedArtifact = useChatStore((state) => state.selectedArtifact);
   const setArtifact = useChatStore((state) => state.setSelectedArtifact);
@@ -457,15 +468,15 @@ export const MessageBase = ({
 
   return (
     <motion.div
-      // animate="rest"
-      className={cn('container px-0 px-3.5 pb-4', minimalistMode && 'pb-3')}
+      className={cn('container px-3.5 pb-4', minimalistMode && 'pb-3')}
       data-testid={`message-${
         message.role === 'user' ? 'local' : 'remote'
       }-${message.messageId}`}
       id={message.messageId}
-      // initial="rest"
       style={{ fontSize: `${getChatFontSizeInPts()}px` }}
-      // whileHover="hover"
+      animate={{ opacity: 1 }}
+      data-role={message.role}
+      initial={{ opacity: 0 }}
     >
       <div
         className={cn(
@@ -559,9 +570,11 @@ export const MessageBase = ({
                 ref={messageContentRef}
               >
                 {message.role === 'assistant' && message.reasoning && (
-                  <Reasoning
-                    reasoning={message.reasoning.text}
-                    status={message.reasoning.status}
+                  <MessageReasoning
+                    inboxId={inboxId}
+                    isLastMessage={isLastMessage}
+                    isStreaming={message.reasoning.status?.type === 'running'}
+                    reasoning={message.reasoning.text ?? ''}
                   />
                 )}
 
@@ -655,12 +668,12 @@ export const MessageBase = ({
                   )}
 
                 {message.role === 'assistant' && (
-                  <MarkdownText
-                    content={extractErrorPropertyOrContent(
+                  <MarkdownText>
+                    {extractErrorPropertyOrContent(
                       message.content,
                       'error_message',
                     )}
-                  />
+                  </MarkdownText>
                 )}
                 {message.role === 'assistant' &&
                   message.artifacts?.length > 0 && (
@@ -1012,18 +1025,43 @@ export const MessageBase = ({
 };
 
 export const Message = memo(MessageBase, (prev, next) => {
+  if (prev.isLastMessage !== next.isLastMessage) {
+    return false;
+  }
+
+  if (
+    prev.message === next.message &&
+    prev.minimalistMode === next.minimalistMode
+  ) {
+    return true;
+  }
+
+  const prevMsg = prev.message as AssistantMessage;
+  const nextMsg = next.message as AssistantMessage;
+
+  if (prev.message.content.length !== next.message.content.length) {
+    return false;
+  }
+
+  const prevReasoningLen = prevMsg.reasoning?.text?.length ?? 0;
+  const nextReasoningLen = nextMsg.reasoning?.text?.length ?? 0;
+  if (prevReasoningLen !== nextReasoningLen) {
+    return false;
+  }
+
+  const prevToolCallsLen = prevMsg.toolCalls?.length ?? 0;
+  const nextToolCallsLen = nextMsg.toolCalls?.length ?? 0;
+  if (prevToolCallsLen !== nextToolCallsLen) {
+    return false;
+  }
+
   return (
     prev.messageId === next.messageId &&
     prev.message.content === next.message.content &&
-    (prev.message as AssistantMessage)?.status?.type ===
-      (next.message as AssistantMessage)?.status?.type &&
-    (prev.message as AssistantMessage).reasoning?.text ===
-      (next.message as AssistantMessage).reasoning?.text &&
+    prevMsg?.status?.type === nextMsg?.status?.type &&
+    prevMsg.reasoning?.text === nextMsg.reasoning?.text &&
     prev.minimalistMode === next.minimalistMode &&
-    equal(
-      (prev.message as AssistantMessage).toolCalls,
-      (next.message as AssistantMessage).toolCalls,
-    )
+    (prevToolCallsLen === 0 || equal(prevMsg.toolCalls, nextMsg.toolCalls))
   );
 });
 
@@ -1107,95 +1145,38 @@ export function ToolCard({
   );
 }
 
-const MotionAccordionTrigger = motion(AccordionTrigger);
-
-export function Reasoning({
-  reasoning,
-  status,
-}: {
+type MessageReasoningProps = {
+  isStreaming: boolean;
   reasoning: string;
-  status?: TextStatus;
-}) {
-  const { t } = useTranslation();
-  const renderStatus = () => {
-    if (status?.type === 'complete') {
-      return <ReasoningIcon className="text-brand size-full" />;
-    }
-    if (status?.type === 'incomplete') {
-      return <XCircle className="text-text-secondary size-full" />;
-    }
-    if (status?.type === 'running') {
-      return <Loader className="text-text-secondary size-full animate-spin" />;
-    }
-    return null;
-  };
+  inboxId: string;
+  isLastMessage?: boolean;
+};
 
-  const renderReasoningText = () => {
-    if (status?.type === 'complete') {
-      return t('common.reasoning');
+export function MessageReasoning({
+  isStreaming,
+  reasoning,
+  inboxId,
+  isLastMessage = false,
+}: MessageReasoningProps) {
+  const streamingDuration = useReasoningDuration(isLastMessage ? inboxId : '');
+  const [hasBeenStreaming, setHasBeenStreaming] = useState(isStreaming);
+
+  useEffect(() => {
+    if (isStreaming) {
+      setHasBeenStreaming(true);
     }
-    return t('common.thinking');
-  };
+  }, [isStreaming]);
 
   return (
-    <Accordion
-      className="max-w-full space-y-1.5 self-baseline overflow-x-auto pb-3"
-      collapsible
-      value={status?.type === 'running' ? 'reasoning' : undefined}
-      type="single"
+    <Reasoning
+      className="mb-4"
+      defaultOpen={hasBeenStreaming}
+      duration={streamingDuration > 0 ? streamingDuration : undefined}
+      isStreaming={isStreaming}
     >
-      <AccordionItem
-        className={cn(
-          'border-divider overflow-hidden rounded-lg border',
-          status?.type === 'running' && 'animate-pulse',
-        )}
-        value="reasoning"
-      >
-        <MotionAccordionTrigger
-          className={cn(
-            'bg-bg-secondary inline-flex w-auto gap-3 px-[6px] py-[3px] no-underline hover:text-white hover:no-underline',
-            'hover:bg-bg-secondary transition-colors',
-            status?.type === 'running' && 'p-0',
-          )}
-          hideArrow={status?.type === 'running'}
-        >
-          <AnimatePresence initial={false} mode="popLayout">
-            <motion.div
-              animate="visible"
-              exit="exit"
-              initial="initial"
-              key={status?.type}
-              transition={{ type: 'spring', duration: 0.3, bounce: 0 }}
-              variants={variants}
-            >
-              <div
-                className={cn(
-                  'text-text-secondary flex items-center gap-1.5 px-2 py-1',
-                  status?.type === 'running' && 'text-text-tertiary',
-                )}
-              >
-                {renderStatus() && (
-                  <div className="size-4 shrink-0">{renderStatus()}</div>
-                )}
-                <div className="flex items-center gap-1">
-                  <span className="text-em-sm">{renderReasoningText()}</span>
-                </div>
-              </div>
-            </motion.div>
-          </AnimatePresence>
-        </MotionAccordionTrigger>
-        <AccordionContent className="bg-bg-secondary text-em-sm flex flex-col gap-1 rounded-b-lg px-3 pt-2 pb-3">
-          <span className="text-text-secondary break-words whitespace-pre-wrap">
-            <MarkdownText
-              className={cn(
-                status?.type === 'running' && 'text-text-secondary',
-              )}
-              content={reasoning}
-            />
-          </span>
-        </AccordionContent>
-      </AccordionItem>
-    </Accordion>
+      <ReasoningTrigger />
+      <ReasoningContent>{reasoning}</ReasoningContent>
+    </Reasoning>
   );
 }
 

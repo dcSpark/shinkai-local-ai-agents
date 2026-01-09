@@ -25,6 +25,7 @@ export * from './label';
 export * from './markdown-preview';
 export * from './popover';
 export * from './prompt-textarea';
+export * from './reasoning';
 export * from './qr-code';
 export * from './resizable';
 export * from './radio-group';

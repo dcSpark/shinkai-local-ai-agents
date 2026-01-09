@@ -10,7 +10,6 @@ import {
   type FormattedMessage,
   type ChatConversationInfiniteData,
   type ToolCall,
-  FileTypeSupported,
 } from '@shinkai_network/shinkai-node-state/v2/queries/getChatConversation/types';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
@@ -58,7 +57,9 @@ export const useWebSocketMessage = ({
   );
   const queryClient = useQueryClient();
   const isStreamSupported = useRef(false);
-  const hasStreamCompletedRef = useRef(false);
+  // Tracks whether we've received an is_done: true from Stream messages
+  // Used in combination with ShinkaiMessage is_stream: false for completion detection
+  const hasReceivedStreamDone = useRef(false);
 
   // Streaming store actions - only subscribe to the methods we need
   const startStreaming = useStreamingStore((state) => state.startStreaming);
@@ -233,21 +234,6 @@ export const useWebSocketMessage = ({
           invalidateTimeoutRef.current = null;
         }
 
-        // Only invalidate if there are tool calls that might have generated files
-        // For non-tool messages, the content from setQueryData is sufficient
-        // and invalidation would cause unnecessary flash
-        const hasToolCalls = finalToolCalls.length > 0;
-        if (hasToolCalls) {
-          invalidateTimeoutRef.current = setTimeout(() => {
-            invalidateTimeoutRef.current = null;
-            void queryClient.invalidateQueries({
-              queryKey,
-            });
-          }, 1000);
-        }
-
-        // Clear streaming state after a delay to allow StreamingMessage to use final data
-        // This prevents memory leaks from accumulating streaming state
         clearInboxTimeoutRef.current = setTimeout(() => {
           clearInboxTimeoutRef.current = null;
           clearInbox(inboxId);
@@ -275,6 +261,7 @@ export const useWebSocketMessage = ({
         if (parseData.inbox !== inboxId) return;
 
         // Parse the ShinkaiMessage once to avoid repeated JSON.parse calls
+
         const isShinkaiMessage =
           parseData.message_type === 'ShinkaiMessage' && parseData.message;
         const shinkaiMsg = isShinkaiMessage
@@ -293,7 +280,7 @@ export const useWebSocketMessage = ({
         if (isUserMessage) {
           clearInbox(inboxId);
 
-          hasStreamCompletedRef.current = false;
+          hasReceivedStreamDone.current = false;
 
           tokenBufferRef.current = '';
           reasoningBufferRef.current = '';
@@ -322,114 +309,37 @@ export const useWebSocketMessage = ({
         }
         isStreamSupported.current = false;
 
-        // finalize the optimistic assistant message immediately when the final assistant message arrives
-        if (isAssistantMessage && shinkaiMsg) {
-          // If streaming already completed via is_done, skip redundant processing
-          if (hasStreamCompletedRef.current) {
-            return;
+        const isStreamEnded =
+          (parseData as WsMessage & { is_stream?: boolean }).is_stream ===
+          false;
+
+        if (isAssistantMessage && isStreamEnded) {
+          if (!hasReceivedStreamDone.current) {
+            console.warn(
+              '[WS Debug] ⚠️ Received ShinkaiMessage is_stream:false without prior is_done:true',
+            );
           }
 
-          // Extract metadata from the already-parsed ShinkaiMessage
-          // This contains the real message ID (signature), content, reasoning, and tool calls
-          try {
-            const messageRawContent = JSON.parse(
-              shinkaiMsg.body?.unencrypted?.message_data?.unencrypted
-                ?.message_raw_content ?? '{}',
-            );
-
-            // Extract the real message ID from internal signature (this is the node_message_hash)
-            const realMessageId =
-              shinkaiMsg.body?.unencrypted?.internal_metadata?.signature ??
-              shinkaiMsg.external_metadata?.signature;
-
-            // Extract timestamp for createdAt
-            const createdAt =
-              shinkaiMsg.external_metadata?.scheduled_time ??
-              new Date().toISOString();
-
-            // Extract the real content and metadata
-            const realContent = messageRawContent?.content ?? '';
-            const realReasoning = messageRawContent?.reasoning_content;
-            const functionCalls =
-              messageRawContent?.metadata?.function_calls ?? [];
-
-            // Extract TPS and duration metadata
-            const tps = messageRawContent?.metadata?.tps;
-            const durationMs = messageRawContent?.metadata?.duration_ms;
-
-            // Convert function calls to tool calls format, extracting generated files
-            const toolCalls: ToolCall[] = functionCalls.map(
-              (fc: {
-                name: string;
-                arguments: Record<string, unknown>;
-                tool_router_key: string;
-                response?: string;
-              }) => {
-                // Extract __created_files__ from the response
-                let generatedFiles: ToolCall['generatedFiles'];
-                if (fc.response) {
-                  try {
-                    const responseData = JSON.parse(fc.response);
-                    // Check for __created_files__ in multiple locations
-                    const files: string[] | undefined =
-                      responseData?.data?.__created_files__ ??
-                      responseData?.__created_files__;
-
-                    if (files && files.length > 0) {
-                      // Create attachment objects with file paths
-                      // Full previews will be loaded by the invalidation or lazily
-                      generatedFiles = files.map((filePath: string) => {
-                        const fileName =
-                          filePath.split('/').pop() ?? 'unknown_file';
-                        const extension = fileName.split('.').pop() ?? '';
-                        return {
-                          id: filePath,
-                          path: filePath,
-                          name: fileName,
-                          extension,
-                          type: FileTypeSupported.Unknown,
-                          mimeType: 'application/octet-stream',
-                        };
-                      });
-                    }
-                  } catch {
-                    // Failed to parse response, no generated files
-                  }
-                }
-
-                return {
-                  toolRouterKey: fc.tool_router_key,
-                  name: fc.name,
-                  args: fc.arguments,
-                  status: 'Complete' as const,
-                  result: fc.response ?? '',
-                  generatedFiles,
-                };
-              },
-            );
-
-            // Flush any remaining buffered tokens and finalize with real data
-            flushTokenBuffer({
-              markComplete: true,
-              finalMessageId: realMessageId,
-              createdAt,
-              realContent,
-              realReasoning,
-              toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-              metadata: { tps, durationMs },
-            });
-          } catch (parseError) {
-            console.error('Failed to parse ShinkaiMessage:', parseError);
-            // Fallback to basic finalization
-            flushTokenBuffer({ markComplete: true });
+          if (tokenBufferRef.current || reasoningBufferRef.current) {
+            flushTokenBuffer();
           }
 
-          // Mark streaming as completed to prevent duplicate processing
-          hasStreamCompletedRef.current = true;
+          void queryClient.invalidateQueries({ queryKey });
+
+          setTimeout(() => {
+            endStreaming(inboxId);
+          }, 1000);
+
+          return;
+        }
+
+        if (isAssistantMessage && !isStreamEnded) {
+          void queryClient.invalidateQueries({ queryKey });
           return;
         }
 
         if (parseData.message_type !== 'Stream') return;
+
         isStreamSupported.current = true;
 
         // Ensure streaming is started - handles cases where user message wasn't echoed via WebSocket
@@ -445,14 +355,9 @@ export const useWebSocketMessage = ({
           tokenBufferRef.current += parseData.message;
         }
 
-        // Check if streaming is complete via metadata
-        if (parseData.metadata?.is_done && !hasStreamCompletedRef.current) {
-          hasStreamCompletedRef.current = true;
-          // Flush any remaining tokens and finalize with the real message ID
-          flushTokenBuffer({
-            finalMessageId: parseData.metadata?.id,
-            markComplete: true,
-          });
+        if (parseData.metadata?.is_done) {
+          hasReceivedStreamDone.current = true;
+          flushTokenBuffer();
           return;
         }
 
@@ -478,6 +383,7 @@ export const useWebSocketMessage = ({
     flushTokenBuffer,
     startStreaming,
     clearInbox,
+    endStreaming,
     getStreamingContent,
   ]);
 

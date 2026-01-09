@@ -119,17 +119,21 @@ function ToolFeedbackPrompt() {
     // Only switch models when the tool creation is completed
     if (currentStep !== ToolCreationState.COMPLETED) return;
 
-    const isCodeGeneratorModel = currentProvider.agent.model?.toLowerCase() === CODE_GENERATOR_MODEL_ID.toLowerCase();
+    const isCodeGeneratorModel =
+      currentProvider.agent.model?.toLowerCase() ===
+      CODE_GENERATOR_MODEL_ID.toLowerCase();
 
     if (isCodeGeneratorModel) {
       const freeTrialProvider = llmProviders.find(
-        (provider) => provider.model.toLowerCase() === SHINKAI_FREE_TRIAL_MODEL_ID.toLowerCase()
+        (provider) =>
+          provider.model.toLowerCase() ===
+          SHINKAI_FREE_TRIAL_MODEL_ID.toLowerCase(),
       );
 
       // Use free trial provider if available, otherwise fall back to default provider
-      const targetProvider = freeTrialProvider || llmProviders.find(
-        (provider) => provider.id === defaultAgentId
-      );
+      const targetProvider =
+        freeTrialProvider ||
+        llmProviders.find((provider) => provider.id === defaultAgentId);
 
       if (targetProvider && targetProvider.id !== currentProvider.agent.id) {
         // Switch the LLM provider for the job after tool creation is complete
@@ -144,7 +148,16 @@ function ToolFeedbackPrompt() {
         form.setValue('llmProviderId', targetProvider.id);
       }
     }
-  }, [auth, currentProvider, llmProviders, jobId, currentStep, updateAgentInJob, form, defaultAgentId]);
+  }, [
+    auth,
+    currentProvider,
+    llmProviders,
+    jobId,
+    currentStep,
+    updateAgentInJob,
+    form,
+    defaultAgentId,
+  ]);
 
   const renderStep = useCallback(() => {
     switch (currentStep) {

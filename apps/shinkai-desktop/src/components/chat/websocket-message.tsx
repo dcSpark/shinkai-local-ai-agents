@@ -324,6 +324,19 @@ export const useWebSocketMessage = ({
             flushTokenBuffer();
           }
 
+          const streamedContent = getStreamingContent(inboxId);
+          if (streamedContent) {
+            let durationToSave = streamedContent.reasoningDuration;
+            if (durationToSave === 0 && streamedContent.reasoningStartTime) {
+              durationToSave = Math.round(
+                (Date.now() - streamedContent.reasoningStartTime) / 1000,
+              );
+            }
+            if (durationToSave > 0) {
+              saveReasoningDuration(inboxId, durationToSave);
+            }
+          }
+
           void queryClient.invalidateQueries({ queryKey });
 
           setTimeout(() => {
@@ -385,6 +398,7 @@ export const useWebSocketMessage = ({
     clearInbox,
     endStreaming,
     getStreamingContent,
+    saveReasoningDuration,
   ]);
 
   // Cleanup all timeouts on unmount

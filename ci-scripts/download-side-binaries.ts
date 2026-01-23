@@ -141,7 +141,9 @@ const downloadOllamaAarch64AppleDarwin = async (version: string) => {
     TEMP_PATH,
     `ollama-${Arch.aarch64_apple_darwin}-${version}`,
   );
-  await zl.extract(zippedPath, unzippedPath);
+  await zl.extract(zippedPath, unzippedPath, {
+    overwrite: true,
+  });
   const ollamaBinaryPath = asSidecarName(
     Arch.aarch64_apple_darwin,
     `./apps/shinkai-desktop/src-tauri/external-binaries/ollama/ollama`,
@@ -192,7 +194,9 @@ const downloadOllamax8664PcWindowsMsvcRocm = async (version: string) => {
     TEMP_PATH,
     `ollama-windows-amd64-rocm-${version}`,
   );
-  await zl.extract(zippedPath, unzippedPath);
+  await zl.extract(zippedPath, unzippedPath, {
+    overwrite: true,
+  });
   const files = await readdir(unzippedPath);
   await cp(
     path.join(unzippedPath, 'lib', 'ollama', 'rocm'),
@@ -212,7 +216,9 @@ const downloadOllamax8664PcWindowsMsvcNvidia = async (version: string) => {
   await downloadFile(downloadUrl, zippedPath);
 
   const unzippedPath = path.join(TEMP_PATH, `ollama-windows-amd64-${version}`);
-  await zl.extract(zippedPath, unzippedPath);
+  await zl.extract(zippedPath, unzippedPath, {
+    overwrite: true,
+  });
 
   const files = await readdir(unzippedPath);
   for (const file of files) {

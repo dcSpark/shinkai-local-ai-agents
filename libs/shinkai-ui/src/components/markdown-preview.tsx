@@ -1,11 +1,42 @@
 import { code } from '@streamdown/code';
 import { math } from '@streamdown/math';
 import { mermaid } from '@streamdown/mermaid';
-import { type ComponentPropsWithoutRef, type FC, memo } from 'react';
-import { Streamdown } from 'streamdown';
+import { type ComponentPropsWithoutRef, type FC, memo, useState } from 'react';
+import { Streamdown, type MermaidErrorComponentProps } from 'streamdown';
 import 'katex/dist/katex.min.css';
 
 import { cn } from '../utils';
+
+/**
+ * Preprocesses markdown content to fix common Mermaid syntax issues.
+ * Specifically fixes curly braces inside node labels which Mermaid
+ * incorrectly interprets as diamond/rhombus shapes.
+ *
+ * Example: `F[Update: {Real Time}]` becomes `F["Update: {Real Time}"]`
+ */
+const preprocessMermaidContent = (content: string): string => {
+  // Match mermaid code blocks
+  return content.replace(
+    /(```mermaid\s*\n)([\s\S]*?)(```)/g,
+    (_match, start, mermaidCode, end) => {
+      // Fix node labels containing curly braces
+      // Match patterns like [text with {braces}] and wrap content in quotes
+      const fixedCode = mermaidCode.replace(
+        /\[([^\]"]*\{[^\]]*)\]/g,
+        (_nodeMatch: string, nodeContent: string) => {
+          // If already quoted, don't modify
+          if (nodeContent.startsWith('"') && nodeContent.endsWith('"')) {
+            return `["${nodeContent}"]`;
+          }
+          // Wrap the content in quotes to escape special characters
+          return `["${nodeContent}"]`;
+        },
+      );
+      return start + fixedCode + end;
+    },
+  );
+};
+
 
 const isImageUrl = (url: string): boolean => {
   try {
@@ -125,6 +156,8 @@ export type MarkdownTextProps = {
 };
 
 const MarkdownTextBase = ({ children, className }: MarkdownTextProps) => {
+  const processedContent = preprocessMermaidContent(children);
+
   return (
     <Streamdown
       className={cn(
@@ -156,7 +189,7 @@ const MarkdownTextBase = ({ children, className }: MarkdownTextProps) => {
       }}
       shikiTheme={['github-dark', 'github-dark']}
     >
-      {children}
+      {processedContent}
     </Streamdown>
   );
 };

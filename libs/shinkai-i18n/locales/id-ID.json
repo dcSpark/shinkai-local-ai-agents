@@ -135,7 +135,7 @@
   "chat": {
     "actions": {
       "deleteInbox": "Hapus Obrolan",
-      "deleteInboxConfirmationDescription": "Obrolan akan dihapus dan dihilangkan dari riwayat obrolan Anda",
+      "deleteInboxConfirmationDescription": "Obrolan akan dihapus dan dihilangkan dari riwayat obrolan Anda. Ini juga akan menghapus semua file yang diunggah atau dibuat dalam percakapan ini.",
       "deleteInboxConfirmationTitle": "Hapus obrolan?"
     },
     "actives": {

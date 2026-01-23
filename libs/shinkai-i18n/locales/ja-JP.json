@@ -135,7 +135,7 @@
   "chat": {
     "actions": {
       "deleteInbox": "チャットを削除",
-      "deleteInboxConfirmationDescription": "このチャットは削除され、チャット履歴からも削除されます",
+      "deleteInboxConfirmationDescription": "このチャットは削除され、チャット履歴からも削除されます。この会話でアップロードまたは生成されたすべてのファイルも削除されます。",
       "deleteInboxConfirmationTitle": "チャットを削除しますか？"
     },
     "actives": {

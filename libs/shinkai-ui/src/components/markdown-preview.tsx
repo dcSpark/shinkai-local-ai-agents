@@ -1,11 +1,15 @@
-import { code } from '@streamdown/code';
+import { createCodePlugin } from '@streamdown/code';
 import { math } from '@streamdown/math';
 import { mermaid } from '@streamdown/mermaid';
-import { type ComponentPropsWithoutRef, type FC, memo, useState } from 'react';
-import { Streamdown, type MermaidErrorComponentProps } from 'streamdown';
+import { type ComponentPropsWithoutRef, type FC, memo } from 'react';
+import { Streamdown } from 'streamdown';
 import 'katex/dist/katex.min.css';
 
 import { cn } from '../utils';
+
+const codePlugin = createCodePlugin({
+  themes: ['github-dark', 'github-dark'],
+});
 
 /**
  * Preprocesses markdown content to fix common Mermaid syntax issues.
@@ -168,7 +172,7 @@ const MarkdownTextBase = ({ children, className }: MarkdownTextProps) => {
         '[&_pre_code>span.block]:before:content-none',
         className,
       )}
-      plugins={{ code, math, mermaid }}
+      plugins={{ code: codePlugin, math, mermaid }}
       components={{
         a: MediaAwareLink,
       }}
@@ -187,7 +191,6 @@ const MarkdownTextBase = ({ children, className }: MarkdownTextProps) => {
           panZoom: true,
         },
       }}
-      shikiTheme={['github-dark', 'github-dark']}
     >
       {processedContent}
     </Streamdown>

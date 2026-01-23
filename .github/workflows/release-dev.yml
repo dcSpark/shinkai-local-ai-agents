@@ -151,7 +151,7 @@ jobs:
         if: ${{ matrix.arch == 'x86_64-unknown-linux-gnu' }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential wget libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev libsoup-3.0-dev
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential wget libssl-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libasound2-dev libsoup-3.0-dev zstd
 
       - name: (MACOS) Install the Apple certificate and provisioning profile
         if: ${{ matrix.arch == 'aarch64-apple-darwin' }}
@@ -212,8 +212,8 @@ jobs:
       - name: Download side binaries
         env:
           ARCH: ${{ matrix.arch }}
-          OLLAMA_VERSION: v0.12.3
-          SHINKAI_NODE_VERSION: v1.1.18
+          OLLAMA_VERSION: v0.14.3
+          SHINKAI_NODE_VERSION: v1.1.19
         run: |
           npx ts-node ./ci-scripts/download-side-binaries.ts
 

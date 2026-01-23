@@ -141,7 +141,9 @@ const downloadOllamaAarch64AppleDarwin = async (version: string) => {
     TEMP_PATH,
     `ollama-${Arch.aarch64_apple_darwin}-${version}`,
   );
-  await zl.extract(zippedPath, unzippedPath);
+  await zl.extract(zippedPath, unzippedPath, {
+    overwrite: true,
+  });
   const ollamaBinaryPath = asSidecarName(
     Arch.aarch64_apple_darwin,
     `./apps/shinkai-desktop/src-tauri/external-binaries/ollama/ollama`,
@@ -155,18 +157,26 @@ const downloadOllamaAarch64AppleDarwin = async (version: string) => {
 };
 
 const downloadOllamax8664UnknownLinuxGnu = async (version: string) => {
-  let downloadUrl = `https://github.com/ollama/ollama/releases/download/${version}/ollama-linux-amd64.tgz`;
-  const zippedPath = path.join(TEMP_PATH, `ollama-linux-amd64-${version}.tgz`);
+  const downloadUrl = `https://github.com/ollama/ollama/releases/download/${version}/ollama-linux-amd64.tar.zst`;
+  const zstPath = path.join(TEMP_PATH, `ollama-linux-amd64-${version}.tar.zst`);
 
-  await downloadFile(downloadUrl, zippedPath);
+  await downloadFile(downloadUrl, zstPath);
 
   const unzippedPath = path.join(TEMP_PATH, `ollama-linux-amd64-${version}`);
 
   await mkdir(unzippedPath, { recursive: true });
-  await extract({
-    f: zippedPath,
-    C: unzippedPath,
-    strip: 0,
+  // Decompress zstd and extract tar using shell command
+  await new Promise<void>((resolve, reject) => {
+    exec(
+      `zstd -d -c "${zstPath}" | tar -xf - -C "${unzippedPath}"`,
+      (error) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve();
+        }
+      },
+    );
   });
   const ollamaBinaryPath = asSidecarName(
     Arch.x86_64_unknown_linux_gnu,
@@ -192,7 +202,9 @@ const downloadOllamax8664PcWindowsMsvcRocm = async (version: string) => {
     TEMP_PATH,
     `ollama-windows-amd64-rocm-${version}`,
   );
-  await zl.extract(zippedPath, unzippedPath);
+  await zl.extract(zippedPath, unzippedPath, {
+    overwrite: true,
+  });
   const files = await readdir(unzippedPath);
   await cp(
     path.join(unzippedPath, 'lib', 'ollama', 'rocm'),
@@ -212,7 +224,9 @@ const downloadOllamax8664PcWindowsMsvcNvidia = async (version: string) => {
   await downloadFile(downloadUrl, zippedPath);
 
   const unzippedPath = path.join(TEMP_PATH, `ollama-windows-amd64-${version}`);
-  await zl.extract(zippedPath, unzippedPath);
+  await zl.extract(zippedPath, unzippedPath, {
+    overwrite: true,
+  });
 
   const files = await readdir(unzippedPath);
   for (const file of files) {

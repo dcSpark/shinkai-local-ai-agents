@@ -135,7 +135,7 @@
   "chat": {
     "actions": {
       "deleteInbox": "Sohbeti Sil",
-      "deleteInboxConfirmationDescription": "Sohbet silinecek ve sohbet geçmişinizden kaldırılacaktır.",
+      "deleteInboxConfirmationDescription": "Sohbet silinecek ve sohbet geçmişinizden kaldırılacaktır. Bu, bu sohbette yüklenen veya oluşturulan tüm dosyaları da kaldıracaktır.",
       "deleteInboxConfirmationTitle": "Sohbeti silmek istiyor musunuz?"
     },
     "actives": {

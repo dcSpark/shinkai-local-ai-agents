@@ -130,7 +130,7 @@
     "actions": {
       "deleteInbox": "Delete Chat",
       "deleteInboxConfirmationTitle": "Delete chat?",
-      "deleteInboxConfirmationDescription": "The chat will be deleted and removed from your chat history"
+      "deleteInboxConfirmationDescription": "The chat will be deleted and removed from your chat history. This will also remove any files uploaded or generated in this conversation."
     },
     "tracing": {
       "title": "Tracing"

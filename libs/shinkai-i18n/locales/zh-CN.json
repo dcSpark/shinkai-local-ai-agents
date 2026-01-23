@@ -135,7 +135,7 @@
   "chat": {
     "actions": {
       "deleteInbox": "删除聊天",
-      "deleteInboxConfirmationDescription": "该聊天将被删除并从您的聊天记录中移除",
+      "deleteInboxConfirmationDescription": "该聊天将被删除并从您的聊天记录中移除。这也将删除此对话中上传或生成的所有文件。",
       "deleteInboxConfirmationTitle": "确认删除聊天？"
     },
     "actives": {

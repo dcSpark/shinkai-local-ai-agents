@@ -135,7 +135,7 @@
   "chat": {
     "actions": {
       "deleteInbox": "Eliminar chat",
-      "deleteInboxConfirmationDescription": "El chat será eliminado y se quitará de tu historial de chats",
+      "deleteInboxConfirmationDescription": "El chat será eliminado y se quitará de tu historial de chats. Esto también eliminará todos los archivos subidos o generados en esta conversación.",
       "deleteInboxConfirmationTitle": "¿Eliminar chat?"
     },
     "actives": {

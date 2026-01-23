@@ -1,7 +1,46 @@
+import { createCodePlugin } from '@streamdown/code';
+import { math } from '@streamdown/math';
+import { mermaid } from '@streamdown/mermaid';
 import { type ComponentPropsWithoutRef, type FC, memo } from 'react';
-import { defaultRehypePlugins, Streamdown } from 'streamdown';
+import { Streamdown } from 'streamdown';
+import 'katex/dist/katex.min.css';
 
 import { cn } from '../utils';
+
+const codePlugin = createCodePlugin({
+  themes: ['github-dark', 'github-dark'],
+});
+
+/**
+ * Preprocesses markdown content to fix common Mermaid syntax issues.
+ * Specifically fixes curly braces inside node labels which Mermaid
+ * incorrectly interprets as diamond/rhombus shapes.
+ *
+ * Example: `F[Update: {Real Time}]` becomes `F["Update: {Real Time}"]`
+ */
+const preprocessMermaidContent = (content: string): string => {
+  // Match mermaid code blocks
+  return content.replace(
+    /(```mermaid\s*\n)([\s\S]*?)(```)/g,
+    (_match, start, mermaidCode, end) => {
+      // Fix node labels containing curly braces
+      // Match patterns like [text with {braces}] and wrap content in quotes
+      const fixedCode = mermaidCode.replace(
+        /\[([^\]"]*\{[^\]]*)\]/g,
+        (_nodeMatch: string, nodeContent: string) => {
+          // If already quoted, don't modify
+          if (nodeContent.startsWith('"') && nodeContent.endsWith('"')) {
+            return `["${nodeContent}"]`;
+          }
+          // Wrap the content in quotes to escape special characters
+          return `["${nodeContent}"]`;
+        },
+      );
+      return start + fixedCode + end;
+    },
+  );
+};
+
 
 const isImageUrl = (url: string): boolean => {
   try {
@@ -121,6 +160,8 @@ export type MarkdownTextProps = {
 };
 
 const MarkdownTextBase = ({ children, className }: MarkdownTextProps) => {
+  const processedContent = preprocessMermaidContent(children);
+
   return (
     <Streamdown
       className={cn(
@@ -131,7 +172,7 @@ const MarkdownTextBase = ({ children, className }: MarkdownTextProps) => {
         '[&_pre_code>span.block]:before:content-none',
         className,
       )}
-      rehypePlugins={[defaultRehypePlugins.katex, defaultRehypePlugins.harden]}
+      plugins={{ code: codePlugin, math, mermaid }}
       components={{
         a: MediaAwareLink,
       }}
@@ -141,18 +182,17 @@ const MarkdownTextBase = ({ children, className }: MarkdownTextProps) => {
         },
       }}
       controls={{
-        table: false, // Show table download button
-        code: true, // Show code copy button
+        table: false,
+        code: true,
         mermaid: {
-          download: false, // Show mermaid download button
-          copy: true, // Show mermaid copy button
-          fullscreen: false, // Show mermaid fullscreen button
-          panZoom: true, // Show mermaid pan/zoom controls
+          download: false,
+          copy: true,
+          fullscreen: false,
+          panZoom: true,
         },
       }}
-      shikiTheme={['github-dark', 'github-dark']}
     >
-      {children}
+      {processedContent}
     </Streamdown>
   );
 };

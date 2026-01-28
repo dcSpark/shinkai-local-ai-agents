@@ -134,9 +134,22 @@
   },
   "chat": {
     "actions": {
+      "chatsDeleted": "{{count}} obrolan berhasil dihapus",
+      "chatsPartiallyDeleted": "{{succeeded}} obrolan dihapus, {{failed}} gagal dihapus",
       "deleteInbox": "Hapus Obrolan",
-      "deleteInboxConfirmationDescription": "Obrolan akan dihapus dan dihilangkan dari riwayat obrolan Anda. Ini juga akan menghapus semua file yang diunggah atau dibuat dalam percakapan ini.",
-      "deleteInboxConfirmationTitle": "Hapus obrolan?"
+      "deleteInboxConfirmationDescription": "Obrolan akan dihapus dan dihilangkan dari riwayat obrolan Anda",
+      "deleteInboxConfirmationTitle": "Hapus obrolan?",
+      "deleteSelectedChats": "Hapus Terpilih",
+      "deleteSelectedChatsConfirmationDescription": "Obrolan yang dipilih akan dihapus secara permanen. Tindakan ini tidak dapat dibatalkan.",
+      "deleteSelectedChatsConfirmationTitle": "Hapus {{count}} obrolan?",
+      "deletingChats": "Menghapus obrolan...",
+      "deselectAll": "Batalkan Pilihan Semua",
+      "manageChats": "Kelola Obrolan",
+      "manageChatsDescription": "Cari, lihat, dan hapus beberapa obrolan sekaligus",
+      "noChatsFound": "Tidak ada obrolan yang ditemukan",
+      "searchChats": "Cari obrolan...",
+      "selectAll": "Pilih Semua",
+      "selectedCount": "{{count}} terpilih"
     },
     "actives": {
       "label": "Aktif",
@@ -220,6 +233,7 @@
     "clear": "Bersihkan",
     "clearSearch": "Hapus Pencarian",
     "clickToUpload": "Klik untuk mengunggah atau seret dan lepas",
+    "close": "Tutup",
     "comingSoon": "Segera hadir - Akhir Agustus",
     "configure": "Konfigurasi",
     "connect": "Hubungkan",

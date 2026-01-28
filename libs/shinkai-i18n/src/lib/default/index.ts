@@ -156,6 +156,23 @@ export default {
       deleteInboxConfirmationTitle: 'Delete chat?',
       deleteInboxConfirmationDescription:
         'The chat will be deleted and removed from your chat history',
+      manageChats: 'Manage Chats',
+      manageChatsDescription:
+        'Search, view, and delete multiple chats at once',
+      deleteSelectedChats: 'Delete Selected',
+      deleteSelectedChatsConfirmationTitle: 'Delete {{count}} chats?',
+      deleteSelectedChatsConfirmationDescription:
+        'The selected chats will be permanently deleted. This action cannot be undone.',
+      selectedCount: '{{count}} selected',
+      selectAll: 'Select All',
+      deselectAll: 'Deselect All',
+      deletingChats: 'Deleting chats...',
+      chatsDeleted: '{{count}} chats deleted successfully',
+      chatsPartiallyDeleted:
+        '{{succeeded}} chats deleted, {{failed}} failed to delete',
+      noChatsFound: 'No chats found',
+      searchChats: 'Search chats...',
+      selectChatsHint: 'Select chats to delete them',
     },
     tracing: {
       title: 'Tracing',
@@ -595,6 +612,8 @@ export default {
     install: 'Install',
     unselectAll: 'Unselect All',
     done: 'Done',
+    close: 'Close',
+    open: 'Open',
     resetFilters: 'Reset Filters',
     folderLocation: 'Folder Location:',
     installed: 'Installed',

@@ -134,9 +134,22 @@
   },
   "chat": {
     "actions": {
+      "chatsDeleted": "{{count}} sohbet başarıyla silindi",
+      "chatsPartiallyDeleted": "{{succeeded}} sohbet silindi, {{failed}} silinemedi",
       "deleteInbox": "Sohbeti Sil",
-      "deleteInboxConfirmationDescription": "Sohbet silinecek ve sohbet geçmişinizden kaldırılacaktır. Bu, bu sohbette yüklenen veya oluşturulan tüm dosyaları da kaldıracaktır.",
-      "deleteInboxConfirmationTitle": "Sohbeti silmek istiyor musunuz?"
+      "deleteInboxConfirmationDescription": "Sohbet silinecek ve sohbet geçmişinizden kaldırılacak",
+      "deleteInboxConfirmationTitle": "Sohbeti silmek istiyor musunuz?",
+      "deleteSelectedChats": "Seçilenleri Sil",
+      "deleteSelectedChatsConfirmationDescription": "Seçilen sohbetler kalıcı olarak silinecektir. Bu işlem geri alınamaz.",
+      "deleteSelectedChatsConfirmationTitle": "{{count}} sohbeti silmek istiyor musunuz?",
+      "deletingChats": "Sohbetler siliniyor...",
+      "deselectAll": "Seçimi Kaldır",
+      "manageChats": "Sohbetleri Yönet",
+      "manageChatsDescription": "Birden fazla sohbeti arayın, görüntüleyin ve silin",
+      "noChatsFound": "Hiç sohbet bulunamadı",
+      "searchChats": "Sohbetleri ara...",
+      "selectAll": "Hepsini Seç",
+      "selectedCount": "{{count}} seçildi"
     },
     "actives": {
       "label": "Aktifler",
@@ -220,6 +233,7 @@
     "clear": "Temizle",
     "clearSearch": "Aramayı Temizle",
     "clickToUpload": "Yüklemek için tıklayın veya sürükleyip bırakın",
+    "close": "Kapat",
     "comingSoon": "Yakında - Ağustos Sonu",
     "configure": "Yapılandır",
     "connect": "Bağlan",

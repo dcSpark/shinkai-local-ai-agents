@@ -134,9 +134,22 @@
   },
   "chat": {
     "actions": {
+      "chatsDeleted": "{{count}} chats eliminados con éxito",
+      "chatsPartiallyDeleted": "{{succeeded}} chats eliminados, {{failed}} fallaron al eliminar",
       "deleteInbox": "Eliminar chat",
-      "deleteInboxConfirmationDescription": "El chat será eliminado y se quitará de tu historial de chats. Esto también eliminará todos los archivos subidos o generados en esta conversación.",
-      "deleteInboxConfirmationTitle": "¿Eliminar chat?"
+      "deleteInboxConfirmationDescription": "El chat será eliminado y se quitará de tu historial de chats",
+      "deleteInboxConfirmationTitle": "¿Eliminar chat?",
+      "deleteSelectedChats": "Eliminar Seleccionados",
+      "deleteSelectedChatsConfirmationDescription": "Los chats seleccionados serán eliminados permanentemente. Esta acción no se puede deshacer.",
+      "deleteSelectedChatsConfirmationTitle": "¿Eliminar {{count}} chats?",
+      "deletingChats": "Eliminando chats...",
+      "deselectAll": "Deseleccionar Todo",
+      "manageChats": "Gestionar Chats",
+      "manageChatsDescription": "Buscar, ver y eliminar múltiples chats a la vez",
+      "noChatsFound": "No se encontraron chats",
+      "searchChats": "Buscar chats...",
+      "selectAll": "Seleccionar Todo",
+      "selectedCount": "{{count}} seleccionados"
     },
     "actives": {
       "label": "Activos",
@@ -220,6 +233,7 @@
     "clear": "Limpiar",
     "clearSearch": "Limpiar búsqueda",
     "clickToUpload": "Haz clic para subir o arrastra y suelta",
+    "close": "Cerrar",
     "comingSoon": "Próximamente - Finales de Agosto",
     "configure": "Configurar",
     "connect": "Conectar",

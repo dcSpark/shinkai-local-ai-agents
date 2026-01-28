@@ -134,9 +134,22 @@
   },
   "chat": {
     "actions": {
+      "chatsDeleted": "{{count}} 件のチャットが正常に削除されました",
+      "chatsPartiallyDeleted": "{{succeeded}} 件のチャットが削除され、{{failed}} 件の削除に失敗しました",
       "deleteInbox": "チャットを削除",
-      "deleteInboxConfirmationDescription": "このチャットは削除され、チャット履歴からも削除されます。この会話でアップロードまたは生成されたすべてのファイルも削除されます。",
-      "deleteInboxConfirmationTitle": "チャットを削除しますか？"
+      "deleteInboxConfirmationDescription": "チャットは削除され、チャット履歴からも削除されます",
+      "deleteInboxConfirmationTitle": "チャットを削除しますか？",
+      "deleteSelectedChats": "選択したチャットを削除",
+      "deleteSelectedChatsConfirmationDescription": "選択したチャットは永久に削除されます。この操作は元に戻せません。",
+      "deleteSelectedChatsConfirmationTitle": "{{count}} 件のチャットを削除しますか？",
+      "deletingChats": "チャットを削除中...",
+      "deselectAll": "すべて選択解除",
+      "manageChats": "チャットを管理",
+      "manageChatsDescription": "複数のチャットを一度に検索、表示、削除します",
+      "noChatsFound": "チャットが見つかりません",
+      "searchChats": "チャットを検索...",
+      "selectAll": "すべて選択",
+      "selectedCount": "{{count}} 件選択中"
     },
     "actives": {
       "label": "アクティブ",
@@ -220,6 +233,7 @@
     "clear": "クリア",
     "clearSearch": "検索をクリア",
     "clickToUpload": "クリックしてアップロードするか、ドラッグアンドドロップ",
+    "close": "閉じる",
     "comingSoon": "近日公開 - 8月末",
     "configure": "設定",
     "connect": "接続",

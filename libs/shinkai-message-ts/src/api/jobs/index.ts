@@ -38,6 +38,8 @@ import {
   type JobMessageResponse,
   type LLMProviderInterface,
   type RemoveJobRequest,
+  type RemoveJobsRequest,
+  type RemoveJobsResponse,
   type RemoveLLMProviderRequest,
   type RetryMessageRequest,
   type StopGeneratingLLMRequest,
@@ -558,6 +560,22 @@ export const removeJob = async (
     },
   );
   return response.data;
+};
+
+export const removeJobs = async (
+  nodeAddress: string,
+  bearerToken: string,
+  payload: RemoveJobsRequest,
+) => {
+  const response = await httpClient.post(
+    urlJoin(nodeAddress, '/v2/remove_jobs'),
+    payload,
+    {
+      headers: { Authorization: `Bearer ${bearerToken}` },
+      responseType: 'json',
+    },
+  );
+  return response.data as RemoveJobsResponse;
 };
 
 export const getProviderFromJob = async (

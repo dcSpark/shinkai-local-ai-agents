@@ -134,9 +134,22 @@
   },
   "chat": {
     "actions": {
+      "chatsDeleted": "{{count}} 个聊天成功删除",
+      "chatsPartiallyDeleted": "{{succeeded}} 个聊天已删除，{{failed}} 个聊天删除失败",
       "deleteInbox": "删除聊天",
-      "deleteInboxConfirmationDescription": "该聊天将被删除并从您的聊天记录中移除。这也将删除此对话中上传或生成的所有文件。",
-      "deleteInboxConfirmationTitle": "确认删除聊天？"
+      "deleteInboxConfirmationDescription": "聊天将被删除并从您的聊天记录中移除",
+      "deleteInboxConfirmationTitle": "确认删除聊天？",
+      "deleteSelectedChats": "删除选定的聊天",
+      "deleteSelectedChatsConfirmationDescription": "选定的聊天将被永久删除。此操作无法撤销。",
+      "deleteSelectedChatsConfirmationTitle": "删除 {{count}} 个聊天？",
+      "deletingChats": "正在删除聊天...",
+      "deselectAll": "取消全选",
+      "manageChats": "管理聊天",
+      "manageChatsDescription": "搜索、查看和一次删除多个聊天",
+      "noChatsFound": "未找到聊天",
+      "searchChats": "搜索聊天...",
+      "selectAll": "全选",
+      "selectedCount": "已选择 {{count}} 个"
     },
     "actives": {
       "label": "活跃",
@@ -220,6 +233,7 @@
     "clear": "清除",
     "clearSearch": "清除搜索",
     "clickToUpload": "点击上传或拖放",
+    "close": "关闭",
     "comingSoon": "即将到来 - 八月底",
     "configure": "配置",
     "connect": "连接",

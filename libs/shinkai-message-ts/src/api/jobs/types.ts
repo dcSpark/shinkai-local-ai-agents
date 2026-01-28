@@ -300,6 +300,23 @@ export type RetryMessageRequest = {
 export type RemoveJobRequest = {
   job_id: string;
 };
+
+export type RemoveJobsRequest = {
+  job_ids: string[];
+};
+
+export type RemoveJobsFailedItem = {
+  job_id: string;
+  error: string;
+};
+
+export type RemoveJobsResponse = {
+  status: 'success' | 'partial';
+  message: string;
+  succeeded: string[];
+  failed: RemoveJobsFailedItem[];
+};
+
 export type AddFileToJobRequest = {
   job_id: string;
   filename: string;

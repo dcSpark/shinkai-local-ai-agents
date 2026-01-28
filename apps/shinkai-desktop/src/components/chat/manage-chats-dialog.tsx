@@ -106,10 +106,11 @@ export function ManageChatsDialog({
     },
   });
 
-  // Flatten all inboxes from pagination
   const allInboxes = useMemo(() => {
     if (!inboxesPagination?.pages) return [];
-    return inboxesPagination.pages.flatMap((page) => page.inboxes);
+    return inboxesPagination.pages
+      .flatMap((page) => page.inboxes)
+      .filter((inbox) => inbox.inbox_id?.startsWith('job_inbox::'));
   }, [inboxesPagination]);
 
   // Filter inboxes based on search query

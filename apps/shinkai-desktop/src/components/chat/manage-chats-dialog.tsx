@@ -20,14 +20,14 @@ import {
 } from '@shinkai_network/shinkai-ui';
 import { cn } from '@shinkai_network/shinkai-ui/utils';
 import { formatDistanceToNow } from 'date-fns';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
   Edit3Icon,
   ExternalLinkIcon,
-  MessageSquareIcon,
   SearchXIcon,
   Trash2Icon,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 
@@ -53,6 +53,7 @@ export function ManageChatsDialog({
   );
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
   const [editingInboxId, setEditingInboxId] = useState<string | null>(null);
+  const [hoveredInboxId, setHoveredInboxId] = useState<string | null>(null);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [inboxToDelete, setInboxToDelete] = useState<string | null>(null);
 
@@ -241,44 +242,13 @@ export function ManageChatsDialog({
           />
         </div>
 
-        <div
-          className={cn(
-            'flex min-h-[52px] items-center justify-between rounded-lg px-4 transition-colors',
-            selectedInboxIds.size > 0 ? 'bg-gray-400/10' : 'bg-transparent',
-          )}
-        >
-          {selectedInboxIds.size > 0 && (
-            <>
-              <span className="text-text-secondary text-sm font-medium">
-                {t('chat.actions.selectedCount', {
-                  count: selectedInboxIds.size,
-                })}
-              </span>
-              <div className="flex gap-2">
-                <Button
-                  onClick={allSelected ? handleDeselectAll : handleSelectAll}
-                  size="xs"
-                  variant="outline"
-                >
-                  {allSelected
-                    ? t('chat.actions.deselectAll')
-                    : t('chat.actions.selectAll')}
-                </Button>
-                <Button
-                  onClick={() => setIsDeleteConfirmOpen(true)}
-                  size="xs"
-                  variant="destructive"
-                >
-                  <Trash2Icon className="mr-1.5 h-4 w-4" />
-                  {t('chat.actions.deleteSelectedChats')}
-                </Button>
-              </div>
-            </>
-          )}
-        </div>
-
         <ScrollArea className="min-h-0 flex-1 pr-4">
-          <div className="space-y-2 py-2">
+          <div
+            className={cn(
+              'space-y-2 py-2',
+              selectedInboxIds.size > 0 && 'pb-20',
+            )}
+          >
             {isPending &&
               Array.from({ length: 6 }).map((_, index) => (
                 <Skeleton
@@ -315,7 +285,7 @@ export function ManageChatsDialog({
                 if (isEditing) {
                   return (
                     <div
-                      className="flex items-center gap-4 px-4 py-3"
+                      className="flex items-center gap-4 px-2 py-1.5 bg-bg-secondary"
                       key={inbox.inbox_id}
                     >
                       <InboxNameInput
@@ -327,22 +297,25 @@ export function ManageChatsDialog({
                   );
                 }
 
+                const isHovered = hoveredInboxId === inbox.inbox_id;
+
                 return (
                   <div
                     className={cn(
-                      'group flex items-center gap-4 rounded-lg border border-transparent px-4 py-3 transition-colors hover:bg-gray-400/10',
+                      'flex items-center gap-4 rounded-lg border border-transparent px-4 py-3 transition-colors hover:bg-gray-400/10',
                       isSelected && 'border-brand/30 bg-brand/5',
                     )}
                     key={inbox.inbox_id}
                     onClick={(e) => {
-                      if (
-                        e.target instanceof HTMLButtonElement ||
-                        e.target instanceof HTMLInputElement
-                      ) {
+                      const target = e.target as HTMLElement;
+                      // Don't toggle selection if clicking on buttons or inputs
+                      if (target.closest('button') || target.closest('input')) {
                         return;
                       }
                       handleToggleSelect(inbox.inbox_id, e.shiftKey);
                     }}
+                    onMouseEnter={() => setHoveredInboxId(inbox.inbox_id)}
+                    onMouseLeave={() => setHoveredInboxId(null)}
                     role="button"
                     tabIndex={0}
                   >
@@ -352,59 +325,107 @@ export function ManageChatsDialog({
                       onCheckedChange={() => handleToggleSelect(inbox.inbox_id)}
                       onClick={(e) => e.stopPropagation()}
                     />
-                    <div
-                      className="flex flex-1 cursor-pointer items-center gap-3 overflow-hidden"
-                    >
+                    <div className="flex flex-1 cursor-pointer items-center gap-3 overflow-hidden">
                       <span className="text-text-default truncate text-sm font-medium">
                         {displayName || inbox.inbox_id}
                       </span>
                     </div>
 
-                    {/* Date - hidden on hover */}
-                    <span className="text-text-tertiary block text-xs group-hover:hidden">
-                      {formatDistanceToNow(new Date(inbox.datetime_created), {
-                        addSuffix: true,
-                      })}
-                    </span>
-
-                    {/* Actions - visible on hover */}
-                    <div className="hidden items-center gap-1 group-hover:flex">
-                      <Button
-                        className="h-8 w-8 p-0"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleNavigateToChat(inbox.inbox_id);
-                        }}
-                        size="sm"
-                        title={t('common.open')}
-                        variant="tertiary"
-                      >
-                        <ExternalLinkIcon className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        className="h-8 w-8 p-0"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingInboxId(inbox.inbox_id);
-                        }}
-                        size="sm"
-                        title={t('common.rename')}
-                        variant="tertiary"
-                      >
-                        <Edit3Icon className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        className="text-text-danger hover:text-text-danger h-8 w-8 p-0 hover:bg-red-500/10"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setInboxToDelete(inbox.inbox_id);
-                        }}
-                        size="sm"
-                        title={t('common.delete')}
-                        variant="tertiary"
-                      >
-                        <Trash2Icon className="h-4 w-4" />
-                      </Button>
+                    {/* Date and Actions container - fixed width to prevent layout shift */}
+                    <div className="relative flex h-8 w-[104px] shrink-0 items-center justify-end overflow-hidden">
+                      <AnimatePresence initial={false} mode="popLayout">
+                        {isHovered ? (
+                          <motion.div
+                            key="actions"
+                            animate={{
+                              opacity: 1,
+                              x: 0,
+                              transition: {
+                                duration: 0.2,
+                                ease: [0.4, 0, 0.2, 1],
+                                staggerChildren: 0.03,
+                              }
+                            }}
+                            className="flex items-center gap-0.5"
+                            exit={{
+                              opacity: 0,
+                              x: 8,
+                              transition: { duration: 0.15 }
+                            }}
+                            initial={{ opacity: 0, x: 8 }}
+                          >
+                            <motion.div
+                              animate={{ opacity: 1, scale: 1 }}
+                              initial={{ opacity: 0, scale: 0.8 }}
+                              transition={{ duration: 0.15 }}
+                            >
+                              <Button
+                                className="h-8 w-8 p-0"
+                                onClick={() => handleNavigateToChat(inbox.inbox_id)}
+                                size="auto"
+                                title={t('common.open')}
+                                variant="tertiary"
+                              >
+                                <ExternalLinkIcon className="h-4 w-4" />
+                              </Button>
+                            </motion.div>
+                            <motion.div
+                              animate={{ opacity: 1, scale: 1 }}
+                              initial={{ opacity: 0, scale: 0.8 }}
+                              transition={{ duration: 0.15, delay: 0.03 }}
+                            >
+                              <Button
+                                className="h-8 w-8 p-0"
+                                onClick={() => setEditingInboxId(inbox.inbox_id)}
+                                size="auto"
+                                title={t('common.rename')}
+                                variant="tertiary"
+                              >
+                                <Edit3Icon className="h-4 w-4" />
+                              </Button>
+                            </motion.div>
+                            <motion.div
+                              animate={{ opacity: 1, scale: 1 }}
+                              initial={{ opacity: 0, scale: 0.8 }}
+                              transition={{ duration: 0.15, delay: 0.06 }}
+                            >
+                              <Button
+                                className="h-8 w-8 p-0 text-red-500 hover:bg-red-500/10 hover:text-red-500"
+                                onClick={() => setInboxToDelete(inbox.inbox_id)}
+                                size="auto"
+                                title={t('common.delete')}
+                                variant="tertiary"
+                              >
+                                <Trash2Icon className="h-4 w-4" />
+                              </Button>
+                            </motion.div>
+                          </motion.div>
+                        ) : (
+                          <motion.span
+                            key="date"
+                            animate={{
+                              opacity: 1,
+                              x: 0,
+                              transition: {
+                                duration: 0.2,
+                                ease: [0.4, 0, 0.2, 1]
+                              }
+                            }}
+                            className="text-text-tertiary whitespace-nowrap text-xs"
+                            exit={{
+                              opacity: 0,
+                              x: -8,
+                              transition: { duration: 0.15 }
+                            }}
+                            initial={{ opacity: 0, x: -8 }}
+                          >
+                            {formatDistanceToNow(
+                              new Date(inbox.datetime_created),
+                              { addSuffix: true },
+                            )}
+                          </motion.span>
+                        )}
+                      </AnimatePresence>
                     </div>
                   </div>
                 );
@@ -422,6 +443,35 @@ export function ManageChatsDialog({
             )}
           </div>
         </ScrollArea>
+
+        {selectedInboxIds.size > 0 && (
+          <div className="border-divider bg-bg-default absolute right-0 bottom-0 left-0 flex items-center justify-between gap-3 rounded-b-lg border-t px-6 py-4">
+            <span className="text-text-secondary text-sm font-medium">
+              {t('chat.actions.selectedCount', {
+                count: selectedInboxIds.size,
+              })}
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={allSelected ? handleDeselectAll : handleSelectAll}
+                size="sm"
+                variant="outline"
+              >
+                {allSelected
+                  ? t('chat.actions.deselectAll')
+                  : t('chat.actions.selectAll')}
+              </Button>
+              <Button
+                onClick={() => setIsDeleteConfirmOpen(true)}
+                size="sm"
+                variant="destructive"
+              >
+                <Trash2Icon className="mr-1.5 h-4 w-4" />
+                {t('chat.actions.deleteSelectedChats')}
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* Delete Confirmation Dialog */}
         <Dialog onOpenChange={setIsDeleteConfirmOpen} open={isDeleteConfirmOpen}>

@@ -67,7 +67,7 @@ export const InboxNameInput = ({
             control={updateInboxNameForm.control}
             name="name"
             render={({ field }) => (
-              <div className="flex h-[46px] items-center rounded-lg bg-gray-600">
+              <div className="flex h-[46px] items-center rounded-lg bg-bg-secondary">
                 <Edit3 className="absolute top-1/2 left-2 h-4 w-4 -translate-y-1/2 transform text-white" />
 
                 <FormItem className="space-y-0 pl-7 text-xs">

@@ -57,6 +57,23 @@ export function ManageChatsDialog({
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [inboxToDelete, setInboxToDelete] = useState<string | null>(null);
 
+  const handleOpenChange = useCallback(
+    (newOpen: boolean) => {
+      if (!newOpen) {
+        // Reset all state when dialog closes
+        setSearchQuery('');
+        setSelectedInboxIds(new Set());
+        setLastSelectedId(null);
+        setEditingInboxId(null);
+        setHoveredInboxId(null);
+        setIsDeleteConfirmOpen(false);
+        setInboxToDelete(null);
+      }
+      onOpenChange(newOpen);
+    },
+    [onOpenChange],
+  );
+
   const {
     data: inboxesPagination,
     isPending,
@@ -185,10 +202,10 @@ export function ManageChatsDialog({
 
   const handleNavigateToChat = useCallback(
     (inboxId: string) => {
-      onOpenChange(false);
+      handleOpenChange(false);
       void navigate(`/inboxes/${encodeURIComponent(inboxId)}`);
     },
-    [navigate, onOpenChange],
+    [navigate, handleOpenChange],
   );
 
   const handleDelete = useCallback(
@@ -222,7 +239,7 @@ export function ManageChatsDialog({
     filteredInboxes.every((inbox) => selectedInboxIds.has(inbox.inbox_id));
 
   return (
-    <Dialog onOpenChange={onOpenChange} open={open}>
+    <Dialog onOpenChange={handleOpenChange} open={open}>
       <DialogContent showCloseButton className="flex h-[85vh] max-h-[700px] flex-col sm:max-w-[700px]">
         <DialogTitle className="text-lg">
           {t('chat.actions.manageChats')}

@@ -45,6 +45,8 @@ mod globals;
 mod hardware;
 mod local_shinkai_node;
 mod models;
+#[cfg(target_os = "macos")]
+mod macos_services;
 mod tray;
 mod windows;
 
@@ -152,6 +154,12 @@ fn main() {
 
             create_tray(app.handle())?;
             setup_deep_links(app.handle())?;
+
+            #[cfg(target_os = "macos")]
+            {
+                macos_services::store_app_handle(app.handle());
+                macos_services::register_services();
+            }
 
             /*
                 This is the initialization pipeline

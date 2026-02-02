@@ -267,7 +267,7 @@ export function ManageChatsDialog({
         <ScrollArea className="min-h-0 flex-1 pr-4 [&>div>div]:!block">
           <div
             className={cn(
-              'py-2',
+              'py-1.5',
               selectedInboxIds.size > 0 && 'pb-20',
             )}
           >

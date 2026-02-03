@@ -104,7 +104,9 @@ export function ManageChatsDialog({
       const failedCount = response.failed.length;
 
       if (response.status === 'success') {
-        toast.success(t('chat.actions.chatsDeleted', { count: succeededCount }));
+        toast.success(
+          t('chat.actions.chatsDeleted', { count: succeededCount }),
+        );
       } else if (response.status === 'partial') {
         toast.warning(
           t('chat.actions.chatsPartiallyDeleted', {
@@ -240,7 +242,10 @@ export function ManageChatsDialog({
 
   return (
     <Dialog onOpenChange={handleOpenChange} open={open}>
-      <DialogContent showCloseButton className="flex h-[85vh] max-h-[700px] flex-col sm:max-w-[700px]">
+      <DialogContent
+        showCloseButton
+        className="flex h-[85vh] max-h-[700px] flex-col sm:max-w-[700px]"
+      >
         <DialogTitle className="text-lg">
           {t('chat.actions.manageChats')}
         </DialogTitle>
@@ -259,10 +264,10 @@ export function ManageChatsDialog({
           />
         </div>
 
-        <ScrollArea className="min-h-0 flex-1 pr-4">
+        <ScrollArea className="min-h-0 flex-1 pr-4 [&>div>div]:!block">
           <div
             className={cn(
-              'space-y-2 py-2',
+              'py-1.5',
               selectedInboxIds.size > 0 && 'pb-20',
             )}
           >
@@ -302,7 +307,7 @@ export function ManageChatsDialog({
                 if (isEditing) {
                   return (
                     <div
-                      className="flex items-center gap-4 px-2 py-1.5 bg-bg-secondary"
+                      className="bg-bg-secondary flex items-center gap-4 px-2 py-1.5"
                       key={inbox.inbox_id}
                     >
                       <InboxNameInput
@@ -361,13 +366,13 @@ export function ManageChatsDialog({
                                 duration: 0.2,
                                 ease: [0.4, 0, 0.2, 1],
                                 staggerChildren: 0.03,
-                              }
+                              },
                             }}
                             className="flex items-center gap-0.5"
                             exit={{
                               opacity: 0,
                               x: 8,
-                              transition: { duration: 0.15 }
+                              transition: { duration: 0.15 },
                             }}
                             initial={{ opacity: 0, x: 8 }}
                           >
@@ -378,7 +383,9 @@ export function ManageChatsDialog({
                             >
                               <Button
                                 className="h-8 w-8 p-0"
-                                onClick={() => handleNavigateToChat(inbox.inbox_id)}
+                                onClick={() =>
+                                  handleNavigateToChat(inbox.inbox_id)
+                                }
                                 size="auto"
                                 title={t('common.open')}
                                 variant="tertiary"
@@ -393,7 +400,9 @@ export function ManageChatsDialog({
                             >
                               <Button
                                 className="h-8 w-8 p-0"
-                                onClick={() => setEditingInboxId(inbox.inbox_id)}
+                                onClick={() =>
+                                  setEditingInboxId(inbox.inbox_id)
+                                }
                                 size="auto"
                                 title={t('common.rename')}
                                 variant="tertiary"
@@ -425,14 +434,14 @@ export function ManageChatsDialog({
                               x: 0,
                               transition: {
                                 duration: 0.2,
-                                ease: [0.4, 0, 0.2, 1]
-                              }
+                                ease: [0.4, 0, 0.2, 1],
+                              },
                             }}
-                            className="text-text-tertiary whitespace-nowrap text-xs"
+                            className="text-text-tertiary text-xs whitespace-nowrap"
                             exit={{
                               opacity: 0,
                               x: -8,
-                              transition: { duration: 0.15 }
+                              transition: { duration: 0.15 },
                             }}
                             initial={{ opacity: 0, x: -8 }}
                           >
@@ -491,7 +500,10 @@ export function ManageChatsDialog({
         )}
 
         {/* Delete Confirmation Dialog */}
-        <Dialog onOpenChange={setIsDeleteConfirmOpen} open={isDeleteConfirmOpen}>
+        <Dialog
+          onOpenChange={setIsDeleteConfirmOpen}
+          open={isDeleteConfirmOpen}
+        >
           <DialogContent showCloseButton className="sm:max-w-[425px]">
             <DialogTitle>
               {t('chat.actions.deleteSelectedChatsConfirmationTitle', {

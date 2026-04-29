@@ -1,0 +1,15 @@
+[package]
+name = "agent-skills"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "SkillDoc registry and OpenClaw/AgentSkills text importer."
+
+[dependencies]
+agent-core = { path = "../agent-core" }
+agent-storage = { path = "../agent-storage" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

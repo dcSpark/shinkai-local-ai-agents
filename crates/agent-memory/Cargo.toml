@@ -1,0 +1,16 @@
+[package]
+name = "agent-memory"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "File-backed memory v0 for Agent Harness."
+
+[dependencies]
+agent-core = { path = "../agent-core" }
+agent-storage = { path = "../agent-storage" }
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

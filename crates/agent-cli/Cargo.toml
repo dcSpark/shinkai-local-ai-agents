@@ -1,0 +1,34 @@
+[package]
+name = "agent-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "Agent Harness CLI binary — TUI plus headless --print mode."
+
+[[bin]]
+name = "agent"
+path = "src/main.rs"
+
+[dependencies]
+agent-core = { path = "../agent-core" }
+agent-api-client = { path = "../agent-api-client" }
+agent-adapters = { path = "../agent-adapters" }
+agent-bundles = { path = "../agent-bundles" }
+agent-config = { path = "../agent-config" }
+agent-ingest = { path = "../agent-ingest" }
+agent-tracing = { path = "../agent-tracing" }
+agent-llm = { path = "../agent-llm" }
+agent-memory = { path = "../agent-memory" }
+agent-skills = { path = "../agent-skills" }
+agent-storage = { path = "../agent-storage" }
+agent-tools = { path = "../agent-tools" }
+clap.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+ratatui = "0.29"
+crossterm = { version = "0.28", features = ["event-stream"] }
+futures = "0.3"

@@ -1,0 +1,18 @@
+[package]
+name = "agent-config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "Layered configuration resolver for Agent Harness."
+
+[dependencies]
+agent-core = { path = "../agent-core" }
+agent-llm = { path = "../agent-llm" }
+agent-storage = { path = "../agent-storage" }
+agent-tools = { path = "../agent-tools" }
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+thiserror.workspace = true

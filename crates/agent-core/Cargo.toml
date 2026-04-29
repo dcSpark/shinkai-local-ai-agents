@@ -1,0 +1,20 @@
+[package]
+name = "agent-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "Domain model and orchestration for the Agent Harness. Defines HarnessApi."
+
+[dependencies]
+agent-tracing = { path = "../agent-tracing" }
+agent-llm = { path = "../agent-llm" }
+agent-tools = { path = "../agent-tools" }
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

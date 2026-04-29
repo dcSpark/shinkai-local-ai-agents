@@ -1,0 +1,11 @@
+[package]
+name = "agent-storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "Filesystem layout helpers for Agent Harness config, state, and cache paths."
+
+[dependencies]
+thiserror.workspace = true

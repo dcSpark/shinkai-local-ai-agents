@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+# Cancel in-progress runs for the same ref when a new commit lands.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+  # Keep cargo from spamming the log with progress bars in CI.
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  fmt:
+    name: cargo fmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust toolchain (from rust-toolchain.toml)
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          rustflags: ""
+      - run: cargo fmt --all -- --check
+
+  test:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-14, windows-2022]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri v2 needs WebKitGTK 4.1 + GTK headers to compile on Linux.
+      # macOS and Windows ship usable WebView toolkits (WKWebView / WebView2)
+      # by default and need no extra system packages here.
+      - name: Install Linux system deps for Tauri
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            build-essential
+
+      - name: Install Rust toolchain (from rust-toolchain.toml)
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          # Built-in Swatinem/rust-cache: keyed on Cargo.lock + OS.
+          cache: true
+          # We gate -D warnings explicitly per command; don't double-apply.
+          rustflags: ""
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: crates/agent-tauri/frontend/package-lock.json
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: cargo test
+        run: cargo test --workspace --no-fail-fast
+
+      - name: Frontend npm ci
+        working-directory: crates/agent-tauri/frontend
+        run: npm ci
+
+      - name: Frontend type-check
+        working-directory: crates/agent-tauri/frontend
+        run: npx tsc -b --noEmit

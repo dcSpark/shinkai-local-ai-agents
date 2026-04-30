@@ -69,6 +69,8 @@ pub enum RunEventKind {
     LlmRequestCompleted {
         tokens_in: u32,
         tokens_out: u32,
+        #[serde(default)]
+        cost_usd: Option<f64>,
         duration_ms: u64,
     },
     ToolCallProposed {
@@ -82,6 +84,8 @@ pub enum RunEventKind {
     ToolCallCompleted {
         call_id: String,
         output: serde_json::Value,
+        #[serde(default)]
+        cost_usd: Option<f64>,
         duration_ms: u64,
     },
     ToolCallFailed {
@@ -115,6 +119,18 @@ pub enum RunEventKind {
         artifact_id: String,
         source: String,
     },
+    IngestionStarted {
+        source: String,
+        backend: String,
+    },
+    IngestionCompleted {
+        artifact_id: String,
+        content_hash: String,
+        sections: u32,
+    },
+    PolicyDenied {
+        reason: String,
+    },
     ChildRunStarted {
         child_run_id: RunId,
         agent_id: String,
@@ -145,6 +161,8 @@ pub enum RunEventKind {
     },
     RunCompleted {
         final_output: String,
+        #[serde(default)]
+        total_cost_usd: Option<f64>,
         total_duration_ms: u64,
     },
     RunFailed {
@@ -415,6 +433,7 @@ mod tests {
             Some(a.id),
             RunEventKind::RunCompleted {
                 final_output: "ok".into(),
+                total_cost_usd: None,
                 total_duration_ms: 1,
             },
         );
@@ -526,6 +545,7 @@ mod tests {
             None,
             RunEventKind::RunCompleted {
                 final_output: "ok".into(),
+                total_cost_usd: None,
                 total_duration_ms: 0,
             },
         );
@@ -570,6 +590,7 @@ mod tests {
             Some(started.id),
             RunEventKind::RunCompleted {
                 final_output: "ok".into(),
+                total_cost_usd: Some(0.0001),
                 total_duration_ms: 7,
             },
         );

@@ -6,15 +6,16 @@
 //! LLM may propose tool calls; the runtime enforces an allowlist and a
 //! max-calls budget, executes via the `ToolRegistry`, feeds results back to the
 //! LLM, and iterates until the LLM stops calling tools or the budget runs out.
-//! Memory, ingestion, hooks, approvals, subagents, batch, streaming tokens, and
-//! sandboxing all land in later slices following `specs/architecture.md` §21.
+//! Memory, ingestion, approvals, batch, and subagent tracing now land in early
+//! slices; hooks, streaming tokens, and sandboxing continue to follow
+//! `specs/architecture.md` §21.
 
 use std::sync::Arc;
 use std::time::Instant;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use agent_llm::{LlmProvider, LlmRequest, Message, ModelRef, ToolSchema};
 use agent_tools::{ToolId, ToolRegistry};
@@ -32,6 +33,8 @@ pub struct ToolPolicy {
     pub visibility: VisibilityLevel,
     /// How approval-required tools are handled.
     pub approval_mode: ApprovalMode,
+    /// Whether tool outputs are returned raw or fed back to the LLM.
+    pub output_mode: ToolOutputMode,
 }
 
 impl Default for ToolPolicy {
@@ -41,6 +44,7 @@ impl Default for ToolPolicy {
             allowed_tools: Vec::new(),
             visibility: VisibilityLevel::FullSchema,
             approval_mode: ApprovalMode::AutoApprove,
+            output_mode: ToolOutputMode::Interpreted,
         }
     }
 }
@@ -52,6 +56,20 @@ pub enum ApprovalMode {
     RequireExplicit,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolOutputMode {
+    Interpreted,
+    Raw,
+}
+
+/// User/config-provided model pricing for trace cost estimates.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CostPolicy {
+    pub input_cost_per_million: Option<f64>,
+    pub output_cost_per_million: Option<f64>,
+}
+
 /// Minimal `AgentConfig` — v0 cut of `specs/architecture.md` §4.5.
 #[derive(Debug, Clone)]
 pub struct AgentConfig {
@@ -60,6 +78,7 @@ pub struct AgentConfig {
     pub system_prompt: String,
     pub model: ModelRef,
     pub tool_policy: ToolPolicy,
+    pub cost_policy: CostPolicy,
     pub memory_fragments: Vec<MemoryFragment>,
     pub ingestion_artifacts: Vec<IngestedArtifactView>,
     pub skill_views: Vec<SkillView>,
@@ -164,6 +183,12 @@ pub struct ToolCallResult {
     pub run_id: RunId,
     pub output: Value,
     pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone)]
+struct ToolExecutionResult {
+    output: Value,
+    cost_usd: Option<f64>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -273,6 +298,24 @@ impl Harness {
         }
     }
 
+    fn llm_cost_usd(&self, agent: &AgentConfig, tokens_in: u32, tokens_out: u32) -> Option<f64> {
+        let input_cost = agent
+            .cost_policy
+            .input_cost_per_million
+            .map(|rate| rate * f64::from(tokens_in) / 1_000_000.0);
+        let output_cost = agent
+            .cost_policy
+            .output_cost_per_million
+            .map(|rate| rate * f64::from(tokens_out) / 1_000_000.0);
+
+        match (input_cost, output_cost) {
+            (None, None) => None,
+            (Some(input), None) => Some(input),
+            (None, Some(output)) => Some(output),
+            (Some(input), Some(output)) => Some(input + output),
+        }
+    }
+
     fn ensure_tool_allowed(
         &self,
         agent: &AgentConfig,
@@ -341,6 +384,234 @@ impl Harness {
             }),
         }
     }
+
+    fn record_context_references(
+        &self,
+        run_id: RunId,
+        parent: EventId,
+        snapshot: &ContextSnapshot,
+    ) {
+        if !snapshot.loaded_memory.is_empty() {
+            self.events.append(
+                run_id,
+                Some(parent),
+                RunEventKind::MemoryLoaded {
+                    ids: snapshot
+                        .loaded_memory
+                        .iter()
+                        .map(|fragment| fragment.id.clone())
+                        .collect(),
+                },
+            );
+        }
+        for artifact in &snapshot.loaded_artifacts {
+            self.events.append(
+                run_id,
+                Some(parent),
+                RunEventKind::IngestionReferenced {
+                    artifact_id: artifact.id.clone(),
+                    source: artifact.source.clone(),
+                },
+            );
+        }
+    }
+
+    fn record_policy_denied(&self, run_id: RunId, parent: EventId, reason: &str) {
+        self.events.append(
+            run_id,
+            Some(parent),
+            RunEventKind::PolicyDenied {
+                reason: reason.to_string(),
+            },
+        );
+    }
+
+    async fn execute_tool_or_subagent(
+        &self,
+        agent: &AgentConfig,
+        parent_run_id: RunId,
+        parent_event: EventId,
+        tool_id: &ToolId,
+        input: Value,
+    ) -> Result<ToolExecutionResult, HarnessError> {
+        if tool_id.0 == "subagent" {
+            return self
+                .execute_subagent(agent, parent_run_id, parent_event, tool_id, input)
+                .await;
+        }
+        let output = self
+            .tools
+            .execute(tool_id, input)
+            .await
+            .map_err(HarnessError::from)?;
+        Ok(ToolExecutionResult {
+            output,
+            cost_usd: None,
+        })
+    }
+
+    async fn execute_subagent(
+        &self,
+        agent: &AgentConfig,
+        parent_run_id: RunId,
+        parent_event: EventId,
+        tool_id: &ToolId,
+        input: Value,
+    ) -> Result<ToolExecutionResult, HarnessError> {
+        if !self.tools.contains(tool_id) {
+            return Err(agent_tools::ToolError::NotFound(tool_id.clone()).into());
+        }
+
+        let (prompt, requested_agent_id) = parse_subagent_input(&input)?;
+        let child_run_id = RunId::new();
+        let child_agent_id = requested_agent_id.unwrap_or_else(|| format!("{}:subagent", agent.id));
+        let child_link = self.events.append(
+            parent_run_id,
+            Some(parent_event),
+            RunEventKind::ChildRunStarted {
+                child_run_id,
+                agent_id: child_agent_id.clone(),
+            },
+        );
+
+        let mut child_agent = agent.clone();
+        child_agent.id = child_agent_id.clone();
+        child_agent.name = format!("{} Subagent", agent.name);
+        child_agent.tool_policy.max_calls = 0;
+        child_agent.tool_policy.allowed_tools = vec![ToolId::from("__no_tools__")];
+
+        let started_at = Instant::now();
+        let child_started = self.events.append(
+            child_run_id,
+            Some(child_link.id),
+            RunEventKind::RunStarted {
+                agent_id: child_agent_id.clone(),
+                input: prompt.clone(),
+            },
+        );
+        let conversation = vec![Message::user(&prompt)];
+        let snapshot = self.build_context_snapshot(&child_agent, conversation, 0);
+        let context_built = self.events.append(
+            child_run_id,
+            Some(child_started.id),
+            RunEventKind::ContextBuilt {
+                snapshot: serde_json::to_value(&snapshot).unwrap_or(Value::Null),
+            },
+        );
+        self.record_context_references(child_run_id, context_built.id, &snapshot);
+        let req = self.llm_request_from_snapshot(&child_agent, &snapshot);
+        let llm_started = self.events.append(
+            child_run_id,
+            Some(context_built.id),
+            RunEventKind::LlmRequestStarted {
+                model: child_agent.model.0.clone(),
+            },
+        );
+
+        let llm_t0 = Instant::now();
+        let response = match self.provider.complete(req).await {
+            Ok(response) => response,
+            Err(err) => {
+                let reason = err.to_string();
+                self.events.append(
+                    child_run_id,
+                    Some(llm_started.id),
+                    RunEventKind::RunFailed {
+                        reason: reason.clone(),
+                    },
+                );
+                self.events.append(
+                    parent_run_id,
+                    Some(child_link.id),
+                    RunEventKind::ChildRunCompleted {
+                        child_run_id,
+                        status: "failed".into(),
+                    },
+                );
+                return Err(err.into());
+            }
+        };
+        let llm_duration = llm_t0.elapsed().as_millis() as u64;
+        let child_llm_cost_usd =
+            self.llm_cost_usd(&child_agent, response.tokens_in, response.tokens_out);
+        self.events.append(
+            child_run_id,
+            Some(llm_started.id),
+            RunEventKind::LlmRequestCompleted {
+                tokens_in: response.tokens_in,
+                tokens_out: response.tokens_out,
+                cost_usd: child_llm_cost_usd,
+                duration_ms: llm_duration,
+            },
+        );
+
+        if !response.tool_calls.is_empty() {
+            let reason = "subagent tool calls are disabled in this v0 runtime slice".to_string();
+            self.record_policy_denied(child_run_id, child_started.id, &reason);
+            self.events.append(
+                child_run_id,
+                Some(child_started.id),
+                RunEventKind::RunFailed {
+                    reason: reason.clone(),
+                },
+            );
+            self.events.append(
+                parent_run_id,
+                Some(child_link.id),
+                RunEventKind::ChildRunCompleted {
+                    child_run_id,
+                    status: "failed".into(),
+                },
+            );
+            return Err(HarnessError::PolicyDenied(reason));
+        }
+
+        let final_output = response.content.unwrap_or_default();
+        self.events.append(
+            child_run_id,
+            Some(child_started.id),
+            RunEventKind::RunCompleted {
+                final_output: final_output.clone(),
+                total_cost_usd: child_llm_cost_usd,
+                total_duration_ms: started_at.elapsed().as_millis() as u64,
+            },
+        );
+        self.events.append(
+            parent_run_id,
+            Some(child_link.id),
+            RunEventKind::ChildRunCompleted {
+                child_run_id,
+                status: "succeeded".into(),
+            },
+        );
+
+        Ok(ToolExecutionResult {
+            output: json!({
+            "child_run_id": child_run_id.0,
+            "agent_id": child_agent_id,
+            "final_output": final_output,
+            "total_cost_usd": child_llm_cost_usd
+            }),
+            cost_usd: child_llm_cost_usd,
+        })
+    }
+}
+
+fn parse_subagent_input(input: &Value) -> Result<(String, Option<String>), HarnessError> {
+    let prompt = input
+        .get("prompt")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|prompt| !prompt.is_empty())
+        .ok_or_else(|| agent_tools::ToolError::InvalidInput("missing prompt".into()))?
+        .to_string();
+    let agent_id = input
+        .get("agent_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|agent_id| !agent_id.is_empty())
+        .map(ToOwned::to_owned);
+    Ok((prompt, agent_id))
 }
 
 fn permission_reason(descriptor: &agent_tools::ToolDescriptor) -> String {
@@ -403,10 +674,15 @@ impl ContextBuilder<'_> {
             .collect();
         visible_tools.sort_by(|a, b| a.id.cmp(&b.id));
 
-        let system_prompt = format!(
+        let mut system_prompt = format!(
             "{}\n\nRuntime limits:\n- tool calls remaining: {remaining_tool_calls}/{max_tool_calls}",
             self.agent.system_prompt
         );
+        if self.agent.tool_policy.output_mode == ToolOutputMode::Raw {
+            system_prompt.push_str(
+                "\n- tool output mode: raw; after a tool call, the runtime returns the tool output without an interpretation pass",
+            );
+        }
 
         ContextSnapshot {
             system_prompt,
@@ -467,6 +743,8 @@ impl HarnessApi for Harness {
 
         let mut conversation = self.initial_conversation(&input);
         let mut calls_used: u32 = 0;
+        let mut total_cost_usd = 0.0;
+        let mut has_cost_usd = false;
 
         loop {
             let snapshot = self.build_context_snapshot(agent, conversation.clone(), calls_used);
@@ -477,6 +755,7 @@ impl HarnessApi for Harness {
                     snapshot: serde_json::to_value(&snapshot).unwrap_or(Value::Null),
                 },
             );
+            self.record_context_references(run_id, context_built.id, &snapshot);
             let req = self.llm_request_from_snapshot(agent, &snapshot);
 
             let llm_started = self.events.append(
@@ -502,6 +781,11 @@ impl HarnessApi for Harness {
                 }
             };
             let llm_duration = llm_t0.elapsed().as_millis() as u64;
+            let llm_cost_usd = self.llm_cost_usd(agent, response.tokens_in, response.tokens_out);
+            if let Some(cost) = llm_cost_usd {
+                total_cost_usd += cost;
+                has_cost_usd = true;
+            }
 
             self.events.append(
                 run_id,
@@ -509,6 +793,7 @@ impl HarnessApi for Harness {
                 RunEventKind::LlmRequestCompleted {
                     tokens_in: response.tokens_in,
                     tokens_out: response.tokens_out,
+                    cost_usd: llm_cost_usd,
                     duration_ms: llm_duration,
                 },
             );
@@ -527,6 +812,7 @@ impl HarnessApi for Harness {
                     Some(run_started.id),
                     RunEventKind::RunCompleted {
                         final_output: final_output.clone(),
+                        total_cost_usd: has_cost_usd.then_some(total_cost_usd),
                         total_duration_ms,
                     },
                 );
@@ -560,6 +846,7 @@ impl HarnessApi for Harness {
                     && !agent.tool_policy.allowed_tools.contains(&tool_id)
                 {
                     let reason = format!("tool {:?} not in agent allowlist", tool_id);
+                    self.record_policy_denied(run_id, proposed.id, &reason);
                     self.events.append(
                         run_id,
                         Some(proposed.id),
@@ -584,6 +871,7 @@ impl HarnessApi for Harness {
                         "tool-call budget exhausted (used={}, limit={})",
                         calls_used, agent.tool_policy.max_calls,
                     );
+                    self.record_policy_denied(run_id, proposed.id, &reason);
                     self.events.append(
                         run_id,
                         Some(proposed.id),
@@ -622,7 +910,7 @@ impl HarnessApi for Harness {
                     return Err(e);
                 }
 
-                self.events.append(
+                let tool_started = self.events.append(
                     run_id,
                     Some(proposed.id),
                     RunEventKind::ToolCallStarted {
@@ -631,7 +919,16 @@ impl HarnessApi for Harness {
                 );
 
                 let tool_t0 = Instant::now();
-                let output = match self.tools.execute(&tool_id, tc.input.clone()).await {
+                let execution = match self
+                    .execute_tool_or_subagent(
+                        agent,
+                        run_id,
+                        tool_started.id,
+                        &tool_id,
+                        tc.input.clone(),
+                    )
+                    .await
+                {
                     Ok(v) => v,
                     Err(e) => {
                         let err_msg = e.to_string();
@@ -650,9 +947,14 @@ impl HarnessApi for Harness {
                                 reason: err_msg.clone(),
                             },
                         );
-                        return Err(HarnessError::from(e));
+                        return Err(e);
                     }
                 };
+                if let Some(cost) = execution.cost_usd {
+                    total_cost_usd += cost;
+                    has_cost_usd = true;
+                }
+                let output = execution.output;
                 let tool_duration = tool_t0.elapsed().as_millis() as u64;
 
                 self.events.append(
@@ -661,6 +963,7 @@ impl HarnessApi for Harness {
                     RunEventKind::ToolCallCompleted {
                         call_id: tc.id.clone(),
                         output: output.clone(),
+                        cost_usd: execution.cost_usd,
                         duration_ms: tool_duration,
                     },
                 );
@@ -677,6 +980,22 @@ impl HarnessApi for Harness {
                 });
 
                 calls_used += 1;
+                if agent.tool_policy.output_mode == ToolOutputMode::Raw {
+                    let final_output = Self::stringify_tool_output(&output);
+                    self.events.append(
+                        run_id,
+                        Some(run_started.id),
+                        RunEventKind::RunCompleted {
+                            final_output: final_output.clone(),
+                            total_cost_usd: has_cost_usd.then_some(total_cost_usd),
+                            total_duration_ms: started_at.elapsed().as_millis() as u64,
+                        },
+                    );
+                    return Ok(RunResult {
+                        run_id,
+                        final_output,
+                    });
+                }
             }
         }
     }
@@ -712,6 +1031,7 @@ impl HarnessApi for Harness {
 
         if agent.tool_policy.max_calls == 0 {
             let reason = "tool-call budget exhausted (used=0, limit=0)".to_string();
+            self.record_policy_denied(run_id, proposed.id, &reason);
             self.events.append(
                 run_id,
                 Some(proposed.id),
@@ -732,6 +1052,7 @@ impl HarnessApi for Harness {
 
         if let Err(e) = self.ensure_tool_allowed(agent, &tool_id) {
             let reason = e.to_string();
+            self.record_policy_denied(run_id, proposed.id, &reason);
             self.events.append(
                 run_id,
                 Some(proposed.id),
@@ -768,7 +1089,7 @@ impl HarnessApi for Harness {
             return Err(e);
         }
 
-        self.events.append(
+        let tool_started = self.events.append(
             run_id,
             Some(proposed.id),
             RunEventKind::ToolCallStarted {
@@ -777,7 +1098,10 @@ impl HarnessApi for Harness {
         );
 
         let tool_t0 = Instant::now();
-        let output = match self.tools.execute(&tool_id, input).await {
+        let execution = match self
+            .execute_tool_or_subagent(agent, run_id, tool_started.id, &tool_id, input)
+            .await
+        {
             Ok(v) => v,
             Err(e) => {
                 let err_msg = e.to_string();
@@ -796,9 +1120,10 @@ impl HarnessApi for Harness {
                         reason: err_msg.clone(),
                     },
                 );
-                return Err(HarnessError::from(e));
+                return Err(e);
             }
         };
+        let output = execution.output;
         let duration_ms = tool_t0.elapsed().as_millis() as u64;
 
         self.events.append(
@@ -807,6 +1132,7 @@ impl HarnessApi for Harness {
             RunEventKind::ToolCallCompleted {
                 call_id,
                 output: output.clone(),
+                cost_usd: execution.cost_usd,
                 duration_ms,
             },
         );
@@ -815,6 +1141,7 @@ impl HarnessApi for Harness {
             Some(run_started.id),
             RunEventKind::RunCompleted {
                 final_output: Self::stringify_tool_output(&output),
+                total_cost_usd: execution.cost_usd,
                 total_duration_ms: started_at.elapsed().as_millis() as u64,
             },
         );
@@ -860,6 +1187,30 @@ impl HarnessApi for Harness {
                         .unwrap_or(Value::Null),
                     source: "agent/default".into(),
                 },
+                ConfigValueExplanation {
+                    key: "agent.tool_policy.output_mode".into(),
+                    value: serde_json::to_value(agent.tool_policy.output_mode)
+                        .unwrap_or(Value::Null),
+                    source: "agent/default".into(),
+                },
+                ConfigValueExplanation {
+                    key: "agent.tool_policy.visibility".into(),
+                    value: serde_json::to_value(agent.tool_policy.visibility)
+                        .unwrap_or(Value::Null),
+                    source: "agent/default".into(),
+                },
+                ConfigValueExplanation {
+                    key: "agent.cost_policy.input_cost_per_million".into(),
+                    value: serde_json::to_value(agent.cost_policy.input_cost_per_million)
+                        .unwrap_or(Value::Null),
+                    source: "agent/default".into(),
+                },
+                ConfigValueExplanation {
+                    key: "agent.cost_policy.output_cost_per_million".into(),
+                    value: serde_json::to_value(agent.cost_policy.output_cost_per_million)
+                        .unwrap_or(Value::Null),
+                    source: "agent/default".into(),
+                },
             ],
         }
     }
@@ -878,7 +1229,7 @@ impl HarnessApi for Harness {
 mod tests {
     use super::*;
     use agent_llm::{FakeProvider, FakeStep, LlmResponse};
-    use agent_tools::{FakeTool, ToolDescriptor, ToolPermissions};
+    use agent_tools::{FakeTool, SubagentTool, ToolDescriptor, ToolPermissions};
     use agent_tracing::InMemoryEventStore;
     use serde_json::json;
 
@@ -893,7 +1244,9 @@ mod tests {
                 allowed_tools: allowed,
                 visibility: VisibilityLevel::FullSchema,
                 approval_mode: ApprovalMode::AutoApprove,
+                output_mode: ToolOutputMode::Interpreted,
             },
+            cost_policy: CostPolicy::default(),
             memory_fragments: Vec::new(),
             ingestion_artifacts: Vec::new(),
             skill_views: Vec::new(),
@@ -941,6 +1294,13 @@ mod tests {
         Arc::new(reg)
     }
 
+    fn registry_with_subagent() -> Arc<ToolRegistry> {
+        let mut reg = ToolRegistry::new();
+        reg.register(echo_descriptor(), Arc::new(FakeTool::echo()));
+        reg.register(SubagentTool::descriptor(), Arc::new(SubagentTool));
+        Arc::new(reg)
+    }
+
     fn kinds(events: &[RunEvent]) -> Vec<&'static str> {
         events
             .iter()
@@ -960,6 +1320,9 @@ mod tests {
                 RunEventKind::MemoryLoaded { .. } => "MemoryLoaded",
                 RunEventKind::MemoryWritten { .. } => "MemoryWritten",
                 RunEventKind::IngestionReferenced { .. } => "IngestionReferenced",
+                RunEventKind::IngestionStarted { .. } => "IngestionStarted",
+                RunEventKind::IngestionCompleted { .. } => "IngestionCompleted",
+                RunEventKind::PolicyDenied { .. } => "PolicyDenied",
                 RunEventKind::ChildRunStarted { .. } => "ChildRunStarted",
                 RunEventKind::ChildRunCompleted { .. } => "ChildRunCompleted",
                 RunEventKind::BatchRunStarted { .. } => "BatchRunStarted",
@@ -1003,6 +1366,51 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn llm_request_completed_records_configured_cost() {
+        let mut agent = agent_with_tools(vec![], 5);
+        agent.cost_policy = CostPolicy {
+            input_cost_per_million: Some(1.0),
+            output_cost_per_million: Some(2.0),
+        };
+        let h = Harness::new(
+            Arc::new(FakeProvider::echo()),
+            Arc::new(InMemoryEventStore::new()),
+            registry_with_echo(),
+        );
+
+        let result = h
+            .run(
+                &agent,
+                UserInput {
+                    text: "hello".into(),
+                },
+            )
+            .await
+            .unwrap();
+        let (tokens_in, tokens_out, cost_usd) = h
+            .events(result.run_id)
+            .into_iter()
+            .find_map(|event| match event.kind {
+                RunEventKind::LlmRequestCompleted {
+                    tokens_in,
+                    tokens_out,
+                    cost_usd,
+                    ..
+                } => Some((
+                    tokens_in,
+                    tokens_out,
+                    cost_usd.expect("cost should be traced"),
+                )),
+                _ => None,
+            })
+            .expect("run should emit LlmRequestCompleted");
+        let expected =
+            f64::from(tokens_in) / 1_000_000.0 + (2.0 * f64::from(tokens_out) / 1_000_000.0);
+
+        assert!((cost_usd - expected).abs() < f64::EPSILON);
+    }
+
+    #[tokio::test]
     async fn preview_context_matches_first_context_built_event() {
         let agent = agent_with_tools(vec![], 5);
         let input = UserInput {
@@ -1026,6 +1434,57 @@ mod tests {
             .expect("run should emit ContextBuilt");
 
         assert_eq!(preview, event_snapshot);
+    }
+
+    #[tokio::test]
+    async fn loaded_memory_and_ingestion_are_traced_after_context_build() {
+        let mut agent = agent_with_tools(vec![], 5);
+        agent.memory_fragments = vec![MemoryFragment {
+            id: "mem-1".into(),
+            content: "remember this".into(),
+            provenance: "test".into(),
+        }];
+        agent.ingestion_artifacts = vec![IngestedArtifactView {
+            id: "ing-1".into(),
+            source: "/tmp/source.txt".into(),
+            sections: 1,
+            content: "source text".into(),
+            provenance: "test".into(),
+        }];
+        let h = Harness::new(
+            Arc::new(FakeProvider::echo()),
+            Arc::new(InMemoryEventStore::new()),
+            registry_with_echo(),
+        );
+
+        let result = h
+            .run(&agent, UserInput { text: "go".into() })
+            .await
+            .unwrap();
+        let events = h.events(result.run_id);
+        assert_eq!(
+            kinds(&events),
+            vec![
+                "RunStarted",
+                "ContextBuilt",
+                "MemoryLoaded",
+                "IngestionReferenced",
+                "LlmRequestStarted",
+                "LlmRequestCompleted",
+                "RunCompleted",
+            ]
+        );
+        assert!(events.iter().any(|event| matches!(
+            &event.kind,
+            RunEventKind::MemoryLoaded { ids } if ids == &vec!["mem-1".to_string()]
+        )));
+        assert!(events.iter().any(|event| matches!(
+            &event.kind,
+            RunEventKind::IngestionReferenced {
+                artifact_id,
+                source,
+            } if artifact_id == "ing-1" && source == "/tmp/source.txt"
+        )));
     }
 
     #[tokio::test]
@@ -1063,6 +1522,106 @@ mod tests {
                 "ToolCallProposed",
                 "ToolCallStarted",
                 "ToolCallCompleted",
+                "ContextBuilt",
+                "LlmRequestStarted",
+                "LlmRequestCompleted",
+                "RunCompleted",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn raw_tool_output_mode_returns_without_interpretation_pass() {
+        let provider = FakeProvider::sequence(vec![
+            FakeStep::CallTool {
+                id: "c1".into(),
+                tool: "echo".into(),
+                input: json!({"text": "raw please"}),
+            },
+            FakeStep::Reply("should not be reached".into()),
+        ]);
+        let h = Harness::new(
+            Arc::new(provider),
+            Arc::new(InMemoryEventStore::new()),
+            registry_with_echo(),
+        );
+        let mut agent = agent_with_tools(vec![], 5);
+        agent.tool_policy.output_mode = ToolOutputMode::Raw;
+        let result = h
+            .run(&agent, UserInput { text: "go".into() })
+            .await
+            .unwrap();
+
+        assert_eq!(result.final_output, r#"{"text":"raw please"}"#);
+        assert_eq!(
+            kinds(&h.events(result.run_id)),
+            vec![
+                "RunStarted",
+                "ContextBuilt",
+                "LlmRequestStarted",
+                "LlmRequestCompleted",
+                "ToolCallProposed",
+                "ToolCallStarted",
+                "ToolCallCompleted",
+                "RunCompleted",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn subagent_tool_emits_linked_child_run_events() {
+        let provider = FakeProvider::sequence(vec![
+            FakeStep::CallTool {
+                id: "c1".into(),
+                tool: "subagent".into(),
+                input: json!({"prompt": "child task", "agent_id": "worker"}),
+            },
+            FakeStep::Reply("child output".into()),
+            FakeStep::Reply("parent output".into()),
+        ]);
+        let h = Harness::new(
+            Arc::new(provider),
+            Arc::new(InMemoryEventStore::new()),
+            registry_with_subagent(),
+        );
+        let result = h
+            .run(
+                &agent_with_tools(vec![], 5),
+                UserInput {
+                    text: "delegate".into(),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.final_output, "parent output");
+        let parent_events = h.events(result.run_id);
+        let child_run_id = parent_events
+            .iter()
+            .find_map(|event| match &event.kind {
+                RunEventKind::ChildRunStarted { child_run_id, .. } => Some(*child_run_id),
+                _ => None,
+            })
+            .expect("parent trace should link child run");
+        assert!(parent_events.iter().any(|event| matches!(
+            event.kind,
+            RunEventKind::ChildRunCompleted {
+                child_run_id: id,
+                ref status,
+            } if id == child_run_id && status == "succeeded"
+        )));
+        let child_run_id_text = child_run_id.0.to_string();
+        assert!(parent_events.iter().any(|event| matches!(
+            &event.kind,
+            RunEventKind::ToolCallCompleted { output, .. }
+                if output["child_run_id"].as_str() == Some(child_run_id_text.as_str())
+                    && output["agent_id"].as_str() == Some("worker")
+                    && output["final_output"].as_str() == Some("child output")
+        )));
+        assert_eq!(
+            kinds(&h.events(child_run_id)),
+            vec![
+                "RunStarted",
                 "ContextBuilt",
                 "LlmRequestStarted",
                 "LlmRequestCompleted",

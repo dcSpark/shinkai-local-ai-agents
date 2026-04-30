@@ -1,21 +1,26 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
 use agent_adapters::AdapterRegistry;
+use agent_batch::{BatchItemState, BatchPlan};
 use agent_bundles::{export_bundle, import_bundle};
 use agent_config::ConfigResolver;
 use agent_core::{
-    AgentConfig, ApprovalMode, Harness, HarnessApi, IngestedArtifactView, ToolPolicy, UserInput,
+    AgentConfig, ApprovalMode, CostPolicy, Harness, HarnessApi, IngestedArtifactView,
+    ToolOutputMode, ToolPolicy, UserInput, VisibilityLevel,
 };
-use agent_ingest::IngestionStore;
+use agent_ingest::{IngestionArtifact, IngestionStore};
 use agent_llm::{FakeProvider, FakeStep, LlmProvider, ModelRef, RigProvider, RigProviderConfig};
-use agent_memory::{MemoryAuthor, MemoryStore, MemoryTarget};
+use agent_memory::{MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget};
 use agent_skills::SkillRegistry;
 use agent_storage::StoragePaths;
-use agent_tools::{FakeTool, ShellTool, ShellToolConfig, ToolId, ToolRegistry};
+use agent_tools::{FakeTool, ShellTool, ShellToolConfig, SubagentTool, ToolId, ToolRegistry};
 use agent_tracing::{EventStore, RunEventKind, RunId, SqliteEventStore};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
+use tokio::task::AbortHandle;
+use tokio::time::{Duration, timeout};
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -28,17 +33,24 @@ async fn main() -> std::io::Result<()> {
 
 async fn run_server(addr: &str) -> std::io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
+    let state = Arc::new(DaemonState::default());
     println!("agent-daemon listening on http://{addr}");
     loop {
         let (mut socket, _) = listener.accept().await?;
+        let state = state.clone();
         tokio::spawn(async move {
             let response = match read_request(&mut socket).await {
-                Ok(request) => handle_request(request).await,
+                Ok(request) => handle_request(request, state).await,
                 Err(err) => http_json(400, serde_json::json!({"error": err.to_string()})),
             };
             let _ = socket.write_all(response.as_bytes()).await;
         });
     }
+}
+
+#[derive(Default)]
+struct DaemonState {
+    active_runs: tokio::sync::Mutex<HashMap<String, AbortHandle>>,
 }
 
 struct HttpRequest {
@@ -63,14 +75,17 @@ async fn read_request(socket: &mut tokio::net::TcpStream) -> anyhow::Result<Http
     })
 }
 
-async fn handle_request(request: HttpRequest) -> String {
-    match route(request).await {
+async fn handle_request(request: HttpRequest, state: Arc<DaemonState>) -> String {
+    match route(request, state).await {
         Ok((status, body)) => http_json(status, body),
         Err(err) => http_json(500, serde_json::json!({"error": err.to_string()})),
     }
 }
 
-async fn route(request: HttpRequest) -> anyhow::Result<(u16, serde_json::Value)> {
+async fn route(
+    request: HttpRequest,
+    state: Arc<DaemonState>,
+) -> anyhow::Result<(u16, serde_json::Value)> {
     match (request.method.as_str(), request.path.as_str()) {
         ("OPTIONS", _) => Ok((200, serde_json::json!({"status": "ok"}))),
         ("GET", "/health") => Ok((200, serde_json::json!({"status": "ok"}))),
@@ -82,13 +97,21 @@ async fn route(request: HttpRequest) -> anyhow::Result<(u16, serde_json::Value)>
             }),
         )),
         ("POST", "/run") => daemon_run(&request.body).await.map(|value| (200, value)),
+        ("POST", "/run/start") => daemon_run_start(&request.body, state)
+            .await
+            .map(|value| (200, value)),
         ("POST", "/preview-context") => {
             daemon_preview_context(&request.body).map(|value| (200, value))
         }
         ("POST", "/guide") => daemon_guide(&request.body).map(|value| (200, value)),
-        ("POST", "/cancel") => daemon_cancel(&request.body).map(|value| (200, value)),
+        ("POST", "/cancel") => daemon_cancel(&request.body, state)
+            .await
+            .map(|value| (200, value)),
         ("POST", "/score") => daemon_score(&request.body).map(|value| (200, value)),
         ("POST", "/batch") => daemon_batch(&request.body).await.map(|value| (200, value)),
+        ("POST", "/batch/resume") => daemon_batch_resume(&request.body)
+            .await
+            .map(|value| (200, value)),
         ("GET", "/memory") => daemon_memory_list().map(|value| (200, value)),
         ("POST", "/memory") => daemon_memory_create(&request.body).map(|value| (200, value)),
         ("POST", "/memory/generate") => {
@@ -114,6 +137,10 @@ async fn route(request: HttpRequest) -> anyhow::Result<(u16, serde_json::Value)>
         _ if request.method == "GET" && request.path.starts_with("/trace/") => {
             let id = request.path.trim_start_matches("/trace/");
             trace_show(id).map(|value| (200, value))
+        }
+        _ if request.method == "GET" && request.path.starts_with("/run/status/") => {
+            let id = request.path.trim_start_matches("/run/status/");
+            daemon_run_status(id, state).await.map(|value| (200, value))
         }
         _ if request.method == "GET" && request.path.starts_with("/approvals/") => {
             let id = request.path.trim_start_matches("/approvals/");
@@ -166,11 +193,14 @@ async fn route(request: HttpRequest) -> anyhow::Result<(u16, serde_json::Value)>
                     "GET /version",
                     "GET /trace/<run_id>",
                     "POST /run",
+                    "POST /run/start",
+                    "GET /run/status/<run_id>",
                     "POST /preview-context",
                     "POST /guide",
                     "POST /cancel",
                     "POST /score",
                     "POST /batch",
+                    "POST /batch/resume",
                     "POST /tool/<name>",
                     "GET /approvals/<run_id>",
                     "POST /approvals/<run_id>/<approval_id>/decide",
@@ -198,7 +228,7 @@ async fn daemon_run(body: &str) -> anyhow::Result<serde_json::Value> {
     let harness = Harness::new(
         provider_for_run(input.demo.as_deref(), &input.input, &input.options)?,
         Arc::new(open_event_store()?),
-        build_registry(input.options.enable_shell),
+        build_registry(input.options.enable_shell, input.options.enable_subagent),
     );
     let agent = build_agent(&input.options);
     let result = harness.run(&agent, UserInput { text: input.input }).await?;
@@ -208,12 +238,162 @@ async fn daemon_run(body: &str) -> anyhow::Result<serde_json::Value> {
     }))
 }
 
+async fn daemon_run_start(
+    body: &str,
+    state: Arc<DaemonState>,
+) -> anyhow::Result<serde_json::Value> {
+    let input: DaemonRunInput = serde_json::from_str(body)?;
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel::<String>();
+
+    let provider = provider_for_run(input.demo.as_deref(), &input.input, &input.options)?;
+    let store = Arc::new(agent_tracing::PublishingEventStore::new(
+        open_event_store()?,
+        tx,
+    ));
+    let harness = Harness::new(
+        provider,
+        store,
+        build_registry(input.options.enable_shell, input.options.enable_subagent),
+    );
+    let agent = build_agent(&input.options);
+    let input_text = input.input;
+
+    let run_task = tokio::spawn(async move {
+        let result = harness.run(&agent, UserInput { text: input_text }).await;
+        drop(harness);
+        result
+    });
+    let abort_handle = run_task.abort_handle();
+
+    let state_for_events = state.clone();
+    tokio::spawn(async move {
+        let mut started_tx = Some(started_tx);
+        let mut seen_run_id = None::<String>;
+        while let Some(evt) = rx.recv().await {
+            let run_id = evt.run_id.0.to_string();
+            match &evt.kind {
+                RunEventKind::RunStarted { .. } => {
+                    seen_run_id = Some(run_id.clone());
+                    state_for_events
+                        .active_runs
+                        .lock()
+                        .await
+                        .insert(run_id.clone(), abort_handle.clone());
+                    if let Some(tx) = started_tx.take() {
+                        let _ = tx.send(run_id);
+                    }
+                }
+                RunEventKind::RunPaused { .. }
+                | RunEventKind::RunCancelled { .. }
+                | RunEventKind::RunCompleted { .. }
+                | RunEventKind::RunFailed { .. } => {
+                    state_for_events.active_runs.lock().await.remove(&run_id);
+                }
+                _ => {}
+            }
+        }
+        if let Some(run_id) = seen_run_id {
+            state_for_events.active_runs.lock().await.remove(&run_id);
+        }
+    });
+
+    tokio::spawn(async move {
+        let _ = run_task.await;
+    });
+
+    let run_id = timeout(Duration::from_secs(2), started_rx)
+        .await
+        .map_err(|_| anyhow::anyhow!("timed out waiting for RunStarted"))??;
+    let status = daemon_run_status(&run_id, state).await?;
+    Ok(serde_json::json!({
+        "run_id": run_id,
+        "status": status["status"],
+        "active": status["active"]
+    }))
+}
+
+async fn daemon_run_status(id: &str, state: Arc<DaemonState>) -> anyhow::Result<serde_json::Value> {
+    let run_id = RunId(uuid::Uuid::parse_str(id)?);
+    let events = open_event_store()?.try_events(run_id)?;
+    let active = state.active_runs.lock().await.contains_key(id);
+
+    let mut status = if active { "running" } else { "unknown" };
+    let mut final_output = None::<String>;
+    let mut reason = None::<String>;
+    let mut total_duration_ms = None::<u64>;
+    let event_cost_usd = events
+        .iter()
+        .filter_map(|event| match &event.kind {
+            RunEventKind::LlmRequestCompleted {
+                cost_usd: Some(cost),
+                ..
+            } => Some(*cost),
+            RunEventKind::ToolCallCompleted {
+                cost_usd: Some(cost),
+                ..
+            } => Some(*cost),
+            _ => None,
+        })
+        .sum::<f64>();
+    let mut total_cost_usd = if event_cost_usd > 0.0 {
+        Some(event_cost_usd)
+    } else {
+        None
+    };
+
+    for event in events.iter().rev() {
+        match &event.kind {
+            RunEventKind::RunCompleted {
+                final_output: output,
+                total_cost_usd: completed_cost,
+                total_duration_ms: duration,
+            } => {
+                status = "completed";
+                final_output = Some(output.clone());
+                total_cost_usd = *completed_cost;
+                total_duration_ms = Some(*duration);
+                break;
+            }
+            RunEventKind::RunFailed { reason: failure } => {
+                status = "failed";
+                reason = Some(failure.clone());
+                break;
+            }
+            RunEventKind::RunCancelled {
+                reason: cancellation,
+            } => {
+                status = "cancelled";
+                reason = Some(cancellation.clone());
+                break;
+            }
+            RunEventKind::RunPaused { reason: pause } => {
+                status = "paused";
+                reason = Some(pause.clone());
+                break;
+            }
+            _ => {}
+        }
+    }
+
+    Ok(serde_json::json!({
+        "run_id": run_id.0,
+        "status": status,
+        "active": active,
+        "event_count": events.len(),
+        "final_output": final_output,
+        "reason": reason,
+        "total_cost_usd": total_cost_usd,
+        "total_duration_ms": total_duration_ms
+    }))
+}
+
 fn daemon_preview_context(body: &str) -> anyhow::Result<serde_json::Value> {
     let input: DaemonPreviewInput = serde_json::from_str(body)?;
     let harness = Harness::new(
         Arc::new(FakeProvider::echo()),
         Arc::new(open_event_store()?),
-        build_registry(input.options.enable_shell),
+        build_registry(input.options.enable_shell, input.options.enable_subagent),
     );
     Ok(serde_json::to_value(harness.preview_context(
         &build_agent(&input.options),
@@ -234,17 +414,44 @@ fn daemon_guide(body: &str) -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::json!({ "run_id": run_id.0, "recorded": "guidance" }))
 }
 
-fn daemon_cancel(body: &str) -> anyhow::Result<serde_json::Value> {
+async fn daemon_cancel(body: &str, state: Arc<DaemonState>) -> anyhow::Result<serde_json::Value> {
     let input: CancelInput = serde_json::from_str(body)?;
     let run_id = RunId(uuid::Uuid::parse_str(&input.run_id)?);
-    open_event_store()?.append(
+    let store = open_event_store()?;
+    let active_handle = state.active_runs.lock().await.remove(&input.run_id);
+    let aborted = active_handle.is_some();
+    if !aborted
+        && store.try_events(run_id)?.iter().any(|event| {
+            matches!(
+                &event.kind,
+                RunEventKind::RunCompleted { .. }
+                    | RunEventKind::RunFailed { .. }
+                    | RunEventKind::RunCancelled { .. }
+                    | RunEventKind::RunPaused { .. }
+            )
+        })
+    {
+        return Ok(serde_json::json!({
+            "run_id": run_id.0,
+            "recorded": "not_active",
+            "aborted": false
+        }));
+    }
+    store.append(
         run_id,
         None,
         RunEventKind::RunCancelled {
             reason: input.reason,
         },
     );
-    Ok(serde_json::json!({ "run_id": run_id.0, "recorded": "cancelled" }))
+    if let Some(handle) = active_handle {
+        handle.abort();
+    }
+    Ok(serde_json::json!({
+        "run_id": run_id.0,
+        "recorded": "cancelled",
+        "aborted": aborted
+    }))
 }
 
 fn daemon_score(body: &str) -> anyhow::Result<serde_json::Value> {
@@ -265,21 +472,68 @@ async fn daemon_batch(body: &str) -> anyhow::Result<serde_json::Value> {
     let input: DaemonBatchInput = serde_json::from_str(body)?;
     let batch_run_id = RunId::new();
     let batch_id = format!("batch-{}", batch_run_id.0);
+    let mut plan = BatchPlan::new(batch_id.clone(), input.items);
+    plan.save_to_env()?;
+    execute_daemon_batch_plan(plan, batch_run_id, batch_id, input.demo, input.options).await
+}
+
+async fn daemon_batch_resume(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: DaemonBatchResumeInput = serde_json::from_str(body)?;
+    let batch_run_id = RunId::new();
+    let plan = BatchPlan::load_from_env(&input.batch_id)?;
+    execute_daemon_batch_plan(
+        plan,
+        batch_run_id,
+        input.batch_id,
+        input.demo,
+        input.options,
+    )
+    .await
+}
+
+async fn execute_daemon_batch_plan(
+    mut plan: BatchPlan,
+    batch_run_id: RunId,
+    batch_id: String,
+    demo: Option<String>,
+    options: DaemonRuntimeOptions,
+) -> anyhow::Result<serde_json::Value> {
     let store = Arc::new(open_event_store()?);
     store.append(
         batch_run_id,
         None,
         RunEventKind::BatchRunStarted {
             batch_id: batch_id.clone(),
-            items: input.items.len() as u32,
+            items: plan.items.len() as u32,
         },
     );
 
-    let mut succeeded = 0;
-    let mut failed = 0;
+    let mut skipped = 0;
     let mut summaries = Vec::new();
-    for (idx, item) in input.items.into_iter().enumerate() {
-        let item_key = format!("item-{idx}");
+    for item in plan.items.clone() {
+        let item_key = item.key.clone();
+        if item.status == BatchItemState::Succeeded {
+            skipped += 1;
+            store.append(
+                batch_run_id,
+                None,
+                RunEventKind::BatchItemStatus {
+                    batch_id: batch_id.clone(),
+                    item_key: item_key.clone(),
+                    status: "skipped: already succeeded".into(),
+                },
+            );
+            summaries.push(serde_json::json!({
+                "item_key": item_key,
+                "status": "skipped",
+                "last_run_id": item.last_run_id,
+                "final_output": item.final_output
+            }));
+            continue;
+        }
+
+        plan.mark_running(&item_key);
+        plan.save_to_env()?;
         store.append(
             batch_run_id,
             None,
@@ -289,16 +543,29 @@ async fn daemon_batch(body: &str) -> anyhow::Result<serde_json::Value> {
                 status: "running".into(),
             },
         );
-        let provider = provider_for_run(input.demo.as_deref(), &item, &input.options)?;
+        let provider = provider_for_run(demo.as_deref(), &item.input, &options)?;
         let harness = Harness::new(
             provider,
             store.clone(),
-            build_registry(input.options.enable_shell),
+            build_registry(options.enable_shell, options.enable_subagent),
         );
-        let agent = build_agent(&input.options);
-        match harness.run(&agent, UserInput { text: item }).await {
+        let agent = build_agent(&options);
+        match harness
+            .run(
+                &agent,
+                UserInput {
+                    text: item.input.clone(),
+                },
+            )
+            .await
+        {
             Ok(result) => {
-                succeeded += 1;
+                plan.mark_succeeded(
+                    &item_key,
+                    result.run_id.0.to_string(),
+                    result.final_output.clone(),
+                );
+                plan.save_to_env()?;
                 store.append(
                     batch_run_id,
                     None,
@@ -332,7 +599,8 @@ async fn daemon_batch(body: &str) -> anyhow::Result<serde_json::Value> {
                 }));
             }
             Err(err) => {
-                failed += 1;
+                plan.mark_failed(&item_key, err.to_string());
+                plan.save_to_env()?;
                 store.append(
                     batch_run_id,
                     None,
@@ -355,16 +623,17 @@ async fn daemon_batch(body: &str) -> anyhow::Result<serde_json::Value> {
         None,
         RunEventKind::BatchRunCompleted {
             batch_id: batch_id.clone(),
-            succeeded,
-            failed,
+            succeeded: plan.succeeded_count(),
+            failed: plan.failed_count(),
         },
     );
 
     Ok(serde_json::json!({
         "batch_run_id": batch_run_id.0,
         "batch_id": batch_id,
-        "succeeded": succeeded,
-        "failed": failed,
+        "succeeded": plan.succeeded_count(),
+        "failed": plan.failed_count(),
+        "skipped": skipped,
         "items": summaries
     }))
 }
@@ -381,12 +650,17 @@ async fn daemon_tool(name: &str, body: &str) -> anyhow::Result<serde_json::Value
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
     let enable_shell = name == "shell";
+    let enable_subagent = name == "subagent";
     let harness = Harness::new(
         Arc::new(FakeProvider::echo()),
         Arc::new(open_event_store()?),
-        build_registry(enable_shell),
+        build_registry(enable_shell, enable_subagent),
     );
-    let mut agent = build_agent(&DaemonRuntimeOptions::default());
+    let mut agent = build_agent(&DaemonRuntimeOptions {
+        enable_shell,
+        enable_subagent,
+        ..DaemonRuntimeOptions::default()
+    });
     if require_approval {
         agent.tool_policy.approval_mode = ApprovalMode::RequireExplicit;
     }
@@ -536,7 +810,7 @@ async fn execute_approved_tool(
     }) {
         anyhow::bail!("tool call {call_id} has already completed");
     }
-    let registry = build_registry(tool_id == "shell");
+    let registry = build_registry(tool_id == "shell", tool_id == "subagent");
     store.append(
         run_id,
         Some(proposed_id),
@@ -553,6 +827,7 @@ async fn execute_approved_tool(
         RunEventKind::ToolCallCompleted {
             call_id,
             output: output.clone(),
+            cost_usd: None,
             duration_ms,
         },
     );
@@ -561,6 +836,7 @@ async fn execute_approved_tool(
         None,
         RunEventKind::RunCompleted {
             final_output: serde_json::to_string(&output)?,
+            total_cost_usd: None,
             total_duration_ms: duration_ms,
         },
     );
@@ -582,12 +858,10 @@ fn daemon_memory_create(body: &str) -> anyhow::Result<serde_json::Value> {
     } else {
         MemoryTarget::Agent
     };
-    Ok(serde_json::to_value(MemoryStore::from_env().create(
-        target,
-        &input.content,
-        MemoryAuthor::Human,
-        None,
-    )?)?)
+    let record =
+        MemoryStore::from_env().create(target, &input.content, MemoryAuthor::Human, None)?;
+    record_memory_written(&record, "created")?;
+    Ok(serde_json::to_value(record)?)
 }
 
 fn daemon_memory_generate(body: &str) -> anyhow::Result<serde_json::Value> {
@@ -597,9 +871,11 @@ fn daemon_memory_generate(body: &str) -> anyhow::Result<serde_json::Value> {
     } else {
         MemoryTarget::Agent
     };
-    Ok(serde_json::to_value(
-        MemoryStore::from_env().generate_from_text(target, &input.text, input.range)?,
-    )?)
+    let records = MemoryStore::from_env().generate_from_text(target, &input.text, input.range)?;
+    for record in &records {
+        record_memory_written(record, "generated")?;
+    }
+    Ok(serde_json::to_value(records)?)
 }
 
 fn daemon_memory_rollback(body: &str) -> anyhow::Result<serde_json::Value> {
@@ -610,6 +886,10 @@ fn daemon_memory_rollback(body: &str) -> anyhow::Result<serde_json::Value> {
         MemoryTarget::Agent
     };
     MemoryStore::from_env().rollback(target)?;
+    record_memory_operation(
+        if input.user { "user.md" } else { "memory.md" },
+        "rolled_back",
+    )?;
     Ok(serde_json::json!({ "rolled_back": true, "user": input.user }))
 }
 
@@ -621,16 +901,33 @@ fn daemon_memory_route(path: &str, body: &str) -> anyhow::Result<serde_json::Val
     match parts[2] {
         "edit" => {
             let input: MemoryEditInput = serde_json::from_str(body)?;
-            Ok(serde_json::to_value(
-                MemoryStore::from_env().edit(parts[1], &input.content)?,
-            )?)
+            let record = MemoryStore::from_env().edit(parts[1], &input.content)?;
+            record_memory_written(&record, "edited")?;
+            Ok(serde_json::to_value(record)?)
         }
         "delete" => {
             MemoryStore::from_env().delete(parts[1])?;
+            record_memory_operation(parts[1], "deleted")?;
             Ok(serde_json::json!({ "id": parts[1], "deleted": true }))
         }
         _ => anyhow::bail!("unknown memory action"),
     }
+}
+
+fn record_memory_written(record: &MemoryRecord, operation: &str) -> anyhow::Result<()> {
+    record_memory_operation(&record.id, operation)
+}
+
+fn record_memory_operation(id: &str, operation: &str) -> anyhow::Result<()> {
+    open_event_store()?.append(
+        RunId::new(),
+        None,
+        RunEventKind::MemoryWritten {
+            id: id.to_string(),
+            operation: operation.to_string(),
+        },
+    );
+    Ok(())
 }
 
 fn daemon_skill_list() -> anyhow::Result<serde_json::Value> {
@@ -666,9 +963,26 @@ fn daemon_ingest_list() -> anyhow::Result<serde_json::Value> {
 
 fn daemon_ingest_add(body: &str) -> anyhow::Result<serde_json::Value> {
     let input: PathInput = serde_json::from_str(body)?;
-    Ok(serde_json::to_value(
-        IngestionStore::from_env().ingest(input.path)?,
-    )?)
+    let trace_run_id = RunId::new();
+    let store = open_event_store()?;
+    let started = store.append(
+        trace_run_id,
+        None,
+        RunEventKind::IngestionStarted {
+            source: input.path.clone(),
+            backend: input.backend.clone(),
+        },
+    );
+    let artifact = IngestionStore::from_env().ingest_with_backend(input.path, &input.backend)?;
+    store.append(
+        trace_run_id,
+        Some(started.id),
+        ingestion_completed_event(&artifact),
+    );
+    Ok(serde_json::json!({
+        "trace_run_id": trace_run_id.0,
+        "artifact": artifact
+    }))
 }
 
 fn daemon_ingest_show(id: &str) -> anyhow::Result<serde_json::Value> {
@@ -678,6 +992,14 @@ fn daemon_ingest_show(id: &str) -> anyhow::Result<serde_json::Value> {
 fn daemon_ingest_rm(id: &str) -> anyhow::Result<serde_json::Value> {
     IngestionStore::from_env().remove(id)?;
     Ok(serde_json::json!({ "id": id, "removed": true }))
+}
+
+fn ingestion_completed_event(artifact: &IngestionArtifact) -> RunEventKind {
+    RunEventKind::IngestionCompleted {
+        artifact_id: artifact.id.clone(),
+        content_hash: artifact.content_hash.clone(),
+        sections: artifact.sections.len() as u32,
+    }
 }
 
 fn daemon_adapter_list() -> anyhow::Result<serde_json::Value> {
@@ -744,6 +1066,14 @@ struct DaemonBatchInput {
     options: DaemonRuntimeOptions,
 }
 
+#[derive(serde::Deserialize)]
+struct DaemonBatchResumeInput {
+    batch_id: String,
+    demo: Option<String>,
+    #[serde(flatten)]
+    options: DaemonRuntimeOptions,
+}
+
 #[derive(Clone, Default, serde::Deserialize)]
 struct DaemonRuntimeOptions {
     provider: Option<String>,
@@ -751,8 +1081,16 @@ struct DaemonRuntimeOptions {
     api_base_url: Option<String>,
     api_key_env: Option<String>,
     api_key: Option<String>,
+    max_output_tokens: Option<u64>,
+    temperature: Option<f64>,
+    max_tool_calls: Option<u32>,
+    tool_visibility: Option<VisibilityLevel>,
+    input_cost_per_million: Option<f64>,
+    output_cost_per_million: Option<f64>,
     #[serde(default)]
     enable_shell: bool,
+    #[serde(default)]
+    enable_subagent: bool,
     #[serde(default)]
     load_memory: bool,
     #[serde(default)]
@@ -761,6 +1099,8 @@ struct DaemonRuntimeOptions {
     include_ingest: Vec<String>,
     #[serde(default)]
     require_approval: bool,
+    #[serde(default)]
+    raw_tool_output: bool,
 }
 
 #[derive(serde::Deserialize)]
@@ -816,6 +1156,12 @@ struct MemoryRollbackInput {
 #[derive(serde::Deserialize)]
 struct PathInput {
     path: String,
+    #[serde(default = "default_ingest_backend")]
+    backend: String,
+}
+
+fn default_ingest_backend() -> String {
+    "local-v0".into()
 }
 
 fn provider_for_run(
@@ -825,20 +1171,28 @@ fn provider_for_run(
 ) -> anyhow::Result<Arc<dyn LlmProvider>> {
     match options.provider.as_deref() {
         Some("rig") => {
+            let model = rig_model_id(options);
+            let model_runtime = ConfigResolver::from_env()
+                .resolve_model_runtime(&model)
+                .ok()
+                .flatten();
             let config = RigProviderConfig {
                 api_base_url: options.api_base_url.clone(),
                 api_key_env: options
                     .api_key_env
                     .clone()
                     .unwrap_or_else(|| "OPENAI_API_KEY".into()),
-                model: ModelRef::from(
-                    options
-                        .model
-                        .clone()
-                        .unwrap_or_else(|| "gpt-4o-mini".into()),
-                ),
-                max_output_tokens: None,
-                temperature: None,
+                model: ModelRef::from(model),
+                max_output_tokens: options.max_output_tokens.or_else(|| {
+                    model_runtime
+                        .as_ref()
+                        .and_then(|model| model.max_output_tokens)
+                }),
+                temperature: options.temperature.or_else(|| {
+                    model_runtime
+                        .as_ref()
+                        .and_then(|model| model.default_temperature)
+                }),
             };
             Ok(Arc::new(RigProvider::from_config_with_api_key_override(
                 config,
@@ -859,7 +1213,22 @@ fn provider_for_run(
     }
 }
 
-fn build_registry(enable_shell: bool) -> Arc<ToolRegistry> {
+fn rig_model_id(options: &DaemonRuntimeOptions) -> String {
+    if let Some(model) = options.model.clone() {
+        return model;
+    }
+    let configured = ConfigResolver::from_env()
+        .resolve_default_agent()
+        .map(|resolved| resolved.agent.model.0)
+        .unwrap_or_else(|_| "fake-model".into());
+    if configured == "fake-model" {
+        "gpt-4o-mini".into()
+    } else {
+        configured
+    }
+}
+
+fn build_registry(enable_shell: bool, enable_subagent: bool) -> Arc<ToolRegistry> {
     let mut registry = ToolRegistry::new();
     registry.register(FakeTool::echo_descriptor(), Arc::new(FakeTool::echo()));
     if enable_shell {
@@ -867,6 +1236,9 @@ fn build_registry(enable_shell: bool) -> Arc<ToolRegistry> {
             ShellTool::descriptor(),
             Arc::new(ShellTool::new(ShellToolConfig::default())),
         );
+    }
+    if enable_subagent {
+        registry.register(SubagentTool::descriptor(), Arc::new(SubagentTool));
     }
     Arc::new(registry)
 }
@@ -881,6 +1253,7 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
             system_prompt: "You echo what the user says.".into(),
             model: ModelRef::from("fake-model"),
             tool_policy: ToolPolicy::default(),
+            cost_policy: CostPolicy::default(),
             memory_fragments: Vec::new(),
             ingestion_artifacts: Vec::new(),
             skill_views: Vec::new(),
@@ -891,8 +1264,23 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
     } else if options.provider.as_deref() == Some("rig") && agent.model.0 == "fake-model" {
         agent.model = ModelRef::from("gpt-4o-mini");
     }
+    if let Some(max_tool_calls) = options.max_tool_calls {
+        agent.tool_policy.max_calls = max_tool_calls;
+    }
+    if let Some(visibility) = options.tool_visibility {
+        agent.tool_policy.visibility = visibility;
+    }
     if options.require_approval {
         agent.tool_policy.approval_mode = ApprovalMode::RequireExplicit;
+    }
+    if options.raw_tool_output {
+        agent.tool_policy.output_mode = ToolOutputMode::Raw;
+    }
+    if options.input_cost_per_million.is_some() {
+        agent.cost_policy.input_cost_per_million = options.input_cost_per_million;
+    }
+    if options.output_cost_per_million.is_some() {
+        agent.cost_policy.output_cost_per_million = options.output_cost_per_million;
     }
     if options.load_memory
         && let Ok(memory) = MemoryStore::from_env().load_fragments()

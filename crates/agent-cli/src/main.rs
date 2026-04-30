@@ -10,6 +10,7 @@ mod tui;
 
 use std::io::IsTerminal;
 
+use agent_core::VisibilityLevel;
 use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Parser)]
@@ -72,9 +73,29 @@ enum Command {
         #[arg(long)]
         temperature: Option<f64>,
 
+        /// Estimated input-token price in USD per 1M tokens.
+        #[arg(long)]
+        input_cost_per_million: Option<f64>,
+
+        /// Estimated output-token price in USD per 1M tokens.
+        #[arg(long)]
+        output_cost_per_million: Option<f64>,
+
+        /// Override the agent's max tool-call budget for this run.
+        #[arg(long)]
+        max_tool_calls: Option<u32>,
+
+        /// Override how much tool detail is shown to the model.
+        #[arg(long, value_enum)]
+        tool_visibility: Option<ToolVisibility>,
+
         /// Explicitly register the shell tool for this run.
         #[arg(long)]
         enable_shell: bool,
+
+        /// Explicitly register the subagent tool for this run.
+        #[arg(long)]
+        enable_subagent: bool,
 
         /// Load file-backed memory into context for this run.
         #[arg(long)]
@@ -91,6 +112,10 @@ enum Command {
         /// Pause before approval-required tools instead of auto-approving.
         #[arg(long)]
         require_approval: bool,
+
+        /// Return the first tool output directly without an LLM interpretation pass.
+        #[arg(long)]
+        raw_tool_output: bool,
     },
     /// Show the exact context snapshot that would be sent for an input.
     PreviewContext {
@@ -106,9 +131,25 @@ enum Command {
         #[arg(long)]
         enable_shell: bool,
 
+        /// Include the subagent tool in the preview.
+        #[arg(long)]
+        enable_subagent: bool,
+
+        /// Override the max tool-call budget in the preview.
+        #[arg(long)]
+        max_tool_calls: Option<u32>,
+
+        /// Override how much tool detail is shown in the preview.
+        #[arg(long, value_enum)]
+        tool_visibility: Option<ToolVisibility>,
+
         /// Include loaded memory in the preview.
         #[arg(long)]
         load_memory: bool,
+
+        /// Preview the raw tool-output runtime mode.
+        #[arg(long)]
+        raw_tool_output: bool,
 
         /// Include allowed skills in the preview.
         #[arg(long)]
@@ -133,6 +174,14 @@ enum Command {
         /// Include the shell tool in the explanation.
         #[arg(long)]
         enable_shell: bool,
+
+        /// Include the subagent tool in the explanation.
+        #[arg(long)]
+        enable_subagent: bool,
+
+        /// Override how much tool detail is shown in the explanation.
+        #[arg(long, value_enum)]
+        tool_visibility: Option<ToolVisibility>,
     },
     /// Tool operations.
     Tool {
@@ -192,6 +241,11 @@ enum Command {
     Skill {
         #[command(subcommand)]
         command: SkillCommand,
+    },
+    /// Saved prompt library operations.
+    Prompt {
+        #[command(subcommand)]
+        command: PromptCommand,
     },
     /// Document ingestion operations.
     Ingest {
@@ -352,9 +406,42 @@ enum SkillCommand {
 }
 
 #[derive(Subcommand)]
+enum PromptCommand {
+    /// Save or replace a prompt in the main profile library.
+    Save { name: String, text: String },
+    /// List saved prompts.
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show a saved prompt.
+    Show {
+        name: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Delete a saved prompt.
+    Delete { name: String },
+}
+
+#[derive(Subcommand)]
 enum IngestCommand {
     /// Ingest a local file explicitly.
-    Add { path: String },
+    Add {
+        path: String,
+
+        /// Ingestion backend id.
+        #[arg(long, default_value = "local-v0")]
+        backend: String,
+    },
+    /// Re-run ingestion for an artifact's source, optionally with another backend.
+    Rerun {
+        id: String,
+
+        /// Ingestion backend id.
+        #[arg(long, default_value = "local-v0")]
+        backend: String,
+    },
     /// List ingestion artifacts.
     List {
         #[arg(long)]
@@ -418,6 +505,18 @@ enum BatchCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Resume a persisted batch, skipping succeeded item keys.
+    Resume {
+        batch_id: String,
+
+        /// Demo mode for each retried child run.
+        #[arg(long, value_enum, default_value_t = Demo::Echo)]
+        demo: Demo,
+
+        /// Emit JSON summary.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -448,9 +547,29 @@ enum RemoteCommand {
         #[arg(long, default_value = "OPENAI_API_KEY")]
         api_key_env: String,
 
+        /// Estimated input-token price in USD per 1M tokens.
+        #[arg(long)]
+        input_cost_per_million: Option<f64>,
+
+        /// Estimated output-token price in USD per 1M tokens.
+        #[arg(long)]
+        output_cost_per_million: Option<f64>,
+
+        /// Override the daemon agent's max tool-call budget.
+        #[arg(long)]
+        max_tool_calls: Option<u32>,
+
+        /// Override how much tool detail the daemon shows to the model.
+        #[arg(long, value_enum)]
+        tool_visibility: Option<ToolVisibility>,
+
         /// Include the shell tool in daemon context.
         #[arg(long)]
         enable_shell: bool,
+
+        /// Include the subagent tool in daemon context.
+        #[arg(long)]
+        enable_subagent: bool,
 
         /// Load file-backed memory in daemon context.
         #[arg(long)]
@@ -467,7 +586,81 @@ enum RemoteCommand {
         /// Pause before approval-required daemon tools.
         #[arg(long)]
         require_approval: bool,
+
+        /// Return the first daemon tool output without an interpretation pass.
+        #[arg(long)]
+        raw_tool_output: bool,
     },
+    /// Start a daemon run asynchronously and return its run id immediately.
+    RunStart {
+        #[arg(short, long)]
+        input: String,
+
+        #[arg(long, default_value = "echo")]
+        demo: String,
+
+        /// LLM provider to use on the daemon.
+        #[arg(long, value_enum, default_value_t = Provider::Fake)]
+        provider: Provider,
+
+        /// Model id for real-provider daemon runs.
+        #[arg(long)]
+        model: Option<String>,
+
+        /// OpenAI-compatible API base URL for daemon rig provider.
+        #[arg(long)]
+        api_base_url: Option<String>,
+
+        /// Environment variable containing the API key in the daemon process.
+        #[arg(long, default_value = "OPENAI_API_KEY")]
+        api_key_env: String,
+
+        /// Estimated input-token price in USD per 1M tokens.
+        #[arg(long)]
+        input_cost_per_million: Option<f64>,
+
+        /// Estimated output-token price in USD per 1M tokens.
+        #[arg(long)]
+        output_cost_per_million: Option<f64>,
+
+        /// Override the daemon agent's max tool-call budget.
+        #[arg(long)]
+        max_tool_calls: Option<u32>,
+
+        /// Override how much tool detail the daemon shows to the model.
+        #[arg(long, value_enum)]
+        tool_visibility: Option<ToolVisibility>,
+
+        /// Include the shell tool in daemon context.
+        #[arg(long)]
+        enable_shell: bool,
+
+        /// Include the subagent tool in daemon context.
+        #[arg(long)]
+        enable_subagent: bool,
+
+        /// Load file-backed memory in daemon context.
+        #[arg(long)]
+        load_memory: bool,
+
+        /// Load allowed skills in daemon context.
+        #[arg(long)]
+        load_skills: bool,
+
+        /// Explicit ingestion artifact id to include in daemon context.
+        #[arg(long = "include-ingest")]
+        include_ingest: Vec<String>,
+
+        /// Pause before approval-required daemon tools.
+        #[arg(long)]
+        require_approval: bool,
+
+        /// Return the first daemon tool output without an interpretation pass.
+        #[arg(long)]
+        raw_tool_output: bool,
+    },
+    /// Show async daemon run status.
+    RunStatus { run_id: String },
     /// Show the exact context snapshot the daemon would build.
     PreviewContext {
         #[arg(short, long)]
@@ -477,9 +670,25 @@ enum RemoteCommand {
         #[arg(long)]
         enable_shell: bool,
 
+        /// Include the subagent tool in the preview.
+        #[arg(long)]
+        enable_subagent: bool,
+
+        /// Override the max tool-call budget in the preview.
+        #[arg(long)]
+        max_tool_calls: Option<u32>,
+
+        /// Override how much tool detail is shown in the preview.
+        #[arg(long, value_enum)]
+        tool_visibility: Option<ToolVisibility>,
+
         /// Include loaded memory in the preview.
         #[arg(long)]
         load_memory: bool,
+
+        /// Preview the raw tool-output runtime mode.
+        #[arg(long)]
+        raw_tool_output: bool,
 
         /// Include allowed skills in the preview.
         #[arg(long)]
@@ -581,6 +790,12 @@ enum RemoteBatchCommand {
         #[arg(long, default_value = "echo")]
         demo: String,
     },
+    Resume {
+        batch_id: String,
+
+        #[arg(long, default_value = "echo")]
+        demo: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -652,6 +867,23 @@ pub enum Provider {
     Rig,
 }
 
+#[derive(Clone, Copy, ValueEnum)]
+pub enum ToolVisibility {
+    FullSchema,
+    NameAndDescription,
+    NameOnly,
+}
+
+impl From<ToolVisibility> for VisibilityLevel {
+    fn from(value: ToolVisibility) -> Self {
+        match value {
+            ToolVisibility::FullSchema => VisibilityLevel::FullSchema,
+            ToolVisibility::NameAndDescription => VisibilityLevel::NameAndDescription,
+            ToolVisibility::NameOnly => VisibilityLevel::NameOnly,
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = <Cli as Parser>::parse();
@@ -667,11 +899,17 @@ async fn main() -> anyhow::Result<()> {
             api_key_env,
             max_output_tokens,
             temperature,
+            input_cost_per_million,
+            output_cost_per_million,
+            max_tool_calls,
+            tool_visibility,
             enable_shell,
+            enable_subagent,
             load_memory,
             load_skills,
             include_ingest,
             require_approval,
+            raw_tool_output,
         } => {
             let options = setup::RuntimeOptions {
                 provider,
@@ -680,11 +918,17 @@ async fn main() -> anyhow::Result<()> {
                 api_key_env,
                 max_output_tokens,
                 temperature,
+                input_cost_per_million,
+                output_cost_per_million,
+                max_tool_calls,
+                tool_visibility: tool_visibility.map(VisibilityLevel::from),
                 enable_shell,
+                enable_subagent,
                 load_memory,
                 load_skills,
                 include_ingest,
                 require_approval,
+                raw_tool_output,
             };
             let force_headless = print || json || !std::io::stdout().is_terminal();
             if force_headless {
@@ -697,23 +941,41 @@ async fn main() -> anyhow::Result<()> {
             input,
             json,
             enable_shell,
+            enable_subagent,
+            max_tool_calls,
+            tool_visibility,
             load_memory,
+            raw_tool_output,
             load_skills,
             include_ingest,
         } => {
-            headless::preview_context(
-                input,
-                json,
+            let options = setup::RuntimeOptions {
                 enable_shell,
+                enable_subagent,
+                max_tool_calls,
+                tool_visibility: tool_visibility.map(VisibilityLevel::from),
                 load_memory,
+                raw_tool_output,
                 load_skills,
                 include_ingest,
-            )
-            .await
+                ..setup::RuntimeOptions::default()
+            };
+            headless::preview_context(input, json, options).await
         }
         Command::ExplainConfig { json } => headless::explain_config(json).await,
-        Command::ExplainTools { json, enable_shell } => {
-            headless::explain_tools(json, enable_shell).await
+        Command::ExplainTools {
+            json,
+            enable_shell,
+            enable_subagent,
+            tool_visibility,
+        } => {
+            headless::explain_tools(
+                json,
+                enable_shell,
+                enable_subagent,
+                tool_visibility.map(VisibilityLevel::from),
+            )
+            .await
         }
         Command::Tool {
             command:
@@ -749,6 +1011,11 @@ async fn main() -> anyhow::Result<()> {
         } => headless::score(run_id, target, score).await,
         Command::Batch { command } => match command {
             BatchCommand::Run { items, demo, json } => headless::batch_run(items, demo, json).await,
+            BatchCommand::Resume {
+                batch_id,
+                demo,
+                json,
+            } => headless::batch_resume(batch_id, demo, json).await,
         },
         Command::Memory { command } => match command {
             MemoryCommand::Create { content, user } => headless::memory_create(content, user).await,
@@ -767,8 +1034,15 @@ async fn main() -> anyhow::Result<()> {
             SkillCommand::Allow { id } => headless::skill_allow(id).await,
             SkillCommand::Quarantine { id } => headless::skill_quarantine(id).await,
         },
+        Command::Prompt { command } => match command {
+            PromptCommand::Save { name, text } => headless::prompt_save(name, text).await,
+            PromptCommand::List { json } => headless::prompt_list(json).await,
+            PromptCommand::Show { name, json } => headless::prompt_show(name, json).await,
+            PromptCommand::Delete { name } => headless::prompt_delete(name).await,
+        },
         Command::Ingest { command } => match command {
-            IngestCommand::Add { path } => headless::ingest_add(path).await,
+            IngestCommand::Add { path, backend } => headless::ingest_add(path, backend).await,
+            IngestCommand::Rerun { id, backend } => headless::ingest_rerun(id, backend).await,
             IngestCommand::List { json } => headless::ingest_list(json).await,
             IngestCommand::Show { id, json } => headless::ingest_show(id, json).await,
             IngestCommand::Rm { id } => headless::ingest_rm(id).await,
@@ -792,11 +1066,17 @@ async fn main() -> anyhow::Result<()> {
                 model,
                 api_base_url,
                 api_key_env,
+                input_cost_per_million,
+                output_cost_per_million,
+                max_tool_calls,
+                tool_visibility,
                 enable_shell,
+                enable_subagent,
                 load_memory,
                 load_skills,
                 include_ingest,
                 require_approval,
+                raw_tool_output,
             } => {
                 let options = setup::RuntimeOptions {
                     provider,
@@ -805,24 +1085,79 @@ async fn main() -> anyhow::Result<()> {
                     api_key_env,
                     max_output_tokens: None,
                     temperature: None,
+                    input_cost_per_million,
+                    output_cost_per_million,
+                    max_tool_calls,
+                    tool_visibility: tool_visibility.map(VisibilityLevel::from),
                     enable_shell,
+                    enable_subagent,
                     load_memory,
                     load_skills,
                     include_ingest,
                     require_approval,
+                    raw_tool_output,
                 };
                 headless::remote_run(url, input, demo, options).await
             }
+            RemoteCommand::RunStart {
+                input,
+                demo,
+                provider,
+                model,
+                api_base_url,
+                api_key_env,
+                input_cost_per_million,
+                output_cost_per_million,
+                max_tool_calls,
+                tool_visibility,
+                enable_shell,
+                enable_subagent,
+                load_memory,
+                load_skills,
+                include_ingest,
+                require_approval,
+                raw_tool_output,
+            } => {
+                let options = setup::RuntimeOptions {
+                    provider,
+                    model,
+                    api_base_url,
+                    api_key_env,
+                    max_output_tokens: None,
+                    temperature: None,
+                    input_cost_per_million,
+                    output_cost_per_million,
+                    max_tool_calls,
+                    tool_visibility: tool_visibility.map(VisibilityLevel::from),
+                    enable_shell,
+                    enable_subagent,
+                    load_memory,
+                    load_skills,
+                    include_ingest,
+                    require_approval,
+                    raw_tool_output,
+                };
+                headless::remote_run_start(url, input, demo, options).await
+            }
+            RemoteCommand::RunStatus { run_id } => headless::remote_run_status(url, run_id).await,
             RemoteCommand::PreviewContext {
                 input,
                 enable_shell,
+                enable_subagent,
+                max_tool_calls,
+                tool_visibility,
                 load_memory,
+                raw_tool_output,
                 load_skills,
                 include_ingest,
             } => {
                 let options = setup::RuntimeOptions {
                     enable_shell,
+                    enable_subagent,
+                    max_tool_calls,
+                    tool_visibility: tool_visibility.map(VisibilityLevel::from),
                     load_memory,
+                    raw_tool_output,
                     load_skills,
                     include_ingest,
                     ..setup::RuntimeOptions::default()
@@ -843,6 +1178,9 @@ async fn main() -> anyhow::Result<()> {
             RemoteCommand::Batch { command } => match command {
                 RemoteBatchCommand::Run { items, demo } => {
                     headless::remote_batch_run(url, items, demo).await
+                }
+                RemoteBatchCommand::Resume { batch_id, demo } => {
+                    headless::remote_batch_resume(url, batch_id, demo).await
                 }
             },
             RemoteCommand::Tool {

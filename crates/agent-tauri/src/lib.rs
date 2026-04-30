@@ -16,18 +16,20 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use agent_adapters::{AdapterRegistry, NormalizedPackage, inspect_source};
+use agent_batch::{BatchItemState, BatchPlan};
 use agent_bundles::{BundleManifest, export_bundle, import_bundle};
 use agent_config::ConfigResolver;
 use agent_core::{
-    AgentConfig, ApprovalMode, ConfigExplanation, ContextSnapshot, Harness, HarnessApi,
-    IngestedArtifactView, RunResult, ToolPolicy, ToolView, UserInput,
+    AgentConfig, ApprovalMode, ConfigExplanation, ContextSnapshot, CostPolicy, Harness, HarnessApi,
+    IngestedArtifactView, RunResult, ToolOutputMode, ToolPolicy, ToolView, UserInput,
+    VisibilityLevel,
 };
 use agent_ingest::{IngestionArtifact, IngestionStore};
 use agent_llm::{FakeProvider, FakeStep, LlmProvider, ModelRef, RigProvider, RigProviderConfig};
 use agent_memory::{MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget};
 use agent_skills::{SkillDoc, SkillRegistry};
 use agent_storage::StoragePaths;
-use agent_tools::{FakeTool, ShellTool, ShellToolConfig, ToolId, ToolRegistry};
+use agent_tools::{FakeTool, ShellTool, ShellToolConfig, SubagentTool, ToolId, ToolRegistry};
 use agent_tracing::{
     EventStore, PublishingEventStore, RunEvent, RunEventKind, RunId, SqliteEventStore,
 };
@@ -72,11 +74,17 @@ struct RunOptions {
     api_key: Option<String>,
     max_output_tokens: Option<u64>,
     temperature: Option<f64>,
+    max_tool_calls: Option<u32>,
+    tool_visibility: Option<VisibilityLevel>,
+    input_cost_per_million: Option<f64>,
+    output_cost_per_million: Option<f64>,
     enable_shell: bool,
+    enable_subagent: bool,
     load_memory: bool,
     load_skills: bool,
     include_ingest: Vec<String>,
     require_approval: bool,
+    raw_tool_output: bool,
 }
 
 impl Default for RunOptions {
@@ -89,11 +97,17 @@ impl Default for RunOptions {
             api_key: None,
             max_output_tokens: None,
             temperature: None,
+            max_tool_calls: None,
+            tool_visibility: None,
+            input_cost_per_million: None,
+            output_cost_per_million: None,
             enable_shell: false,
+            enable_subagent: false,
             load_memory: false,
             load_skills: false,
             include_ingest: Vec::new(),
             require_approval: false,
+            raw_tool_output: false,
         }
     }
 }
@@ -116,17 +130,25 @@ fn build_provider(
             ])),
         }),
         ProviderKind::Rig => {
+            let model = rig_model_id(options);
+            let model_runtime = ConfigResolver::from_env()
+                .resolve_model_runtime(&model)
+                .ok()
+                .flatten();
             let config = RigProviderConfig {
                 api_base_url: options.api_base_url.clone(),
                 api_key_env: options.api_key_env.clone(),
-                model: ModelRef::from(
-                    options
-                        .model
-                        .clone()
-                        .unwrap_or_else(|| "gpt-4o-mini".into()),
-                ),
-                max_output_tokens: options.max_output_tokens,
-                temperature: options.temperature,
+                model: ModelRef::from(model),
+                max_output_tokens: options.max_output_tokens.or_else(|| {
+                    model_runtime
+                        .as_ref()
+                        .and_then(|model| model.max_output_tokens)
+                }),
+                temperature: options.temperature.or_else(|| {
+                    model_runtime
+                        .as_ref()
+                        .and_then(|model| model.default_temperature)
+                }),
             };
             RigProvider::from_config_with_api_key_override(config, options.api_key.clone())
                 .map(|provider| Arc::new(provider) as Arc<dyn LlmProvider>)
@@ -135,7 +157,22 @@ fn build_provider(
     }
 }
 
-fn build_registry(enable_shell: bool) -> Arc<ToolRegistry> {
+fn rig_model_id(options: &RunOptions) -> String {
+    if let Some(model) = options.model.clone() {
+        return model;
+    }
+    let configured = ConfigResolver::from_env()
+        .resolve_default_agent()
+        .map(|resolved| resolved.agent.model.0)
+        .unwrap_or_else(|_| "fake-model".into());
+    if configured == "fake-model" {
+        "gpt-4o-mini".into()
+    } else {
+        configured
+    }
+}
+
+fn build_registry(enable_shell: bool, enable_subagent: bool) -> Arc<ToolRegistry> {
     let mut registry = ToolRegistry::new();
     registry.register(FakeTool::echo_descriptor(), Arc::new(FakeTool::echo()));
     if enable_shell {
@@ -143,6 +180,9 @@ fn build_registry(enable_shell: bool) -> Arc<ToolRegistry> {
             ShellTool::descriptor(),
             Arc::new(ShellTool::new(ShellToolConfig::default())),
         );
+    }
+    if enable_subagent {
+        registry.register(SubagentTool::descriptor(), Arc::new(SubagentTool));
     }
     Arc::new(registry)
 }
@@ -157,6 +197,7 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
             system_prompt: "You echo what the user says.".into(),
             model: ModelRef::from("fake-model"),
             tool_policy: ToolPolicy::default(),
+            cost_policy: CostPolicy::default(),
             memory_fragments: Vec::new(),
             ingestion_artifacts: Vec::new(),
             skill_views: Vec::new(),
@@ -167,8 +208,23 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
     } else if matches!(options.provider, ProviderKind::Rig) && agent.model.0 == "fake-model" {
         agent.model = ModelRef::from("gpt-4o-mini");
     }
+    if let Some(max_tool_calls) = options.max_tool_calls {
+        agent.tool_policy.max_calls = max_tool_calls;
+    }
+    if let Some(visibility) = options.tool_visibility {
+        agent.tool_policy.visibility = visibility;
+    }
     if options.require_approval {
         agent.tool_policy.approval_mode = ApprovalMode::RequireExplicit;
+    }
+    if options.raw_tool_output {
+        agent.tool_policy.output_mode = ToolOutputMode::Raw;
+    }
+    if options.input_cost_per_million.is_some() {
+        agent.cost_policy.input_cost_per_million = options.input_cost_per_million;
+    }
+    if options.output_cost_per_million.is_some() {
+        agent.cost_policy.output_cost_per_million = options.output_cost_per_million;
     }
     if options.load_memory
         && let Ok(memory) = MemoryStore::from_env().load_fragments()
@@ -211,7 +267,11 @@ async fn run_agent(
 
     let provider = build_provider(demo, &input, &options)?;
     let store = Arc::new(PublishingEventStore::new(open_event_store()?, tx));
-    let harness = Harness::new(provider, store, build_registry(options.enable_shell));
+    let harness = Harness::new(
+        provider,
+        store,
+        build_registry(options.enable_shell, options.enable_subagent),
+    );
     let agent = build_agent(&options);
 
     let run_task = tokio::spawn(async move {
@@ -273,7 +333,7 @@ async fn preview_context(input: String, options: RunOptions) -> Result<ContextSn
     let harness = Harness::new(
         Arc::new(FakeProvider::echo()),
         Arc::new(open_event_store()?),
-        build_registry(options.enable_shell),
+        build_registry(options.enable_shell, options.enable_subagent),
     );
     Ok(harness.preview_context(&build_agent(&options), UserInput { text: input }))
 }
@@ -294,7 +354,7 @@ async fn explain_tools(options: RunOptions) -> Result<Vec<ToolView>, String> {
     let harness = Harness::new(
         Arc::new(FakeProvider::echo()),
         Arc::new(open_event_store()?),
-        build_registry(options.enable_shell),
+        build_registry(options.enable_shell, options.enable_subagent),
     );
     Ok(harness.explain_tools(&build_agent(&options)))
 }
@@ -302,13 +362,15 @@ async fn explain_tools(options: RunOptions) -> Result<Vec<ToolView>, String> {
 #[tauri::command]
 async fn call_tool(name: String, input: Value, options: RunOptions) -> Result<Value, String> {
     let enable_shell = options.enable_shell || name == "shell";
+    let enable_subagent = options.enable_subagent || name == "subagent";
     let harness = Harness::new(
         Arc::new(FakeProvider::echo()),
         Arc::new(open_event_store()?),
-        build_registry(enable_shell),
+        build_registry(enable_shell, enable_subagent),
     );
     let agent = build_agent(&RunOptions {
         enable_shell,
+        enable_subagent,
         ..options
     });
     harness
@@ -405,7 +467,7 @@ async fn approval_execute(approval_id: String, run_id: String) -> Result<Value, 
         return Err(format!("tool call {call_id} has already completed"));
     }
 
-    let registry = build_registry(tool_id == "shell");
+    let registry = build_registry(tool_id == "shell", tool_id == "subagent");
     store.append(
         run_id,
         Some(proposed_id),
@@ -425,6 +487,7 @@ async fn approval_execute(approval_id: String, run_id: String) -> Result<Value, 
         RunEventKind::ToolCallCompleted {
             call_id,
             output: output.clone(),
+            cost_usd: None,
             duration_ms,
         },
     );
@@ -433,6 +496,7 @@ async fn approval_execute(approval_id: String, run_id: String) -> Result<Value, 
         None,
         RunEventKind::RunCompleted {
             final_output: serde_json::to_string(&output).map_err(|e| e.to_string())?,
+            total_cost_usd: None,
             total_duration_ms: duration_ms,
         },
     );
@@ -483,21 +547,61 @@ async fn score(run_id: String, target: String, score: f32) -> Result<(), String>
 async fn batch_run(items: Vec<String>, demo: Demo, options: RunOptions) -> Result<Value, String> {
     let batch_run_id = RunId::new();
     let batch_id = format!("batch-{}", batch_run_id.0);
+    let mut plan = BatchPlan::new(batch_id.clone(), items);
+    plan.save_to_env().map_err(|e| e.to_string())?;
+    execute_batch_plan(plan, batch_run_id, batch_id, demo, options).await
+}
+
+#[tauri::command]
+async fn batch_resume(batch_id: String, demo: Demo, options: RunOptions) -> Result<Value, String> {
+    let batch_run_id = RunId::new();
+    let plan = BatchPlan::load_from_env(&batch_id).map_err(|e| e.to_string())?;
+    execute_batch_plan(plan, batch_run_id, batch_id, demo, options).await
+}
+
+async fn execute_batch_plan(
+    mut plan: BatchPlan,
+    batch_run_id: RunId,
+    batch_id: String,
+    demo: Demo,
+    options: RunOptions,
+) -> Result<Value, String> {
     let store = Arc::new(open_event_store()?);
     store.append(
         batch_run_id,
         None,
         RunEventKind::BatchRunStarted {
             batch_id: batch_id.clone(),
-            items: items.len() as u32,
+            items: plan.items.len() as u32,
         },
     );
 
-    let mut succeeded = 0;
-    let mut failed = 0;
+    let mut skipped = 0;
     let mut summaries = Vec::new();
-    for (idx, item) in items.into_iter().enumerate() {
-        let item_key = format!("item-{idx}");
+    for item in plan.items.clone() {
+        let item_key = item.key.clone();
+        if item.status == BatchItemState::Succeeded {
+            skipped += 1;
+            store.append(
+                batch_run_id,
+                None,
+                RunEventKind::BatchItemStatus {
+                    batch_id: batch_id.clone(),
+                    item_key: item_key.clone(),
+                    status: "skipped: already succeeded".into(),
+                },
+            );
+            summaries.push(serde_json::json!({
+                "item_key": item_key,
+                "status": "skipped",
+                "last_run_id": item.last_run_id,
+                "final_output": item.final_output
+            }));
+            continue;
+        }
+
+        plan.mark_running(&item_key);
+        plan.save_to_env().map_err(|e| e.to_string())?;
         store.append(
             batch_run_id,
             None,
@@ -507,16 +611,29 @@ async fn batch_run(items: Vec<String>, demo: Demo, options: RunOptions) -> Resul
                 status: "running".into(),
             },
         );
-        let provider = build_provider(demo, &item, &options)?;
+        let provider = build_provider(demo, &item.input, &options)?;
         let harness = Harness::new(
             provider,
             store.clone(),
-            build_registry(options.enable_shell),
+            build_registry(options.enable_shell, options.enable_subagent),
         );
         let agent = build_agent(&options);
-        match harness.run(&agent, UserInput { text: item }).await {
+        match harness
+            .run(
+                &agent,
+                UserInput {
+                    text: item.input.clone(),
+                },
+            )
+            .await
+        {
             Ok(result) => {
-                succeeded += 1;
+                plan.mark_succeeded(
+                    &item_key,
+                    result.run_id.0.to_string(),
+                    result.final_output.clone(),
+                );
+                plan.save_to_env().map_err(|e| e.to_string())?;
                 store.append(
                     batch_run_id,
                     None,
@@ -550,7 +667,8 @@ async fn batch_run(items: Vec<String>, demo: Demo, options: RunOptions) -> Resul
                 }));
             }
             Err(err) => {
-                failed += 1;
+                plan.mark_failed(&item_key, err.to_string());
+                plan.save_to_env().map_err(|e| e.to_string())?;
                 store.append(
                     batch_run_id,
                     None,
@@ -573,15 +691,16 @@ async fn batch_run(items: Vec<String>, demo: Demo, options: RunOptions) -> Resul
         None,
         RunEventKind::BatchRunCompleted {
             batch_id: batch_id.clone(),
-            succeeded,
-            failed,
+            succeeded: plan.succeeded_count(),
+            failed: plan.failed_count(),
         },
     );
     Ok(serde_json::json!({
         "batch_run_id": batch_run_id.0,
         "batch_id": batch_id,
-        "succeeded": succeeded,
-        "failed": failed,
+        "succeeded": plan.succeeded_count(),
+        "failed": plan.failed_count(),
+        "skipped": skipped,
         "items": summaries
     }))
 }
@@ -593,9 +712,11 @@ async fn memory_create(content: String, user: bool) -> Result<MemoryRecord, Stri
     } else {
         MemoryTarget::Agent
     };
-    MemoryStore::from_env()
+    let record = MemoryStore::from_env()
         .create(target, &content, MemoryAuthor::Human, None)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    record_memory_written(&record, "created")?;
+    Ok(record)
 }
 
 #[tauri::command]
@@ -609,9 +730,13 @@ async fn memory_generate(
     } else {
         MemoryTarget::Agent
     };
-    MemoryStore::from_env()
+    let records = MemoryStore::from_env()
         .generate_from_text(target, &text, range)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    for record in &records {
+        record_memory_written(record, "generated")?;
+    }
+    Ok(records)
 }
 
 #[tauri::command]
@@ -621,16 +746,19 @@ async fn memory_list() -> Result<Vec<MemoryRecord>, String> {
 
 #[tauri::command]
 async fn memory_edit(id: String, content: String) -> Result<MemoryRecord, String> {
-    MemoryStore::from_env()
+    let record = MemoryStore::from_env()
         .edit(&id, &content)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    record_memory_written(&record, "edited")?;
+    Ok(record)
 }
 
 #[tauri::command]
 async fn memory_delete(id: String) -> Result<(), String> {
     MemoryStore::from_env()
         .delete(&id)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    record_memory_operation(&id, "deleted")
 }
 
 #[tauri::command]
@@ -642,7 +770,24 @@ async fn memory_rollback(user: bool) -> Result<(), String> {
     };
     MemoryStore::from_env()
         .rollback(target)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    record_memory_operation(if user { "user.md" } else { "memory.md" }, "rolled_back")
+}
+
+fn record_memory_written(record: &MemoryRecord, operation: &str) -> Result<(), String> {
+    record_memory_operation(&record.id, operation)
+}
+
+fn record_memory_operation(id: &str, operation: &str) -> Result<(), String> {
+    open_event_store()?.append(
+        RunId::new(),
+        None,
+        RunEventKind::MemoryWritten {
+            id: id.to_string(),
+            operation: operation.to_string(),
+        },
+    );
+    Ok(())
 }
 
 #[tauri::command]
@@ -679,10 +824,33 @@ async fn skill_quarantine(id: String) -> Result<SkillDoc, String> {
 }
 
 #[tauri::command]
-async fn ingest_add(path: String) -> Result<IngestionArtifact, String> {
-    IngestionStore::from_env()
-        .ingest(path)
-        .map_err(|e| e.to_string())
+async fn ingest_add(
+    app: AppHandle,
+    path: String,
+    backend: Option<String>,
+) -> Result<IngestionArtifact, String> {
+    let backend = backend.unwrap_or_else(|| "local-v0".into());
+    let trace_run_id = RunId::new();
+    let store = open_event_store()?;
+    let started = store.append(
+        trace_run_id,
+        None,
+        RunEventKind::IngestionStarted {
+            source: path.clone(),
+            backend: backend.clone(),
+        },
+    );
+    let _ = app.emit("run-event", &started);
+    let artifact = IngestionStore::from_env()
+        .ingest_with_backend(path, &backend)
+        .map_err(|e| e.to_string())?;
+    let completed = store.append(
+        trace_run_id,
+        Some(started.id),
+        ingestion_completed_event(&artifact),
+    );
+    let _ = app.emit("run-event", &completed);
+    Ok(artifact)
 }
 
 #[tauri::command]
@@ -702,6 +870,14 @@ async fn ingest_rm(id: String) -> Result<(), String> {
     IngestionStore::from_env()
         .remove(&id)
         .map_err(|e| e.to_string())
+}
+
+fn ingestion_completed_event(artifact: &IngestionArtifact) -> RunEventKind {
+    RunEventKind::IngestionCompleted {
+        artifact_id: artifact.id.clone(),
+        content_hash: artifact.content_hash.clone(),
+        sections: artifact.sections.len() as u32,
+    }
 }
 
 #[tauri::command]
@@ -822,6 +998,7 @@ pub fn run() {
             cancel,
             score,
             batch_run,
+            batch_resume,
             memory_create,
             memory_generate,
             memory_list,

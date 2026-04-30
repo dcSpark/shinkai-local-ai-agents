@@ -55,6 +55,10 @@ impl StoragePaths {
         self.profiles_dir().join("main")
     }
 
+    pub fn main_profile_config(&self) -> PathBuf {
+        self.main_profile_dir().join("profile.toml")
+    }
+
     pub fn agents_dir(&self) -> PathBuf {
         self.main_profile_dir().join("agents")
     }
@@ -73,6 +77,18 @@ impl StoragePaths {
 
     pub fn adapters_dir(&self) -> PathBuf {
         self.main_profile_dir().join("adapters")
+    }
+
+    pub fn models_dir(&self) -> PathBuf {
+        self.main_profile_dir().join("models")
+    }
+
+    pub fn model_config(&self, model: &str) -> PathBuf {
+        self.models_dir().join(format!("{model}.toml"))
+    }
+
+    pub fn prompts_dir(&self) -> PathBuf {
+        self.main_profile_dir().join("prompts")
     }
 
     pub fn memory_file(&self) -> PathBuf {
@@ -95,6 +111,10 @@ impl StoragePaths {
         self.cache_dir().join("ingestion")
     }
 
+    pub fn batches_dir(&self) -> PathBuf {
+        self.cache_dir().join("batches")
+    }
+
     pub fn state_db(&self) -> PathBuf {
         self.root.join("state.sqlite")
     }
@@ -103,8 +123,11 @@ impl StoragePaths {
         std::fs::create_dir_all(self.default_agent_dir())?;
         std::fs::create_dir_all(self.skills_dir())?;
         std::fs::create_dir_all(self.adapters_dir())?;
+        std::fs::create_dir_all(self.models_dir())?;
+        std::fs::create_dir_all(self.prompts_dir())?;
         std::fs::create_dir_all(self.memory_backup_dir())?;
         std::fs::create_dir_all(self.ingestion_cache_dir())?;
+        std::fs::create_dir_all(self.batches_dir())?;
         Ok(())
     }
 }
@@ -123,6 +146,14 @@ mod tests {
         assert_eq!(
             paths.default_agent_config(),
             PathBuf::from("/tmp/harness/profiles/main/agents/fake-agent/agent.toml")
+        );
+        assert_eq!(
+            paths.main_profile_config(),
+            PathBuf::from("/tmp/harness/profiles/main/profile.toml")
+        );
+        assert_eq!(
+            paths.model_config("fake-model"),
+            PathBuf::from("/tmp/harness/profiles/main/models/fake-model.toml")
         );
         assert_eq!(paths.state_db(), PathBuf::from("/tmp/harness/state.sqlite"));
     }

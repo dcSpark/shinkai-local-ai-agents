@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "crates/agent-adapters",
     "crates/agent-api-client",
+    "crates/agent-batch",
     "crates/agent-bundles",
     "crates/agent-config",
     "crates/agent-core",
@@ -11,6 +12,7 @@ members = [
     "crates/agent-tracing",
     "crates/agent-llm",
     "crates/agent-memory",
+    "crates/agent-prompts",
     "crates/agent-storage",
     "crates/agent-skills",
     "crates/agent-tools",

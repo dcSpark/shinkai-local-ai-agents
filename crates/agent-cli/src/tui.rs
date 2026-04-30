@@ -4,9 +4,8 @@
 //! - input box (Enter to send, Esc / Ctrl+C to quit, Backspace, character entry)
 //! - live event streaming from the harness via `PublishingEventStore`
 //!
-//! Slash-command grammar (`/tool`, `/tool!`, `/score`, `/guide`, …) and the
-//! context-preview / tool-tray panes from `specs/architecture.md` §20.1 land
-//! in later slices.
+//! Most slash-command grammar (`/tool`, `/tool!`, `/score`, `/guide`, …) and
+//! the tool-tray pane from `specs/architecture.md` §20.1 land in later slices.
 
 use std::io::{self, Stdout};
 use std::sync::Arc;
@@ -26,9 +25,12 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use tokio::sync::mpsc::UnboundedSender;
 
 use agent_core::{AgentConfig, Harness, HarnessApi, ToolPolicy, UserInput};
+use agent_prompts::{PromptStore, is_valid_prompt_name};
 use agent_storage::StoragePaths;
-use agent_tools::ToolRegistry;
-use agent_tracing::{PublishingEventStore, RunEvent, RunEventKind, SqliteEventStore};
+use agent_tools::{ToolId, ToolRegistry};
+use agent_tracing::{
+    EventStore, PublishingEventStore, RunEvent, RunEventKind, RunId, SqliteEventStore,
+};
 
 use crate::{Demo, setup};
 
@@ -57,8 +59,10 @@ struct App {
     state: AppState,
     tokens_in: u32,
     tokens_out: u32,
+    cost_usd: f64,
     calls_used: u32,
     calls_max: u32,
+    last_run_id: Option<RunId>,
     quit: bool,
 }
 
@@ -104,7 +108,7 @@ async fn main_loop(
     demo: Demo,
     options: setup::RuntimeOptions,
 ) -> anyhow::Result<()> {
-    let registry = setup::build_registry(options.enable_shell);
+    let registry = setup::build_registry(options.enable_shell, options.enable_subagent);
     let agent = setup::build_agent(&options);
     let calls_max = ToolPolicy::default().max_calls;
 
@@ -172,6 +176,9 @@ fn handle_terminal_event(
             if prompt.trim().is_empty() {
                 return;
             }
+            if handle_slash_command(app, &prompt, registry, agent, publish_tx) {
+                return;
+            }
             spawn_run(app, prompt, demo, registry, agent, publish_tx, options);
         }
         (_, KeyCode::Backspace) => {
@@ -193,13 +200,29 @@ fn spawn_run(
     publish_tx: &UnboundedSender<RunEvent>,
     options: &setup::RuntimeOptions,
 ) {
+    let original_prompt = prompt;
+    let prompt = match resolve_saved_prompt_or_literal(&original_prompt) {
+        Ok(prompt) => prompt,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Prompt lookup failed: {err}"),
+            });
+            return;
+        }
+    };
     app.transcript.push(TranscriptLine {
         kind: LineKind::User,
-        text: prompt.clone(),
+        text: if original_prompt == prompt {
+            prompt.clone()
+        } else {
+            format!("{original_prompt}\n\n{prompt}")
+        },
     });
     app.state = AppState::Running;
     app.tokens_in = 0;
     app.tokens_out = 0;
+    app.cost_usd = 0.0;
     app.calls_used = 0;
 
     let provider = match setup::build_provider(demo, &prompt, options) {
@@ -234,6 +257,208 @@ fn spawn_run(
     });
 }
 
+fn resolve_saved_prompt_or_literal(text: &str) -> anyhow::Result<String> {
+    let trimmed = text.trim();
+    let Some(name) = trimmed.strip_prefix("/run ").map(str::trim) else {
+        return Ok(text.to_string());
+    };
+    if !is_valid_prompt_name(name) {
+        return Ok(name.to_string());
+    }
+    Ok(PromptStore::from_env()
+        .get(name)?
+        .map(|prompt| prompt.body)
+        .unwrap_or_else(|| name.to_string()))
+}
+
+fn handle_slash_command(
+    app: &mut App,
+    prompt: &str,
+    registry: &Arc<ToolRegistry>,
+    agent: &AgentConfig,
+    publish_tx: &UnboundedSender<RunEvent>,
+) -> bool {
+    let trimmed = prompt.trim();
+    if trimmed == "/agent" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: format!(
+                "Agent: {} ({})\nmodel: {}\ntool calls: {}\ntool visibility: {:?}\nraw output: {}",
+                agent.name,
+                agent.id,
+                agent.model.0,
+                agent.tool_policy.max_calls,
+                agent.tool_policy.visibility,
+                matches!(
+                    agent.tool_policy.output_mode,
+                    agent_core::ToolOutputMode::Raw
+                )
+            ),
+        });
+        return true;
+    }
+    if let Some(rest) = trimmed.strip_prefix("/tool!").map(str::trim) {
+        start_manual_tool_call(app, rest, registry, agent, publish_tx);
+        return true;
+    }
+    if let Some(rest) = trimmed.strip_prefix("/tool ").map(str::trim) {
+        start_manual_tool_call(app, rest, registry, agent, publish_tx);
+        return true;
+    }
+    if let Some(input) = trimmed.strip_prefix("/preview").map(str::trim) {
+        let harness = Harness::new(
+            Arc::new(agent_llm::FakeProvider::echo()),
+            Arc::new(agent_tracing::InMemoryEventStore::new()),
+            registry.clone(),
+        );
+        let snapshot = harness.preview_context(
+            agent,
+            UserInput {
+                text: if input.is_empty() { "preview" } else { input }.to_string(),
+            },
+        );
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Event,
+            text: format!(
+                "Preview: {} tools, {} skills, {} memory, {} artifacts",
+                snapshot.visible_tools.len(),
+                snapshot.visible_skills.len(),
+                snapshot.loaded_memory.len(),
+                snapshot.loaded_artifacts.len()
+            ),
+        });
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: serde_json::to_string_pretty(&snapshot)
+                .unwrap_or_else(|_| "<unserializable context>".into()),
+        });
+        return true;
+    }
+    if let Some(score) = trimmed.strip_prefix("/score").map(str::trim) {
+        let Some(run_id) = app.last_run_id else {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: "No run to score yet.".into(),
+            });
+            return true;
+        };
+        let score = score.parse::<f32>().unwrap_or(10.0);
+        match open_event_store() {
+            Ok(store) => {
+                store.append(
+                    run_id,
+                    None,
+                    RunEventKind::QualityScored {
+                        target: "last_answer".into(),
+                        score,
+                    },
+                );
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Event,
+                    text: format!("Score recorded for {run_id}: {score}/10"),
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Score failed: {err}"),
+            }),
+        }
+        return true;
+    }
+    if let Some(text) = trimmed.strip_prefix("/guide").map(str::trim) {
+        let Some(run_id) = app.last_run_id else {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: "No run to guide yet.".into(),
+            });
+            return true;
+        };
+        match open_event_store() {
+            Ok(store) => {
+                store.append(
+                    run_id,
+                    None,
+                    RunEventKind::GuidanceInjected {
+                        content: text.to_string(),
+                    },
+                );
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Event,
+                    text: format!("Guidance recorded for {run_id}"),
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Guide failed: {err}"),
+            }),
+        }
+        return true;
+    }
+    false
+}
+
+fn start_manual_tool_call(
+    app: &mut App,
+    rest: &str,
+    registry: &Arc<ToolRegistry>,
+    agent: &AgentConfig,
+    publish_tx: &UnboundedSender<RunEvent>,
+) {
+    let (name, input) = match parse_tool_slash_rest(rest) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Tool command failed: {err}"),
+            });
+            return;
+        }
+    };
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::User,
+        text: format!("/tool! {name} {input}"),
+    });
+    app.state = AppState::Running;
+    app.tokens_in = 0;
+    app.tokens_out = 0;
+    app.cost_usd = 0.0;
+    app.calls_used = 0;
+
+    let store = match open_event_store() {
+        Ok(store) => PublishingEventStore::new(store, publish_tx.clone()),
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Trace store setup failed: {err}"),
+            });
+            app.state = AppState::Idle;
+            return;
+        }
+    };
+    let harness = Harness::new(
+        Arc::new(agent_llm::FakeProvider::echo()),
+        Arc::new(store),
+        registry.clone(),
+    );
+    let agent = agent.clone();
+    tokio::spawn(async move {
+        let _ = harness.call_tool(&agent, ToolId::from(name), input).await;
+    });
+}
+
+fn parse_tool_slash_rest(rest: &str) -> anyhow::Result<(String, serde_json::Value)> {
+    let (name, input) = rest
+        .trim()
+        .split_once(char::is_whitespace)
+        .map(|(name, input)| (name.to_string(), input.trim().to_string()))
+        .unwrap_or_else(|| (rest.trim().to_string(), "{}".into()));
+    if name.is_empty() {
+        anyhow::bail!("missing tool name");
+    }
+    let input = serde_json::from_str(&input)?;
+    Ok((name, input))
+}
+
 fn open_event_store() -> anyhow::Result<SqliteEventStore> {
     let paths = StoragePaths::from_env();
     paths.ensure_base_dirs()?;
@@ -242,7 +467,9 @@ fn open_event_store() -> anyhow::Result<SqliteEventStore> {
 
 fn handle_run_event(app: &mut App, evt: &RunEvent) {
     match &evt.kind {
-        RunEventKind::RunStarted { .. } => {}
+        RunEventKind::RunStarted { .. } => {
+            app.last_run_id = Some(evt.run_id);
+        }
         RunEventKind::ContextBuilt { snapshot } => {
             let visible_tools = snapshot
                 .get("visible_tools")
@@ -265,14 +492,21 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
         RunEventKind::LlmRequestCompleted {
             tokens_in,
             tokens_out,
+            cost_usd,
             duration_ms,
         } => {
             app.tokens_in += tokens_in;
             app.tokens_out += tokens_out;
+            if let Some(value) = cost_usd {
+                app.cost_usd += value;
+            }
+            let cost = cost_usd
+                .map(|value| format!(", ${value:.6}"))
+                .unwrap_or_default();
             push_event(
                 app,
                 format!(
-                    "LLM call completed (in: {tokens_in}, out: {tokens_out}, {duration_ms} ms)"
+                    "LLM call completed (in: {tokens_in}, out: {tokens_out}{cost}, {duration_ms} ms)"
                 ),
             );
         }
@@ -292,12 +526,19 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
         RunEventKind::ToolCallCompleted {
             call_id,
             output,
+            cost_usd,
             duration_ms,
         } => {
             app.calls_used += 1;
+            if let Some(value) = cost_usd {
+                app.cost_usd += value;
+            }
+            let cost = cost_usd
+                .map(|value| format!(", ${value:.6}"))
+                .unwrap_or_default();
             push_event(
                 app,
-                format!("Tool completed [{call_id}] -> {output} ({duration_ms} ms)"),
+                format!("Tool completed [{call_id}] -> {output} ({duration_ms} ms{cost})"),
             );
         }
         RunEventKind::ToolCallFailed { call_id, error } => {
@@ -345,6 +586,22 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
                 app,
                 format!("Ingestion referenced: {artifact_id} ({source})"),
             );
+        }
+        RunEventKind::IngestionStarted { source, backend } => {
+            push_event(app, format!("Ingestion started: {source} via {backend}"));
+        }
+        RunEventKind::IngestionCompleted {
+            artifact_id,
+            sections,
+            ..
+        } => {
+            push_event(
+                app,
+                format!("Ingestion completed: {artifact_id} ({sections} sections)"),
+            );
+        }
+        RunEventKind::PolicyDenied { reason } => {
+            push_event(app, format!("Policy denied: {reason}"));
         }
         RunEventKind::ChildRunStarted {
             child_run_id,
@@ -400,13 +657,23 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
         }
         RunEventKind::RunCompleted {
             final_output,
+            total_cost_usd,
             total_duration_ms,
         } => {
             app.transcript.push(TranscriptLine {
                 kind: LineKind::Assistant,
                 text: final_output.clone(),
             });
-            push_event(app, format!("Run completed in {total_duration_ms} ms"));
+            if let Some(value) = total_cost_usd {
+                app.cost_usd = *value;
+            }
+            let cost = total_cost_usd
+                .map(|value| format!(", ${value:.6}"))
+                .unwrap_or_default();
+            push_event(
+                app,
+                format!("Run completed in {total_duration_ms} ms{cost}"),
+            );
             app.state = AppState::Idle;
         }
         RunEventKind::RunFailed { reason } => {
@@ -500,8 +767,8 @@ fn render_status(f: &mut ratatui::Frame, area: Rect, app: &App) {
         AppState::Running => "running…",
     };
     let text = format!(
-        " tokens {}↑/{}↓ · calls {}/{} · {}",
-        app.tokens_in, app.tokens_out, app.calls_used, app.calls_max, state
+        " tokens {}↑/{}↓ · cost ${:.6} · calls {}/{} · {}",
+        app.tokens_in, app.tokens_out, app.cost_usd, app.calls_used, app.calls_max, state
     );
     let p = Paragraph::new(text).style(Style::default().fg(Color::DarkGray));
     f.render_widget(p, area);

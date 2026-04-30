@@ -218,6 +218,46 @@ fn decode_and_truncate(bytes: &[u8], max_bytes: usize) -> (String, bool) {
     (text, truncated)
 }
 
+/// Descriptor/placeholder for the harness-owned subagent runtime. The actual
+/// child run is executed by `agent-core` so it can emit linked child events.
+pub struct SubagentTool;
+
+impl SubagentTool {
+    pub fn descriptor() -> ToolDescriptor {
+        ToolDescriptor {
+            id: ToolId::from("subagent"),
+            name: "Subagent".into(),
+            description: "Runs a focused child agent call and returns its output.".into(),
+            input_schema: json!({
+                "type": "object",
+                "required": ["prompt"],
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Task prompt for the child run."
+                    },
+                    "agent_id": {
+                        "type": "string",
+                        "description": "Optional child agent label for trace provenance."
+                    }
+                },
+                "additionalProperties": false
+            }),
+            permissions: ToolPermissions::default(),
+            requires_approval: false,
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for SubagentTool {
+    async fn execute(&self, _input: Value) -> Result<Value, ToolError> {
+        Err(ToolError::Execution(
+            "subagent execution is owned by agent-core".into(),
+        ))
+    }
+}
+
 #[async_trait]
 pub trait Tool: Send + Sync {
     async fn execute(&self, input: Value) -> Result<Value, ToolError>;

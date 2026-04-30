@@ -8,6 +8,7 @@ import type {
   RunEvent,
   RunOptions,
   RunSummary,
+  ToolVisibility,
 } from "./types";
 
 type LineKind = "user" | "assistant" | "event" | "error";
@@ -18,9 +19,21 @@ interface TranscriptLine {
   text: string;
 }
 
-interface RemoteRunSummary {
+interface RemoteRunStart {
   run_id: string;
-  final_output: string;
+  status: string;
+  active: boolean;
+}
+
+interface RemoteRunStatus {
+  run_id: string;
+  status: "running" | "completed" | "failed" | "cancelled" | "paused" | "unknown";
+  active: boolean;
+  event_count: number;
+  final_output: string | null;
+  reason: string | null;
+  total_cost_usd: number | null;
+  total_duration_ms: number | null;
 }
 
 const CALLS_MAX = 5;
@@ -40,6 +53,7 @@ export default function App() {
   const [running, setRunning] = useState(false);
   const [tokensIn, setTokensIn] = useState(0);
   const [tokensOut, setTokensOut] = useState(0);
+  const [costUsd, setCostUsd] = useState(0);
   const [calls, setCalls] = useState(0);
   const [demo, setDemo] = useState<Demo>("tool");
   const [provider, setProvider] = useState<Provider>("fake");
@@ -52,10 +66,16 @@ export default function App() {
   const [apiBaseUrl, setApiBaseUrl] = useState("");
   const [apiKeyEnv, setApiKeyEnv] = useState("OPENAI_API_KEY");
   const [apiKey, setApiKey] = useState("");
+  const [inputCostPerMillion, setInputCostPerMillion] = useState("");
+  const [outputCostPerMillion, setOutputCostPerMillion] = useState("");
+  const [maxToolCalls, setMaxToolCalls] = useState("");
+  const [toolVisibility, setToolVisibility] = useState<ToolVisibility | "">("");
   const [enableShell, setEnableShell] = useState(false);
+  const [enableSubagent, setEnableSubagent] = useState(false);
   const [loadMemory, setLoadMemory] = useState(false);
   const [loadSkills, setLoadSkills] = useState(false);
   const [requireApproval, setRequireApproval] = useState(false);
+  const [rawToolOutput, setRawToolOutput] = useState(false);
   const [lastRunId, setLastRunId] = useState<string | null>(null);
   const [contextPreview, setContextPreview] = useState<ContextSnapshot | null>(
     null,
@@ -63,6 +83,7 @@ export default function App() {
 
   const transcriptRef = useRef<HTMLElement>(null);
   const terminalEventSeenRef = useRef(false);
+  const rootRunIdRef = useRef<string | null>(null);
   const runLabel = lastRunId ? lastRunId.slice(0, 8) : "none";
 
   // Subscribe to streaming RunEvents from the Rust backend.
@@ -92,7 +113,12 @@ export default function App() {
     const k = evt.kind;
     switch (k.type) {
       case "RunStarted":
-        setLastRunId(evt.run_id);
+        if (rootRunIdRef.current === null) {
+          rootRunIdRef.current = evt.run_id;
+          setLastRunId(evt.run_id);
+        } else if (evt.run_id !== rootRunIdRef.current) {
+          appendEvent(`Run started: ${evt.run_id.slice(0, 8)}`);
+        }
         return;
       case "ContextBuilt":
         appendEvent(
@@ -105,8 +131,13 @@ export default function App() {
       case "LlmRequestCompleted":
         setTokensIn((v) => v + k.tokens_in);
         setTokensOut((v) => v + k.tokens_out);
+        const eventCostUsd = k.cost_usd;
+        if (eventCostUsd !== null) {
+          setCostUsd((v) => v + eventCostUsd);
+        }
+        const cost = eventCostUsd === null ? "" : `, $${eventCostUsd.toFixed(6)}`;
         appendEvent(
-          `LLM call completed (in: ${k.tokens_in}, out: ${k.tokens_out}, ${k.duration_ms} ms)`,
+          `LLM call completed (in: ${k.tokens_in}, out: ${k.tokens_out}${cost}, ${k.duration_ms} ms)`,
         );
         return;
       case "ToolCallProposed":
@@ -119,8 +150,14 @@ export default function App() {
         return;
       case "ToolCallCompleted":
         setCalls((v) => v + 1);
+        const toolCostUsd = k.cost_usd;
+        if (toolCostUsd !== null) {
+          setCostUsd((v) => v + toolCostUsd);
+        }
+        const toolCost =
+          toolCostUsd === null ? "" : `, $${toolCostUsd.toFixed(6)}`;
         appendEvent(
-          `Tool completed [${k.call_id}] -> ${JSON.stringify(k.output)} (${k.duration_ms} ms)`,
+          `Tool completed [${k.call_id}] -> ${JSON.stringify(k.output)} (${k.duration_ms} ms${toolCost})`,
         );
         return;
       case "ToolCallFailed":
@@ -149,6 +186,15 @@ export default function App() {
       case "IngestionReferenced":
         appendEvent(`Ingestion referenced: ${k.artifact_id} (${k.source})`);
         return;
+      case "IngestionStarted":
+        appendEvent(`Ingestion started: ${k.source} via ${k.backend}`);
+        return;
+      case "IngestionCompleted":
+        appendEvent(`Ingestion completed: ${k.artifact_id} (${k.sections} sections)`);
+        return;
+      case "PolicyDenied":
+        appendEvent(`Policy denied: ${k.reason}`);
+        return;
       case "ChildRunStarted":
         appendEvent(`Child run started: ${k.child_run_id} (${k.agent_id})`);
         return;
@@ -167,22 +213,45 @@ export default function App() {
         );
         return;
       case "RunPaused":
+        if (evt.run_id !== rootRunIdRef.current) {
+          appendEvent(`Run paused: ${evt.run_id.slice(0, 8)} (${k.reason})`);
+          return;
+        }
         terminalEventSeenRef.current = true;
         appendLine("error", `Run paused: ${k.reason}`);
         setRunning(false);
         return;
       case "RunCancelled":
+        if (evt.run_id !== rootRunIdRef.current) {
+          appendEvent(`Run cancelled: ${evt.run_id.slice(0, 8)} (${k.reason})`);
+          return;
+        }
         terminalEventSeenRef.current = true;
         appendLine("error", `Run cancelled: ${k.reason}`);
         setRunning(false);
         return;
       case "RunCompleted":
+        if (k.total_cost_usd !== null) {
+          setCostUsd(k.total_cost_usd);
+        }
+        const totalCost =
+          k.total_cost_usd === null ? "" : `, $${k.total_cost_usd.toFixed(6)}`;
+        if (evt.run_id !== rootRunIdRef.current) {
+          appendEvent(
+            `Run completed: ${evt.run_id.slice(0, 8)} (${k.total_duration_ms} ms${totalCost})`,
+          );
+          return;
+        }
         terminalEventSeenRef.current = true;
         appendLine("assistant", k.final_output);
-        appendEvent(`Run completed in ${k.total_duration_ms} ms`);
+        appendEvent(`Run completed in ${k.total_duration_ms} ms${totalCost}`);
         setRunning(false);
         return;
       case "RunFailed":
+        if (evt.run_id !== rootRunIdRef.current) {
+          appendEvent(`Run failed: ${evt.run_id.slice(0, 8)} (${k.reason})`);
+          return;
+        }
         terminalEventSeenRef.current = true;
         appendLine("error", `Run failed: ${k.reason}`);
         setRunning(false);
@@ -206,11 +275,17 @@ export default function App() {
       api_key: apiKey.trim() || null,
       max_output_tokens: null,
       temperature: null,
+      input_cost_per_million: parseOptionalNonNegativeFloat(inputCostPerMillion),
+      output_cost_per_million: parseOptionalNonNegativeFloat(outputCostPerMillion),
+      max_tool_calls: parseOptionalNonNegativeInt(maxToolCalls),
+      tool_visibility: toolVisibility || null,
       enable_shell: enableShell,
+      enable_subagent: enableSubagent,
       load_memory: loadMemory,
       load_skills: loadSkills,
       include_ingest: [],
       require_approval: requireApproval,
+      raw_tool_output: rawToolOutput,
     };
   }
 
@@ -245,6 +320,45 @@ export default function App() {
     );
     if (match) {
       setLastRunId(match[1]);
+    }
+  }
+
+  function sleep(ms: number) {
+    return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+  }
+
+  async function pollRemoteRun(runId: string) {
+    for (;;) {
+      const status = await daemonJson<RemoteRunStatus>(`/run/status/${runId}`);
+      if (status.status === "running" || status.status === "unknown") {
+        await sleep(500);
+        continue;
+      }
+      terminalEventSeenRef.current = true;
+      if (status.status === "completed") {
+        if (status.total_cost_usd !== null) {
+          setCostUsd(status.total_cost_usd);
+        }
+        appendLine("assistant", status.final_output ?? "");
+        appendEvent(
+          `Remote run completed: ${runId}${
+            status.total_duration_ms === null
+              ? ""
+              : ` (${status.total_duration_ms} ms)`
+          }${status.total_cost_usd === null ? "" : `, $${status.total_cost_usd.toFixed(6)}`}`,
+        );
+      } else if (status.status === "cancelled") {
+        appendLine(
+          "error",
+          `Remote run cancelled: ${status.reason ?? "user requested stop"}`,
+        );
+      } else if (status.status === "paused") {
+        appendLine("error", `Remote run paused: ${status.reason ?? "approval required"}`);
+      } else {
+        appendLine("error", `Remote run failed: ${status.reason ?? status.status}`);
+      }
+      setRunning(false);
+      return;
     }
   }
 
@@ -289,21 +403,22 @@ export default function App() {
     setRunning(true);
     setTokensIn(0);
     setTokensOut(0);
+    setCostUsd(0);
     setCalls(0);
     terminalEventSeenRef.current = false;
+    rootRunIdRef.current = null;
     appendLine("user", prompt);
 
     try {
       if (transport === "daemon") {
-        const summary = await daemonJson<RemoteRunSummary>("/run", {
+        const started = await daemonJson<RemoteRunStart>("/run/start", {
           input: prompt,
           demo,
           ...runtimeOptions(),
         });
-        setLastRunId(summary.run_id);
-        appendLine("assistant", summary.final_output);
-        appendEvent(`Remote run completed: ${summary.run_id}`);
-        setRunning(false);
+        setLastRunId(started.run_id);
+        appendEvent(`Remote run started: ${started.run_id}`);
+        await pollRemoteRun(started.run_id);
         return;
       }
       // The harness emits RunCompleted/RunFailed via the event channel;
@@ -589,6 +704,29 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Batch failed: ${msg}`);
+    }
+  }
+
+  async function resumeBatchFromOps() {
+    const batchId = opsId.trim();
+    if (!batchId || running) return;
+    try {
+      const summary =
+        transport === "daemon"
+          ? await daemonJson<unknown>("/batch/resume", {
+              batch_id: batchId,
+              demo: "echo",
+              ...runtimeOptions(),
+            })
+          : await invoke<unknown>("batch_resume", {
+              batchId,
+              demo: "echo",
+              options: runtimeOptions(),
+            });
+      appendLine("assistant", JSON.stringify(summary, null, 2));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Batch resume failed: ${msg}`);
     }
   }
 
@@ -943,6 +1081,7 @@ export default function App() {
               {running ? "running" : "idle"}
             </span>
             <span className="pill">tokens {tokensIn}/{tokensOut}</span>
+            <span className="pill">cost ${costUsd.toFixed(6)}</span>
             <span className="pill">calls {calls}/{CALLS_MAX}</span>
           </div>
         </header>
@@ -987,6 +1126,13 @@ export default function App() {
               disabled={running || !input.trim()}
             >
               Batch
+            </button>
+            <button
+              type="button"
+              onClick={() => void resumeBatchFromOps()}
+              disabled={running || !opsId.trim()}
+            >
+              Resume Batch
             </button>
             <button
               type="button"
@@ -1080,6 +1226,30 @@ export default function App() {
               disabled={running || provider !== "rig"}
             />
           </label>
+          <label>
+            Input $/M
+            <input
+              type="number"
+              min="0"
+              step="0.000001"
+              value={inputCostPerMillion}
+              onChange={(e) => setInputCostPerMillion(e.target.value)}
+              placeholder="config"
+              disabled={running}
+            />
+          </label>
+          <label>
+            Output $/M
+            <input
+              type="number"
+              min="0"
+              step="0.000001"
+              value={outputCostPerMillion}
+              onChange={(e) => setOutputCostPerMillion(e.target.value)}
+              placeholder="config"
+              disabled={running}
+            />
+          </label>
         </section>
 
         <section className="panel">
@@ -1092,6 +1262,40 @@ export default function App() {
               disabled={running}
             />
             <span>Shell</span>
+          </label>
+          <label>
+            Max tool calls
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={maxToolCalls}
+              onChange={(e) => setMaxToolCalls(e.target.value)}
+              placeholder="config"
+              disabled={running}
+            />
+          </label>
+          <label>
+            Tool visibility
+            <select
+              value={toolVisibility}
+              onChange={(e) => setToolVisibility(e.target.value as ToolVisibility | "")}
+              disabled={running}
+            >
+              <option value="">config</option>
+              <option value="full_schema">full schema</option>
+              <option value="name_and_description">name and description</option>
+              <option value="name_only">name only</option>
+            </select>
+          </label>
+          <label className="switch">
+            <input
+              type="checkbox"
+              checked={enableSubagent}
+              onChange={(e) => setEnableSubagent(e.target.checked)}
+              disabled={running}
+            />
+            <span>Subagent</span>
           </label>
           <label className="switch">
             <input
@@ -1119,6 +1323,15 @@ export default function App() {
               disabled={running}
             />
             <span>Approval gate</span>
+          </label>
+          <label className="switch">
+            <input
+              type="checkbox"
+              checked={rawToolOutput}
+              onChange={(e) => setRawToolOutput(e.target.checked)}
+              disabled={running}
+            />
+            <span>Raw tool output</span>
           </label>
           <button
             type="button"
@@ -1337,7 +1550,7 @@ export default function App() {
             <button
               type="button"
               onClick={() => void cancelLastRun()}
-              disabled={!running || !lastRunId || transport === "daemon"}
+              disabled={!running || !lastRunId}
             >
               Stop
             </button>
@@ -1366,4 +1579,21 @@ function prefixFor(kind: LineKind): string {
     case "error":
       return "err";
   }
+}
+
+function parseOptionalNonNegativeInt(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!/^\d+$/.test(trimmed)) return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return parsed;
+}
+
+function parseOptionalNonNegativeFloat(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number.parseFloat(trimmed);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return parsed;
 }

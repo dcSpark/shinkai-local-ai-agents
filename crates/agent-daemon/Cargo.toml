@@ -13,6 +13,7 @@ path = "src/main.rs"
 [dependencies]
 agent-api-client = { path = "../agent-api-client" }
 agent-adapters = { path = "../agent-adapters" }
+agent-batch = { path = "../agent-batch" }
 agent-bundles = { path = "../agent-bundles" }
 agent-config = { path = "../agent-config" }
 agent-core = { path = "../agent-core" }

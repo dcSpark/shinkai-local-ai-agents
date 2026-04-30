@@ -24,6 +24,7 @@ export type RunEventKind =
       type: "LlmRequestCompleted";
       tokens_in: number;
       tokens_out: number;
+      cost_usd: number | null;
       duration_ms: number;
     }
   | {
@@ -37,6 +38,7 @@ export type RunEventKind =
       type: "ToolCallCompleted";
       call_id: string;
       output: unknown;
+      cost_usd: number | null;
       duration_ms: number;
     }
   | { type: "ToolCallFailed"; call_id: string; error: string }
@@ -52,6 +54,14 @@ export type RunEventKind =
   | { type: "MemoryLoaded"; ids: string[] }
   | { type: "MemoryWritten"; id: string; operation: string }
   | { type: "IngestionReferenced"; artifact_id: string; source: string }
+  | { type: "IngestionStarted"; source: string; backend: string }
+  | {
+      type: "IngestionCompleted";
+      artifact_id: string;
+      content_hash: string;
+      sections: number;
+    }
+  | { type: "PolicyDenied"; reason: string }
   | { type: "ChildRunStarted"; child_run_id: Uuid; agent_id: string }
   | { type: "ChildRunCompleted"; child_run_id: Uuid; status: string }
   | { type: "BatchRunStarted"; batch_id: string; items: number }
@@ -72,6 +82,7 @@ export type RunEventKind =
   | {
       type: "RunCompleted";
       final_output: string;
+      total_cost_usd: number | null;
       total_duration_ms: number;
     }
   | { type: "RunFailed"; reason: string };
@@ -83,6 +94,7 @@ export type RunSummary = {
 
 export type Demo = "echo" | "tool";
 export type Provider = "fake" | "rig";
+export type ToolVisibility = "full_schema" | "name_and_description" | "name_only";
 
 export type RunOptions = {
   provider: Provider;
@@ -92,11 +104,17 @@ export type RunOptions = {
   api_key: string | null;
   max_output_tokens: number | null;
   temperature: number | null;
+  input_cost_per_million: number | null;
+  output_cost_per_million: number | null;
+  max_tool_calls: number | null;
+  tool_visibility: ToolVisibility | null;
   enable_shell: boolean;
+  enable_subagent: boolean;
   load_memory: boolean;
   load_skills: boolean;
   include_ingest: string[];
   require_approval: boolean;
+  raw_tool_output: boolean;
 };
 
 export type ContextSnapshot = {

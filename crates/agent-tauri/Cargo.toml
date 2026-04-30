@@ -21,6 +21,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 agent-core = { path = "../agent-core" }
 agent-adapters = { path = "../agent-adapters" }
+agent-batch = { path = "../agent-batch" }
 agent-bundles = { path = "../agent-bundles" }
 agent-config = { path = "../agent-config" }
 agent-ingest = { path = "../agent-ingest" }

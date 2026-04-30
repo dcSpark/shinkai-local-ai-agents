@@ -22,6 +22,8 @@ pub enum IngestError {
     Json(#[from] serde_json::Error),
     #[error("artifact not found: {0}")]
     NotFound(String),
+    #[error("unsupported ingestion backend: {0}")]
+    UnsupportedBackend(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,16 +58,27 @@ impl IngestionStore {
     }
 
     pub fn ingest(&self, source: impl AsRef<Path>) -> Result<IngestionArtifact, IngestError> {
+        self.ingest_with_backend(source, "local-v0")
+    }
+
+    pub fn ingest_with_backend(
+        &self,
+        source: impl AsRef<Path>,
+        backend: &str,
+    ) -> Result<IngestionArtifact, IngestError> {
+        if backend != "local-v0" {
+            return Err(IngestError::UnsupportedBackend(backend.into()));
+        }
         self.paths.ensure_base_dirs()?;
         let source = source.as_ref();
         let bytes = std::fs::read(source)?;
         let extracted = extract_text(source, &bytes);
         let content_hash = hash_bytes(&bytes);
-        let id = format!("ingest-{content_hash}");
+        let id = format!("ingest-{backend}-{content_hash}");
         let artifact = IngestionArtifact {
             id,
             source: source.to_path_buf(),
-            backend: "local-v0".into(),
+            backend: backend.into(),
             content_hash,
             sections: split_sections(&extracted),
             extracted_text: Some(extracted),

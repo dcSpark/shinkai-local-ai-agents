@@ -8,12 +8,14 @@ use std::time::Instant;
 
 use agent_adapters::{AdapterRegistry, NormalizedPackage, inspect_source};
 use agent_api_client::DaemonHttpClient;
+use agent_batch::{BatchItemState, BatchPlan};
 use agent_bundles::{export_bundle, import_bundle};
 use agent_config::ConfigResolver;
-use agent_core::{Harness, HarnessApi, UserInput};
-use agent_ingest::IngestionStore;
+use agent_core::{Harness, HarnessApi, UserInput, VisibilityLevel};
+use agent_ingest::{IngestionArtifact, IngestionStore};
 use agent_llm::FakeProvider;
-use agent_memory::{MemoryAuthor, MemoryStore, MemoryTarget};
+use agent_memory::{MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget};
+use agent_prompts::{PromptStore, is_valid_prompt_name};
 use agent_skills::SkillRegistry;
 use agent_storage::StoragePaths;
 use agent_tools::ToolId;
@@ -34,13 +36,13 @@ pub async fn run(
         Some(SlashCommand::Tool { name, input }) => {
             return call_tool(name, Some(input), json, options.require_approval).await;
         }
-        Some(SlashCommand::Run(prompt)) => text = prompt,
+        Some(SlashCommand::Run(prompt)) => text = resolve_saved_prompt_or_literal(&prompt)?,
         None => {}
     }
 
     let provider = setup::build_provider(demo, &text, &options)?;
     let events = Arc::new(open_event_store()?);
-    let registry = setup::build_registry(options.enable_shell);
+    let registry = setup::build_registry(options.enable_shell, options.enable_subagent);
     let harness = Harness::new(provider, events, registry);
     let agent = setup::build_agent(&options);
 
@@ -65,20 +67,10 @@ pub async fn run(
 pub async fn preview_context(
     input: Option<String>,
     json: bool,
-    enable_shell: bool,
-    load_memory: bool,
-    load_skills: bool,
-    include_ingest: Vec<String>,
+    options: setup::RuntimeOptions,
 ) -> anyhow::Result<()> {
     let text = read_text(input)?;
-    let harness = inspection_harness(enable_shell);
-    let options = setup::RuntimeOptions {
-        enable_shell,
-        load_memory,
-        load_skills,
-        include_ingest,
-        ..setup::RuntimeOptions::default()
-    };
+    let harness = inspection_harness(options.enable_shell, options.enable_subagent);
     let agent = setup::build_agent(&options);
     let snapshot = harness.preview_context(&agent, UserInput { text });
 
@@ -138,10 +130,17 @@ pub async fn explain_config(json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn explain_tools(json: bool, enable_shell: bool) -> anyhow::Result<()> {
-    let harness = inspection_harness(enable_shell);
+pub async fn explain_tools(
+    json: bool,
+    enable_shell: bool,
+    enable_subagent: bool,
+    tool_visibility: Option<VisibilityLevel>,
+) -> anyhow::Result<()> {
+    let harness = inspection_harness(enable_shell, enable_subagent);
     let options = setup::RuntimeOptions {
         enable_shell,
+        enable_subagent,
+        tool_visibility,
         ..setup::RuntimeOptions::default()
     };
     let agent = setup::build_agent(&options);
@@ -172,14 +171,16 @@ pub async fn call_tool(
 ) -> anyhow::Result<()> {
     let input = read_optional_json(input)?;
     let enable_shell = name == "shell";
+    let enable_subagent = name == "subagent";
     let events = Arc::new(open_event_store()?);
     let harness = Harness::new(
         Arc::new(FakeProvider::echo()),
         events,
-        setup::build_registry(enable_shell),
+        setup::build_registry(enable_shell, enable_subagent),
     );
     let options = setup::RuntimeOptions {
         enable_shell,
+        enable_subagent,
         require_approval,
         ..setup::RuntimeOptions::default()
     };
@@ -203,11 +204,11 @@ pub async fn call_tool(
     Ok(())
 }
 
-fn inspection_harness(enable_shell: bool) -> Harness {
+fn inspection_harness(enable_shell: bool, enable_subagent: bool) -> Harness {
     Harness::new(
         Arc::new(FakeProvider::echo()),
         Arc::new(open_event_store().expect("sqlite event store should open")),
-        setup::build_registry(enable_shell),
+        setup::build_registry(enable_shell, enable_subagent),
     )
 }
 
@@ -332,7 +333,7 @@ pub async fn approval_execute(
         anyhow::bail!("tool call {call_id} has already completed");
     }
 
-    let registry = setup::build_registry(tool_id == "shell");
+    let registry = setup::build_registry(tool_id == "shell", tool_id == "subagent");
     store.append(
         run_id,
         Some(proposed_id),
@@ -366,6 +367,7 @@ pub async fn approval_execute(
         RunEventKind::ToolCallCompleted {
             call_id: call_id.clone(),
             output: output.clone(),
+            cost_usd: None,
             duration_ms,
         },
     );
@@ -374,6 +376,7 @@ pub async fn approval_execute(
         None,
         RunEventKind::RunCompleted {
             final_output: serde_json::to_string(&output)?,
+            total_cost_usd: None,
             total_duration_ms: duration_ms,
         },
     );
@@ -418,21 +421,60 @@ pub async fn score(run_id: String, target: String, score: f32) -> anyhow::Result
 pub async fn batch_run(items: Vec<String>, demo: Demo, json: bool) -> anyhow::Result<()> {
     let batch_run_id = RunId::new();
     let batch_id = format!("batch-{}", batch_run_id.0);
+    let mut plan = BatchPlan::new(batch_id.clone(), items);
+    plan.save_to_env()?;
+    execute_batch_plan(plan, batch_run_id, batch_id, demo, json).await
+}
+
+pub async fn batch_resume(batch_id: String, demo: Demo, json: bool) -> anyhow::Result<()> {
+    let batch_run_id = RunId::new();
+    let plan = BatchPlan::load_from_env(&batch_id)?;
+    execute_batch_plan(plan, batch_run_id, batch_id, demo, json).await
+}
+
+async fn execute_batch_plan(
+    mut plan: BatchPlan,
+    batch_run_id: RunId,
+    batch_id: String,
+    demo: Demo,
+    json: bool,
+) -> anyhow::Result<()> {
     let store = Arc::new(open_event_store()?);
     store.append(
         batch_run_id,
         None,
         RunEventKind::BatchRunStarted {
             batch_id: batch_id.clone(),
-            items: items.len() as u32,
+            items: plan.items.len() as u32,
         },
     );
 
-    let mut succeeded = 0;
-    let mut failed = 0;
+    let mut skipped = 0;
     let mut summaries = Vec::new();
-    for (idx, item) in items.into_iter().enumerate() {
-        let item_key = format!("item-{idx}");
+    for item in plan.items.clone() {
+        let item_key = item.key.clone();
+        if item.status == BatchItemState::Succeeded {
+            skipped += 1;
+            store.append(
+                batch_run_id,
+                None,
+                RunEventKind::BatchItemStatus {
+                    batch_id: batch_id.clone(),
+                    item_key: item_key.clone(),
+                    status: "skipped: already succeeded".into(),
+                },
+            );
+            summaries.push(serde_json::json!({
+                "item_key": item_key,
+                "status": "skipped",
+                "last_run_id": item.last_run_id,
+                "final_output": item.final_output
+            }));
+            continue;
+        }
+
+        plan.mark_running(&item_key);
+        plan.save_to_env()?;
         store.append(
             batch_run_id,
             None,
@@ -443,16 +485,29 @@ pub async fn batch_run(items: Vec<String>, demo: Demo, json: bool) -> anyhow::Re
             },
         );
         let options = setup::RuntimeOptions::default();
-        let provider = setup::build_provider(demo, &item, &options)?;
+        let provider = setup::build_provider(demo, &item.input, &options)?;
         let harness = Harness::new(
             provider,
             store.clone(),
-            setup::build_registry(options.enable_shell),
+            setup::build_registry(options.enable_shell, options.enable_subagent),
         );
         let agent = setup::build_agent(&options);
-        match harness.run(&agent, UserInput { text: item.clone() }).await {
+        match harness
+            .run(
+                &agent,
+                UserInput {
+                    text: item.input.clone(),
+                },
+            )
+            .await
+        {
             Ok(result) => {
-                succeeded += 1;
+                plan.mark_succeeded(
+                    &item_key,
+                    result.run_id.0.to_string(),
+                    result.final_output.clone(),
+                );
+                plan.save_to_env()?;
                 store.append(
                     batch_run_id,
                     None,
@@ -486,7 +541,8 @@ pub async fn batch_run(items: Vec<String>, demo: Demo, json: bool) -> anyhow::Re
                 }));
             }
             Err(err) => {
-                failed += 1;
+                plan.mark_failed(&item_key, err.to_string());
+                plan.save_to_env()?;
                 store.append(
                     batch_run_id,
                     None,
@@ -509,24 +565,28 @@ pub async fn batch_run(items: Vec<String>, demo: Demo, json: bool) -> anyhow::Re
         None,
         RunEventKind::BatchRunCompleted {
             batch_id: batch_id.clone(),
-            succeeded,
-            failed,
+            succeeded: plan.succeeded_count(),
+            failed: plan.failed_count(),
         },
     );
 
     let summary = serde_json::json!({
         "batch_run_id": batch_run_id.0,
         "batch_id": batch_id,
-        "succeeded": succeeded,
-        "failed": failed,
+        "succeeded": plan.succeeded_count(),
+        "failed": plan.failed_count(),
+        "skipped": skipped,
         "items": summaries
     });
     if json {
         println!("{}", serde_json::to_string_pretty(&summary)?);
     } else {
         println!(
-            "batch {} succeeded={} failed={}",
-            summary["batch_id"], succeeded, failed
+            "batch {} succeeded={} failed={} skipped={}",
+            summary["batch_id"],
+            plan.succeeded_count(),
+            plan.failed_count(),
+            skipped
         );
         for item in summary["items"].as_array().into_iter().flatten() {
             println!("{}", serde_json::to_string(item)?);
@@ -542,6 +602,7 @@ pub async fn memory_create(content: String, user: bool) -> anyhow::Result<()> {
         MemoryTarget::Agent
     };
     let record = MemoryStore::from_env().create(target, &content, MemoryAuthor::Human, None)?;
+    record_memory_written(&record, "created")?;
     println!("{}", serde_json::to_string_pretty(&record)?);
     Ok(())
 }
@@ -557,6 +618,9 @@ pub async fn memory_generate(
         MemoryTarget::Agent
     };
     let records = MemoryStore::from_env().generate_from_text(target, &text, range)?;
+    for record in &records {
+        record_memory_written(record, "generated")?;
+    }
     println!("{}", serde_json::to_string_pretty(&records)?);
     Ok(())
 }
@@ -578,12 +642,14 @@ pub async fn memory_list(json: bool) -> anyhow::Result<()> {
 
 pub async fn memory_edit(id: String, content: String) -> anyhow::Result<()> {
     let record = MemoryStore::from_env().edit(&id, &content)?;
+    record_memory_written(&record, "edited")?;
     println!("{}", serde_json::to_string_pretty(&record)?);
     Ok(())
 }
 
 pub async fn memory_delete(id: String) -> anyhow::Result<()> {
     MemoryStore::from_env().delete(&id)?;
+    record_memory_operation(&id, "deleted")?;
     println!("deleted memory {id}");
     Ok(())
 }
@@ -595,6 +661,7 @@ pub async fn memory_rollback(user: bool) -> anyhow::Result<()> {
         MemoryTarget::Agent
     };
     MemoryStore::from_env().rollback(target)?;
+    record_memory_operation(if user { "user.md" } else { "memory.md" }, "rolled_back")?;
     println!("rolled back {}", if user { "user.md" } else { "memory.md" });
     Ok(())
 }
@@ -642,10 +709,77 @@ pub async fn skill_quarantine(id: String) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn ingest_add(path: String) -> anyhow::Result<()> {
-    let artifact = IngestionStore::from_env().ingest(path)?;
-    println!("{}", serde_json::to_string_pretty(&artifact)?);
+pub async fn prompt_save(name: String, text: String) -> anyhow::Result<()> {
+    let prompt = PromptStore::from_env().save(&name, &text)?;
+    println!("{}", serde_json::to_string_pretty(&prompt)?);
     Ok(())
+}
+
+pub async fn prompt_list(json: bool) -> anyhow::Result<()> {
+    let prompts = PromptStore::from_env().list()?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&prompts)?);
+    } else {
+        for prompt in prompts {
+            let first_line = prompt.body.lines().next().unwrap_or_default();
+            println!("{} {}", prompt.name, first_line);
+        }
+    }
+    Ok(())
+}
+
+pub async fn prompt_show(name: String, json: bool) -> anyhow::Result<()> {
+    let Some(prompt) = PromptStore::from_env().get(&name)? else {
+        anyhow::bail!("saved prompt {name:?} not found");
+    };
+    if json {
+        println!("{}", serde_json::to_string_pretty(&prompt)?);
+    } else {
+        println!("{}", prompt.body);
+    }
+    Ok(())
+}
+
+pub async fn prompt_delete(name: String) -> anyhow::Result<()> {
+    if PromptStore::from_env().delete(&name)? {
+        println!("deleted prompt {name}");
+    } else {
+        println!("prompt {name} not found");
+    }
+    Ok(())
+}
+
+pub async fn ingest_add(path: String, backend: String) -> anyhow::Result<()> {
+    let trace_run_id = RunId::new();
+    let store = open_event_store()?;
+    let source = path.clone();
+    let started = store.append(
+        trace_run_id,
+        None,
+        RunEventKind::IngestionStarted {
+            source: source.clone(),
+            backend: backend.clone(),
+        },
+    );
+    let artifact = IngestionStore::from_env().ingest_with_backend(path, &backend)?;
+    store.append(
+        trace_run_id,
+        Some(started.id),
+        ingestion_completed_event(&artifact),
+    );
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&serde_json::json!({
+            "trace_run_id": trace_run_id.0,
+            "artifact": artifact
+        }))?
+    );
+    Ok(())
+}
+
+pub async fn ingest_rerun(id: String, backend: String) -> anyhow::Result<()> {
+    let source = IngestionStore::from_env().show(&id)?.source;
+    ingest_add(source.display().to_string(), backend).await
 }
 
 pub async fn ingest_list(json: bool) -> anyhow::Result<()> {
@@ -802,13 +936,54 @@ pub async fn remote_run(
             "model": options.model,
             "api_base_url": options.api_base_url,
             "api_key_env": options.api_key_env,
+            "input_cost_per_million": options.input_cost_per_million,
+            "output_cost_per_million": options.output_cost_per_million,
+            "max_tool_calls": options.max_tool_calls,
+            "tool_visibility": options.tool_visibility,
             "enable_shell": options.enable_shell,
+            "enable_subagent": options.enable_subagent,
+            "raw_tool_output": options.raw_tool_output,
             "load_memory": options.load_memory,
             "load_skills": options.load_skills,
             "include_ingest": options.include_ingest,
             "require_approval": options.require_approval
         }),
     )?)
+}
+
+pub async fn remote_run_start(
+    url: String,
+    input: String,
+    demo: String,
+    options: setup::RuntimeOptions,
+) -> anyhow::Result<()> {
+    let client = DaemonHttpClient::new(url);
+    print_remote(client.post_json(
+        "/run/start",
+        serde_json::json!({
+            "input": input,
+            "demo": demo,
+            "provider": provider_name(options.provider),
+            "model": options.model,
+            "api_base_url": options.api_base_url,
+            "api_key_env": options.api_key_env,
+            "input_cost_per_million": options.input_cost_per_million,
+            "output_cost_per_million": options.output_cost_per_million,
+            "max_tool_calls": options.max_tool_calls,
+            "tool_visibility": options.tool_visibility,
+            "enable_shell": options.enable_shell,
+            "enable_subagent": options.enable_subagent,
+            "raw_tool_output": options.raw_tool_output,
+            "load_memory": options.load_memory,
+            "load_skills": options.load_skills,
+            "include_ingest": options.include_ingest,
+            "require_approval": options.require_approval
+        }),
+    )?)
+}
+
+pub async fn remote_run_status(url: String, run_id: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).get_json(&format!("/run/status/{run_id}"))?)
 }
 
 pub async fn remote_preview_context(
@@ -821,6 +996,10 @@ pub async fn remote_preview_context(
         serde_json::json!({
             "input": input,
             "enable_shell": options.enable_shell,
+            "enable_subagent": options.enable_subagent,
+            "max_tool_calls": options.max_tool_calls,
+            "tool_visibility": options.tool_visibility,
+            "raw_tool_output": options.raw_tool_output,
             "load_memory": options.load_memory,
             "load_skills": options.load_skills,
             "include_ingest": options.include_ingest
@@ -858,6 +1037,17 @@ pub async fn remote_batch_run(url: String, items: Vec<String>, demo: String) -> 
     print_remote(DaemonHttpClient::new(url).post_json(
         "/batch",
         serde_json::json!({ "items": items, "demo": demo }),
+    )?)
+}
+
+pub async fn remote_batch_resume(
+    url: String,
+    batch_id: String,
+    demo: String,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/batch/resume",
+        serde_json::json!({ "batch_id": batch_id, "demo": demo }),
     )?)
 }
 
@@ -1132,10 +1322,16 @@ fn event_label(kind: &RunEventKind) -> String {
         RunEventKind::LlmRequestCompleted {
             tokens_in,
             tokens_out,
+            cost_usd,
             duration_ms,
-        } => format!(
-            "LlmRequestCompleted tokens_in={tokens_in} tokens_out={tokens_out} duration_ms={duration_ms}"
-        ),
+        } => {
+            let cost = cost_usd
+                .map(|value| format!(" cost_usd={value:.6}"))
+                .unwrap_or_default();
+            format!(
+                "LlmRequestCompleted tokens_in={tokens_in} tokens_out={tokens_out}{cost} duration_ms={duration_ms}"
+            )
+        }
         RunEventKind::ToolCallProposed {
             call_id,
             tool_id,
@@ -1147,8 +1343,16 @@ fn event_label(kind: &RunEventKind) -> String {
         RunEventKind::ToolCallCompleted {
             call_id,
             output,
+            cost_usd,
             duration_ms,
-        } => format!("ToolCallCompleted call={call_id} duration_ms={duration_ms} output={output}"),
+        } => {
+            let cost = cost_usd
+                .map(|value| format!(" cost_usd={value:.6}"))
+                .unwrap_or_default();
+            format!(
+                "ToolCallCompleted call={call_id} duration_ms={duration_ms}{cost} output={output}"
+            )
+        }
         RunEventKind::ToolCallFailed { call_id, error } => {
             format!("ToolCallFailed call={call_id} error={error}")
         }
@@ -1177,6 +1381,17 @@ fn event_label(kind: &RunEventKind) -> String {
             artifact_id,
             source,
         } => format!("IngestionReferenced artifact={artifact_id} source={source}"),
+        RunEventKind::IngestionStarted { source, backend } => {
+            format!("IngestionStarted source={source} backend={backend}")
+        }
+        RunEventKind::IngestionCompleted {
+            artifact_id,
+            content_hash,
+            sections,
+        } => format!(
+            "IngestionCompleted artifact={artifact_id} hash={content_hash} sections={sections}"
+        ),
+        RunEventKind::PolicyDenied { reason } => format!("PolicyDenied reason={reason}"),
         RunEventKind::ChildRunStarted {
             child_run_id,
             agent_id,
@@ -1202,8 +1417,14 @@ fn event_label(kind: &RunEventKind) -> String {
         RunEventKind::RunCancelled { reason } => format!("RunCancelled reason={reason}"),
         RunEventKind::RunCompleted {
             final_output,
+            total_cost_usd,
             total_duration_ms,
-        } => format!("RunCompleted duration_ms={total_duration_ms} output={final_output:?}"),
+        } => {
+            let cost = total_cost_usd
+                .map(|value| format!(" cost_usd={value:.6}"))
+                .unwrap_or_default();
+            format!("RunCompleted duration_ms={total_duration_ms}{cost} output={final_output:?}")
+        }
         RunEventKind::RunFailed { reason } => format!("RunFailed reason={reason}"),
     }
 }
@@ -1228,6 +1449,41 @@ fn read_optional_json(input: Option<String>) -> anyhow::Result<serde_json::Value
     }
 }
 
+fn resolve_saved_prompt_or_literal(text: &str) -> anyhow::Result<String> {
+    if !is_valid_prompt_name(text) {
+        return Ok(text.to_string());
+    }
+    Ok(PromptStore::from_env()
+        .get(text)?
+        .map(|prompt| prompt.body)
+        .unwrap_or_else(|| text.to_string()))
+}
+
+fn ingestion_completed_event(artifact: &IngestionArtifact) -> RunEventKind {
+    RunEventKind::IngestionCompleted {
+        artifact_id: artifact.id.clone(),
+        content_hash: artifact.content_hash.clone(),
+        sections: artifact.sections.len() as u32,
+    }
+}
+
+fn record_memory_written(record: &MemoryRecord, operation: &str) -> anyhow::Result<()> {
+    record_memory_operation(&record.id, operation)
+}
+
+fn record_memory_operation(id: &str, operation: &str) -> anyhow::Result<()> {
+    let run_id = RunId::new();
+    open_event_store()?.append(
+        run_id,
+        None,
+        RunEventKind::MemoryWritten {
+            id: id.to_string(),
+            operation: operation.to_string(),
+        },
+    );
+    Ok(())
+}
+
 enum SlashCommand {
     Agent,
     Tool { name: String, input: String },
@@ -1242,20 +1498,55 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
     if let Some(rest) = trimmed.strip_prefix("/run ") {
         return Ok(Some(SlashCommand::Run(rest.trim().to_string())));
     }
-    if let Some(rest) = trimmed
-        .strip_prefix("/tool! ")
-        .or_else(|| trimmed.strip_prefix("/tool "))
-    {
-        let (name, input) = rest
-            .trim()
-            .split_once(' ')
-            .map(|(name, input)| (name.to_string(), input.trim().to_string()))
-            .unwrap_or_else(|| (rest.trim().to_string(), "{}".into()));
-        if name.is_empty() {
-            anyhow::bail!("missing tool name");
-        }
-        let _: serde_json::Value = serde_json::from_str(&input)?;
+    if let Some(rest) = trimmed.strip_prefix("/tool!").map(str::trim) {
+        let (name, input) = parse_tool_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Tool { name, input }));
+    }
+    if let Some(rest) = trimmed.strip_prefix("/tool ").map(str::trim) {
+        let (name, input) = parse_tool_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Tool { name, input }));
     }
     Ok(None)
+}
+
+fn parse_tool_slash_rest(rest: &str) -> anyhow::Result<(String, String)> {
+    let (name, input) = rest
+        .trim()
+        .split_once(char::is_whitespace)
+        .map(|(name, input)| (name.to_string(), input.trim().to_string()))
+        .unwrap_or_else(|| (rest.trim().to_string(), "{}".into()));
+    if name.is_empty() {
+        anyhow::bail!("missing tool name");
+    }
+    let _: serde_json::Value = serde_json::from_str(&input)?;
+    Ok((name, input))
+}
+
+#[cfg(test)]
+mod slash_tests {
+    use super::*;
+
+    #[test]
+    fn parses_direct_tool_without_space_after_bang() {
+        let parsed = parse_slash_command(r#"/tool!echo {"text":"hi"}"#).unwrap();
+        match parsed {
+            Some(SlashCommand::Tool { name, input }) => {
+                assert_eq!(name, "echo");
+                assert_eq!(input, r#"{"text":"hi"}"#);
+            }
+            _ => panic!("expected tool command"),
+        }
+    }
+
+    #[test]
+    fn parses_direct_tool_with_implicit_empty_object() {
+        let parsed = parse_slash_command("/tool!echo").unwrap();
+        match parsed {
+            Some(SlashCommand::Tool { name, input }) => {
+                assert_eq!(name, "echo");
+                assert_eq!(input, "{}");
+            }
+            _ => panic!("expected tool command"),
+        }
+    }
 }

@@ -1,0 +1,13 @@
+[package]
+name = "agent-prompts"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "Saved prompt library for Agent Harness profiles."
+
+[dependencies]
+agent-storage = { path = "../agent-storage" }
+serde.workspace = true
+thiserror.workspace = true

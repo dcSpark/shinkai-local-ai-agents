@@ -79,6 +79,7 @@ dependencies = [
  "ratatui",
  "serde_json",
  "tokio",
+ "toml 0.8.2",
  "uuid",
 ]
 
@@ -123,6 +124,7 @@ dependencies = [
  "agent-ingest",
  "agent-llm",
  "agent-memory",
+ "agent-prompts",
  "agent-skills",
  "agent-storage",
  "agent-tools",
@@ -208,6 +210,7 @@ dependencies = [
  "agent-ingest",
  "agent-llm",
  "agent-memory",
+ "agent-prompts",
  "agent-skills",
  "agent-storage",
  "agent-tools",

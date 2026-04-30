@@ -30,6 +30,7 @@ clap.workspace = true
 anyhow.workspace = true
 tokio.workspace = true
 serde_json.workspace = true
+toml.workspace = true
 uuid.workspace = true
 ratatui = "0.29"
 crossterm = { version = "0.28", features = ["event-stream"] }

@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use agent_config::ConfigResolver;
 use agent_core::{
-    AgentConfig, ApprovalMode, CostPolicy, IngestedArtifactView, ToolOutputMode, ToolPolicy,
-    VisibilityLevel,
+    AgentConfig, ApprovalMode, CostPolicy, IngestedArtifactView, PromptRefinement, ToolOutputMode,
+    ToolPolicy, VisibilityLevel,
 };
 use agent_ingest::IngestionStore;
 use agent_llm::{FakeProvider, FakeStep, LlmProvider, ModelRef, RigProvider, RigProviderConfig};
@@ -36,6 +36,10 @@ pub struct RuntimeOptions {
     pub load_memory: bool,
     pub load_skills: bool,
     pub include_ingest: Vec<String>,
+    pub allow_unsafe_ingest: bool,
+    pub enable_prompt_refinement: bool,
+    pub prompt_refinement_instructions: Option<String>,
+    pub prompt_refinement_model: Option<String>,
     pub require_approval: bool,
     pub raw_tool_output: bool,
 }
@@ -58,6 +62,10 @@ impl Default for RuntimeOptions {
             load_memory: false,
             load_skills: false,
             include_ingest: Vec::new(),
+            allow_unsafe_ingest: false,
+            enable_prompt_refinement: false,
+            prompt_refinement_instructions: None,
+            prompt_refinement_model: None,
             require_approval: false,
             raw_tool_output: false,
         }
@@ -88,6 +96,7 @@ pub fn build_agent(options: &RuntimeOptions) -> AgentConfig {
             name: "Fake Agent".into(),
             system_prompt: "You echo what the user says.".into(),
             model: ModelRef::from("fake-model"),
+            prompt_refinement: None,
             tool_policy: ToolPolicy::default(),
             cost_policy: CostPolicy::default(),
             memory_fragments: Vec::new(),
@@ -118,6 +127,15 @@ pub fn build_agent(options: &RuntimeOptions) -> AgentConfig {
     if options.output_cost_per_million.is_some() {
         agent.cost_policy.output_cost_per_million = options.output_cost_per_million;
     }
+    if options.enable_prompt_refinement {
+        agent.prompt_refinement = Some(PromptRefinement {
+            instructions: options
+                .prompt_refinement_instructions
+                .clone()
+                .unwrap_or_default(),
+            model: options.prompt_refinement_model.clone().map(ModelRef::from),
+        });
+    }
 
     if options.load_memory
         && let Ok(memory) = MemoryStore::from_env().load_fragments()
@@ -135,12 +153,34 @@ pub fn build_agent(options: &RuntimeOptions) -> AgentConfig {
             .include_ingest
             .iter()
             .filter_map(|id| store.show(id).ok())
-            .map(|artifact| IngestedArtifactView {
-                id: artifact.id,
-                source: artifact.source.display().to_string(),
-                sections: artifact.sections.len(),
-                content: artifact.extracted_text.unwrap_or_default(),
-                provenance: "agent.ingest explicit reference".into(),
+            .map(|artifact| {
+                let high_risk = artifact.has_high_risk_findings();
+                let mut findings: Vec<String> = artifact
+                    .findings
+                    .into_iter()
+                    .map(|finding| format!("{:?}: {}", finding.severity, finding.message))
+                    .collect();
+                let content = if high_risk && !options.allow_unsafe_ingest {
+                    findings.push(
+                        "Policy: content withheld; rerun with explicit unsafe-ingest override to include"
+                            .into(),
+                    );
+                    String::new()
+                } else {
+                    artifact.extracted_text.unwrap_or_default()
+                };
+                IngestedArtifactView {
+                    id: artifact.id,
+                    source: artifact.source.display().to_string(),
+                    sections: artifact.sections.len(),
+                    content,
+                    findings,
+                    provenance: if high_risk && !options.allow_unsafe_ingest {
+                        "agent.ingest blocked by prompt-injection guardrail".into()
+                    } else {
+                        "agent.ingest explicit reference".into()
+                    },
+                }
             })
             .collect();
     }
@@ -156,15 +196,28 @@ pub fn build_provider(
 ) -> Result<Arc<dyn LlmProvider>, agent_llm::LlmError> {
     match options.provider {
         Provider::Fake => Ok(match demo {
+            Demo::Echo if options.enable_prompt_refinement => {
+                Arc::new(FakeProvider::sequence(vec![
+                    FakeStep::Reply(format!("refined: {input}")),
+                    FakeStep::Reply(format!("[fake] refined: {input}")),
+                ]))
+            }
             Demo::Echo => Arc::new(FakeProvider::echo()),
-            Demo::Tool => Arc::new(FakeProvider::sequence(vec![
-                FakeStep::CallTool {
-                    id: "call-1".into(),
-                    tool: "echo".into(),
-                    input: serde_json::json!({"text": input}),
-                },
-                FakeStep::Reply(format!("[fake] tool said: {input}")),
-            ])),
+            Demo::Tool => {
+                let mut steps = Vec::new();
+                if options.enable_prompt_refinement {
+                    steps.push(FakeStep::Reply(format!("refined: {input}")));
+                }
+                steps.extend([
+                    FakeStep::CallTool {
+                        id: "call-1".into(),
+                        tool: "echo".into(),
+                        input: serde_json::json!({"text": input}),
+                    },
+                    FakeStep::Reply(format!("[fake] tool said: {input}")),
+                ]);
+                Arc::new(FakeProvider::sequence(steps))
+            }
         }),
         Provider::Rig => {
             let model = rig_model_id(options);

@@ -109,6 +109,22 @@ enum Command {
         #[arg(long = "include-ingest")]
         include_ingest: Vec<String>,
 
+        /// Include high-risk ingestion artifacts that guardrails would otherwise withhold.
+        #[arg(long)]
+        allow_unsafe_ingest: bool,
+
+        /// Rewrite the user prompt in a traced preprocessing LLM call before the main run.
+        #[arg(long)]
+        refine_prompt: bool,
+
+        /// Instructions for the prompt refinement preprocessing call.
+        #[arg(long)]
+        refinement_instructions: Option<String>,
+
+        /// Optional model id for prompt refinement. Defaults to the agent model.
+        #[arg(long)]
+        refinement_model: Option<String>,
+
         /// Pause before approval-required tools instead of auto-approving.
         #[arg(long)]
         require_approval: bool,
@@ -158,6 +174,10 @@ enum Command {
         /// Explicit ingestion artifact id to include in the preview. Repeatable.
         #[arg(long = "include-ingest")]
         include_ingest: Vec<String>,
+
+        /// Include high-risk ingestion artifacts that guardrails would otherwise withhold.
+        #[arg(long)]
+        allow_unsafe_ingest: bool,
     },
     /// Explain the effective v0 agent configuration and provenance.
     ExplainConfig {
@@ -246,6 +266,11 @@ enum Command {
     Prompt {
         #[command(subcommand)]
         command: PromptCommand,
+    },
+    /// Model registry operations.
+    Model {
+        #[command(subcommand)]
+        command: ModelCommand,
     },
     /// Document ingestion operations.
     Ingest {
@@ -425,6 +450,43 @@ enum PromptCommand {
 }
 
 #[derive(Subcommand)]
+enum ModelCommand {
+    /// List configured model metadata.
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show one configured model.
+    Show {
+        id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Save or replace model metadata.
+    Save {
+        id: String,
+        #[arg(long)]
+        max_context_tokens: Option<u64>,
+        #[arg(long)]
+        max_output_tokens: Option<u64>,
+        #[arg(long)]
+        default_temperature: Option<f64>,
+        #[arg(long)]
+        tool_support: Option<bool>,
+        #[arg(long)]
+        privacy_level: Option<String>,
+        #[arg(long)]
+        cost_tier: Option<String>,
+        #[arg(long)]
+        input_cost_per_million: Option<f64>,
+        #[arg(long)]
+        output_cost_per_million: Option<f64>,
+    },
+    /// Delete configured model metadata.
+    Delete { id: String },
+}
+
+#[derive(Subcommand)]
 enum IngestCommand {
     /// Ingest a local file explicitly.
     Add {
@@ -583,6 +645,10 @@ enum RemoteCommand {
         #[arg(long = "include-ingest")]
         include_ingest: Vec<String>,
 
+        /// Include high-risk ingestion artifacts that guardrails would otherwise withhold.
+        #[arg(long)]
+        allow_unsafe_ingest: bool,
+
         /// Pause before approval-required daemon tools.
         #[arg(long)]
         require_approval: bool,
@@ -651,6 +717,10 @@ enum RemoteCommand {
         #[arg(long = "include-ingest")]
         include_ingest: Vec<String>,
 
+        /// Include high-risk ingestion artifacts that guardrails would otherwise withhold.
+        #[arg(long)]
+        allow_unsafe_ingest: bool,
+
         /// Pause before approval-required daemon tools.
         #[arg(long)]
         require_approval: bool,
@@ -697,6 +767,10 @@ enum RemoteCommand {
         /// Explicit ingestion artifact id to include in the preview.
         #[arg(long = "include-ingest")]
         include_ingest: Vec<String>,
+
+        /// Include high-risk ingestion artifacts that guardrails would otherwise withhold.
+        #[arg(long)]
+        allow_unsafe_ingest: bool,
     },
     /// Record remote guidance against a run.
     Guide { run_id: String, text: String },
@@ -747,6 +821,11 @@ enum RemoteCommand {
     Skill {
         #[command(subcommand)]
         command: RemoteSkillCommand,
+    },
+    /// Remote model registry operations.
+    Model {
+        #[command(subcommand)]
+        command: RemoteModelCommand,
     },
     /// Remote ingestion operations.
     Ingest {
@@ -835,11 +914,58 @@ enum RemoteSkillCommand {
 }
 
 #[derive(Subcommand)]
+enum RemoteModelCommand {
+    List,
+    Show {
+        id: String,
+    },
+    Save {
+        id: String,
+        #[arg(long)]
+        max_context_tokens: Option<u64>,
+        #[arg(long)]
+        max_output_tokens: Option<u64>,
+        #[arg(long)]
+        default_temperature: Option<f64>,
+        #[arg(long)]
+        tool_support: Option<bool>,
+        #[arg(long)]
+        privacy_level: Option<String>,
+        #[arg(long)]
+        cost_tier: Option<String>,
+        #[arg(long)]
+        input_cost_per_million: Option<f64>,
+        #[arg(long)]
+        output_cost_per_million: Option<f64>,
+    },
+    Delete {
+        id: String,
+    },
+}
+
+#[derive(Subcommand)]
 enum RemoteIngestCommand {
     List,
-    Add { path: String },
-    Show { id: String },
-    Rm { id: String },
+    Add {
+        path: String,
+
+        /// Ingestion backend id.
+        #[arg(long, default_value = "local-v0")]
+        backend: String,
+    },
+    Rerun {
+        id: String,
+
+        /// Ingestion backend id.
+        #[arg(long, default_value = "local-v0")]
+        backend: String,
+    },
+    Show {
+        id: String,
+    },
+    Rm {
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -908,6 +1034,10 @@ async fn main() -> anyhow::Result<()> {
             load_memory,
             load_skills,
             include_ingest,
+            allow_unsafe_ingest,
+            refine_prompt,
+            refinement_instructions,
+            refinement_model,
             require_approval,
             raw_tool_output,
         } => {
@@ -927,6 +1057,10 @@ async fn main() -> anyhow::Result<()> {
                 load_memory,
                 load_skills,
                 include_ingest,
+                allow_unsafe_ingest,
+                enable_prompt_refinement: refine_prompt,
+                prompt_refinement_instructions: refinement_instructions,
+                prompt_refinement_model: refinement_model,
                 require_approval,
                 raw_tool_output,
             };
@@ -948,6 +1082,7 @@ async fn main() -> anyhow::Result<()> {
             raw_tool_output,
             load_skills,
             include_ingest,
+            allow_unsafe_ingest,
         } => {
             let options = setup::RuntimeOptions {
                 enable_shell,
@@ -958,6 +1093,7 @@ async fn main() -> anyhow::Result<()> {
                 raw_tool_output,
                 load_skills,
                 include_ingest,
+                allow_unsafe_ingest,
                 ..setup::RuntimeOptions::default()
             };
             headless::preview_context(input, json, options).await
@@ -1040,6 +1176,35 @@ async fn main() -> anyhow::Result<()> {
             PromptCommand::Show { name, json } => headless::prompt_show(name, json).await,
             PromptCommand::Delete { name } => headless::prompt_delete(name).await,
         },
+        Command::Model { command } => match command {
+            ModelCommand::List { json } => headless::model_list(json).await,
+            ModelCommand::Show { id, json } => headless::model_show(id, json).await,
+            ModelCommand::Save {
+                id,
+                max_context_tokens,
+                max_output_tokens,
+                default_temperature,
+                tool_support,
+                privacy_level,
+                cost_tier,
+                input_cost_per_million,
+                output_cost_per_million,
+            } => {
+                headless::model_save(
+                    id,
+                    max_context_tokens,
+                    max_output_tokens,
+                    default_temperature,
+                    tool_support,
+                    privacy_level,
+                    cost_tier,
+                    input_cost_per_million,
+                    output_cost_per_million,
+                )
+                .await
+            }
+            ModelCommand::Delete { id } => headless::model_delete(id).await,
+        },
         Command::Ingest { command } => match command {
             IngestCommand::Add { path, backend } => headless::ingest_add(path, backend).await,
             IngestCommand::Rerun { id, backend } => headless::ingest_rerun(id, backend).await,
@@ -1075,6 +1240,7 @@ async fn main() -> anyhow::Result<()> {
                 load_memory,
                 load_skills,
                 include_ingest,
+                allow_unsafe_ingest,
                 require_approval,
                 raw_tool_output,
             } => {
@@ -1094,6 +1260,10 @@ async fn main() -> anyhow::Result<()> {
                     load_memory,
                     load_skills,
                     include_ingest,
+                    allow_unsafe_ingest,
+                    enable_prompt_refinement: false,
+                    prompt_refinement_instructions: None,
+                    prompt_refinement_model: None,
                     require_approval,
                     raw_tool_output,
                 };
@@ -1115,6 +1285,7 @@ async fn main() -> anyhow::Result<()> {
                 load_memory,
                 load_skills,
                 include_ingest,
+                allow_unsafe_ingest,
                 require_approval,
                 raw_tool_output,
             } => {
@@ -1134,6 +1305,10 @@ async fn main() -> anyhow::Result<()> {
                     load_memory,
                     load_skills,
                     include_ingest,
+                    allow_unsafe_ingest,
+                    enable_prompt_refinement: false,
+                    prompt_refinement_instructions: None,
+                    prompt_refinement_model: None,
                     require_approval,
                     raw_tool_output,
                 };
@@ -1150,6 +1325,7 @@ async fn main() -> anyhow::Result<()> {
                 raw_tool_output,
                 load_skills,
                 include_ingest,
+                allow_unsafe_ingest,
             } => {
                 let options = setup::RuntimeOptions {
                     enable_shell,
@@ -1160,6 +1336,7 @@ async fn main() -> anyhow::Result<()> {
                     raw_tool_output,
                     load_skills,
                     include_ingest,
+                    allow_unsafe_ingest,
                     ..setup::RuntimeOptions::default()
                 };
                 headless::remote_preview_context(url, input, options).await
@@ -1231,9 +1408,44 @@ async fn main() -> anyhow::Result<()> {
                     headless::remote_skill_action(url, id, false).await
                 }
             },
+            RemoteCommand::Model { command } => match command {
+                RemoteModelCommand::List => headless::remote_model_list(url).await,
+                RemoteModelCommand::Show { id } => headless::remote_model_show(url, id).await,
+                RemoteModelCommand::Save {
+                    id,
+                    max_context_tokens,
+                    max_output_tokens,
+                    default_temperature,
+                    tool_support,
+                    privacy_level,
+                    cost_tier,
+                    input_cost_per_million,
+                    output_cost_per_million,
+                } => {
+                    headless::remote_model_save(
+                        url,
+                        id,
+                        max_context_tokens,
+                        max_output_tokens,
+                        default_temperature,
+                        tool_support,
+                        privacy_level,
+                        cost_tier,
+                        input_cost_per_million,
+                        output_cost_per_million,
+                    )
+                    .await
+                }
+                RemoteModelCommand::Delete { id } => headless::remote_model_delete(url, id).await,
+            },
             RemoteCommand::Ingest { command } => match command {
                 RemoteIngestCommand::List => headless::remote_ingest_list(url).await,
-                RemoteIngestCommand::Add { path } => headless::remote_ingest_add(url, path).await,
+                RemoteIngestCommand::Add { path, backend } => {
+                    headless::remote_ingest_add(url, path, backend).await
+                }
+                RemoteIngestCommand::Rerun { id, backend } => {
+                    headless::remote_ingest_rerun(url, id, backend).await
+                }
                 RemoteIngestCommand::Show { id } => headless::remote_ingest_show(url, id).await,
                 RemoteIngestCommand::Rm { id } => headless::remote_ingest_rm(url, id).await,
             },

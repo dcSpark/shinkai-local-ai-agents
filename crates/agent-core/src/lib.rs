@@ -77,11 +77,18 @@ pub struct AgentConfig {
     pub name: String,
     pub system_prompt: String,
     pub model: ModelRef,
+    pub prompt_refinement: Option<PromptRefinement>,
     pub tool_policy: ToolPolicy,
     pub cost_policy: CostPolicy,
     pub memory_fragments: Vec<MemoryFragment>,
     pub ingestion_artifacts: Vec<IngestedArtifactView>,
     pub skill_views: Vec<SkillView>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PromptRefinement {
+    pub instructions: String,
+    pub model: Option<ModelRef>,
 }
 
 /// v0 cut of `ContextSnapshot` from `specs/architecture.md` §4.6 / §8.
@@ -114,6 +121,8 @@ pub struct IngestedArtifactView {
     pub source: String,
     pub sections: usize,
     pub content: String,
+    #[serde(default)]
+    pub findings: Vec<String>,
     pub provenance: String,
 }
 
@@ -255,6 +264,26 @@ impl Harness {
         vec![Message::user(&input.text)]
     }
 
+    fn refinement_request(
+        &self,
+        agent: &AgentConfig,
+        refinement: &PromptRefinement,
+        original_input: &str,
+    ) -> LlmRequest {
+        let instructions = refinement_instructions(refinement);
+        LlmRequest {
+            model: refinement
+                .model
+                .clone()
+                .unwrap_or_else(|| agent.model.clone()),
+            messages: vec![
+                Message::system(instructions),
+                Message::user(original_input.to_string()),
+            ],
+            tools: Vec::new(),
+        }
+    }
+
     fn build_context_snapshot(
         &self,
         agent: &AgentConfig,
@@ -314,6 +343,68 @@ impl Harness {
             (None, Some(output)) => Some(output),
             (Some(input), Some(output)) => Some(input + output),
         }
+    }
+
+    async fn refine_input_for_run(
+        &self,
+        agent: &AgentConfig,
+        run_id: RunId,
+        parent: EventId,
+        original_input: &str,
+    ) -> Result<(String, Option<f64>), HarnessError> {
+        let Some(refinement) = agent.prompt_refinement.as_ref() else {
+            return Ok((original_input.to_string(), None));
+        };
+
+        let req = self.refinement_request(agent, refinement, original_input);
+        let model = req.model.0.clone();
+        let instructions = refinement_instructions(refinement);
+        let started = self.events.append(
+            run_id,
+            Some(parent),
+            RunEventKind::PromptRefinementStarted {
+                model,
+                original_input: original_input.to_string(),
+                instructions,
+            },
+        );
+
+        let t0 = Instant::now();
+        let response = match self.provider.complete(req).await {
+            Ok(response) => response,
+            Err(err) => {
+                self.events.append(
+                    run_id,
+                    Some(started.id),
+                    RunEventKind::RunFailed {
+                        reason: err.to_string(),
+                    },
+                );
+                return Err(err.into());
+            }
+        };
+        let duration_ms = t0.elapsed().as_millis() as u64;
+        let cost_usd = self.llm_cost_usd(agent, response.tokens_in, response.tokens_out);
+        let refined_input = response.content.unwrap_or_default().trim().to_string();
+        let refined_input = if refined_input.is_empty() {
+            original_input.to_string()
+        } else {
+            refined_input
+        };
+
+        self.events.append(
+            run_id,
+            Some(started.id),
+            RunEventKind::PromptRefinementCompleted {
+                refined_input: refined_input.clone(),
+                tokens_in: response.tokens_in,
+                tokens_out: response.tokens_out,
+                cost_usd,
+                duration_ms,
+            },
+        );
+
+        Ok((refined_input, cost_usd))
     }
 
     fn ensure_tool_allowed(
@@ -638,6 +729,15 @@ fn permission_reason(descriptor: &agent_tools::ToolDescriptor) -> String {
     }
 }
 
+fn refinement_instructions(refinement: &PromptRefinement) -> String {
+    let custom = refinement.instructions.trim();
+    if custom.is_empty() {
+        "Rewrite the user's prompt into a clearer instruction for the target agent. Preserve intent, constraints, and relevant details. Return only the rewritten prompt.".into()
+    } else {
+        custom.to_string()
+    }
+}
+
 struct ContextBuilder<'a> {
     agent: &'a AgentConfig,
     tools: &'a ToolRegistry,
@@ -678,10 +778,63 @@ impl ContextBuilder<'_> {
             "{}\n\nRuntime limits:\n- tool calls remaining: {remaining_tool_calls}/{max_tool_calls}",
             self.agent.system_prompt
         );
+        if remaining_tool_calls == 0 {
+            system_prompt.push_str(
+                "\n- tool-call budget exhausted: do not call tools; answer from available context or ask the user to raise the budget",
+            );
+        } else if remaining_tool_calls == 1 {
+            system_prompt.push_str(
+                "\n- tool-call budget warning: one tool call remains; choose the next call carefully or answer directly",
+            );
+        }
         if self.agent.tool_policy.output_mode == ToolOutputMode::Raw {
             system_prompt.push_str(
                 "\n- tool output mode: raw; after a tool call, the runtime returns the tool output without an interpretation pass",
             );
+        }
+        if !self.agent.memory_fragments.is_empty() {
+            system_prompt.push_str("\n\n<memory-context>");
+            for fragment in &self.agent.memory_fragments {
+                system_prompt.push_str(&format!(
+                    "\n<memory id=\"{}\" provenance=\"{}\">\n{}\n</memory>",
+                    fragment.id, fragment.provenance, fragment.content
+                ));
+            }
+            system_prompt.push_str("\n</memory-context>");
+        }
+        if !self.agent.ingestion_artifacts.is_empty() {
+            system_prompt.push_str("\n\n<ingestion-context>");
+            for artifact in &self.agent.ingestion_artifacts {
+                system_prompt.push_str(&format!(
+                    "\n<artifact id=\"{}\" source=\"{}\" sections=\"{}\" provenance=\"{}\">",
+                    artifact.id, artifact.source, artifact.sections, artifact.provenance
+                ));
+                if !artifact.findings.is_empty() {
+                    system_prompt.push_str("\n<findings>");
+                    for finding in &artifact.findings {
+                        system_prompt.push_str(&format!("\n- {finding}"));
+                    }
+                    system_prompt.push_str("\n</findings>");
+                }
+                if artifact.content.trim().is_empty() {
+                    system_prompt.push_str("\n[artifact content withheld]");
+                } else {
+                    system_prompt.push_str(&format!("\n{}", artifact.content));
+                }
+                system_prompt.push_str("\n</artifact>");
+            }
+            system_prompt.push_str("\n</ingestion-context>");
+        }
+        if !self.agent.skill_views.is_empty() {
+            system_prompt.push_str("\n\n<skill-context>");
+            for skill in &self.agent.skill_views {
+                let description = skill.description.as_deref().unwrap_or("");
+                system_prompt.push_str(&format!(
+                    "\n<skill id=\"{}\" visibility=\"{:?}\">\n{}\n</skill>",
+                    skill.id, skill.visibility, description
+                ));
+            }
+            system_prompt.push_str("\n</skill-context>");
         }
 
         ContextSnapshot {
@@ -741,10 +894,19 @@ impl HarnessApi for Harness {
             },
         );
 
-        let mut conversation = self.initial_conversation(&input);
         let mut calls_used: u32 = 0;
         let mut total_cost_usd = 0.0;
         let mut has_cost_usd = false;
+        let (refined_input, refinement_cost_usd) = self
+            .refine_input_for_run(agent, run_id, run_started.id, &input.text)
+            .await?;
+        if let Some(cost) = refinement_cost_usd {
+            total_cost_usd += cost;
+            has_cost_usd = true;
+        }
+        let mut conversation = self.initial_conversation(&UserInput {
+            text: refined_input,
+        });
 
         loop {
             let snapshot = self.build_context_snapshot(agent, conversation.clone(), calls_used);
@@ -1177,6 +1339,21 @@ impl HarnessApi for Harness {
                     source: "agent".into(),
                 },
                 ConfigValueExplanation {
+                    key: "agent.prompt_refinement.enabled".into(),
+                    value: Value::Bool(agent.prompt_refinement.is_some()),
+                    source: "agent/run".into(),
+                },
+                ConfigValueExplanation {
+                    key: "agent.prompt_refinement.model".into(),
+                    value: agent
+                        .prompt_refinement
+                        .as_ref()
+                        .and_then(|refinement| refinement.model.as_ref())
+                        .map(|model| Value::String(model.0.clone()))
+                        .unwrap_or(Value::Null),
+                    source: "agent/run".into(),
+                },
+                ConfigValueExplanation {
                     key: "agent.tool_policy.max_calls".into(),
                     value: Value::from(agent.tool_policy.max_calls),
                     source: "agent/default".into(),
@@ -1239,6 +1416,7 @@ mod tests {
             name: "Fake".into(),
             system_prompt: "be brief".into(),
             model: ModelRef::from("fake-model"),
+            prompt_refinement: None,
             tool_policy: ToolPolicy {
                 max_calls,
                 allowed_tools: allowed,
@@ -1309,6 +1487,8 @@ mod tests {
                 RunEventKind::ContextBuilt { .. } => "ContextBuilt",
                 RunEventKind::LlmRequestStarted { .. } => "LlmRequestStarted",
                 RunEventKind::LlmRequestCompleted { .. } => "LlmRequestCompleted",
+                RunEventKind::PromptRefinementStarted { .. } => "PromptRefinementStarted",
+                RunEventKind::PromptRefinementCompleted { .. } => "PromptRefinementCompleted",
                 RunEventKind::ToolCallProposed { .. } => "ToolCallProposed",
                 RunEventKind::ToolCallStarted { .. } => "ToolCallStarted",
                 RunEventKind::ToolCallCompleted { .. } => "ToolCallCompleted",
@@ -1437,6 +1617,136 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn prompt_refinement_is_traced_and_feeds_the_main_context() {
+        let provider = FakeProvider::sequence(vec![
+            FakeStep::Reply("refined task".into()),
+            FakeStep::Reply("final answer".into()),
+        ]);
+        let h = Harness::new(
+            Arc::new(provider),
+            Arc::new(InMemoryEventStore::new()),
+            registry_with_echo(),
+        );
+        let mut agent = agent_with_tools(vec![], 5);
+        agent.prompt_refinement = Some(PromptRefinement {
+            instructions: "Make it crisp.".into(),
+            model: Some(ModelRef::from("refiner-model")),
+        });
+
+        let result = h
+            .run(
+                &agent,
+                UserInput {
+                    text: "original task".into(),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.final_output, "final answer");
+        assert_eq!(
+            kinds(&h.events(result.run_id)),
+            vec![
+                "RunStarted",
+                "PromptRefinementStarted",
+                "PromptRefinementCompleted",
+                "ContextBuilt",
+                "LlmRequestStarted",
+                "LlmRequestCompleted",
+                "RunCompleted",
+            ]
+        );
+
+        let events = h.events(result.run_id);
+        assert!(events.iter().any(|event| matches!(
+            &event.kind,
+            RunEventKind::RunStarted { input, .. } if input == "original task"
+        )));
+        assert!(events.iter().any(|event| matches!(
+            &event.kind,
+            RunEventKind::PromptRefinementStarted {
+                model,
+                instructions,
+                ..
+            } if model == "refiner-model" && instructions == "Make it crisp."
+        )));
+        assert!(events.iter().any(|event| matches!(
+            &event.kind,
+            RunEventKind::PromptRefinementCompleted { refined_input, .. }
+                if refined_input == "refined task"
+        )));
+
+        let snapshot = events
+            .into_iter()
+            .find_map(|event| match event.kind {
+                RunEventKind::ContextBuilt { snapshot } => {
+                    serde_json::from_value::<ContextSnapshot>(snapshot).ok()
+                }
+                _ => None,
+            })
+            .expect("refined run should build context");
+        assert!(matches!(
+            snapshot.conversation.first(),
+            Some(Message::User { content }) if content == "refined task"
+        ));
+        assert!(
+            !serde_json::to_string(&snapshot)
+                .unwrap()
+                .contains("original task")
+        );
+    }
+
+    #[tokio::test]
+    async fn context_warns_model_when_tool_budget_is_low_or_exhausted() {
+        let provider = FakeProvider::sequence(vec![
+            FakeStep::CallTool {
+                id: "c1".into(),
+                tool: "echo".into(),
+                input: json!({"text": "ping"}),
+            },
+            FakeStep::Reply("done".into()),
+        ]);
+        let h = Harness::new(
+            Arc::new(provider),
+            Arc::new(InMemoryEventStore::new()),
+            registry_with_echo(),
+        );
+        let agent = agent_with_tools(vec![], 1);
+
+        let preview = h.preview_context(&agent, UserInput { text: "go".into() });
+        assert!(
+            preview
+                .system_prompt
+                .contains("tool-call budget warning: one tool call remains")
+        );
+
+        let result = h
+            .run(&agent, UserInput { text: "go".into() })
+            .await
+            .unwrap();
+        let snapshots: Vec<ContextSnapshot> = h
+            .events(result.run_id)
+            .into_iter()
+            .filter_map(|event| match event.kind {
+                RunEventKind::ContextBuilt { snapshot } => serde_json::from_value(snapshot).ok(),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(snapshots.len(), 2);
+        assert!(
+            snapshots[0]
+                .system_prompt
+                .contains("tool-call budget warning: one tool call remains")
+        );
+        assert!(
+            snapshots[1]
+                .system_prompt
+                .contains("tool-call budget exhausted: do not call tools")
+        );
+    }
+
+    #[tokio::test]
     async fn loaded_memory_and_ingestion_are_traced_after_context_build() {
         let mut agent = agent_with_tools(vec![], 5);
         agent.memory_fragments = vec![MemoryFragment {
@@ -1449,6 +1759,7 @@ mod tests {
             source: "/tmp/source.txt".into(),
             sections: 1,
             content: "source text".into(),
+            findings: Vec::new(),
             provenance: "test".into(),
         }];
         let h = Harness::new(
@@ -1456,6 +1767,11 @@ mod tests {
             Arc::new(InMemoryEventStore::new()),
             registry_with_echo(),
         );
+        let snapshot = h.preview_context(&agent, UserInput { text: "go".into() });
+        assert!(snapshot.system_prompt.contains("<memory-context>"));
+        assert!(snapshot.system_prompt.contains("remember this"));
+        assert!(snapshot.system_prompt.contains("<ingestion-context>"));
+        assert!(snapshot.system_prompt.contains("source text"));
 
         let result = h
             .run(&agent, UserInput { text: "go".into() })

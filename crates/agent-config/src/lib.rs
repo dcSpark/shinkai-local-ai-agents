@@ -4,7 +4,7 @@
 //! provenance strings for `explain-config`. Later layers can slot into the same
 //! returned shape without changing callers.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use agent_core::{
     AgentConfig, ConfigValueExplanation, CostPolicy, ToolOutputMode, ToolPolicy, VisibilityLevel,
@@ -66,25 +66,25 @@ impl Default for ProfileToml {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct ModelToml {
-    id: String,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ModelConfig {
+    pub id: String,
     #[serde(default)]
-    max_context_tokens: Option<u64>,
+    pub max_context_tokens: Option<u64>,
     #[serde(default)]
-    max_output_tokens: Option<u64>,
+    pub max_output_tokens: Option<u64>,
     #[serde(default)]
-    default_temperature: Option<f64>,
+    pub default_temperature: Option<f64>,
     #[serde(default)]
-    tool_support: Option<bool>,
+    pub tool_support: Option<bool>,
     #[serde(default)]
-    privacy_level: Option<String>,
+    pub privacy_level: Option<String>,
     #[serde(default)]
-    cost_tier: Option<String>,
+    pub cost_tier: Option<String>,
     #[serde(default)]
-    input_cost_per_million: Option<f64>,
+    pub input_cost_per_million: Option<f64>,
     #[serde(default)]
-    output_cost_per_million: Option<f64>,
+    pub output_cost_per_million: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -93,8 +93,8 @@ pub struct ModelRuntimeConfig {
     pub default_temperature: Option<f64>,
 }
 
-impl ModelToml {
-    fn for_id(id: impl Into<String>) -> Self {
+impl ModelConfig {
+    pub fn for_id(id: impl Into<String>) -> Self {
         Self {
             id: id.into(),
             max_context_tokens: None,
@@ -161,7 +161,7 @@ impl ConfigResolver {
         }
         let model_path = self.paths.model_config("fake-model");
         if !model_path.exists() {
-            let text = toml::to_string_pretty(&ModelToml::for_id("fake-model"))?;
+            let text = toml::to_string_pretty(&ModelConfig::for_id("fake-model"))?;
             std::fs::write(model_path, text)?;
         }
         Ok(())
@@ -181,6 +181,48 @@ impl ConfigResolver {
         Ok(resolve_agent(parsed, path, model, model_path))
     }
 
+    pub fn list_models(&self) -> Result<Vec<ModelConfig>, ConfigError> {
+        self.ensure_default_files()?;
+        let mut models = Vec::new();
+        for entry in std::fs::read_dir(self.paths.models_dir())? {
+            let entry = entry?;
+            if entry.path().extension().and_then(|s| s.to_str()) == Some("toml") {
+                models.push(read_model_config(&entry.path())?);
+            }
+        }
+        models.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(models)
+    }
+
+    pub fn show_model(&self, id: &str) -> Result<Option<ModelConfig>, ConfigError> {
+        self.ensure_default_files()?;
+        validate_model_id(id)?;
+        let path = self.paths.model_config(id);
+        if !path.exists() {
+            return Ok(None);
+        }
+        Ok(Some(read_model_config(&path)?))
+    }
+
+    pub fn save_model(&self, model: &ModelConfig) -> Result<ModelConfig, ConfigError> {
+        self.paths.ensure_base_dirs()?;
+        validate_model_id(&model.id)?;
+        let path = self.paths.model_config(&model.id);
+        std::fs::write(path, toml::to_string_pretty(model)?)?;
+        Ok(model.clone())
+    }
+
+    pub fn delete_model(&self, id: &str) -> Result<bool, ConfigError> {
+        self.ensure_default_files()?;
+        validate_model_id(id)?;
+        let path = self.paths.model_config(id);
+        if !path.exists() {
+            return Ok(false);
+        }
+        std::fs::remove_file(path)?;
+        Ok(true)
+    }
+
     pub fn resolve_model_runtime(
         &self,
         model_id: &str,
@@ -190,7 +232,7 @@ impl ConfigResolver {
         if !model_path.exists() {
             return Ok(None);
         }
-        let model: ModelToml = toml::from_str(&std::fs::read_to_string(model_path)?)?;
+        let model: ModelConfig = toml::from_str(&std::fs::read_to_string(model_path)?)?;
         Ok(Some(ModelRuntimeConfig {
             max_output_tokens: model.max_output_tokens,
             default_temperature: model.default_temperature,
@@ -201,7 +243,7 @@ impl ConfigResolver {
 fn resolve_agent(
     parsed: AgentToml,
     path: PathBuf,
-    model_config: Option<ModelToml>,
+    model_config: Option<ModelConfig>,
     model_path: PathBuf,
 ) -> ResolvedAgentConfig {
     let source = format!("agent:{}", path.display());
@@ -226,6 +268,7 @@ fn resolve_agent(
         name: parsed.name.clone(),
         system_prompt: parsed.system_prompt.clone(),
         model: ModelRef::from(parsed.model.clone()),
+        prompt_refinement: None,
         tool_policy: ToolPolicy {
             max_calls: parsed.max_tool_calls,
             allowed_tools,
@@ -312,6 +355,25 @@ fn resolve_agent(
     ResolvedAgentConfig { agent, values }
 }
 
+fn read_model_config(path: &Path) -> Result<ModelConfig, ConfigError> {
+    Ok(toml::from_str(&std::fs::read_to_string(path)?)?)
+}
+
+fn validate_model_id(id: &str) -> Result<(), ConfigError> {
+    let invalid = id.trim().is_empty()
+        || id.contains('/')
+        || id.contains('\\')
+        || id.contains("..")
+        || id.contains(std::path::MAIN_SEPARATOR);
+    if invalid {
+        return Err(ConfigError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("invalid model id: {id}"),
+        )));
+    }
+    Ok(())
+}
+
 fn config_value(
     key: impl Into<String>,
     value: impl Serialize,
@@ -340,6 +402,38 @@ mod tests {
         assert_eq!(resolved.agent.id, "fake-agent");
         assert_eq!(resolved.agent.model.0, "fake-model");
         assert!(resolver.paths.default_agent_config().exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn model_registry_round_trips() {
+        let dir = std::env::temp_dir().join(format!("agent-model-test-{}", uuid_like()));
+        let resolver = ConfigResolver::new(StoragePaths::new(&dir));
+        let model = ModelConfig {
+            id: "gpt-test".into(),
+            max_context_tokens: Some(128_000),
+            max_output_tokens: Some(4096),
+            default_temperature: Some(0.2),
+            tool_support: Some(true),
+            privacy_level: Some("cloud".into()),
+            cost_tier: Some("cheap".into()),
+            input_cost_per_million: Some(0.15),
+            output_cost_per_million: Some(0.6),
+        };
+        resolver.save_model(&model).unwrap();
+        assert_eq!(
+            resolver.show_model("gpt-test").unwrap(),
+            Some(model.clone())
+        );
+        assert!(
+            resolver
+                .list_models()
+                .unwrap()
+                .iter()
+                .any(|entry| entry.id == "gpt-test")
+        );
+        assert!(resolver.delete_model("gpt-test").unwrap());
+        assert!(resolver.show_model("gpt-test").unwrap().is_none());
         let _ = std::fs::remove_dir_all(dir);
     }
 

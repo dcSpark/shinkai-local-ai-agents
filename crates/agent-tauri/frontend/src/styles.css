@@ -50,6 +50,17 @@ button:hover:not(:disabled) {
   background: #282b31;
 }
 
+button.danger {
+  border-color: #5f3439;
+  background: #2a1c20;
+  color: #ffb8bf;
+}
+
+button.danger:hover:not(:disabled) {
+  border-color: #8a4b52;
+  background: #3a2429;
+}
+
 button:disabled,
 input:disabled,
 select:disabled,
@@ -60,7 +71,7 @@ textarea:disabled {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 4.5rem minmax(0, 1fr) 20rem;
+  grid-template-columns: 10.5rem minmax(0, 1fr) 20rem;
   height: 100vh;
   height: 100dvh;
   min-height: 0;
@@ -71,18 +82,21 @@ textarea:disabled {
 .rail {
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: stretch;
   gap: 0.75rem;
-  padding: 0.8rem 0;
+  padding: 0.8rem 0.75rem;
   border-right: 1px solid #24262b;
   background: #0b0c0d;
 }
 
 .rail-mark {
   display: grid;
-  width: 2.45rem;
+  grid-template-columns: 1.65rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
   height: 2.45rem;
-  place-items: center;
+  padding: 0 0.55rem;
   border: 1px solid #1d6f7b;
   border-radius: 8px;
   background: #12383f;
@@ -92,14 +106,31 @@ textarea:disabled {
 
 .rail-item {
   display: grid;
-  width: 2.45rem;
+  grid-template-columns: 1.65rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
   height: 2.45rem;
   min-height: 2.45rem;
-  place-items: center;
-  padding: 0;
+  padding: 0 0.55rem;
   border-radius: 8px;
   color: #a5aab3;
   font-weight: 700;
+  text-align: left;
+}
+
+.rail-letter {
+  display: inline-grid;
+  min-width: 1.65rem;
+  place-items: center;
+  font-weight: 800;
+}
+
+.rail-label {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 0.78rem;
+  white-space: nowrap;
 }
 
 .rail-item.active {
@@ -365,10 +396,58 @@ textarea:disabled {
   accent-color: #ff5c64;
 }
 
+.included-list {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.65rem;
+  border: 1px solid #2a2d34;
+  border-radius: 8px;
+  background: #15171b;
+}
+
+.included-list strong {
+  color: #dfe3ea;
+  font-size: 0.78rem;
+}
+
+.included-list span {
+  min-width: 0;
+  color: #bac8d8;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.context-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0.5rem;
+}
+
 .button-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.55rem;
+}
+
+.operation-groups {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.operation-group {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.65rem;
+  border: 1px solid #252830;
+  border-radius: 8px;
+  background: #15171b;
+}
+
+.operation-title {
+  color: #cfd4dc;
+  font-size: 0.78rem;
+  font-weight: 800;
 }
 
 .context-preview {
@@ -406,9 +485,87 @@ textarea:disabled {
   overflow-wrap: anywhere;
 }
 
+.empty-note {
+  padding: 0.7rem;
+  border: 1px solid #252830;
+  border-radius: 8px;
+  background: #15171b;
+  color: #8e949f;
+  font-size: 0.82rem;
+}
+
+.trace-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.trace-summary span {
+  min-width: 0;
+  padding: 0.5rem;
+  border: 1px solid #2a2d34;
+  border-radius: 8px;
+  background: #15171b;
+  color: #c3c8d0;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.trace-events {
+  display: grid;
+  gap: 0.45rem;
+  max-height: 26rem;
+  overflow: auto;
+  padding: 0.55rem;
+  border: 1px solid #2a2d34;
+  border-radius: 8px;
+  background: #15171b;
+}
+
+.trace-events details {
+  border: 1px solid #252830;
+  border-radius: 8px;
+  background: #111215;
+}
+
+.trace-events summary {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 2.1rem;
+  padding: 0 0.55rem;
+  color: #dfe3ea;
+  cursor: pointer;
+}
+
+.trace-events summary span {
+  color: #8e949f;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+}
+
+.trace-events summary strong {
+  min-width: 0;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.trace-events pre {
+  margin: 0;
+  padding: 0.55rem;
+  border-top: 1px solid #252830;
+  color: #bac8d8;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 980px) {
   .app-shell {
-    grid-template-columns: 3.7rem minmax(0, 1fr);
+    grid-template-columns: 8.5rem minmax(0, 1fr);
   }
 
   .inspector {

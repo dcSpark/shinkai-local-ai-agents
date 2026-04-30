@@ -73,6 +73,19 @@ pub enum RunEventKind {
         cost_usd: Option<f64>,
         duration_ms: u64,
     },
+    PromptRefinementStarted {
+        model: String,
+        original_input: String,
+        instructions: String,
+    },
+    PromptRefinementCompleted {
+        refined_input: String,
+        tokens_in: u32,
+        tokens_out: u32,
+        #[serde(default)]
+        cost_usd: Option<f64>,
+        duration_ms: u64,
+    },
     ToolCallProposed {
         call_id: String,
         tool_id: String,

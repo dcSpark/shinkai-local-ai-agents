@@ -5,14 +5,15 @@ use std::time::Instant;
 use agent_adapters::AdapterRegistry;
 use agent_batch::{BatchItemState, BatchPlan};
 use agent_bundles::{export_bundle, import_bundle};
-use agent_config::ConfigResolver;
+use agent_config::{ConfigResolver, ModelConfig};
 use agent_core::{
     AgentConfig, ApprovalMode, CostPolicy, Harness, HarnessApi, IngestedArtifactView,
-    ToolOutputMode, ToolPolicy, UserInput, VisibilityLevel,
+    PromptRefinement, ToolOutputMode, ToolPolicy, UserInput, VisibilityLevel,
 };
 use agent_ingest::{IngestionArtifact, IngestionStore};
 use agent_llm::{FakeProvider, FakeStep, LlmProvider, ModelRef, RigProvider, RigProviderConfig};
 use agent_memory::{MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget};
+use agent_prompts::PromptStore;
 use agent_skills::SkillRegistry;
 use agent_storage::StoragePaths;
 use agent_tools::{FakeTool, ShellTool, ShellToolConfig, SubagentTool, ToolId, ToolRegistry};
@@ -78,7 +79,21 @@ async fn read_request(socket: &mut tokio::net::TcpStream) -> anyhow::Result<Http
 async fn handle_request(request: HttpRequest, state: Arc<DaemonState>) -> String {
     match route(request, state).await {
         Ok((status, body)) => http_json(status, body),
-        Err(err) => http_json(500, serde_json::json!({"error": err.to_string()})),
+        Err(err) => {
+            let message = err.to_string();
+            http_json(
+                error_status(&message),
+                serde_json::json!({"error": message}),
+            )
+        }
+    }
+}
+
+fn error_status(message: &str) -> u16 {
+    if message.contains("memory rejected by injection scan") {
+        400
+    } else {
+        500
     }
 }
 
@@ -103,6 +118,8 @@ async fn route(
         ("POST", "/preview-context") => {
             daemon_preview_context(&request.body).map(|value| (200, value))
         }
+        ("POST", "/explain-config") => daemon_explain_config().map(|value| (200, value)),
+        ("POST", "/explain-tools") => daemon_explain_tools(&request.body).map(|value| (200, value)),
         ("POST", "/guide") => daemon_guide(&request.body).map(|value| (200, value)),
         ("POST", "/cancel") => daemon_cancel(&request.body, state)
             .await
@@ -122,6 +139,10 @@ async fn route(
         }
         ("GET", "/skills") => daemon_skill_list().map(|value| (200, value)),
         ("POST", "/skills/import") => daemon_skill_import(&request.body).map(|value| (200, value)),
+        ("GET", "/models") => daemon_model_list().map(|value| (200, value)),
+        ("POST", "/models") => daemon_model_save(&request.body).map(|value| (200, value)),
+        ("GET", "/prompts") => daemon_prompt_list().map(|value| (200, value)),
+        ("POST", "/prompts") => daemon_prompt_save(&request.body).map(|value| (200, value)),
         ("GET", "/ingest") => daemon_ingest_list().map(|value| (200, value)),
         ("POST", "/ingest") => daemon_ingest_add(&request.body).map(|value| (200, value)),
         ("GET", "/adapters") => daemon_adapter_list().map(|value| (200, value)),
@@ -156,6 +177,34 @@ async fn route(
         }
         _ if request.method == "POST" && request.path.starts_with("/skills/") => {
             daemon_skill_route(&request.path).map(|value| (200, value))
+        }
+        _ if request.method == "GET" && request.path.starts_with("/models/") => {
+            let id = request.path.trim_start_matches("/models/");
+            daemon_model_show(id).map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/models/")
+            && request.path.ends_with("/delete") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/models/")
+                .trim_end_matches("/delete");
+            daemon_model_delete(id).map(|value| (200, value))
+        }
+        _ if request.method == "GET" && request.path.starts_with("/prompts/") => {
+            let name = request.path.trim_start_matches("/prompts/");
+            daemon_prompt_show(name).map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/prompts/")
+            && request.path.ends_with("/delete") =>
+        {
+            let name = request
+                .path
+                .trim_start_matches("/prompts/")
+                .trim_end_matches("/delete");
+            daemon_prompt_delete(name).map(|value| (200, value))
         }
         _ if request.method == "GET" && request.path.starts_with("/ingest/") => {
             let id = request.path.trim_start_matches("/ingest/");
@@ -196,6 +245,8 @@ async fn route(
                     "POST /run/start",
                     "GET /run/status/<run_id>",
                     "POST /preview-context",
+                    "POST /explain-config",
+                    "POST /explain-tools",
                     "POST /guide",
                     "POST /cancel",
                     "POST /score",
@@ -209,6 +260,9 @@ async fn route(
                     "GET /skills",
                     "POST /skills/import",
                     "POST /skills/<id>/allow",
+                    "GET|POST /prompts",
+                    "GET /prompts/<name>",
+                    "POST /prompts/<name>/delete",
                     "GET|POST /ingest",
                     "GET /ingest/<id>",
                     "GET /adapters",
@@ -329,6 +383,10 @@ async fn daemon_run_status(id: &str, state: Arc<DaemonState>) -> anyhow::Result<
                 cost_usd: Some(cost),
                 ..
             } => Some(*cost),
+            RunEventKind::PromptRefinementCompleted {
+                cost_usd: Some(cost),
+                ..
+            } => Some(*cost),
             RunEventKind::ToolCallCompleted {
                 cost_usd: Some(cost),
                 ..
@@ -399,6 +457,26 @@ fn daemon_preview_context(body: &str) -> anyhow::Result<serde_json::Value> {
         &build_agent(&input.options),
         UserInput { text: input.input },
     ))?)
+}
+
+fn daemon_explain_config() -> anyhow::Result<serde_json::Value> {
+    let resolved = ConfigResolver::from_env().resolve_default_agent()?;
+    Ok(serde_json::json!({
+        "agent_id": resolved.agent.id,
+        "values": resolved.values
+    }))
+}
+
+fn daemon_explain_tools(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: DaemonOptionsInput = serde_json::from_str(body)?;
+    let harness = Harness::new(
+        Arc::new(FakeProvider::echo()),
+        Arc::new(open_event_store()?),
+        build_registry(input.options.enable_shell, input.options.enable_subagent),
+    );
+    Ok(serde_json::to_value(
+        harness.explain_tools(&build_agent(&input.options)),
+    )?)
 }
 
 fn daemon_guide(body: &str) -> anyhow::Result<serde_json::Value> {
@@ -957,6 +1035,56 @@ fn daemon_skill_route(path: &str) -> anyhow::Result<serde_json::Value> {
     }
 }
 
+fn daemon_model_list() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(
+        ConfigResolver::from_env().list_models()?,
+    )?)
+}
+
+fn daemon_model_show(id: &str) -> anyhow::Result<serde_json::Value> {
+    let Some(model) = ConfigResolver::from_env().show_model(id)? else {
+        anyhow::bail!("model {id:?} not found");
+    };
+    Ok(serde_json::to_value(model)?)
+}
+
+fn daemon_model_save(body: &str) -> anyhow::Result<serde_json::Value> {
+    let model: ModelConfig = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        ConfigResolver::from_env().save_model(&model)?,
+    )?)
+}
+
+fn daemon_model_delete(id: &str) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::json!({
+        "id": id,
+        "deleted": ConfigResolver::from_env().delete_model(id)?
+    }))
+}
+
+fn daemon_prompt_list() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(PromptStore::from_env().list()?)?)
+}
+
+fn daemon_prompt_save(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: PromptSaveInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        PromptStore::from_env().save(&input.name, &input.body)?,
+    )?)
+}
+
+fn daemon_prompt_show(name: &str) -> anyhow::Result<serde_json::Value> {
+    let Some(prompt) = PromptStore::from_env().get(name)? else {
+        anyhow::bail!("saved prompt {name:?} not found");
+    };
+    Ok(serde_json::to_value(prompt)?)
+}
+
+fn daemon_prompt_delete(name: &str) -> anyhow::Result<serde_json::Value> {
+    let deleted = PromptStore::from_env().delete(name)?;
+    Ok(serde_json::json!({ "name": name, "deleted": deleted }))
+}
+
 fn daemon_ingest_list() -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(IngestionStore::from_env().list()?)?)
 }
@@ -1059,6 +1187,12 @@ struct DaemonPreviewInput {
 }
 
 #[derive(serde::Deserialize)]
+struct DaemonOptionsInput {
+    #[serde(flatten)]
+    options: DaemonRuntimeOptions,
+}
+
+#[derive(serde::Deserialize)]
 struct DaemonBatchInput {
     items: Vec<String>,
     demo: Option<String>,
@@ -1097,6 +1231,12 @@ struct DaemonRuntimeOptions {
     load_skills: bool,
     #[serde(default)]
     include_ingest: Vec<String>,
+    #[serde(default)]
+    allow_unsafe_ingest: bool,
+    #[serde(default)]
+    enable_prompt_refinement: bool,
+    prompt_refinement_instructions: Option<String>,
+    prompt_refinement_model: Option<String>,
     #[serde(default)]
     require_approval: bool,
     #[serde(default)]
@@ -1154,6 +1294,12 @@ struct MemoryRollbackInput {
 }
 
 #[derive(serde::Deserialize)]
+struct PromptSaveInput {
+    name: String,
+    body: String,
+}
+
+#[derive(serde::Deserialize)]
 struct PathInput {
     path: String,
     #[serde(default = "default_ingest_backend")]
@@ -1200,13 +1346,24 @@ fn provider_for_run(
             )?))
         }
         _ => Ok(match demo {
-            Some("tool") => Arc::new(FakeProvider::sequence(vec![
-                FakeStep::CallTool {
-                    id: "call-1".into(),
-                    tool: "echo".into(),
-                    input: serde_json::json!({"text": input}),
-                },
-                FakeStep::Reply("[fake] tool completed".into()),
+            Some("tool") => {
+                let mut steps = Vec::new();
+                if options.enable_prompt_refinement {
+                    steps.push(FakeStep::Reply(format!("refined: {input}")));
+                }
+                steps.extend([
+                    FakeStep::CallTool {
+                        id: "call-1".into(),
+                        tool: "echo".into(),
+                        input: serde_json::json!({"text": input}),
+                    },
+                    FakeStep::Reply("[fake] tool completed".into()),
+                ]);
+                Arc::new(FakeProvider::sequence(steps))
+            }
+            _ if options.enable_prompt_refinement => Arc::new(FakeProvider::sequence(vec![
+                FakeStep::Reply(format!("refined: {input}")),
+                FakeStep::Reply(format!("[fake] refined: {input}")),
             ])),
             _ => Arc::new(FakeProvider::echo()),
         }),
@@ -1252,6 +1409,7 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
             name: "Fake Agent".into(),
             system_prompt: "You echo what the user says.".into(),
             model: ModelRef::from("fake-model"),
+            prompt_refinement: None,
             tool_policy: ToolPolicy::default(),
             cost_policy: CostPolicy::default(),
             memory_fragments: Vec::new(),
@@ -1282,6 +1440,15 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
     if options.output_cost_per_million.is_some() {
         agent.cost_policy.output_cost_per_million = options.output_cost_per_million;
     }
+    if options.enable_prompt_refinement {
+        agent.prompt_refinement = Some(PromptRefinement {
+            instructions: options
+                .prompt_refinement_instructions
+                .clone()
+                .unwrap_or_default(),
+            model: options.prompt_refinement_model.clone().map(ModelRef::from),
+        });
+    }
     if options.load_memory
         && let Ok(memory) = MemoryStore::from_env().load_fragments()
     {
@@ -1298,12 +1465,33 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
             .include_ingest
             .iter()
             .filter_map(|id| store.show(id).ok())
-            .map(|artifact| IngestedArtifactView {
-                id: artifact.id,
-                source: artifact.source.display().to_string(),
-                sections: artifact.sections.len(),
-                content: artifact.extracted_text.unwrap_or_default(),
-                provenance: "agent.ingest explicit reference".into(),
+            .map(|artifact| {
+                let high_risk = artifact.has_high_risk_findings();
+                let mut findings: Vec<String> = artifact
+                    .findings
+                    .into_iter()
+                    .map(|finding| format!("{:?}: {}", finding.severity, finding.message))
+                    .collect();
+                let content = if high_risk && !options.allow_unsafe_ingest {
+                    findings.push(
+                        "Policy: content withheld; enable unsafe ingest override to include".into(),
+                    );
+                    String::new()
+                } else {
+                    artifact.extracted_text.unwrap_or_default()
+                };
+                IngestedArtifactView {
+                    id: artifact.id,
+                    source: artifact.source.display().to_string(),
+                    sections: artifact.sections.len(),
+                    content,
+                    findings,
+                    provenance: if high_risk && !options.allow_unsafe_ingest {
+                        "agent.ingest blocked by prompt-injection guardrail".into()
+                    } else {
+                        "agent.ingest explicit reference".into()
+                    },
+                }
             })
             .collect();
     }

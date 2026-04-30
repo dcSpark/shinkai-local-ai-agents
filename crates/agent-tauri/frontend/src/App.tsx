@@ -36,6 +36,21 @@ interface RemoteRunStatus {
   total_duration_ms: number | null;
 }
 
+interface TraceSummary {
+  run_id: string;
+  events: number;
+  context_snapshots: number;
+  llm_calls: number;
+  tool_calls: number;
+  approvals: number;
+  memory_fragments: number;
+  artifact_refs: number;
+  tokens_in: number;
+  tokens_out: number;
+  cost_usd: number | null;
+  duration_ms: number | null;
+}
+
 const CALLS_MAX = 5;
 
 function hasTauriRuntime() {
@@ -57,11 +72,15 @@ export default function App() {
   const [calls, setCalls] = useState(0);
   const [demo, setDemo] = useState<Demo>("tool");
   const [provider, setProvider] = useState<Provider>("fake");
-  const [transport, setTransport] = useState<Transport>("in-process");
+  const tauriRuntime = hasTauriRuntime();
+  const [transport, setTransport] = useState<Transport>(() =>
+    tauriRuntime ? "in-process" : "daemon",
+  );
   const [daemonUrl, setDaemonUrl] = useState("http://127.0.0.1:7878");
   const [opsValue, setOpsValue] = useState("");
   const [opsId, setOpsId] = useState("");
   const [opsUserMemory, setOpsUserMemory] = useState(false);
+  const [ingestBackend, setIngestBackend] = useState("local-v0");
   const [model, setModel] = useState("");
   const [apiBaseUrl, setApiBaseUrl] = useState("");
   const [apiKeyEnv, setApiKeyEnv] = useState("OPENAI_API_KEY");
@@ -74,16 +93,25 @@ export default function App() {
   const [enableSubagent, setEnableSubagent] = useState(false);
   const [loadMemory, setLoadMemory] = useState(false);
   const [loadSkills, setLoadSkills] = useState(false);
+  const [includeIngestIds, setIncludeIngestIds] = useState<string[]>([]);
+  const [allowUnsafeIngest, setAllowUnsafeIngest] = useState(false);
+  const [enablePromptRefinement, setEnablePromptRefinement] = useState(false);
+  const [promptRefinementInstructions, setPromptRefinementInstructions] =
+    useState("");
+  const [promptRefinementModel, setPromptRefinementModel] = useState("");
   const [requireApproval, setRequireApproval] = useState(false);
   const [rawToolOutput, setRawToolOutput] = useState(false);
   const [lastRunId, setLastRunId] = useState<string | null>(null);
   const [contextPreview, setContextPreview] = useState<ContextSnapshot | null>(
     null,
   );
+  const [traceEvents, setTraceEvents] = useState<RunEvent[]>([]);
+  const [traceSummary, setTraceSummary] = useState<TraceSummary | null>(null);
 
   const transcriptRef = useRef<HTMLElement>(null);
   const terminalEventSeenRef = useRef(false);
   const rootRunIdRef = useRef<string | null>(null);
+  const remoteSeenEventKeysRef = useRef<Set<string>>(new Set());
   const runLabel = lastRunId ? lastRunId.slice(0, 8) : "none";
 
   // Subscribe to streaming RunEvents from the Rust backend.
@@ -139,6 +167,21 @@ export default function App() {
         appendEvent(
           `LLM call completed (in: ${k.tokens_in}, out: ${k.tokens_out}${cost}, ${k.duration_ms} ms)`,
         );
+        return;
+      case "PromptRefinementStarted":
+        appendEvent(`Prompt refinement started (${k.model})`);
+        return;
+      case "PromptRefinementCompleted":
+        setTokensIn((v) => v + k.tokens_in);
+        setTokensOut((v) => v + k.tokens_out);
+        const refinementCostUsd = k.cost_usd;
+        if (refinementCostUsd !== null) {
+          setCostUsd((v) => v + refinementCostUsd);
+        }
+        appendEvent(
+          `Prompt refined (in: ${k.tokens_in}, out: ${k.tokens_out}, ${k.duration_ms} ms)`,
+        );
+        appendLine("event", `Refined prompt: ${k.refined_input}`);
         return;
       case "ToolCallProposed":
         appendEvent(
@@ -283,7 +326,12 @@ export default function App() {
       enable_subagent: enableSubagent,
       load_memory: loadMemory,
       load_skills: loadSkills,
-      include_ingest: [],
+      include_ingest: includeIngestIds,
+      allow_unsafe_ingest: allowUnsafeIngest,
+      enable_prompt_refinement: enablePromptRefinement,
+      prompt_refinement_instructions:
+        promptRefinementInstructions.trim() || null,
+      prompt_refinement_model: promptRefinementModel.trim() || null,
       require_approval: requireApproval,
       raw_tool_output: rawToolOutput,
     };
@@ -327,35 +375,56 @@ export default function App() {
     return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
   }
 
+  async function appendRemoteRunEvents(runId: string) {
+    const events = await daemonJson<RunEvent[]>(`/trace/${runId}`);
+    for (const evt of events) {
+      const key = `${evt.run_id}:${evt.id}`;
+      if (remoteSeenEventKeysRef.current.has(key)) {
+        continue;
+      }
+      remoteSeenEventKeysRef.current.add(key);
+      handleRunEvent(evt);
+    }
+  }
+
   async function pollRemoteRun(runId: string) {
     for (;;) {
+      await appendRemoteRunEvents(runId);
       const status = await daemonJson<RemoteRunStatus>(`/run/status/${runId}`);
       if (status.status === "running" || status.status === "unknown") {
         await sleep(500);
         continue;
       }
-      terminalEventSeenRef.current = true;
+      await appendRemoteRunEvents(runId);
       if (status.status === "completed") {
         if (status.total_cost_usd !== null) {
           setCostUsd(status.total_cost_usd);
         }
-        appendLine("assistant", status.final_output ?? "");
-        appendEvent(
-          `Remote run completed: ${runId}${
-            status.total_duration_ms === null
-              ? ""
-              : ` (${status.total_duration_ms} ms)`
-          }${status.total_cost_usd === null ? "" : `, $${status.total_cost_usd.toFixed(6)}`}`,
-        );
+        if (!terminalEventSeenRef.current) {
+          appendLine("assistant", status.final_output ?? "(no final output returned)");
+          appendEvent(
+            `Remote run completed: ${runId}${
+              status.total_duration_ms === null
+                ? ""
+                : ` (${status.total_duration_ms} ms)`
+            }${status.total_cost_usd === null ? "" : `, $${status.total_cost_usd.toFixed(6)}`}`,
+          );
+        }
       } else if (status.status === "cancelled") {
-        appendLine(
-          "error",
-          `Remote run cancelled: ${status.reason ?? "user requested stop"}`,
-        );
+        if (!terminalEventSeenRef.current) {
+          appendLine(
+            "error",
+            `Remote run cancelled: ${status.reason ?? "user requested stop"}`,
+          );
+        }
       } else if (status.status === "paused") {
-        appendLine("error", `Remote run paused: ${status.reason ?? "approval required"}`);
+        if (!terminalEventSeenRef.current) {
+          appendLine("error", `Remote run paused: ${status.reason ?? "approval required"}`);
+        }
       } else {
-        appendLine("error", `Remote run failed: ${status.reason ?? status.status}`);
+        if (!terminalEventSeenRef.current) {
+          appendLine("error", `Remote run failed: ${status.reason ?? status.status}`);
+        }
       }
       setRunning(false);
       return;
@@ -380,9 +449,153 @@ export default function App() {
     return id;
   }
 
+  function parseOpsJsonObject(label: string) {
+    return parseJsonObject(label, opsValue.trim());
+  }
+
+  function parseJsonObject(label: string, value: string) {
+    if (!value) {
+      return {};
+    }
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        appendLine("error", `${label} needs a JSON object input.`);
+        return null;
+      }
+      return parsed as Record<string, unknown>;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `${label} input is not valid JSON: ${msg}`);
+      return null;
+    }
+  }
+
+  function parseToolShortcut(text: string) {
+    const trimmed = text.trim();
+    const rest = trimmed.startsWith("/tool!")
+      ? trimmed.slice("/tool!".length).trim()
+      : trimmed.startsWith("/tool ")
+        ? trimmed.slice("/tool ".length).trim()
+        : null;
+    if (rest === null) return null;
+    const match = rest.match(/^(\S+)(?:\s+([\s\S]*))?$/);
+    if (!match) {
+      appendLine("error", "Tool shortcut needs a tool name.");
+      return null;
+    }
+    return {
+      name: match[1],
+      inputText: match[2]?.trim() || "{}",
+    };
+  }
+
   function appendJson(label: string, value: unknown) {
     appendEvent(label);
     appendLine("assistant", JSON.stringify(value, null, 2));
+  }
+
+  function summarizeTrace(events: RunEvent[]): TraceSummary | null {
+    if (!events.length) return null;
+    let contextSnapshots = 0;
+    let llmCalls = 0;
+    let toolCalls = 0;
+    let approvals = 0;
+    let memoryFragments = 0;
+    let artifactRefs = 0;
+    let tokensIn = 0;
+    let tokensOut = 0;
+    let eventCostUsd = 0;
+    let hasEventCost = false;
+    let completedCostUsd: number | null = null;
+    let durationMs: number | null = null;
+
+    for (const event of events) {
+      const kind = event.kind;
+      switch (kind.type) {
+        case "ContextBuilt":
+          contextSnapshots += 1;
+          break;
+        case "LlmRequestCompleted":
+          llmCalls += 1;
+          tokensIn += kind.tokens_in;
+          tokensOut += kind.tokens_out;
+          if (kind.cost_usd !== null) {
+            eventCostUsd += kind.cost_usd;
+            hasEventCost = true;
+          }
+          break;
+        case "PromptRefinementCompleted":
+          tokensIn += kind.tokens_in;
+          tokensOut += kind.tokens_out;
+          if (kind.cost_usd !== null) {
+            eventCostUsd += kind.cost_usd;
+            hasEventCost = true;
+          }
+          break;
+        case "ToolCallCompleted":
+          toolCalls += 1;
+          if (kind.cost_usd !== null) {
+            eventCostUsd += kind.cost_usd;
+            hasEventCost = true;
+          }
+          break;
+        case "ApprovalRequested":
+          approvals += 1;
+          break;
+        case "MemoryLoaded":
+          memoryFragments += kind.ids.length;
+          break;
+        case "IngestionReferenced":
+          artifactRefs += 1;
+          break;
+        case "RunCompleted":
+          completedCostUsd = kind.total_cost_usd;
+          durationMs = kind.total_duration_ms;
+          break;
+      }
+    }
+
+    return {
+      run_id: events[0].run_id,
+      events: events.length,
+      context_snapshots: contextSnapshots,
+      llm_calls: llmCalls,
+      tool_calls: toolCalls,
+      approvals,
+      memory_fragments: memoryFragments,
+      artifact_refs: artifactRefs,
+      tokens_in: tokensIn,
+      tokens_out: tokensOut,
+      cost_usd: completedCostUsd ?? (hasEventCost ? eventCostUsd : null),
+      duration_ms: durationMs,
+    };
+  }
+
+  function latestContextSnapshot(events: RunEvent[]) {
+    for (let i = events.length - 1; i >= 0; i -= 1) {
+      const kind = events[i].kind;
+      if (kind.type === "ContextBuilt") {
+        return kind.snapshot;
+      }
+    }
+    return null;
+  }
+
+  function confirmLocalChange(action: string) {
+    const confirmed = window.confirm(`${action}? This changes local harness data.`);
+    if (!confirmed) {
+      appendEvent(`${action} cancelled.`);
+    }
+    return confirmed;
+  }
+
+  async function loadPromptBody(name: string) {
+    const prompt =
+      transport === "daemon"
+        ? await daemonJson<{ body: string }>(`/prompts/${encodeURIComponent(name)}`)
+        : await invoke<{ body: string }>("prompt_show", { name });
+    return prompt.body;
   }
 
   async function loadTraceFor(runId: string) {
@@ -390,24 +603,63 @@ export default function App() {
       transport === "daemon"
         ? await daemonJson<RunEvent[]>(`/trace/${runId}`)
         : await invoke<RunEvent[]>("trace_show", { runId });
+    const summary = summarizeTrace(events);
+    const latestContext = latestContextSnapshot(events);
+    setTraceEvents(events);
+    setTraceSummary(summary);
+    if (latestContext) {
+      setContextPreview(latestContext);
+    }
     appendEvent(`Loaded trace ${runId} (${events.length} events)`);
-    for (const evt of events) {
-      appendEvent(`[${evt.id}] ${evt.kind.type}`);
+    if (summary) {
+      appendEvent(
+        `Trace summary: ${summary.context_snapshots} contexts, ${summary.llm_calls} LLM calls, ${summary.tool_calls} tools, tokens ${summary.tokens_in}/${summary.tokens_out}`,
+      );
     }
   }
 
   async function submit() {
-    const prompt = input.trim();
+    let prompt = input.trim();
     if (!prompt || running) return;
+
+    const isToolShortcut = prompt.startsWith("/tool!") || prompt.startsWith("/tool ");
+    const toolShortcut = parseToolShortcut(prompt);
+    if (toolShortcut) {
+      const inputBody = parseJsonObject("Tool shortcut", toolShortcut.inputText);
+      if (!inputBody) return;
+      setInput("");
+      await callToolDirect(toolShortcut.name, inputBody, prompt);
+      return;
+    }
+    if (isToolShortcut) return;
+
+    const savedPromptName = prompt.startsWith("/run ")
+      ? prompt.slice("/run ".length).trim()
+      : null;
+    if (savedPromptName) {
+      try {
+        const savedPromptBody = await loadPromptBody(savedPromptName);
+        appendEvent(`Loaded saved prompt for run: ${savedPromptName}`);
+        prompt = savedPromptBody;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        appendLine("error", `Saved prompt failed: ${msg}`);
+        return;
+      }
+    }
+
     setInput("");
     setRunning(true);
     setTokensIn(0);
     setTokensOut(0);
     setCostUsd(0);
     setCalls(0);
+    setTraceEvents([]);
+    setTraceSummary(null);
     terminalEventSeenRef.current = false;
     rootRunIdRef.current = null;
-    appendLine("user", prompt);
+    remoteSeenEventKeysRef.current = new Set();
+    appendLine("user", savedPromptName ? `/run ${savedPromptName}` : prompt);
 
     try {
       if (transport === "daemon") {
@@ -417,6 +669,7 @@ export default function App() {
           ...runtimeOptions(),
         });
         setLastRunId(started.run_id);
+        rootRunIdRef.current = started.run_id;
         appendEvent(`Remote run started: ${started.run_id}`);
         await pollRemoteRun(started.run_id);
         return;
@@ -472,6 +725,50 @@ export default function App() {
     }
   }
 
+  async function callToolFromOps() {
+    const name = requireOpsId("Tool call");
+    if (!name || running) return;
+    const inputBody = parseOpsJsonObject("Tool call");
+    if (!inputBody) return;
+    await callToolDirect(name, inputBody, `tool ${name} ${JSON.stringify(inputBody)}`);
+  }
+
+  async function callToolDirect(
+    name: string,
+    inputBody: Record<string, unknown>,
+    display: string,
+  ) {
+    appendLine("user", display);
+
+    try {
+      if (transport === "daemon") {
+        const daemonInput = { ...inputBody };
+        if (requireApproval) {
+          daemonInput.__require_approval = true;
+        }
+        const output = await daemonJson<unknown>(
+          `/tool/${encodeURIComponent(name)}`,
+          daemonInput,
+        );
+        appendJson("Tool output", output);
+        return;
+      }
+      const output = await invoke<unknown>("call_tool", {
+        name,
+        input: inputBody,
+        options: {
+          ...runtimeOptions(),
+          enable_shell: enableShell || name === "shell",
+        },
+      });
+      appendJson("Tool output", output);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      captureRunIdFromError(msg);
+      appendLine("error", `Tool call failed: ${msg}`);
+    }
+  }
+
   async function previewCurrentContext() {
     const prompt = input.trim() || "preview";
     try {
@@ -492,6 +789,32 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Preview failed: ${msg}`);
+    }
+  }
+
+  async function explainCurrentConfig() {
+    try {
+      const explanation =
+        transport === "daemon"
+          ? await daemonJson<unknown>("/explain-config", runtimeOptions())
+          : await invoke<unknown>("explain_config", { options: runtimeOptions() });
+      appendJson("Effective config", explanation);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Explain config failed: ${msg}`);
+    }
+  }
+
+  async function explainCurrentTools() {
+    try {
+      const tools =
+        transport === "daemon"
+          ? await daemonJson<unknown>("/explain-tools", runtimeOptions())
+          : await invoke<unknown>("explain_tools", { options: runtimeOptions() });
+      appendJson("Visible tools", tools);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Explain tools failed: ${msg}`);
     }
   }
 
@@ -520,6 +843,20 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Skill review failed: ${msg}`);
+    }
+  }
+
+  async function reviewPrompts() {
+    try {
+      const prompts =
+        transport === "daemon"
+          ? await daemonJson<unknown[]>("/prompts")
+          : await invoke<unknown[]>("prompt_list");
+      appendEvent(`Saved prompts: ${prompts.length}`);
+      appendLine("assistant", JSON.stringify(prompts, null, 2));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Prompt review failed: ${msg}`);
     }
   }
 
@@ -807,6 +1144,7 @@ export default function App() {
   async function deleteMemoryFromOps() {
     const id = requireOpsId("Memory delete");
     if (!id) return;
+    if (!confirmLocalChange(`Delete memory ${id}`)) return;
     try {
       if (transport === "daemon") {
         await daemonJson(`/memory/${id}/delete`, {});
@@ -821,6 +1159,7 @@ export default function App() {
   }
 
   async function rollbackMemoryFromOps() {
+    if (!confirmLocalChange(`Rollback ${opsUserMemory ? "user" : "agent"} memory`)) return;
     try {
       if (transport === "daemon") {
         await daemonJson("/memory/rollback", { user: opsUserMemory });
@@ -828,9 +1167,144 @@ export default function App() {
         await invoke("memory_rollback", { user: opsUserMemory });
       }
       appendEvent(`Memory rollback complete (${opsUserMemory ? "user" : "agent"})`);
+      const records =
+        transport === "daemon"
+          ? await daemonJson<unknown[]>("/memory")
+          : await invoke<unknown[]>("memory_list");
+      appendJson("Memory after rollback", records);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      appendLine("error", `Memory rollback failed: ${msg}`);
+      appendLine(
+        "error",
+        msg.includes("not found")
+          ? "Memory rollback failed: no rollback snapshot exists yet."
+          : `Memory rollback failed: ${msg}`,
+      );
+    }
+  }
+
+  async function savePromptFromOps() {
+    const name = requireOpsId("Prompt save");
+    const body = requireOpsValue("Prompt save");
+    if (!name || !body) return;
+    try {
+      const prompt =
+        transport === "daemon"
+          ? await daemonJson<unknown>("/prompts", { name, body })
+          : await invoke<unknown>("prompt_save", { name, body });
+      appendJson("Prompt saved", prompt);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Prompt save failed: ${msg}`);
+    }
+  }
+
+  async function showPromptFromOps() {
+    const name = requireOpsId("Prompt show");
+    if (!name) return;
+    try {
+      const prompt =
+        transport === "daemon"
+          ? await daemonJson<unknown>(`/prompts/${encodeURIComponent(name)}`)
+          : await invoke<unknown>("prompt_show", { name });
+      appendJson("Prompt", prompt);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Prompt show failed: ${msg}`);
+    }
+  }
+
+  async function usePromptFromOps() {
+    const name = requireOpsId("Use prompt");
+    if (!name) return;
+    try {
+      const body = await loadPromptBody(name);
+      setInput(body);
+      appendEvent(`Loaded saved prompt into composer: ${name}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Use prompt failed: ${msg}`);
+    }
+  }
+
+  async function deletePromptFromOps() {
+    const name = requireOpsId("Prompt delete");
+    if (!name) return;
+    if (!confirmLocalChange(`Delete prompt ${name}`)) return;
+    try {
+      const output =
+        transport === "daemon"
+          ? await daemonJson<unknown>(
+              `/prompts/${encodeURIComponent(name)}/delete`,
+              {},
+            )
+          : await invoke<unknown>("prompt_delete", { name });
+      appendJson("Prompt deleted", output);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Prompt delete failed: ${msg}`);
+    }
+  }
+
+  async function listModelsFromOps() {
+    try {
+      const models =
+        transport === "daemon"
+          ? await daemonJson<unknown>("/models")
+          : await invoke<unknown>("model_list");
+      appendJson("Models", models);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Model list failed: ${msg}`);
+    }
+  }
+
+  async function showModelFromOps() {
+    const id = requireOpsId("Model show");
+    if (!id) return;
+    try {
+      const doc =
+        transport === "daemon"
+          ? await daemonJson<unknown>(`/models/${encodeURIComponent(id)}`)
+          : await invoke<unknown>("model_show", { id });
+      appendJson("Model", doc);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Model show failed: ${msg}`);
+    }
+  }
+
+  async function saveModelFromOps() {
+    const id = requireOpsId("Model save");
+    if (!id) return;
+    const input = parseOpsJsonObject("Model save");
+    if (!input) return;
+    const modelDoc = { id, ...input };
+    try {
+      const doc =
+        transport === "daemon"
+          ? await daemonJson<unknown>("/models", modelDoc)
+          : await invoke<unknown>("model_save", { model: modelDoc });
+      appendJson("Model saved", doc);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Model save failed: ${msg}`);
+    }
+  }
+
+  async function deleteModelFromOps() {
+    const id = requireOpsId("Model delete");
+    if (!id) return;
+    if (!confirmLocalChange(`Delete model ${id}`)) return;
+    try {
+      const output =
+        transport === "daemon"
+          ? await daemonJson<unknown>(`/models/${encodeURIComponent(id)}/delete`, {})
+          : await invoke<unknown>("model_delete", { id });
+      appendJson("Model deleted", output);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Model delete failed: ${msg}`);
     }
   }
 
@@ -872,11 +1346,12 @@ export default function App() {
   async function ingestPathFromOps() {
     const path = requireOpsValue("Ingest add");
     if (!path) return;
+    const backend = ingestBackend.trim() || "local-v0";
     try {
       const artifact =
         transport === "daemon"
-          ? await daemonJson<unknown>("/ingest", { path })
-          : await invoke<unknown>("ingest_add", { path });
+          ? await daemonJson<unknown>("/ingest", { path, backend })
+          : await invoke<unknown>("ingest_add", { path, backend });
       appendJson("Ingestion artifact created", artifact);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -902,17 +1377,50 @@ export default function App() {
   async function removeIngestFromOps() {
     const id = requireOpsId("Ingest remove");
     if (!id) return;
+    if (!confirmLocalChange(`Remove ingestion artifact ${id}`)) return;
     try {
       if (transport === "daemon") {
         await daemonJson(`/ingest/${id}/rm`, {});
       } else {
         await invoke("ingest_rm", { id });
       }
+      setIncludeIngestIds((ids) => ids.filter((includedId) => includedId !== id));
       appendEvent(`Ingestion artifact removed: ${id}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Ingest remove failed: ${msg}`);
     }
+  }
+
+  function includeIngestFromOps() {
+    const id = requireOpsId("Use ingest");
+    if (!id) return;
+    setIncludeIngestIds((ids) => (ids.includes(id) ? ids : [...ids, id]));
+    appendEvent(`Ingestion artifact will be included in context: ${id}`);
+  }
+
+  function toggleUnsafeIngest(checked: boolean) {
+    if (
+      checked &&
+      !window.confirm(
+        "Allow flagged ingestion content into model context? Review the artifact first.",
+      )
+    ) {
+      appendEvent("Unsafe ingest override cancelled.");
+      return;
+    }
+    setAllowUnsafeIngest(checked);
+    appendEvent(
+      checked
+        ? "Unsafe ingest override enabled for this run."
+        : "Unsafe ingest override disabled.",
+    );
+  }
+
+  function clearIncludedIngest() {
+    setIncludeIngestIds([]);
+    setAllowUnsafeIngest(false);
+    appendEvent("Cleared ingestion artifacts from run context.");
   }
 
   async function importAdapterFromOps() {
@@ -1010,63 +1518,95 @@ export default function App() {
   return (
     <div className="app-shell">
       <aside className="rail" aria-label="Agent workspace sections">
-        <div className="rail-mark">AI</div>
-        <button type="button" className="rail-item active" title="Chat">
-          C
+        <div className="rail-mark" title="Agent Harness" aria-label="Agent Harness">
+          <span className="rail-letter">AI</span>
+          <span className="rail-label">Harness</span>
+        </div>
+        <button
+          type="button"
+          className="rail-item active"
+          title="Chat"
+          aria-label="Chat transcript"
+        >
+          <span className="rail-letter">C</span>
+          <span className="rail-label">Chat</span>
         </button>
         <button
           type="button"
           className="rail-item"
           title="Trace"
+          aria-label="Trace viewer"
           onClick={() => void loadLastTrace()}
           disabled={running || !lastRunId}
         >
-          T
+          <span className="rail-letter">T</span>
+          <span className="rail-label">Trace</span>
         </button>
         <button
           type="button"
           className="rail-item"
           title="Memory"
+          aria-label="Memory records"
           onClick={() => void reviewMemory()}
           disabled={running}
         >
-          M
+          <span className="rail-letter">M</span>
+          <span className="rail-label">Memory</span>
         </button>
         <button
           type="button"
           className="rail-item"
           title="Skills"
+          aria-label="Skill library"
           onClick={() => void reviewSkills()}
           disabled={running}
         >
-          S
+          <span className="rail-letter">S</span>
+          <span className="rail-label">Skills</span>
+        </button>
+        <button
+          type="button"
+          className="rail-item"
+          title="Prompts"
+          aria-label="Saved prompts"
+          onClick={() => void reviewPrompts()}
+          disabled={running}
+        >
+          <span className="rail-letter">P</span>
+          <span className="rail-label">Prompts</span>
         </button>
         <button
           type="button"
           className="rail-item"
           title="Ingest"
+          aria-label="Ingestion artifacts"
           onClick={() => void reviewIngestion()}
           disabled={running}
         >
-          I
+          <span className="rail-letter">I</span>
+          <span className="rail-label">Ingest</span>
         </button>
         <button
           type="button"
           className="rail-item"
           title="Adapters"
+          aria-label="Adapter manifests"
           onClick={() => void reviewAdapters()}
           disabled={running}
         >
-          A
+          <span className="rail-letter">A</span>
+          <span className="rail-label">Adapters</span>
         </button>
         <button
           type="button"
           className="rail-item rail-bottom"
           title="Approvals"
+          aria-label="Approvals"
           onClick={() => void reviewApprovals()}
           disabled={running || !lastRunId}
         >
-          !
+          <span className="rail-letter">!</span>
+          <span className="rail-label">Approvals</span>
         </button>
       </aside>
 
@@ -1155,7 +1695,9 @@ export default function App() {
               onChange={(e) => setTransport(e.target.value as Transport)}
               disabled={running}
             >
-              <option value="in-process">in-process</option>
+              <option value="in-process" disabled={!tauriRuntime}>
+                in-process
+              </option>
               <option value="daemon">daemon</option>
             </select>
           </label>
@@ -1318,6 +1860,15 @@ export default function App() {
           <label className="switch">
             <input
               type="checkbox"
+              checked={allowUnsafeIngest}
+              onChange={(e) => toggleUnsafeIngest(e.target.checked)}
+              disabled={running || !includeIngestIds.length}
+            />
+            <span>Unsafe ingest</span>
+          </label>
+          <label className="switch">
+            <input
+              type="checkbox"
               checked={requireApproval}
               onChange={(e) => setRequireApproval(e.target.checked)}
               disabled={running}
@@ -1333,13 +1884,79 @@ export default function App() {
             />
             <span>Raw tool output</span>
           </label>
-          <button
-            type="button"
-            onClick={() => void previewCurrentContext()}
-            disabled={running}
-          >
-            Preview Context
-          </button>
+          <label className="switch">
+            <input
+              type="checkbox"
+              checked={enablePromptRefinement}
+              onChange={(e) => setEnablePromptRefinement(e.target.checked)}
+              disabled={running}
+            />
+            <span>Refine prompt</span>
+          </label>
+          {enablePromptRefinement ? (
+            <>
+              <label>
+                Refiner model
+                <input
+                  value={promptRefinementModel}
+                  onChange={(e) => setPromptRefinementModel(e.target.value)}
+                  placeholder="agent model"
+                  disabled={running}
+                />
+              </label>
+              <label>
+                Refinement instructions
+                <textarea
+                  className="ops-text"
+                  value={promptRefinementInstructions}
+                  onChange={(e) =>
+                    setPromptRefinementInstructions(e.target.value)
+                  }
+                  placeholder="default refinement"
+                  disabled={running}
+                  rows={3}
+                />
+              </label>
+            </>
+          ) : null}
+          {includeIngestIds.length ? (
+            <div className="included-list">
+              <strong>Included ingest</strong>
+              {includeIngestIds.map((id) => (
+                <span key={id}>{id}</span>
+              ))}
+              <button
+                type="button"
+                onClick={clearIncludedIngest}
+                disabled={running}
+              >
+                Clear Ingest
+              </button>
+            </div>
+          ) : null}
+          <div className="context-actions">
+            <button
+              type="button"
+              onClick={() => void previewCurrentContext()}
+              disabled={running}
+            >
+              Preview Context
+            </button>
+            <button
+              type="button"
+              onClick={() => void explainCurrentConfig()}
+              disabled={running}
+            >
+              Explain Config
+            </button>
+            <button
+              type="button"
+              onClick={() => void explainCurrentTools()}
+              disabled={running}
+            >
+              Explain Tools
+            </button>
+          </div>
           {contextPreview ? (
             <div className="context-preview">
               <section>
@@ -1379,6 +1996,68 @@ export default function App() {
         </section>
 
         <section className="panel">
+          <div className="panel-title">Trace</div>
+          <div className="context-actions">
+            <button
+              type="button"
+              onClick={() => void loadLastTrace()}
+              disabled={running || !lastRunId}
+            >
+              Load Trace
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setTraceEvents([]);
+                setTraceSummary(null);
+              }}
+              disabled={running || !traceEvents.length}
+            >
+              Clear Trace
+            </button>
+          </div>
+          {traceSummary ? (
+            <div className="trace-summary">
+              <span>events {traceSummary.events}</span>
+              <span>contexts {traceSummary.context_snapshots}</span>
+              <span>llm {traceSummary.llm_calls}</span>
+              <span>tools {traceSummary.tool_calls}</span>
+              <span>tokens {traceSummary.tokens_in}/{traceSummary.tokens_out}</span>
+              <span>
+                cost{" "}
+                {traceSummary.cost_usd === null
+                  ? "n/a"
+                  : `$${traceSummary.cost_usd.toFixed(6)}`}
+              </span>
+              <span>
+                time{" "}
+                {traceSummary.duration_ms === null
+                  ? "n/a"
+                  : `${traceSummary.duration_ms}ms`}
+              </span>
+              <span>approvals {traceSummary.approvals}</span>
+              <span>memory {traceSummary.memory_fragments}</span>
+              <span>artifacts {traceSummary.artifact_refs}</span>
+            </div>
+          ) : (
+            <div className="empty-note">No trace loaded.</div>
+          )}
+          {traceEvents.length ? (
+            <div className="trace-events">
+              {traceEvents.map((event) => (
+                <details key={`${event.run_id}:${event.id}`}>
+                  <summary>
+                    <span>[{event.id}]</span>
+                    <strong>{event.kind.type}</strong>
+                  </summary>
+                  <pre>{previewJson(event)}</pre>
+                </details>
+              ))}
+            </div>
+          ) : null}
+        </section>
+
+        <section className="panel">
           <div className="panel-title">Operations</div>
           <label>
             Path or content
@@ -1407,126 +2086,259 @@ export default function App() {
             />
             <span>User memory</span>
           </label>
-          <div className="button-grid">
-            <button
-              type="button"
-              onClick={() => void createMemoryFromOps()}
-              disabled={running || !opsValue.trim()}
-            >
-              Add Memory
-            </button>
-            <button
-              type="button"
-              onClick={() => void generateMemoryFromOps()}
-              disabled={running || !opsValue.trim()}
-            >
-              Generate
-            </button>
-            <button
-              type="button"
-              onClick={() => void editMemoryFromOps()}
-              disabled={running || !opsValue.trim() || !opsId.trim()}
-            >
-              Edit Mem
-            </button>
-            <button
-              type="button"
-              onClick={() => void deleteMemoryFromOps()}
-              disabled={running || !opsId.trim()}
-            >
-              Delete Mem
-            </button>
-            <button
-              type="button"
-              onClick={() => void rollbackMemoryFromOps()}
-              disabled={running}
-            >
-              Rollback
-            </button>
-            <button
-              type="button"
-              onClick={() => void importSkillFromOps()}
-              disabled={running || !opsValue.trim()}
-            >
-              Import Skill
-            </button>
-            <button
-              type="button"
-              onClick={() => void setSkillQuarantine(true)}
-              disabled={running || !opsId.trim()}
-            >
-              Allow Skill
-            </button>
-            <button
-              type="button"
-              onClick={() => void setSkillQuarantine(false)}
-              disabled={running || !opsId.trim()}
-            >
-              Quarantine
-            </button>
-            <button
-              type="button"
-              onClick={() => void ingestPathFromOps()}
-              disabled={running || !opsValue.trim()}
-            >
-              Ingest
-            </button>
-            <button
-              type="button"
-              onClick={() => void showIngestFromOps()}
-              disabled={running || !opsId.trim()}
-            >
-              Show Ingest
-            </button>
-            <button
-              type="button"
-              onClick={() => void removeIngestFromOps()}
-              disabled={running || !opsId.trim()}
-            >
-              Remove Ingest
-            </button>
-            <button
-              type="button"
-              onClick={() => void importAdapterFromOps()}
-              disabled={running || !opsValue.trim()}
-            >
-              Import Adapter
-            </button>
-            <button
-              type="button"
-              onClick={() => void showAdapterFromOps()}
-              disabled={running || !opsId.trim()}
-            >
-              Show Adapter
-            </button>
-            <button
-              type="button"
-              onClick={() => void setAdapterQuarantine(true)}
-              disabled={running || !opsId.trim()}
-            >
-              Allow Adapter
-            </button>
-            <button
-              type="button"
-              onClick={() => void setAdapterQuarantine(false)}
-              disabled={running || !opsId.trim()}
-            >
-              Block Adapter
-            </button>
-            <button
-              type="button"
-              onClick={() => void exportBundleFromOps()}
-              disabled={running || !opsValue.trim() || transport === "daemon"}
-            >
-              Export
-            </button>
-            <button
-              type="button"
-              onClick={() => void importBundleFromOps()}
-              disabled={running || !opsValue.trim() || transport === "daemon"}
-            >
-              Import
-            </button>
+          <div className="operation-groups">
+            <div className="operation-group">
+              <div className="operation-title">Memory</div>
+              <div className="button-grid">
+                <button
+                  type="button"
+                  onClick={() => void createMemoryFromOps()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Add Memory
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void generateMemoryFromOps()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Generate
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void editMemoryFromOps()}
+                  disabled={running || !opsValue.trim() || !opsId.trim()}
+                >
+                  Edit Mem
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => void deleteMemoryFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Delete Mem
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => void rollbackMemoryFromOps()}
+                  disabled={running}
+                >
+                  Rollback
+                </button>
+              </div>
+            </div>
+
+            <div className="operation-group">
+              <div className="operation-title">Prompts</div>
+              <div className="button-grid">
+                <button
+                  type="button"
+                  onClick={() => void savePromptFromOps()}
+                  disabled={running || !opsValue.trim() || !opsId.trim()}
+                >
+                  Save Prompt
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void showPromptFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Show Prompt
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void usePromptFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Use Prompt
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => void deletePromptFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Delete Prompt
+                </button>
+              </div>
+            </div>
+
+            <div className="operation-group">
+              <div className="operation-title">Models</div>
+              <div className="button-grid">
+                <button
+                  type="button"
+                  onClick={() => void listModelsFromOps()}
+                  disabled={running}
+                >
+                  List Models
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void showModelFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Show Model
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveModelFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Save Model
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => void deleteModelFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Delete Model
+                </button>
+              </div>
+            </div>
+
+            <div className="operation-group">
+              <div className="operation-title">Skills</div>
+              <div className="button-grid">
+                <button
+                  type="button"
+                  onClick={() => void importSkillFromOps()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Import Skill
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void setSkillQuarantine(true)}
+                  disabled={running || !opsId.trim()}
+                >
+                  Allow Skill
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void setSkillQuarantine(false)}
+                  disabled={running || !opsId.trim()}
+                >
+                  Quarantine
+                </button>
+              </div>
+            </div>
+
+            <div className="operation-group">
+              <div className="operation-title">Ingestion</div>
+              <label>
+                Backend
+                <select
+                  value={ingestBackend}
+                  onChange={(e) => setIngestBackend(e.target.value)}
+                  disabled={running}
+                >
+                  <option value="local-v0">local-v0</option>
+                  <option value="local-lines-v0">local-lines-v0</option>
+                </select>
+              </label>
+              <div className="button-grid">
+                <button
+                  type="button"
+                  onClick={() => void ingestPathFromOps()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Ingest
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void showIngestFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Show Ingest
+                </button>
+                <button
+                  type="button"
+                  onClick={includeIngestFromOps}
+                  disabled={running || !opsId.trim()}
+                >
+                  Use Ingest
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => void removeIngestFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Remove Ingest
+                </button>
+              </div>
+            </div>
+
+            <div className="operation-group">
+              <div className="operation-title">Tools</div>
+              <div className="button-grid">
+                <button
+                  type="button"
+                  onClick={() => void callToolFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Call Tool
+                </button>
+              </div>
+            </div>
+
+            <div className="operation-group">
+              <div className="operation-title">Adapters</div>
+              <div className="button-grid">
+                <button
+                  type="button"
+                  onClick={() => void importAdapterFromOps()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Import Adapter
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void showAdapterFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Show Adapter
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void setAdapterQuarantine(true)}
+                  disabled={running || !opsId.trim()}
+                >
+                  Allow Adapter
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void setAdapterQuarantine(false)}
+                  disabled={running || !opsId.trim()}
+                >
+                  Block Adapter
+                </button>
+              </div>
+            </div>
+
+            <div className="operation-group">
+              <div className="operation-title">Bundles</div>
+              <div className="button-grid">
+                <button
+                  type="button"
+                  onClick={() => void exportBundleFromOps()}
+                  disabled={running || !opsValue.trim() || transport === "daemon"}
+                >
+                  Export
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void importBundleFromOps()}
+                  disabled={running || !opsValue.trim() || transport === "daemon"}
+                >
+                  Import
+                </button>
+              </div>
+            </div>
           </div>
         </section>
 

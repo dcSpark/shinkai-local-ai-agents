@@ -18,15 +18,16 @@ use std::time::Instant;
 use agent_adapters::{AdapterRegistry, NormalizedPackage, inspect_source};
 use agent_batch::{BatchItemState, BatchPlan};
 use agent_bundles::{BundleManifest, export_bundle, import_bundle};
-use agent_config::ConfigResolver;
+use agent_config::{ConfigResolver, ModelConfig};
 use agent_core::{
     AgentConfig, ApprovalMode, ConfigExplanation, ContextSnapshot, CostPolicy, Harness, HarnessApi,
-    IngestedArtifactView, RunResult, ToolOutputMode, ToolPolicy, ToolView, UserInput,
-    VisibilityLevel,
+    IngestedArtifactView, PromptRefinement, RunResult, ToolOutputMode, ToolPolicy, ToolView,
+    UserInput, VisibilityLevel,
 };
 use agent_ingest::{IngestionArtifact, IngestionStore};
 use agent_llm::{FakeProvider, FakeStep, LlmProvider, ModelRef, RigProvider, RigProviderConfig};
 use agent_memory::{MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget};
+use agent_prompts::{PromptDoc, PromptStore};
 use agent_skills::{SkillDoc, SkillRegistry};
 use agent_storage::StoragePaths;
 use agent_tools::{FakeTool, ShellTool, ShellToolConfig, SubagentTool, ToolId, ToolRegistry};
@@ -83,6 +84,10 @@ struct RunOptions {
     load_memory: bool,
     load_skills: bool,
     include_ingest: Vec<String>,
+    allow_unsafe_ingest: bool,
+    enable_prompt_refinement: bool,
+    prompt_refinement_instructions: Option<String>,
+    prompt_refinement_model: Option<String>,
     require_approval: bool,
     raw_tool_output: bool,
 }
@@ -106,6 +111,10 @@ impl Default for RunOptions {
             load_memory: false,
             load_skills: false,
             include_ingest: Vec::new(),
+            allow_unsafe_ingest: false,
+            enable_prompt_refinement: false,
+            prompt_refinement_instructions: None,
+            prompt_refinement_model: None,
             require_approval: false,
             raw_tool_output: false,
         }
@@ -119,15 +128,28 @@ fn build_provider(
 ) -> Result<Arc<dyn LlmProvider>, String> {
     match options.provider {
         ProviderKind::Fake => Ok(match demo {
+            Demo::Echo if options.enable_prompt_refinement => {
+                Arc::new(FakeProvider::sequence(vec![
+                    FakeStep::Reply(format!("refined: {input}")),
+                    FakeStep::Reply(format!("[fake] refined: {input}")),
+                ]))
+            }
             Demo::Echo => Arc::new(FakeProvider::echo()),
-            Demo::Tool => Arc::new(FakeProvider::sequence(vec![
-                FakeStep::CallTool {
-                    id: "call-1".into(),
-                    tool: "echo".into(),
-                    input: serde_json::json!({"text": input}),
-                },
-                FakeStep::Reply(format!("[fake] tool said: {input}")),
-            ])),
+            Demo::Tool => {
+                let mut steps = Vec::new();
+                if options.enable_prompt_refinement {
+                    steps.push(FakeStep::Reply(format!("refined: {input}")));
+                }
+                steps.extend([
+                    FakeStep::CallTool {
+                        id: "call-1".into(),
+                        tool: "echo".into(),
+                        input: serde_json::json!({"text": input}),
+                    },
+                    FakeStep::Reply(format!("[fake] tool said: {input}")),
+                ]);
+                Arc::new(FakeProvider::sequence(steps))
+            }
         }),
         ProviderKind::Rig => {
             let model = rig_model_id(options);
@@ -196,6 +218,7 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
             name: "Fake Agent".into(),
             system_prompt: "You echo what the user says.".into(),
             model: ModelRef::from("fake-model"),
+            prompt_refinement: None,
             tool_policy: ToolPolicy::default(),
             cost_policy: CostPolicy::default(),
             memory_fragments: Vec::new(),
@@ -226,6 +249,15 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
     if options.output_cost_per_million.is_some() {
         agent.cost_policy.output_cost_per_million = options.output_cost_per_million;
     }
+    if options.enable_prompt_refinement {
+        agent.prompt_refinement = Some(PromptRefinement {
+            instructions: options
+                .prompt_refinement_instructions
+                .clone()
+                .unwrap_or_default(),
+            model: options.prompt_refinement_model.clone().map(ModelRef::from),
+        });
+    }
     if options.load_memory
         && let Ok(memory) = MemoryStore::from_env().load_fragments()
     {
@@ -242,12 +274,33 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
             .include_ingest
             .iter()
             .filter_map(|id| store.show(id).ok())
-            .map(|artifact| IngestedArtifactView {
-                id: artifact.id,
-                source: artifact.source.display().to_string(),
-                sections: artifact.sections.len(),
-                content: artifact.extracted_text.unwrap_or_default(),
-                provenance: "agent.ingest explicit reference".into(),
+            .map(|artifact| {
+                let high_risk = artifact.has_high_risk_findings();
+                let mut findings: Vec<String> = artifact
+                    .findings
+                    .into_iter()
+                    .map(|finding| format!("{:?}: {}", finding.severity, finding.message))
+                    .collect();
+                let content = if high_risk && !options.allow_unsafe_ingest {
+                    findings.push(
+                        "Policy: content withheld; enable unsafe ingest override to include".into(),
+                    );
+                    String::new()
+                } else {
+                    artifact.extracted_text.unwrap_or_default()
+                };
+                IngestedArtifactView {
+                    id: artifact.id,
+                    source: artifact.source.display().to_string(),
+                    sections: artifact.sections.len(),
+                    content,
+                    findings,
+                    provenance: if high_risk && !options.allow_unsafe_ingest {
+                        "agent.ingest blocked by prompt-injection guardrail".into()
+                    } else {
+                        "agent.ingest explicit reference".into()
+                    },
+                }
             })
             .collect();
     }
@@ -824,6 +877,62 @@ async fn skill_quarantine(id: String) -> Result<SkillDoc, String> {
 }
 
 #[tauri::command]
+async fn prompt_save(name: String, body: String) -> Result<PromptDoc, String> {
+    PromptStore::from_env()
+        .save(&name, &body)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn prompt_list() -> Result<Vec<PromptDoc>, String> {
+    PromptStore::from_env().list().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn prompt_show(name: String) -> Result<PromptDoc, String> {
+    PromptStore::from_env()
+        .get(&name)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("saved prompt {name:?} not found"))
+}
+
+#[tauri::command]
+async fn prompt_delete(name: String) -> Result<bool, String> {
+    PromptStore::from_env()
+        .delete(&name)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn model_list() -> Result<Vec<ModelConfig>, String> {
+    ConfigResolver::from_env()
+        .list_models()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn model_show(id: String) -> Result<ModelConfig, String> {
+    ConfigResolver::from_env()
+        .show_model(&id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("model {id:?} not found"))
+}
+
+#[tauri::command]
+async fn model_save(model: ModelConfig) -> Result<ModelConfig, String> {
+    ConfigResolver::from_env()
+        .save_model(&model)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn model_delete(id: String) -> Result<bool, String> {
+    ConfigResolver::from_env()
+        .delete_model(&id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn ingest_add(
     app: AppHandle,
     path: String,
@@ -1010,6 +1119,14 @@ pub fn run() {
             skill_inspect,
             skill_allow,
             skill_quarantine,
+            prompt_save,
+            prompt_list,
+            prompt_show,
+            prompt_delete,
+            model_list,
+            model_show,
+            model_save,
+            model_delete,
             ingest_add,
             ingest_list,
             ingest_show,

@@ -28,6 +28,20 @@ export type RunEventKind =
       duration_ms: number;
     }
   | {
+      type: "PromptRefinementStarted";
+      model: string;
+      original_input: string;
+      instructions: string;
+    }
+  | {
+      type: "PromptRefinementCompleted";
+      refined_input: string;
+      tokens_in: number;
+      tokens_out: number;
+      cost_usd: number | null;
+      duration_ms: number;
+    }
+  | {
       type: "ToolCallProposed";
       call_id: string;
       tool_id: string;
@@ -113,6 +127,10 @@ export type RunOptions = {
   load_memory: boolean;
   load_skills: boolean;
   include_ingest: string[];
+  allow_unsafe_ingest: boolean;
+  enable_prompt_refinement: boolean;
+  prompt_refinement_instructions: string | null;
+  prompt_refinement_model: string | null;
   require_approval: boolean;
   raw_tool_output: boolean;
 };

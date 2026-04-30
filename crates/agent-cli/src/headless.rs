@@ -10,7 +10,7 @@ use agent_adapters::{AdapterRegistry, NormalizedPackage, inspect_source};
 use agent_api_client::DaemonHttpClient;
 use agent_batch::{BatchItemState, BatchPlan};
 use agent_bundles::{export_bundle, import_bundle};
-use agent_config::ConfigResolver;
+use agent_config::{ConfigResolver, ModelConfig};
 use agent_core::{Harness, HarnessApi, UserInput, VisibilityLevel};
 use agent_ingest::{IngestionArtifact, IngestionStore};
 use agent_llm::FakeProvider;
@@ -749,6 +749,72 @@ pub async fn prompt_delete(name: String) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn model_list(json: bool) -> anyhow::Result<()> {
+    let models = ConfigResolver::from_env().list_models()?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&models)?);
+    } else {
+        for model in models {
+            println!(
+                "{} max_output={:?} temperature={:?} tool_support={:?}",
+                model.id, model.max_output_tokens, model.default_temperature, model.tool_support
+            );
+        }
+    }
+    Ok(())
+}
+
+pub async fn model_show(id: String, json: bool) -> anyhow::Result<()> {
+    let Some(model) = ConfigResolver::from_env().show_model(&id)? else {
+        anyhow::bail!("model {id:?} not found");
+    };
+    if json {
+        println!("{}", serde_json::to_string_pretty(&model)?);
+    } else {
+        println!("{}", toml::to_string_pretty(&model)?);
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn model_save(
+    id: String,
+    max_context_tokens: Option<u64>,
+    max_output_tokens: Option<u64>,
+    default_temperature: Option<f64>,
+    tool_support: Option<bool>,
+    privacy_level: Option<String>,
+    cost_tier: Option<String>,
+    input_cost_per_million: Option<f64>,
+    output_cost_per_million: Option<f64>,
+) -> anyhow::Result<()> {
+    let model = model_config_from_parts(
+        id,
+        max_context_tokens,
+        max_output_tokens,
+        default_temperature,
+        tool_support,
+        privacy_level,
+        cost_tier,
+        input_cost_per_million,
+        output_cost_per_million,
+    );
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&ConfigResolver::from_env().save_model(&model)?)?
+    );
+    Ok(())
+}
+
+pub async fn model_delete(id: String) -> anyhow::Result<()> {
+    if ConfigResolver::from_env().delete_model(&id)? {
+        println!("deleted model {id}");
+    } else {
+        println!("model {id} not found");
+    }
+    Ok(())
+}
+
 pub async fn ingest_add(path: String, backend: String) -> anyhow::Result<()> {
     let trace_run_id = RunId::new();
     let store = open_event_store()?;
@@ -946,6 +1012,7 @@ pub async fn remote_run(
             "load_memory": options.load_memory,
             "load_skills": options.load_skills,
             "include_ingest": options.include_ingest,
+            "allow_unsafe_ingest": options.allow_unsafe_ingest,
             "require_approval": options.require_approval
         }),
     )?)
@@ -977,6 +1044,7 @@ pub async fn remote_run_start(
             "load_memory": options.load_memory,
             "load_skills": options.load_skills,
             "include_ingest": options.include_ingest,
+            "allow_unsafe_ingest": options.allow_unsafe_ingest,
             "require_approval": options.require_approval
         }),
     )?)
@@ -1002,7 +1070,8 @@ pub async fn remote_preview_context(
             "raw_tool_output": options.raw_tool_output,
             "load_memory": options.load_memory,
             "load_skills": options.load_skills,
-            "include_ingest": options.include_ingest
+            "include_ingest": options.include_ingest,
+            "allow_unsafe_ingest": options.allow_unsafe_ingest
         }),
     )?)
 }
@@ -1173,14 +1242,97 @@ pub async fn remote_skill_action(url: String, id: String, allow: bool) -> anyhow
     )
 }
 
+pub async fn remote_model_list(url: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).get_json("/models")?)
+}
+
+pub async fn remote_model_show(url: String, id: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).get_json(&format!("/models/{id}"))?)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn remote_model_save(
+    url: String,
+    id: String,
+    max_context_tokens: Option<u64>,
+    max_output_tokens: Option<u64>,
+    default_temperature: Option<f64>,
+    tool_support: Option<bool>,
+    privacy_level: Option<String>,
+    cost_tier: Option<String>,
+    input_cost_per_million: Option<f64>,
+    output_cost_per_million: Option<f64>,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/models",
+        serde_json::to_value(model_config_from_parts(
+            id,
+            max_context_tokens,
+            max_output_tokens,
+            default_temperature,
+            tool_support,
+            privacy_level,
+            cost_tier,
+            input_cost_per_million,
+            output_cost_per_million,
+        ))?,
+    )?)
+}
+
+pub async fn remote_model_delete(url: String, id: String) -> anyhow::Result<()> {
+    print_remote(
+        DaemonHttpClient::new(url)
+            .post_json(&format!("/models/{id}/delete"), serde_json::json!({}))?,
+    )
+}
+
 pub async fn remote_ingest_list(url: String) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).get_json("/ingest")?)
 }
 
-pub async fn remote_ingest_add(url: String, path: String) -> anyhow::Result<()> {
-    print_remote(
-        DaemonHttpClient::new(url).post_json("/ingest", serde_json::json!({ "path": path }))?,
-    )
+#[allow(clippy::too_many_arguments)]
+fn model_config_from_parts(
+    id: String,
+    max_context_tokens: Option<u64>,
+    max_output_tokens: Option<u64>,
+    default_temperature: Option<f64>,
+    tool_support: Option<bool>,
+    privacy_level: Option<String>,
+    cost_tier: Option<String>,
+    input_cost_per_million: Option<f64>,
+    output_cost_per_million: Option<f64>,
+) -> ModelConfig {
+    ModelConfig {
+        id,
+        max_context_tokens,
+        max_output_tokens,
+        default_temperature,
+        tool_support,
+        privacy_level,
+        cost_tier,
+        input_cost_per_million,
+        output_cost_per_million,
+    }
+}
+
+pub async fn remote_ingest_add(url: String, path: String, backend: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/ingest",
+        serde_json::json!({ "path": path, "backend": backend }),
+    )?)
+}
+
+pub async fn remote_ingest_rerun(url: String, id: String, backend: String) -> anyhow::Result<()> {
+    let client = DaemonHttpClient::new(url);
+    let artifact = client.get_json(&format!("/ingest/{id}"))?;
+    let source = artifact
+        .get("source")
+        .and_then(|source| source.as_str())
+        .ok_or_else(|| anyhow::anyhow!("ingestion artifact {id} has no source"))?;
+    print_remote(client.post_json(
+        "/ingest",
+        serde_json::json!({ "path": source, "backend": backend }),
+    )?)
 }
 
 pub async fn remote_ingest_show(url: String, id: String) -> anyhow::Result<()> {
@@ -1330,6 +1482,27 @@ fn event_label(kind: &RunEventKind) -> String {
                 .unwrap_or_default();
             format!(
                 "LlmRequestCompleted tokens_in={tokens_in} tokens_out={tokens_out}{cost} duration_ms={duration_ms}"
+            )
+        }
+        RunEventKind::PromptRefinementStarted {
+            model,
+            original_input,
+            instructions,
+        } => format!(
+            "PromptRefinementStarted model={model} input={original_input:?} instructions={instructions:?}"
+        ),
+        RunEventKind::PromptRefinementCompleted {
+            refined_input,
+            tokens_in,
+            tokens_out,
+            cost_usd,
+            duration_ms,
+        } => {
+            let cost = cost_usd
+                .map(|value| format!(" cost_usd={value:.6}"))
+                .unwrap_or_default();
+            format!(
+                "PromptRefinementCompleted tokens_in={tokens_in} tokens_out={tokens_out}{cost} duration_ms={duration_ms} refined={refined_input:?}"
             )
         }
         RunEventKind::ToolCallProposed {

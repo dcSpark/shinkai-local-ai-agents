@@ -510,6 +510,27 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
                 ),
             );
         }
+        RunEventKind::PromptRefinementStarted { model, .. } => {
+            push_event(app, format!("Prompt refinement started ({model})"));
+        }
+        RunEventKind::PromptRefinementCompleted {
+            refined_input,
+            tokens_in,
+            tokens_out,
+            cost_usd,
+            duration_ms,
+        } => {
+            app.tokens_in += tokens_in;
+            app.tokens_out += tokens_out;
+            if let Some(value) = cost_usd {
+                app.cost_usd += value;
+            }
+            push_event(
+                app,
+                format!("Prompt refined (in: {tokens_in}, out: {tokens_out}, {duration_ms} ms)"),
+            );
+            push_event(app, format!("Refined prompt: {refined_input}"));
+        }
         RunEventKind::ToolCallProposed {
             tool_id,
             input,

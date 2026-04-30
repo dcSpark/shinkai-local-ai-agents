@@ -20,6 +20,7 @@ agent-core = { path = "../agent-core" }
 agent-ingest = { path = "../agent-ingest" }
 agent-llm = { path = "../agent-llm" }
 agent-memory = { path = "../agent-memory" }
+agent-prompts = { path = "../agent-prompts" }
 agent-skills = { path = "../agent-skills" }
 agent-storage = { path = "../agent-storage" }
 agent-tools = { path = "../agent-tools" }

@@ -28,6 +28,7 @@ agent-ingest = { path = "../agent-ingest" }
 agent-tracing = { path = "../agent-tracing" }
 agent-llm = { path = "../agent-llm" }
 agent-memory = { path = "../agent-memory" }
+agent-prompts = { path = "../agent-prompts" }
 agent-skills = { path = "../agent-skills" }
 agent-storage = { path = "../agent-storage" }
 agent-tools = { path = "../agent-tools" }

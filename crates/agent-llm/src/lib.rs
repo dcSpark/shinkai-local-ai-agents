@@ -230,6 +230,8 @@ pub enum FakeStep {
         tool: String,
         input: Value,
     },
+    /// Request multiple tool calls in one model turn.
+    CallTools(Vec<LlmToolCall>),
 }
 
 /// Deterministic fake LLM provider. Three modes:
@@ -293,6 +295,12 @@ impl LlmProvider for FakeProvider {
                                 tool_name: tool,
                                 input,
                             }],
+                            tokens_in: 0,
+                            tokens_out: 0,
+                        },
+                        FakeStep::CallTools(tool_calls) => LlmResponse {
+                            content: None,
+                            tool_calls,
                             tokens_in: 0,
                             tokens_out: 0,
                         },

@@ -14,10 +14,11 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use async_trait::async_trait;
+use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use agent_llm::{LlmProvider, LlmRequest, Message, ModelRef, ToolSchema};
+use agent_llm::{LlmProvider, LlmRequest, LlmToolCall, Message, ModelRef, ToolSchema};
 use agent_tools::{ToolId, ToolRegistry};
 use agent_tracing::{EventId, EventStore, RunEvent, RunEventKind, RunId};
 
@@ -198,6 +199,21 @@ pub struct ToolCallResult {
 struct ToolExecutionResult {
     output: Value,
     cost_usd: Option<f64>,
+}
+
+#[derive(Debug, Clone)]
+struct PreparedToolCall {
+    call: LlmToolCall,
+    tool_id: ToolId,
+    proposed_event: EventId,
+    started_event: EventId,
+}
+
+#[derive(Debug, Clone)]
+struct ExecutedToolCall {
+    prepared: PreparedToolCall,
+    execution: ToolExecutionResult,
+    duration_ms: u64,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -517,6 +533,43 @@ impl Harness {
         );
     }
 
+    fn tool_is_parallel_safe(&self, tool_id: &ToolId) -> bool {
+        let Some(descriptor) = self.tools.descriptor(tool_id) else {
+            return false;
+        };
+        !descriptor.requires_approval
+            && !descriptor.permissions.shell
+            && !descriptor.permissions.file_read
+            && !descriptor.permissions.file_write
+            && !descriptor.permissions.network
+            && !descriptor.permissions.secrets
+            && tool_id.0 != "subagent"
+    }
+
+    async fn execute_prepared_tool_call(
+        &self,
+        agent: &AgentConfig,
+        run_id: RunId,
+        prepared: PreparedToolCall,
+    ) -> Result<ExecutedToolCall, (PreparedToolCall, HarnessError)> {
+        let tool_t0 = Instant::now();
+        let execution = self
+            .execute_tool_or_subagent(
+                agent,
+                run_id,
+                prepared.started_event,
+                &prepared.tool_id,
+                prepared.call.input.clone(),
+            )
+            .await
+            .map_err(|err| (prepared.clone(), err))?;
+        Ok(ExecutedToolCall {
+            prepared,
+            execution,
+            duration_ms: tool_t0.elapsed().as_millis() as u64,
+        })
+    }
+
     async fn execute_tool_or_subagent(
         &self,
         agent: &AgentConfig,
@@ -792,6 +845,9 @@ impl ContextBuilder<'_> {
                 "\n- tool output mode: raw; after a tool call, the runtime returns the tool output without an interpretation pass",
             );
         }
+        system_prompt.push_str(
+            "\n- side-effect-free, approval-free tool calls proposed in the same turn may execute in parallel",
+        );
         if !self.agent.memory_fragments.is_empty() {
             system_prompt.push_str("\n\n<memory-context>");
             for fragment in &self.agent.memory_fragments {
@@ -990,6 +1046,7 @@ impl HarnessApi for Harness {
                 tool_calls: response.tool_calls.clone(),
             });
 
+            let mut prepared_calls = Vec::new();
             for tc in response.tool_calls {
                 let tool_id = ToolId::from(tc.tool_name.clone());
 
@@ -1004,10 +1061,8 @@ impl HarnessApi for Harness {
                 );
 
                 // Allowlist check.
-                if !agent.tool_policy.allowed_tools.is_empty()
-                    && !agent.tool_policy.allowed_tools.contains(&tool_id)
-                {
-                    let reason = format!("tool {:?} not in agent allowlist", tool_id);
+                if let Err(err) = self.ensure_tool_allowed(agent, &tool_id) {
+                    let reason = err.to_string();
                     self.record_policy_denied(run_id, proposed.id, &reason);
                     self.events.append(
                         run_id,
@@ -1024,14 +1079,15 @@ impl HarnessApi for Harness {
                             reason: reason.clone(),
                         },
                     );
-                    return Err(HarnessError::PolicyDenied(reason));
+                    return Err(err);
                 }
 
                 // Budget check (per-call, before execution).
-                if calls_used >= agent.tool_policy.max_calls {
+                if calls_used + prepared_calls.len() as u32 >= agent.tool_policy.max_calls {
                     let reason = format!(
                         "tool-call budget exhausted (used={}, limit={})",
-                        calls_used, agent.tool_policy.max_calls,
+                        calls_used + prepared_calls.len() as u32,
+                        agent.tool_policy.max_calls,
                     );
                     self.record_policy_denied(run_id, proposed.id, &reason);
                     self.events.append(
@@ -1080,83 +1136,140 @@ impl HarnessApi for Harness {
                     },
                 );
 
-                let tool_t0 = Instant::now();
-                let execution = match self
-                    .execute_tool_or_subagent(
-                        agent,
-                        run_id,
-                        tool_started.id,
-                        &tool_id,
-                        tc.input.clone(),
-                    )
-                    .await
-                {
-                    Ok(v) => v,
-                    Err(e) => {
-                        let err_msg = e.to_string();
-                        self.events.append(
-                            run_id,
-                            Some(proposed.id),
-                            RunEventKind::ToolCallFailed {
-                                call_id: tc.id.clone(),
-                                error: err_msg.clone(),
-                            },
-                        );
-                        self.events.append(
-                            run_id,
-                            Some(run_started.id),
-                            RunEventKind::RunFailed {
-                                reason: err_msg.clone(),
-                            },
-                        );
-                        return Err(e);
-                    }
-                };
-                if let Some(cost) = execution.cost_usd {
-                    total_cost_usd += cost;
-                    has_cost_usd = true;
-                }
-                let output = execution.output;
-                let tool_duration = tool_t0.elapsed().as_millis() as u64;
-
-                self.events.append(
-                    run_id,
-                    Some(proposed.id),
-                    RunEventKind::ToolCallCompleted {
-                        call_id: tc.id.clone(),
-                        output: output.clone(),
-                        cost_usd: execution.cost_usd,
-                        duration_ms: tool_duration,
-                    },
-                );
-
-                let result_str = match &output {
-                    serde_json::Value::String(s) => s.clone(),
-                    other => {
-                        serde_json::to_string(other).unwrap_or_else(|_| "<unserializable>".into())
-                    }
-                };
-                conversation.push(Message::ToolResult {
-                    tool_call_id: tc.id,
-                    content: result_str,
+                prepared_calls.push(PreparedToolCall {
+                    call: tc,
+                    tool_id,
+                    proposed_event: proposed.id,
+                    started_event: tool_started.id,
                 });
+            }
 
-                calls_used += 1;
-                if agent.tool_policy.output_mode == ToolOutputMode::Raw {
-                    let final_output = Self::stringify_tool_output(&output);
+            let can_parallelize = agent.tool_policy.output_mode != ToolOutputMode::Raw
+                && prepared_calls.len() > 1
+                && prepared_calls
+                    .iter()
+                    .all(|prepared| self.tool_is_parallel_safe(&prepared.tool_id));
+
+            if can_parallelize {
+                let executions = join_all(
+                    prepared_calls
+                        .into_iter()
+                        .map(|prepared| self.execute_prepared_tool_call(agent, run_id, prepared)),
+                )
+                .await;
+                let mut first_error = None;
+                for execution in executions {
+                    match execution {
+                        Ok(executed) => {
+                            self.events.append(
+                                run_id,
+                                Some(executed.prepared.proposed_event),
+                                RunEventKind::ToolCallCompleted {
+                                    call_id: executed.prepared.call.id.clone(),
+                                    output: executed.execution.output.clone(),
+                                    cost_usd: executed.execution.cost_usd,
+                                    duration_ms: executed.duration_ms,
+                                },
+                            );
+                            if let Some(cost) = executed.execution.cost_usd {
+                                total_cost_usd += cost;
+                                has_cost_usd = true;
+                            }
+                            conversation.push(Message::ToolResult {
+                                tool_call_id: executed.prepared.call.id,
+                                content: Self::stringify_tool_output(&executed.execution.output),
+                            });
+                            calls_used += 1;
+                        }
+                        Err((prepared, err)) => {
+                            let reason = err.to_string();
+                            self.events.append(
+                                run_id,
+                                Some(prepared.proposed_event),
+                                RunEventKind::ToolCallFailed {
+                                    call_id: prepared.call.id,
+                                    error: reason.clone(),
+                                },
+                            );
+                            if first_error.is_none() {
+                                first_error = Some(err);
+                            }
+                        }
+                    }
+                }
+                if let Some(err) = first_error {
                     self.events.append(
                         run_id,
                         Some(run_started.id),
-                        RunEventKind::RunCompleted {
-                            final_output: final_output.clone(),
-                            total_cost_usd: has_cost_usd.then_some(total_cost_usd),
-                            total_duration_ms: started_at.elapsed().as_millis() as u64,
+                        RunEventKind::RunFailed {
+                            reason: err.to_string(),
                         },
                     );
-                    return Ok(RunResult {
+                    return Err(err);
+                }
+            } else {
+                for prepared in prepared_calls {
+                    let executed = match self
+                        .execute_prepared_tool_call(agent, run_id, prepared.clone())
+                        .await
+                    {
+                        Ok(executed) => executed,
+                        Err((prepared, err)) => {
+                            let reason = err.to_string();
+                            self.events.append(
+                                run_id,
+                                Some(prepared.proposed_event),
+                                RunEventKind::ToolCallFailed {
+                                    call_id: prepared.call.id,
+                                    error: reason.clone(),
+                                },
+                            );
+                            self.events.append(
+                                run_id,
+                                Some(run_started.id),
+                                RunEventKind::RunFailed {
+                                    reason: reason.clone(),
+                                },
+                            );
+                            return Err(err);
+                        }
+                    };
+                    if let Some(cost) = executed.execution.cost_usd {
+                        total_cost_usd += cost;
+                        has_cost_usd = true;
+                    }
+                    let output = executed.execution.output;
+                    self.events.append(
                         run_id,
-                        final_output,
+                        Some(executed.prepared.proposed_event),
+                        RunEventKind::ToolCallCompleted {
+                            call_id: executed.prepared.call.id.clone(),
+                            output: output.clone(),
+                            cost_usd: executed.execution.cost_usd,
+                            duration_ms: executed.duration_ms,
+                        },
+                    );
+                    conversation.push(Message::ToolResult {
+                        tool_call_id: executed.prepared.call.id,
+                        content: Self::stringify_tool_output(&output),
                     });
+                    calls_used += 1;
+                    if agent.tool_policy.output_mode == ToolOutputMode::Raw {
+                        let final_output = Self::stringify_tool_output(&output);
+                        self.events.append(
+                            run_id,
+                            Some(run_started.id),
+                            RunEventKind::RunCompleted {
+                                final_output: final_output.clone(),
+                                total_cost_usd: has_cost_usd.then_some(total_cost_usd),
+                                total_duration_ms: started_at.elapsed().as_millis() as u64,
+                            },
+                        );
+                        return Ok(RunResult {
+                            run_id,
+                            final_output,
+                        });
+                    }
                 }
             }
         }
@@ -1405,10 +1518,11 @@ impl HarnessApi for Harness {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent_llm::{FakeProvider, FakeStep, LlmResponse};
-    use agent_tools::{FakeTool, SubagentTool, ToolDescriptor, ToolPermissions};
+    use agent_llm::{FakeProvider, FakeStep, LlmResponse, LlmToolCall};
+    use agent_tools::{FakeTool, SubagentTool, Tool, ToolDescriptor, ToolError, ToolPermissions};
     use agent_tracing::InMemoryEventStore;
     use serde_json::json;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     fn agent_with_tools(allowed: Vec<ToolId>, max_calls: u32) -> AgentConfig {
         AgentConfig {
@@ -1477,6 +1591,39 @@ mod tests {
         reg.register(echo_descriptor(), Arc::new(FakeTool::echo()));
         reg.register(SubagentTool::descriptor(), Arc::new(SubagentTool));
         Arc::new(reg)
+    }
+
+    fn probe_descriptor() -> ToolDescriptor {
+        ToolDescriptor {
+            id: ToolId::from("probe"),
+            name: "Probe".into(),
+            description: "Tracks concurrent executions.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string" }
+                }
+            }),
+            permissions: ToolPermissions::default(),
+            requires_approval: false,
+        }
+    }
+
+    struct ProbeTool {
+        active: Arc<AtomicUsize>,
+        observed_parallel: Arc<AtomicBool>,
+    }
+
+    #[async_trait]
+    impl Tool for ProbeTool {
+        async fn execute(&self, input: Value) -> Result<Value, ToolError> {
+            if self.active.fetch_add(1, Ordering::SeqCst) > 0 {
+                self.observed_parallel.store(true, Ordering::SeqCst);
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+            self.active.fetch_sub(1, Ordering::SeqCst);
+            Ok(input)
+        }
     }
 
     fn kinds(events: &[RunEvent]) -> Vec<&'static str> {
@@ -1837,6 +1984,70 @@ mod tests {
                 "LlmRequestCompleted",
                 "ToolCallProposed",
                 "ToolCallStarted",
+                "ToolCallCompleted",
+                "ContextBuilt",
+                "LlmRequestStarted",
+                "LlmRequestCompleted",
+                "RunCompleted",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn side_effect_free_tool_calls_can_run_in_parallel() {
+        let active = Arc::new(AtomicUsize::new(0));
+        let observed_parallel = Arc::new(AtomicBool::new(false));
+        let mut registry = ToolRegistry::new();
+        registry.register(
+            probe_descriptor(),
+            Arc::new(ProbeTool {
+                active,
+                observed_parallel: observed_parallel.clone(),
+            }),
+        );
+        let provider = FakeProvider::sequence(vec![
+            FakeStep::CallTools(vec![
+                LlmToolCall {
+                    id: "c1".into(),
+                    tool_name: "probe".into(),
+                    input: json!({"text": "one"}),
+                },
+                LlmToolCall {
+                    id: "c2".into(),
+                    tool_name: "probe".into(),
+                    input: json!({"text": "two"}),
+                },
+            ]),
+            FakeStep::Reply("done".into()),
+        ]);
+
+        let h = Harness::new(
+            Arc::new(provider),
+            Arc::new(InMemoryEventStore::new()),
+            Arc::new(registry),
+        );
+        let result = h
+            .run(
+                &agent_with_tools(vec![], 5),
+                UserInput { text: "go".into() },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.final_output, "done");
+        assert!(observed_parallel.load(Ordering::SeqCst));
+        assert_eq!(
+            kinds(&h.events(result.run_id)),
+            vec![
+                "RunStarted",
+                "ContextBuilt",
+                "LlmRequestStarted",
+                "LlmRequestCompleted",
+                "ToolCallProposed",
+                "ToolCallStarted",
+                "ToolCallProposed",
+                "ToolCallStarted",
+                "ToolCallCompleted",
                 "ToolCallCompleted",
                 "ContextBuilt",
                 "LlmRequestStarted",

@@ -12,6 +12,7 @@ agent-tracing = { path = "../agent-tracing" }
 agent-llm = { path = "../agent-llm" }
 agent-tools = { path = "../agent-tools" }
 async-trait.workspace = true
+futures = "0.3"
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

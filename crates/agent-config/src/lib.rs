@@ -4,6 +4,7 @@
 //! provenance strings for `explain-config`. Later layers can slot into the same
 //! returned shape without changing callers.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use agent_core::{
@@ -76,6 +77,10 @@ pub struct ModelConfig {
     #[serde(default)]
     pub default_temperature: Option<f64>,
     #[serde(default)]
+    pub available_modalities: Vec<String>,
+    #[serde(default)]
+    pub reasoning_mode: Option<String>,
+    #[serde(default)]
     pub tool_support: Option<bool>,
     #[serde(default)]
     pub privacy_level: Option<String>,
@@ -85,6 +90,8 @@ pub struct ModelConfig {
     pub input_cost_per_million: Option<f64>,
     #[serde(default)]
     pub output_cost_per_million: Option<f64>,
+    #[serde(default)]
+    pub metadata: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -100,11 +107,14 @@ impl ModelConfig {
             max_context_tokens: None,
             max_output_tokens: None,
             default_temperature: None,
+            available_modalities: Vec::new(),
+            reasoning_mode: None,
             tool_support: None,
             privacy_level: None,
             cost_tier: None,
             input_cost_per_million: None,
             output_cost_per_million: None,
+            metadata: BTreeMap::new(),
         }
     }
 }
@@ -347,8 +357,15 @@ fn resolve_agent(
                 &model_source,
             ),
             config_value("model.tool_support", model.tool_support, &model_source),
+            config_value(
+                "model.available_modalities",
+                model.available_modalities,
+                &model_source,
+            ),
+            config_value("model.reasoning_mode", model.reasoning_mode, &model_source),
             config_value("model.privacy_level", model.privacy_level, &model_source),
             config_value("model.cost_tier", model.cost_tier, &model_source),
+            config_value("model.metadata", model.metadata, &model_source),
         ]);
     }
 
@@ -414,11 +431,14 @@ mod tests {
             max_context_tokens: Some(128_000),
             max_output_tokens: Some(4096),
             default_temperature: Some(0.2),
+            available_modalities: vec!["text".into(), "image".into()],
+            reasoning_mode: Some("medium".into()),
             tool_support: Some(true),
             privacy_level: Some("cloud".into()),
             cost_tier: Some("cheap".into()),
             input_cost_per_million: Some(0.15),
             output_cost_per_million: Some(0.6),
+            metadata: BTreeMap::from([("vendor".into(), serde_json::json!("openai"))]),
         };
         resolver.save_model(&model).unwrap();
         assert_eq!(

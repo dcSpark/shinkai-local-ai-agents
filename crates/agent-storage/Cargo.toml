@@ -8,4 +8,5 @@ authors.workspace = true
 description = "Filesystem layout helpers for Agent Harness config, state, and cache paths."
 
 [dependencies]
+serde.workspace = true
 thiserror.workspace = true

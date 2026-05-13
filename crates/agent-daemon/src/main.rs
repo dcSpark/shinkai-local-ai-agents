@@ -17,7 +17,10 @@ use agent_prompts::PromptStore;
 use agent_skills::SkillRegistry;
 use agent_storage::StoragePaths;
 use agent_tools::{FakeTool, ShellTool, ShellToolConfig, SubagentTool, ToolId, ToolRegistry};
-use agent_tracing::{EventStore, RunEventKind, RunId, SqliteEventStore};
+use agent_tracing::{
+    EventStore, RunEventKind, RunId, SqliteEventStore, is_terminal_run_event, latest_event_id,
+    summarize_trace, validate_guidance_content, validate_quality_score,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::task::AbortHandle;
@@ -111,6 +114,7 @@ async fn route(
                 "trace_schema_version": agent_tracing::SCHEMA_VERSION
             }),
         )),
+        ("GET", "/storage") => daemon_storage_report().map(|value| (200, value)),
         ("POST", "/run") => daemon_run(&request.body).await.map(|value| (200, value)),
         ("POST", "/run/start") => daemon_run_start(&request.body, state)
             .await
@@ -139,6 +143,10 @@ async fn route(
         }
         ("GET", "/skills") => daemon_skill_list().map(|value| (200, value)),
         ("POST", "/skills/import") => daemon_skill_import(&request.body).map(|value| (200, value)),
+        _ if request.method == "GET" && request.path.starts_with("/skills/") => {
+            let id = request.path.trim_start_matches("/skills/");
+            daemon_skill_show(id).map(|value| (200, value))
+        }
         ("GET", "/models") => daemon_model_list().map(|value| (200, value)),
         ("POST", "/models") => daemon_model_save(&request.body).map(|value| (200, value)),
         ("GET", "/prompts") => daemon_prompt_list().map(|value| (200, value)),
@@ -154,6 +162,16 @@ async fn route(
         }
         ("POST", "/bundles/import") => {
             daemon_bundle_import(&request.body).map(|value| (200, value))
+        }
+        _ if request.method == "GET"
+            && request.path.starts_with("/trace/")
+            && request.path.ends_with("/summary") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/trace/")
+                .trim_end_matches("/summary");
+            trace_summary(id).map(|value| (200, value))
         }
         _ if request.method == "GET" && request.path.starts_with("/trace/") => {
             let id = request.path.trim_start_matches("/trace/");
@@ -212,6 +230,16 @@ async fn route(
         }
         _ if request.method == "POST"
             && request.path.starts_with("/ingest/")
+            && request.path.ends_with("/rerun") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/ingest/")
+                .trim_end_matches("/rerun");
+            daemon_ingest_rerun(id, &request.body).map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/ingest/")
             && request.path.ends_with("/rm") =>
         {
             let id = request
@@ -240,7 +268,9 @@ async fn route(
                 "available": [
                     "GET /health",
                     "GET /version",
+                    "GET /storage",
                     "GET /trace/<run_id>",
+                    "GET /trace/<run_id>/summary",
                     "POST /run",
                     "POST /run/start",
                     "GET /run/status/<run_id>",
@@ -259,12 +289,14 @@ async fn route(
                     "GET|POST /memory",
                     "GET /skills",
                     "POST /skills/import",
+                    "GET /skills/<id>",
                     "POST /skills/<id>/allow",
                     "GET|POST /prompts",
                     "GET /prompts/<name>",
                     "POST /prompts/<name>/delete",
                     "GET|POST /ingest",
                     "GET /ingest/<id>",
+                    "POST /ingest/<id>/rerun",
                     "GET /adapters",
                     "POST /adapters/import",
                     "GET /adapters/<id>",
@@ -467,6 +499,12 @@ fn daemon_explain_config() -> anyhow::Result<serde_json::Value> {
     }))
 }
 
+fn daemon_storage_report() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(
+        StoragePaths::from_env().storage_report()?,
+    )?)
+}
+
 fn daemon_explain_tools(body: &str) -> anyhow::Result<serde_json::Value> {
     let input: DaemonOptionsInput = serde_json::from_str(body)?;
     let harness = Harness::new(
@@ -481,13 +519,22 @@ fn daemon_explain_tools(body: &str) -> anyhow::Result<serde_json::Value> {
 
 fn daemon_guide(body: &str) -> anyhow::Result<serde_json::Value> {
     let input: GuideInput = serde_json::from_str(body)?;
+    let text = validate_guidance_content(&input.text)?;
     let run_id = RunId(uuid::Uuid::parse_str(&input.run_id)?);
-    open_event_store()?.append(
+    let store = open_event_store()?;
+    let events = store.try_events(run_id)?;
+    if events
+        .iter()
+        .any(|event| is_terminal_run_event(&event.kind))
+    {
+        anyhow::bail!("run {run_id} is terminal and cannot accept guidance");
+    }
+    let parent = latest_event_id(&events)
+        .ok_or_else(|| anyhow::anyhow!("run {run_id} has no trace events"))?;
+    store.append(
         run_id,
-        None,
-        RunEventKind::GuidanceInjected {
-            content: input.text,
-        },
+        Some(parent),
+        RunEventKind::GuidanceInjected { content: text },
     );
     Ok(serde_json::json!({ "run_id": run_id.0, "recorded": "guidance" }))
 }
@@ -496,18 +543,13 @@ async fn daemon_cancel(body: &str, state: Arc<DaemonState>) -> anyhow::Result<se
     let input: CancelInput = serde_json::from_str(body)?;
     let run_id = RunId(uuid::Uuid::parse_str(&input.run_id)?);
     let store = open_event_store()?;
+    let existing_events = store.try_events(run_id)?;
     let active_handle = state.active_runs.lock().await.remove(&input.run_id);
     let aborted = active_handle.is_some();
     if !aborted
-        && store.try_events(run_id)?.iter().any(|event| {
-            matches!(
-                &event.kind,
-                RunEventKind::RunCompleted { .. }
-                    | RunEventKind::RunFailed { .. }
-                    | RunEventKind::RunCancelled { .. }
-                    | RunEventKind::RunPaused { .. }
-            )
-        })
+        && existing_events
+            .iter()
+            .any(|event| is_terminal_run_event(&event.kind))
     {
         return Ok(serde_json::json!({
             "run_id": run_id.0,
@@ -515,9 +557,11 @@ async fn daemon_cancel(body: &str, state: Arc<DaemonState>) -> anyhow::Result<se
             "aborted": false
         }));
     }
+    let parent = latest_event_id(&existing_events)
+        .ok_or_else(|| anyhow::anyhow!("run {run_id} has no trace events"))?;
     store.append(
         run_id,
-        None,
+        Some(parent),
         RunEventKind::RunCancelled {
             reason: input.reason,
         },
@@ -534,10 +578,14 @@ async fn daemon_cancel(body: &str, state: Arc<DaemonState>) -> anyhow::Result<se
 
 fn daemon_score(body: &str) -> anyhow::Result<serde_json::Value> {
     let input: ScoreInput = serde_json::from_str(body)?;
+    validate_quality_score(input.score)?;
     let run_id = RunId(uuid::Uuid::parse_str(&input.run_id)?);
-    open_event_store()?.append(
+    let store = open_event_store()?;
+    let parent = latest_event_id(&store.try_events(run_id)?)
+        .ok_or_else(|| anyhow::anyhow!("run {run_id} has no trace events"))?;
+    store.append(
         run_id,
-        None,
+        Some(parent),
         RunEventKind::QualityScored {
             target: input.target,
             score: input.score,
@@ -759,6 +807,12 @@ fn trace_show(id: &str) -> anyhow::Result<serde_json::Value> {
     )?)
 }
 
+fn trace_summary(id: &str) -> anyhow::Result<serde_json::Value> {
+    let run_id = RunId(uuid::Uuid::parse_str(id)?);
+    let events = open_event_store()?.try_events(run_id)?;
+    Ok(serde_json::to_value(summarize_trace(&events, run_id))?)
+}
+
 fn approvals_for_run(id: &str) -> anyhow::Result<serde_json::Value> {
     let run_id = RunId(uuid::Uuid::parse_str(id)?);
     let mut approvals = Vec::<serde_json::Value>::new();
@@ -967,6 +1021,8 @@ fn daemon_memory_rollback(body: &str) -> anyhow::Result<serde_json::Value> {
     record_memory_operation(
         if input.user { "user.md" } else { "memory.md" },
         "rolled_back",
+        None,
+        None,
     )?;
     Ok(serde_json::json!({ "rolled_back": true, "user": input.user }))
 }
@@ -985,7 +1041,7 @@ fn daemon_memory_route(path: &str, body: &str) -> anyhow::Result<serde_json::Val
         }
         "delete" => {
             MemoryStore::from_env().delete(parts[1])?;
-            record_memory_operation(parts[1], "deleted")?;
+            record_memory_operation(parts[1], "deleted", None, None)?;
             Ok(serde_json::json!({ "id": parts[1], "deleted": true }))
         }
         _ => anyhow::bail!("unknown memory action"),
@@ -993,16 +1049,28 @@ fn daemon_memory_route(path: &str, body: &str) -> anyhow::Result<serde_json::Val
 }
 
 fn record_memory_written(record: &MemoryRecord, operation: &str) -> anyhow::Result<()> {
-    record_memory_operation(&record.id, operation)
+    record_memory_operation(
+        &record.id,
+        operation,
+        record.source_range.clone(),
+        record.generating_model.clone(),
+    )
 }
 
-fn record_memory_operation(id: &str, operation: &str) -> anyhow::Result<()> {
+fn record_memory_operation(
+    id: &str,
+    operation: &str,
+    source_range: Option<String>,
+    generating_model: Option<String>,
+) -> anyhow::Result<()> {
     open_event_store()?.append(
         RunId::new(),
         None,
         RunEventKind::MemoryWritten {
             id: id.to_string(),
             operation: operation.to_string(),
+            source_range,
+            generating_model,
         },
     );
     Ok(())
@@ -1016,6 +1084,12 @@ fn daemon_skill_import(body: &str) -> anyhow::Result<serde_json::Value> {
     let input: PathInput = serde_json::from_str(body)?;
     Ok(serde_json::to_value(
         SkillRegistry::from_env().import_openclaw(input.path)?,
+    )?)
+}
+
+fn daemon_skill_show(id: &str) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(
+        SkillRegistry::from_env().inspect(id)?,
     )?)
 }
 
@@ -1091,17 +1165,27 @@ fn daemon_ingest_list() -> anyhow::Result<serde_json::Value> {
 
 fn daemon_ingest_add(body: &str) -> anyhow::Result<serde_json::Value> {
     let input: PathInput = serde_json::from_str(body)?;
+    ingest_path_with_trace(input.path, input.backend)
+}
+
+fn daemon_ingest_rerun(id: &str, body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: BackendInput = serde_json::from_str(body)?;
+    let source = IngestionStore::from_env().show(id)?.source;
+    ingest_path_with_trace(source.display().to_string(), input.backend)
+}
+
+fn ingest_path_with_trace(path: String, backend: String) -> anyhow::Result<serde_json::Value> {
     let trace_run_id = RunId::new();
     let store = open_event_store()?;
     let started = store.append(
         trace_run_id,
         None,
         RunEventKind::IngestionStarted {
-            source: input.path.clone(),
-            backend: input.backend.clone(),
+            source: path.clone(),
+            backend: backend.clone(),
         },
     );
-    let artifact = IngestionStore::from_env().ingest_with_backend(input.path, &input.backend)?;
+    let artifact = IngestionStore::from_env().ingest_with_backend(path, &backend)?;
     store.append(
         trace_run_id,
         Some(started.id),
@@ -1302,6 +1386,12 @@ struct PromptSaveInput {
 #[derive(serde::Deserialize)]
 struct PathInput {
     path: String,
+    #[serde(default = "default_ingest_backend")]
+    backend: String,
+}
+
+#[derive(serde::Deserialize)]
+struct BackendInput {
     #[serde(default = "default_ingest_backend")]
     backend: String,
 }

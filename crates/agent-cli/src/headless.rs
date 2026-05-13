@@ -2,6 +2,7 @@
 //! emits either a human-readable transcript on stderr (with the final answer
 //! on stdout) or one JSON `RunEvent` per line on stdout (`--json`).
 
+use std::collections::BTreeMap;
 use std::io::{self, Read};
 use std::sync::Arc;
 use std::time::Instant;
@@ -19,7 +20,11 @@ use agent_prompts::{PromptStore, is_valid_prompt_name};
 use agent_skills::SkillRegistry;
 use agent_storage::StoragePaths;
 use agent_tools::ToolId;
-use agent_tracing::{EventStore, RunEvent, RunEventKind, RunId, SqliteEventStore};
+use agent_tracing::{
+    EventStore, RunEvent, RunEventKind, RunId, SqliteEventStore, TraceSummary,
+    is_terminal_run_event, latest_event_id, summarize_trace, validate_guidance_content,
+    validate_quality_score,
+};
 
 use crate::{Demo, Provider, setup};
 
@@ -37,6 +42,12 @@ pub async fn run(
             return call_tool(name, Some(input), json, options.require_approval).await;
         }
         Some(SlashCommand::Run(prompt)) => text = resolve_saved_prompt_or_literal(&prompt)?,
+        Some(SlashCommand::Guide { run_id, text }) => return guide(run_id, text).await,
+        Some(SlashCommand::Score {
+            run_id,
+            score: value,
+            target,
+        }) => return score(run_id, target, value).await,
         None => {}
     }
 
@@ -83,6 +94,10 @@ pub async fn preview_context(
             "tool calls remaining: {}/{}",
             snapshot.limits.remaining_tool_calls, snapshot.limits.max_tool_calls
         );
+        println!(
+            "estimated input tokens: {}",
+            snapshot.estimated_input_tokens
+        );
         println!();
         println!("system prompt:");
         println!("{}", snapshot.system_prompt);
@@ -124,6 +139,52 @@ pub async fn explain_config(json: bool) -> anyhow::Result<()> {
         println!("effective config for {}", explanation.agent_id);
         for value in explanation.values {
             println!("{:<36} {:<18} {}", value.key, value.source, value.value);
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn storage_report(json: bool) -> anyhow::Result<()> {
+    let report = StoragePaths::from_env().storage_report()?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!("storage root: {}", report.root.display());
+        println!(
+            "total: {} bytes, {} files, {} directories",
+            report.total_bytes, report.total_files, report.total_directories
+        );
+        if let Some(path) = &report.largest_file {
+            println!(
+                "largest: {} ({} bytes)",
+                path.display(),
+                report.largest_file_bytes
+            );
+        }
+        for bucket in report.buckets {
+            let largest = bucket
+                .largest_file
+                .as_ref()
+                .map(|path| {
+                    format!(
+                        " largest={} ({})",
+                        path.display(),
+                        bucket.largest_file_bytes
+                    )
+                })
+                .unwrap_or_default();
+            println!(
+                "{:<10} {:>12} bytes {:>6} files {:>6} dirs {}{}{}",
+                bucket.name,
+                bucket.bytes,
+                bucket.files,
+                bucket.directories,
+                if bucket.exists { "" } else { "(missing) " },
+                bucket.path.display(),
+                largest
+            );
         }
     }
 
@@ -231,6 +292,54 @@ pub async fn trace_show(run_id: String, json: bool) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+pub async fn trace_summary(run_id: String, json: bool) -> anyhow::Result<()> {
+    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
+    let store = open_event_store()?;
+    let events = store.try_events(run_id)?;
+
+    if events.is_empty() {
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&TraceSummary::empty(run_id))?
+            );
+        } else {
+            println!("No events found for run {}", run_id.0);
+        }
+        return Ok(());
+    }
+
+    let summary = summarize_trace(&events, run_id);
+    if json {
+        println!("{}", serde_json::to_string_pretty(&summary)?);
+    } else {
+        print_trace_summary(&summary);
+    }
+    Ok(())
+}
+
+fn print_trace_summary(summary: &TraceSummary) {
+    println!("trace {}", summary.run_id.0);
+    println!("events: {}", summary.events);
+    println!("contexts: {}", summary.context_snapshots);
+    println!("llm calls: {}", summary.llm_calls);
+    println!("tool calls: {}", summary.tool_calls);
+    println!("tokens: {}/{}", summary.tokens_in, summary.tokens_out);
+    match summary.cost_usd {
+        Some(cost) => println!("cost: ${cost:.6}"),
+        None => println!("cost: n/a"),
+    }
+    match summary.duration_ms {
+        Some(duration) => println!("duration: {duration}ms"),
+        None => println!("duration: n/a"),
+    }
+    println!("approvals: {}", summary.approvals);
+    println!("guidance: {}", summary.guidance_injections);
+    println!("scores: {}", summary.quality_scores);
+    println!("memory fragments: {}", summary.memory_fragments);
+    println!("artifact refs: {}", summary.artifact_refs);
 }
 
 pub async fn approval_list(run_id: String, json: bool) -> anyhow::Result<()> {
@@ -391,11 +500,21 @@ pub async fn approval_execute(
 }
 
 pub async fn guide(run_id: String, text: String) -> anyhow::Result<()> {
+    let text = validate_guidance_content(&text)?;
     let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
+    let events = store.try_events(run_id)?;
+    if events
+        .iter()
+        .any(|event| is_terminal_run_event(&event.kind))
+    {
+        anyhow::bail!("run {run_id} is terminal and cannot accept guidance");
+    }
+    let parent = latest_event_id(&events)
+        .ok_or_else(|| anyhow::anyhow!("run {run_id} has no trace events"))?;
     store.append(
         run_id,
-        None,
+        Some(parent),
         RunEventKind::GuidanceInjected { content: text },
     );
     println!("recorded guidance for {}", run_id.0);
@@ -405,15 +524,35 @@ pub async fn guide(run_id: String, text: String) -> anyhow::Result<()> {
 pub async fn cancel(run_id: String, reason: String) -> anyhow::Result<()> {
     let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
-    store.append(run_id, None, RunEventKind::RunCancelled { reason });
+    let events = store.try_events(run_id)?;
+    if events
+        .iter()
+        .any(|event| is_terminal_run_event(&event.kind))
+    {
+        println!(
+            "run {} is already terminal; cancellation not recorded",
+            run_id.0
+        );
+        return Ok(());
+    }
+    let parent = latest_event_id(&events)
+        .ok_or_else(|| anyhow::anyhow!("run {run_id} has no trace events"))?;
+    store.append(run_id, Some(parent), RunEventKind::RunCancelled { reason });
     println!("recorded cancellation for {}", run_id.0);
     Ok(())
 }
 
 pub async fn score(run_id: String, target: String, score: f32) -> anyhow::Result<()> {
+    validate_quality_score(score)?;
     let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
-    store.append(run_id, None, RunEventKind::QualityScored { target, score });
+    let parent = latest_event_id(&store.try_events(run_id)?)
+        .ok_or_else(|| anyhow::anyhow!("run {run_id} has no trace events"))?;
+    store.append(
+        run_id,
+        Some(parent),
+        RunEventKind::QualityScored { target, score },
+    );
     println!("recorded score for {}", run_id.0);
     Ok(())
 }
@@ -649,7 +788,7 @@ pub async fn memory_edit(id: String, content: String) -> anyhow::Result<()> {
 
 pub async fn memory_delete(id: String) -> anyhow::Result<()> {
     MemoryStore::from_env().delete(&id)?;
-    record_memory_operation(&id, "deleted")?;
+    record_memory_operation(&id, "deleted", None, None)?;
     println!("deleted memory {id}");
     Ok(())
 }
@@ -661,7 +800,12 @@ pub async fn memory_rollback(user: bool) -> anyhow::Result<()> {
         MemoryTarget::Agent
     };
     MemoryStore::from_env().rollback(target)?;
-    record_memory_operation(if user { "user.md" } else { "memory.md" }, "rolled_back")?;
+    record_memory_operation(
+        if user { "user.md" } else { "memory.md" },
+        "rolled_back",
+        None,
+        None,
+    )?;
     println!("rolled back {}", if user { "user.md" } else { "memory.md" });
     Ok(())
 }
@@ -782,23 +926,29 @@ pub async fn model_save(
     max_context_tokens: Option<u64>,
     max_output_tokens: Option<u64>,
     default_temperature: Option<f64>,
+    available_modalities: Vec<String>,
+    reasoning_mode: Option<String>,
     tool_support: Option<bool>,
     privacy_level: Option<String>,
     cost_tier: Option<String>,
     input_cost_per_million: Option<f64>,
     output_cost_per_million: Option<f64>,
+    metadata_json: Option<String>,
 ) -> anyhow::Result<()> {
     let model = model_config_from_parts(
         id,
         max_context_tokens,
         max_output_tokens,
         default_temperature,
+        available_modalities,
+        reasoning_mode,
         tool_support,
         privacy_level,
         cost_tier,
         input_cost_per_million,
         output_cost_per_million,
-    );
+        metadata_json,
+    )?;
     println!(
         "{}",
         serde_json::to_string_pretty(&ConfigResolver::from_env().save_model(&model)?)?
@@ -1077,6 +1227,7 @@ pub async fn remote_preview_context(
 }
 
 pub async fn remote_guide(url: String, run_id: String, text: String) -> anyhow::Result<()> {
+    let text = validate_guidance_content(&text)?;
     print_remote(DaemonHttpClient::new(url).post_json(
         "/guide",
         serde_json::json!({ "run_id": run_id, "text": text }),
@@ -1096,6 +1247,7 @@ pub async fn remote_score(
     target: String,
     score: f32,
 ) -> anyhow::Result<()> {
+    validate_quality_score(score)?;
     print_remote(DaemonHttpClient::new(url).post_json(
         "/score",
         serde_json::json!({ "run_id": run_id, "target": target, "score": score }),
@@ -1149,6 +1301,11 @@ pub async fn remote_trace(url: String, run_id: String) -> anyhow::Result<()> {
     print_remote(client.get_json(&format!("/trace/{run_id}"))?)
 }
 
+pub async fn remote_trace_summary(url: String, run_id: String) -> anyhow::Result<()> {
+    let client = DaemonHttpClient::new(url);
+    print_remote(client.get_json(&format!("/trace/{run_id}/summary"))?)
+}
+
 pub async fn remote_approval_list(url: String, run_id: String) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
     print_remote(client.get_json(&format!("/approvals/{run_id}"))?)
@@ -1177,6 +1334,10 @@ pub async fn remote_approval_execute(
         &format!("/approvals/{run_id}/{approval_id}/execute"),
         serde_json::json!({}),
     )?)
+}
+
+pub async fn remote_storage_report(url: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).get_json("/storage")?)
 }
 
 pub async fn remote_memory_list(url: String) -> anyhow::Result<()> {
@@ -1257,26 +1418,30 @@ pub async fn remote_model_save(
     max_context_tokens: Option<u64>,
     max_output_tokens: Option<u64>,
     default_temperature: Option<f64>,
+    available_modalities: Vec<String>,
+    reasoning_mode: Option<String>,
     tool_support: Option<bool>,
     privacy_level: Option<String>,
     cost_tier: Option<String>,
     input_cost_per_million: Option<f64>,
     output_cost_per_million: Option<f64>,
+    metadata_json: Option<String>,
 ) -> anyhow::Result<()> {
-    print_remote(DaemonHttpClient::new(url).post_json(
-        "/models",
-        serde_json::to_value(model_config_from_parts(
-            id,
-            max_context_tokens,
-            max_output_tokens,
-            default_temperature,
-            tool_support,
-            privacy_level,
-            cost_tier,
-            input_cost_per_million,
-            output_cost_per_million,
-        ))?,
-    )?)
+    let model = model_config_from_parts(
+        id,
+        max_context_tokens,
+        max_output_tokens,
+        default_temperature,
+        available_modalities,
+        reasoning_mode,
+        tool_support,
+        privacy_level,
+        cost_tier,
+        input_cost_per_million,
+        output_cost_per_million,
+        metadata_json,
+    )?;
+    print_remote(DaemonHttpClient::new(url).post_json("/models", serde_json::to_value(model)?)?)
 }
 
 pub async fn remote_model_delete(url: String, id: String) -> anyhow::Result<()> {
@@ -1296,23 +1461,47 @@ fn model_config_from_parts(
     max_context_tokens: Option<u64>,
     max_output_tokens: Option<u64>,
     default_temperature: Option<f64>,
+    available_modalities: Vec<String>,
+    reasoning_mode: Option<String>,
     tool_support: Option<bool>,
     privacy_level: Option<String>,
     cost_tier: Option<String>,
     input_cost_per_million: Option<f64>,
     output_cost_per_million: Option<f64>,
-) -> ModelConfig {
-    ModelConfig {
+    metadata_json: Option<String>,
+) -> anyhow::Result<ModelConfig> {
+    let metadata = match metadata_json {
+        Some(text) => {
+            let value: serde_json::Value = serde_json::from_str(&text)?;
+            let Some(object) = value.as_object() else {
+                anyhow::bail!("--metadata-json must be a JSON object");
+            };
+            object
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect::<BTreeMap<_, _>>()
+        }
+        None => BTreeMap::new(),
+    };
+    let available_modalities = available_modalities
+        .into_iter()
+        .map(|modality| modality.trim().to_string())
+        .filter(|modality| !modality.is_empty())
+        .collect();
+    Ok(ModelConfig {
         id,
         max_context_tokens,
         max_output_tokens,
         default_temperature,
+        available_modalities,
+        reasoning_mode,
         tool_support,
         privacy_level,
         cost_tier,
         input_cost_per_million,
         output_cost_per_million,
-    }
+        metadata,
+    })
 }
 
 pub async fn remote_ingest_add(url: String, path: String, backend: String) -> anyhow::Result<()> {
@@ -1323,15 +1512,9 @@ pub async fn remote_ingest_add(url: String, path: String, backend: String) -> an
 }
 
 pub async fn remote_ingest_rerun(url: String, id: String, backend: String) -> anyhow::Result<()> {
-    let client = DaemonHttpClient::new(url);
-    let artifact = client.get_json(&format!("/ingest/{id}"))?;
-    let source = artifact
-        .get("source")
-        .and_then(|source| source.as_str())
-        .ok_or_else(|| anyhow::anyhow!("ingestion artifact {id} has no source"))?;
-    print_remote(client.post_json(
-        "/ingest",
-        serde_json::json!({ "path": source, "backend": backend }),
+    print_remote(DaemonHttpClient::new(url).post_json(
+        &format!("/ingest/{id}/rerun"),
+        serde_json::json!({ "backend": backend }),
     )?)
 }
 
@@ -1468,8 +1651,15 @@ fn event_label(kind: &RunEventKind) -> String {
                 .map_or(0, Vec::len);
             format!("ContextBuilt visible_tools={tools}")
         }
-        RunEventKind::LlmRequestStarted { model } => {
-            format!("LlmRequestStarted model={model}")
+        RunEventKind::LlmRequestStarted {
+            model,
+            request_digest,
+        } => {
+            let digest = request_digest
+                .as_ref()
+                .map(|value| format!(" request_digest={value}"))
+                .unwrap_or_default();
+            format!("LlmRequestStarted model={model}{digest}")
         }
         RunEventKind::LlmRequestCompleted {
             tokens_in,
@@ -1526,6 +1716,13 @@ fn event_label(kind: &RunEventKind) -> String {
                 "ToolCallCompleted call={call_id} duration_ms={duration_ms}{cost} output={output}"
             )
         }
+        RunEventKind::ToolOutputInterpreted {
+            call_id,
+            model,
+            summary,
+        } => {
+            format!("ToolOutputInterpreted call={call_id} model={model} summary={summary:?}")
+        }
         RunEventKind::ToolCallFailed { call_id, error } => {
             format!("ToolCallFailed call={call_id} error={error}")
         }
@@ -1547,8 +1744,30 @@ fn event_label(kind: &RunEventKind) -> String {
         RunEventKind::MemoryLoaded { ids } => {
             format!("MemoryLoaded ids={}", ids.join(","))
         }
-        RunEventKind::MemoryWritten { id, operation } => {
-            format!("MemoryWritten id={id} operation={operation}")
+        RunEventKind::MemoryRead {
+            backend,
+            fragment_ids,
+        } => {
+            format!(
+                "MemoryRead backend={backend} fragment_ids={}",
+                fragment_ids.join(",")
+            )
+        }
+        RunEventKind::MemoryWritten {
+            id,
+            operation,
+            source_range,
+            generating_model,
+        } => {
+            let range = source_range
+                .as_ref()
+                .map(|value| format!(" range={value:?}"))
+                .unwrap_or_default();
+            let model = generating_model
+                .as_ref()
+                .map(|value| format!(" model={value}"))
+                .unwrap_or_default();
+            format!("MemoryWritten id={id} operation={operation}{range}{model}")
         }
         RunEventKind::IngestionReferenced {
             artifact_id,
@@ -1641,10 +1860,20 @@ fn ingestion_completed_event(artifact: &IngestionArtifact) -> RunEventKind {
 }
 
 fn record_memory_written(record: &MemoryRecord, operation: &str) -> anyhow::Result<()> {
-    record_memory_operation(&record.id, operation)
+    record_memory_operation(
+        &record.id,
+        operation,
+        record.source_range.clone(),
+        record.generating_model.clone(),
+    )
 }
 
-fn record_memory_operation(id: &str, operation: &str) -> anyhow::Result<()> {
+fn record_memory_operation(
+    id: &str,
+    operation: &str,
+    source_range: Option<String>,
+    generating_model: Option<String>,
+) -> anyhow::Result<()> {
     let run_id = RunId::new();
     open_event_store()?.append(
         run_id,
@@ -1652,6 +1881,8 @@ fn record_memory_operation(id: &str, operation: &str) -> anyhow::Result<()> {
         RunEventKind::MemoryWritten {
             id: id.to_string(),
             operation: operation.to_string(),
+            source_range,
+            generating_model,
         },
     );
     Ok(())
@@ -1659,8 +1890,20 @@ fn record_memory_operation(id: &str, operation: &str) -> anyhow::Result<()> {
 
 enum SlashCommand {
     Agent,
-    Tool { name: String, input: String },
+    Tool {
+        name: String,
+        input: String,
+    },
     Run(String),
+    Guide {
+        run_id: String,
+        text: String,
+    },
+    Score {
+        run_id: String,
+        score: f32,
+        target: String,
+    },
 }
 
 fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
@@ -1670,6 +1913,18 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
     }
     if let Some(rest) = trimmed.strip_prefix("/run ") {
         return Ok(Some(SlashCommand::Run(rest.trim().to_string())));
+    }
+    if let Some(rest) = trimmed.strip_prefix("/guide ").map(str::trim) {
+        let (run_id, text) = parse_guide_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Guide { run_id, text }));
+    }
+    if let Some(rest) = trimmed.strip_prefix("/score ").map(str::trim) {
+        let (run_id, score, target) = parse_score_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Score {
+            run_id,
+            score,
+            target,
+        }));
     }
     if let Some(rest) = trimmed.strip_prefix("/tool!").map(str::trim) {
         let (name, input) = parse_tool_slash_rest(rest)?;
@@ -1693,6 +1948,40 @@ fn parse_tool_slash_rest(rest: &str) -> anyhow::Result<(String, String)> {
     }
     let _: serde_json::Value = serde_json::from_str(&input)?;
     Ok((name, input))
+}
+
+fn parse_guide_slash_rest(rest: &str) -> anyhow::Result<(String, String)> {
+    let (run_id, text) = rest
+        .trim()
+        .split_once(char::is_whitespace)
+        .map(|(run_id, text)| (run_id.trim().to_string(), text.trim().to_string()))
+        .ok_or_else(|| anyhow::anyhow!("usage: /guide <run-id> <text>"))?;
+    if run_id.is_empty() || text.is_empty() {
+        anyhow::bail!("usage: /guide <run-id> <text>");
+    }
+    let _ = uuid::Uuid::parse_str(&run_id)?;
+    Ok((run_id, text))
+}
+
+fn parse_score_slash_rest(rest: &str) -> anyhow::Result<(String, f32, String)> {
+    let mut parts = rest.split_whitespace();
+    let run_id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("usage: /score <run-id> <0-10> [target]"))?
+        .to_string();
+    let score = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("usage: /score <run-id> <0-10> [target]"))?
+        .parse::<f32>()?;
+    validate_quality_score(score)?;
+    let target = parts.collect::<Vec<_>>().join(" ");
+    let target = if target.trim().is_empty() {
+        "last_answer".into()
+    } else {
+        target
+    };
+    let _ = uuid::Uuid::parse_str(&run_id)?;
+    Ok((run_id, score, target))
 }
 
 #[cfg(test)]
@@ -1721,5 +2010,142 @@ mod slash_tests {
             }
             _ => panic!("expected tool command"),
         }
+    }
+
+    #[test]
+    fn parses_guide_shortcut_with_run_id() {
+        let run_id = uuid::Uuid::new_v4().to_string();
+        let parsed = parse_slash_command(&format!("/guide {run_id} steer here")).unwrap();
+        match parsed {
+            Some(SlashCommand::Guide { run_id: got, text }) => {
+                assert_eq!(got, run_id);
+                assert_eq!(text, "steer here");
+            }
+            _ => panic!("expected guide command"),
+        }
+    }
+
+    #[test]
+    fn parses_score_shortcut_with_default_target() {
+        let run_id = uuid::Uuid::new_v4().to_string();
+        let parsed = parse_slash_command(&format!("/score {run_id} 8.5")).unwrap();
+        match parsed {
+            Some(SlashCommand::Score {
+                run_id: got,
+                score,
+                target,
+            }) => {
+                assert_eq!(got, run_id);
+                assert_eq!(score, 8.5);
+                assert_eq!(target, "last_answer");
+            }
+            _ => panic!("expected score command"),
+        }
+    }
+
+    #[test]
+    fn parses_score_shortcut_with_explicit_target() {
+        let run_id = uuid::Uuid::new_v4().to_string();
+        let parsed = parse_slash_command(&format!("/score {run_id} 6 loop attempt")).unwrap();
+        match parsed {
+            Some(SlashCommand::Score {
+                run_id: got,
+                score,
+                target,
+            }) => {
+                assert_eq!(got, run_id);
+                assert_eq!(score, 6.0);
+                assert_eq!(target, "loop attempt");
+            }
+            _ => panic!("expected score command"),
+        }
+    }
+
+    #[test]
+    fn rejects_out_of_range_score_shortcut() {
+        let run_id = uuid::Uuid::new_v4().to_string();
+        assert!(parse_slash_command(&format!("/score {run_id} 11")).is_err());
+    }
+
+    #[test]
+    fn summarizes_trace_observability_counters() {
+        let run_id = RunId::new();
+        let store = agent_tracing::InMemoryEventStore::new();
+        store.append(
+            run_id,
+            None,
+            RunEventKind::ContextBuilt {
+                snapshot: serde_json::json!({}),
+            },
+        );
+        store.append(
+            run_id,
+            None,
+            RunEventKind::LlmRequestCompleted {
+                tokens_in: 100,
+                tokens_out: 25,
+                cost_usd: Some(0.001),
+                duration_ms: 40,
+            },
+        );
+        store.append(
+            run_id,
+            None,
+            RunEventKind::ToolCallCompleted {
+                call_id: "call-1".into(),
+                output: serde_json::json!({"ok": true}),
+                cost_usd: Some(0.002),
+                duration_ms: 5,
+            },
+        );
+        store.append(
+            run_id,
+            None,
+            RunEventKind::MemoryRead {
+                backend: "local-v0".into(),
+                fragment_ids: vec!["mem-1".into(), "mem-2".into()],
+            },
+        );
+        store.append(
+            run_id,
+            None,
+            RunEventKind::IngestionReferenced {
+                artifact_id: "ing-1".into(),
+                source: "/tmp/doc.txt".into(),
+            },
+        );
+        store.append(
+            run_id,
+            None,
+            RunEventKind::QualityScored {
+                target: "last_answer".into(),
+                score: 8.0,
+            },
+        );
+        store.append(
+            run_id,
+            None,
+            RunEventKind::RunCompleted {
+                final_output: "done".into(),
+                total_cost_usd: Some(0.01),
+                total_duration_ms: 99,
+            },
+        );
+        let events = store.events(run_id);
+
+        let summary = summarize_trace(&events, run_id);
+
+        assert_eq!(summary.run_id, run_id);
+        assert_eq!(summary.events, 7);
+        assert_eq!(summary.context_snapshots, 1);
+        assert_eq!(summary.llm_calls, 1);
+        assert_eq!(summary.tool_calls, 1);
+        assert_eq!(summary.tokens_in, 100);
+        assert_eq!(summary.tokens_out, 25);
+        assert_eq!(summary.cost_usd, Some(0.01));
+        assert_eq!(summary.duration_ms, Some(99));
+        assert_eq!(summary.memory_fragments, 2);
+        assert_eq!(summary.artifact_refs, 1);
+        assert_eq!(summary.quality_scores, 1);
     }
 }

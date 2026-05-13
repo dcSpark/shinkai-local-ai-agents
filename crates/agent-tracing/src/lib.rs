@@ -65,6 +65,8 @@ pub enum RunEventKind {
     },
     LlmRequestStarted {
         model: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        request_digest: Option<String>,
     },
     LlmRequestCompleted {
         tokens_in: u32,
@@ -101,6 +103,11 @@ pub enum RunEventKind {
         cost_usd: Option<f64>,
         duration_ms: u64,
     },
+    ToolOutputInterpreted {
+        call_id: String,
+        model: String,
+        summary: String,
+    },
     ToolCallFailed {
         call_id: String,
         error: String,
@@ -124,9 +131,17 @@ pub enum RunEventKind {
     MemoryLoaded {
         ids: Vec<String>,
     },
+    MemoryRead {
+        backend: String,
+        fragment_ids: Vec<String>,
+    },
     MemoryWritten {
         id: String,
         operation: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        source_range: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        generating_model: Option<String>,
     },
     IngestionReferenced {
         artifact_id: String,
@@ -181,6 +196,161 @@ pub enum RunEventKind {
     RunFailed {
         reason: String,
     },
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum TraceValidationError {
+    #[error("quality score must be a finite number from 0 to 10, got {score}")]
+    QualityScoreOutOfRange { score: f32 },
+    #[error("guidance content must not be empty")]
+    EmptyGuidance,
+}
+
+pub fn validate_quality_score(score: f32) -> Result<(), TraceValidationError> {
+    if score.is_finite() && (0.0..=10.0).contains(&score) {
+        Ok(())
+    } else {
+        Err(TraceValidationError::QualityScoreOutOfRange { score })
+    }
+}
+
+pub fn validate_guidance_content(content: &str) -> Result<String, TraceValidationError> {
+    let content = content.trim();
+    if content.is_empty() {
+        Err(TraceValidationError::EmptyGuidance)
+    } else {
+        Ok(content.to_string())
+    }
+}
+
+pub fn latest_event_id(events: &[RunEvent]) -> Option<EventId> {
+    events.last().map(|event| event.id)
+}
+
+pub fn is_terminal_run_event(kind: &RunEventKind) -> bool {
+    matches!(
+        kind,
+        RunEventKind::RunPaused { .. }
+            | RunEventKind::RunCancelled { .. }
+            | RunEventKind::RunCompleted { .. }
+            | RunEventKind::RunFailed { .. }
+    )
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TraceSummary {
+    pub run_id: RunId,
+    pub events: usize,
+    pub context_snapshots: u32,
+    pub llm_calls: u32,
+    pub tool_calls: u32,
+    pub approvals: u32,
+    pub guidance_injections: u32,
+    pub quality_scores: u32,
+    pub memory_fragments: u32,
+    pub artifact_refs: u32,
+    pub tokens_in: u32,
+    pub tokens_out: u32,
+    pub cost_usd: Option<f64>,
+    pub duration_ms: Option<u64>,
+}
+
+impl TraceSummary {
+    pub fn empty(run_id: RunId) -> Self {
+        Self {
+            run_id,
+            events: 0,
+            context_snapshots: 0,
+            llm_calls: 0,
+            tool_calls: 0,
+            approvals: 0,
+            guidance_injections: 0,
+            quality_scores: 0,
+            memory_fragments: 0,
+            artifact_refs: 0,
+            tokens_in: 0,
+            tokens_out: 0,
+            cost_usd: None,
+            duration_ms: None,
+        }
+    }
+}
+
+pub fn summarize_trace(events: &[RunEvent], fallback_run_id: RunId) -> TraceSummary {
+    let run_id = events
+        .first()
+        .map(|event| event.run_id)
+        .unwrap_or(fallback_run_id);
+    let mut summary = TraceSummary::empty(run_id);
+    summary.events = events.len();
+    let mut event_cost_usd = 0.0;
+    let mut has_event_cost = false;
+    let mut completed_cost_usd = None;
+
+    for event in events {
+        match &event.kind {
+            RunEventKind::ContextBuilt { .. } => summary.context_snapshots += 1,
+            RunEventKind::LlmRequestCompleted {
+                tokens_in,
+                tokens_out,
+                cost_usd,
+                ..
+            } => {
+                summary.llm_calls += 1;
+                summary.tokens_in = summary.tokens_in.saturating_add(*tokens_in);
+                summary.tokens_out = summary.tokens_out.saturating_add(*tokens_out);
+                if let Some(cost) = cost_usd {
+                    event_cost_usd += cost;
+                    has_event_cost = true;
+                }
+            }
+            RunEventKind::PromptRefinementCompleted {
+                tokens_in,
+                tokens_out,
+                cost_usd,
+                ..
+            } => {
+                summary.tokens_in = summary.tokens_in.saturating_add(*tokens_in);
+                summary.tokens_out = summary.tokens_out.saturating_add(*tokens_out);
+                if let Some(cost) = cost_usd {
+                    event_cost_usd += cost;
+                    has_event_cost = true;
+                }
+            }
+            RunEventKind::ToolCallCompleted { cost_usd, .. } => {
+                summary.tool_calls += 1;
+                if let Some(cost) = cost_usd {
+                    event_cost_usd += cost;
+                    has_event_cost = true;
+                }
+            }
+            RunEventKind::ApprovalRequested { .. } => summary.approvals += 1,
+            RunEventKind::GuidanceInjected { .. } => summary.guidance_injections += 1,
+            RunEventKind::QualityScored { .. } => summary.quality_scores += 1,
+            RunEventKind::MemoryLoaded { ids } => {
+                summary.memory_fragments =
+                    summary.memory_fragments.saturating_add(ids.len() as u32);
+            }
+            RunEventKind::MemoryRead { fragment_ids, .. } => {
+                summary.memory_fragments = summary
+                    .memory_fragments
+                    .saturating_add(fragment_ids.len() as u32);
+            }
+            RunEventKind::IngestionReferenced { .. } => summary.artifact_refs += 1,
+            RunEventKind::RunCompleted {
+                total_cost_usd,
+                total_duration_ms,
+                ..
+            } => {
+                completed_cost_usd = *total_cost_usd;
+                summary.duration_ms = Some(*total_duration_ms);
+            }
+            _ => {}
+        }
+    }
+
+    summary.cost_usd = completed_cost_usd.or_else(|| has_event_cost.then_some(event_cost_usd));
+    summary
 }
 
 /// Append-only event store contract. `append` returns the full `RunEvent` so
@@ -537,6 +707,225 @@ mod tests {
             }
             other => panic!("unexpected kind: {other:?}"),
         }
+    }
+
+    #[test]
+    fn llm_request_started_reads_older_trace_shape() {
+        let kind: RunEventKind =
+            serde_json::from_str(r#"{"type":"LlmRequestStarted","model":"fake-model"}"#).unwrap();
+        match kind {
+            RunEventKind::LlmRequestStarted {
+                model,
+                request_digest,
+            } => {
+                assert_eq!(model, "fake-model");
+                assert_eq!(request_digest, None);
+            }
+            other => panic!("unexpected kind: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn memory_written_event_round_trips_provenance() {
+        let store = InMemoryEventStore::new();
+        let r = RunId::new();
+        store.append(
+            r,
+            None,
+            RunEventKind::MemoryWritten {
+                id: "mem-1".into(),
+                operation: "generated".into(),
+                source_range: Some("turns 2-4".into()),
+                generating_model: Some("manual-memory-generator-v0".into()),
+            },
+        );
+        let evts = store.events(r);
+        let json = serde_json::to_string(&evts[0]).unwrap();
+        let back: RunEvent = serde_json::from_str(&json).unwrap();
+        match back.kind {
+            RunEventKind::MemoryWritten {
+                id,
+                operation,
+                source_range,
+                generating_model,
+            } => {
+                assert_eq!(id, "mem-1");
+                assert_eq!(operation, "generated");
+                assert_eq!(source_range.as_deref(), Some("turns 2-4"));
+                assert_eq!(
+                    generating_model.as_deref(),
+                    Some("manual-memory-generator-v0")
+                );
+            }
+            other => panic!("unexpected kind: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn memory_written_event_reads_older_trace_shape() {
+        let kind: RunEventKind =
+            serde_json::from_str(r#"{"type":"MemoryWritten","id":"mem-1","operation":"created"}"#)
+                .unwrap();
+        match kind {
+            RunEventKind::MemoryWritten {
+                source_range,
+                generating_model,
+                ..
+            } => {
+                assert_eq!(source_range, None);
+                assert_eq!(generating_model, None);
+            }
+            other => panic!("unexpected kind: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn quality_scores_are_limited_to_zero_through_ten() {
+        assert!(validate_quality_score(0.0).is_ok());
+        assert!(validate_quality_score(7.5).is_ok());
+        assert!(validate_quality_score(10.0).is_ok());
+
+        assert!(validate_quality_score(-0.1).is_err());
+        assert!(validate_quality_score(10.1).is_err());
+        assert!(validate_quality_score(f32::NAN).is_err());
+        assert!(validate_quality_score(f32::INFINITY).is_err());
+    }
+
+    #[test]
+    fn guidance_content_must_be_non_empty() {
+        assert_eq!(
+            validate_guidance_content("  course correct  ").unwrap(),
+            "course correct"
+        );
+        assert!(validate_guidance_content("").is_err());
+        assert!(validate_guidance_content("   \n\t  ").is_err());
+    }
+
+    #[test]
+    fn latest_event_id_returns_tail_event() {
+        let store = InMemoryEventStore::new();
+        let run = RunId::new();
+        assert_eq!(latest_event_id(&store.events(run)), None);
+        let first = store.append(
+            run,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "a".into(),
+                input: "x".into(),
+            },
+        );
+        let second = store.append(
+            run,
+            Some(first.id),
+            RunEventKind::GuidanceInjected {
+                content: "course correct".into(),
+            },
+        );
+
+        assert_eq!(latest_event_id(&store.events(run)), Some(second.id));
+    }
+
+    #[test]
+    fn terminal_run_events_are_identified() {
+        assert!(is_terminal_run_event(&RunEventKind::RunPaused {
+            reason: "approval".into()
+        }));
+        assert!(is_terminal_run_event(&RunEventKind::RunCancelled {
+            reason: "stop".into()
+        }));
+        assert!(is_terminal_run_event(&RunEventKind::RunCompleted {
+            final_output: "done".into(),
+            total_cost_usd: None,
+            total_duration_ms: 1,
+        }));
+        assert!(is_terminal_run_event(&RunEventKind::RunFailed {
+            reason: "error".into()
+        }));
+        assert!(!is_terminal_run_event(&RunEventKind::RunStarted {
+            agent_id: "agent".into(),
+            input: "task".into(),
+        }));
+    }
+
+    #[test]
+    fn summarizes_trace_observability_counters() {
+        let run = RunId::new();
+        let store = InMemoryEventStore::new();
+        store.append(
+            run,
+            None,
+            RunEventKind::ContextBuilt {
+                snapshot: serde_json::json!({}),
+            },
+        );
+        store.append(
+            run,
+            None,
+            RunEventKind::LlmRequestCompleted {
+                tokens_in: 100,
+                tokens_out: 25,
+                cost_usd: Some(0.001),
+                duration_ms: 40,
+            },
+        );
+        store.append(
+            run,
+            None,
+            RunEventKind::ToolCallCompleted {
+                call_id: "call-1".into(),
+                output: serde_json::json!({"ok": true}),
+                cost_usd: Some(0.002),
+                duration_ms: 5,
+            },
+        );
+        store.append(
+            run,
+            None,
+            RunEventKind::MemoryRead {
+                backend: "local-v0".into(),
+                fragment_ids: vec!["mem-1".into(), "mem-2".into()],
+            },
+        );
+        store.append(
+            run,
+            None,
+            RunEventKind::IngestionReferenced {
+                artifact_id: "ing-1".into(),
+                source: "/tmp/doc.txt".into(),
+            },
+        );
+        store.append(
+            run,
+            None,
+            RunEventKind::QualityScored {
+                target: "last_answer".into(),
+                score: 8.0,
+            },
+        );
+        store.append(
+            run,
+            None,
+            RunEventKind::RunCompleted {
+                final_output: "done".into(),
+                total_cost_usd: Some(0.01),
+                total_duration_ms: 99,
+            },
+        );
+
+        let summary = summarize_trace(&store.events(run), run);
+
+        assert_eq!(summary.run_id, run);
+        assert_eq!(summary.events, 7);
+        assert_eq!(summary.context_snapshots, 1);
+        assert_eq!(summary.llm_calls, 1);
+        assert_eq!(summary.tool_calls, 1);
+        assert_eq!(summary.tokens_in, 100);
+        assert_eq!(summary.tokens_out, 25);
+        assert_eq!(summary.cost_usd, Some(0.01));
+        assert_eq!(summary.duration_ms, Some(99));
+        assert_eq!(summary.memory_fragments, 2);
+        assert_eq!(summary.artifact_refs, 1);
+        assert_eq!(summary.quality_scores, 1);
     }
 
     #[tokio::test]

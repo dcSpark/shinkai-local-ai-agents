@@ -29,10 +29,16 @@ pub struct MemoryRecord {
     pub id: String,
     pub content: String,
     pub target: MemoryTarget,
+    #[serde(default = "default_profile")]
+    pub owning_profile: String,
+    #[serde(default = "default_agent")]
+    pub owning_agent: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub author: MemoryAuthor,
     pub source_range: Option<String>,
+    #[serde(default)]
+    pub generating_model: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -42,7 +48,7 @@ pub enum MemoryTarget {
     User,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum MemoryAuthor {
     Human,
@@ -76,10 +82,14 @@ impl MemoryStore {
             id: format!("mem-{}", now.timestamp_nanos_opt().unwrap_or_default()),
             content: content.into(),
             target,
+            owning_profile: default_profile(),
+            owning_agent: default_agent(),
             created_at: now,
             updated_at: now,
             author,
             source_range,
+            generating_model: (author == MemoryAuthor::Model)
+                .then(|| "manual-memory-generator-v0".into()),
         };
         let mut records = self.list_target(target)?;
         records.push(record.clone());
@@ -170,10 +180,13 @@ impl MemoryStore {
         Ok(self
             .list()?
             .into_iter()
-            .map(|r| MemoryFragment {
-                id: r.id,
-                content: r.content,
-                provenance: format!("{:?} memory ({:?})", r.target, r.author),
+            .map(|record| {
+                let provenance = memory_provenance(&record);
+                MemoryFragment {
+                    id: record.id,
+                    content: record.content,
+                    provenance,
+                }
             })
             .collect())
     }
@@ -216,6 +229,32 @@ fn render_records(records: &[MemoryRecord]) -> Result<String, MemoryError> {
         out.push('\n');
     }
     Ok(out)
+}
+
+fn default_profile() -> String {
+    "main".into()
+}
+
+fn default_agent() -> Option<String> {
+    Some("fake-agent".into())
+}
+
+fn memory_provenance(record: &MemoryRecord) -> String {
+    let mut parts = vec![
+        format!("{:?} memory", record.target),
+        format!("{:?}", record.author),
+        format!("profile={}", record.owning_profile),
+    ];
+    if let Some(agent) = &record.owning_agent {
+        parts.push(format!("agent={agent}"));
+    }
+    if let Some(range) = &record.source_range {
+        parts.push(format!("range={range}"));
+    }
+    if let Some(model) = &record.generating_model {
+        parts.push(format!("generator={model}"));
+    }
+    parts.join("; ")
 }
 
 fn parse_records(text: &str) -> Result<Vec<MemoryRecord>, MemoryError> {
@@ -394,9 +433,17 @@ mod tests {
             )
             .unwrap();
         assert_eq!(store.list().unwrap().len(), 1);
+        assert_eq!(record.owning_profile, "main");
+        assert_eq!(record.owning_agent.as_deref(), Some("fake-agent"));
+        assert_eq!(record.generating_model, None);
         assert_eq!(
             store.load_fragments().unwrap()[0].content,
             "Use concise answers."
+        );
+        assert!(
+            store.load_fragments().unwrap()[0]
+                .provenance
+                .contains("profile=main")
         );
         let edited = store.edit(&record.id, "Use direct answers.").unwrap();
         assert_eq!(edited.content, "Use direct answers.");
@@ -457,6 +504,10 @@ mod tests {
             )
             .unwrap();
         assert_eq!(generated.len(), 1);
+        assert_eq!(
+            generated[0].generating_model.as_deref(),
+            Some("manual-memory-generator-v0")
+        );
         store.edit(&generated[0].id, "temporary edit").unwrap();
         store.rollback(MemoryTarget::Agent).unwrap();
         assert_eq!(

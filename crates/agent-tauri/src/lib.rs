@@ -33,6 +33,7 @@ use agent_storage::StoragePaths;
 use agent_tools::{FakeTool, ShellTool, ShellToolConfig, SubagentTool, ToolId, ToolRegistry};
 use agent_tracing::{
     EventStore, PublishingEventStore, RunEvent, RunEventKind, RunId, SqliteEventStore,
+    is_terminal_run_event, latest_event_id, validate_guidance_content, validate_quality_score,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -413,6 +414,16 @@ async fn explain_tools(options: RunOptions) -> Result<Vec<ToolView>, String> {
 }
 
 #[tauri::command]
+async fn storage_report() -> Result<Value, String> {
+    serde_json::to_value(
+        StoragePaths::from_env()
+            .storage_report()
+            .map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn call_tool(name: String, input: Value, options: RunOptions) -> Result<Value, String> {
     let enable_shell = options.enable_shell || name == "shell";
     let enable_subagent = options.enable_subagent || name == "subagent";
@@ -429,7 +440,13 @@ async fn call_tool(name: String, input: Value, options: RunOptions) -> Result<Va
     harness
         .call_tool(&agent, ToolId::from(name), input)
         .await
-        .map(|result| result.output)
+        .map(|result| {
+            serde_json::json!({
+                "run_id": result.run_id.0,
+                "duration_ms": result.duration_ms,
+                "output": result.output
+            })
+        })
         .map_err(|e| e.to_string())
 }
 
@@ -553,15 +570,32 @@ async fn approval_execute(approval_id: String, run_id: String) -> Result<Value, 
             total_duration_ms: duration_ms,
         },
     );
-    Ok(output)
+    Ok(serde_json::json!({
+        "run_id": run_id.0,
+        "duration_ms": duration_ms,
+        "output": output
+    }))
 }
 
 #[tauri::command]
 async fn guide(run_id: String, text: String) -> Result<(), String> {
+    let text = validate_guidance_content(&text).map_err(|e| e.to_string())?;
     let run_id = RunId(uuid::Uuid::parse_str(&run_id).map_err(|e| e.to_string())?);
-    open_event_store()?.append(
+    let store = open_event_store()?;
+    let events = store.try_events(run_id).map_err(|e| e.to_string())?;
+    if events
+        .iter()
+        .any(|event| is_terminal_run_event(&event.kind))
+    {
+        return Err(format!(
+            "run {run_id} is terminal and cannot accept guidance"
+        ));
+    }
+    let parent =
+        latest_event_id(&events).ok_or_else(|| format!("run {run_id} has no trace events"))?;
+    store.append(
         run_id,
-        None,
+        Some(parent),
         RunEventKind::GuidanceInjected { content: text },
     );
     Ok(())
@@ -575,9 +609,19 @@ async fn cancel(
     reason: String,
 ) -> Result<(), String> {
     let parsed_run_id = RunId(uuid::Uuid::parse_str(&run_id).map_err(|e| e.to_string())?);
-    let event = open_event_store()?.append(
+    let store = open_event_store()?;
+    let events = store.try_events(parsed_run_id).map_err(|e| e.to_string())?;
+    if events
+        .iter()
+        .any(|event| is_terminal_run_event(&event.kind))
+    {
+        return Ok(());
+    }
+    let parent = latest_event_id(&events)
+        .ok_or_else(|| format!("run {parsed_run_id} has no trace events"))?;
+    let event = store.append(
         parsed_run_id,
-        None,
+        Some(parent),
         RunEventKind::RunCancelled {
             reason: reason.clone(),
         },
@@ -591,8 +635,16 @@ async fn cancel(
 
 #[tauri::command]
 async fn score(run_id: String, target: String, score: f32) -> Result<(), String> {
+    validate_quality_score(score).map_err(|e| e.to_string())?;
     let run_id = RunId(uuid::Uuid::parse_str(&run_id).map_err(|e| e.to_string())?);
-    open_event_store()?.append(run_id, None, RunEventKind::QualityScored { target, score });
+    let store = open_event_store()?;
+    let parent = latest_event_id(&store.try_events(run_id).map_err(|e| e.to_string())?)
+        .ok_or_else(|| format!("run {run_id} has no trace events"))?;
+    store.append(
+        run_id,
+        Some(parent),
+        RunEventKind::QualityScored { target, score },
+    );
     Ok(())
 }
 
@@ -811,7 +863,7 @@ async fn memory_delete(id: String) -> Result<(), String> {
     MemoryStore::from_env()
         .delete(&id)
         .map_err(|e| e.to_string())?;
-    record_memory_operation(&id, "deleted")
+    record_memory_operation(&id, "deleted", None, None)
 }
 
 #[tauri::command]
@@ -824,20 +876,37 @@ async fn memory_rollback(user: bool) -> Result<(), String> {
     MemoryStore::from_env()
         .rollback(target)
         .map_err(|e| e.to_string())?;
-    record_memory_operation(if user { "user.md" } else { "memory.md" }, "rolled_back")
+    record_memory_operation(
+        if user { "user.md" } else { "memory.md" },
+        "rolled_back",
+        None,
+        None,
+    )
 }
 
 fn record_memory_written(record: &MemoryRecord, operation: &str) -> Result<(), String> {
-    record_memory_operation(&record.id, operation)
+    record_memory_operation(
+        &record.id,
+        operation,
+        record.source_range.clone(),
+        record.generating_model.clone(),
+    )
 }
 
-fn record_memory_operation(id: &str, operation: &str) -> Result<(), String> {
+fn record_memory_operation(
+    id: &str,
+    operation: &str,
+    source_range: Option<String>,
+    generating_model: Option<String>,
+) -> Result<(), String> {
     open_event_store()?.append(
         RunId::new(),
         None,
         RunEventKind::MemoryWritten {
             id: id.to_string(),
             operation: operation.to_string(),
+            source_range,
+            generating_model,
         },
     );
     Ok(())
@@ -939,6 +1008,28 @@ async fn ingest_add(
     backend: Option<String>,
 ) -> Result<IngestionArtifact, String> {
     let backend = backend.unwrap_or_else(|| "local-v0".into());
+    ingest_with_trace(app, path, backend).await
+}
+
+#[tauri::command]
+async fn ingest_rerun(
+    app: AppHandle,
+    id: String,
+    backend: Option<String>,
+) -> Result<IngestionArtifact, String> {
+    let source = IngestionStore::from_env()
+        .show(&id)
+        .map_err(|e| e.to_string())?
+        .source;
+    let backend = backend.unwrap_or_else(|| "local-v0".into());
+    ingest_with_trace(app, source.display().to_string(), backend).await
+}
+
+async fn ingest_with_trace(
+    app: AppHandle,
+    path: String,
+    backend: String,
+) -> Result<IngestionArtifact, String> {
     let trace_run_id = RunId::new();
     let store = open_event_store()?;
     let started = store.append(
@@ -1098,6 +1189,7 @@ pub fn run() {
             preview_context,
             explain_config,
             explain_tools,
+            storage_report,
             call_tool,
             trace_show,
             approval_list,
@@ -1128,6 +1220,7 @@ pub fn run() {
             model_save,
             model_delete,
             ingest_add,
+            ingest_rerun,
             ingest_list,
             ingest_show,
             ingest_rm,

@@ -247,6 +247,12 @@ enum Command {
         #[arg(long, default_value = "last_answer")]
         target: String,
     },
+    /// Show local harness storage footprint.
+    Storage {
+        /// Emit JSON instead of a human-readable summary.
+        #[arg(long)]
+        json: bool,
+    },
     /// Deterministic batch operations.
     Batch {
         #[command(subcommand)]
@@ -335,6 +341,15 @@ enum TraceCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Summarize tokens, cost, duration, approvals, memory, artifacts, and scores.
+    Summary {
+        /// Run UUID printed by `agent run`.
+        run_id: String,
+
+        /// Emit a JSON summary object.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -359,6 +374,22 @@ enum ApprovalCommand {
         /// Approve the request. If omitted, the request is rejected.
         #[arg(long)]
         approve: bool,
+    },
+    /// Approve an approval request without executing it.
+    Approve {
+        /// Run UUID printed by `agent run` or an approval-required error.
+        run_id: String,
+
+        /// Approval id, for example `approval-manual-1`.
+        approval_id: String,
+    },
+    /// Reject an approval request without executing it.
+    Reject {
+        /// Run UUID printed by `agent run` or an approval-required error.
+        run_id: String,
+
+        /// Approval id, for example `approval-manual-1`.
+        approval_id: String,
     },
     /// Execute an approved tool call from a paused run trace.
     Execute {
@@ -450,6 +481,7 @@ enum PromptCommand {
 }
 
 #[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)]
 enum ModelCommand {
     /// List configured model metadata.
     List {
@@ -471,6 +503,10 @@ enum ModelCommand {
         max_output_tokens: Option<u64>,
         #[arg(long)]
         default_temperature: Option<f64>,
+        #[arg(long = "modality")]
+        available_modalities: Vec<String>,
+        #[arg(long)]
+        reasoning_mode: Option<String>,
         #[arg(long)]
         tool_support: Option<bool>,
         #[arg(long)]
@@ -481,6 +517,9 @@ enum ModelCommand {
         input_cost_per_million: Option<f64>,
         #[arg(long)]
         output_cost_per_million: Option<f64>,
+        /// Arbitrary metadata as a JSON object.
+        #[arg(long)]
+        metadata_json: Option<String>,
     },
     /// Delete configured model metadata.
     Delete { id: String },
@@ -789,6 +828,8 @@ enum RemoteCommand {
         #[arg(long, default_value = "last_answer")]
         target: String,
     },
+    /// Show daemon host storage footprint.
+    Storage,
     /// Remote deterministic batch operations.
     Batch {
         #[command(subcommand)]
@@ -807,6 +848,8 @@ enum RemoteCommand {
     },
     /// Show daemon trace events.
     Trace { run_id: String },
+    /// Show daemon trace summary counters.
+    TraceSummary { run_id: String },
     /// Remote approval operations.
     Approval {
         #[command(subcommand)]
@@ -853,6 +896,14 @@ enum RemoteApprovalCommand {
         approval_id: String,
         #[arg(long)]
         approve: bool,
+    },
+    Approve {
+        run_id: String,
+        approval_id: String,
+    },
+    Reject {
+        run_id: String,
+        approval_id: String,
     },
     Execute {
         run_id: String,
@@ -914,6 +965,7 @@ enum RemoteSkillCommand {
 }
 
 #[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)]
 enum RemoteModelCommand {
     List,
     Show {
@@ -927,6 +979,10 @@ enum RemoteModelCommand {
         max_output_tokens: Option<u64>,
         #[arg(long)]
         default_temperature: Option<f64>,
+        #[arg(long = "modality")]
+        available_modalities: Vec<String>,
+        #[arg(long)]
+        reasoning_mode: Option<String>,
         #[arg(long)]
         tool_support: Option<bool>,
         #[arg(long)]
@@ -937,6 +993,9 @@ enum RemoteModelCommand {
         input_cost_per_million: Option<f64>,
         #[arg(long)]
         output_cost_per_million: Option<f64>,
+        /// Arbitrary metadata as a JSON object.
+        #[arg(long)]
+        metadata_json: Option<String>,
     },
     Delete {
         id: String,
@@ -1125,6 +1184,9 @@ async fn main() -> anyhow::Result<()> {
         Command::Trace {
             command: TraceCommand::Show { run_id, json },
         } => headless::trace_show(run_id, json).await,
+        Command::Trace {
+            command: TraceCommand::Summary { run_id, json },
+        } => headless::trace_summary(run_id, json).await,
         Command::Approval { command } => match command {
             ApprovalCommand::List { run_id, json } => headless::approval_list(run_id, json).await,
             ApprovalCommand::Decide {
@@ -1132,6 +1194,14 @@ async fn main() -> anyhow::Result<()> {
                 approval_id,
                 approve,
             } => headless::approval_decide(run_id, approval_id, approve).await,
+            ApprovalCommand::Approve {
+                run_id,
+                approval_id,
+            } => headless::approval_decide(run_id, approval_id, true).await,
+            ApprovalCommand::Reject {
+                run_id,
+                approval_id,
+            } => headless::approval_decide(run_id, approval_id, false).await,
             ApprovalCommand::Execute {
                 run_id,
                 approval_id,
@@ -1145,6 +1215,7 @@ async fn main() -> anyhow::Result<()> {
             score,
             target,
         } => headless::score(run_id, target, score).await,
+        Command::Storage { json } => headless::storage_report(json).await,
         Command::Batch { command } => match command {
             BatchCommand::Run { items, demo, json } => headless::batch_run(items, demo, json).await,
             BatchCommand::Resume {
@@ -1184,22 +1255,28 @@ async fn main() -> anyhow::Result<()> {
                 max_context_tokens,
                 max_output_tokens,
                 default_temperature,
+                available_modalities,
+                reasoning_mode,
                 tool_support,
                 privacy_level,
                 cost_tier,
                 input_cost_per_million,
                 output_cost_per_million,
+                metadata_json,
             } => {
                 headless::model_save(
                     id,
                     max_context_tokens,
                     max_output_tokens,
                     default_temperature,
+                    available_modalities,
+                    reasoning_mode,
                     tool_support,
                     privacy_level,
                     cost_tier,
                     input_cost_per_million,
                     output_cost_per_million,
+                    metadata_json,
                 )
                 .await
             }
@@ -1352,6 +1429,7 @@ async fn main() -> anyhow::Result<()> {
                 score,
                 target,
             } => headless::remote_score(url, run_id, target, score).await,
+            RemoteCommand::Storage => headless::remote_storage_report(url).await,
             RemoteCommand::Batch { command } => match command {
                 RemoteBatchCommand::Run { items, demo } => {
                     headless::remote_batch_run(url, items, demo).await
@@ -1366,6 +1444,9 @@ async fn main() -> anyhow::Result<()> {
                 require_approval,
             } => headless::remote_tool(url, name, input, require_approval).await,
             RemoteCommand::Trace { run_id } => headless::remote_trace(url, run_id).await,
+            RemoteCommand::TraceSummary { run_id } => {
+                headless::remote_trace_summary(url, run_id).await
+            }
             RemoteCommand::Approval { command } => match command {
                 RemoteApprovalCommand::List { run_id } => {
                     headless::remote_approval_list(url, run_id).await
@@ -1375,6 +1456,14 @@ async fn main() -> anyhow::Result<()> {
                     approval_id,
                     approve,
                 } => headless::remote_approval_decide(url, run_id, approval_id, approve).await,
+                RemoteApprovalCommand::Approve {
+                    run_id,
+                    approval_id,
+                } => headless::remote_approval_decide(url, run_id, approval_id, true).await,
+                RemoteApprovalCommand::Reject {
+                    run_id,
+                    approval_id,
+                } => headless::remote_approval_decide(url, run_id, approval_id, false).await,
                 RemoteApprovalCommand::Execute {
                     run_id,
                     approval_id,
@@ -1416,11 +1505,14 @@ async fn main() -> anyhow::Result<()> {
                     max_context_tokens,
                     max_output_tokens,
                     default_temperature,
+                    available_modalities,
+                    reasoning_mode,
                     tool_support,
                     privacy_level,
                     cost_tier,
                     input_cost_per_million,
                     output_cost_per_million,
+                    metadata_json,
                 } => {
                     headless::remote_model_save(
                         url,
@@ -1428,11 +1520,14 @@ async fn main() -> anyhow::Result<()> {
                         max_context_tokens,
                         max_output_tokens,
                         default_temperature,
+                        available_modalities,
+                        reasoning_mode,
                         tool_support,
                         privacy_level,
                         cost_tier,
                         input_cost_per_million,
                         output_cost_per_million,
+                        metadata_json,
                     )
                     .await
                 }

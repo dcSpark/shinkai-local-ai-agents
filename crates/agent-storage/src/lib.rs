@@ -6,10 +6,39 @@
 
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
 #[derive(Debug, thiserror::Error)]
 pub enum StorageError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StorageBucket {
+    pub name: String,
+    pub path: PathBuf,
+    pub bytes: u64,
+    pub files: u64,
+    pub directories: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub largest_file: Option<PathBuf>,
+    #[serde(default)]
+    pub largest_file_bytes: u64,
+    pub exists: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StorageReport {
+    pub root: PathBuf,
+    pub total_bytes: u64,
+    pub total_files: u64,
+    pub total_directories: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub largest_file: Option<PathBuf>,
+    #[serde(default)]
+    pub largest_file_bytes: u64,
+    pub buckets: Vec<StorageBucket>,
 }
 
 #[derive(Debug, Clone)]
@@ -130,6 +159,96 @@ impl StoragePaths {
         std::fs::create_dir_all(self.batches_dir())?;
         Ok(())
     }
+
+    pub fn storage_report(&self) -> Result<StorageReport, StorageError> {
+        let buckets = vec![
+            self.storage_bucket("config", self.global_config())?,
+            self.storage_bucket("profiles", self.profiles_dir())?,
+            self.storage_bucket("cache", self.cache_dir())?,
+            self.storage_bucket("state", self.state_db())?,
+        ];
+        let total = stats_path(&self.root)?;
+
+        Ok(StorageReport {
+            root: self.root.clone(),
+            total_bytes: total.bytes,
+            total_files: total.files,
+            total_directories: total.directories,
+            largest_file: total.largest_file,
+            largest_file_bytes: total.largest_file_bytes,
+            buckets,
+        })
+    }
+
+    fn storage_bucket(
+        &self,
+        name: impl Into<String>,
+        path: PathBuf,
+    ) -> Result<StorageBucket, StorageError> {
+        let stats = stats_path(&path)?;
+        Ok(StorageBucket {
+            name: name.into(),
+            exists: path.exists(),
+            bytes: stats.bytes,
+            files: stats.files,
+            directories: stats.directories,
+            largest_file: stats.largest_file,
+            largest_file_bytes: stats.largest_file_bytes,
+            path,
+        })
+    }
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct StorageStats {
+    bytes: u64,
+    files: u64,
+    directories: u64,
+    largest_file: Option<PathBuf>,
+    largest_file_bytes: u64,
+}
+
+fn stats_path(path: &Path) -> Result<StorageStats, StorageError> {
+    let metadata = match std::fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(StorageStats::default());
+        }
+        Err(err) => return Err(err.into()),
+    };
+
+    if metadata.is_file() {
+        return Ok(StorageStats {
+            bytes: metadata.len(),
+            files: 1,
+            directories: 0,
+            largest_file: Some(path.to_path_buf()),
+            largest_file_bytes: metadata.len(),
+        });
+    }
+    if !metadata.is_dir() {
+        return Ok(StorageStats::default());
+    }
+
+    let mut total = StorageStats {
+        bytes: 0,
+        files: 0,
+        directories: 1,
+        largest_file: None,
+        largest_file_bytes: 0,
+    };
+    for entry in std::fs::read_dir(path)? {
+        let entry = entry?;
+        let child = stats_path(&entry.path())?;
+        total.bytes += child.bytes;
+        total.files += child.files;
+        total.directories += child.directories;
+        if child.largest_file_bytes > total.largest_file_bytes {
+            total.largest_file = child.largest_file;
+            total.largest_file_bytes = child.largest_file_bytes;
+        }
+    }
+    Ok(total)
 }
 
 #[cfg(test)]
@@ -156,5 +275,123 @@ mod tests {
             PathBuf::from("/tmp/harness/profiles/main/models/fake-model.toml")
         );
         assert_eq!(paths.state_db(), PathBuf::from("/tmp/harness/state.sqlite"));
+    }
+
+    #[test]
+    fn storage_report_sums_known_buckets() {
+        let root = std::env::temp_dir().join(format!(
+            "agent-storage-report-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let paths = StoragePaths::new(&root);
+        paths.ensure_base_dirs().unwrap();
+        std::fs::write(paths.global_config(), b"abc").unwrap();
+        std::fs::write(paths.memory_file(), b"memory!").unwrap();
+        std::fs::write(paths.ingestion_cache_dir().join("artifact.txt"), b"ingest").unwrap();
+        std::fs::write(paths.state_db(), b"sqlite").unwrap();
+
+        let report = paths.storage_report().unwrap();
+
+        assert_eq!(report.root, root);
+        assert_eq!(report.total_bytes, 22);
+        assert_eq!(report.total_files, 4);
+        assert_eq!(report.total_directories, 13);
+        assert_eq!(report.largest_file, Some(paths.memory_file()));
+        assert_eq!(report.largest_file_bytes, 7);
+        assert_eq!(
+            report
+                .buckets
+                .iter()
+                .find(|bucket| bucket.name == "config")
+                .unwrap()
+                .bytes,
+            3
+        );
+        assert_eq!(
+            report
+                .buckets
+                .iter()
+                .find(|bucket| bucket.name == "config")
+                .unwrap()
+                .files,
+            1
+        );
+        assert_eq!(
+            report
+                .buckets
+                .iter()
+                .find(|bucket| bucket.name == "profiles")
+                .unwrap()
+                .bytes,
+            7
+        );
+        assert_eq!(
+            report
+                .buckets
+                .iter()
+                .find(|bucket| bucket.name == "profiles")
+                .unwrap()
+                .files,
+            1
+        );
+        assert_eq!(
+            report
+                .buckets
+                .iter()
+                .find(|bucket| bucket.name == "profiles")
+                .unwrap()
+                .largest_file,
+            Some(paths.memory_file())
+        );
+        assert_eq!(
+            report
+                .buckets
+                .iter()
+                .find(|bucket| bucket.name == "profiles")
+                .unwrap()
+                .largest_file_bytes,
+            7
+        );
+        assert_eq!(
+            report
+                .buckets
+                .iter()
+                .find(|bucket| bucket.name == "cache")
+                .unwrap()
+                .bytes,
+            6
+        );
+        assert_eq!(
+            report
+                .buckets
+                .iter()
+                .find(|bucket| bucket.name == "cache")
+                .unwrap()
+                .files,
+            1
+        );
+        assert_eq!(
+            report
+                .buckets
+                .iter()
+                .find(|bucket| bucket.name == "state")
+                .unwrap()
+                .bytes,
+            6
+        );
+        assert_eq!(
+            report
+                .buckets
+                .iter()
+                .find(|bucket| bucket.name == "state")
+                .unwrap()
+                .files,
+            1
+        );
+
+        std::fs::remove_dir_all(report.root).unwrap();
     }
 }

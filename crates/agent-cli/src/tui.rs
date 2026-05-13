@@ -1,7 +1,7 @@
 //! ratatui-based TUI surface. v0 ships:
 //! - transcript pane (User / Assistant / Event / Error lines, color-coded)
 //! - status bar (run state, tokens, tool-call budget)
-//! - input box (Enter to send, Esc / Ctrl+C to quit, Backspace, character entry)
+//! - input box (Enter to send, Esc / Ctrl+C to stop active runs or quit when idle)
 //! - live event streaming from the harness via `PublishingEventStore`
 //!
 //! Most slash-command grammar (`/tool`, `/tool!`, `/score`, `/guide`, …) and
@@ -9,6 +9,7 @@
 
 use std::io::{self, Stdout};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{Event as CtEvent, EventStream, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::execute;
@@ -23,13 +24,16 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::task::AbortHandle;
+use tokio::time::MissedTickBehavior;
 
-use agent_core::{AgentConfig, Harness, HarnessApi, ToolPolicy, UserInput};
+use agent_core::{AgentConfig, Harness, HarnessApi, UserInput};
 use agent_prompts::{PromptStore, is_valid_prompt_name};
 use agent_storage::StoragePaths;
 use agent_tools::{ToolId, ToolRegistry};
 use agent_tracing::{
     EventStore, PublishingEventStore, RunEvent, RunEventKind, RunId, SqliteEventStore,
+    is_terminal_run_event, latest_event_id, validate_guidance_content, validate_quality_score,
 };
 
 use crate::{Demo, setup};
@@ -62,11 +66,15 @@ struct App {
     cost_usd: f64,
     calls_used: u32,
     calls_max: u32,
+    calls_remaining: u32,
+    elapsed_ms: u64,
+    run_started_at: Option<Instant>,
+    active_run_handle: Option<AbortHandle>,
     last_run_id: Option<RunId>,
     quit: bool,
 }
 
-#[derive(Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 enum AppState {
     #[default]
     Idle,
@@ -110,10 +118,11 @@ async fn main_loop(
 ) -> anyhow::Result<()> {
     let registry = setup::build_registry(options.enable_shell, options.enable_subagent);
     let agent = setup::build_agent(&options);
-    let calls_max = ToolPolicy::default().max_calls;
+    let calls_max = agent.tool_policy.max_calls;
 
     let mut app = App {
         calls_max,
+        calls_remaining: calls_max,
         ..App::default()
     };
     if let Some(t) = initial {
@@ -126,6 +135,8 @@ async fn main_loop(
 
     let (publish_tx, mut events_rx) = tokio::sync::mpsc::unbounded_channel::<RunEvent>();
     let mut term_events = EventStream::new();
+    let mut status_tick = tokio::time::interval(Duration::from_millis(250));
+    status_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     loop {
         terminal.draw(|f| render(f, &app))?;
@@ -145,6 +156,9 @@ async fn main_loop(
                 if let Some(e) = evt {
                     handle_run_event(&mut app, &e);
                 }
+            },
+            _ = status_tick.tick() => {
+                update_elapsed_time(&mut app);
             }
         }
     }
@@ -166,16 +180,30 @@ fn handle_terminal_event(
 
     match (key.modifiers, key.code) {
         (KeyModifiers::CONTROL, KeyCode::Char('c')) | (_, KeyCode::Esc) => {
-            app.quit = true;
+            if app.state == AppState::Running {
+                stop_active_run(app, "user requested stop");
+            } else {
+                app.quit = true;
+            }
         }
         (_, KeyCode::Enter) => {
+            let trimmed = app.input.trim();
+            if trimmed.is_empty() {
+                return;
+            }
             if app.state == AppState::Running {
+                if is_mid_run_guidance_command(trimmed) {
+                    let prompt = std::mem::take(&mut app.input);
+                    handle_slash_command(app, &prompt, registry, agent, publish_tx);
+                } else {
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: "Run in progress. Use /guide <text> for mid-run guidance.".into(),
+                    });
+                }
                 return;
             }
             let prompt = std::mem::take(&mut app.input);
-            if prompt.trim().is_empty() {
-                return;
-            }
             if handle_slash_command(app, &prompt, registry, agent, publish_tx) {
                 return;
             }
@@ -224,6 +252,10 @@ fn spawn_run(
     app.tokens_out = 0;
     app.cost_usd = 0.0;
     app.calls_used = 0;
+    app.calls_max = agent.tool_policy.max_calls;
+    app.calls_remaining = agent.tool_policy.max_calls;
+    app.elapsed_ms = 0;
+    app.run_started_at = Some(Instant::now());
 
     let provider = match setup::build_provider(demo, &prompt, options) {
         Ok(provider) => provider,
@@ -250,11 +282,12 @@ fn spawn_run(
     let harness = Harness::new(provider, Arc::new(store), registry.clone());
     let agent_clone = agent.clone();
 
-    tokio::spawn(async move {
+    let run_task = tokio::spawn(async move {
         // The harness emits RunFailed before returning Err, so the TUI sees
         // the failure via the event channel; the result here is best-effort.
         let _ = harness.run(&agent_clone, UserInput { text: prompt }).await;
     });
+    app.active_run_handle = Some(run_task.abort_handle());
 }
 
 fn resolve_saved_prompt_or_literal(text: &str) -> anyhow::Result<String> {
@@ -305,7 +338,7 @@ fn handle_slash_command(
         start_manual_tool_call(app, rest, registry, agent, publish_tx);
         return true;
     }
-    if let Some(input) = trimmed.strip_prefix("/preview").map(str::trim) {
+    if let Some(input) = preview_slash_rest(trimmed) {
         let harness = Harness::new(
             Arc::new(agent_llm::FakeProvider::echo()),
             Arc::new(agent_tracing::InMemoryEventStore::new()),
@@ -334,7 +367,7 @@ fn handle_slash_command(
         });
         return true;
     }
-    if let Some(score) = trimmed.strip_prefix("/score").map(str::trim) {
+    if let Some(score) = score_slash_rest(trimmed) {
         let Some(run_id) = app.last_run_id else {
             app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
@@ -342,22 +375,29 @@ fn handle_slash_command(
             });
             return true;
         };
-        let score = score.parse::<f32>().unwrap_or(10.0);
-        match open_event_store() {
-            Ok(store) => {
-                store.append(
-                    run_id,
-                    None,
-                    RunEventKind::QualityScored {
-                        target: "last_answer".into(),
-                        score,
-                    },
-                );
+        let score = match parse_score_slash_rest(score) {
+            Ok(score) => score,
+            Err(err) => {
                 app.transcript.push(TranscriptLine {
-                    kind: LineKind::Event,
-                    text: format!("Score recorded for {run_id}: {score}/10"),
+                    kind: LineKind::Error,
+                    text: format!("Score failed: {err}"),
                 });
+                return true;
             }
+        };
+        match open_event_store() {
+            Ok(store) => match append_score_event(&store, run_id, "last_answer".into(), score) {
+                Ok(()) => {
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Event,
+                        text: format!("Score recorded for {run_id}: {score}/10"),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Score failed: {err}"),
+                }),
+            },
             Err(err) => app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
                 text: format!("Score failed: {err}"),
@@ -365,7 +405,7 @@ fn handle_slash_command(
         }
         return true;
     }
-    if let Some(text) = trimmed.strip_prefix("/guide").map(str::trim) {
+    if let Some(text) = guide_slash_rest(trimmed) {
         let Some(run_id) = app.last_run_id else {
             app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
@@ -374,19 +414,18 @@ fn handle_slash_command(
             return true;
         };
         match open_event_store() {
-            Ok(store) => {
-                store.append(
-                    run_id,
-                    None,
-                    RunEventKind::GuidanceInjected {
-                        content: text.to_string(),
-                    },
-                );
-                app.transcript.push(TranscriptLine {
-                    kind: LineKind::Event,
-                    text: format!("Guidance recorded for {run_id}"),
-                });
-            }
+            Ok(store) => match append_guidance_event(&store, run_id, text) {
+                Ok(()) => {
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Event,
+                        text: format!("Guidance recorded for {run_id}"),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Guide failed: {err}"),
+                }),
+            },
             Err(err) => app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
                 text: format!("Guide failed: {err}"),
@@ -395,6 +434,34 @@ fn handle_slash_command(
         return true;
     }
     false
+}
+
+fn preview_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/preview" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/preview ").map(str::trim)
+    }
+}
+
+fn score_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/score" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/score ").map(str::trim)
+    }
+}
+
+fn guide_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/guide" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/guide ").map(str::trim)
+    }
+}
+
+fn is_mid_run_guidance_command(trimmed: &str) -> bool {
+    guide_slash_rest(trimmed).is_some()
 }
 
 fn start_manual_tool_call(
@@ -423,6 +490,10 @@ fn start_manual_tool_call(
     app.tokens_out = 0;
     app.cost_usd = 0.0;
     app.calls_used = 0;
+    app.calls_max = agent.tool_policy.max_calls;
+    app.calls_remaining = agent.tool_policy.max_calls;
+    app.elapsed_ms = 0;
+    app.run_started_at = Some(Instant::now());
 
     let store = match open_event_store() {
         Ok(store) => PublishingEventStore::new(store, publish_tx.clone()),
@@ -441,9 +512,10 @@ fn start_manual_tool_call(
         registry.clone(),
     );
     let agent = agent.clone();
-    tokio::spawn(async move {
+    let run_task = tokio::spawn(async move {
         let _ = harness.call_tool(&agent, ToolId::from(name), input).await;
     });
+    app.active_run_handle = Some(run_task.abort_handle());
 }
 
 fn parse_tool_slash_rest(rest: &str) -> anyhow::Result<(String, serde_json::Value)> {
@@ -459,6 +531,52 @@ fn parse_tool_slash_rest(rest: &str) -> anyhow::Result<(String, serde_json::Valu
     Ok((name, input))
 }
 
+fn parse_score_slash_rest(rest: &str) -> anyhow::Result<f32> {
+    let score = if rest.trim().is_empty() {
+        10.0
+    } else {
+        rest.trim().parse::<f32>()?
+    };
+    validate_quality_score(score)?;
+    Ok(score)
+}
+
+fn append_score_event(
+    store: &dyn EventStore,
+    run_id: RunId,
+    target: String,
+    score: f32,
+) -> anyhow::Result<()> {
+    validate_quality_score(score)?;
+    let parent = latest_event_id(&store.events(run_id))
+        .ok_or_else(|| anyhow::anyhow!("run {run_id} has no trace events"))?;
+    store.append(
+        run_id,
+        Some(parent),
+        RunEventKind::QualityScored { target, score },
+    );
+    Ok(())
+}
+
+fn append_guidance_event(store: &dyn EventStore, run_id: RunId, text: &str) -> anyhow::Result<()> {
+    let content = validate_guidance_content(text)?;
+    let events = store.events(run_id);
+    if events
+        .iter()
+        .any(|event| is_terminal_run_event(&event.kind))
+    {
+        anyhow::bail!("run {run_id} is terminal and cannot accept guidance");
+    }
+    let parent = latest_event_id(&events)
+        .ok_or_else(|| anyhow::anyhow!("run {run_id} has no trace events"))?;
+    store.append(
+        run_id,
+        Some(parent),
+        RunEventKind::GuidanceInjected { content },
+    );
+    Ok(())
+}
+
 fn open_event_store() -> anyhow::Result<SqliteEventStore> {
     let paths = StoragePaths::from_env();
     paths.ensure_base_dirs()?;
@@ -471,6 +589,7 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
             app.last_run_id = Some(evt.run_id);
         }
         RunEventKind::ContextBuilt { snapshot } => {
+            update_tool_budget_from_snapshot(app, snapshot);
             let visible_tools = snapshot
                 .get("visible_tools")
                 .and_then(|v| v.as_array())
@@ -486,8 +605,15 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
                 ),
             );
         }
-        RunEventKind::LlmRequestStarted { model } => {
-            push_event(app, format!("LLM call started ({model})"));
+        RunEventKind::LlmRequestStarted {
+            model,
+            request_digest,
+        } => {
+            let digest = request_digest
+                .as_ref()
+                .map(|value| format!(" digest {}", short_digest(value)))
+                .unwrap_or_default();
+            push_event(app, format!("LLM call started ({model}){digest}"));
         }
         RunEventKind::LlmRequestCompleted {
             tokens_in,
@@ -551,6 +677,7 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
             duration_ms,
         } => {
             app.calls_used += 1;
+            app.calls_remaining = app.calls_max.saturating_sub(app.calls_used);
             if let Some(value) = cost_usd {
                 app.cost_usd += value;
             }
@@ -560,6 +687,16 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
             push_event(
                 app,
                 format!("Tool completed [{call_id}] -> {output} ({duration_ms} ms{cost})"),
+            );
+        }
+        RunEventKind::ToolOutputInterpreted {
+            call_id,
+            model,
+            summary,
+        } => {
+            push_event(
+                app,
+                format!("Tool output queued for interpretation [{call_id}] by {model}: {summary}"),
             );
         }
         RunEventKind::ToolCallFailed { call_id, error } => {
@@ -596,8 +733,30 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
         RunEventKind::MemoryLoaded { ids } => {
             push_event(app, format!("Memory loaded: {}", ids.join(", ")));
         }
-        RunEventKind::MemoryWritten { id, operation } => {
-            push_event(app, format!("Memory {operation}: {id}"));
+        RunEventKind::MemoryRead {
+            backend,
+            fragment_ids,
+        } => {
+            push_event(
+                app,
+                format!("Memory read via {backend}: {}", fragment_ids.join(", ")),
+            );
+        }
+        RunEventKind::MemoryWritten {
+            id,
+            operation,
+            source_range,
+            generating_model,
+        } => {
+            let range = source_range
+                .as_ref()
+                .map(|value| format!(" (range: {value})"))
+                .unwrap_or_default();
+            let model = generating_model
+                .as_ref()
+                .map(|value| format!(" via {value}"))
+                .unwrap_or_default();
+            push_event(app, format!("Memory {operation}: {id}{range}{model}"));
         }
         RunEventKind::IngestionReferenced {
             artifact_id,
@@ -667,6 +826,9 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
                 kind: LineKind::Error,
                 text: format!("Run paused: {reason}"),
             });
+            update_elapsed_time(app);
+            app.run_started_at = None;
+            app.active_run_handle = None;
             app.state = AppState::Idle;
         }
         RunEventKind::RunCancelled { reason } => {
@@ -674,6 +836,9 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
                 kind: LineKind::Error,
                 text: format!("Run cancelled: {reason}"),
             });
+            update_elapsed_time(app);
+            app.run_started_at = None;
+            app.active_run_handle = None;
             app.state = AppState::Idle;
         }
         RunEventKind::RunCompleted {
@@ -695,6 +860,9 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
                 app,
                 format!("Run completed in {total_duration_ms} ms{cost}"),
             );
+            app.elapsed_ms = *total_duration_ms;
+            app.run_started_at = None;
+            app.active_run_handle = None;
             app.state = AppState::Idle;
         }
         RunEventKind::RunFailed { reason } => {
@@ -702,7 +870,54 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
                 kind: LineKind::Error,
                 text: format!("Run failed: {reason}"),
             });
+            update_elapsed_time(app);
+            app.run_started_at = None;
+            app.active_run_handle = None;
             app.state = AppState::Idle;
+        }
+    }
+}
+
+fn stop_active_run(app: &mut App, reason: &str) {
+    if let Some(handle) = app.active_run_handle.take() {
+        handle.abort();
+    }
+    if let Some(run_id) = app.last_run_id {
+        match open_event_store() {
+            Ok(store) => {
+                if let Err(err) = record_stop_event(&store, run_id, reason.to_string()) {
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Stop trace write failed: {err}"),
+                    });
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Stop trace write failed: {err}"),
+            }),
+        }
+    }
+    update_elapsed_time(app);
+    app.run_started_at = None;
+    app.state = AppState::Idle;
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::Error,
+        text: format!("Run cancelled: {reason}"),
+    });
+}
+
+fn record_stop_event(store: &dyn EventStore, run_id: RunId, reason: String) -> anyhow::Result<()> {
+    let parent = latest_event_id(&store.events(run_id))
+        .ok_or_else(|| anyhow::anyhow!("run {run_id} has no trace events"))?;
+    store.append(run_id, Some(parent), RunEventKind::RunCancelled { reason });
+    Ok(())
+}
+
+fn update_elapsed_time(app: &mut App) {
+    if app.state == AppState::Running {
+        if let Some(started_at) = app.run_started_at {
+            app.elapsed_ms = started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
         }
     }
 }
@@ -719,6 +934,29 @@ fn push_system_line(app: &mut App, text: &str) {
         kind: LineKind::Event,
         text: text.into(),
     });
+}
+
+fn short_digest(value: &str) -> &str {
+    value.get(..12).unwrap_or(value)
+}
+
+fn update_tool_budget_from_snapshot(app: &mut App, snapshot: &serde_json::Value) {
+    let Some(limits) = snapshot.get("limits") else {
+        return;
+    };
+    if let Some(max) = limits
+        .get("max_tool_calls")
+        .and_then(|value| value.as_u64())
+    {
+        app.calls_max = max.min(u32::MAX as u64) as u32;
+    }
+    if let Some(remaining) = limits
+        .get("remaining_tool_calls")
+        .and_then(|value| value.as_u64())
+    {
+        app.calls_remaining = remaining.min(u32::MAX as u64) as u32;
+        app.calls_used = app.calls_max.saturating_sub(app.calls_remaining);
+    }
 }
 
 // ---------- rendering ----------
@@ -788,16 +1026,35 @@ fn render_status(f: &mut ratatui::Frame, area: Rect, app: &App) {
         AppState::Running => "running…",
     };
     let text = format!(
-        " tokens {}↑/{}↓ · cost ${:.6} · calls {}/{} · {}",
-        app.tokens_in, app.tokens_out, app.cost_usd, app.calls_used, app.calls_max, state
+        " tokens {}↑/{}↓ · cost ${:.6} · time {} · calls {}/{} · left {} · {}",
+        app.tokens_in,
+        app.tokens_out,
+        app.cost_usd,
+        format_duration(app.elapsed_ms),
+        app.calls_used,
+        app.calls_max,
+        app.calls_remaining,
+        state
     );
     let p = Paragraph::new(text).style(Style::default().fg(Color::DarkGray));
     f.render_widget(p, area);
 }
 
+fn format_duration(ms: u64) -> String {
+    if ms < 1_000 {
+        format!("{ms}ms")
+    } else if ms < 60_000 {
+        format!("{:.1}s", ms as f64 / 1_000.0)
+    } else {
+        let minutes = ms / 60_000;
+        let seconds = (ms % 60_000) / 1_000;
+        format!("{minutes}m {seconds}s")
+    }
+}
+
 fn render_input(f: &mut ratatui::Frame, area: Rect, app: &App) {
     let title = if app.state == AppState::Running {
-        " a run is in progress… "
+        " /guide <text> to steer current run "
     } else {
         " Enter to send · Esc to quit "
     };
@@ -816,5 +1073,164 @@ fn render_input(f: &mut ratatui::Frame, area: Rect, app: &App) {
         let cursor_x = area.x + 3 + app.input.chars().count() as u16;
         let cursor_y = area.y + 1;
         f.set_cursor_position(Position::new(cursor_x, cursor_y));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn context_snapshot_updates_status_budget() {
+        let mut app = App {
+            calls_max: 5,
+            calls_remaining: 5,
+            ..App::default()
+        };
+
+        update_tool_budget_from_snapshot(
+            &mut app,
+            &json!({
+                "limits": {
+                    "max_tool_calls": 3,
+                    "remaining_tool_calls": 1
+                }
+            }),
+        );
+
+        assert_eq!(app.calls_max, 3);
+        assert_eq!(app.calls_remaining, 1);
+        assert_eq!(app.calls_used, 2);
+    }
+
+    #[test]
+    fn score_and_guidance_events_are_validated_and_parented() {
+        let store = agent_tracing::InMemoryEventStore::new();
+        let run_id = RunId::new();
+        let started = store.append(
+            run_id,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "agent".into(),
+                input: "task".into(),
+            },
+        );
+
+        append_score_event(&store, run_id, "last_answer".into(), 8.0).unwrap();
+        append_guidance_event(&store, run_id, "  steer this way  ").unwrap();
+
+        let events = store.events(run_id);
+        assert!(matches!(
+            events[1].kind,
+            RunEventKind::QualityScored { score, .. } if (score - 8.0).abs() < f32::EPSILON
+        ));
+        assert_eq!(events[1].parent_event, Some(started.id));
+        assert!(matches!(
+            &events[2].kind,
+            RunEventKind::GuidanceInjected { content } if content == "steer this way"
+        ));
+        assert_eq!(events[2].parent_event, Some(events[1].id));
+    }
+
+    #[test]
+    fn guidance_rejects_terminal_runs() {
+        let store = agent_tracing::InMemoryEventStore::new();
+        let run_id = RunId::new();
+        store.append(
+            run_id,
+            None,
+            RunEventKind::RunCompleted {
+                final_output: "done".into(),
+                total_cost_usd: None,
+                total_duration_ms: 1,
+            },
+        );
+
+        assert!(append_guidance_event(&store, run_id, "too late").is_err());
+        assert_eq!(store.events(run_id).len(), 1);
+    }
+
+    #[test]
+    fn score_slash_rejects_out_of_range_values() {
+        assert!(parse_score_slash_rest("10").is_ok());
+        assert!(parse_score_slash_rest("").is_ok());
+        assert!(parse_score_slash_rest("11").is_err());
+    }
+
+    #[test]
+    fn slash_helpers_match_exact_command_names() {
+        assert_eq!(score_slash_rest("/score 7"), Some("7"));
+        assert_eq!(score_slash_rest("/score"), Some(""));
+        assert_eq!(score_slash_rest("/scoreboard 7"), None);
+        assert_eq!(preview_slash_rest("/preview hello"), Some("hello"));
+        assert_eq!(preview_slash_rest("/preview"), Some(""));
+        assert_eq!(preview_slash_rest("/previewer hello"), None);
+    }
+
+    #[test]
+    fn only_guide_slash_is_allowed_while_running() {
+        assert!(is_mid_run_guidance_command("/guide steer this run"));
+        assert!(is_mid_run_guidance_command("/guide"));
+        assert!(!is_mid_run_guidance_command("/score 8"));
+        assert!(!is_mid_run_guidance_command("/tool!echo {}"));
+        assert!(!is_mid_run_guidance_command("/guidance"));
+        assert!(!is_mid_run_guidance_command("normal prompt"));
+    }
+
+    #[test]
+    fn formats_status_duration() {
+        assert_eq!(format_duration(42), "42ms");
+        assert_eq!(format_duration(1_250), "1.2s");
+        assert_eq!(format_duration(65_000), "1m 5s");
+    }
+
+    #[test]
+    fn run_completed_sets_final_elapsed_time() {
+        let mut app = App {
+            state: AppState::Running,
+            run_started_at: Some(Instant::now()),
+            ..App::default()
+        };
+        let run_id = RunId::new();
+        let store = agent_tracing::InMemoryEventStore::new();
+        let event = store.append(
+            run_id,
+            None,
+            RunEventKind::RunCompleted {
+                final_output: "done".into(),
+                total_cost_usd: None,
+                total_duration_ms: 1234,
+            },
+        );
+
+        handle_run_event(&mut app, &event);
+
+        assert_eq!(app.elapsed_ms, 1234);
+        assert_eq!(app.run_started_at, None);
+        assert_eq!(app.state, AppState::Idle);
+    }
+
+    #[test]
+    fn stop_event_records_cancellation() {
+        let store = agent_tracing::InMemoryEventStore::new();
+        let run_id = RunId::new();
+        let started = store.append(
+            run_id,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "agent".into(),
+                input: "task".into(),
+            },
+        );
+        record_stop_event(&store, run_id, "user requested stop".into()).unwrap();
+
+        let events = store.events(run_id);
+        assert_eq!(events.len(), 2);
+        assert!(matches!(
+            &events[1].kind,
+            RunEventKind::RunCancelled { reason } if reason == "user requested stop"
+        ));
+        assert_eq!(events[1].parent_event, Some(started.id));
     }
 }

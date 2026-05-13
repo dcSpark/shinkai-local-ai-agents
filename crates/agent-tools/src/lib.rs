@@ -34,6 +34,8 @@ pub struct ToolDescriptor {
     pub description: String,
     pub input_schema: Value,
     #[serde(default)]
+    pub output_interpretation_guidance: Option<String>,
+    #[serde(default)]
     pub permissions: ToolPermissions,
     #[serde(default)]
     pub requires_approval: bool,
@@ -115,6 +117,9 @@ impl ShellTool {
                     }
                 }
             }),
+            output_interpretation_guidance: Some(
+                "Preserve stdout, stderr, exit status, timeout, and truncation flags exactly when interpreting shell results.".into(),
+            ),
             permissions: ToolPermissions {
                 shell: true,
                 ..ToolPermissions::default()
@@ -243,6 +248,9 @@ impl SubagentTool {
                 },
                 "additionalProperties": false
             }),
+            output_interpretation_guidance: Some(
+                "Summarize the child run output while preserving child_run_id, agent_id, and final_output provenance.".into(),
+            ),
             permissions: ToolPermissions::default(),
             requires_approval: false,
         }
@@ -344,6 +352,9 @@ impl FakeTool {
                 },
                 "additionalProperties": false
             }),
+            output_interpretation_guidance: Some(
+                "Echo output is already final; keep the returned text unchanged unless the user asked for a transformation.".into(),
+            ),
             permissions: ToolPermissions::default(),
             requires_approval: false,
         }
@@ -393,6 +404,7 @@ mod tests {
                     "value": { "type": "string" }
                 }
             }),
+            output_interpretation_guidance: None,
             permissions: ToolPermissions::default(),
             requires_approval: false,
         }

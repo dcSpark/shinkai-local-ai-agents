@@ -10,4 +10,5 @@ authors.workspace = true
 agent-storage = { path = "../agent-storage" }
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"
 thiserror.workspace = true

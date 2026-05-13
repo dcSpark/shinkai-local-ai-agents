@@ -10,6 +10,7 @@
 //! slices; hooks, streaming tokens, and sandboxing continue to follow
 //! `specs/architecture.md` §21.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -17,10 +18,15 @@ use async_trait::async_trait;
 use futures::future::join_all;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use agent_llm::{LlmProvider, LlmRequest, LlmToolCall, Message, ModelRef, ToolSchema};
 use agent_tools::{ToolId, ToolRegistry};
 use agent_tracing::{EventId, EventStore, RunEvent, RunEventKind, RunId};
+
+const MID_RUN_GUIDANCE_PREFIX: &str = "Mid-run user guidance:\n";
+const MEMORY_BACKEND_ID: &str = "local-v0";
+const TOOL_OUTPUT_INTERPRETATION_SUMMARY_LIMIT: usize = 240;
 
 /// Tool-related policy slice. v0 cut of `specs/architecture.md` §4.5
 /// `ToolPolicy`. Visibility levels and per-tool overrides land later.
@@ -106,6 +112,8 @@ pub struct ContextSnapshot {
     pub visible_tools: Vec<ToolView>,
     pub visible_skills: Vec<SkillView>,
     pub limits: RuntimeLimits,
+    #[serde(default)]
+    pub estimated_input_tokens: u32,
     pub provenance: Vec<ProvenanceRecord>,
 }
 
@@ -133,6 +141,8 @@ pub struct ToolView {
     pub name: String,
     pub description: Option<String>,
     pub input_schema: Option<Value>,
+    #[serde(default)]
+    pub output_interpretation_guidance: Option<String>,
     pub visibility: VisibilityLevel,
 }
 
@@ -141,6 +151,8 @@ pub struct SkillView {
     pub id: String,
     pub name: String,
     pub description: Option<String>,
+    #[serde(default)]
+    pub estimated_tokens: u32,
     pub visibility: VisibilityLevel,
 }
 
@@ -330,7 +342,7 @@ impl Harness {
             .filter_map(|t| {
                 t.input_schema.as_ref().map(|input_schema| ToolSchema {
                     name: t.id.clone(),
-                    description: t.description.clone().unwrap_or_default(),
+                    description: tool_description_for_model(t),
                     input_schema: input_schema.clone(),
                 })
             })
@@ -341,6 +353,17 @@ impl Harness {
             messages,
             tools,
         }
+    }
+
+    fn llm_request_digest(&self, req: &LlmRequest) -> String {
+        let payload = json!({
+            "model": &req.model.0,
+            "messages": &req.messages,
+            "tools": &req.tools,
+        });
+        let bytes = serde_json::to_vec(&payload).unwrap_or_default();
+        let digest = Sha256::digest(bytes);
+        digest.iter().map(|byte| format!("{byte:02x}")).collect()
     }
 
     fn llm_cost_usd(&self, agent: &AgentConfig, tokens_in: u32, tokens_out: u32) -> Option<f64> {
@@ -446,6 +469,40 @@ impl Harness {
         }
     }
 
+    fn tool_output_interpretation_summary(output: &Value) -> String {
+        let output = Self::stringify_tool_output(output);
+        let mut summary = String::new();
+        for ch in output
+            .chars()
+            .take(TOOL_OUTPUT_INTERPRETATION_SUMMARY_LIMIT)
+        {
+            summary.push(ch);
+        }
+        if output.chars().count() > TOOL_OUTPUT_INTERPRETATION_SUMMARY_LIMIT {
+            summary.push_str("...");
+        }
+        summary
+    }
+
+    fn record_tool_output_interpreted(
+        &self,
+        agent: &AgentConfig,
+        run_id: RunId,
+        parent: EventId,
+        call_id: &str,
+        output: &Value,
+    ) {
+        self.events.append(
+            run_id,
+            Some(parent),
+            RunEventKind::ToolOutputInterpreted {
+                call_id: call_id.to_string(),
+                model: agent.model.0.clone(),
+                summary: Self::tool_output_interpretation_summary(output),
+            },
+        );
+    }
+
     fn record_approval_gate(
         &self,
         agent: &AgentConfig,
@@ -502,8 +559,9 @@ impl Harness {
             self.events.append(
                 run_id,
                 Some(parent),
-                RunEventKind::MemoryLoaded {
-                    ids: snapshot
+                RunEventKind::MemoryRead {
+                    backend: MEMORY_BACKEND_ID.to_string(),
+                    fragment_ids: snapshot
                         .loaded_memory
                         .iter()
                         .map(|fragment| fragment.id.clone())
@@ -531,6 +589,26 @@ impl Harness {
                 reason: reason.to_string(),
             },
         );
+    }
+
+    fn append_pending_guidance(
+        &self,
+        run_id: RunId,
+        conversation: &mut Vec<Message>,
+        consumed_guidance_events: &mut HashSet<EventId>,
+    ) {
+        for event in self.events.events(run_id) {
+            if consumed_guidance_events.contains(&event.id) {
+                continue;
+            }
+            if let RunEventKind::GuidanceInjected { content } = event.kind {
+                consumed_guidance_events.insert(event.id);
+                conversation.push(Message::system(format!(
+                    "{MID_RUN_GUIDANCE_PREFIX}{}",
+                    content.trim()
+                )));
+            }
+        }
     }
 
     fn tool_is_parallel_safe(&self, tool_id: &ToolId) -> bool {
@@ -644,11 +722,13 @@ impl Harness {
         );
         self.record_context_references(child_run_id, context_built.id, &snapshot);
         let req = self.llm_request_from_snapshot(&child_agent, &snapshot);
+        let request_digest = self.llm_request_digest(&req);
         let llm_started = self.events.append(
             child_run_id,
             Some(context_built.id),
             RunEventKind::LlmRequestStarted {
                 model: child_agent.model.0.clone(),
+                request_digest: Some(request_digest),
             },
         );
 
@@ -758,6 +838,21 @@ fn parse_subagent_input(input: &Value) -> Result<(String, Option<String>), Harne
     Ok((prompt, agent_id))
 }
 
+fn tool_description_for_model(tool: &ToolView) -> String {
+    let mut description = tool.description.clone().unwrap_or_default();
+    if let Some(guidance) = &tool.output_interpretation_guidance {
+        let guidance = guidance.trim();
+        if !guidance.is_empty() {
+            if !description.is_empty() {
+                description.push_str("\n\n");
+            }
+            description.push_str("Output interpretation guidance: ");
+            description.push_str(guidance);
+        }
+    }
+    description
+}
+
 fn permission_reason(descriptor: &agent_tools::ToolDescriptor) -> String {
     let mut reasons = Vec::new();
     if descriptor.permissions.shell {
@@ -822,6 +917,7 @@ impl ContextBuilder<'_> {
                     VisibilityLevel::FullSchema => Some(d.input_schema.clone()),
                     VisibilityLevel::NameAndDescription | VisibilityLevel::NameOnly => None,
                 },
+                output_interpretation_guidance: d.output_interpretation_guidance.clone(),
                 visibility: self.agent.tool_policy.visibility,
             })
             .collect();
@@ -844,6 +940,28 @@ impl ContextBuilder<'_> {
             system_prompt.push_str(
                 "\n- tool output mode: raw; after a tool call, the runtime returns the tool output without an interpretation pass",
             );
+        } else {
+            let guidance: Vec<&ToolView> = visible_tools
+                .iter()
+                .filter(|tool| {
+                    tool.output_interpretation_guidance
+                        .as_deref()
+                        .is_some_and(|text| !text.trim().is_empty())
+                })
+                .collect();
+            if !guidance.is_empty() {
+                system_prompt.push_str("\n\n<tool-output-guidance>");
+                for tool in guidance {
+                    if let Some(text) = &tool.output_interpretation_guidance {
+                        system_prompt.push_str(&format!(
+                            "\n<tool id=\"{}\">\n{}\n</tool>",
+                            tool.id,
+                            text.trim()
+                        ));
+                    }
+                }
+                system_prompt.push_str("\n</tool-output-guidance>");
+            }
         }
         system_prompt.push_str(
             "\n- side-effect-free, approval-free tool calls proposed in the same turn may execute in parallel",
@@ -893,46 +1011,145 @@ impl ContextBuilder<'_> {
             system_prompt.push_str("\n</skill-context>");
         }
 
+        let conversation = self.conversation;
+        let loaded_memory = self.agent.memory_fragments.clone();
+        let loaded_artifacts = self.agent.ingestion_artifacts.clone();
+        let visible_skills = self.agent.skill_views.clone();
+        let estimated_input_tokens = estimate_context_tokens(
+            &system_prompt,
+            &conversation,
+            &loaded_memory,
+            &loaded_artifacts,
+            &visible_tools,
+            &visible_skills,
+        );
+        let mut provenance = vec![
+            ProvenanceRecord {
+                fragment: "system_prompt".into(),
+                source: format!("agent:{}", self.agent.id),
+            },
+            ProvenanceRecord {
+                fragment: "runtime_limits".into(),
+                source: "run".into(),
+            },
+            ProvenanceRecord {
+                fragment: "visible_tools".into(),
+                source: "tool_registry + agent.tool_policy".into(),
+            },
+            ProvenanceRecord {
+                fragment: "loaded_memory".into(),
+                source: "agent.memory_policy".into(),
+            },
+            ProvenanceRecord {
+                fragment: "loaded_artifacts".into(),
+                source: "agent.ingestion_policy".into(),
+            },
+            ProvenanceRecord {
+                fragment: "visible_skills".into(),
+                source: "agent.skill_policy".into(),
+            },
+        ];
+        if conversation.iter().any(|message| {
+            matches!(
+                message,
+                Message::System { content } if content.starts_with(MID_RUN_GUIDANCE_PREFIX)
+            )
+        }) {
+            provenance.push(ProvenanceRecord {
+                fragment: "mid_run_guidance".into(),
+                source: "run.trace.GuidanceInjected".into(),
+            });
+        }
+
         ContextSnapshot {
             system_prompt,
-            conversation: self.conversation,
+            conversation,
             compacted: None,
-            loaded_memory: self.agent.memory_fragments.clone(),
-            loaded_artifacts: self.agent.ingestion_artifacts.clone(),
+            loaded_memory,
+            loaded_artifacts,
             visible_tools,
-            visible_skills: self.agent.skill_views.clone(),
+            visible_skills,
             limits: RuntimeLimits {
                 max_tool_calls,
                 remaining_tool_calls,
             },
-            provenance: vec![
-                ProvenanceRecord {
-                    fragment: "system_prompt".into(),
-                    source: format!("agent:{}", self.agent.id),
-                },
-                ProvenanceRecord {
-                    fragment: "runtime_limits".into(),
-                    source: "run".into(),
-                },
-                ProvenanceRecord {
-                    fragment: "visible_tools".into(),
-                    source: "tool_registry + agent.tool_policy".into(),
-                },
-                ProvenanceRecord {
-                    fragment: "loaded_memory".into(),
-                    source: "agent.memory_policy".into(),
-                },
-                ProvenanceRecord {
-                    fragment: "loaded_artifacts".into(),
-                    source: "agent.ingestion_policy".into(),
-                },
-                ProvenanceRecord {
-                    fragment: "visible_skills".into(),
-                    source: "agent.skill_policy".into(),
-                },
-            ],
+            estimated_input_tokens,
+            provenance,
         }
     }
+}
+
+fn estimate_context_tokens(
+    system_prompt: &str,
+    conversation: &[Message],
+    loaded_memory: &[MemoryFragment],
+    loaded_artifacts: &[IngestedArtifactView],
+    visible_tools: &[ToolView],
+    visible_skills: &[SkillView],
+) -> u32 {
+    let mut total = estimate_text_tokens(system_prompt) as u64;
+    for message in conversation {
+        total += estimate_message_tokens(message) as u64;
+    }
+    for fragment in loaded_memory {
+        total += estimate_text_tokens(&fragment.content) as u64;
+    }
+    for artifact in loaded_artifacts {
+        total += estimate_text_tokens(&artifact.content) as u64;
+    }
+    for tool in visible_tools {
+        total += estimate_text_tokens(&tool.id) as u64;
+        total += estimate_text_tokens(&tool.name) as u64;
+        if let Some(description) = &tool.description {
+            total += estimate_text_tokens(description) as u64;
+        }
+        if let Some(schema) = &tool.input_schema {
+            total += estimate_text_tokens(&schema.to_string()) as u64;
+        }
+        if let Some(guidance) = &tool.output_interpretation_guidance {
+            total += estimate_text_tokens(guidance) as u64;
+        }
+    }
+    for skill in visible_skills {
+        total += u64::from(skill.estimated_tokens);
+        total += estimate_text_tokens(&skill.id) as u64;
+        total += estimate_text_tokens(&skill.name) as u64;
+        if let Some(description) = &skill.description {
+            total += estimate_text_tokens(description) as u64;
+        }
+    }
+    total.min(u64::from(u32::MAX)) as u32
+}
+
+fn estimate_message_tokens(message: &Message) -> u32 {
+    match message {
+        Message::System { content } | Message::User { content } => estimate_text_tokens(content),
+        Message::Assistant {
+            content,
+            tool_calls,
+        } => {
+            let content_tokens = content.as_deref().map(estimate_text_tokens).unwrap_or(0);
+            let tool_tokens = tool_calls
+                .iter()
+                .map(|call| {
+                    estimate_text_tokens(&call.tool_name)
+                        + estimate_text_tokens(&call.input.to_string())
+                })
+                .sum::<u32>();
+            content_tokens.saturating_add(tool_tokens)
+        }
+        Message::ToolResult { content, .. } => estimate_text_tokens(content),
+    }
+}
+
+fn estimate_text_tokens(text: &str) -> u32 {
+    if text.trim().is_empty() {
+        return 0;
+    }
+    let chars = text.chars().count();
+    let char_estimate = chars.div_ceil(4);
+    let word_floor = text.split_whitespace().count();
+    char_estimate.max(word_floor).min(u32::MAX as usize) as u32
 }
 
 #[async_trait]
@@ -963,6 +1180,7 @@ impl HarnessApi for Harness {
         let mut conversation = self.initial_conversation(&UserInput {
             text: refined_input,
         });
+        let mut consumed_guidance_events = HashSet::new();
 
         loop {
             let snapshot = self.build_context_snapshot(agent, conversation.clone(), calls_used);
@@ -975,12 +1193,14 @@ impl HarnessApi for Harness {
             );
             self.record_context_references(run_id, context_built.id, &snapshot);
             let req = self.llm_request_from_snapshot(agent, &snapshot);
+            let request_digest = self.llm_request_digest(&req);
 
             let llm_started = self.events.append(
                 run_id,
                 Some(context_built.id),
                 RunEventKind::LlmRequestStarted {
                     model: agent.model.0.clone(),
+                    request_digest: Some(request_digest),
                 },
             );
 
@@ -1161,7 +1381,7 @@ impl HarnessApi for Harness {
                 for execution in executions {
                     match execution {
                         Ok(executed) => {
-                            self.events.append(
+                            let completed = self.events.append(
                                 run_id,
                                 Some(executed.prepared.proposed_event),
                                 RunEventKind::ToolCallCompleted {
@@ -1170,6 +1390,13 @@ impl HarnessApi for Harness {
                                     cost_usd: executed.execution.cost_usd,
                                     duration_ms: executed.duration_ms,
                                 },
+                            );
+                            self.record_tool_output_interpreted(
+                                agent,
+                                run_id,
+                                completed.id,
+                                &executed.prepared.call.id,
+                                &executed.execution.output,
                             );
                             if let Some(cost) = executed.execution.cost_usd {
                                 total_cost_usd += cost;
@@ -1239,7 +1466,7 @@ impl HarnessApi for Harness {
                         has_cost_usd = true;
                     }
                     let output = executed.execution.output;
-                    self.events.append(
+                    let completed = self.events.append(
                         run_id,
                         Some(executed.prepared.proposed_event),
                         RunEventKind::ToolCallCompleted {
@@ -1250,7 +1477,7 @@ impl HarnessApi for Harness {
                         },
                     );
                     conversation.push(Message::ToolResult {
-                        tool_call_id: executed.prepared.call.id,
+                        tool_call_id: executed.prepared.call.id.clone(),
                         content: Self::stringify_tool_output(&output),
                     });
                     calls_used += 1;
@@ -1270,8 +1497,16 @@ impl HarnessApi for Harness {
                             final_output,
                         });
                     }
+                    self.record_tool_output_interpreted(
+                        agent,
+                        run_id,
+                        completed.id,
+                        &executed.prepared.call.id,
+                        &output,
+                    );
                 }
             }
+            self.append_pending_guidance(run_id, &mut conversation, &mut consumed_guidance_events);
         }
     }
 
@@ -1520,7 +1755,7 @@ mod tests {
     use super::*;
     use agent_llm::{FakeProvider, FakeStep, LlmResponse, LlmToolCall};
     use agent_tools::{FakeTool, SubagentTool, Tool, ToolDescriptor, ToolError, ToolPermissions};
-    use agent_tracing::InMemoryEventStore;
+    use agent_tracing::{InMemoryEventStore, PublishingEventStore};
     use serde_json::json;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -1556,6 +1791,7 @@ mod tests {
                     "text": { "type": "string" }
                 }
             }),
+            output_interpretation_guidance: Some("Return echoed text verbatim.".into()),
             permissions: ToolPermissions::default(),
             requires_approval: false,
         }
@@ -1572,6 +1808,7 @@ mod tests {
                     "value": { "type": "string" }
                 }
             }),
+            output_interpretation_guidance: None,
             permissions: ToolPermissions {
                 shell: true,
                 ..ToolPermissions::default()
@@ -1604,8 +1841,36 @@ mod tests {
                     "text": { "type": "string" }
                 }
             }),
+            output_interpretation_guidance: None,
             permissions: ToolPermissions::default(),
             requires_approval: false,
+        }
+    }
+
+    fn slow_echo_descriptor() -> ToolDescriptor {
+        ToolDescriptor {
+            id: ToolId::from("slow_echo"),
+            name: "Slow Echo".into(),
+            description: "Echoes after a short delay.".into(),
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "text": { "type": "string" }
+                }
+            }),
+            output_interpretation_guidance: None,
+            permissions: ToolPermissions::default(),
+            requires_approval: false,
+        }
+    }
+
+    struct SlowEchoTool;
+
+    #[async_trait]
+    impl Tool for SlowEchoTool {
+        async fn execute(&self, input: Value) -> Result<Value, ToolError> {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            Ok(input)
         }
     }
 
@@ -1639,12 +1904,14 @@ mod tests {
                 RunEventKind::ToolCallProposed { .. } => "ToolCallProposed",
                 RunEventKind::ToolCallStarted { .. } => "ToolCallStarted",
                 RunEventKind::ToolCallCompleted { .. } => "ToolCallCompleted",
+                RunEventKind::ToolOutputInterpreted { .. } => "ToolOutputInterpreted",
                 RunEventKind::ToolCallFailed { .. } => "ToolCallFailed",
                 RunEventKind::ApprovalRequested { .. } => "ApprovalRequested",
                 RunEventKind::ApprovalResolved { .. } => "ApprovalResolved",
                 RunEventKind::GuidanceInjected { .. } => "GuidanceInjected",
                 RunEventKind::QualityScored { .. } => "QualityScored",
                 RunEventKind::MemoryLoaded { .. } => "MemoryLoaded",
+                RunEventKind::MemoryRead { .. } => "MemoryRead",
                 RunEventKind::MemoryWritten { .. } => "MemoryWritten",
                 RunEventKind::IngestionReferenced { .. } => "IngestionReferenced",
                 RunEventKind::IngestionStarted { .. } => "IngestionStarted",
@@ -1690,6 +1957,35 @@ mod tests {
                 "RunCompleted",
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn llm_request_started_records_request_digest() {
+        let h = Harness::new(
+            Arc::new(FakeProvider::echo()),
+            Arc::new(InMemoryEventStore::new()),
+            registry_with_echo(),
+        );
+        let r = h
+            .run(
+                &agent_with_tools(vec![], 5),
+                UserInput {
+                    text: "hello".into(),
+                },
+            )
+            .await
+            .unwrap();
+        let digest = h
+            .events(r.run_id)
+            .into_iter()
+            .find_map(|event| match event.kind {
+                RunEventKind::LlmRequestStarted { request_digest, .. } => request_digest,
+                _ => None,
+            })
+            .expect("run should emit LlmRequestStarted with a digest");
+
+        assert_eq!(digest.len(), 64);
+        assert!(digest.chars().all(|ch| ch.is_ascii_hexdigit()));
     }
 
     #[tokio::test]
@@ -1761,6 +2057,50 @@ mod tests {
             .expect("run should emit ContextBuilt");
 
         assert_eq!(preview, event_snapshot);
+    }
+
+    #[test]
+    fn preview_context_estimates_input_tokens_from_visible_context() {
+        let mut agent = agent_with_tools(vec![ToolId::from("echo")], 5);
+        agent.memory_fragments = vec![MemoryFragment {
+            id: "mem-1".into(),
+            content: "memory facts for preview accounting".into(),
+            provenance: "test".into(),
+        }];
+        agent.ingestion_artifacts = vec![IngestedArtifactView {
+            id: "ing-1".into(),
+            source: "/tmp/source.txt".into(),
+            sections: 1,
+            content: "ingested artifact text for preview accounting".into(),
+            findings: Vec::new(),
+            provenance: "test".into(),
+        }];
+        agent.skill_views = vec![SkillView {
+            id: "review".into(),
+            name: "Review".into(),
+            description: Some("Review skill".into()),
+            estimated_tokens: 12,
+            visibility: VisibilityLevel::FullSchema,
+        }];
+        let h = Harness::new(
+            Arc::new(FakeProvider::echo()),
+            Arc::new(InMemoryEventStore::new()),
+            registry_with_echo(),
+        );
+
+        let snapshot = h.preview_context(
+            &agent,
+            UserInput {
+                text: "please preview this".into(),
+            },
+        );
+
+        assert!(snapshot.estimated_input_tokens >= 12);
+        assert!(
+            snapshot.estimated_input_tokens
+                > estimate_text_tokens(&snapshot.system_prompt)
+                    + estimate_message_tokens(&snapshot.conversation[0])
+        );
     }
 
     #[tokio::test]
@@ -1844,6 +2184,71 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mid_run_guidance_is_added_to_the_next_context() {
+        let provider = FakeProvider::sequence(vec![
+            FakeStep::CallTool {
+                id: "c1".into(),
+                tool: "slow_echo".into(),
+                input: json!({"text": "before guidance"}),
+            },
+            FakeStep::Reply("done".into()),
+        ]);
+        let mut registry = ToolRegistry::new();
+        registry.register(slow_echo_descriptor(), Arc::new(SlowEchoTool));
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let store = Arc::new(PublishingEventStore::new(InMemoryEventStore::new(), tx));
+        let h = Harness::new(Arc::new(provider), store.clone(), Arc::new(registry));
+        let agent = agent_with_tools(vec![], 5);
+
+        let handle =
+            tokio::spawn(async move { h.run(&agent, UserInput { text: "go".into() }).await });
+
+        let mut run_id = None;
+        loop {
+            let event = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+                .await
+                .expect("run should emit events before timeout")
+                .expect("event stream should stay open until guidance is injected");
+            match event.kind {
+                RunEventKind::RunStarted { .. } => run_id = Some(event.run_id),
+                RunEventKind::ToolCallStarted { .. } => {
+                    let run_id = run_id.expect("run should start before tools");
+                    store.append(
+                        run_id,
+                        None,
+                        RunEventKind::GuidanceInjected {
+                            content: "prefer a concise final answer".into(),
+                        },
+                    );
+                    break;
+                }
+                _ => {}
+            }
+        }
+
+        let result = handle.await.unwrap().unwrap();
+        let snapshots: Vec<ContextSnapshot> = store
+            .events(result.run_id)
+            .into_iter()
+            .filter_map(|event| match event.kind {
+                RunEventKind::ContextBuilt { snapshot } => serde_json::from_value(snapshot).ok(),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(snapshots.len(), 2);
+        assert!(snapshots[1].conversation.iter().any(|message| matches!(
+            message,
+            Message::System { content }
+                if content.contains("Mid-run user guidance")
+                    && content.contains("prefer a concise final answer")
+        )));
+        assert!(snapshots[1].provenance.iter().any(|record| {
+            record.fragment == "mid_run_guidance" && record.source == "run.trace.GuidanceInjected"
+        }));
+    }
+
+    #[tokio::test]
     async fn context_warns_model_when_tool_budget_is_low_or_exhausted() {
         let provider = FakeProvider::sequence(vec![
             FakeStep::CallTool {
@@ -1894,6 +2299,67 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn context_surfaces_tool_output_guidance_for_interpreted_mode() {
+        let h = Harness::new(
+            Arc::new(FakeProvider::echo()),
+            Arc::new(InMemoryEventStore::new()),
+            registry_with_echo(),
+        );
+        let agent = agent_with_tools(vec![], 5);
+
+        let snapshot = h.preview_context(&agent, UserInput { text: "go".into() });
+        let echo_tool = snapshot
+            .visible_tools
+            .iter()
+            .find(|tool| tool.id == "echo")
+            .expect("echo tool should be visible");
+        assert_eq!(
+            echo_tool.output_interpretation_guidance.as_deref(),
+            Some("Return echoed text verbatim.")
+        );
+        assert!(snapshot.system_prompt.contains("<tool-output-guidance>"));
+        assert!(
+            snapshot
+                .system_prompt
+                .contains("<tool id=\"echo\">\nReturn echoed text verbatim.\n</tool>")
+        );
+
+        let request = h.llm_request_from_snapshot(&agent, &snapshot);
+        let echo_schema = request
+            .tools
+            .iter()
+            .find(|tool| tool.name == "echo")
+            .expect("echo tool schema should be sent to model");
+        assert!(
+            echo_schema
+                .description
+                .contains("Output interpretation guidance: Return echoed text verbatim.")
+        );
+
+        let mut raw_agent = agent;
+        raw_agent.tool_policy.output_mode = ToolOutputMode::Raw;
+        let raw_snapshot = h.preview_context(&raw_agent, UserInput { text: "go".into() });
+        assert!(
+            !raw_snapshot
+                .system_prompt
+                .contains("<tool-output-guidance>")
+        );
+        assert!(
+            raw_snapshot
+                .system_prompt
+                .contains("tool output mode: raw; after a tool call")
+        );
+        assert!(
+            raw_snapshot
+                .visible_tools
+                .iter()
+                .any(|tool| tool.id == "echo"
+                    && tool.output_interpretation_guidance.as_deref()
+                        == Some("Return echoed text verbatim."))
+        );
+    }
+
+    #[tokio::test]
     async fn loaded_memory_and_ingestion_are_traced_after_context_build() {
         let mut agent = agent_with_tools(vec![], 5);
         agent.memory_fragments = vec![MemoryFragment {
@@ -1930,7 +2396,7 @@ mod tests {
             vec![
                 "RunStarted",
                 "ContextBuilt",
-                "MemoryLoaded",
+                "MemoryRead",
                 "IngestionReferenced",
                 "LlmRequestStarted",
                 "LlmRequestCompleted",
@@ -1939,7 +2405,10 @@ mod tests {
         );
         assert!(events.iter().any(|event| matches!(
             &event.kind,
-            RunEventKind::MemoryLoaded { ids } if ids == &vec!["mem-1".to_string()]
+            RunEventKind::MemoryRead {
+                backend,
+                fragment_ids,
+            } if backend == "local-v0" && fragment_ids == &vec!["mem-1".to_string()]
         )));
         assert!(events.iter().any(|event| matches!(
             &event.kind,
@@ -1985,12 +2454,21 @@ mod tests {
                 "ToolCallProposed",
                 "ToolCallStarted",
                 "ToolCallCompleted",
+                "ToolOutputInterpreted",
                 "ContextBuilt",
                 "LlmRequestStarted",
                 "LlmRequestCompleted",
                 "RunCompleted",
             ]
         );
+        assert!(h.events(r.run_id).iter().any(|event| matches!(
+            &event.kind,
+            RunEventKind::ToolOutputInterpreted {
+                call_id,
+                model,
+                summary,
+            } if call_id == "c1" && model == "fake-model" && summary == r#"{"text":"ping"}"#
+        )));
     }
 
     #[tokio::test]
@@ -2048,7 +2526,9 @@ mod tests {
                 "ToolCallProposed",
                 "ToolCallStarted",
                 "ToolCallCompleted",
+                "ToolOutputInterpreted",
                 "ToolCallCompleted",
+                "ToolOutputInterpreted",
                 "ContextBuilt",
                 "LlmRequestStarted",
                 "LlmRequestCompleted",

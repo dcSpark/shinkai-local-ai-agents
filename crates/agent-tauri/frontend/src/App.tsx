@@ -139,6 +139,8 @@ export default function App() {
     },
   ]);
   const [input, setInput] = useState("");
+  const [slashCommandIndex, setSlashCommandIndex] = useState(0);
+  const [slashCommandDismissed, setSlashCommandDismissed] = useState(false);
   const [running, setRunning] = useState(false);
   const [tokensIn, setTokensIn] = useState(0);
   const [tokensOut, setTokensOut] = useState(0);
@@ -215,7 +217,15 @@ export default function App() {
       : remainingToolCalls <= 1
         ? "pill warning"
         : "pill";
-  const slashCommandItems = slashCommandSuggestions();
+  const slashCommandItems = slashCommandDismissed ? [] : slashCommandSuggestions();
+  const activeSlashCommand =
+    slashCommandItems[
+      Math.min(slashCommandIndex, Math.max(0, slashCommandItems.length - 1))
+    ];
+  const activeSlashCommandId =
+    activeSlashCommand && slashCommandItems.length
+      ? `slash-command-${slashCommandIndex}`
+      : undefined;
 
   // Subscribe to streaming RunEvents from the Rust backend.
   useEffect(() => {
@@ -239,6 +249,16 @@ export default function App() {
       });
     }
   }, [transcript]);
+
+  useEffect(() => {
+    setSlashCommandIndex(0);
+  }, [input]);
+
+  useEffect(() => {
+    setSlashCommandIndex((index) =>
+      Math.min(index, Math.max(0, slashCommandItems.length - 1)),
+    );
+  }, [slashCommandItems.length]);
 
   useEffect(() => {
     if (!running || runStartedAtRef.current === null) {
@@ -750,18 +770,45 @@ export default function App() {
     return null;
   }
 
+  function parseExportShortcut(text: string) {
+    const trimmed = text.trim();
+    if (trimmed === "/export") {
+      return defaultBundlePath();
+    }
+    return trimmed.startsWith("/export ")
+      ? trimmed.slice("/export ".length).trim()
+      : null;
+  }
+
   function slashCommandSuggestions(): SlashCommandSuggestion[] {
     const trimmed = input.trimStart();
     if (!trimmed.startsWith("/") || trimmed.includes("\n")) {
       return [];
     }
     const query = trimmed.slice(1).toLowerCase();
+    const toolCommands = contextPreview?.visible_tools.map((tool) => ({
+      command: `/tool!${tool.id} ${compactJson(sampleToolInput(tool.input_schema))}`,
+      label: `Call ${tool.name} directly`,
+    })) ?? [
+      {
+        command: '/tool!echo {"text":"hello"}',
+        label: "Call echo directly",
+      },
+    ];
     const commands: SlashCommandSuggestion[] = [
       { command: "/preview", label: "Preview context" },
       { command: "/agent tool", label: "Switch to Tool agent" },
       { command: "/agent echo", label: "Switch to Echo agent" },
-      { command: '/tool!echo {"text":"hello"}', label: "Call echo directly" },
+      ...toolCommands,
       { command: "/run ", label: "Run saved prompt" },
+      { command: "/prompt ", label: "Load saved prompt" },
+      { command: "/export", label: "Export backup bundle" },
+      { command: "/config", label: "Explain effective config" },
+      { command: "/tools", label: "Show visible tools" },
+      { command: "/storage", label: "Show storage usage" },
+      { command: "/memory", label: "List memory records" },
+      { command: "/ingest", label: "List ingestion artifacts" },
+      { command: "/skills", label: "List imported skills" },
     ];
     if (lastRunId) {
       commands.push(
@@ -774,13 +821,29 @@ export default function App() {
         command: `/run ${prompt.name}`,
         label: `Run ${prompt.name}`,
       });
+      commands.push({
+        command: `/prompt ${prompt.name}`,
+        label: `Load ${prompt.name}`,
+      });
     }
     return commands
       .filter((item) => {
         const haystack = `${item.command} ${item.label}`.toLowerCase();
         return haystack.includes(query);
       })
+      .sort((a, b) => slashCommandRank(a, query) - slashCommandRank(b, query))
       .slice(0, 6);
+  }
+
+  function slashCommandRank(item: SlashCommandSuggestion, query: string) {
+    const command = item.command.slice(1).toLowerCase();
+    if (command.startsWith(query)) {
+      return 0;
+    }
+    if (item.label.toLowerCase().startsWith(query)) {
+      return 1;
+    }
+    return 2;
   }
 
   function parseScoreShortcut(text: string) {
@@ -1016,6 +1079,65 @@ export default function App() {
       return;
     }
 
+    if (prompt === "/config") {
+      setInput("");
+      appendLine("user", "/config");
+      await explainCurrentConfig();
+      return;
+    }
+
+    if (prompt === "/tools") {
+      setInput("");
+      appendLine("user", "/tools");
+      await explainCurrentTools();
+      return;
+    }
+
+    if (prompt === "/storage") {
+      setInput("");
+      setActiveSection("adapters");
+      appendLine("user", "/storage");
+      await storageReportFromOps();
+      return;
+    }
+
+    if (prompt === "/memory") {
+      setInput("");
+      setActiveSection("memory");
+      appendLine("user", "/memory");
+      await reviewMemory();
+      return;
+    }
+
+    if (prompt === "/ingest") {
+      setInput("");
+      setActiveSection("ingest");
+      appendLine("user", "/ingest");
+      await reviewIngestion();
+      return;
+    }
+
+    if (prompt === "/skills") {
+      setInput("");
+      setActiveSection("skills");
+      appendLine("user", "/skills");
+      await reviewSkills();
+      return;
+    }
+
+    const exportPath = parseExportShortcut(prompt);
+    if (exportPath !== null) {
+      if (!exportPath) {
+        appendLine("error", "Export shortcut needs a bundle path.");
+        return;
+      }
+      setInput("");
+      setOpsValue(exportPath);
+      appendLine("user", prompt === "/export" ? "/export" : `/export ${exportPath}`);
+      await exportBundleToPath(exportPath, "Backup exported");
+      return;
+    }
+
     const savedPromptName = prompt.startsWith("/run ")
       ? prompt.slice("/run ".length).trim()
       : null;
@@ -1029,6 +1151,20 @@ export default function App() {
         appendLine("error", `Saved prompt failed: ${msg}`);
         return;
       }
+    }
+
+    const promptShortcutName = prompt.startsWith("/prompt ")
+      ? prompt.slice("/prompt ".length).trim()
+      : null;
+    if (promptShortcutName) {
+      setInput("");
+      appendLine("user", `/prompt ${promptShortcutName}`);
+      await usePromptByName(promptShortcutName);
+      return;
+    }
+    if (prompt === "/prompt") {
+      appendLine("error", "Prompt shortcut needs a saved prompt name.");
+      return;
     }
 
     await runAgentPrompt(prompt, savedPromptName ? `/run ${savedPromptName}` : prompt);
@@ -2401,6 +2537,17 @@ export default function App() {
     }
   }
 
+  function applySlashCommand(command: string) {
+    setInput(command);
+    setSlashCommandIndex(0);
+    setSlashCommandDismissed(true);
+  }
+
+  function updateComposerInput(value: string) {
+    setInput(value);
+    setSlashCommandDismissed(false);
+  }
+
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -2411,11 +2558,43 @@ export default function App() {
         return;
       }
       void submit();
+      return;
+    }
+    if (slashCommandItems.length) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSlashCommandIndex((index) => (index + 1) % slashCommandItems.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSlashCommandIndex(
+          (index) =>
+            (index - 1 + slashCommandItems.length) % slashCommandItems.length,
+        );
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        const selected = activeSlashCommand ?? slashCommandItems[0];
+        if (selected) {
+          applySlashCommand(selected.command);
+        }
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setSlashCommandDismissed(true);
+      }
     }
   }
 
   function previewJson(value: unknown) {
     return JSON.stringify(value, null, 2);
+  }
+
+  function compactJson(value: unknown) {
+    return JSON.stringify(value);
   }
 
   function formatDuration(ms: number) {
@@ -2817,19 +2996,31 @@ export default function App() {
         <footer className="composer">
           <textarea
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => updateComposerInput(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder={running ? "Type /guide to steer this run" : "Ask the agent"}
+            aria-controls={slashCommandItems.length ? "slash-command-menu" : undefined}
+            aria-expanded={slashCommandItems.length ? true : undefined}
+            aria-activedescendant={activeSlashCommandId}
             rows={4}
           />
           {slashCommandItems.length ? (
-            <div className="slash-command-menu" role="listbox" aria-label="Slash commands">
-              {slashCommandItems.map((item) => (
+            <div
+              className="slash-command-menu"
+              id="slash-command-menu"
+              role="listbox"
+              aria-label="Slash commands"
+            >
+              {slashCommandItems.map((item, index) => (
                 <button
                   type="button"
                   role="option"
+                  id={`slash-command-${index}`}
+                  aria-selected={index === slashCommandIndex}
+                  className={index === slashCommandIndex ? "selected" : ""}
                   key={`${item.command}:${item.label}`}
-                  onClick={() => setInput(item.command)}
+                  onClick={() => applySlashCommand(item.command)}
+                  onMouseEnter={() => setSlashCommandIndex(index)}
                   title={item.label}
                 >
                   <span>{item.command}</span>

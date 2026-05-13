@@ -455,6 +455,11 @@ textarea:disabled {
   text-align: left;
 }
 
+.slash-command-menu button.selected {
+  border-color: #23919c;
+  background: #123238;
+}
+
 .slash-command-menu span,
 .slash-command-menu small {
   min-width: 0;

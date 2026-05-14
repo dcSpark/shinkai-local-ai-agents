@@ -91,6 +91,7 @@ struct RunOptions {
     prompt_refinement_model: Option<String>,
     require_approval: bool,
     raw_tool_output: bool,
+    compacted_context: Option<String>,
 }
 
 impl Default for RunOptions {
@@ -118,6 +119,7 @@ impl Default for RunOptions {
             prompt_refinement_model: None,
             require_approval: false,
             raw_tool_output: false,
+            compacted_context: None,
         }
     }
 }
@@ -222,6 +224,7 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
             prompt_refinement: None,
             tool_policy: ToolPolicy::default(),
             cost_policy: CostPolicy::default(),
+            compacted_context: None,
             memory_fragments: Vec::new(),
             ingestion_artifacts: Vec::new(),
             skill_views: Vec::new(),
@@ -243,6 +246,14 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
     }
     if options.raw_tool_output {
         agent.tool_policy.output_mode = ToolOutputMode::Raw;
+    }
+    if let Some(compacted_context) = options
+        .compacted_context
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        agent.compacted_context = Some(compacted_context.to_string());
     }
     if options.input_cost_per_million.is_some() {
         agent.cost_policy.input_cost_per_million = options.input_cost_per_million;

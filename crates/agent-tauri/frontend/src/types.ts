@@ -167,6 +167,7 @@ export type RunOptions = {
   prompt_refinement_model: string | null;
   require_approval: boolean;
   raw_tool_output: boolean;
+  compacted_context: string | null;
 };
 
 export type ContextSnapshot = {

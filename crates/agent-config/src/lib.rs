@@ -290,6 +290,7 @@ fn resolve_agent(
             input_cost_per_million,
             output_cost_per_million,
         },
+        compacted_context: None,
         memory_fragments: Vec::new(),
         ingestion_artifacts: Vec::new(),
         skill_views: Vec::new(),

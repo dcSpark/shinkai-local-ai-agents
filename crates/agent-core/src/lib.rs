@@ -87,6 +87,7 @@ pub struct AgentConfig {
     pub prompt_refinement: Option<PromptRefinement>,
     pub tool_policy: ToolPolicy,
     pub cost_policy: CostPolicy,
+    pub compacted_context: Option<String>,
     pub memory_fragments: Vec<MemoryFragment>,
     pub ingestion_artifacts: Vec<IngestedArtifactView>,
     pub skill_views: Vec<SkillView>,
@@ -976,6 +977,19 @@ impl ContextBuilder<'_> {
             }
             system_prompt.push_str("\n</memory-context>");
         }
+        let compacted = self
+            .agent
+            .compacted_context
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string);
+        if let Some(compacted_context) = &compacted {
+            system_prompt.push_str(&format!(
+                "\n\n<compacted-context>\n{}\n</compacted-context>",
+                compacted_context
+            ));
+        }
         if !self.agent.ingestion_artifacts.is_empty() {
             system_prompt.push_str("\n\n<ingestion-context>");
             for artifact in &self.agent.ingestion_artifacts {
@@ -1060,11 +1074,17 @@ impl ContextBuilder<'_> {
                 source: "run.trace.GuidanceInjected".into(),
             });
         }
+        if compacted.is_some() {
+            provenance.push(ProvenanceRecord {
+                fragment: "compacted_context".into(),
+                source: "run.manual_compaction".into(),
+            });
+        }
 
         ContextSnapshot {
             system_prompt,
             conversation,
-            compacted: None,
+            compacted,
             loaded_memory,
             loaded_artifacts,
             visible_tools,
@@ -1774,6 +1794,7 @@ mod tests {
                 output_mode: ToolOutputMode::Interpreted,
             },
             cost_policy: CostPolicy::default(),
+            compacted_context: None,
             memory_fragments: Vec::new(),
             ingestion_artifacts: Vec::new(),
             skill_views: Vec::new(),

@@ -30,6 +30,7 @@ type ActiveSection =
   | "adapters"
   | "approvals";
 type AgentMode = "answer" | "action" | "workflow" | "custom";
+type StopRetentionMode = "discard" | "summarise";
 
 interface TranscriptLine {
   kind: LineKind;
@@ -46,6 +47,13 @@ interface ToolParameterView {
   type: string;
   required: boolean;
   description: string | null;
+}
+
+interface ContextReviewCard {
+  title: string;
+  value: string;
+  detail: string;
+  tone: "neutral" | "ok" | "warning" | "danger";
 }
 
 type JsonValue =
@@ -88,6 +96,22 @@ interface TraceSummary {
   tokens_out: number;
   cost_usd: number | null;
   duration_ms: number | null;
+}
+
+interface QualityScoreRecord {
+  event_id: number;
+  run_id: string;
+  at: string;
+  target: string;
+  score: number;
+}
+
+interface TraceTimelineItem {
+  id: number;
+  title: string;
+  meta: string;
+  detail: string;
+  tone: "neutral" | "ok" | "warning" | "danger";
 }
 
 interface ApprovalRecord {
@@ -179,6 +203,9 @@ export default function App() {
   const [promptRefinementModel, setPromptRefinementModel] = useState("");
   const [requireApproval, setRequireApproval] = useState(false);
   const [rawToolOutput, setRawToolOutput] = useState(false);
+  const [stopRetentionMode, setStopRetentionMode] =
+    useState<StopRetentionMode>("discard");
+  const [manualCompactedContext, setManualCompactedContext] = useState("");
   const [lastRunId, setLastRunId] = useState<string | null>(null);
   const [contextPreview, setContextPreview] = useState<ContextSnapshot | null>(
     null,
@@ -285,7 +312,7 @@ export default function App() {
     };
     window.addEventListener("keydown", onEscape);
     return () => window.removeEventListener("keydown", onEscape);
-  }, [lastRunId, running]);
+  }, [lastRunId, running, stopRetentionMode]);
 
   function handleRunEvent(evt: RunEvent) {
     const k = evt.kind;
@@ -534,6 +561,7 @@ export default function App() {
       prompt_refinement_model: promptRefinementModel.trim() || null,
       require_approval: requireApproval,
       raw_tool_output: rawToolOutput,
+      compacted_context: manualCompactedContext.trim() || null,
     };
   }
 
@@ -780,12 +808,7 @@ export default function App() {
       : null;
   }
 
-  function slashCommandSuggestions(): SlashCommandSuggestion[] {
-    const trimmed = input.trimStart();
-    if (!trimmed.startsWith("/") || trimmed.includes("\n")) {
-      return [];
-    }
-    const query = trimmed.slice(1).toLowerCase();
+  function slashCommandCatalog(): SlashCommandSuggestion[] {
     const toolCommands = contextPreview?.visible_tools.map((tool) => ({
       command: `/tool!${tool.id} ${compactJson(sampleToolInput(tool.input_schema))}`,
       label: `Call ${tool.name} directly`,
@@ -796,12 +819,69 @@ export default function App() {
       },
     ];
     const commands: SlashCommandSuggestion[] = [
+      { command: "/help", label: "Show shortcuts" },
       { command: "/preview", label: "Preview context" },
       { command: "/agent tool", label: "Switch to Tool agent" },
       { command: "/agent echo", label: "Switch to Echo agent" },
       ...toolCommands,
       { command: "/run ", label: "Run saved prompt" },
       { command: "/prompt ", label: "Load saved prompt" },
+      { command: "/prompts", label: "List saved prompts" },
+      { command: "/models", label: "List model metadata" },
+      { command: "/simple", label: "Use low-overhead answer mode" },
+      { command: "/router", label: "Use one-action raw router mode" },
+      { command: "/answer", label: "Use zero tool calls" },
+      { command: "/action", label: "Use one tool call" },
+      { command: "/workflow", label: `Use default ${CALLS_MAX}-call workflow` },
+      { command: "/budget ", label: "Set max tool calls" },
+      { command: "/visibility full", label: "Show full tool schemas" },
+      { command: "/visibility descriptions", label: "Show tool names and descriptions" },
+      { command: "/visibility names", label: "Show tool names only" },
+      { command: "/visibility config", label: "Use configured tool visibility" },
+      { command: "/approval on", label: "Require approval for tool actions" },
+      { command: "/approval off", label: "Disable run approval gate" },
+      { command: "/approval status", label: "Show approval gate status" },
+      { command: "/refine on", label: "Enable prompt refinement" },
+      { command: "/refine off", label: "Disable prompt refinement" },
+      { command: "/refine status", label: "Show prompt refinement status" },
+      { command: "/refine model ", label: "Set refiner model" },
+      { command: "/refine instructions ", label: "Set refinement instructions" },
+      { command: "/shell on", label: "Enable shell tool access" },
+      { command: "/shell off", label: "Disable shell tool access" },
+      { command: "/shell status", label: "Show shell access status" },
+      { command: "/memory on", label: "Load memory in context" },
+      { command: "/memory off", label: "Stop loading memory" },
+      { command: "/memory status", label: "Show memory loading status" },
+      { command: "/skills on", label: "Load skills in context" },
+      { command: "/skills off", label: "Stop loading skills" },
+      { command: "/skills status", label: "Show skill loading status" },
+      { command: "/subagent on", label: "Enable subagent tool" },
+      { command: "/subagent off", label: "Disable subagent tool" },
+      { command: "/subagent status", label: "Show subagent status" },
+      { command: "/cost input ", label: "Set input token cost per million" },
+      { command: "/cost output ", label: "Set output token cost per million" },
+      { command: "/cost both ", label: "Set input and output token costs" },
+      { command: "/cost clear", label: "Use configured model costs" },
+      { command: "/cost status", label: "Show token cost overrides" },
+      { command: "/usage", label: "Show current usage totals" },
+      { command: "/usage trace", label: "Load last trace usage totals" },
+      { command: "/score 10", label: "Score last answer" },
+      { command: "/score conversation 10", label: "Score the full conversation" },
+      { command: "/score range:important 8", label: "Score a selected range" },
+      { command: "/scores", label: "Review quality scores" },
+      { command: "/stop", label: "Stop current run with selected mode" },
+      { command: "/stop discard", label: "Stop without retaining context" },
+      { command: "/stop summarise", label: "Stop and retain a summary" },
+      { command: "/stop status", label: "Show stop retention mode" },
+      { command: "/compact ", label: "Create a guided compaction draft" },
+      { command: "/compact status", label: "Show manual compacted context" },
+      { command: "/compact clear", label: "Clear manual compacted context" },
+      { command: "/guardrails", label: "Review ingestion guardrails" },
+      { command: "/guardrails unsafe on", label: "Allow flagged ingestion content" },
+      { command: "/guardrails unsafe off", label: "Block flagged ingestion content" },
+      { command: "/guardrails status", label: "Show guardrail status" },
+      { command: "/raw", label: "Use raw tool outputs" },
+      { command: "/interpret", label: "Interpret tool outputs" },
       { command: "/export", label: "Export backup bundle" },
       { command: "/config", label: "Explain effective config" },
       { command: "/tools", label: "Show visible tools" },
@@ -809,10 +889,14 @@ export default function App() {
       { command: "/memory", label: "List memory records" },
       { command: "/ingest", label: "List ingestion artifacts" },
       { command: "/skills", label: "List imported skills" },
+      { command: "/adapters", label: "List adapter manifests" },
+      { command: "/trace", label: "Load last run trace" },
+      { command: "/approvals", label: "Review current run approvals" },
+      { command: "/batch ", label: "Run lines as deterministic batch" },
+      { command: "/resume-batch ", label: "Resume deterministic batch" },
     ];
     if (lastRunId) {
       commands.push(
-        { command: "/score 10", label: "Score last answer" },
         { command: "/guide ", label: "Guide current run" },
       );
     }
@@ -826,13 +910,29 @@ export default function App() {
         label: `Load ${prompt.name}`,
       });
     }
-    return commands
+    return commands;
+  }
+
+  function slashCommandSuggestions(): SlashCommandSuggestion[] {
+    const trimmed = input.trimStart();
+    if (!trimmed.startsWith("/") || trimmed.includes("\n")) {
+      return [];
+    }
+    const query = trimmed.slice(1).toLowerCase();
+    return slashCommandCatalog()
       .filter((item) => {
         const haystack = `${item.command} ${item.label}`.toLowerCase();
         return haystack.includes(query);
       })
       .sort((a, b) => slashCommandRank(a, query) - slashCommandRank(b, query))
       .slice(0, 6);
+  }
+
+  function slashCommandHelpText() {
+    return [
+      "Available shortcuts:",
+      ...slashCommandCatalog().map((item) => `${item.command} - ${item.label}`),
+    ].join("\n");
   }
 
   function slashCommandRank(item: SlashCommandSuggestion, query: string) {
@@ -851,19 +951,23 @@ export default function App() {
       ? text.trim().slice("/score ".length).trim()
       : null;
     if (rest === null) return null;
-    const match = rest.match(/^(\S+)(?:\s+(.+))?$/);
-    if (!match) {
+    const parts = rest.split(/\s+/);
+    if (!parts.length) {
       appendLine("error", "Score shortcut needs a number from 0 to 10.");
       return null;
     }
-    const score = Number(match[1]);
+    const firstScore = Number(parts[0]);
+    const scoreFirst = Number.isFinite(firstScore);
+    const rawScore = scoreFirst ? parts[0] : parts[parts.length - 1];
+    const score = Number(rawScore);
     if (!Number.isFinite(score) || score < 0 || score > 10) {
       appendLine("error", "Score shortcut needs a number from 0 to 10.");
       return null;
     }
+    const target = scoreFirst ? parts.slice(1).join(" ") : parts.slice(0, -1).join(" ");
     return {
       score,
-      target: match[2]?.trim() || "last_answer",
+      target: target.trim() || "last_answer",
     };
   }
 
@@ -972,6 +1076,324 @@ export default function App() {
     return null;
   }
 
+  function qualityScoresFromEvents(events: RunEvent[]): QualityScoreRecord[] {
+    return events.flatMap((event) => {
+      const kind = event.kind;
+      if (kind.type !== "QualityScored") return [];
+      return [
+        {
+          event_id: event.id,
+          run_id: event.run_id,
+          at: event.at,
+          target: kind.target,
+          score: kind.score,
+        },
+      ];
+    });
+  }
+
+  function qualityScoreReport(records: QualityScoreRecord[]) {
+    if (!records.length) {
+      return "No quality scores recorded in the loaded trace.";
+    }
+    const average =
+      records.reduce((total, record) => total + record.score, 0) / records.length;
+    const summary = `Quality scores: ${records.length}, avg ${average.toFixed(1)}/10`;
+    const lines = records.map(
+      (record) =>
+        `#${record.event_id} ${record.target}: ${record.score}/10 (${record.at})`,
+    );
+    return [summary, ...lines].join("\n");
+  }
+
+  function traceTimelineItems(events: RunEvent[]): TraceTimelineItem[] {
+    return events.map((event) => {
+      const at = new Date(event.at).toLocaleTimeString();
+      const kind = event.kind;
+      switch (kind.type) {
+        case "RunStarted":
+          return {
+            id: event.id,
+            title: "Run started",
+            meta: `${at} / ${kind.agent_id}`,
+            detail: previewText(kind.input, 180),
+            tone: "neutral",
+          };
+        case "ContextBuilt":
+          return {
+            id: event.id,
+            title: "Context built",
+            meta: `${at} / ${kind.snapshot.estimated_input_tokens} tokens`,
+            detail: `${kind.snapshot.visible_tools.length} tools, ${kind.snapshot.visible_skills.length} skills, ${kind.snapshot.loaded_memory.length} memory fragments, ${kind.snapshot.loaded_artifacts.length} artifacts.`,
+            tone: "ok",
+          };
+        case "LlmRequestStarted":
+          return {
+            id: event.id,
+            title: "LLM call started",
+            meta: `${at} / ${kind.model}`,
+            detail: kind.request_digest
+              ? `Request digest ${kind.request_digest.slice(0, 16)}...`
+              : "Request was sent to the provider.",
+            tone: "neutral",
+          };
+        case "LlmRequestCompleted":
+          return {
+            id: event.id,
+            title: "LLM call completed",
+            meta: `${at} / ${formatDuration(kind.duration_ms)}`,
+            detail: `Tokens ${kind.tokens_in}/${kind.tokens_out}; cost ${formatCost(kind.cost_usd)}.`,
+            tone: "ok",
+          };
+        case "PromptRefinementStarted":
+          return {
+            id: event.id,
+            title: "Prompt refinement started",
+            meta: `${at} / ${kind.model}`,
+            detail: previewText(kind.original_input, 180),
+            tone: "neutral",
+          };
+        case "PromptRefinementCompleted":
+          return {
+            id: event.id,
+            title: "Prompt refined",
+            meta: `${at} / ${formatDuration(kind.duration_ms)}`,
+            detail: previewText(kind.refined_input, 180),
+            tone: "ok",
+          };
+        case "ToolCallProposed":
+          return {
+            id: event.id,
+            title: "Tool proposed",
+            meta: `${at} / ${kind.tool_id}`,
+            detail: previewText(compactJson(kind.input), 180),
+            tone: "warning",
+          };
+        case "ToolCallStarted":
+          return {
+            id: event.id,
+            title: "Tool started",
+            meta: `${at} / ${kind.call_id}`,
+            detail: "The tool execution began.",
+            tone: "neutral",
+          };
+        case "ToolCallCompleted":
+          return {
+            id: event.id,
+            title: "Tool completed",
+            meta: `${at} / ${formatDuration(kind.duration_ms)}`,
+            detail: previewText(compactJson(kind.output), 180),
+            tone: "ok",
+          };
+        case "ToolOutputInterpreted":
+          return {
+            id: event.id,
+            title: "Tool output interpreted",
+            meta: `${at} / ${kind.model}`,
+            detail: previewText(kind.summary, 180),
+            tone: "ok",
+          };
+        case "ToolCallFailed":
+          return {
+            id: event.id,
+            title: "Tool failed",
+            meta: `${at} / ${kind.call_id}`,
+            detail: kind.error,
+            tone: "danger",
+          };
+        case "ApprovalRequested":
+          return {
+            id: event.id,
+            title: "Approval requested",
+            meta: `${at} / ${kind.action}`,
+            detail: kind.reason,
+            tone: "warning",
+          };
+        case "ApprovalResolved":
+          return {
+            id: event.id,
+            title: kind.approved ? "Approval granted" : "Approval rejected",
+            meta: `${at} / ${kind.approval_id}`,
+            detail: kind.approved
+              ? "The gated action was approved."
+              : "The gated action was rejected.",
+            tone: kind.approved ? "ok" : "danger",
+          };
+        case "GuidanceInjected":
+          return {
+            id: event.id,
+            title: "Guidance injected",
+            meta: at,
+            detail: previewText(kind.content, 180),
+            tone: "warning",
+          };
+        case "QualityScored":
+          return {
+            id: event.id,
+            title: "Quality scored",
+            meta: `${at} / ${kind.score}/10`,
+            detail: kind.target,
+            tone: "ok",
+          };
+        case "MemoryLoaded":
+          return {
+            id: event.id,
+            title: "Memory loaded",
+            meta: `${at} / ${kind.ids.length} records`,
+            detail: kind.ids.join(", ") || "No memory ids.",
+            tone: "ok",
+          };
+        case "MemoryRead":
+          return {
+            id: event.id,
+            title: "Memory read",
+            meta: `${at} / ${kind.backend}`,
+            detail: kind.fragment_ids.join(", ") || "No fragments returned.",
+            tone: "ok",
+          };
+        case "MemoryWritten":
+          return {
+            id: event.id,
+            title: "Memory written",
+            meta: `${at} / ${kind.operation}`,
+            detail: [kind.id, kind.source_range, kind.generating_model]
+              .filter(Boolean)
+              .join(" / "),
+            tone: "ok",
+          };
+        case "IngestionReferenced":
+          return {
+            id: event.id,
+            title: "Ingestion referenced",
+            meta: `${at} / ${kind.artifact_id}`,
+            detail: kind.source,
+            tone: "ok",
+          };
+        case "IngestionStarted":
+          return {
+            id: event.id,
+            title: "Ingestion started",
+            meta: `${at} / ${kind.backend}`,
+            detail: kind.source,
+            tone: "neutral",
+          };
+        case "IngestionCompleted":
+          return {
+            id: event.id,
+            title: "Ingestion completed",
+            meta: `${at} / ${kind.sections} sections`,
+            detail: `${kind.artifact_id}; ${kind.content_hash.slice(0, 16)}...`,
+            tone: "ok",
+          };
+        case "PolicyDenied":
+          return {
+            id: event.id,
+            title: "Policy denied",
+            meta: at,
+            detail: kind.reason,
+            tone: "danger",
+          };
+        case "ChildRunStarted":
+          return {
+            id: event.id,
+            title: "Child run started",
+            meta: `${at} / ${kind.agent_id}`,
+            detail: kind.child_run_id,
+            tone: "neutral",
+          };
+        case "ChildRunCompleted":
+          return {
+            id: event.id,
+            title: "Child run completed",
+            meta: `${at} / ${kind.status}`,
+            detail: kind.child_run_id,
+            tone: kind.status === "completed" ? "ok" : "warning",
+          };
+        case "BatchRunStarted":
+          return {
+            id: event.id,
+            title: "Batch started",
+            meta: `${at} / ${kind.items} items`,
+            detail: kind.batch_id,
+            tone: "neutral",
+          };
+        case "BatchItemStatus":
+          return {
+            id: event.id,
+            title: "Batch item updated",
+            meta: `${at} / ${kind.status}`,
+            detail: `${kind.batch_id}: ${kind.item_key}`,
+            tone: kind.status === "failed" ? "danger" : "ok",
+          };
+        case "BatchRunCompleted":
+          return {
+            id: event.id,
+            title: "Batch completed",
+            meta: `${at} / ${kind.batch_id}`,
+            detail: `${kind.succeeded} succeeded, ${kind.failed} failed.`,
+            tone: kind.failed ? "warning" : "ok",
+          };
+        case "RunPaused":
+          return {
+            id: event.id,
+            title: "Run paused",
+            meta: at,
+            detail: kind.reason,
+            tone: "warning",
+          };
+        case "RunCancelled":
+          return {
+            id: event.id,
+            title: "Run cancelled",
+            meta: at,
+            detail: kind.reason,
+            tone: "danger",
+          };
+        case "RunCompleted":
+          return {
+            id: event.id,
+            title: "Run completed",
+            meta: `${at} / ${formatDuration(kind.total_duration_ms)}`,
+            detail: `${formatCost(kind.total_cost_usd)}; ${previewText(kind.final_output, 180)}`,
+            tone: "ok",
+          };
+        case "RunFailed":
+          return {
+            id: event.id,
+            title: "Run failed",
+            meta: at,
+            detail: kind.reason,
+            tone: "danger",
+          };
+      }
+    });
+  }
+
+  async function fetchTraceEvents(runId: string) {
+    return transport === "daemon"
+      ? await daemonJson<RunEvent[]>(`/trace/${runId}`)
+      : await invoke<RunEvent[]>("trace_show", { runId });
+  }
+
+  function applyTraceEvents(events: RunEvent[]) {
+    const summary = summarizeTrace(events);
+    const latestContext = latestContextSnapshot(events);
+    setTraceEvents(events);
+    setTraceSummary(summary);
+    if (latestContext) {
+      setContextPreview(latestContext);
+      setContextPreviewPrompt(null);
+    }
+    const runId = events[0]?.run_id ?? "unknown";
+    appendEvent(`Loaded trace ${runId} (${events.length} events)`);
+    if (summary) {
+      appendEvent(
+        `Trace summary: ${summary.context_snapshots} contexts, ${summary.llm_calls} LLM calls, ${summary.tool_calls} tools, tokens ${summary.tokens_in}/${summary.tokens_out}`,
+      );
+    }
+    return summary;
+  }
+
   function confirmLocalChange(action: string) {
     const confirmed = window.confirm(`${action}? This changes local harness data.`);
     if (!confirmed) {
@@ -989,24 +1411,7 @@ export default function App() {
   }
 
   async function loadTraceFor(runId: string) {
-    const events =
-      transport === "daemon"
-        ? await daemonJson<RunEvent[]>(`/trace/${runId}`)
-        : await invoke<RunEvent[]>("trace_show", { runId });
-    const summary = summarizeTrace(events);
-    const latestContext = latestContextSnapshot(events);
-    setTraceEvents(events);
-    setTraceSummary(summary);
-    if (latestContext) {
-      setContextPreview(latestContext);
-      setContextPreviewPrompt(null);
-    }
-    appendEvent(`Loaded trace ${runId} (${events.length} events)`);
-    if (summary) {
-      appendEvent(
-        `Trace summary: ${summary.context_snapshots} contexts, ${summary.llm_calls} LLM calls, ${summary.tool_calls} tools, tokens ${summary.tokens_in}/${summary.tokens_out}`,
-      );
-    }
+    return applyTraceEvents(await fetchTraceEvents(runId));
   }
 
   async function submit() {
@@ -1032,7 +1437,538 @@ export default function App() {
       return;
     }
 
+    if (prompt === "/help") {
+      setInput("");
+      appendLine("user", "/help");
+      appendLine("assistant", slashCommandHelpText());
+      return;
+    }
+
+    if (prompt === "/usage" || prompt.startsWith("/usage ")) {
+      const scope = prompt === "/usage" ? "current" : prompt.slice("/usage ".length).trim();
+      if (scope === "current" || scope === "status") {
+        setInput("");
+        appendLine("user", prompt);
+        appendEvent(currentUsageSummary());
+        return;
+      }
+      if (scope === "trace" || scope === "last" || scope === "run") {
+        setInput("");
+        appendLine("user", prompt);
+        if (!lastRunId) {
+          appendLine("error", "Usage trace shortcut needs a completed or active run.");
+          return;
+        }
+        if (running) {
+          appendLine("error", "Usage trace shortcut is available after the run settles.");
+          return;
+        }
+        try {
+          const summary = await loadTraceFor(lastRunId);
+          if (summary) {
+            appendEvent(traceUsageSummary(summary));
+          }
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          appendLine("error", `Usage trace failed: ${msg}`);
+        }
+        return;
+      }
+      appendLine("error", "Usage shortcut needs current or trace.");
+      return;
+    }
+
+    if (prompt === "/stop" || prompt.startsWith("/stop ")) {
+      const value = prompt === "/stop" ? "now" : prompt.slice("/stop ".length).trim().toLowerCase();
+      if (value === "status") {
+        setInput("");
+        appendLine("user", prompt);
+        appendEvent(`Stop mode is ${stopRetentionLabel(stopRetentionMode)}.`);
+        return;
+      }
+      const requestedMode = parseStopRetentionMode(value);
+      if (requestedMode) {
+        setInput("");
+        setStopRetentionMode(requestedMode);
+        appendLine("user", prompt);
+        appendEvent(`Stop mode set to ${stopRetentionLabel(requestedMode)}.`);
+        if (running && lastRunId) {
+          await cancelLastRun(requestedMode);
+        }
+        return;
+      }
+      if (value === "now") {
+        setInput("");
+        appendLine("user", prompt);
+        if (!running || !lastRunId) {
+          appendLine("error", "Stop shortcut needs an active run.");
+          return;
+        }
+        await cancelLastRun();
+        return;
+      }
+      appendLine("error", "Stop shortcut needs discard, summarise, status, or an active run.");
+      return;
+    }
+
+    if (prompt === "/compact" || prompt.startsWith("/compact ")) {
+      const guidance = prompt === "/compact" ? "" : prompt.slice("/compact ".length).trim();
+      const command = guidance.toLowerCase();
+      if (command === "clear") {
+        setInput("");
+        setManualCompactedContext("");
+        appendLine("user", prompt);
+        appendEvent("Manual compacted context cleared.");
+        return;
+      }
+      if (command === "status") {
+        setInput("");
+        appendLine("user", prompt);
+        appendEvent(compactionStatus());
+        return;
+      }
+      const draft = buildCompactionDraft(guidance);
+      setInput("");
+      setManualCompactedContext(draft);
+      setOpsValue(draft);
+      appendLine("user", prompt);
+      appendEvent(
+        `Manual compacted context set (~${estimateLocalTokens(draft)} tokens) and sent to Value.`,
+      );
+      return;
+    }
+
+    if (prompt === "/guardrails" || prompt.startsWith("/guardrails ")) {
+      const value =
+        prompt === "/guardrails"
+          ? "review"
+          : prompt.slice("/guardrails ".length).trim().toLowerCase();
+      setInput("");
+      appendLine("user", prompt);
+      if (value === "review" || value === "status") {
+        setActiveSection("ingest");
+        appendLine("assistant", guardrailReport());
+        return;
+      }
+      if (value === "unsafe on") {
+        setAllowUnsafeIngest(true);
+        appendEvent("Unsafe ingest override enabled for this run.");
+        return;
+      }
+      if (value === "unsafe off") {
+        setAllowUnsafeIngest(false);
+        appendEvent("Unsafe ingest override disabled.");
+        return;
+      }
+      appendLine("error", "Guardrails shortcut needs review, status, unsafe on, or unsafe off.");
+      return;
+    }
+
     if (running) return;
+
+    if (prompt === "/scores") {
+      setInput("");
+      appendLine("user", "/scores");
+      try {
+        let events = traceEvents;
+        if (!events.length && lastRunId) {
+          events = await fetchTraceEvents(lastRunId);
+          applyTraceEvents(events);
+        }
+        if (!events.length) {
+          appendLine("error", "Scores shortcut needs a loaded trace or completed run.");
+          return;
+        }
+        appendLine("assistant", qualityScoreReport(qualityScoresFromEvents(events)));
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        appendLine("error", `Scores review failed: ${msg}`);
+      }
+      return;
+    }
+
+    if (prompt === "/raw") {
+      setInput("");
+      setRawToolOutput(true);
+      appendLine("user", "/raw");
+      appendEvent("Output mode set to raw tool results.");
+      return;
+    }
+
+    if (prompt === "/interpret" || prompt === "/interpreted") {
+      setInput("");
+      setRawToolOutput(false);
+      appendLine("user", prompt);
+      appendEvent("Output mode set to interpreted tool results.");
+      return;
+    }
+
+    if (prompt === "/answer") {
+      setInput("");
+      setAgentMode("answer");
+      appendLine("user", "/answer");
+      appendEvent("Agent mode set to answer only (0 tool calls).");
+      return;
+    }
+
+    if (prompt === "/action") {
+      setInput("");
+      setAgentMode("action");
+      appendLine("user", "/action");
+      appendEvent("Agent mode set to one action (1 tool call).");
+      return;
+    }
+
+    if (prompt === "/workflow") {
+      setInput("");
+      setAgentMode("workflow");
+      appendLine("user", "/workflow");
+      appendEvent(`Agent mode set to workflow (${CALLS_MAX} tool calls).`);
+      return;
+    }
+
+    if (prompt === "/simple" || prompt === "/router") {
+      const routerMode = prompt === "/router";
+      setInput("");
+      setAgentMode(routerMode ? "action" : "answer");
+      setRawToolOutput(true);
+      setEnableShell(false);
+      setEnableSubagent(false);
+      setLoadMemory(false);
+      setLoadSkills(false);
+      setIncludeIngestIds([]);
+      setAllowUnsafeIngest(false);
+      setEnablePromptRefinement(false);
+      appendLine("user", prompt);
+      appendEvent(
+        routerMode
+          ? "Preset applied: one-action raw router, with memory and subagents off."
+          : "Preset applied: simple raw answer, with tools, memory, and subagents off.",
+      );
+      return;
+    }
+
+    if (prompt === "/budget") {
+      appendLine("error", "Budget shortcut needs a non-negative tool-call limit.");
+      return;
+    }
+    if (prompt.startsWith("/budget ")) {
+      const value = prompt.slice("/budget ".length).trim();
+      const parsedBudget = parseOptionalNonNegativeInt(value);
+      if (parsedBudget === null) {
+        appendLine("error", "Budget shortcut needs a non-negative integer.");
+        return;
+      }
+      setInput("");
+      setMaxToolCalls(String(parsedBudget));
+      appendLine("user", `/budget ${parsedBudget}`);
+      appendEvent(`Tool-call budget set to ${parsedBudget}.`);
+      return;
+    }
+
+    if (prompt === "/visibility") {
+      appendLine(
+        "error",
+        "Visibility shortcut needs full, descriptions, names, or config.",
+      );
+      return;
+    }
+    if (prompt.startsWith("/visibility ")) {
+      const value = prompt.slice("/visibility ".length).trim().toLowerCase();
+      const visibility =
+        value === "full" || value === "full_schema"
+          ? "full_schema"
+          : value === "descriptions" || value === "name_and_description"
+            ? "name_and_description"
+            : value === "names" || value === "name_only"
+              ? "name_only"
+              : value === "config"
+                ? ""
+                : null;
+      if (visibility === null) {
+        appendLine(
+          "error",
+          "Visibility shortcut needs full, descriptions, names, or config.",
+        );
+        return;
+      }
+      setInput("");
+      setToolVisibility(visibility as ToolVisibility | "");
+      appendLine("user", `/visibility ${value}`);
+      appendEvent(
+        visibility
+          ? `Tool visibility set to ${visibility.replaceAll("_", " ")}.`
+          : "Tool visibility set to config default.",
+      );
+      return;
+    }
+
+    if (prompt === "/approval") {
+      appendLine("error", "Approval shortcut needs on, off, or status.");
+      return;
+    }
+    if (prompt.startsWith("/approval ")) {
+      const value = prompt.slice("/approval ".length).trim().toLowerCase();
+      if (value === "on") {
+        setInput("");
+        setRequireApproval(true);
+        appendLine("user", "/approval on");
+        appendEvent("Approval gate enabled for tool actions.");
+        return;
+      }
+      if (value === "off") {
+        setInput("");
+        setRequireApproval(false);
+        appendLine("user", "/approval off");
+        appendEvent("Approval gate disabled for this run configuration.");
+        return;
+      }
+      if (value === "status") {
+        setInput("");
+        appendLine("user", "/approval status");
+        appendEvent(`Approval gate is ${requireApproval ? "enabled" : "disabled"}.`);
+        return;
+      }
+      appendLine("error", "Approval shortcut needs on, off, or status.");
+      return;
+    }
+
+    if (prompt === "/refine") {
+      appendLine("error", "Refine shortcut needs on, off, status, model, or instructions.");
+      return;
+    }
+    if (prompt === "/refine on") {
+      setInput("");
+      setEnablePromptRefinement(true);
+      appendLine("user", "/refine on");
+      appendEvent("Prompt refinement enabled.");
+      return;
+    }
+    if (prompt === "/refine off") {
+      setInput("");
+      setEnablePromptRefinement(false);
+      appendLine("user", "/refine off");
+      appendEvent("Prompt refinement disabled.");
+      return;
+    }
+    if (prompt === "/refine status") {
+      setInput("");
+      appendLine("user", "/refine status");
+      appendEvent(
+        `Prompt refinement is ${enablePromptRefinement ? "enabled" : "disabled"}.`,
+      );
+      if (promptRefinementModel.trim()) {
+        appendEvent(`Refiner model: ${promptRefinementModel.trim()}`);
+      }
+      if (promptRefinementInstructions.trim()) {
+        appendEvent(`Refinement instructions: ${promptRefinementInstructions.trim()}`);
+      }
+      return;
+    }
+    if (prompt.startsWith("/refine model ")) {
+      const value = prompt.slice("/refine model ".length).trim();
+      if (!value) {
+        appendLine("error", "Refine model shortcut needs a model id.");
+        return;
+      }
+      setInput("");
+      setEnablePromptRefinement(true);
+      setPromptRefinementModel(value);
+      appendLine("user", `/refine model ${value}`);
+      appendEvent(`Prompt refiner model set to ${value}.`);
+      return;
+    }
+    if (prompt.startsWith("/refine instructions ")) {
+      const value = prompt.slice("/refine instructions ".length).trim();
+      if (!value) {
+        appendLine("error", "Refine instructions shortcut needs instruction text.");
+        return;
+      }
+      setInput("");
+      setEnablePromptRefinement(true);
+      setPromptRefinementInstructions(value);
+      appendLine("user", "/refine instructions");
+      appendEvent("Prompt refinement instructions updated.");
+      return;
+    }
+
+    if (prompt === "/shell") {
+      appendLine("error", "Shell shortcut needs on, off, or status.");
+      return;
+    }
+    if (prompt.startsWith("/shell ")) {
+      const value = prompt.slice("/shell ".length).trim().toLowerCase();
+      if (value === "on") {
+        setInput("");
+        setEnableShell(true);
+        appendLine("user", "/shell on");
+        appendEvent("Shell tool access enabled.");
+        return;
+      }
+      if (value === "off") {
+        setInput("");
+        setEnableShell(false);
+        appendLine("user", "/shell off");
+        appendEvent("Shell tool access disabled.");
+        return;
+      }
+      if (value === "status") {
+        setInput("");
+        appendLine("user", "/shell status");
+        appendEvent(`Shell tool access is ${enableShell ? "enabled" : "disabled"}.`);
+        return;
+      }
+      appendLine("error", "Shell shortcut needs on, off, or status.");
+      return;
+    }
+
+    if (prompt.startsWith("/memory ")) {
+      const value = prompt.slice("/memory ".length).trim().toLowerCase();
+      if (value === "on") {
+        setInput("");
+        setLoadMemory(true);
+        appendLine("user", "/memory on");
+        appendEvent("Memory loading enabled for context.");
+        return;
+      }
+      if (value === "off") {
+        setInput("");
+        setLoadMemory(false);
+        appendLine("user", "/memory off");
+        appendEvent("Memory loading disabled.");
+        return;
+      }
+      if (value === "status") {
+        setInput("");
+        appendLine("user", "/memory status");
+        appendEvent(`Memory loading is ${loadMemory ? "enabled" : "disabled"}.`);
+        return;
+      }
+      appendLine("error", "Memory shortcut needs on, off, or status.");
+      return;
+    }
+
+    if (prompt.startsWith("/skills ")) {
+      const value = prompt.slice("/skills ".length).trim().toLowerCase();
+      if (value === "on") {
+        setInput("");
+        setLoadSkills(true);
+        appendLine("user", "/skills on");
+        appendEvent("Skill loading enabled for context.");
+        return;
+      }
+      if (value === "off") {
+        setInput("");
+        setLoadSkills(false);
+        appendLine("user", "/skills off");
+        appendEvent("Skill loading disabled.");
+        return;
+      }
+      if (value === "status") {
+        setInput("");
+        appendLine("user", "/skills status");
+        appendEvent(`Skill loading is ${loadSkills ? "enabled" : "disabled"}.`);
+        return;
+      }
+      appendLine("error", "Skills shortcut needs on, off, or status.");
+      return;
+    }
+
+    if (prompt === "/subagent") {
+      appendLine("error", "Subagent shortcut needs on, off, or status.");
+      return;
+    }
+    if (prompt.startsWith("/subagent ")) {
+      const value = prompt.slice("/subagent ".length).trim().toLowerCase();
+      if (value === "on") {
+        setInput("");
+        setEnableSubagent(true);
+        appendLine("user", "/subagent on");
+        appendEvent("Subagent tool enabled.");
+        return;
+      }
+      if (value === "off") {
+        setInput("");
+        setEnableSubagent(false);
+        appendLine("user", "/subagent off");
+        appendEvent("Subagent tool disabled.");
+        return;
+      }
+      if (value === "status") {
+        setInput("");
+        appendLine("user", "/subagent status");
+        appendEvent(`Subagent tool is ${enableSubagent ? "enabled" : "disabled"}.`);
+        return;
+      }
+      appendLine("error", "Subagent shortcut needs on, off, or status.");
+      return;
+    }
+
+    if (prompt === "/cost") {
+      appendLine("error", "Cost shortcut needs input, output, both, clear, or status.");
+      return;
+    }
+    if (prompt.startsWith("/cost ")) {
+      const rest = prompt.slice("/cost ".length).trim();
+      const [action, ...args] = rest.split(/\s+/);
+      if (action === "clear") {
+        setInput("");
+        setInputCostPerMillion("");
+        setOutputCostPerMillion("");
+        appendLine("user", "/cost clear");
+        appendEvent("Token cost overrides cleared; configured model costs will be used.");
+        return;
+      }
+      if (action === "status") {
+        setInput("");
+        appendLine("user", "/cost status");
+        appendEvent(
+          `Input cost override: ${inputCostPerMillion.trim() || "config"} $/M`,
+        );
+        appendEvent(
+          `Output cost override: ${outputCostPerMillion.trim() || "config"} $/M`,
+        );
+        return;
+      }
+      if (action === "input" || action === "output") {
+        const value = args[0] ?? "";
+        const parsedCost = parseOptionalNonNegativeFloat(value);
+        if (parsedCost === null) {
+          appendLine("error", `Cost ${action} shortcut needs a non-negative number.`);
+          return;
+        }
+        setInput("");
+        if (action === "input") {
+          setInputCostPerMillion(String(parsedCost));
+        } else {
+          setOutputCostPerMillion(String(parsedCost));
+        }
+        appendLine("user", `/cost ${action} ${parsedCost}`);
+        appendEvent(
+          `${action === "input" ? "Input" : "Output"} token cost set to ${parsedCost} $/M.`,
+        );
+        return;
+      }
+      if (action === "both") {
+        const [inputCost, outputCost] = args;
+        const parsedInputCost = parseOptionalNonNegativeFloat(inputCost ?? "");
+        const parsedOutputCost = parseOptionalNonNegativeFloat(outputCost ?? "");
+        if (parsedInputCost === null || parsedOutputCost === null) {
+          appendLine("error", "Cost both shortcut needs two non-negative numbers.");
+          return;
+        }
+        setInput("");
+        setInputCostPerMillion(String(parsedInputCost));
+        setOutputCostPerMillion(String(parsedOutputCost));
+        appendLine("user", `/cost both ${parsedInputCost} ${parsedOutputCost}`);
+        appendEvent(
+          `Token costs set to input ${parsedInputCost} $/M and output ${parsedOutputCost} $/M.`,
+        );
+        return;
+      }
+      appendLine("error", "Cost shortcut needs input, output, both, clear, or status.");
+      return;
+    }
 
     const isAgentShortcut = prompt === "/agent" || prompt.startsWith("/agent ");
     const nextAgent = parseAgentShortcut(prompt);
@@ -1066,11 +2002,12 @@ export default function App() {
 
     const scoreShortcut = parseScoreShortcut(prompt);
     if (scoreShortcut) {
+      setInput("");
+      appendLine("user", prompt);
       if (!lastRunId) {
         appendLine("error", "Score shortcut needs a completed or active run.");
         return;
       }
-      setInput("");
       await scoreLastRun(scoreShortcut.score, scoreShortcut.target);
       return;
     }
@@ -1122,6 +2059,89 @@ export default function App() {
       setActiveSection("skills");
       appendLine("user", "/skills");
       await reviewSkills();
+      return;
+    }
+
+    if (prompt === "/prompts") {
+      setInput("");
+      setActiveSection("prompts");
+      appendLine("user", "/prompts");
+      await reviewPrompts();
+      return;
+    }
+
+    if (prompt === "/models") {
+      setInput("");
+      setActiveSection("prompts");
+      appendLine("user", "/models");
+      await listModelsFromOps();
+      return;
+    }
+
+    if (prompt === "/adapters") {
+      setInput("");
+      setActiveSection("adapters");
+      appendLine("user", "/adapters");
+      await reviewAdapters();
+      return;
+    }
+
+    if (prompt === "/trace") {
+      setInput("");
+      setActiveSection("trace");
+      appendLine("user", "/trace");
+      if (!lastRunId) {
+        appendLine("error", "Trace shortcut needs a completed or active run.");
+        return;
+      }
+      await loadLastTrace();
+      return;
+    }
+
+    if (prompt === "/approvals") {
+      setInput("");
+      setActiveSection("approvals");
+      appendLine("user", "/approvals");
+      if (!lastRunId) {
+        appendLine("error", "Approvals shortcut needs a completed or active run.");
+        return;
+      }
+      await reviewApprovals();
+      return;
+    }
+
+    if (prompt === "/batch") {
+      appendLine("error", "Batch shortcut needs one item per line after /batch.");
+      return;
+    }
+    if (prompt.startsWith("/batch ")) {
+      const items = prompt
+        .slice("/batch ".length)
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      if (!items.length) {
+        appendLine("error", "Batch shortcut needs one item per line after /batch.");
+        return;
+      }
+      await runBatchItems(items);
+      return;
+    }
+
+    if (prompt === "/resume-batch") {
+      appendLine("error", "Resume batch shortcut needs a batch id.");
+      return;
+    }
+    if (prompt.startsWith("/resume-batch ")) {
+      const batchId = prompt.slice("/resume-batch ".length).trim();
+      if (!batchId) {
+        appendLine("error", "Resume batch shortcut needs a batch id.");
+        return;
+      }
+      setInput("");
+      setOpsId(batchId);
+      appendLine("user", `/resume-batch ${batchId}`);
+      await resumeBatchById(batchId);
       return;
     }
 
@@ -1775,21 +2795,22 @@ export default function App() {
     }
   }
 
-  async function cancelLastRun() {
+  async function cancelLastRun(mode = stopRetentionMode) {
     if (!lastRunId) return;
+    const reason = `user requested stop; mode=${mode}`;
     try {
       if (transport === "daemon") {
         await daemonJson("/cancel", {
           run_id: lastRunId,
-          reason: "user requested stop",
+          reason,
         });
       } else {
         await invoke("cancel", {
           runId: lastRunId,
-          reason: "user requested stop",
+          reason,
         });
       }
-      appendEvent(`Cancellation recorded for ${lastRunId}`);
+      appendEvent(`Cancellation recorded for ${lastRunId} (${stopRetentionLabel(mode)}).`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Cancel failed: ${msg}`);
@@ -1890,6 +2911,10 @@ export default function App() {
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean);
+    await runBatchItems(items);
+  }
+
+  async function runBatchItems(items: string[]) {
     if (!items.length || running) return;
     setInput("");
     appendLine("user", `batch ${items.length} items`);
@@ -1915,6 +2940,10 @@ export default function App() {
 
   async function resumeBatchFromOps() {
     const batchId = opsId.trim();
+    await resumeBatchById(batchId);
+  }
+
+  async function resumeBatchById(batchId: string) {
     if (!batchId || running) return;
     try {
       const summary =
@@ -2609,6 +3638,76 @@ export default function App() {
     return `${minutes}m ${seconds}s`;
   }
 
+  function formatCost(cost: number | null) {
+    return cost === null ? "n/a" : `$${cost.toFixed(6)}`;
+  }
+
+  function stopRetentionLabel(mode: StopRetentionMode) {
+    return mode === "discard" ? "discard stopped context" : "summarise stopped context";
+  }
+
+  function parseStopRetentionMode(value: string): StopRetentionMode | null {
+    if (value === "discard" || value === "off") return "discard";
+    if (value === "summarise" || value === "summarize" || value === "on") {
+      return "summarise";
+    }
+    return null;
+  }
+
+  function buildCompactionDraft(guidance: string) {
+    const recentLines = transcript
+      .filter((line) => line.kind === "user" || line.kind === "assistant")
+      .slice(-16)
+      .map((line) => `- ${prefixFor(line.kind)}: ${compactPreview(line.text, 360)}`);
+    const sections = [
+      "# Manual Compaction Draft",
+      `Created: ${new Date().toISOString()}`,
+      `Agent: ${agentDisplayName(demo)}`,
+      `Run: ${lastRunId ?? "none"}`,
+    ];
+    if (guidance.trim()) {
+      sections.push(`Guidance: ${guidance.trim()}`);
+    }
+    sections.push("## Retained Conversation", recentLines.join("\n") || "- No conversation messages yet.");
+    sections.push(
+      "## Retention Policy",
+      "Preserve user goals, constraints, decisions, tool outcomes, unresolved questions, and next actions. Drop incidental UI logs and duplicate status messages.",
+    );
+    return sections.join("\n\n");
+  }
+
+  function estimateLocalTokens(text: string) {
+    return Math.max(1, Math.ceil(text.trim().length / 4));
+  }
+
+  function compactionStatus() {
+    if (!manualCompactedContext.trim()) {
+      return "No manual compacted context is active.";
+    }
+    return `Manual compacted context active: ~${estimateLocalTokens(manualCompactedContext)} tokens.`;
+  }
+
+  function currentUsageSummary() {
+    return [
+      `Current usage: tokens ${tokensIn}/${tokensOut}`,
+      `cost ${formatCost(costUsd)}`,
+      `time ${formatDuration(elapsedMs)}`,
+      `tool calls ${calls}/${effectiveMaxToolCalls}`,
+      `remaining ${remainingToolCalls}`,
+    ].join(", ");
+  }
+
+  function traceUsageSummary(summary: TraceSummary) {
+    return [
+      `Trace usage: tokens ${summary.tokens_in}/${summary.tokens_out}`,
+      `cost ${formatCost(summary.cost_usd)}`,
+      `time ${summary.duration_ms === null ? "n/a" : formatDuration(summary.duration_ms)}`,
+      `${summary.llm_calls} LLM calls`,
+      `${summary.tool_calls} tool calls`,
+      `${summary.events} events`,
+    ].join(", ");
+  }
+
   function formatBytes(bytes: number) {
     if (bytes < 1024) {
       return `${bytes} B`;
@@ -2651,6 +3750,80 @@ export default function App() {
     if (mode === "workflow") {
       setMaxToolCalls("");
     }
+  }
+
+  function runReadinessCards(): ContextReviewCard[] {
+    const modelName =
+      provider === "fake" ? "fake-model" : model.trim() || "gpt-4o-mini";
+    const includedHighRisk = includeIngestIds.filter((id) => {
+      const artifact = ingestionArtifacts.find((item) => item.id === id);
+      return artifact ? hasHighRiskFindings(artifact) : false;
+    }).length;
+    const externalTone =
+      includedHighRisk && allowUnsafeIngest
+        ? "danger"
+        : allowUnsafeIngest || includedHighRisk
+          ? "warning"
+          : includeIngestIds.length
+            ? "ok"
+            : "neutral";
+    const safetyTone =
+      enableShell && !requireApproval ? "warning" : requireApproval ? "ok" : "neutral";
+    const preparationEnabled =
+      enablePromptRefinement || Boolean(manualCompactedContext.trim());
+
+    return [
+      {
+        title: "Agent",
+        value: agentDisplayName(demo),
+        detail: `${provider} provider / ${modelName}`,
+        tone: "neutral",
+      },
+      {
+        title: "Tool Budget",
+        value:
+          effectiveMaxToolCalls === 0
+            ? "Answer only"
+            : `${effectiveMaxToolCalls} calls max`,
+        detail: `${toolVisibility || "config"} visibility; ${remainingToolCalls} remaining now.`,
+        tone:
+          effectiveMaxToolCalls === 0
+            ? "neutral"
+            : effectiveMaxToolCalls === 1
+              ? "ok"
+              : "warning",
+      },
+      {
+        title: "Safety",
+        value: requireApproval ? "Approval gate on" : "Approval gate off",
+        detail: enableShell
+          ? "Shell access is enabled for this run."
+          : "Shell access is disabled.",
+        tone: safetyTone,
+      },
+      {
+        title: "Context Sources",
+        value: `${loadMemory ? "Memory on" : "Memory off"} / ${loadSkills ? "Skills on" : "Skills off"}`,
+        detail: `${manualCompactedContext.trim() ? "Compacted context active" : "No compacted context"}; ${includeIngestIds.length} ingest artifacts selected.`,
+        tone: loadMemory || loadSkills || manualCompactedContext.trim() ? "ok" : "neutral",
+      },
+      {
+        title: "External Content",
+        value: includeIngestIds.length
+          ? `${includeIngestIds.length} artifacts`
+          : "No artifacts",
+        detail: includedHighRisk
+          ? `${includedHighRisk} high-risk artifacts; unsafe override ${allowUnsafeIngest ? "on" : "off"}.`
+          : "Prompt-injection guardrail is blocking unsafe content by default.",
+        tone: externalTone,
+      },
+      {
+        title: "Prompt Prep",
+        value: preparationEnabled ? "Preprocessing active" : "Direct prompt",
+        detail: `${enablePromptRefinement ? "Refinement on" : "Refinement off"}; output ${rawToolOutput ? "raw" : "interpreted"}.`,
+        tone: preparationEnabled ? "ok" : "neutral",
+      },
+    ];
   }
 
   function fileName(path: string) {
@@ -2705,6 +3878,47 @@ export default function App() {
 
   function hasHighRiskFindings(artifact: IngestionArtifact) {
     return artifact.findings.some((finding) => finding.severity === "high");
+  }
+
+  function guardrailStateForArtifact(id: string) {
+    const artifact = ingestionArtifacts.find((item) => item.id === id);
+    if (!artifact) return "unknown artifact; review ingestion before running";
+    if (!hasHighRiskFindings(artifact)) return "allowed; no high-risk findings";
+    return allowUnsafeIngest
+      ? "unsafe override enabled; flagged content will be included"
+      : "blocked; flagged content will be withheld";
+  }
+
+  function guardrailReport() {
+    if (!ingestionArtifacts.length) {
+      return [
+        "Guardrails: no ingestion artifacts loaded.",
+        `Unsafe ingest override: ${allowUnsafeIngest ? "on" : "off"}`,
+        "Use /ingest to list or create artifacts before including external content.",
+      ].join("\n");
+    }
+    const highRisk = ingestionArtifacts.filter(hasHighRiskFindings);
+    const includedHighRisk = includeIngestIds.filter((id) => {
+      const artifact = ingestionArtifacts.find((item) => item.id === id);
+      return artifact ? hasHighRiskFindings(artifact) : false;
+    });
+    const lines = [
+      `Guardrails: ${ingestionArtifacts.length} artifacts, ${highRisk.length} high-risk, ${includeIngestIds.length} included.`,
+      `Unsafe ingest override: ${allowUnsafeIngest ? "on" : "off"}`,
+      `Included high-risk artifacts: ${includedHighRisk.length}`,
+    ];
+    for (const artifact of ingestionArtifacts) {
+      const included = includeIngestIds.includes(artifact.id) ? "included" : "not included";
+      const findings = artifact.findings.length
+        ? artifact.findings
+            .map((finding) => `${finding.severity}: ${finding.message}`)
+            .join("; ")
+        : "no findings";
+      lines.push(
+        `- ${artifact.id} (${included}): ${guardrailStateForArtifact(artifact.id)}; ${findings}`,
+      );
+    }
+    return lines.join("\n");
   }
 
   function hasHighRiskAdapterFindings(adapterPackage: AdapterPackage) {
@@ -2797,6 +4011,107 @@ export default function App() {
       className: current ? "preview-source current" : "preview-source stale",
       label: current ? "draft current" : "draft changed",
     };
+  }
+
+  function highRiskPreviewFindings(snapshot: ContextSnapshot) {
+    return snapshot.loaded_artifacts.flatMap((artifact) =>
+      artifact.findings
+        .filter((finding) => isHighRiskFindingText(finding))
+        .map((finding) => ({ artifact: artifact.id, finding })),
+    );
+  }
+
+  function isHighRiskFindingText(finding: string) {
+    const normalized = finding.toLowerCase();
+    return (
+      normalized.startsWith("high") ||
+      normalized.includes("prompt injection") ||
+      normalized.includes("prompt-injection")
+    );
+  }
+
+  function visibilitySummary(snapshot: ContextSnapshot) {
+    const levels = Array.from(
+      new Set(snapshot.visible_tools.map((tool) => tool.visibility)),
+    );
+    if (!levels.length) return "No tool details";
+    if (levels.length === 1) return levels[0].replaceAll("_", " ");
+    return "Mixed visibility";
+  }
+
+  function contextReviewCards(snapshot: ContextSnapshot): ContextReviewCard[] {
+    const draftStatus = contextPreviewDraftStatus();
+    const highRiskFindings = highRiskPreviewFindings(snapshot);
+    const cost = estimatedPreviewInputCost(snapshot);
+    const costText = cost === null ? "Cost rate not set" : `Est ${formatCost(cost)}`;
+    const remaining = snapshot.limits.remaining_tool_calls;
+    const max = snapshot.limits.max_tool_calls;
+    const toolTone =
+      remaining === 0 ? "danger" : remaining === 1 ? "warning" : "ok";
+    const promptTone =
+      draftStatus?.className.includes("stale") ? "warning" : "ok";
+    const artifactTone = highRiskFindings.length
+      ? allowUnsafeIngest
+        ? "warning"
+        : "danger"
+      : snapshot.loaded_artifacts.length
+        ? "ok"
+        : "neutral";
+
+    return [
+      {
+        title: "Prompt",
+        value: draftStatus?.label ?? "not previewed",
+        detail:
+          contextPreviewPrompt === null
+            ? "Loaded from an existing trace snapshot."
+            : `Preview prompt: ${contextPreviewPrompt ?? "none"}`,
+        tone: promptTone,
+      },
+      {
+        title: "Context Size",
+        value: `~${snapshot.estimated_input_tokens} input tokens`,
+        detail: `${costText}; ${snapshot.conversation.length} conversation messages.`,
+        tone: "neutral",
+      },
+      {
+        title: "Tools",
+        value:
+          remaining === 0
+            ? "Tool calls disabled"
+            : `${remaining}/${max} tool calls left`,
+        detail: `${snapshot.visible_tools.length} visible tools; ${visibilitySummary(snapshot)}.`,
+        tone: toolTone,
+      },
+      {
+        title: "Memory",
+        value: snapshot.loaded_memory.length
+          ? `${snapshot.loaded_memory.length} fragments loaded`
+          : "No memory loaded",
+        detail: snapshot.loaded_memory.length
+          ? "Memory will be included in the next LLM context."
+          : "Memory loading is off or no records are available.",
+        tone: snapshot.loaded_memory.length ? "ok" : "neutral",
+      },
+      {
+        title: "External Content",
+        value: snapshot.loaded_artifacts.length
+          ? `${snapshot.loaded_artifacts.length} artifacts included`
+          : "No artifacts included",
+        detail: highRiskFindings.length
+          ? `${highRiskFindings.length} high-risk findings; ${allowUnsafeIngest ? "unsafe override is on" : "flagged content will be withheld"}.`
+          : "Prompt-injection guardrails found no high-risk included content.",
+        tone: artifactTone,
+      },
+      {
+        title: "Provenance",
+        value: `${snapshot.provenance.length} records`,
+        detail: snapshot.provenance.length
+          ? "Sources are attached to the context snapshot."
+          : "No extra context sources are attached.",
+        tone: snapshot.provenance.length ? "ok" : "neutral",
+      },
+    ];
   }
 
   function sectionClass(section: ActiveSection) {
@@ -3193,6 +4508,15 @@ export default function App() {
         {activeSection === "chat" ? (
         <section className="panel">
           <div className="panel-title">Context</div>
+          <div className="run-readiness-grid">
+            {runReadinessCards().map((card) => (
+              <div className={`run-readiness-card ${card.tone}`} key={card.title}>
+                <span>{card.title}</span>
+                <strong>{card.value}</strong>
+                <p>{card.detail}</p>
+              </div>
+            ))}
+          </div>
           <div className="segmented-control" role="group" aria-label="Agent mode">
             <button
               type="button"
@@ -3376,7 +4700,9 @@ export default function App() {
             <div className="included-list">
               <strong>Included ingest</strong>
               {includeIngestIds.map((id) => (
-                <span key={id}>{id}</span>
+                <span key={id} title={guardrailStateForArtifact(id)}>
+                  {id} - {guardrailStateForArtifact(id)}
+                </span>
               ))}
               <button
                 type="button"
@@ -3425,6 +4751,7 @@ export default function App() {
                   </span>
                 ) : null}
                 <span>messages {contextPreview.conversation.length}</span>
+                <span>compacted {contextPreview.compacted ? "on" : "off"}</span>
                 <span>user {conversationRoleCount("user")}</span>
                 <span>assistant {conversationRoleCount("assistant")}</span>
                 <span>tools {contextPreview.visible_tools.length}</span>
@@ -3452,6 +4779,18 @@ export default function App() {
                 </button>
                 {contextCopyStatus ? <span>{contextCopyStatus}</span> : null}
               </div>
+              <div className="context-review-grid">
+                {contextReviewCards(contextPreview).map((card) => (
+                  <div
+                    className={`context-review-card ${card.tone}`}
+                    key={card.title}
+                  >
+                    <span>{card.title}</span>
+                    <strong>{card.value}</strong>
+                    <p>{card.detail}</p>
+                  </div>
+                ))}
+              </div>
               <section>
                 <strong>System</strong>
                 <pre>{contextPreview.system_prompt}</pre>
@@ -3459,6 +4798,10 @@ export default function App() {
               <section>
                 <strong>Limits</strong>
                 <pre>{previewJson(contextPreview.limits)}</pre>
+              </section>
+              <section>
+                <strong>Compacted Context</strong>
+                <pre>{contextPreview.compacted ?? "(none)"}</pre>
               </section>
               <section>
                 <strong>Conversation ({contextPreview.conversation.length})</strong>
@@ -3653,6 +4996,43 @@ export default function App() {
           ) : (
             <div className="empty-note">No trace loaded.</div>
           )}
+          {traceEvents.length ? (
+            <section className="trace-timeline">
+              <strong>Run Timeline</strong>
+              <div className="trace-timeline-list">
+                {traceTimelineItems(traceEvents).map((item) => (
+                  <div
+                    className={`trace-timeline-item ${item.tone}`}
+                    key={item.id}
+                  >
+                    <span className="trace-timeline-marker">{item.id}</span>
+                    <div>
+                      <strong>{item.title}</strong>
+                      <span>{item.meta}</span>
+                      <p>{item.detail}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+          {qualityScoresFromEvents(traceEvents).length ? (
+            <section className="quality-score-list">
+              <strong>Quality Scores</strong>
+              <div className="context-cards">
+                {qualityScoresFromEvents(traceEvents).map((record) => (
+                  <div className="context-card compact" key={record.event_id}>
+                    <strong>
+                      {record.target} - {record.score}/10
+                    </strong>
+                    <span>
+                      event {record.event_id} - {record.at}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
           {traceEvents.length ? (
             <div className="trace-events">
               {traceEvents.map((event) => (
@@ -4205,6 +5585,14 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  title="Review prompt-injection and unsafe-ingest guardrail status."
+                  onClick={() => appendLine("assistant", guardrailReport())}
+                  disabled={running}
+                >
+                  Guardrails
+                </button>
+                <button
+                  type="button"
                   className="danger"
                   title="Remove ingestion artifact Id."
                   onClick={() => void removeIngestFromOps()}
@@ -4615,6 +6003,32 @@ export default function App() {
               </div>
             )
           ) : null}
+          <fieldset className="operation-group">
+            <legend>Stop mode</legend>
+            <div className="segmented-control two" role="group" aria-label="Stop mode">
+              <button
+                type="button"
+                className={stopRetentionMode === "discard" ? "selected" : ""}
+                title="Stop without retaining context from the cancelled task."
+                onClick={() => setStopRetentionMode("discard")}
+              >
+                Discard
+              </button>
+              <button
+                type="button"
+                className={stopRetentionMode === "summarise" ? "selected" : ""}
+                title="Stop and retain a concise summary of what happened."
+                onClick={() => setStopRetentionMode("summarise")}
+              >
+                Summarise
+              </button>
+            </div>
+            <div className="mode-note">
+              {stopRetentionMode === "discard"
+                ? "Stopped tasks keep no attempted context."
+                : "Stopped tasks retain only a summary artifact."}
+            </div>
+          </fieldset>
           <div className="button-grid">
             <button
               type="button"
@@ -4675,7 +6089,7 @@ export default function App() {
             </button>
             <button
               type="button"
-              title="Stop current run"
+              title={`Stop current run and ${stopRetentionLabel(stopRetentionMode)}.`}
               onClick={() => void cancelLastRun()}
               disabled={!running || !lastRunId}
             >

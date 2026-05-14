@@ -1325,6 +1325,7 @@ struct DaemonRuntimeOptions {
     require_approval: bool,
     #[serde(default)]
     raw_tool_output: bool,
+    compacted_context: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -1502,6 +1503,7 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
             prompt_refinement: None,
             tool_policy: ToolPolicy::default(),
             cost_policy: CostPolicy::default(),
+            compacted_context: None,
             memory_fragments: Vec::new(),
             ingestion_artifacts: Vec::new(),
             skill_views: Vec::new(),
@@ -1523,6 +1525,14 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
     }
     if options.raw_tool_output {
         agent.tool_policy.output_mode = ToolOutputMode::Raw;
+    }
+    if let Some(compacted_context) = options
+        .compacted_context
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        agent.compacted_context = Some(compacted_context.to_string());
     }
     if options.input_cost_per_million.is_some() {
         agent.cost_policy.input_cost_per_million = options.input_cost_per_million;

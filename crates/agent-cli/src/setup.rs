@@ -99,6 +99,7 @@ pub fn build_agent(options: &RuntimeOptions) -> AgentConfig {
             prompt_refinement: None,
             tool_policy: ToolPolicy::default(),
             cost_policy: CostPolicy::default(),
+            compacted_context: None,
             memory_fragments: Vec::new(),
             ingestion_artifacts: Vec::new(),
             skill_views: Vec::new(),

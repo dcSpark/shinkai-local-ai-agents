@@ -626,6 +626,15 @@ textarea:disabled {
   font-weight: 800;
 }
 
+.mode-note.compaction-prompt {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.mode-note.compaction-prompt .mini-actions {
+  margin-top: 0;
+}
+
 .run-readiness-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));

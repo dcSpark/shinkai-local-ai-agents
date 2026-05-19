@@ -240,6 +240,22 @@ interface CompactionTransferStatus {
   record: CompactionRecord;
 }
 
+interface PostRunCompactionPrompt {
+  runId: string;
+  snapshot: ContextSnapshot;
+}
+
+interface CompactionMetrics {
+  mode: "auto" | "manual";
+  originalTokens: number | null;
+  threshold: number | null;
+  maxOutputTokens: number | null;
+  compactedTokens: number;
+  visibleConversationTokens: number;
+  currentTokens: number;
+  savedTokens: number | null;
+}
+
 interface VoiceCaptureResponse {
   audio_path: string;
   artifact: GeneratedArtifact;
@@ -344,6 +360,8 @@ export default function App() {
   );
   const [compactionTransferStatus, setCompactionTransferStatus] =
     useState<CompactionTransferStatus | null>(null);
+  const [postRunCompactionPrompt, setPostRunCompactionPrompt] =
+    useState<PostRunCompactionPrompt | null>(null);
   const [ingestionBackends, setIngestionBackends] = useState<
     IngestionBackendDescriptor[]
   >([]);
@@ -387,6 +405,7 @@ export default function App() {
   const terminalEventSeenRef = useRef(false);
   const rootRunIdRef = useRef<string | null>(null);
   const runStartedAtRef = useRef<number | null>(null);
+  const latestRunContextRef = useRef<ContextSnapshot | null>(null);
   const remoteSeenEventKeysRef = useRef<Set<string>>(new Set());
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const voiceChunksRef = useRef<Blob[]>([]);
@@ -511,8 +530,14 @@ export default function App() {
         }
         return;
       case "ContextBuilt":
+        if (rootRunIdRef.current === null || evt.run_id === rootRunIdRef.current) {
+          latestRunContextRef.current = k.snapshot;
+          setContextPreview(k.snapshot);
+          setContextPreviewPrompt(null);
+        }
+        const compaction = compactionMetrics(k.snapshot);
         appendEvent(
-          `Context built (${k.snapshot.visible_tools.length} tools, ${k.snapshot.loaded_memory.length} memory fragments)`,
+          `Context built (${k.snapshot.visible_tools.length} tools, ${k.snapshot.loaded_memory.length} memory fragments${compaction ? `, ${compactionCardValue(compaction)}` : ""})`,
         );
         return;
       case "LlmRequestStarted":
@@ -720,6 +745,7 @@ export default function App() {
         terminalEventSeenRef.current = true;
         appendLine("assistant", k.final_output);
         appendEvent(`Run completed in ${k.total_duration_ms} ms${totalCost}`);
+        promptForPostRunCompaction(evt.run_id);
         setElapsedMs(k.total_duration_ms);
         setRunning(false);
         runStartedAtRef.current = null;
@@ -1232,6 +1258,20 @@ export default function App() {
   function appendJson(label: string, value: unknown) {
     appendEvent(label);
     appendLine("assistant", JSON.stringify(value, null, 2));
+  }
+
+  function promptForPostRunCompaction(runId: string) {
+    const snapshot = latestRunContextRef.current;
+    if (!snapshot || !isAutoCompactionSnapshot(snapshot)) {
+      return;
+    }
+    setContextPreview(snapshot);
+    setContextPreviewPrompt(null);
+    setPostRunCompactionPrompt({ runId, snapshot });
+    const detail = compactionSavingsLabel(snapshot);
+    appendEvent(
+      `Auto-compacted context ready to keep${detail ? ` (${detail})` : ""}.`,
+    );
   }
 
   function summarizeTrace(events: RunEvent[]): TraceSummary | null {
@@ -2739,8 +2779,10 @@ export default function App() {
     setTraceEvents([]);
     setTraceSummary(null);
     setApprovals([]);
+    setPostRunCompactionPrompt(null);
     terminalEventSeenRef.current = false;
     rootRunIdRef.current = null;
+    latestRunContextRef.current = null;
     remoteSeenEventKeysRef.current = new Set();
     runStartedAtRef.current = performance.now();
     appendLine("user", displayText);
@@ -3302,18 +3344,21 @@ export default function App() {
     }
   }
 
-  async function keepContextPreviewCompaction() {
-    const content = contextPreview?.compacted?.trim();
+  async function keepContextPreviewCompaction(
+    snapshot: ContextSnapshot | null = contextPreview,
+    sourceBase = "auto-preview",
+  ) {
+    const content = snapshot?.compacted?.trim();
     if (!content) {
       appendLine("error", "No compacted context to keep.");
-      return;
+      return false;
     }
     const conversationId = selectedCompactionConversationId();
     const guidance = compactionGuidance.trim() || null;
     const maxOutputTokens = parseOptionalPositiveInt(maxCompactionOutputTokens);
     const source = conversationId
-      ? `auto-preview:${conversationId}`
-      : "auto-preview";
+      ? `${sourceBase}:${conversationId}`
+      : sourceBase;
     try {
       const record =
         transport === "daemon"
@@ -3337,9 +3382,24 @@ export default function App() {
       appendEvent(
         `Kept compacted context ${record.id}${record.conversation_id ? ` for ${record.conversation_id}` : ""}.`,
       );
+      return true;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Keep compacted context failed: ${msg}`);
+      return false;
+    }
+  }
+
+  async function keepPostRunCompaction() {
+    if (!postRunCompactionPrompt) {
+      return;
+    }
+    const kept = await keepContextPreviewCompaction(
+      postRunCompactionPrompt.snapshot,
+      `auto-run:${postRunCompactionPrompt.runId}`,
+    );
+    if (kept) {
+      setPostRunCompactionPrompt(null);
     }
   }
 
@@ -5279,6 +5339,81 @@ export default function App() {
     return `Manual compacted context active: ~${estimateLocalTokens(manualCompactedContext)} tokens.`;
   }
 
+  function compactionMetrics(snapshot: ContextSnapshot): CompactionMetrics | null {
+    const compacted = snapshot.compacted?.trim();
+    if (!compacted) {
+      return null;
+    }
+    const compactedTokens = estimateLocalTokens(compacted);
+    const visibleConversationTokens = estimateLocalTokens(
+      previewJson(snapshot.conversation),
+    );
+    const currentTokens = compactedTokens + visibleConversationTokens;
+    const originalTokens = compactionAttributeNumber(compacted, "original_tokens");
+    const savedTokens =
+      originalTokens === null ? null : Math.max(0, originalTokens - currentTokens);
+    return {
+      mode: isAutoCompactionSnapshot(snapshot) ? "auto" : "manual",
+      originalTokens,
+      threshold: compactionAttributeNumber(compacted, "threshold"),
+      maxOutputTokens: compactionAttributeNumber(compacted, "max_output_tokens"),
+      compactedTokens,
+      visibleConversationTokens,
+      currentTokens,
+      savedTokens,
+    };
+  }
+
+  function compactionAttributeNumber(text: string, name: string) {
+    const match = text.match(new RegExp(`${name}="([^"]+)"`));
+    if (!match) {
+      return null;
+    }
+    const value = Number(match[1]);
+    return Number.isFinite(value) ? Math.max(0, Math.round(value)) : null;
+  }
+
+  function isAutoCompactionSnapshot(snapshot: ContextSnapshot) {
+    return snapshot.provenance.some(
+      (record) =>
+        record.fragment === "compacted_context" &&
+        record.source === "agent.context_policy.auto_compaction",
+    );
+  }
+
+  function compactionCardValue(metrics: CompactionMetrics) {
+    if (metrics.savedTokens !== null) {
+      return `~${metrics.savedTokens} tokens saved`;
+    }
+    return `~${metrics.compactedTokens} compacted tokens`;
+  }
+
+  function compactionCardDetail(metrics: CompactionMetrics) {
+    const mode = metrics.mode === "auto" ? "Auto" : "Manual";
+    const threshold =
+      metrics.threshold === null ? "" : `; threshold ~${metrics.threshold}`;
+    const output =
+      metrics.maxOutputTokens === null
+        ? ""
+        : `; output cap ~${metrics.maxOutputTokens}`;
+    const original =
+      metrics.originalTokens === null
+        ? "original size unavailable"
+        : `original ~${metrics.originalTokens}`;
+    return `${mode} compaction: ${original}; compacted ~${metrics.compactedTokens}; visible messages ~${metrics.visibleConversationTokens}${threshold}${output}.`;
+  }
+
+  function compactionSavingsLabel(snapshot: ContextSnapshot) {
+    const metrics = compactionMetrics(snapshot);
+    if (!metrics) {
+      return "";
+    }
+    if (metrics.savedTokens !== null) {
+      return `~${metrics.savedTokens} tokens saved`;
+    }
+    return `~${metrics.compactedTokens} compacted tokens`;
+  }
+
   function currentUsageSummary() {
     return [
       `Current usage: tokens ${tokensIn}/${tokensOut}`,
@@ -5874,6 +6009,7 @@ export default function App() {
     const draftStatus = contextPreviewDraftStatus();
     const highRiskFindings = highRiskPreviewFindings(snapshot);
     const cost = estimatedPreviewInputCost(snapshot);
+    const compaction = compactionMetrics(snapshot);
     const costText = cost === null ? "Cost rate not set" : `Est ${formatCost(cost)}`;
     const remaining = snapshot.limits.remaining_tool_calls;
     const max = snapshot.limits.max_tool_calls;
@@ -5934,6 +6070,16 @@ export default function App() {
           : "Prompt-injection guardrails found no high-risk included content.",
         tone: artifactTone,
       },
+      ...(compaction
+        ? [
+            {
+              title: "Compaction",
+              value: compactionCardValue(compaction),
+              detail: compactionCardDetail(compaction),
+              tone: "ok" as const,
+            },
+          ]
+        : []),
       {
         title: "Provenance",
         value: `${snapshot.provenance.length} records`,
@@ -6764,6 +6910,32 @@ export default function App() {
               Explain Tools
             </button>
           </div>
+          {postRunCompactionPrompt ? (
+            <div className="mode-note compaction-prompt">
+              <span>
+                Auto compaction ready from run {postRunCompactionPrompt.runId.slice(0, 8)}
+                {compactionSavingsLabel(postRunCompactionPrompt.snapshot)
+                  ? `; ${compactionSavingsLabel(postRunCompactionPrompt.snapshot)}`
+                  : ""}
+              </span>
+              <div className="mini-actions">
+                <button
+                  type="button"
+                  onClick={() => void keepPostRunCompaction()}
+                  disabled={running}
+                >
+                  Keep
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPostRunCompactionPrompt(null)}
+                  disabled={running}
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          ) : null}
           {contextPreview ? (
             <div className="context-preview">
               <div className="context-summary">

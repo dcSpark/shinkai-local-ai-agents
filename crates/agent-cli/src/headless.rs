@@ -21,7 +21,9 @@ use agent_config::{
     IngestionGuardrailMode, ModelConfig, ModelProviderOptionTarget, ModelRuntimeConfig,
     ProfileGrant, ProfileGrantKind, supported_model_providers,
 };
-use agent_conversations::{ConversationRole, ConversationStore, ConversationTreeNode};
+use agent_conversations::{
+    ConversationPolicy, ConversationRole, ConversationStore, ConversationTreeNode,
+};
 use agent_core::{
     ContextSnapshot, Harness, HarnessApi, ToolOutputMode, UserInput, VisibilityLevel,
 };
@@ -1669,6 +1671,82 @@ pub async fn conversation_show(id: String, json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[derive(Default)]
+pub struct ConversationPolicyOptions {
+    pub load_memory: Option<bool>,
+    pub clear_load_memory: bool,
+    pub max_tokens_before_compaction: Option<u32>,
+    pub clear_max_tokens_before_compaction: bool,
+    pub max_compaction_output_tokens: Option<u32>,
+    pub clear_max_compaction_output_tokens: bool,
+    pub compaction_guidance: Option<String>,
+    pub clear_compaction_guidance: bool,
+    pub clear: bool,
+    pub json: bool,
+}
+
+impl ConversationPolicyOptions {
+    fn changes_policy(&self) -> bool {
+        self.clear
+            || self.load_memory.is_some()
+            || self.clear_load_memory
+            || self.max_tokens_before_compaction.is_some()
+            || self.clear_max_tokens_before_compaction
+            || self.max_compaction_output_tokens.is_some()
+            || self.clear_max_compaction_output_tokens
+            || self.compaction_guidance.is_some()
+            || self.clear_compaction_guidance
+    }
+}
+
+pub async fn conversation_policy(
+    id: String,
+    options: ConversationPolicyOptions,
+) -> anyhow::Result<()> {
+    let store = ConversationStore::from_env();
+    let mut doc = store.show(&id)?;
+    if options.changes_policy() {
+        let mut policy = if options.clear {
+            ConversationPolicy::default()
+        } else {
+            doc.policy.clone()
+        };
+        if options.clear_load_memory {
+            policy.load_memory = None;
+        }
+        if let Some(load_memory) = options.load_memory {
+            policy.load_memory = Some(load_memory);
+        }
+        if options.clear_max_tokens_before_compaction {
+            policy.max_tokens_before_compaction = None;
+        }
+        if let Some(max_tokens_before_compaction) = options.max_tokens_before_compaction {
+            policy.max_tokens_before_compaction = Some(max_tokens_before_compaction);
+        }
+        if options.clear_max_compaction_output_tokens {
+            policy.max_compaction_output_tokens = None;
+        }
+        if let Some(max_compaction_output_tokens) = options.max_compaction_output_tokens {
+            policy.max_compaction_output_tokens = Some(max_compaction_output_tokens);
+        }
+        if options.clear_compaction_guidance {
+            policy.compaction_guidance = None;
+        }
+        if let Some(compaction_guidance) = options.compaction_guidance {
+            policy.compaction_guidance = Some(compaction_guidance);
+        }
+        doc = store.set_policy(&id, policy)?;
+    }
+
+    if options.json {
+        println!("{}", serde_json::to_string_pretty(&doc)?);
+    } else {
+        println!("conversation: {}", doc.id);
+        println!("policy: {}", conversation_policy_summary(&doc.policy));
+    }
+    Ok(())
+}
+
 pub async fn conversation_tree(json: bool) -> anyhow::Result<()> {
     let tree = ConversationStore::from_env().tree()?;
     if json {
@@ -1982,6 +2060,31 @@ fn render_conversation_messages(messages: &[agent_conversations::ConversationMes
         .map(|(idx, message)| format!("{idx}: {:?}: {}", message.role, message.content))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn conversation_policy_summary(policy: &ConversationPolicy) -> String {
+    let mut parts = Vec::new();
+    if let Some(load_memory) = policy.load_memory {
+        parts.push(format!("load_memory={load_memory}"));
+    }
+    if let Some(max_tokens_before_compaction) = policy.max_tokens_before_compaction {
+        parts.push(format!(
+            "max_tokens_before_compaction={max_tokens_before_compaction}"
+        ));
+    }
+    if let Some(max_compaction_output_tokens) = policy.max_compaction_output_tokens {
+        parts.push(format!(
+            "max_compaction_output_tokens={max_compaction_output_tokens}"
+        ));
+    }
+    if let Some(guidance) = &policy.compaction_guidance {
+        parts.push(format!("compaction_guidance={guidance:?}"));
+    }
+    if parts.is_empty() {
+        "default".into()
+    } else {
+        parts.join(", ")
+    }
 }
 
 fn persist_conversation_turn(

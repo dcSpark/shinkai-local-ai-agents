@@ -204,12 +204,20 @@ export type ConversationMessage = {
   created_at: string;
 };
 
+export type ConversationPolicy = {
+  load_memory?: boolean | null;
+  max_tokens_before_compaction?: number | null;
+  max_compaction_output_tokens?: number | null;
+  compaction_guidance?: string | null;
+};
+
 export type ConversationDoc = {
   id: string;
   title: string;
   agent_id: string;
   parent?: BranchRef | null;
   branch_reason?: string | null;
+  policy?: ConversationPolicy | null;
   messages: ConversationMessage[];
   created_at: string;
   updated_at: string;

@@ -14,7 +14,7 @@ use agent_config::{
     AgentConfigFile, ConfigResolver, IngestionGuardrailMode, ModelConfig, ModelRuntimeConfig,
     ProfileGrant, ProfileGrantKind, supported_model_providers,
 };
-use agent_conversations::{ConversationRole, ConversationStore};
+use agent_conversations::{ConversationPolicy, ConversationRole, ConversationStore};
 use agent_core::{
     AgentConfig, ApprovalMode, ConfigValueExplanation, CostPolicy, ExecutionPolicy, Harness,
     HarnessApi, HookTrigger, IngestedArtifactView, MemoryFragment, PromptRefinement,
@@ -297,6 +297,17 @@ async fn route(
                 .trim_start_matches("/conversations/")
                 .trim_end_matches("/recover");
             daemon_conversation_recover(id).map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/conversations/")
+            && request.path.ends_with("/policy") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/conversations/")
+                .trim_end_matches("/policy")
+                .trim_end_matches('/');
+            daemon_conversation_set_policy(id, &request.body).map(|value| (200, value))
         }
         _ if request.method == "GET" && request.path.starts_with("/conversations/") => {
             let id = request.path.trim_start_matches("/conversations/");
@@ -614,6 +625,7 @@ async fn route(
                     "GET /conversations/tree",
                     "GET /conversations/<id>",
                     "GET /conversations/<id>/recover",
+                    "POST /conversations/<id>/policy",
                     "POST /conversations/<id>/delete-plan",
                     "POST /conversations/<id>/delete-range",
                     "POST /conversations/<id>/delete",
@@ -1172,6 +1184,17 @@ fn daemon_conversation_recover(id: &str) -> anyhow::Result<serde_json::Value> {
     conversation_recovery_plan_value(id)
 }
 
+fn daemon_conversation_set_policy(id: &str, body: &str) -> anyhow::Result<serde_json::Value> {
+    let policy = if body.trim().is_empty() {
+        ConversationPolicy::default()
+    } else {
+        serde_json::from_str(body)?
+    };
+    Ok(serde_json::to_value(
+        ConversationStore::from_env().set_policy(id, policy)?,
+    )?)
+}
+
 fn daemon_conversation_delete_plan(id: &str, body: &str) -> anyhow::Result<serde_json::Value> {
     let input = parse_recursive_input(body)?;
     let requested = id.to_string();
@@ -1269,6 +1292,11 @@ fn conversation_recovery_plan_value(id: &str) -> anyhow::Result<serde_json::Valu
         .collect::<Vec<_>>();
     memories.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     let latest_compaction = compactions.first();
+    let suggested_load_memory = expanded
+        .conversation
+        .policy
+        .load_memory
+        .unwrap_or(!memories.is_empty());
     Ok(serde_json::json!({
         "conversation_id": id,
         "title": expanded.conversation.title,
@@ -1280,7 +1308,7 @@ fn conversation_recovery_plan_value(id: &str) -> anyhow::Result<serde_json::Valu
         "suggested_run": {
             "conversation_id": id,
             "include_compact": latest_compaction.map(|record| record.id.clone()),
-            "load_memory": !memories.is_empty(),
+            "load_memory": suggested_load_memory,
             "compacted_context": latest_compaction.map(|record| record.content.clone()),
         }
     }))
@@ -4453,6 +4481,18 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
             allowed_skill_categories: Vec::new(),
             skill_views: Vec::new(),
         });
+    let expanded_conversation = options
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .and_then(|id| ConversationStore::from_env().expanded(id).ok());
+    let conversation_policy = expanded_conversation
+        .as_ref()
+        .map(|expanded| expanded.conversation.policy.clone());
+    if let Some(policy) = conversation_policy.as_ref() {
+        apply_conversation_policy(&mut agent, policy);
+    }
 
     if let Some(model) = options.model.clone() {
         agent.model = ModelRef::from(model);
@@ -4506,13 +4546,7 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
     {
         agent.compacted_context = Some(compacted_context.to_string());
     }
-    if let Some(id) = options
-        .conversation_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-        && let Ok(expanded) = ConversationStore::from_env().expanded(id)
-    {
+    if let Some(expanded) = expanded_conversation {
         agent.conversation_history = expanded
             .messages
             .into_iter()
@@ -4534,9 +4568,11 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
             model: options.prompt_refinement_model.clone().map(ModelRef::from),
         });
     }
-    if (options.load_memory || config_load_memory)
-        && let Ok(memory) = load_memory_fragments_with_profile_grants()
-    {
+    let load_memory = conversation_policy
+        .as_ref()
+        .map(|policy| policy.effective_load_memory(config_load_memory, options.load_memory))
+        .unwrap_or(config_load_memory || options.load_memory);
+    if load_memory && let Ok(memory) = load_memory_fragments_with_profile_grants() {
         agent.memory_fragments = memory;
     }
     if (options.load_skills || config_load_skills)
@@ -4624,6 +4660,24 @@ fn apply_skill_visibility(skill: &mut SkillView, visibility: VisibilityLevel) {
             skill.body = None;
             skill.estimated_tokens = 0;
         }
+    }
+}
+
+fn apply_conversation_policy(agent: &mut AgentConfig, policy: &ConversationPolicy) {
+    if let Some(max_tokens_before_compaction) = policy.max_tokens_before_compaction {
+        agent.context_policy.compaction.max_tokens_before_compaction =
+            Some(max_tokens_before_compaction);
+    }
+    if let Some(max_compaction_output_tokens) = policy.max_compaction_output_tokens {
+        agent.context_policy.compaction.max_output_tokens = Some(max_compaction_output_tokens);
+    }
+    if let Some(guidance) = policy
+        .compaction_guidance
+        .as_deref()
+        .map(str::trim)
+        .filter(|guidance| !guidance.is_empty())
+    {
+        agent.context_policy.compaction.guidance = Some(guidance.to_string());
     }
 }
 

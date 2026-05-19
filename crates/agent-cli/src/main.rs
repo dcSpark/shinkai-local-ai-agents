@@ -1549,6 +1549,50 @@ enum ConversationCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Show or update conversation-level context policy overrides.
+    Policy {
+        id: String,
+
+        /// Conversation default for loading file-backed memory.
+        #[arg(long)]
+        load_memory: Option<bool>,
+
+        /// Clear the conversation memory-loading override.
+        #[arg(long)]
+        clear_load_memory: bool,
+
+        /// Conversation default auto-compaction threshold.
+        #[arg(long)]
+        max_tokens_before_compaction: Option<u32>,
+
+        /// Clear the conversation auto-compaction threshold override.
+        #[arg(long)]
+        clear_max_tokens_before_compaction: bool,
+
+        /// Conversation default auto-compaction output budget.
+        #[arg(long)]
+        max_compaction_output_tokens: Option<u32>,
+
+        /// Clear the conversation auto-compaction output budget override.
+        #[arg(long)]
+        clear_max_compaction_output_tokens: bool,
+
+        /// Conversation default guidance for automatic context compaction.
+        #[arg(long)]
+        compaction_guidance: Option<String>,
+
+        /// Clear the conversation auto-compaction guidance override.
+        #[arg(long)]
+        clear_compaction_guidance: bool,
+
+        /// Clear all conversation policy overrides.
+        #[arg(long)]
+        clear: bool,
+
+        /// Emit JSON instead of a human-readable summary.
+        #[arg(long)]
+        json: bool,
+    },
     /// Print the conversation branch tree.
     Tree {
         /// Emit JSON instead of a human-readable summary.
@@ -3240,6 +3284,47 @@ mod cli_parse_tests {
     }
 
     #[test]
+    fn conversation_policy_command_parses() {
+        let cli = Cli::try_parse_from([
+            "agent",
+            "conversation",
+            "policy",
+            "conversation-1",
+            "--load-memory",
+            "false",
+            "--max-tokens-before-compaction",
+            "512",
+            "--max-compaction-output-tokens",
+            "128",
+            "--compaction-guidance",
+            "keep decisions",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Conversation {
+            command:
+                ConversationCommand::Policy {
+                    id,
+                    load_memory,
+                    max_tokens_before_compaction,
+                    max_compaction_output_tokens,
+                    compaction_guidance,
+                    json,
+                    ..
+                },
+        } = cli.command
+        else {
+            panic!("expected conversation policy command");
+        };
+        assert_eq!(id, "conversation-1");
+        assert_eq!(load_memory, Some(false));
+        assert_eq!(max_tokens_before_compaction, Some(512));
+        assert_eq!(max_compaction_output_tokens, Some(128));
+        assert_eq!(compaction_guidance.as_deref(), Some("keep decisions"));
+        assert!(json);
+    }
+
+    #[test]
     fn model_export_import_commands_parse() {
         let cli = Cli::try_parse_from([
             "agent",
@@ -4220,6 +4305,33 @@ async fn main() -> anyhow::Result<()> {
                 json,
             } => headless::conversation_branch(id, at, title, reason, json).await,
             ConversationCommand::Show { id, json } => headless::conversation_show(id, json).await,
+            ConversationCommand::Policy {
+                id,
+                load_memory,
+                clear_load_memory,
+                max_tokens_before_compaction,
+                clear_max_tokens_before_compaction,
+                max_compaction_output_tokens,
+                clear_max_compaction_output_tokens,
+                compaction_guidance,
+                clear_compaction_guidance,
+                clear,
+                json,
+            } => {
+                let options = headless::ConversationPolicyOptions {
+                    load_memory,
+                    clear_load_memory,
+                    max_tokens_before_compaction,
+                    clear_max_tokens_before_compaction,
+                    max_compaction_output_tokens,
+                    clear_max_compaction_output_tokens,
+                    compaction_guidance,
+                    clear_compaction_guidance,
+                    clear,
+                    json,
+                };
+                headless::conversation_policy(id, options).await
+            }
             ConversationCommand::Tree { json } => headless::conversation_tree(json).await,
             ConversationCommand::Recover { id, json } => {
                 headless::conversation_recover(id, json).await

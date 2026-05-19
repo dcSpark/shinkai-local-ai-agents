@@ -26,7 +26,7 @@ use agent_config::{
     ModelRuntimeConfig, ProfileGrantKind, supported_model_providers,
 };
 use agent_conversations::{
-    ConversationDoc, ConversationRole, ConversationStore, ConversationTreeNode,
+    ConversationDoc, ConversationPolicy, ConversationRole, ConversationStore, ConversationTreeNode,
     ExpandedConversation,
 };
 use agent_core::{
@@ -560,6 +560,18 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
             allowed_skill_categories: Vec::new(),
             skill_views: Vec::new(),
         });
+    let expanded_conversation = options
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .and_then(|id| ConversationStore::from_env().expanded(id).ok());
+    let conversation_policy = expanded_conversation
+        .as_ref()
+        .map(|expanded| expanded.conversation.policy.clone());
+    if let Some(policy) = conversation_policy.as_ref() {
+        apply_conversation_policy(&mut agent, policy);
+    }
 
     if let Some(model) = options.model.clone() {
         agent.model = ModelRef::from(model);
@@ -610,13 +622,7 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
     {
         agent.compacted_context = Some(compacted_context.to_string());
     }
-    if let Some(id) = options
-        .conversation_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-        && let Ok(expanded) = ConversationStore::from_env().expanded(id)
-    {
+    if let Some(expanded) = expanded_conversation {
         agent.conversation_history = expanded
             .messages
             .into_iter()
@@ -638,9 +644,11 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
             model: options.prompt_refinement_model.clone().map(ModelRef::from),
         });
     }
-    if (options.load_memory || config_load_memory)
-        && let Ok(memory) = load_memory_fragments_with_profile_grants()
-    {
+    let load_memory = conversation_policy
+        .as_ref()
+        .map(|policy| policy.effective_load_memory(config_load_memory, options.load_memory))
+        .unwrap_or(config_load_memory || options.load_memory);
+    if load_memory && let Ok(memory) = load_memory_fragments_with_profile_grants() {
         agent.memory_fragments = memory;
     }
     if (options.load_skills || config_load_skills)
@@ -728,6 +736,24 @@ fn apply_skill_visibility(skill: &mut SkillView, visibility: VisibilityLevel) {
             skill.body = None;
             skill.estimated_tokens = 0;
         }
+    }
+}
+
+fn apply_conversation_policy(agent: &mut AgentConfig, policy: &ConversationPolicy) {
+    if let Some(max_tokens_before_compaction) = policy.max_tokens_before_compaction {
+        agent.context_policy.compaction.max_tokens_before_compaction =
+            Some(max_tokens_before_compaction);
+    }
+    if let Some(max_compaction_output_tokens) = policy.max_compaction_output_tokens {
+        agent.context_policy.compaction.max_output_tokens = Some(max_compaction_output_tokens);
+    }
+    if let Some(guidance) = policy
+        .compaction_guidance
+        .as_deref()
+        .map(str::trim)
+        .filter(|guidance| !guidance.is_empty())
+    {
+        agent.context_policy.compaction.guidance = Some(guidance.to_string());
     }
 }
 
@@ -1439,6 +1465,16 @@ async fn conversation_recover(id: String) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
+async fn conversation_set_policy(
+    id: String,
+    policy: ConversationPolicy,
+) -> Result<ConversationDoc, String> {
+    ConversationStore::from_env()
+        .set_policy(&id, policy)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn conversation_delete_plan(id: String, recursive: bool) -> Result<Vec<String>, String> {
     ConversationStore::from_env()
         .deletion_plan(std::slice::from_ref(&id), recursive)
@@ -1565,6 +1601,11 @@ fn conversation_recovery_plan_value(id: &str) -> anyhow::Result<serde_json::Valu
         .collect::<Vec<_>>();
     memories.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     let latest_compaction = compactions.first();
+    let suggested_load_memory = expanded
+        .conversation
+        .policy
+        .load_memory
+        .unwrap_or(!memories.is_empty());
     Ok(serde_json::json!({
         "conversation_id": id,
         "title": expanded.conversation.title,
@@ -1576,7 +1617,7 @@ fn conversation_recovery_plan_value(id: &str) -> anyhow::Result<serde_json::Valu
         "suggested_run": {
             "conversation_id": id,
             "include_compact": latest_compaction.map(|record| record.id.clone()),
-            "load_memory": !memories.is_empty(),
+            "load_memory": suggested_load_memory,
             "compacted_context": latest_compaction.map(|record| record.content.clone()),
         }
     }))
@@ -3069,6 +3110,7 @@ pub fn run() {
             conversation_tree,
             conversation_show,
             conversation_recover,
+            conversation_set_policy,
             conversation_delete_plan,
             conversation_delete,
             conversation_delete_range,

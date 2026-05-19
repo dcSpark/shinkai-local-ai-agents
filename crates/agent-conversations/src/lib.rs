@@ -37,10 +37,42 @@ pub struct ConversationDoc {
     pub parent: Option<BranchRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branch_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "ConversationPolicy::is_empty")]
+    pub policy: ConversationPolicy,
     #[serde(default)]
     pub messages: Vec<ConversationMessage>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConversationPolicy {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub load_memory: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens_before_compaction: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_compaction_output_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compaction_guidance: Option<String>,
+}
+
+impl ConversationPolicy {
+    pub fn is_empty(&self) -> bool {
+        self.load_memory.is_none()
+            && self.max_tokens_before_compaction.is_none()
+            && self.max_compaction_output_tokens.is_none()
+            && self.compaction_guidance.is_none()
+    }
+
+    pub fn sanitized(mut self) -> Self {
+        self.compaction_guidance = clean_optional(self.compaction_guidance);
+        self
+    }
+
+    pub fn effective_load_memory(&self, inherited: bool, run_load_memory: bool) -> bool {
+        run_load_memory || self.load_memory.unwrap_or(inherited)
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -112,6 +144,7 @@ impl ConversationStore {
             agent_id: clean_optional(agent_id).unwrap_or_else(|| "fake-agent".into()),
             parent: None,
             branch_reason: None,
+            policy: ConversationPolicy::default(),
             messages: Vec::new(),
             created_at: now,
             updated_at: now,
@@ -169,6 +202,7 @@ impl ConversationStore {
                 parent_message_count,
             }),
             branch_reason: clean_optional(reason),
+            policy: parent.conversation.policy.clone(),
             messages: Vec::new(),
             created_at: now,
             updated_at: now,
@@ -206,6 +240,18 @@ impl ConversationStore {
             conversation,
             messages,
         })
+    }
+
+    pub fn set_policy(
+        &self,
+        id: &str,
+        policy: ConversationPolicy,
+    ) -> Result<ConversationDoc, ConversationError> {
+        let mut doc = self.show(id)?;
+        doc.policy = policy.sanitized();
+        doc.updated_at = Utc::now();
+        self.write(&doc)?;
+        Ok(doc)
     }
 
     pub fn tree(&self) -> Result<Vec<ConversationTreeNode>, ConversationError> {
@@ -610,6 +656,41 @@ mod tests {
         let expanded = store.expanded(&branch.id).unwrap();
         assert_eq!(expanded.messages.len(), 3);
         assert_eq!(expanded.messages[2].content, "branch two");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn conversation_policy_persists_and_copies_to_branches() {
+        let dir = std::env::temp_dir().join(format!("conversation-policy-test-{}", uuid_like()));
+        let store = ConversationStore::new(StoragePaths::new(&dir));
+        let root = store.create(Some("Root".into()), None).unwrap();
+
+        let updated = store
+            .set_policy(
+                &root.id,
+                ConversationPolicy {
+                    load_memory: Some(false),
+                    max_tokens_before_compaction: Some(512),
+                    max_compaction_output_tokens: Some(128),
+                    compaction_guidance: Some("  keep decisions  ".into()),
+                },
+            )
+            .unwrap();
+        assert_eq!(updated.policy.load_memory, Some(false));
+        assert_eq!(
+            updated.policy.compaction_guidance.as_deref(),
+            Some("keep decisions")
+        );
+        assert!(!updated.policy.effective_load_memory(true, false));
+        assert!(updated.policy.effective_load_memory(false, true));
+
+        let branch = store
+            .branch(&root.id, 0, Some("Branch".into()), None)
+            .unwrap();
+        assert_eq!(branch.policy, updated.policy);
+
+        let stored = store.show(&root.id).unwrap();
+        assert_eq!(stored.policy.max_tokens_before_compaction, Some(512));
         let _ = std::fs::remove_dir_all(dir);
     }
 

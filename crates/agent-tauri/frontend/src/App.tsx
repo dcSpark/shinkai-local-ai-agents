@@ -13,6 +13,7 @@ import type {
   ConversationDeleteRangeResult,
   ConversationDoc,
   ConversationMessage,
+  ConversationPolicy,
   ConversationRecoveryPlan,
   ConversationTreeNode,
   Demo,
@@ -3882,6 +3883,33 @@ export default function App() {
       : await invoke<ConversationRecoveryPlan>("conversation_recover", { id });
   }
 
+  async function setConversationPolicy(
+    id: string,
+    policy: ConversationPolicy,
+  ) {
+    return transport === "daemon"
+      ? await daemonJson<ConversationDoc>(
+          `/conversations/${encodeURIComponent(id)}/policy`,
+          policy as Record<string, unknown>,
+        )
+      : await invoke<ConversationDoc>("conversation_set_policy", { id, policy });
+  }
+
+  function updateConversationDoc(doc: ConversationDoc) {
+    setConversationDocs((docs) =>
+      docs.some((conversation) => conversation.id === doc.id)
+        ? docs.map((conversation) =>
+            conversation.id === doc.id ? doc : conversation,
+          )
+        : [doc, ...docs],
+    );
+    setExpandedConversation((expanded) =>
+      expanded?.conversation.id === doc.id
+        ? { ...expanded, conversation: doc }
+        : expanded,
+    );
+  }
+
   async function reviewConversations() {
     try {
       const [conversations, tree] = await Promise.all([
@@ -3948,6 +3976,70 @@ export default function App() {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Conversation recovery failed: ${msg}`);
     }
+  }
+
+  async function saveSelectedConversationPolicy() {
+    if (!expandedConversation) return;
+    const policy: ConversationPolicy = {
+      load_memory: loadMemory,
+      max_tokens_before_compaction: parseOptionalPositiveInt(
+        maxTokensBeforeCompaction,
+      ),
+      max_compaction_output_tokens: parseOptionalPositiveInt(
+        maxCompactionOutputTokens,
+      ),
+      compaction_guidance: compactionGuidance.trim() || null,
+    };
+    try {
+      const doc = await setConversationPolicy(
+        expandedConversation.conversation.id,
+        policy,
+      );
+      updateConversationDoc(doc);
+      appendJson("Conversation policy saved", doc);
+      appendEvent(`Conversation policy saved for ${doc.id}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Conversation policy save failed: ${msg}`);
+    }
+  }
+
+  async function clearSelectedConversationPolicy() {
+    if (!expandedConversation) return;
+    try {
+      const doc = await setConversationPolicy(
+        expandedConversation.conversation.id,
+        {},
+      );
+      updateConversationDoc(doc);
+      appendJson("Conversation policy cleared", doc);
+      appendEvent(`Conversation policy cleared for ${doc.id}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Conversation policy clear failed: ${msg}`);
+    }
+  }
+
+  function applySelectedConversationPolicy() {
+    const policy = expandedConversation?.conversation.policy;
+    if (!policy) return;
+    if (typeof policy.load_memory === "boolean") {
+      setLoadMemory(policy.load_memory);
+    }
+    setMaxTokensBeforeCompaction(
+      policy.max_tokens_before_compaction
+        ? String(policy.max_tokens_before_compaction)
+        : "",
+    );
+    setMaxCompactionOutputTokens(
+      policy.max_compaction_output_tokens
+        ? String(policy.max_compaction_output_tokens)
+        : "",
+    );
+    setCompactionGuidance(policy.compaction_guidance || "");
+    appendEvent(
+      `Conversation policy applied to context controls for ${expandedConversation.conversation.id}`,
+    );
   }
 
   async function previewConversationDeleteFromOps(recursive: boolean) {
@@ -5341,6 +5433,23 @@ export default function App() {
       return "No manual compacted context is active.";
     }
     return `Manual compacted context active: ~${estimateLocalTokens(manualCompactedContext)} tokens.`;
+  }
+
+  function conversationPolicySummary(policy?: ConversationPolicy | null) {
+    const parts: string[] = [];
+    if (typeof policy?.load_memory === "boolean") {
+      parts.push(`memory ${policy.load_memory ? "on" : "off"}`);
+    }
+    if (policy?.max_tokens_before_compaction) {
+      parts.push(`compact at ${policy.max_tokens_before_compaction}`);
+    }
+    if (policy?.max_compaction_output_tokens) {
+      parts.push(`output ${policy.max_compaction_output_tokens}`);
+    }
+    if (policy?.compaction_guidance?.trim()) {
+      parts.push(`guidance ${previewText(policy.compaction_guidance, 80)}`);
+    }
+    return parts.length ? parts.join("; ") : "default policy";
   }
 
   function compactionMetrics(snapshot: ContextSnapshot): CompactionMetrics | null {
@@ -7743,6 +7852,12 @@ export default function App() {
                   </div>
                   <span>{expandedConversation.conversation.id}</span>
                   <span>agent {expandedConversation.conversation.agent_id}</span>
+                  <span>
+                    policy{" "}
+                    {conversationPolicySummary(
+                      expandedConversation.conversation.policy,
+                    )}
+                  </span>
                   {expandedConversation.conversation.parent ? (
                     <span>
                       parent {expandedConversation.conversation.parent.conversation_id} @{" "}
@@ -7788,6 +7903,30 @@ export default function App() {
                       disabled={running}
                     >
                       Recover
+                    </button>
+                    <button
+                      type="button"
+                      title="Copy this conversation policy into the context controls."
+                      onClick={() => applySelectedConversationPolicy()}
+                      disabled={running || !expandedConversation.conversation.policy}
+                    >
+                      Apply Policy
+                    </button>
+                    <button
+                      type="button"
+                      title="Save current context controls as this conversation's policy."
+                      onClick={() => void saveSelectedConversationPolicy()}
+                      disabled={running}
+                    >
+                      Save Policy
+                    </button>
+                    <button
+                      type="button"
+                      title="Clear this conversation's context policy overrides."
+                      onClick={() => void clearSelectedConversationPolicy()}
+                      disabled={running}
+                    >
+                      Clear Policy
                     </button>
                   </div>
                 </div>

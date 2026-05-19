@@ -26,7 +26,8 @@ use agent_config::{
     ModelRuntimeConfig, ProfileGrantKind, supported_model_providers,
 };
 use agent_conversations::{
-    ConversationDoc, ConversationStore, ConversationTreeNode, ExpandedConversation,
+    ConversationDoc, ConversationRole, ConversationStore, ConversationTreeNode,
+    ExpandedConversation,
 };
 use agent_core::{
     AgentConfig, ApprovalMode, ConfigExplanation, ConfigValueExplanation, ContextSnapshot,
@@ -39,7 +40,7 @@ use agent_ingest::{
     IngestionModelCall, IngestionStore, supported_backends as supported_ingestion_backends,
 };
 use agent_llm::{
-    AnthropicProvider, FakeProvider, FakeStep, GeminiProvider, LlmProvider, ModelRef,
+    AnthropicProvider, FakeProvider, FakeStep, GeminiProvider, LlmProvider, Message, ModelRef,
     NativeProviderConfig, RigProvider, RigProviderConfig,
 };
 use agent_memory::{
@@ -153,6 +154,7 @@ struct RunOptions {
     raw_tool_output: bool,
     disable_lifecycle_hooks: bool,
     compacted_context: Option<String>,
+    conversation_id: Option<String>,
 }
 
 impl Default for RunOptions {
@@ -191,6 +193,7 @@ impl Default for RunOptions {
             raw_tool_output: false,
             disable_lifecycle_hooks: false,
             compacted_context: None,
+            conversation_id: None,
         }
     }
 }
@@ -607,6 +610,19 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
     {
         agent.compacted_context = Some(compacted_context.to_string());
     }
+    if let Some(id) = options
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        && let Ok(expanded) = ConversationStore::from_env().expanded(id)
+    {
+        agent.conversation_history = expanded
+            .messages
+            .into_iter()
+            .map(conversation_message_to_llm)
+            .collect();
+    }
     if options.input_cost_per_million.is_some() {
         agent.cost_policy.input_cost_per_million = options.input_cost_per_million;
     }
@@ -683,6 +699,20 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
     }
 
     agent
+}
+
+fn conversation_message_to_llm(message: agent_conversations::ConversationMessage) -> Message {
+    match message.role {
+        ConversationRole::System => Message::system(message.content),
+        ConversationRole::User => Message::user(message.content),
+        ConversationRole::Assistant => Message::Assistant {
+            content: Some(message.content),
+            tool_calls: Vec::new(),
+        },
+        ConversationRole::Tool => {
+            Message::system(format!("Persisted tool result: {}", message.content))
+        }
+    }
 }
 
 fn apply_skill_visibility(skill: &mut SkillView, visibility: VisibilityLevel) {

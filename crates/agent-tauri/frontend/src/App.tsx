@@ -291,6 +291,7 @@ export default function App() {
   );
   const [daemonUrl, setDaemonUrl] = useState("http://127.0.0.1:7878");
   const [agentId, setAgentId] = useState("");
+  const [conversationId, setConversationId] = useState("");
   const [opsValue, setOpsValue] = useState("");
   const [opsId, setOpsId] = useState("");
   const [capabilityKind, setCapabilityKind] = useState<CapabilityKind>("skill");
@@ -810,6 +811,7 @@ export default function App() {
       raw_tool_output: rawToolOutput,
       disable_lifecycle_hooks: false,
       compacted_context: manualCompactedContext.trim() || null,
+      conversation_id: conversationId.trim() || null,
     };
   }
 
@@ -3909,6 +3911,7 @@ export default function App() {
       const conversation = await fetchConversation(id);
       setExpandedConversation(conversation);
       setOpsId(conversation.conversation.id);
+      setConversationId(conversation.conversation.id);
       appendJson("Conversation", conversation);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -3927,6 +3930,7 @@ export default function App() {
       const plan = await fetchConversationRecovery(id);
       const suggested = plan.suggested_run;
       setOpsId(suggested.conversation_id || plan.conversation_id);
+      setConversationId(suggested.conversation_id || plan.conversation_id);
       setAgentId(plan.agent_id.trim());
       setLoadMemory(suggested.load_memory);
       const compactedContext = suggested.compacted_context?.trim()
@@ -3938,7 +3942,7 @@ export default function App() {
       }
       appendJson("Conversation recovery plan", plan);
       appendEvent(
-        `Recovery settings applied: ${plan.linked_compactions.length} compactions, ${plan.linked_memories.length} memories, ${suggested.load_memory ? "memory on" : "memory off"}, ${compactedContext ? "compacted context on" : "no compacted context"}`,
+        `Recovery settings applied: conversation ${suggested.conversation_id || plan.conversation_id}, ${plan.linked_compactions.length} compactions, ${plan.linked_memories.length} memories, ${suggested.load_memory ? "memory on" : "memory off"}, ${compactedContext ? "compacted context on" : "no compacted context"}`,
       );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -5497,8 +5501,11 @@ export default function App() {
             : "neutral";
     const safetyTone =
       enableShell && !requireApproval ? "warning" : requireApproval ? "ok" : "neutral";
+    const hasConversationContext = Boolean(conversationId.trim());
     const preparationEnabled =
-      enablePromptRefinement || Boolean(manualCompactedContext.trim());
+      enablePromptRefinement ||
+      Boolean(manualCompactedContext.trim()) ||
+      hasConversationContext;
 
     return [
       {
@@ -5534,8 +5541,11 @@ export default function App() {
       {
         title: "Context Sources",
         value: `${loadMemory ? "Memory on" : "Memory off"} / ${loadSkills ? "Skills on" : "Skills off"}`,
-        detail: `${manualCompactedContext.trim() ? "Compacted context active" : "No compacted context"}; ${includeIngestIds.length} ingest artifacts selected.`,
-        tone: loadMemory || loadSkills || manualCompactedContext.trim() ? "ok" : "neutral",
+        detail: `${manualCompactedContext.trim() ? "Compacted context active" : "No compacted context"}; ${hasConversationContext ? `conversation ${conversationId.trim()}` : "no conversation branch"}; ${includeIngestIds.length} ingest artifacts selected.`,
+        tone:
+          loadMemory || loadSkills || manualCompactedContext.trim() || hasConversationContext
+            ? "ok"
+            : "neutral",
       },
       {
         title: "External Content",
@@ -6702,6 +6712,15 @@ export default function App() {
               value={maxToolCalls}
               onChange={(e) => setMaxToolCalls(e.target.value)}
               placeholder="config"
+              disabled={running}
+            />
+          </label>
+          <label>
+            Conversation id
+            <input
+              value={conversationId}
+              onChange={(e) => setConversationId(e.target.value)}
+              placeholder="optional branch"
               disabled={running}
             />
           </label>

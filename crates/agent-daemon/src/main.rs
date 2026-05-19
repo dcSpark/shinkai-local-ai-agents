@@ -14,7 +14,7 @@ use agent_config::{
     AgentConfigFile, ConfigResolver, IngestionGuardrailMode, ModelConfig, ModelRuntimeConfig,
     ProfileGrant, ProfileGrantKind, supported_model_providers,
 };
-use agent_conversations::ConversationStore;
+use agent_conversations::{ConversationRole, ConversationStore};
 use agent_core::{
     AgentConfig, ApprovalMode, ConfigValueExplanation, CostPolicy, ExecutionPolicy, Harness,
     HarnessApi, HookTrigger, IngestedArtifactView, MemoryFragment, PromptRefinement,
@@ -26,7 +26,7 @@ use agent_ingest::{
     supported_backends as supported_ingestion_backends,
 };
 use agent_llm::{
-    AnthropicProvider, FakeProvider, FakeStep, GeminiProvider, LlmProvider, ModelRef,
+    AnthropicProvider, FakeProvider, FakeStep, GeminiProvider, LlmProvider, Message, ModelRef,
     NativeProviderConfig, RigProvider, RigProviderConfig,
 };
 use agent_memory::{
@@ -3939,6 +3939,7 @@ struct DaemonRuntimeOptions {
     #[serde(default)]
     disable_lifecycle_hooks: bool,
     compacted_context: Option<String>,
+    conversation_id: Option<String>,
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -4505,6 +4506,19 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
     {
         agent.compacted_context = Some(compacted_context.to_string());
     }
+    if let Some(id) = options
+        .conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        && let Ok(expanded) = ConversationStore::from_env().expanded(id)
+    {
+        agent.conversation_history = expanded
+            .messages
+            .into_iter()
+            .map(conversation_message_to_llm)
+            .collect();
+    }
     if options.input_cost_per_million.is_some() {
         agent.cost_policy.input_cost_per_million = options.input_cost_per_million;
     }
@@ -4581,6 +4595,20 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
     }
 
     agent
+}
+
+fn conversation_message_to_llm(message: agent_conversations::ConversationMessage) -> Message {
+    match message.role {
+        ConversationRole::System => Message::system(message.content),
+        ConversationRole::User => Message::user(message.content),
+        ConversationRole::Assistant => Message::Assistant {
+            content: Some(message.content),
+            tool_calls: Vec::new(),
+        },
+        ConversationRole::Tool => {
+            Message::system(format!("Persisted tool result: {}", message.content))
+        }
+    }
 }
 
 fn apply_skill_visibility(skill: &mut SkillView, visibility: VisibilityLevel) {

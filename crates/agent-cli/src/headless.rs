@@ -3613,6 +3613,7 @@ pub async fn remote_run(
             "load_memory": options.load_memory,
             "load_skills": options.load_skills,
             "compacted_context": included_compacted_context(&options)?,
+            "conversation_id": options.conversation_id,
             "include_ingest": options.include_ingest,
             "allow_unsafe_ingest": options.allow_unsafe_ingest,
             "enable_prompt_refinement": options.enable_prompt_refinement,
@@ -3655,6 +3656,7 @@ pub async fn remote_run_start(
             "load_memory": options.load_memory,
             "load_skills": options.load_skills,
             "compacted_context": included_compacted_context(&options)?,
+            "conversation_id": options.conversation_id,
             "include_ingest": options.include_ingest,
             "allow_unsafe_ingest": options.allow_unsafe_ingest,
             "enable_prompt_refinement": options.enable_prompt_refinement,
@@ -3704,6 +3706,7 @@ pub async fn remote_preview_context(
             "load_memory": options.load_memory,
             "load_skills": options.load_skills,
             "compacted_context": included_compacted_context(&options)?,
+            "conversation_id": options.conversation_id,
             "include_ingest": options.include_ingest,
             "allow_unsafe_ingest": options.allow_unsafe_ingest
         }),

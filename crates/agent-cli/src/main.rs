@@ -1710,6 +1710,10 @@ enum RemoteCommand {
         #[arg(long = "include-compact")]
         include_compact: Option<String>,
 
+        /// Load a persisted conversation branch into daemon context.
+        #[arg(long)]
+        conversation: Option<String>,
+
         /// Explicit ingestion artifact id to include in daemon context.
         #[arg(long = "include-ingest")]
         include_ingest: Vec<String>,
@@ -1834,6 +1838,10 @@ enum RemoteCommand {
         #[arg(long = "include-compact")]
         include_compact: Option<String>,
 
+        /// Load a persisted conversation branch into daemon context.
+        #[arg(long)]
+        conversation: Option<String>,
+
         /// Explicit ingestion artifact id to include in daemon context.
         #[arg(long = "include-ingest")]
         include_ingest: Vec<String>,
@@ -1943,6 +1951,10 @@ enum RemoteCommand {
         /// Explicit compacted-context artifact id to include in the preview.
         #[arg(long = "include-compact")]
         include_compact: Option<String>,
+
+        /// Load a persisted conversation branch into the preview.
+        #[arg(long)]
+        conversation: Option<String>,
 
         /// Explicit ingestion artifact id to include in the preview.
         #[arg(long = "include-ingest")]
@@ -2897,6 +2909,8 @@ mod cli_parse_tests {
             "120",
             "--compaction-guidance",
             "Keep open tasks.",
+            "--conversation",
+            "conv-1",
             "--refine-prompt",
             "--refinement-instructions",
             "Clarify first.",
@@ -2912,6 +2926,7 @@ mod cli_parse_tests {
                     max_tokens_before_compaction,
                     max_compaction_output_tokens,
                     compaction_guidance,
+                    conversation,
                     refine_prompt,
                     refinement_instructions,
                     refinement_model,
@@ -2927,6 +2942,7 @@ mod cli_parse_tests {
         assert_eq!(max_tokens_before_compaction, Some(512));
         assert_eq!(max_compaction_output_tokens, Some(120));
         assert_eq!(compaction_guidance.as_deref(), Some("Keep open tasks."));
+        assert_eq!(conversation.as_deref(), Some("conv-1"));
         assert!(refine_prompt);
         assert_eq!(refinement_instructions.as_deref(), Some("Clarify first."));
         assert_eq!(refinement_model.as_deref(), Some("fake-refiner"));
@@ -4407,6 +4423,7 @@ async fn main() -> anyhow::Result<()> {
                 load_memory,
                 load_skills,
                 include_compact,
+                conversation,
                 include_ingest,
                 allow_unsafe_ingest,
                 refine_prompt,
@@ -4440,7 +4457,7 @@ async fn main() -> anyhow::Result<()> {
                     load_memory,
                     load_skills,
                     include_compact,
-                    conversation_id: None,
+                    conversation_id: conversation,
                     include_ingest,
                     allow_unsafe_ingest,
                     enable_prompt_refinement: refine_prompt,
@@ -4476,6 +4493,7 @@ async fn main() -> anyhow::Result<()> {
                 load_memory,
                 load_skills,
                 include_compact,
+                conversation,
                 include_ingest,
                 allow_unsafe_ingest,
                 refine_prompt,
@@ -4509,7 +4527,7 @@ async fn main() -> anyhow::Result<()> {
                     load_memory,
                     load_skills,
                     include_compact,
-                    conversation_id: None,
+                    conversation_id: conversation,
                     include_ingest,
                     allow_unsafe_ingest,
                     enable_prompt_refinement: refine_prompt,
@@ -4543,6 +4561,7 @@ async fn main() -> anyhow::Result<()> {
                 raw_tool_output,
                 load_skills,
                 include_compact,
+                conversation,
                 include_ingest,
                 allow_unsafe_ingest,
             } => {
@@ -4563,6 +4582,7 @@ async fn main() -> anyhow::Result<()> {
                     raw_tool_output,
                     load_skills,
                     include_compact,
+                    conversation_id: conversation,
                     include_ingest,
                     allow_unsafe_ingest,
                     ..setup::RuntimeOptions::default()

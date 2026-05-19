@@ -341,6 +341,7 @@ export type RunOptions = {
   raw_tool_output: boolean;
   disable_lifecycle_hooks: boolean;
   compacted_context: string | null;
+  conversation_id: string | null;
 };
 
 export type ContextSnapshot = {

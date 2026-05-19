@@ -43,6 +43,9 @@ pub struct RuntimeOptions {
     pub max_output_tokens: Option<u64>,
     pub temperature: Option<f64>,
     pub max_tool_calls: Option<u32>,
+    pub max_tokens_before_compaction: Option<u32>,
+    pub max_compaction_output_tokens: Option<u32>,
+    pub compaction_guidance: Option<String>,
     pub allowed_tool_categories: Vec<String>,
     pub allowed_skill_categories: Vec<String>,
     pub tool_visibility: Option<VisibilityLevel>,
@@ -77,6 +80,9 @@ impl Default for RuntimeOptions {
             max_output_tokens: None,
             temperature: None,
             max_tool_calls: None,
+            max_tokens_before_compaction: None,
+            max_compaction_output_tokens: None,
+            compaction_guidance: None,
             allowed_tool_categories: Vec::new(),
             allowed_skill_categories: Vec::new(),
             tool_visibility: None,
@@ -322,6 +328,21 @@ pub fn build_agent(options: &RuntimeOptions) -> AgentConfig {
     }
     if let Some(max_tool_calls) = options.max_tool_calls {
         agent.tool_policy.max_calls = max_tool_calls;
+    }
+    if let Some(max_tokens_before_compaction) = options.max_tokens_before_compaction {
+        agent.context_policy.compaction.max_tokens_before_compaction =
+            Some(max_tokens_before_compaction);
+    }
+    if let Some(max_compaction_output_tokens) = options.max_compaction_output_tokens {
+        agent.context_policy.compaction.max_output_tokens = Some(max_compaction_output_tokens);
+    }
+    if let Some(guidance) = options
+        .compaction_guidance
+        .as_deref()
+        .map(str::trim)
+        .filter(|guidance| !guidance.is_empty())
+    {
+        agent.context_policy.compaction.guidance = Some(guidance.to_string());
     }
     if !options.allowed_tool_categories.is_empty() {
         agent.tool_policy.allowed_categories = options.allowed_tool_categories.clone();
@@ -1053,6 +1074,26 @@ hooks:
 
         assert_eq!(agent.tool_policy.allowed_categories, vec!["mcp"]);
         assert_eq!(agent.allowed_skill_categories, vec!["review"]);
+    }
+
+    #[test]
+    fn runtime_compaction_overrides_apply_to_built_agent() {
+        let agent = build_agent(&RuntimeOptions {
+            max_tokens_before_compaction: Some(256),
+            max_compaction_output_tokens: Some(96),
+            compaction_guidance: Some("keep decisions".into()),
+            ..RuntimeOptions::default()
+        });
+
+        assert_eq!(
+            agent.context_policy.compaction.max_tokens_before_compaction,
+            Some(256)
+        );
+        assert_eq!(agent.context_policy.compaction.max_output_tokens, Some(96));
+        assert_eq!(
+            agent.context_policy.compaction.guidance.as_deref(),
+            Some("keep decisions")
+        );
     }
 
     #[test]

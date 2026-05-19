@@ -291,6 +291,11 @@ export default function App() {
   const [inputCostPerMillion, setInputCostPerMillion] = useState("");
   const [outputCostPerMillion, setOutputCostPerMillion] = useState("");
   const [maxToolCalls, setMaxToolCalls] = useState("");
+  const [maxTokensBeforeCompaction, setMaxTokensBeforeCompaction] =
+    useState("");
+  const [maxCompactionOutputTokens, setMaxCompactionOutputTokens] =
+    useState("");
+  const [compactionGuidance, setCompactionGuidance] = useState("");
   const [toolVisibility, setToolVisibility] = useState<ToolVisibility | "">("");
   const [enableShell, setEnableShell] = useState(false);
   const [enableSubagent, setEnableSubagent] = useState(false);
@@ -735,6 +740,13 @@ export default function App() {
       input_cost_per_million: parseOptionalNonNegativeFloat(inputCostPerMillion),
       output_cost_per_million: parseOptionalNonNegativeFloat(outputCostPerMillion),
       max_tool_calls: parseOptionalNonNegativeInt(maxToolCalls),
+      max_tokens_before_compaction: parseOptionalPositiveInt(
+        maxTokensBeforeCompaction,
+      ),
+      max_compaction_output_tokens: parseOptionalPositiveInt(
+        maxCompactionOutputTokens,
+      ),
+      compaction_guidance: compactionGuidance.trim() || null,
       allowed_tool_categories: [],
       allowed_skill_categories: [],
       tool_visibility: toolVisibility || null,
@@ -6345,6 +6357,30 @@ export default function App() {
             />
           </label>
           <label>
+            Auto compact at
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={maxTokensBeforeCompaction}
+              onChange={(e) => setMaxTokensBeforeCompaction(e.target.value)}
+              placeholder="config"
+              disabled={running}
+            />
+          </label>
+          <label>
+            Compact output
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={maxCompactionOutputTokens}
+              onChange={(e) => setMaxCompactionOutputTokens(e.target.value)}
+              placeholder="config"
+              disabled={running}
+            />
+          </label>
+          <label>
             Tool visibility
             <select
               value={toolVisibility}
@@ -6439,6 +6475,17 @@ export default function App() {
               Raw output preserves original tool results and skips interpretation.
             </div>
           ) : null}
+          <label>
+            Compaction guidance
+            <textarea
+              className="ops-text"
+              value={compactionGuidance}
+              onChange={(e) => setCompactionGuidance(e.target.value)}
+              placeholder="config"
+              disabled={running}
+              rows={2}
+            />
+          </label>
           <label className="switch">
             <input
               type="checkbox"
@@ -9041,6 +9088,11 @@ function parseOptionalNonNegativeInt(value: string): number | null {
   const parsed = Number.parseInt(trimmed, 10);
   if (!Number.isFinite(parsed) || parsed < 0) return null;
   return parsed;
+}
+
+function parseOptionalPositiveInt(value: string): number | null {
+  const parsed = parseOptionalNonNegativeInt(value);
+  return parsed && parsed > 0 ? parsed : null;
 }
 
 function parseOptionalNonNegativeFloat(value: string): number | null {

@@ -2414,6 +2414,9 @@ pub async fn agent_save(
     system_prompt: String,
     model: Option<String>,
     max_tool_calls: Option<u32>,
+    max_tokens_before_compaction: Option<u32>,
+    max_compaction_output_tokens: Option<u32>,
+    compaction_guidance: Option<String>,
     max_subagent_depth: Option<u32>,
     max_recursion_depth: Option<u32>,
     allowed_tools: Vec<String>,
@@ -2441,6 +2444,9 @@ pub async fn agent_save(
         system_prompt,
         model,
         max_tool_calls,
+        max_tokens_before_compaction,
+        max_compaction_output_tokens,
+        compaction_guidance,
         max_subagent_depth,
         max_recursion_depth,
         allowed_tools,
@@ -2511,6 +2517,9 @@ fn agent_config_from_parts(
     system_prompt: String,
     model: Option<String>,
     max_tool_calls: Option<u32>,
+    max_tokens_before_compaction: Option<u32>,
+    max_compaction_output_tokens: Option<u32>,
+    compaction_guidance: Option<String>,
     max_subagent_depth: Option<u32>,
     max_recursion_depth: Option<u32>,
     allowed_tools: Vec<String>,
@@ -2562,9 +2571,9 @@ fn agent_config_from_parts(
         tool_visibility,
         load_memory: load_memory.then_some(true),
         load_skills: load_skills.then_some(true),
-        max_tokens_before_compaction: None,
-        max_compaction_output_tokens: None,
-        compaction_guidance: None,
+        max_tokens_before_compaction,
+        max_compaction_output_tokens,
+        compaction_guidance: clean_optional_string(compaction_guidance),
         ingestion_guardrail,
         ingestion_guardrail_model,
         input_cost_per_million,
@@ -3547,6 +3556,9 @@ pub async fn remote_run(
             "input_cost_per_million": options.input_cost_per_million,
             "output_cost_per_million": options.output_cost_per_million,
             "max_tool_calls": options.max_tool_calls,
+            "max_tokens_before_compaction": options.max_tokens_before_compaction,
+            "max_compaction_output_tokens": options.max_compaction_output_tokens,
+            "compaction_guidance": options.compaction_guidance,
             "tool_visibility": options.tool_visibility,
             "skill_visibility": options.skill_visibility,
             "enable_shell": options.enable_shell,
@@ -3586,6 +3598,9 @@ pub async fn remote_run_start(
             "input_cost_per_million": options.input_cost_per_million,
             "output_cost_per_million": options.output_cost_per_million,
             "max_tool_calls": options.max_tool_calls,
+            "max_tokens_before_compaction": options.max_tokens_before_compaction,
+            "max_compaction_output_tokens": options.max_compaction_output_tokens,
+            "compaction_guidance": options.compaction_guidance,
             "tool_visibility": options.tool_visibility,
             "skill_visibility": options.skill_visibility,
             "enable_shell": options.enable_shell,
@@ -3634,6 +3649,9 @@ pub async fn remote_preview_context(
             "enable_shell": options.enable_shell,
             "enable_subagent": options.enable_subagent,
             "max_tool_calls": options.max_tool_calls,
+            "max_tokens_before_compaction": options.max_tokens_before_compaction,
+            "max_compaction_output_tokens": options.max_compaction_output_tokens,
+            "compaction_guidance": options.compaction_guidance,
             "tool_visibility": options.tool_visibility,
             "skill_visibility": options.skill_visibility,
             "raw_tool_output": options.raw_tool_output,
@@ -3991,6 +4009,9 @@ pub async fn remote_agent_save(
     system_prompt: String,
     model: Option<String>,
     max_tool_calls: Option<u32>,
+    max_tokens_before_compaction: Option<u32>,
+    max_compaction_output_tokens: Option<u32>,
+    compaction_guidance: Option<String>,
     max_subagent_depth: Option<u32>,
     max_recursion_depth: Option<u32>,
     allowed_tools: Vec<String>,
@@ -4018,6 +4039,9 @@ pub async fn remote_agent_save(
         system_prompt,
         model,
         max_tool_calls,
+        max_tokens_before_compaction,
+        max_compaction_output_tokens,
+        compaction_guidance,
         max_subagent_depth,
         max_recursion_depth,
         allowed_tools,
@@ -4970,6 +4994,45 @@ mod slash_tests {
             ..ModelRuntimeConfig::default()
         };
         assert!(guardrail_provider_for_model("gemini-2.5-flash", &gemini).is_ok());
+    }
+
+    #[test]
+    fn agent_config_from_parts_preserves_compaction_policy() {
+        let agent = agent_config_from_parts(
+            "critic".into(),
+            None,
+            "Review carefully.".into(),
+            Some("fake-model".into()),
+            Some(1),
+            Some(128),
+            Some(48),
+            Some(" keep decisions ".into()),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            None,
+            false,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(agent.max_tokens_before_compaction, Some(128));
+        assert_eq!(agent.max_compaction_output_tokens, Some(48));
+        assert_eq!(agent.compaction_guidance.as_deref(), Some("keep decisions"));
     }
 
     #[test]

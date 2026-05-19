@@ -127,6 +127,9 @@ struct RunOptions {
     max_output_tokens: Option<u64>,
     temperature: Option<f64>,
     max_tool_calls: Option<u32>,
+    max_tokens_before_compaction: Option<u32>,
+    max_compaction_output_tokens: Option<u32>,
+    compaction_guidance: Option<String>,
     #[serde(default)]
     allowed_tool_categories: Vec<String>,
     #[serde(default)]
@@ -164,6 +167,9 @@ impl Default for RunOptions {
             max_output_tokens: None,
             temperature: None,
             max_tool_calls: None,
+            max_tokens_before_compaction: None,
+            max_compaction_output_tokens: None,
+            compaction_guidance: None,
             allowed_tool_categories: Vec::new(),
             allowed_skill_categories: Vec::new(),
             tool_visibility: None,
@@ -559,6 +565,21 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
     }
     if let Some(max_tool_calls) = options.max_tool_calls {
         agent.tool_policy.max_calls = max_tool_calls;
+    }
+    if let Some(max_tokens_before_compaction) = options.max_tokens_before_compaction {
+        agent.context_policy.compaction.max_tokens_before_compaction =
+            Some(max_tokens_before_compaction);
+    }
+    if let Some(max_compaction_output_tokens) = options.max_compaction_output_tokens {
+        agent.context_policy.compaction.max_output_tokens = Some(max_compaction_output_tokens);
+    }
+    if let Some(guidance) = options
+        .compaction_guidance
+        .as_deref()
+        .map(str::trim)
+        .filter(|guidance| !guidance.is_empty())
+    {
+        agent.context_policy.compaction.guidance = Some(guidance.to_string());
     }
     if !options.allowed_tool_categories.is_empty() {
         agent.tool_policy.allowed_categories = options.allowed_tool_categories.clone();

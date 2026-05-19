@@ -90,6 +90,18 @@ enum Command {
         #[arg(long)]
         max_tool_calls: Option<u32>,
 
+        /// Trigger automatic context compaction after approximately this many conversation tokens.
+        #[arg(long)]
+        max_tokens_before_compaction: Option<u32>,
+
+        /// Approximate output-token budget for automatic context compaction.
+        #[arg(long)]
+        max_compaction_output_tokens: Option<u32>,
+
+        /// Guidance for automatic context compaction in this run.
+        #[arg(long)]
+        compaction_guidance: Option<String>,
+
         /// Restrict this run to one tool category/pack. Repeat for multiple categories.
         #[arg(long = "allow-tool-category")]
         allowed_tool_categories: Vec<String>,
@@ -195,6 +207,18 @@ enum Command {
         /// Override the max tool-call budget in the preview.
         #[arg(long)]
         max_tool_calls: Option<u32>,
+
+        /// Trigger automatic context compaction after approximately this many conversation tokens.
+        #[arg(long)]
+        max_tokens_before_compaction: Option<u32>,
+
+        /// Approximate output-token budget for automatic context compaction.
+        #[arg(long)]
+        max_compaction_output_tokens: Option<u32>,
+
+        /// Guidance for automatic context compaction in this preview.
+        #[arg(long)]
+        compaction_guidance: Option<String>,
 
         /// Restrict previewed tools to one category/pack. Repeat for multiple categories.
         #[arg(long = "allow-tool-category")]
@@ -774,6 +798,15 @@ enum AgentCommand {
         /// Per-run tool-call budget for this agent.
         #[arg(long)]
         max_tool_calls: Option<u32>,
+        /// Trigger automatic context compaction after approximately this many conversation tokens.
+        #[arg(long)]
+        max_tokens_before_compaction: Option<u32>,
+        /// Approximate output-token budget for automatic context compaction.
+        #[arg(long)]
+        max_compaction_output_tokens: Option<u32>,
+        /// Agent-level guidance for automatic context compaction.
+        #[arg(long)]
+        compaction_guidance: Option<String>,
         /// Maximum number of nested child-run levels this agent may spawn.
         #[arg(long)]
         max_subagent_depth: Option<u32>,
@@ -1578,6 +1611,18 @@ enum RemoteCommand {
         #[arg(long)]
         max_tool_calls: Option<u32>,
 
+        /// Trigger daemon automatic context compaction after approximately this many conversation tokens.
+        #[arg(long)]
+        max_tokens_before_compaction: Option<u32>,
+
+        /// Approximate output-token budget for daemon automatic context compaction.
+        #[arg(long)]
+        max_compaction_output_tokens: Option<u32>,
+
+        /// Guidance for daemon automatic context compaction.
+        #[arg(long)]
+        compaction_guidance: Option<String>,
+
         /// Restrict daemon-visible tools to one category/pack. Repeat for multiple categories.
         #[arg(long = "allow-tool-category")]
         allowed_tool_categories: Vec<String>,
@@ -1690,6 +1735,18 @@ enum RemoteCommand {
         #[arg(long)]
         max_tool_calls: Option<u32>,
 
+        /// Trigger daemon automatic context compaction after approximately this many conversation tokens.
+        #[arg(long)]
+        max_tokens_before_compaction: Option<u32>,
+
+        /// Approximate output-token budget for daemon automatic context compaction.
+        #[arg(long)]
+        max_compaction_output_tokens: Option<u32>,
+
+        /// Guidance for daemon automatic context compaction.
+        #[arg(long)]
+        compaction_guidance: Option<String>,
+
         /// Restrict daemon-visible tools to one category/pack. Repeat for multiple categories.
         #[arg(long = "allow-tool-category")]
         allowed_tool_categories: Vec<String>,
@@ -1795,6 +1852,18 @@ enum RemoteCommand {
         /// Override the max tool-call budget in the preview.
         #[arg(long)]
         max_tool_calls: Option<u32>,
+
+        /// Trigger daemon automatic context compaction after approximately this many conversation tokens.
+        #[arg(long)]
+        max_tokens_before_compaction: Option<u32>,
+
+        /// Approximate output-token budget for daemon automatic context compaction.
+        #[arg(long)]
+        max_compaction_output_tokens: Option<u32>,
+
+        /// Guidance for daemon automatic context compaction.
+        #[arg(long)]
+        compaction_guidance: Option<String>,
 
         /// Restrict previewed daemon tools to one category/pack. Repeat for multiple categories.
         #[arg(long = "allow-tool-category")]
@@ -2121,6 +2190,12 @@ enum RemoteAgentCommand {
         model: Option<String>,
         #[arg(long)]
         max_tool_calls: Option<u32>,
+        #[arg(long)]
+        max_tokens_before_compaction: Option<u32>,
+        #[arg(long)]
+        max_compaction_output_tokens: Option<u32>,
+        #[arg(long)]
+        compaction_guidance: Option<String>,
         #[arg(long)]
         max_subagent_depth: Option<u32>,
         #[arg(long)]
@@ -2556,6 +2631,12 @@ mod cli_parse_tests {
             "fake-model",
             "--max-tool-calls",
             "1",
+            "--max-tokens-before-compaction",
+            "128",
+            "--max-compaction-output-tokens",
+            "48",
+            "--compaction-guidance",
+            "Keep decisions.",
             "--max-subagent-depth",
             "2",
             "--max-recursion-depth",
@@ -2595,6 +2676,9 @@ mod cli_parse_tests {
                     system_prompt,
                     model,
                     max_tool_calls,
+                    max_tokens_before_compaction,
+                    max_compaction_output_tokens,
+                    compaction_guidance,
                     max_subagent_depth,
                     max_recursion_depth,
                     allowed_tools,
@@ -2622,6 +2706,9 @@ mod cli_parse_tests {
         assert_eq!(system_prompt, "Review carefully.");
         assert_eq!(model.as_deref(), Some("fake-model"));
         assert_eq!(max_tool_calls, Some(1));
+        assert_eq!(max_tokens_before_compaction, Some(128));
+        assert_eq!(max_compaction_output_tokens, Some(48));
+        assert_eq!(compaction_guidance.as_deref(), Some("Keep decisions."));
         assert_eq!(max_subagent_depth, Some(2));
         assert_eq!(max_recursion_depth, Some(1));
         assert_eq!(allowed_tools, vec!["echo"]);
@@ -2665,6 +2752,12 @@ mod cli_parse_tests {
             "critic",
             "--system-prompt",
             "Review carefully.",
+            "--max-tokens-before-compaction",
+            "256",
+            "--max-compaction-output-tokens",
+            "96",
+            "--compaction-guidance",
+            "Keep facts.",
             "--max-subagent-depth",
             "2",
             "--max-recursion-depth",
@@ -2692,6 +2785,9 @@ mod cli_parse_tests {
                         RemoteAgentCommand::Save {
                             id,
                             system_prompt,
+                            max_tokens_before_compaction,
+                            max_compaction_output_tokens,
+                            compaction_guidance,
                             max_subagent_depth,
                             max_recursion_depth,
                             allowed_tools,
@@ -2712,6 +2808,9 @@ mod cli_parse_tests {
         };
         assert_eq!(id, "critic");
         assert_eq!(system_prompt, "Review carefully.");
+        assert_eq!(max_tokens_before_compaction, Some(256));
+        assert_eq!(max_compaction_output_tokens, Some(96));
+        assert_eq!(compaction_guidance.as_deref(), Some("Keep facts."));
         assert_eq!(max_subagent_depth, Some(2));
         assert_eq!(max_recursion_depth, Some(1));
         assert_eq!(allowed_tools, vec!["echo"]);
@@ -2745,6 +2844,12 @@ mod cli_parse_tests {
             "mcp",
             "--allow-skill-category",
             "review",
+            "--max-tokens-before-compaction",
+            "512",
+            "--max-compaction-output-tokens",
+            "120",
+            "--compaction-guidance",
+            "Keep open tasks.",
             "--refine-prompt",
             "--refinement-instructions",
             "Clarify first.",
@@ -2757,6 +2862,9 @@ mod cli_parse_tests {
                 RemoteCommand::Run {
                     allowed_tool_categories,
                     allowed_skill_categories,
+                    max_tokens_before_compaction,
+                    max_compaction_output_tokens,
+                    compaction_guidance,
                     refine_prompt,
                     refinement_instructions,
                     refinement_model,
@@ -2769,6 +2877,9 @@ mod cli_parse_tests {
         };
         assert_eq!(allowed_tool_categories, vec!["mcp"]);
         assert_eq!(allowed_skill_categories, vec!["review"]);
+        assert_eq!(max_tokens_before_compaction, Some(512));
+        assert_eq!(max_compaction_output_tokens, Some(120));
+        assert_eq!(compaction_guidance.as_deref(), Some("Keep open tasks."));
         assert!(refine_prompt);
         assert_eq!(refinement_instructions.as_deref(), Some("Clarify first."));
         assert_eq!(refinement_model.as_deref(), Some("fake-refiner"));
@@ -3525,6 +3636,9 @@ async fn main() -> anyhow::Result<()> {
             input_cost_per_million,
             output_cost_per_million,
             max_tool_calls,
+            max_tokens_before_compaction,
+            max_compaction_output_tokens,
+            compaction_guidance,
             allowed_tool_categories,
             allowed_skill_categories,
             tool_visibility,
@@ -3556,6 +3670,9 @@ async fn main() -> anyhow::Result<()> {
                 input_cost_per_million,
                 output_cost_per_million,
                 max_tool_calls,
+                max_tokens_before_compaction,
+                max_compaction_output_tokens,
+                compaction_guidance,
                 allowed_tool_categories,
                 allowed_skill_categories,
                 tool_visibility: tool_visibility.map(VisibilityLevel::from),
@@ -3591,6 +3708,9 @@ async fn main() -> anyhow::Result<()> {
             enable_subagent,
             enable_capability_drafts,
             max_tool_calls,
+            max_tokens_before_compaction,
+            max_compaction_output_tokens,
+            compaction_guidance,
             allowed_tool_categories,
             allowed_skill_categories,
             tool_visibility,
@@ -3609,6 +3729,9 @@ async fn main() -> anyhow::Result<()> {
                 enable_capability_drafts,
                 agent_id: agent,
                 max_tool_calls,
+                max_tokens_before_compaction,
+                max_compaction_output_tokens,
+                compaction_guidance,
                 allowed_tool_categories,
                 allowed_skill_categories,
                 tool_visibility: tool_visibility.map(VisibilityLevel::from),
@@ -3917,6 +4040,9 @@ async fn main() -> anyhow::Result<()> {
                 system_prompt,
                 model,
                 max_tool_calls,
+                max_tokens_before_compaction,
+                max_compaction_output_tokens,
+                compaction_guidance,
                 max_subagent_depth,
                 max_recursion_depth,
                 allowed_tools,
@@ -3944,6 +4070,9 @@ async fn main() -> anyhow::Result<()> {
                     system_prompt,
                     model,
                     max_tool_calls,
+                    max_tokens_before_compaction,
+                    max_compaction_output_tokens,
+                    compaction_guidance,
                     max_subagent_depth,
                     max_recursion_depth,
                     allowed_tools,
@@ -4112,6 +4241,9 @@ async fn main() -> anyhow::Result<()> {
                 input_cost_per_million,
                 output_cost_per_million,
                 max_tool_calls,
+                max_tokens_before_compaction,
+                max_compaction_output_tokens,
+                compaction_guidance,
                 allowed_tool_categories,
                 allowed_skill_categories,
                 tool_visibility,
@@ -4142,6 +4274,9 @@ async fn main() -> anyhow::Result<()> {
                     input_cost_per_million,
                     output_cost_per_million,
                     max_tool_calls,
+                    max_tokens_before_compaction,
+                    max_compaction_output_tokens,
+                    compaction_guidance,
                     allowed_tool_categories,
                     allowed_skill_categories,
                     tool_visibility: tool_visibility.map(VisibilityLevel::from),
@@ -4175,6 +4310,9 @@ async fn main() -> anyhow::Result<()> {
                 input_cost_per_million,
                 output_cost_per_million,
                 max_tool_calls,
+                max_tokens_before_compaction,
+                max_compaction_output_tokens,
+                compaction_guidance,
                 allowed_tool_categories,
                 allowed_skill_categories,
                 tool_visibility,
@@ -4205,6 +4343,9 @@ async fn main() -> anyhow::Result<()> {
                     input_cost_per_million,
                     output_cost_per_million,
                     max_tool_calls,
+                    max_tokens_before_compaction,
+                    max_compaction_output_tokens,
+                    compaction_guidance,
                     allowed_tool_categories,
                     allowed_skill_categories,
                     tool_visibility: tool_visibility.map(VisibilityLevel::from),
@@ -4238,6 +4379,9 @@ async fn main() -> anyhow::Result<()> {
                 enable_subagent,
                 enable_capability_drafts,
                 max_tool_calls,
+                max_tokens_before_compaction,
+                max_compaction_output_tokens,
+                compaction_guidance,
                 allowed_tool_categories,
                 allowed_skill_categories,
                 tool_visibility,
@@ -4255,6 +4399,9 @@ async fn main() -> anyhow::Result<()> {
                     enable_subagent,
                     enable_capability_drafts,
                     max_tool_calls,
+                    max_tokens_before_compaction,
+                    max_compaction_output_tokens,
+                    compaction_guidance,
                     allowed_tool_categories,
                     allowed_skill_categories,
                     tool_visibility: tool_visibility.map(VisibilityLevel::from),
@@ -4420,6 +4567,9 @@ async fn main() -> anyhow::Result<()> {
                     system_prompt,
                     model,
                     max_tool_calls,
+                    max_tokens_before_compaction,
+                    max_compaction_output_tokens,
+                    compaction_guidance,
                     max_subagent_depth,
                     max_recursion_depth,
                     allowed_tools,
@@ -4448,6 +4598,9 @@ async fn main() -> anyhow::Result<()> {
                         system_prompt,
                         model,
                         max_tool_calls,
+                        max_tokens_before_compaction,
+                        max_compaction_output_tokens,
+                        compaction_guidance,
                         max_subagent_depth,
                         max_recursion_depth,
                         allowed_tools,

@@ -307,6 +307,9 @@ export type RunOptions = {
   input_cost_per_million: number | null;
   output_cost_per_million: number | null;
   max_tool_calls: number | null;
+  max_tokens_before_compaction: number | null;
+  max_compaction_output_tokens: number | null;
+  compaction_guidance: string | null;
   allowed_tool_categories: string[];
   allowed_skill_categories: string[];
   tool_visibility: ToolVisibility | null;

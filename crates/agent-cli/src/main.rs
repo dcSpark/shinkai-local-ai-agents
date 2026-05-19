@@ -1408,6 +1408,32 @@ enum CompactCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Persist an already-compacted context artifact without rewriting it.
+    Keep {
+        /// Compacted context text. If omitted, stdin is consumed.
+        #[arg(short, long)]
+        input: Option<String>,
+
+        /// Guidance associated with the compacted context.
+        #[arg(long)]
+        guidance: Option<String>,
+
+        /// Source label, for example auto-preview or run id.
+        #[arg(long)]
+        source: Option<String>,
+
+        /// Conversation this compaction should be linked to.
+        #[arg(long)]
+        conversation: Option<String>,
+
+        /// Approximate max output tokens represented by this compacted artifact.
+        #[arg(long)]
+        max_output_tokens: Option<u32>,
+
+        /// Emit JSON instead of a human-readable summary.
+        #[arg(long)]
+        json: bool,
+    },
     /// List compacted-context artifacts.
     List {
         /// Emit JSON instead of a human-readable summary.
@@ -2886,6 +2912,50 @@ mod cli_parse_tests {
     }
 
     #[test]
+    fn compact_keep_command_preserves_compacted_artifact_shape() {
+        let cli = Cli::try_parse_from([
+            "agent",
+            "compact",
+            "keep",
+            "--input",
+            "<auto-compaction>summary</auto-compaction>",
+            "--guidance",
+            "Keep decisions.",
+            "--source",
+            "auto-preview",
+            "--conversation",
+            "conv-1",
+            "--max-output-tokens",
+            "96",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Compact {
+            command:
+                CompactCommand::Keep {
+                    input,
+                    guidance,
+                    source,
+                    conversation,
+                    max_output_tokens,
+                    json,
+                },
+        } = cli.command
+        else {
+            panic!("expected compact keep command");
+        };
+        assert_eq!(
+            input.as_deref(),
+            Some("<auto-compaction>summary</auto-compaction>")
+        );
+        assert_eq!(guidance.as_deref(), Some("Keep decisions."));
+        assert_eq!(source.as_deref(), Some("auto-preview"));
+        assert_eq!(conversation.as_deref(), Some("conv-1"));
+        assert_eq!(max_output_tokens, Some(96));
+        assert!(json);
+    }
+
+    #[test]
     fn local_provider_aliases_parse() {
         let cli = Cli::try_parse_from([
             "agent",
@@ -3917,6 +3987,24 @@ async fn main() -> anyhow::Result<()> {
             } => {
                 headless::compact_conversation(id, from, to, guidance, max_output_tokens, json)
                     .await
+            }
+            CompactCommand::Keep {
+                input,
+                guidance,
+                source,
+                conversation,
+                max_output_tokens,
+                json,
+            } => {
+                headless::compact_keep(
+                    input,
+                    guidance,
+                    source,
+                    conversation,
+                    max_output_tokens,
+                    json,
+                )
+                .await
             }
             CompactCommand::List { json } => headless::compact_list(json).await,
             CompactCommand::Show { id, json } => headless::compact_show(id, json).await,

@@ -127,6 +127,63 @@ impl CompactionStore {
         Ok(record)
     }
 
+    pub fn keep_compacted_context(
+        &self,
+        content: &str,
+        guidance: Option<String>,
+        max_output_tokens: Option<u32>,
+        source: Option<String>,
+        conversation_id: Option<String>,
+    ) -> Result<CompactionRecord, CompactionError> {
+        let content = content.trim();
+        if content.is_empty() {
+            return Err(CompactionError::InvalidInput(
+                "compacted context must not be empty".into(),
+            ));
+        }
+        self.paths.ensure_base_dirs()?;
+        let created_at = Utc::now();
+        let conversation_id = clean_optional(conversation_id);
+        if let Some(id) = conversation_id.as_deref() {
+            validate_id(id).map_err(|_| {
+                CompactionError::InvalidInput(format!("invalid conversation id: {id}"))
+            })?;
+        }
+        let source = source
+            .map(|source| source.trim().to_string())
+            .filter(|source| !source.is_empty())
+            .unwrap_or_else(|| {
+                conversation_id
+                    .as_ref()
+                    .map(|id| format!("kept-auto-compaction:{id}"))
+                    .unwrap_or_else(|| "kept-auto-compaction".into())
+            });
+        let guidance = guidance
+            .map(|guidance| guidance.trim().to_string())
+            .filter(|guidance| !guidance.is_empty());
+        let max_output_tokens = max_output_tokens
+            .filter(|value| *value > 0)
+            .unwrap_or_else(|| estimate_tokens(content).max(1));
+        let original_input_hash = hash_text(content);
+        let record = CompactionRecord {
+            id: format!(
+                "compact-{}-{}",
+                created_at.timestamp_nanos_opt().unwrap_or_default(),
+                &original_input_hash[..8]
+            ),
+            content: content.to_string(),
+            guidance,
+            conversation_id,
+            source,
+            max_output_tokens,
+            original_input_hash,
+            original_input_excerpt: excerpt(content, 500),
+            created_at,
+        };
+        self.write(&record)?;
+        Ok(record)
+    }
+
     pub fn list(&self) -> Result<Vec<CompactionRecord>, CompactionError> {
         self.paths.ensure_base_dirs()?;
         let mut records = Vec::new();
@@ -393,6 +450,30 @@ mod tests {
         assert!(estimate_tokens(&compacted) <= 70);
         assert!(compacted.contains("<manual-compaction"));
         assert!(compacted.contains("</manual-compaction>"));
+    }
+
+    #[test]
+    fn keeps_existing_compacted_context_without_rewriting() {
+        let dir = std::env::temp_dir().join(format!("compaction-keep-test-{}", uuid_like()));
+        let store = CompactionStore::new(StoragePaths::new(&dir));
+        let content = "<auto-compaction>\nSummary:\n- keep exact text\n</auto-compaction>";
+
+        let record = store
+            .keep_compacted_context(
+                content,
+                Some("keep decisions".into()),
+                Some(96),
+                Some("preview:auto".into()),
+                Some("conv-1".into()),
+            )
+            .unwrap();
+
+        assert_eq!(record.content, content);
+        assert_eq!(record.source, "preview:auto");
+        assert_eq!(record.conversation_id.as_deref(), Some("conv-1"));
+        assert_eq!(record.guidance.as_deref(), Some("keep decisions"));
+        assert_eq!(store.show(&record.id).unwrap().content, content);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     fn uuid_like() -> String {

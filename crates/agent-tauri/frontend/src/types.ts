@@ -283,6 +283,18 @@ export type ConversationRecoveryPlan = {
   };
 };
 
+export type CompactionRecord = {
+  id: string;
+  content: string;
+  guidance?: string | null;
+  conversation_id?: string | null;
+  source: string;
+  max_output_tokens: number;
+  original_input_hash: string;
+  original_input_excerpt: string;
+  created_at: string;
+};
+
 export type BundleManifest = {
   schema_version: number;
   exported_at: string;

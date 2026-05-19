@@ -7,6 +7,7 @@ import type {
   CapabilityDraft,
   CapabilityKind,
   CapabilityReviewResult,
+  CompactionRecord,
   ContextSnapshot,
   ConversationDeleteResult,
   ConversationDeleteRangeResult,
@@ -3283,6 +3284,59 @@ export default function App() {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Preview failed: ${msg}`);
     }
+  }
+
+  async function keepContextPreviewCompaction() {
+    const content = contextPreview?.compacted?.trim();
+    if (!content) {
+      appendLine("error", "No compacted context to keep.");
+      return;
+    }
+    const conversationId = selectedCompactionConversationId();
+    const guidance = compactionGuidance.trim() || null;
+    const maxOutputTokens = parseOptionalPositiveInt(maxCompactionOutputTokens);
+    const source = conversationId
+      ? `auto-preview:${conversationId}`
+      : "auto-preview";
+    try {
+      const record =
+        transport === "daemon"
+          ? await daemonJson<CompactionRecord>("/compactions/keep", {
+              content,
+              guidance,
+              source,
+              conversation_id: conversationId,
+              max_output_tokens: maxOutputTokens,
+            })
+          : await invoke<CompactionRecord>("compaction_keep", {
+              content,
+              guidance,
+              source,
+              conversationId,
+              maxOutputTokens,
+            });
+      setOpsId(record.id);
+      setOpsValue(record.content);
+      appendEvent(
+        `Kept compacted context ${record.id}${record.conversation_id ? ` for ${record.conversation_id}` : ""}.`,
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Keep compacted context failed: ${msg}`);
+    }
+  }
+
+  function selectedCompactionConversationId() {
+    const id = opsId.trim();
+    if (!id) {
+      return null;
+    }
+    if (expandedConversation?.conversation.id === id) {
+      return id;
+    }
+    return conversationDocs.some((conversation) => conversation.id === id)
+      ? id
+      : null;
   }
 
   async function explainCurrentConfig() {
@@ -6601,6 +6655,14 @@ export default function App() {
                   title="Put the exact preview snapshot into the Value field."
                 >
                   Send to Value
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void keepContextPreviewCompaction()}
+                  disabled={running || !contextPreview.compacted}
+                  title="Save the compacted context as a portable artifact."
+                >
+                  Keep Compact
                 </button>
                 {contextCopyStatus ? <span>{contextCopyStatus}</span> : null}
               </div>

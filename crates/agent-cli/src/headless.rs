@@ -1429,6 +1429,27 @@ pub async fn compact_conversation(
     Ok(())
 }
 
+pub async fn compact_keep(
+    input: Option<String>,
+    guidance: Option<String>,
+    source: Option<String>,
+    conversation: Option<String>,
+    max_output_tokens: Option<u32>,
+    json: bool,
+) -> anyhow::Result<()> {
+    let content = read_text(input)?;
+    let record = CompactionStore::from_env().keep_compacted_context(
+        &content,
+        guidance,
+        max_output_tokens,
+        source,
+        conversation,
+    )?;
+
+    print_compaction_record(&record, json)?;
+    Ok(())
+}
+
 pub async fn compact_list(json: bool) -> anyhow::Result<()> {
     let records = CompactionStore::from_env().list()?;
     if json {

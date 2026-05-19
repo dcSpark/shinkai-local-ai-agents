@@ -1460,6 +1460,25 @@ async fn conversation_delete_range(
     }))
 }
 
+#[tauri::command]
+async fn compaction_keep(
+    content: String,
+    guidance: Option<String>,
+    source: Option<String>,
+    conversation_id: Option<String>,
+    max_output_tokens: Option<u32>,
+) -> Result<CompactionRecord, String> {
+    CompactionStore::from_env()
+        .keep_compacted_context(
+            &content,
+            guidance,
+            max_output_tokens,
+            source,
+            conversation_id,
+        )
+        .map_err(|e| e.to_string())
+}
+
 fn conversation_recovery_plan_value(id: &str) -> anyhow::Result<serde_json::Value> {
     let conversation_store = ConversationStore::from_env();
     let expanded = conversation_store.expanded(id)?;
@@ -2983,6 +3002,7 @@ pub fn run() {
             conversation_delete_plan,
             conversation_delete,
             conversation_delete_range,
+            compaction_keep,
             call_tool,
             trace_show,
             hook_policy,

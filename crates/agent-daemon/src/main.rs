@@ -208,6 +208,9 @@ async fn route(
             .await
             .map(|value| (200, value)),
         ("POST", "/voice/capture") => daemon_voice_capture(&request.body).map(|value| (200, value)),
+        ("POST", "/compactions/keep") => {
+            daemon_compaction_keep(&request.body).map(|value| (200, value))
+        }
         ("GET", "/memory/backends") => daemon_memory_backends().map(|value| (200, value)),
         ("GET", "/memory") => daemon_memory_list().map(|value| (200, value)),
         ("POST", "/memory") => daemon_memory_create(&request.body).map(|value| (200, value)),
@@ -578,6 +581,7 @@ async fn route(
                     "POST /bridges/deliveries/retry-all",
                     "POST /bridges/deliveries/<id>/retry",
                     "POST /voice/capture",
+                    "POST /compactions/keep",
                     "POST /tool/<name>",
                     "GET /conversations",
                     "GET /conversations/tree",
@@ -1178,6 +1182,19 @@ fn daemon_conversation_delete_range(id: &str, body: &str) -> anyhow::Result<serd
         "expanded_message_count": after,
         "conversation": conversation
     }))
+}
+
+fn daemon_compaction_keep(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: CompactionKeepInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        CompactionStore::from_env().keep_compacted_context(
+            &input.content,
+            input.guidance,
+            input.max_output_tokens,
+            input.source,
+            input.conversation_id,
+        )?,
+    )?)
 }
 
 fn conversation_recovery_plan_value(id: &str) -> anyhow::Result<serde_json::Value> {
@@ -3671,6 +3688,15 @@ struct DaemonPreviewInput {
 struct DaemonOptionsInput {
     #[serde(flatten)]
     options: DaemonRuntimeOptions,
+}
+
+#[derive(serde::Deserialize)]
+struct CompactionKeepInput {
+    content: String,
+    guidance: Option<String>,
+    source: Option<String>,
+    conversation_id: Option<String>,
+    max_output_tokens: Option<u32>,
 }
 
 #[derive(serde::Deserialize)]

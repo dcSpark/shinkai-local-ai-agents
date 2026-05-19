@@ -192,6 +192,14 @@ async fn route(
         ("POST", "/bridges/slack/slash") => daemon_slack_bridge(&request.body, &request.headers)
             .await
             .map(|value| (200, value)),
+        ("POST", "/bridges/teams/activity") => daemon_teams_bridge(&request.body, &request.headers)
+            .await
+            .map(|value| (200, value)),
+        ("POST", "/bridges/whatsapp/webhook") => {
+            daemon_whatsapp_bridge(&request.body, &request.headers)
+                .await
+                .map(|value| (200, value))
+        }
         ("POST", "/bridges/webhook") => daemon_webhook_bridge(&request.body, &request.headers)
             .await
             .map(|value| (200, value)),
@@ -563,6 +571,8 @@ async fn route(
                     "POST /batch/resume",
                     "POST /bridges/telegram/webhook",
                     "POST /bridges/slack/slash",
+                    "POST /bridges/teams/activity",
+                    "POST /bridges/whatsapp/webhook",
                     "POST /bridges/webhook",
                     "GET /bridges/deliveries",
                     "POST /bridges/deliveries/retry-all",
@@ -1808,6 +1818,99 @@ async fn daemon_slack_bridge(
     }))
 }
 
+async fn daemon_teams_bridge(
+    body: &str,
+    headers: &HashMap<String, String>,
+) -> anyhow::Result<serde_json::Value> {
+    verify_token_bridge("teams", headers, "teams")?;
+    let activity: TeamsActivity = serde_json::from_str(body)?;
+    if activity.activity_type.as_deref() != Some("message") {
+        anyhow::bail!("teams activity was not a message");
+    }
+    let text = activity
+        .text
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("teams activity did not include text"))?;
+    let result = run_bridge_agent("teams", text).await?;
+    let activity_id = activity.id.clone();
+    let conversation_id = activity
+        .conversation
+        .as_ref()
+        .and_then(|value| value.id.clone());
+    let from_user_id = activity.from.as_ref().and_then(|value| value.id.clone());
+    let service_url = activity.service_url.clone();
+    let response = serde_json::json!({
+        "type": "message",
+        "text": result.final_output,
+        "replyToId": activity_id.clone(),
+    });
+    let delivery = match teams_response_url(&activity).as_deref().map(str::trim) {
+        Some(url) if !url.is_empty() => {
+            post_bridge_json_with_retries("teams.response_url", url, response.clone()).await
+        }
+        _ => serde_json::json!({
+            "attempted": false,
+            "reason": "missing response_url"
+        }),
+    };
+    Ok(serde_json::json!({
+        "text": response["text"],
+        "bridge": {
+            "platform": "teams",
+            "activity_id": activity_id,
+            "conversation_id": conversation_id,
+            "from_user_id": from_user_id,
+            "service_url": service_url,
+            "run_id": result.run_id.0
+        },
+        "teams_response": response,
+        "delivery": delivery
+    }))
+}
+
+async fn daemon_whatsapp_bridge(
+    body: &str,
+    headers: &HashMap<String, String>,
+) -> anyhow::Result<serde_json::Value> {
+    verify_token_bridge("whatsapp", headers, "whatsapp")?;
+    let webhook: WhatsAppWebhook = serde_json::from_str(body)?;
+    let message = first_whatsapp_text_message(&webhook)
+        .ok_or_else(|| anyhow::anyhow!("whatsapp webhook did not include a text message"))?;
+    let result = run_bridge_agent("whatsapp", &message.text).await?;
+    let to = message.from.clone();
+    let response = serde_json::json!({
+        "messaging_product": "whatsapp",
+        "to": to.clone(),
+        "type": "text",
+        "text": {
+            "body": result.final_output
+        }
+    });
+    let delivery = match whatsapp_response_url(&webhook).as_deref().map(str::trim) {
+        Some(url) if !url.is_empty() => {
+            post_bridge_json_with_retries("whatsapp.response_url", url, response.clone()).await
+        }
+        _ => serde_json::json!({
+            "attempted": false,
+            "reason": "missing response_url"
+        }),
+    };
+    Ok(serde_json::json!({
+        "text": response["text"]["body"],
+        "bridge": {
+            "platform": "whatsapp",
+            "message_id": message.id,
+            "from_user_id": to,
+            "phone_number_id": message.phone_number_id,
+            "run_id": result.run_id.0
+        },
+        "whatsapp_response": response,
+        "delivery": delivery
+    }))
+}
+
 async fn daemon_webhook_bridge(
     body: &str,
     headers: &HashMap<String, String>,
@@ -2235,6 +2338,52 @@ fn parse_form_body(body: &str) -> HashMap<String, String> {
         .collect()
 }
 
+fn teams_response_url(activity: &TeamsActivity) -> Option<String> {
+    activity
+        .response_url
+        .clone()
+        .or_else(|| {
+            activity.channel_data.as_ref().and_then(|value| {
+                value
+                    .get("response_url")
+                    .or_else(|| value.get("responseUrl"))
+                    .and_then(serde_json::Value::as_str)
+                    .map(ToOwned::to_owned)
+            })
+        })
+        .or_else(|| bridge_env("teams", "RESPONSE_URL"))
+}
+
+fn whatsapp_response_url(webhook: &WhatsAppWebhook) -> Option<String> {
+    webhook
+        .response_url
+        .clone()
+        .or_else(|| bridge_env("whatsapp", "RESPONSE_URL"))
+}
+
+fn first_whatsapp_text_message(webhook: &WhatsAppWebhook) -> Option<WhatsAppBridgeMessage> {
+    for entry in &webhook.entry {
+        for change in &entry.changes {
+            for message in &change.value.messages {
+                let Some(text_value) = message.text.as_ref() else {
+                    continue;
+                };
+                let text = text_value.body.trim();
+                if text.is_empty() {
+                    continue;
+                }
+                return Some(WhatsAppBridgeMessage {
+                    id: message.id.clone(),
+                    from: message.from.clone(),
+                    text: text.to_string(),
+                    phone_number_id: change.value.metadata.phone_number_id.clone(),
+                });
+            }
+        }
+    }
+    None
+}
+
 fn verify_telegram_bridge(headers: &HashMap<String, String>) -> anyhow::Result<()> {
     let Some(expected) = bridge_env("telegram", "SECRET_TOKEN") else {
         return Ok(());
@@ -2249,18 +2398,26 @@ fn verify_telegram_bridge(headers: &HashMap<String, String>) -> anyhow::Result<(
 }
 
 fn verify_webhook_bridge(headers: &HashMap<String, String>) -> anyhow::Result<()> {
-    let Some(expected) = bridge_env("webhook", "SECRET_TOKEN") else {
+    verify_token_bridge("webhook", headers, "webhook")
+}
+
+fn verify_token_bridge(
+    platform: &str,
+    headers: &HashMap<String, String>,
+    label: &str,
+) -> anyhow::Result<()> {
+    let Some(expected) = bridge_env(platform, "SECRET_TOKEN") else {
         return Ok(());
     };
     let provided = header_value(headers, "x-agent-bridge-token")
         .or_else(|| {
             header_value(headers, "authorization").and_then(|value| value.strip_prefix("Bearer "))
         })
-        .ok_or_else(|| anyhow::anyhow!("webhook bridge authentication token is missing"))?;
+        .ok_or_else(|| anyhow::anyhow!("{label} bridge authentication token is missing"))?;
     if constant_time_eq(provided.as_bytes(), expected.as_bytes()) {
         Ok(())
     } else {
-        anyhow::bail!("webhook bridge authentication token is invalid")
+        anyhow::bail!("{label} bridge authentication token is invalid")
     }
 }
 
@@ -3542,6 +3699,80 @@ struct WebhookBridgeRequest {
 }
 
 #[derive(serde::Deserialize)]
+struct TeamsActivity {
+    #[serde(rename = "type")]
+    activity_type: Option<String>,
+    id: Option<String>,
+    text: Option<String>,
+    from: Option<TeamsIdentity>,
+    conversation: Option<TeamsConversation>,
+    #[serde(rename = "serviceUrl")]
+    service_url: Option<String>,
+    response_url: Option<String>,
+    #[serde(rename = "channelData")]
+    channel_data: Option<serde_json::Value>,
+}
+
+#[derive(serde::Deserialize)]
+struct TeamsIdentity {
+    id: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct TeamsConversation {
+    id: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct WhatsAppWebhook {
+    #[serde(default)]
+    entry: Vec<WhatsAppEntry>,
+    response_url: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct WhatsAppEntry {
+    #[serde(default)]
+    changes: Vec<WhatsAppChange>,
+}
+
+#[derive(serde::Deserialize)]
+struct WhatsAppChange {
+    value: WhatsAppValue,
+}
+
+#[derive(serde::Deserialize)]
+struct WhatsAppValue {
+    metadata: WhatsAppMetadata,
+    #[serde(default)]
+    messages: Vec<WhatsAppMessage>,
+}
+
+#[derive(serde::Deserialize)]
+struct WhatsAppMetadata {
+    phone_number_id: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct WhatsAppMessage {
+    id: Option<String>,
+    from: String,
+    text: Option<WhatsAppText>,
+}
+
+#[derive(serde::Deserialize)]
+struct WhatsAppText {
+    body: String,
+}
+
+struct WhatsAppBridgeMessage {
+    id: Option<String>,
+    from: String,
+    text: String,
+    phone_number_id: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
 struct TelegramUpdate {
     update_id: Option<i64>,
     message: Option<TelegramMessage>,
@@ -4395,6 +4626,8 @@ mod tests {
         let previous_bridge_agent = std::env::var_os("AGENT_BRIDGE_AGENT_ID");
         let previous_telegram_agent = std::env::var_os("AGENT_TELEGRAM_AGENT_ID");
         let previous_slack_agent = std::env::var_os("AGENT_SLACK_AGENT_ID");
+        let previous_teams_agent = std::env::var_os("AGENT_TEAMS_AGENT_ID");
+        let previous_whatsapp_agent = std::env::var_os("AGENT_WHATSAPP_AGENT_ID");
         let previous_webhook_agent = std::env::var_os("AGENT_WEBHOOK_AGENT_ID");
         let previous_slack_response = std::env::var_os("AGENT_SLACK_RESPONSE_TYPE");
         unsafe {
@@ -4402,6 +4635,8 @@ mod tests {
             std::env::remove_var("AGENT_BRIDGE_AGENT_ID");
             std::env::remove_var("AGENT_TELEGRAM_AGENT_ID");
             std::env::remove_var("AGENT_SLACK_AGENT_ID");
+            std::env::remove_var("AGENT_TEAMS_AGENT_ID");
+            std::env::remove_var("AGENT_WHATSAPP_AGENT_ID");
             std::env::remove_var("AGENT_WEBHOOK_AGENT_ID");
             std::env::remove_var("AGENT_SLACK_RESPONSE_TYPE");
         }
@@ -4443,6 +4678,56 @@ mod tests {
         assert_eq!(slack["bridge"]["user_id"], "U1");
         assert!(slack["bridge"]["run_id"].as_str().is_some());
 
+        let teams = daemon_teams_bridge(
+            r#"{
+                "type": "message",
+                "id": "activity-1",
+                "text": "hello teams",
+                "from": { "id": "teams-user" },
+                "conversation": { "id": "teams-conversation" },
+                "serviceUrl": "https://teams.example"
+            }"#,
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(teams["text"], "[fake] hello teams");
+        assert_eq!(teams["bridge"]["platform"], "teams");
+        assert_eq!(teams["bridge"]["activity_id"], "activity-1");
+        assert_eq!(teams["bridge"]["conversation_id"], "teams-conversation");
+        assert_eq!(teams["bridge"]["from_user_id"], "teams-user");
+        assert_eq!(teams["teams_response"]["type"], "message");
+        assert_eq!(teams["teams_response"]["replyToId"], "activity-1");
+        assert_eq!(teams["delivery"]["attempted"], false);
+
+        let whatsapp = daemon_whatsapp_bridge(
+            r#"{
+                "entry": [{
+                    "changes": [{
+                        "value": {
+                            "metadata": { "phone_number_id": "phone-1" },
+                            "messages": [{
+                                "id": "wamid.1",
+                                "from": "15551234567",
+                                "type": "text",
+                                "text": { "body": "hello whatsapp" }
+                            }]
+                        }
+                    }]
+                }]
+            }"#,
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(whatsapp["text"], "[fake] hello whatsapp");
+        assert_eq!(whatsapp["bridge"]["platform"], "whatsapp");
+        assert_eq!(whatsapp["bridge"]["message_id"], "wamid.1");
+        assert_eq!(whatsapp["bridge"]["from_user_id"], "15551234567");
+        assert_eq!(whatsapp["bridge"]["phone_number_id"], "phone-1");
+        assert_eq!(whatsapp["whatsapp_response"]["to"], "15551234567");
+        assert_eq!(whatsapp["delivery"]["attempted"], false);
+
         let webhook = daemon_webhook_bridge(
             r#"{"text":"hello webhook","user_id":"mobile-user","conversation_id":"thread-1","metadata":{"source":"web"}}"#,
             &HashMap::new(),
@@ -4461,6 +4746,8 @@ mod tests {
         restore_env("AGENT_BRIDGE_AGENT_ID", previous_bridge_agent);
         restore_env("AGENT_TELEGRAM_AGENT_ID", previous_telegram_agent);
         restore_env("AGENT_SLACK_AGENT_ID", previous_slack_agent);
+        restore_env("AGENT_TEAMS_AGENT_ID", previous_teams_agent);
+        restore_env("AGENT_WHATSAPP_AGENT_ID", previous_whatsapp_agent);
         restore_env("AGENT_WEBHOOK_AGENT_ID", previous_webhook_agent);
         restore_env("AGENT_SLACK_RESPONSE_TYPE", previous_slack_response);
         let _ = std::fs::remove_dir_all(dir);
@@ -4473,11 +4760,15 @@ mod tests {
         let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
         let previous_telegram = std::env::var_os("AGENT_TELEGRAM_SECRET_TOKEN");
         let previous_slack = std::env::var_os("AGENT_SLACK_SIGNING_SECRET");
+        let previous_teams = std::env::var_os("AGENT_TEAMS_SECRET_TOKEN");
+        let previous_whatsapp = std::env::var_os("AGENT_WHATSAPP_SECRET_TOKEN");
         let previous_webhook = std::env::var_os("AGENT_WEBHOOK_SECRET_TOKEN");
         unsafe {
             std::env::set_var("AGENT_HARNESS_HOME", &dir);
             std::env::set_var("AGENT_TELEGRAM_SECRET_TOKEN", "telegram-secret");
             std::env::set_var("AGENT_SLACK_SIGNING_SECRET", "slack-secret");
+            std::env::set_var("AGENT_TEAMS_SECRET_TOKEN", "teams-secret");
+            std::env::set_var("AGENT_WHATSAPP_SECRET_TOKEN", "whatsapp-secret");
             std::env::set_var("AGENT_WEBHOOK_SECRET_TOKEN", "webhook-secret");
         }
 
@@ -4544,6 +4835,57 @@ mod tests {
             "[fake] signed slack"
         );
 
+        let teams_body = r#"{"type":"message","id":"signed-teams","text":"signed teams"}"#;
+        let mut bad_teams_headers = HashMap::new();
+        bad_teams_headers.insert("authorization".into(), "Bearer wrong-secret".into());
+        assert!(
+            daemon_teams_bridge(teams_body, &bad_teams_headers)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("invalid")
+        );
+        let mut good_teams_headers = HashMap::new();
+        good_teams_headers.insert("authorization".into(), "Bearer teams-secret".into());
+        assert_eq!(
+            daemon_teams_bridge(teams_body, &good_teams_headers)
+                .await
+                .unwrap()["text"],
+            "[fake] signed teams"
+        );
+
+        let whatsapp_body = r#"{
+            "entry": [{
+                "changes": [{
+                    "value": {
+                        "metadata": { "phone_number_id": "phone-2" },
+                        "messages": [{
+                            "id": "wamid.2",
+                            "from": "15557654321",
+                            "text": { "body": "signed whatsapp" }
+                        }]
+                    }
+                }]
+            }]
+        }"#;
+        let mut bad_whatsapp_headers = HashMap::new();
+        bad_whatsapp_headers.insert("x-agent-bridge-token".into(), "wrong-secret".into());
+        assert!(
+            daemon_whatsapp_bridge(whatsapp_body, &bad_whatsapp_headers)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("invalid")
+        );
+        let mut good_whatsapp_headers = HashMap::new();
+        good_whatsapp_headers.insert("x-agent-bridge-token".into(), "whatsapp-secret".into());
+        assert_eq!(
+            daemon_whatsapp_bridge(whatsapp_body, &good_whatsapp_headers)
+                .await
+                .unwrap()["text"],
+            "[fake] signed whatsapp"
+        );
+
         let webhook_body = r#"{"text":"signed webhook"}"#;
         let mut bad_webhook_headers = HashMap::new();
         bad_webhook_headers.insert("x-agent-bridge-token".into(), "wrong-secret".into());
@@ -4566,6 +4908,8 @@ mod tests {
         restore_env("AGENT_HARNESS_HOME", previous_home);
         restore_env("AGENT_TELEGRAM_SECRET_TOKEN", previous_telegram);
         restore_env("AGENT_SLACK_SIGNING_SECRET", previous_slack);
+        restore_env("AGENT_TEAMS_SECRET_TOKEN", previous_teams);
+        restore_env("AGENT_WHATSAPP_SECRET_TOKEN", previous_whatsapp);
         restore_env("AGENT_WEBHOOK_SECRET_TOKEN", previous_webhook);
         let _ = std::fs::remove_dir_all(dir);
     }

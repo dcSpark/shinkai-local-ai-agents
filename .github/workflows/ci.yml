@@ -92,6 +92,9 @@ jobs:
       - name: Packaging metadata verifier
         run: scripts/verify-packaging.sh
 
+      - name: Release artifact manifest verifier
+        run: scripts/verify-release-artifacts.sh --manifest-only
+
       - name: Release binary build
         run: cargo build -p agent-cli -p agent-daemon -p agent-tauri --release --bins
 

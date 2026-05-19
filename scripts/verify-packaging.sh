@@ -87,12 +87,24 @@ const mainTsx = fs.readFileSync("crates/agent-tauri/frontend/src/main.tsx", "utf
 assert(mainTsx.includes("serviceWorker.register"), "frontend must register the mobile web service worker");
 assert(fs.existsSync("crates/agent-tauri/frontend/public/sw.js"), "mobile web service worker is missing");
 
+const releaseArtifacts = JSON.parse(fs.readFileSync("packaging/release-artifacts.json", "utf8"));
+assert(releaseArtifacts.schema_version === 1, "release artifact manifest schema must be version 1");
+const releasePlatforms = new Set(releaseArtifacts.platforms?.map((platform) => platform.id));
+for (const platform of ["linux", "macos", "windows", "android", "ios"]) {
+  assert(releasePlatforms.has(platform), `release artifact manifest must include ${platform}`);
+}
+assert(
+  releaseArtifacts.updater?.signing_env?.includes("TAURI_SIGNING_PRIVATE_KEY"),
+  "release artifact manifest must declare Tauri updater signing",
+);
+
 const ci = fs.readFileSync(".github/workflows/ci.yml", "utf8");
 for (const os of ["ubuntu-latest", "macos-14", "windows-2022"]) {
   assert(ci.includes(os), `CI matrix must include ${os}`);
 }
 assert(ci.includes("npm run build"), "CI must run the frontend production build");
 assert(ci.includes("scripts/verify-packaging.sh"), "CI must run the packaging verifier");
+assert(ci.includes("scripts/verify-release-artifacts.sh"), "CI must run the release artifact manifest verifier");
 assert(ci.includes("cargo build -p agent-cli -p agent-daemon -p agent-tauri --release --bins"), "CI must build release binaries");
 assert(ci.includes("scripts/verify-release-binaries.sh"), "CI must verify release binary artifacts");
 

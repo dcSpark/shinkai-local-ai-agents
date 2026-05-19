@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "product": "Shinkai",
+  "tauri_config": "crates/agent-tauri/tauri.conf.json",
+  "official_docs": [
+    "https://v2.tauri.app/distribute/",
+    "https://v2.tauri.app/reference/config/"
+  ],
+  "updater": {
+    "required": true,
+    "signing_env": [
+      "TAURI_SIGNING_PRIVATE_KEY",
+      "TAURI_SIGNING_PRIVATE_KEY_PASSWORD"
+    ],
+    "artifact_globs": [
+      "target/release/bundle/**/latest.json",
+      "target/release/bundle/**/*.sig"
+    ]
+  },
+  "platforms": [
+    {
+      "id": "linux",
+      "kind": "desktop",
+      "runner": "ubuntu-latest",
+      "command": "cargo tauri build --bundles deb,rpm,appimage",
+      "artifact_globs": [
+        "target/release/bundle/deb/*.deb",
+        "target/release/bundle/rpm/*.rpm",
+        "target/release/bundle/appimage/*.AppImage"
+      ],
+      "signing": {
+        "required": true,
+        "env": ["LINUX_GPG_PRIVATE_KEY", "LINUX_GPG_PASSPHRASE"]
+      }
+    },
+    {
+      "id": "macos",
+      "kind": "desktop",
+      "runner": "macos-14",
+      "command": "cargo tauri build --bundles app,dmg",
+      "artifact_globs": [
+        "target/release/bundle/macos/Shinkai.app",
+        "target/release/bundle/dmg/Shinkai_*.dmg"
+      ],
+      "signing": {
+        "required": true,
+        "env": [
+          "APPLE_SIGNING_IDENTITY",
+          "APPLE_ID",
+          "APPLE_PASSWORD",
+          "APPLE_TEAM_ID"
+        ],
+        "notarization_env": ["APPLE_ID", "APPLE_PASSWORD", "APPLE_TEAM_ID"]
+      }
+    },
+    {
+      "id": "windows",
+      "kind": "desktop",
+      "runner": "windows-2022",
+      "command": "cargo tauri build --bundles nsis,msi",
+      "artifact_globs": [
+        "target/release/bundle/nsis/Shinkai_*.exe",
+        "target/release/bundle/msi/Shinkai_*.msi"
+      ],
+      "signing": {
+        "required": true,
+        "env": [
+          "WINDOWS_CERTIFICATE",
+          "WINDOWS_CERTIFICATE_PASSWORD",
+          "WINDOWS_TIMESTAMP_URL"
+        ]
+      }
+    },
+    {
+      "id": "android",
+      "kind": "mobile",
+      "runner": "ubuntu-latest",
+      "command": "cargo tauri android build --apk --aab",
+      "artifact_globs": [
+        "crates/agent-tauri/gen/android/app/build/outputs/apk/**/*.apk",
+        "crates/agent-tauri/gen/android/app/build/outputs/bundle/**/*.aab"
+      ],
+      "signing": {
+        "required": true,
+        "env": [
+          "ANDROID_KEYSTORE_BASE64",
+          "ANDROID_KEYSTORE_PASSWORD",
+          "ANDROID_KEY_ALIAS",
+          "ANDROID_KEY_PASSWORD"
+        ]
+      }
+    },
+    {
+      "id": "ios",
+      "kind": "mobile",
+      "runner": "macos-14",
+      "command": "cargo tauri ios build --export-method app-store-connect",
+      "artifact_globs": [
+        "crates/agent-tauri/gen/apple/build/**/*.ipa",
+        "crates/agent-tauri/gen/apple/build/**/*.xcarchive"
+      ],
+      "signing": {
+        "required": true,
+        "env": [
+          "APPLE_API_KEY",
+          "APPLE_API_ISSUER",
+          "APPLE_TEAM_ID",
+          "IOS_PROVISIONING_PROFILE"
+        ]
+      }
+    }
+  ]
+}

@@ -2900,6 +2900,28 @@ pub async fn model_probe(id: String, json: bool) -> anyhow::Result<()> {
         if let Some(message) = probe.live_probe.message {
             println!("note={message}");
         }
+        if !probe.declared_limits.is_empty() {
+            println!(
+                "declared_limits={}",
+                probe
+                    .declared_limits
+                    .iter()
+                    .map(|(key, value)| format!("{key}={value}"))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+        }
+        if !probe.declared_pricing.is_empty() {
+            println!(
+                "declared_pricing={}",
+                probe
+                    .declared_pricing
+                    .iter()
+                    .map(|(key, value)| format!("{key}={value}"))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+        }
         if !probe.live_probe.reported_modalities.is_empty() {
             println!(
                 "live_modalities={}",
@@ -2914,6 +2936,9 @@ pub async fn model_probe(id: String, json: bool) -> anyhow::Result<()> {
         }
         if let Some(tool_support) = probe.live_probe.reported_tool_support {
             println!("live_tools={tool_support}");
+        }
+        if let Some(source) = probe.live_probe.fallback_source {
+            println!("fallback_source={source}");
         }
         if !probe.live_probe.reported_limits.is_empty() {
             println!(

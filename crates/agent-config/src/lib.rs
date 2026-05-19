@@ -370,6 +370,10 @@ pub struct ModelCapabilityProbe {
     pub provider: String,
     pub declared_modalities: Vec<String>,
     pub provider_modalities: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub declared_limits: BTreeMap<String, u64>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub declared_pricing: BTreeMap<String, String>,
     pub tool_support: Option<bool>,
     pub live_probe: ModelLiveCapabilityProbe,
 }
@@ -380,6 +384,8 @@ pub struct ModelLiveCapabilityProbe {
     pub status: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_source: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_found: Option<bool>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -1624,6 +1630,14 @@ impl ConfigResolver {
             .map(|model| model.available_modalities.clone())
             .filter(|modalities| !modalities.is_empty())
             .unwrap_or_else(|| provider_modalities.clone());
+        let declared_limits = model
+            .as_ref()
+            .map(declared_model_limits)
+            .unwrap_or_default();
+        let declared_pricing = model
+            .as_ref()
+            .map(declared_model_pricing)
+            .unwrap_or_default();
         let api_base_url = model
             .as_ref()
             .and_then(|model| model.api_base_url.clone())
@@ -1659,6 +1673,7 @@ impl ConfigResolver {
                 api_key_env.as_deref(),
             )
         };
+        let live_probe = apply_curated_metadata_fallback(live_probe, &provider, model_id);
 
         Ok(ModelCapabilityProbe {
             model_id: model_id.into(),
@@ -1666,6 +1681,8 @@ impl ConfigResolver {
             provider,
             declared_modalities,
             provider_modalities,
+            declared_limits,
+            declared_pricing,
             tool_support: model
                 .as_ref()
                 .and_then(|model| model.tool_support)
@@ -1802,6 +1819,28 @@ fn provider_supports_modality(provider: Option<&str>, modality: &str) -> bool {
         .unwrap_or(true)
 }
 
+fn declared_model_limits(model: &ModelConfig) -> BTreeMap<String, u64> {
+    let mut limits = BTreeMap::new();
+    if let Some(value) = model.max_context_tokens {
+        limits.insert("context_tokens".into(), value);
+    }
+    if let Some(value) = model.max_output_tokens {
+        limits.insert("output_tokens".into(), value);
+    }
+    limits
+}
+
+fn declared_model_pricing(model: &ModelConfig) -> BTreeMap<String, String> {
+    let mut pricing = BTreeMap::new();
+    if let Some(value) = model.input_cost_per_million {
+        pricing.insert("input_per_million".into(), value.to_string());
+    }
+    if let Some(value) = model.output_cost_per_million {
+        pricing.insert("output_per_million".into(), value.to_string());
+    }
+    pricing
+}
+
 fn normalized_provider(provider: Option<&str>) -> Option<String> {
     let provider = provider?.trim().to_ascii_lowercase();
     if provider.is_empty() {
@@ -1837,6 +1876,7 @@ fn probe_native_provider_capabilities(
         attempted: false,
         status: "declared".into(),
         source: Some(format!("provider_descriptor:{provider}")),
+        fallback_source: None,
         model_found: saved_model.then_some(true),
         reported_modalities: Vec::new(),
         reported_capabilities: Vec::new(),
@@ -1863,6 +1903,162 @@ struct LiveModelMetadata {
     tool_support: Option<bool>,
     limits: BTreeMap<String, u64>,
     pricing: BTreeMap<String, String>,
+}
+
+fn live_metadata(
+    modalities: &[&str],
+    capabilities: &[&str],
+    tool_support: Option<bool>,
+    limits: &[(&str, u64)],
+    pricing: &[(&str, &str)],
+) -> LiveModelMetadata {
+    LiveModelMetadata {
+        modalities: modalities
+            .iter()
+            .map(|value| (*value).to_string())
+            .collect(),
+        capabilities: capabilities
+            .iter()
+            .map(|value| (*value).to_string())
+            .collect(),
+        tool_support,
+        limits: limits
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), *value))
+            .collect(),
+        pricing: pricing
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+            .collect(),
+    }
+}
+
+fn curated_model_metadata(provider: &str, model_id: &str) -> Option<(String, LiveModelMetadata)> {
+    let model_id = model_id.trim();
+    match provider {
+        "rig" => match model_id {
+            "gpt-4o-mini" | "gpt-4o-mini-2024-07-18" => Some((
+                "https://platform.openai.com/docs/models/gpt-4o-mini".into(),
+                live_metadata(
+                    &["text", "image"],
+                    &[
+                        "streaming",
+                        "function_calling",
+                        "structured_outputs",
+                        "fine_tuning",
+                    ],
+                    Some(true),
+                    &[("context_tokens", 128_000), ("output_tokens", 16_384)],
+                    &[
+                        ("input_per_million", "0.15"),
+                        ("cached_input_per_million", "0.075"),
+                        ("output_per_million", "0.60"),
+                    ],
+                ),
+            )),
+            _ => None,
+        },
+        "anthropic" => match model_id {
+            "claude-sonnet-4-5" | "claude-sonnet-4-5-20250929" => Some((
+                "https://platform.claude.com/docs/en/about-claude/models/all-models".into(),
+                live_metadata(
+                    &["text", "image"],
+                    &["vision", "tool_use", "extended_thinking"],
+                    Some(true),
+                    &[("context_tokens", 200_000), ("output_tokens", 64_000)],
+                    &[
+                        ("input_per_million", "3.00"),
+                        ("output_per_million", "15.00"),
+                    ],
+                ),
+            )),
+            _ => None,
+        },
+        "gemini" => match model_id {
+            "gemini-2.5-flash" | "gemini-2.5-flash-preview-09-2025" => Some((
+                "https://ai.google.dev/gemini-api/docs/models/gemini".into(),
+                live_metadata(
+                    &["text", "image", "video", "audio"],
+                    &[
+                        "batch",
+                        "caching",
+                        "code_execution",
+                        "file_search",
+                        "function_calling",
+                        "grounding",
+                        "structured_outputs",
+                        "thinking",
+                        "url_context",
+                    ],
+                    Some(true),
+                    &[("input_tokens", 1_048_576), ("output_tokens", 65_536)],
+                    &[
+                        ("input_per_million", "0.30"),
+                        ("audio_input_per_million", "1.00"),
+                        ("output_per_million", "2.50"),
+                        ("cached_input_per_million", "0.03"),
+                        ("cached_audio_input_per_million", "0.10"),
+                    ],
+                ),
+            )),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn append_probe_message(message: Option<String>, note: &str) -> Option<String> {
+    Some(match message {
+        Some(existing) if existing.contains(note) => existing,
+        Some(existing) => format!("{existing}; {note}"),
+        None => note.to_string(),
+    })
+}
+
+fn apply_curated_metadata_fallback(
+    mut probe: ModelLiveCapabilityProbe,
+    provider: &str,
+    model_id: &str,
+) -> ModelLiveCapabilityProbe {
+    if probe.model_found == Some(false) {
+        return probe;
+    }
+    let Some((source, fallback)) = curated_model_metadata(provider, model_id) else {
+        return probe;
+    };
+    let mut applied = false;
+    if probe.reported_modalities.is_empty() && !fallback.modalities.is_empty() {
+        probe.reported_modalities = fallback.modalities.clone();
+        applied = true;
+    }
+    if probe.reported_capabilities.is_empty() && !fallback.capabilities.is_empty() {
+        probe.reported_capabilities = fallback.capabilities.clone();
+        applied = true;
+    }
+    if probe.reported_tool_support.is_none() && fallback.tool_support.is_some() {
+        probe.reported_tool_support = fallback.tool_support;
+        applied = true;
+    }
+    for (key, value) in fallback.limits {
+        if !probe.reported_limits.contains_key(&key) {
+            probe.reported_limits.insert(key, value);
+            applied = true;
+        }
+    }
+    for (key, value) in fallback.pricing {
+        if !probe.reported_pricing.contains_key(&key) {
+            probe.reported_pricing.insert(key, value);
+            applied = true;
+        }
+    }
+    if applied {
+        probe.fallback_source = Some(source);
+        probe.message = append_probe_message(
+            probe.message,
+            "missing catalog metadata was filled from curated offline metadata",
+        );
+    }
+    probe
 }
 
 fn probe_anthropic_model_catalog(
@@ -1917,6 +2113,7 @@ fn native_catalog_not_configured(
         attempted: false,
         status: "not_configured".into(),
         source: Some(source.into()),
+        fallback_source: None,
         model_found: None,
         reported_modalities: Vec::new(),
         reported_capabilities: Vec::new(),
@@ -1941,6 +2138,7 @@ fn native_catalog_reachable(
         attempted: true,
         status: "reachable".into(),
         source: Some(source.into()),
+        fallback_source: None,
         model_found: Some(model_found),
         reported_modalities: if model_found {
             metadata
@@ -1991,6 +2189,7 @@ fn native_catalog_unreachable(source: &str, message: String) -> ModelLiveCapabil
         attempted: true,
         status: "unreachable".into(),
         source: Some(source.into()),
+        fallback_source: None,
         model_found: None,
         reported_modalities: Vec::new(),
         reported_capabilities: Vec::new(),
@@ -2517,6 +2716,7 @@ fn probe_openai_compatible_models(
             attempted: false,
             status: "unsupported".into(),
             source: None,
+            fallback_source: None,
             model_found: None,
             reported_modalities: Vec::new(),
             reported_capabilities: Vec::new(),
@@ -2536,6 +2736,7 @@ fn probe_openai_compatible_models(
             attempted: false,
             status: "not_configured".into(),
             source: None,
+            fallback_source: None,
             model_found: None,
             reported_modalities: Vec::new(),
             reported_capabilities: Vec::new(),
@@ -2552,6 +2753,7 @@ fn probe_openai_compatible_models(
                 attempted: false,
                 status: "unsupported".into(),
                 source: Some(api_base_url.into()),
+                fallback_source: None,
                 model_found: None,
                 reported_modalities: Vec::new(),
                 reported_capabilities: Vec::new(),
@@ -2570,6 +2772,7 @@ fn probe_openai_compatible_models(
                 attempted: true,
                 status: "reachable".into(),
                 source: Some(parsed.source),
+                fallback_source: None,
                 model_found: Some(model_found),
                 reported_modalities: if model_found {
                     metadata
@@ -2615,6 +2818,7 @@ fn probe_openai_compatible_models(
             attempted: true,
             status: "unreachable".into(),
             source: Some(parsed.source),
+            fallback_source: None,
             model_found: None,
             reported_modalities: Vec::new(),
             reported_capabilities: Vec::new(),
@@ -4513,6 +4717,141 @@ system_prompt = "Review carefully."
         );
         assert_eq!(native.live_probe.model_found, None);
         assert!(!native.live_probe.attempted);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn model_capability_probe_fills_missing_catalog_metadata_from_curated_fallbacks() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 1024];
+            let _ = stream.read(&mut request);
+            let body = r#"{"object":"list","data":[{"id":"gpt-4o-mini"}]}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+
+        let dir = std::env::temp_dir().join(format!("agent-curated-probe-test-{}", uuid_like()));
+        let resolver = ConfigResolver::new(StoragePaths::new(&dir));
+        let mut model = ModelConfig::for_id("gpt-4o-mini");
+        model.provider = Some("rig".into());
+        model.api_base_url = Some(format!("http://{addr}/v1"));
+        model.max_context_tokens = Some(32_000);
+        model.max_output_tokens = Some(2_048);
+        model.input_cost_per_million = Some(0.11);
+        model.output_cost_per_million = Some(0.22);
+        resolver.save_model(&model).unwrap();
+
+        let probe = resolver.probe_model_capabilities("gpt-4o-mini").unwrap();
+        server.join().unwrap();
+
+        assert_eq!(probe.live_probe.status, "reachable");
+        assert_eq!(probe.live_probe.model_found, Some(true));
+        assert_eq!(probe.declared_limits.get("context_tokens"), Some(&32_000));
+        assert_eq!(probe.declared_limits.get("output_tokens"), Some(&2_048));
+        assert_eq!(
+            probe
+                .declared_pricing
+                .get("input_per_million")
+                .map(String::as_str),
+            Some("0.11")
+        );
+        assert!(
+            probe
+                .live_probe
+                .reported_modalities
+                .iter()
+                .any(|modality| modality == "image")
+        );
+        assert!(
+            probe
+                .live_probe
+                .reported_capabilities
+                .iter()
+                .any(|capability| capability == "function_calling")
+        );
+        assert_eq!(probe.live_probe.reported_tool_support, Some(true));
+        assert_eq!(
+            probe.live_probe.reported_limits.get("context_tokens"),
+            Some(&128_000)
+        );
+        assert_eq!(
+            probe.live_probe.reported_limits.get("output_tokens"),
+            Some(&16_384)
+        );
+        assert_eq!(
+            probe
+                .live_probe
+                .reported_pricing
+                .get("input_per_million")
+                .map(String::as_str),
+            Some("0.15")
+        );
+        assert_eq!(
+            probe
+                .live_probe
+                .reported_pricing
+                .get("output_per_million")
+                .map(String::as_str),
+            Some("0.60")
+        );
+        assert_eq!(
+            probe.live_probe.fallback_source.as_deref(),
+            Some("https://platform.openai.com/docs/models/gpt-4o-mini")
+        );
+        assert!(
+            probe
+                .live_probe
+                .message
+                .as_deref()
+                .is_some_and(|message| message.contains("curated offline metadata"))
+        );
+
+        let mut gemini = ModelConfig::for_id("gemini-2.5-flash");
+        gemini.provider = Some("gemini".into());
+        gemini.api_key_env = Some("SHINKAI_TEST_MISSING_GEMINI_KEY_FOR_CURATED_FALLBACK".into());
+        resolver.save_model(&gemini).unwrap();
+        let gemini_probe = resolver
+            .probe_model_capabilities("gemini-2.5-flash")
+            .unwrap();
+        assert_eq!(gemini_probe.live_probe.status, "not_configured");
+        assert_eq!(
+            gemini_probe.live_probe.fallback_source.as_deref(),
+            Some("https://ai.google.dev/gemini-api/docs/models/gemini")
+        );
+        assert!(
+            gemini_probe
+                .live_probe
+                .reported_modalities
+                .iter()
+                .any(|modality| modality == "audio")
+        );
+        assert_eq!(
+            gemini_probe.live_probe.reported_limits.get("input_tokens"),
+            Some(&1_048_576)
+        );
+        assert_eq!(
+            gemini_probe.live_probe.reported_limits.get("output_tokens"),
+            Some(&65_536)
+        );
+        assert_eq!(
+            gemini_probe
+                .live_probe
+                .reported_pricing
+                .get("output_per_million")
+                .map(String::as_str),
+            Some("2.50")
+        );
 
         let _ = std::fs::remove_dir_all(dir);
     }

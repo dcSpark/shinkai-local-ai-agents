@@ -58,11 +58,34 @@ assert(
   tauriConfig.build?.frontendDist === "frontend/dist",
   "Tauri frontendDist must point at frontend/dist",
 );
+assert(tauriConfig.bundle?.active === true, "Tauri bundling must be active for release packaging");
 assert(tauriConfig.bundle?.targets === "all", "Tauri bundle targets must cover all platforms");
+assert(
+  Array.isArray(tauriConfig.bundle?.icon) && tauriConfig.bundle.icon.includes("icons/icon.png"),
+  "Tauri bundle must include the app icon",
+);
 
 const frontend = JSON.parse(fs.readFileSync("crates/agent-tauri/frontend/package.json", "utf8"));
 assert(frontend.scripts?.build === "tsc -b && vite build", "frontend build script must type-check and bundle");
 assert(frontend.scripts?.["type-check"] === "tsc -b --noEmit", "frontend type-check script is missing");
+
+const index = fs.readFileSync("crates/agent-tauri/frontend/index.html", "utf8");
+assert(index.includes('rel="manifest"'), "frontend must link the mobile web manifest");
+assert(index.includes('mobile-web-app-capable'), "frontend must declare mobile web app capability");
+assert(index.includes('rel="apple-touch-icon"'), "frontend must expose an install icon for mobile browsers");
+
+const manifest = JSON.parse(fs.readFileSync("crates/agent-tauri/frontend/public/manifest.webmanifest", "utf8"));
+assert(manifest.name === "Shinkai Agents", "mobile web manifest name must be stable");
+assert(manifest.display === "standalone", "mobile web manifest must be installable as standalone");
+assert(manifest.start_url === "/", "mobile web manifest must start at the app root");
+assert(Array.isArray(manifest.icons) && manifest.icons.length > 0, "mobile web manifest must include icons");
+const manifestIconSources = new Set(manifest.icons.map((icon) => icon.src));
+assert(manifestIconSources.has("/icon-192.png"), "mobile web manifest must include a 192px PNG icon");
+assert(manifestIconSources.has("/icon-512.png"), "mobile web manifest must include a 512px PNG icon");
+
+const mainTsx = fs.readFileSync("crates/agent-tauri/frontend/src/main.tsx", "utf8");
+assert(mainTsx.includes("serviceWorker.register"), "frontend must register the mobile web service worker");
+assert(fs.existsSync("crates/agent-tauri/frontend/public/sw.js"), "mobile web service worker is missing");
 
 const ci = fs.readFileSync(".github/workflows/ci.yml", "utf8");
 for (const os of ["ubuntu-latest", "macos-14", "windows-2022"]) {

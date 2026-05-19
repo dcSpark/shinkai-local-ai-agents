@@ -260,6 +260,8 @@ pub struct ContextSnapshot {
     pub system_prompt: String,
     pub conversation: Vec<Message>,
     pub compacted: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compaction_review: Option<CompactionReview>,
     pub loaded_memory: Vec<MemoryFragment>,
     pub loaded_artifacts: Vec<IngestedArtifactView>,
     pub visible_tools: Vec<ToolView>,
@@ -268,6 +270,25 @@ pub struct ContextSnapshot {
     #[serde(default)]
     pub estimated_input_tokens: u32,
     pub provenance: Vec<ProvenanceRecord>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompactionReview {
+    pub mode: CompactionReviewMode,
+    pub before_messages: Vec<String>,
+    pub compacted_context: String,
+    pub visible_messages: Vec<String>,
+    pub before_tokens: u32,
+    pub after_tokens: u32,
+    #[serde(default)]
+    pub withheld_before_messages: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CompactionReviewMode {
+    Auto,
+    Manual,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2222,6 +2243,11 @@ impl ContextBuilder<'_> {
     fn build(self) -> ContextSnapshot {
         let max_tool_calls = self.agent.tool_policy.max_calls;
         let remaining_tool_calls = max_tool_calls.saturating_sub(self.calls_used);
+        let original_conversation = self.conversation.clone();
+        let original_conversation_tokens =
+            original_conversation.iter().fold(0_u32, |total, message| {
+                total.saturating_add(estimate_message_tokens(message))
+            });
         let loaded_memory: Vec<MemoryFragment> = self
             .agent
             .memory_fragments
@@ -2267,6 +2293,19 @@ impl ContextBuilder<'_> {
         let auto_compacted = auto_compacted.filter(|text| !text_contains_secret_marker(text));
         let auto_compacted_applied = auto_compacted_applied && auto_compacted.is_some();
         let compacted = manual_compacted.or(auto_compacted);
+        let compaction_review = compacted.as_ref().map(|compacted_context| {
+            build_compaction_review(
+                if auto_compacted_applied {
+                    CompactionReviewMode::Auto
+                } else {
+                    CompactionReviewMode::Manual
+                },
+                &original_conversation,
+                &conversation,
+                compacted_context,
+                original_conversation_tokens,
+            )
+        });
         let mut visible_tools: Vec<ToolView> = self
             .tools
             .descriptors()
@@ -2521,6 +2560,7 @@ impl ContextBuilder<'_> {
             system_prompt,
             conversation,
             compacted,
+            compaction_review,
             loaded_memory,
             loaded_artifacts,
             visible_tools,
@@ -2630,6 +2670,50 @@ fn auto_compact_conversation(
         threshold,
     );
     (vec![latest.clone()], Some(compacted), true)
+}
+
+fn build_compaction_review(
+    mode: CompactionReviewMode,
+    before: &[Message],
+    visible: &[Message],
+    compacted_context: &str,
+    before_tokens: u32,
+) -> CompactionReview {
+    let (before_messages, withheld_before_messages) = compaction_review_lines(before);
+    let (visible_messages, _) = compaction_review_lines(visible);
+    let after_tokens = estimate_text_tokens(compacted_context).saturating_add(
+        visible.iter().fold(0_u32, |total, message| {
+            total.saturating_add(estimate_message_tokens(message))
+        }),
+    );
+    CompactionReview {
+        mode,
+        before_messages,
+        compacted_context: compacted_context.to_string(),
+        visible_messages,
+        before_tokens,
+        after_tokens,
+        withheld_before_messages,
+    }
+}
+
+fn compaction_review_lines(messages: &[Message]) -> (Vec<String>, usize) {
+    let mut withheld = 0;
+    let lines = messages
+        .iter()
+        .filter_map(|message| {
+            let line = message_compaction_line(message);
+            if line.trim().is_empty() {
+                None
+            } else if text_contains_secret_marker(&line) {
+                withheld += 1;
+                None
+            } else {
+                Some(line)
+            }
+        })
+        .collect();
+    (lines, withheld)
 }
 
 fn message_compaction_line(message: &Message) -> String {
@@ -5137,6 +5221,32 @@ JSON
         assert!(compacted.contains("Guidance: keep decisions and unresolved facts"));
         assert!(compacted.contains("earlier request"));
         assert!(snapshot.system_prompt.contains("<compacted-context>"));
+        let review = snapshot
+            .compaction_review
+            .as_ref()
+            .expect("compaction review");
+        assert_eq!(review.mode, CompactionReviewMode::Auto);
+        assert_eq!(review.before_messages.len(), 5);
+        assert_eq!(review.visible_messages.len(), 1);
+        assert!(
+            review
+                .before_messages
+                .iter()
+                .any(|line| line.contains("earlier request"))
+        );
+        assert!(
+            review
+                .visible_messages
+                .iter()
+                .any(|line| line.contains("latest request stays explicit"))
+        );
+        assert!(
+            review
+                .compacted_context
+                .contains("Guidance: keep decisions and unresolved facts")
+        );
+        assert!(review.before_tokens > 0);
+        assert!(review.after_tokens > 0);
         assert!(snapshot.provenance.iter().any(|record| {
             record.fragment == "compacted_context"
                 && record.source == "agent.context_policy.auto_compaction"

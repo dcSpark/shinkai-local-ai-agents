@@ -5418,6 +5418,43 @@ export default function App() {
     return `~${metrics.compactedTokens} compacted tokens`;
   }
 
+  function compactionReviewBeforeText(snapshot: ContextSnapshot) {
+    const review = snapshot.compaction_review;
+    if (!review) {
+      return "";
+    }
+    const lines = [...review.before_messages];
+    if (review.withheld_before_messages > 0) {
+      lines.push(
+        `[${review.withheld_before_messages} message${review.withheld_before_messages === 1 ? "" : "s"} withheld by secret-pattern guardrail]`,
+      );
+    }
+    return lines.join("\n") || "(none)";
+  }
+
+  function compactionReviewAfterText(snapshot: ContextSnapshot) {
+    const review = snapshot.compaction_review;
+    if (!review) {
+      return "";
+    }
+    const visible = review.visible_messages.length
+      ? `\n\nVisible messages:\n${review.visible_messages.join("\n")}`
+      : "";
+    return `Compacted context:\n${review.compacted_context}${visible}`;
+  }
+
+  function compactionReviewLabel(snapshot: ContextSnapshot) {
+    const review = snapshot.compaction_review;
+    if (!review) {
+      return "";
+    }
+    const before = Math.max(0, Math.round(review.before_tokens));
+    const after = Math.max(0, Math.round(review.after_tokens));
+    const saved = Math.max(0, before - after);
+    const prefix = review.mode === "auto" ? "Auto" : "Manual";
+    return `${prefix} compaction review: ~${before} before, ~${after} after, ~${saved} saved.`;
+  }
+
   function currentUsageSummary() {
     return [
       `Current usage: tokens ${tokensIn}/${tokensOut}`,
@@ -7018,6 +7055,22 @@ export default function App() {
                   </div>
                 ))}
               </div>
+              {contextPreview.compaction_review ? (
+                <section className="compaction-review">
+                  <strong>Compaction Review</strong>
+                  <span>{compactionReviewLabel(contextPreview)}</span>
+                  <div className="compaction-review-grid">
+                    <div>
+                      <strong>Before</strong>
+                      <pre>{compactionReviewBeforeText(contextPreview)}</pre>
+                    </div>
+                    <div>
+                      <strong>After</strong>
+                      <pre>{compactionReviewAfterText(contextPreview)}</pre>
+                    </div>
+                  </div>
+                </section>
+              ) : null}
               <section>
                 <strong>System</strong>
                 <pre>{contextPreview.system_prompt}</pre>

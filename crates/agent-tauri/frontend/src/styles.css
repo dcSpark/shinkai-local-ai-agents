@@ -933,6 +933,30 @@ textarea:disabled {
   background: #26171c;
 }
 
+.compaction-review {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.compaction-review > span {
+  color: #c3c8d0;
+  font-size: 0.74rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.compaction-review-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.compaction-review-grid > div {
+  display: grid;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
 .context-preview section {
   display: grid;
   gap: 0.3rem;
@@ -1484,5 +1508,9 @@ textarea:disabled {
 
   .composer-actions button {
     flex: 1 1 7rem;
+  }
+
+  .compaction-review-grid {
+    grid-template-columns: 1fr;
   }
 }

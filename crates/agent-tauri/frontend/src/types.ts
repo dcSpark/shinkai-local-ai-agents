@@ -348,6 +348,7 @@ export type ContextSnapshot = {
   system_prompt: string;
   conversation: Message[];
   compacted: string | null;
+  compaction_review?: CompactionReview | null;
   loaded_memory: MemoryFragment[];
   loaded_artifacts: IngestedArtifactView[];
   visible_tools: ToolView[];
@@ -358,6 +359,16 @@ export type ContextSnapshot = {
   };
   estimated_input_tokens: number;
   provenance: ProvenanceRecord[];
+};
+
+export type CompactionReview = {
+  mode: "auto" | "manual";
+  before_messages: string[];
+  compacted_context: string;
+  visible_messages: string[];
+  before_tokens: number;
+  after_tokens: number;
+  withheld_before_messages: number;
 };
 
 export type MemoryFragment = {

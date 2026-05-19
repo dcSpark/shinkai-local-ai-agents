@@ -209,10 +209,10 @@ impl HarnessApi for DaemonHarnessClient {
         input: Value,
     ) -> Result<ToolCallResult, HarnessError> {
         let mut body = input;
-        if let Some(map) = body.as_object_mut() {
-            if agent.tool_policy.approval_mode == ApprovalMode::AutoApprove {
-                map.insert("__auto_approve".into(), Value::Bool(true));
-            }
+        if let Some(map) = body.as_object_mut()
+            && agent.tool_policy.approval_mode == ApprovalMode::AutoApprove
+        {
+            map.insert("__auto_approve".into(), Value::Bool(true));
         }
         let value = self
             .http

@@ -196,7 +196,7 @@ pub enum IngestionFindingReviewDecision {
 }
 
 impl IngestionFindingReviewDecision {
-    pub fn from_str(value: &str) -> Option<Self> {
+    pub fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
             "acknowledge" | "ack" | "reviewed" => Some(Self::Acknowledge),
             "approve" | "allow" | "approved" => Some(Self::Approve),
@@ -658,10 +658,10 @@ fn extract_pdf_layout_text(
     bytes: &[u8],
 ) -> Result<(String, Vec<IngestionFinding>), IngestError> {
     let source_arg = source.to_string_lossy().to_string();
-    if let Some(text) = command_stdout("pdftotext", &["-layout", &source_arg, "-"])? {
-        if !text.trim().is_empty() {
-            return Ok((text, Vec::new()));
-        }
+    if let Some(text) = command_stdout("pdftotext", &["-layout", &source_arg, "-"])?
+        && !text.trim().is_empty()
+    {
+        return Ok((text, Vec::new()));
     }
     Ok((
         extract_pdfish_text(bytes),
@@ -1320,14 +1320,14 @@ fn parse_model_guardrail_response(model: &str, response: &str) -> ModelGuardrail
         reason: Option<String>,
     }
 
-    if let Ok(raw) = serde_json::from_str::<RawAssessment>(response) {
-        if let Some(risk) = raw.risk.as_deref().and_then(PromptInjectionRisk::from_str) {
-            return ModelGuardrailAssessment {
-                model: model.to_string(),
-                risk,
-                reason: raw.reason.unwrap_or_default(),
-            };
-        }
+    if let Ok(raw) = serde_json::from_str::<RawAssessment>(response)
+        && let Some(risk) = raw.risk.as_deref().and_then(PromptInjectionRisk::from_str)
+    {
+        return ModelGuardrailAssessment {
+            model: model.to_string(),
+            risk,
+            reason: raw.reason.unwrap_or_default(),
+        };
     }
 
     let lower = response.to_ascii_lowercase();

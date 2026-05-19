@@ -46,8 +46,8 @@ use agent_secrets::{
 use agent_skills::{SkillDoc, SkillRegistry};
 use agent_storage::StoragePaths;
 use agent_tools::{
-    ToolId, list_generated_artifacts_from_env, open_generated_artifact_from_env,
-    show_generated_artifact_from_env,
+    ToolId, is_shell_runtime_tool_id, list_generated_artifacts_from_env,
+    open_generated_artifact_from_env, show_generated_artifact_from_env,
 };
 use agent_tracing::{
     EventId, EventStore, RunEvent, RunEventKind, RunId, SqliteEventStore, TraceSummary,
@@ -680,7 +680,7 @@ pub async fn call_tool(
     auto_approve: bool,
 ) -> anyhow::Result<()> {
     let input = read_optional_json(input)?;
-    let enable_shell = name == "shell";
+    let enable_shell = is_shell_runtime_tool_id(&name);
     let enable_subagent = name == "subagent";
     let events = Arc::new(open_event_store()?);
     let harness = setup::build_harness(
@@ -1175,7 +1175,7 @@ pub async fn approval_execute(
     }
 
     let registry = setup::build_registry(
-        tool_id == "shell",
+        is_shell_runtime_tool_id(&tool_id),
         tool_id == "subagent",
         tool_id == "capability_draft",
         run_agent_id(&events).as_deref(),
@@ -3495,7 +3495,7 @@ pub async fn ingest_review(
 fn parse_ingestion_review_decision(
     decision: &str,
 ) -> anyhow::Result<IngestionFindingReviewDecision> {
-    IngestionFindingReviewDecision::from_str(decision).ok_or_else(|| {
+    IngestionFindingReviewDecision::parse(decision).ok_or_else(|| {
         anyhow::anyhow!("decision must be acknowledge, approve/allow, or reject/block")
     })
 }
@@ -4743,7 +4743,7 @@ fn keep_auto_compaction_from_events(
 }
 
 fn latest_auto_compaction_snapshot(events: &[RunEvent]) -> Option<ContextSnapshot> {
-    events.iter().filter_map(context_built_snapshot).last()
+    events.iter().filter_map(context_built_snapshot).next_back()
 }
 
 fn context_built_snapshot(event: &RunEvent) -> Option<ContextSnapshot> {

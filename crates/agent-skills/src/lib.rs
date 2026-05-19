@@ -188,10 +188,10 @@ impl SkillRegistry {
 
     pub fn export(&self, id: &str, path: impl AsRef<Path>) -> Result<SkillDoc, SkillError> {
         let doc = portable_doc(self.inspect(id)?);
-        if let Some(parent) = path.as_ref().parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = path.as_ref().parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
         }
         std::fs::write(path, serde_json::to_string_pretty(&doc)?)?;
         Ok(doc)

@@ -38,11 +38,12 @@ use agent_skills::{SkillDoc, SkillRegistry};
 use agent_storage::StoragePaths;
 use agent_tools::{
     ArtifactTool, FakeTool, ShellTool, ShellToolConfig, SubagentTool, ToolId, ToolRegistry,
-    VoiceRuntimeConfig, generated_artifact_data_url_from_env, list_generated_artifacts_from_env,
-    open_generated_artifact_from_env, register_allowed_mcp_tools_for_category_with_provenance,
+    VoiceRuntimeConfig, generated_artifact_data_url_from_env, is_shell_runtime_tool_id,
+    list_generated_artifacts_from_env, open_generated_artifact_from_env,
+    register_allowed_mcp_tools_for_category_with_provenance,
     register_allowed_mcp_tools_for_resource_with_provenance,
-    register_allowed_mcp_tools_with_provenance, register_voice_tools, save_voice_capture_from_env,
-    show_generated_artifact_from_env,
+    register_allowed_mcp_tools_with_provenance, register_code_execution_tools,
+    register_voice_tools, save_voice_capture_from_env, show_generated_artifact_from_env,
 };
 use agent_tracing::{
     EventId, EventStore, RunEvent, RunEventKind, RunId, SqliteEventStore, build_resume_plan,
@@ -925,6 +926,7 @@ fn query_param_u64(query: Option<&str>, key: &str) -> Option<u64> {
         })
 }
 
+#[allow(clippy::large_enum_variant)]
 enum PreparedDaemonRun {
     Agent {
         input: String,
@@ -1085,7 +1087,7 @@ fn direct_tool_agent_and_registry(
     name: &str,
     mut options: DaemonRuntimeOptions,
 ) -> (AgentConfig, Arc<ToolRegistry>) {
-    options.enable_shell |= name == "shell";
+    options.enable_shell |= is_shell_runtime_tool_id(name);
     options.enable_subagent |= name == "subagent";
     options.enable_capability_drafts |= name == "capability_draft";
     let registry = build_registry(
@@ -1102,7 +1104,7 @@ fn forced_tool_agent_and_registry(
     name: &str,
     mut options: DaemonRuntimeOptions,
 ) -> anyhow::Result<(AgentConfig, Arc<ToolRegistry>)> {
-    options.enable_shell |= name == "shell";
+    options.enable_shell |= is_shell_runtime_tool_id(name);
     options.enable_subagent |= name == "subagent";
     options.enable_capability_drafts |= name == "capability_draft";
     let registry = build_registry(
@@ -2603,7 +2605,7 @@ async fn daemon_tool(name: &str, body: &str) -> anyhow::Result<serde_json::Value
         .and_then(|map| map.remove("__disable_lifecycle_hooks"))
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
-    let enable_shell = name == "shell";
+    let enable_shell = is_shell_runtime_tool_id(name);
     let enable_subagent = name == "subagent";
     let enable_capability_drafts = name == "capability_draft";
     let harness = build_harness_with_hook_policy(
@@ -2883,7 +2885,7 @@ async fn execute_approved_tool(
         anyhow::bail!("tool call {call_id} has already completed");
     }
     let registry = build_registry(
-        tool_id == "shell",
+        is_shell_runtime_tool_id(&tool_id),
         tool_id == "subagent",
         tool_id == "capability_draft",
         run_agent_id(&events).as_deref(),
@@ -3632,7 +3634,7 @@ fn daemon_ingest_show(id: &str) -> anyhow::Result<serde_json::Value> {
 
 fn daemon_ingest_review(id: &str, body: &str) -> anyhow::Result<serde_json::Value> {
     let input: IngestReviewInput = serde_json::from_str(body)?;
-    let decision = IngestionFindingReviewDecision::from_str(&input.decision).ok_or_else(|| {
+    let decision = IngestionFindingReviewDecision::parse(&input.decision).ok_or_else(|| {
         anyhow::anyhow!("decision must be acknowledge, approve/allow, or reject/block")
     })?;
     Ok(serde_json::to_value(
@@ -4301,8 +4303,9 @@ fn build_registry(
         let shell_config = ShellToolConfig::from_env();
         registry.register(
             ShellTool::descriptor_for_config(&shell_config),
-            Arc::new(ShellTool::new(shell_config)),
+            Arc::new(ShellTool::new(shell_config.clone())),
         );
+        register_code_execution_tools(&mut registry, &shell_config);
     }
     if enable_subagent {
         registry.register(SubagentTool::descriptor(), Arc::new(SubagentTool));
@@ -4807,6 +4810,8 @@ fn http_json(status: u16, body: serde_json::Value) -> String {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::await_holding_lock)]
+
     use super::*;
     use std::path::PathBuf;
 

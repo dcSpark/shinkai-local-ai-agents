@@ -270,10 +270,10 @@ impl MemoryStore {
         path: impl AsRef<Path>,
     ) -> Result<Vec<MemoryRecord>, MemoryError> {
         let records = self.list_target(target)?;
-        if let Some(parent) = path.as_ref().parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = path.as_ref().parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
         }
         std::fs::write(path, render_records(&records)?)?;
         Ok(records)
@@ -350,11 +350,11 @@ impl MemoryStore {
         extra_provenance: Option<String>,
     ) -> MemoryFragment {
         let mut provenance = memory_provenance(&record);
-        if let Some(extra) = extra_provenance {
-            if !extra.trim().is_empty() {
-                provenance.push_str("; ");
-                provenance.push_str(extra.trim());
-            }
+        if let Some(extra) = extra_provenance
+            && !extra.trim().is_empty()
+        {
+            provenance.push_str("; ");
+            provenance.push_str(extra.trim());
         }
         MemoryFragment {
             id: record.id,

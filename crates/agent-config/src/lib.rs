@@ -850,6 +850,7 @@ fn provider_option(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn model_provider_option(
     key: &str,
     target: ModelProviderOptionTarget,
@@ -1056,7 +1057,7 @@ impl ConfigResolver {
             Err(err) => return Err(err),
         }
         let active_profile = self.paths.active_profile_id().to_string();
-        for grant in self.list_profile_grants()?.into_iter().filter(|grant| {
+        if let Some(grant) = self.list_profile_grants()?.into_iter().find(|grant| {
             grant.kind == ProfileGrantKind::Agent
                 && grant.to_profile == active_profile
                 && (grant.resource == "*" || grant.resource == id)
@@ -1333,10 +1334,10 @@ impl ConfigResolver {
         let Some(agent) = self.show_agent_config(id)? else {
             return Err(ConfigError::InvalidInput(format!("agent not found: {id}")));
         };
-        if let Some(parent) = path.as_ref().parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = path.as_ref().parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
         }
         std::fs::write(path, toml::to_string_pretty(&agent)?)?;
         Ok(agent)
@@ -1570,10 +1571,10 @@ impl ConfigResolver {
         let Some(model) = self.show_model(id)? else {
             return Err(ConfigError::InvalidInput(format!("model not found: {id}")));
         };
-        if let Some(parent) = path.as_ref().parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = path.as_ref().parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
         }
         std::fs::write(path, toml::to_string_pretty(&model)?)?;
         Ok(model)
@@ -2061,14 +2062,16 @@ fn apply_curated_metadata_fallback(
         applied = true;
     }
     for (key, value) in fallback.limits {
-        if !probe.reported_limits.contains_key(&key) {
-            probe.reported_limits.insert(key, value);
+        if let std::collections::btree_map::Entry::Vacant(entry) = probe.reported_limits.entry(key)
+        {
+            entry.insert(value);
             applied = true;
         }
     }
     for (key, value) in fallback.pricing {
-        if !probe.reported_pricing.contains_key(&key) {
-            probe.reported_pricing.insert(key, value);
+        if let std::collections::btree_map::Entry::Vacant(entry) = probe.reported_pricing.entry(key)
+        {
+            entry.insert(value);
             applied = true;
         }
     }
@@ -2973,6 +2976,7 @@ fn fetch_openai_model_catalog(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn resolve_agent(
     parsed: AgentToml,
     path: PathBuf,

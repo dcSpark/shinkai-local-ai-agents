@@ -222,10 +222,10 @@ impl CompactionStore {
         path: impl AsRef<Path>,
     ) -> Result<CompactionRecord, CompactionError> {
         let record = self.show(id)?;
-        if let Some(parent) = path.as_ref().parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = path.as_ref().parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
         }
         std::fs::write(path, serde_json::to_string_pretty(&record)?)?;
         Ok(record)

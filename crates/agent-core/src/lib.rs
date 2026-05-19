@@ -817,8 +817,8 @@ impl Harness {
                     payload_digest: payload_digest.clone(),
                 },
             );
-            if let Some(handler) = hook.handler.as_ref() {
-                if let Err(err) = self.execute_hook_handler_with_retries(
+            if let Some(handler) = hook.handler.as_ref()
+                && let Err(err) = self.execute_hook_handler_with_retries(
                     run_id,
                     fired.id,
                     handler,
@@ -827,19 +827,20 @@ impl Harness {
                     payload,
                     &payload_digest,
                     false,
-                ) {
-                    self.events.append(
-                        run_id,
-                        Some(fired.id),
-                        RunEventKind::PolicyDenied {
-                            reason: format!("hook {} handler failed: {err}", hook.id),
-                        },
-                    );
-                }
+                )
+            {
+                self.events.append(
+                    run_id,
+                    Some(fired.id),
+                    RunEventKind::PolicyDenied {
+                        reason: format!("hook {} handler failed: {err}", hook.id),
+                    },
+                );
             }
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn execute_hook_handler_with_retries(
         &self,
         run_id: RunId,
@@ -885,6 +886,7 @@ impl Harness {
         Err("hook retry loop exhausted".into())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn record_hook_failed(
         &self,
         run_id: RunId,
@@ -1213,6 +1215,7 @@ impl Harness {
         event
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn record_tool_proposed(
         &self,
         run_id: RunId,

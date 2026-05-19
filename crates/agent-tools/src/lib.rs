@@ -100,8 +100,7 @@ impl Default for ShellToolConfig {
 
 impl ShellToolConfig {
     pub fn from_env() -> Self {
-        let mut config = Self::default();
-        config.allowed_commands = std::env::var("AGENT_SHELL_ALLOWLIST")
+        let allowed_commands = std::env::var("AGENT_SHELL_ALLOWLIST")
             .ok()
             .into_iter()
             .flat_map(|value| {
@@ -113,7 +112,10 @@ impl ShellToolConfig {
                     .collect::<Vec<_>>()
             })
             .collect();
-        config
+        Self {
+            allowed_commands,
+            ..Self::default()
+        }
     }
 }
 
@@ -258,6 +260,288 @@ impl Tool for ShellTool {
             "truncated_stderr": truncated_stderr
         }))
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct CodeExecutionConfig {
+    pub default_timeout_ms: u64,
+    pub max_output_bytes: usize,
+    pub default_cwd: Option<PathBuf>,
+    pub python_command: String,
+    pub typescript_command: String,
+}
+
+impl CodeExecutionConfig {
+    pub fn from_shell_config(config: &ShellToolConfig) -> Self {
+        Self {
+            default_timeout_ms: config.default_timeout_ms,
+            max_output_bytes: config.max_output_bytes,
+            default_cwd: config.default_cwd.clone(),
+            python_command: std::env::var("AGENT_PYTHON_COMMAND")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(default_python_command),
+            typescript_command: std::env::var("AGENT_TYPESCRIPT_COMMAND")
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| "deno".into()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum CodeLanguage {
+    Python,
+    TypeScript,
+}
+
+impl CodeLanguage {
+    fn id(self) -> &'static str {
+        match self {
+            Self::Python => "code_python",
+            Self::TypeScript => "code_typescript",
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Python => "Python Code",
+            Self::TypeScript => "TypeScript Code",
+        }
+    }
+
+    fn category(self) -> &'static str {
+        match self {
+            Self::Python => "python",
+            Self::TypeScript => "typescript",
+        }
+    }
+
+    fn extension(self) -> &'static str {
+        match self {
+            Self::Python => "py",
+            Self::TypeScript => "ts",
+        }
+    }
+}
+
+pub struct CodeExecutionTool {
+    language: CodeLanguage,
+    config: CodeExecutionConfig,
+}
+
+impl CodeExecutionTool {
+    fn new(language: CodeLanguage, config: CodeExecutionConfig) -> Self {
+        Self { language, config }
+    }
+
+    pub fn python(config: CodeExecutionConfig) -> Self {
+        Self::new(CodeLanguage::Python, config)
+    }
+
+    pub fn typescript(config: CodeExecutionConfig) -> Self {
+        Self::new(CodeLanguage::TypeScript, config)
+    }
+
+    fn descriptor(language: CodeLanguage) -> ToolDescriptor {
+        let code_kind = language.category();
+        ToolDescriptor {
+            id: ToolId::from(language.id()),
+            name: language.name().into(),
+            description: format!(
+                "Runs a {code_kind} snippet from a temporary file with timeout, captured stdout/stderr, and a minimal inherited environment."
+            ),
+            categories: vec!["code".into(), code_kind.into(), "shell".into()],
+            input_schema: json!({
+                "type": "object",
+                "required": ["code"],
+                "properties": {
+                    "code": {
+                        "type": "string",
+                        "description": format!("{code_kind} source code to execute.")
+                    },
+                    "args": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Optional positional arguments passed after the temporary source file."
+                    },
+                    "cwd": {
+                        "type": "string",
+                        "description": "Optional working directory. Defaults to the temporary source directory."
+                    },
+                    "timeout_ms": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Optional timeout override."
+                    },
+                    "max_output_bytes": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Optional stdout/stderr truncation limit per stream."
+                    }
+                },
+                "additionalProperties": false
+            }),
+            output_interpretation_guidance: Some(
+                "Preserve language, runner, stdout, stderr, exit status, timeout, and truncation flags exactly when interpreting code execution results.".into(),
+            ),
+            permissions: ToolPermissions {
+                shell: true,
+                file_read: true,
+                file_write: true,
+                network: true,
+                ..ToolPermissions::default()
+            },
+            requires_approval: true,
+            provenance: Some(format!("native:{}", language.id())),
+        }
+    }
+
+    pub fn python_descriptor() -> ToolDescriptor {
+        Self::descriptor(CodeLanguage::Python)
+    }
+
+    pub fn typescript_descriptor() -> ToolDescriptor {
+        Self::descriptor(CodeLanguage::TypeScript)
+    }
+
+    fn runner_command(&self) -> &str {
+        match self.language {
+            CodeLanguage::Python => &self.config.python_command,
+            CodeLanguage::TypeScript => &self.config.typescript_command,
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for CodeExecutionTool {
+    async fn execute(&self, input: Value) -> Result<Value, ToolError> {
+        let code = input
+            .get("code")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ToolError::InvalidInput("missing string field `code`".into()))?;
+        let args = optional_string_array(input.get("args"), "args")?;
+        let timeout_ms = input
+            .get("timeout_ms")
+            .and_then(Value::as_u64)
+            .unwrap_or(self.config.default_timeout_ms);
+        let max_output_bytes = input
+            .get("max_output_bytes")
+            .and_then(Value::as_u64)
+            .and_then(|v| usize::try_from(v).ok())
+            .unwrap_or(self.config.max_output_bytes);
+        let cwd = input
+            .get("cwd")
+            .and_then(Value::as_str)
+            .map(PathBuf::from)
+            .or_else(|| self.config.default_cwd.clone());
+
+        let temp_dir = std::env::temp_dir().join(format!(
+            "agent-code-{}-{}-{}",
+            self.language.category(),
+            std::process::id(),
+            chrono_like_timestamp()
+        ));
+        std::fs::create_dir_all(&temp_dir).map_err(|e| ToolError::Execution(e.to_string()))?;
+        let script_path = temp_dir.join(format!("snippet.{}", self.language.extension()));
+        if let Err(error) = std::fs::write(&script_path, code) {
+            let _ = std::fs::remove_dir_all(&temp_dir);
+            return Err(ToolError::Execution(error.to_string()));
+        }
+
+        let mut cmd = Command::new(self.runner_command());
+        match self.language {
+            CodeLanguage::Python => {
+                cmd.arg(&script_path);
+            }
+            CodeLanguage::TypeScript => {
+                cmd.arg("run")
+                    .arg("--quiet")
+                    .arg("--no-prompt")
+                    .arg(&script_path);
+            }
+        }
+        cmd.args(args);
+        apply_minimal_env(&mut cmd);
+        cmd.current_dir(cwd.unwrap_or_else(|| temp_dir.clone()));
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        cmd.kill_on_drop(true);
+
+        let started = Instant::now();
+        let child = match cmd.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                let _ = std::fs::remove_dir_all(&temp_dir);
+                return Err(ToolError::Execution(error.to_string()));
+            }
+        };
+        let output =
+            match timeout(Duration::from_millis(timeout_ms), child.wait_with_output()).await {
+                Ok(result) => result.map_err(|e| ToolError::Execution(e.to_string()))?,
+                Err(_) => {
+                    let _ = std::fs::remove_dir_all(&temp_dir);
+                    return Ok(json!({
+                        "language": self.language.category(),
+                        "runner": self.runner_command(),
+                        "status": "timeout",
+                        "exit_code": null,
+                        "stdout": "",
+                        "stderr": "",
+                        "duration_ms": started.elapsed().as_millis() as u64,
+                        "timed_out": true,
+                        "truncated_stdout": false,
+                        "truncated_stderr": false,
+                        "sandbox": "temporary_cwd_minimal_env"
+                    }));
+                }
+            };
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let (stdout, truncated_stdout) = decode_and_truncate(&output.stdout, max_output_bytes);
+        let (stderr, truncated_stderr) = decode_and_truncate(&output.stderr, max_output_bytes);
+        let exit_code = output.status.code();
+        let status = if output.status.success() {
+            "success"
+        } else {
+            "exit"
+        };
+
+        Ok(json!({
+            "language": self.language.category(),
+            "runner": self.runner_command(),
+            "status": status,
+            "exit_code": exit_code,
+            "stdout": stdout,
+            "stderr": stderr,
+            "duration_ms": started.elapsed().as_millis() as u64,
+            "timed_out": false,
+            "truncated_stdout": truncated_stdout,
+            "truncated_stderr": truncated_stderr,
+            "sandbox": "temporary_cwd_minimal_env"
+        }))
+    }
+}
+
+pub fn register_code_execution_tools(
+    registry: &mut ToolRegistry,
+    shell_config: &ShellToolConfig,
+) -> usize {
+    let config = CodeExecutionConfig::from_shell_config(shell_config);
+    registry.register(
+        CodeExecutionTool::python_descriptor(),
+        Arc::new(CodeExecutionTool::python(config.clone())),
+    );
+    registry.register(
+        CodeExecutionTool::typescript_descriptor(),
+        Arc::new(CodeExecutionTool::typescript(config)),
+    );
+    2
+}
+
+pub fn is_shell_runtime_tool_id(id: &str) -> bool {
+    matches!(id, "shell" | "code_python" | "code_typescript")
 }
 
 pub struct ArtifactTool {
@@ -1298,6 +1582,33 @@ fn minimal_env_keys() -> &'static [&'static str] {
     &["PATH", "LANG", "LC_ALL", "TMPDIR"]
 }
 
+#[cfg(windows)]
+fn default_python_command() -> String {
+    "python".into()
+}
+
+#[cfg(not(windows))]
+fn default_python_command() -> String {
+    "python3".into()
+}
+
+fn optional_string_array(value: Option<&Value>, field: &str) -> Result<Vec<String>, ToolError> {
+    let Some(value) = value else {
+        return Ok(Vec::new());
+    };
+    let items = value
+        .as_array()
+        .ok_or_else(|| ToolError::InvalidInput(format!("field `{field}` must be an array")))?;
+    items
+        .iter()
+        .map(|item| {
+            item.as_str().map(str::to_string).ok_or_else(|| {
+                ToolError::InvalidInput(format!("field `{field}` must contain only strings"))
+            })
+        })
+        .collect()
+}
+
 fn artifact_extension(format: &str) -> Result<&'static str, ToolError> {
     match format {
         "txt" => Ok("txt"),
@@ -1345,9 +1656,7 @@ fn artifact_media_type(format: &str) -> Result<&'static str, ToolError> {
 fn safe_artifact_basename(value: &str) -> String {
     let mut out = String::new();
     for ch in value.chars().flat_map(char::to_lowercase) {
-        if ch.is_ascii_alphanumeric() {
-            out.push(ch);
-        } else if matches!(ch, '-' | '_' | '.') {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
             out.push(ch);
         } else if ch.is_whitespace() && !out.ends_with('-') {
             out.push('-');
@@ -1575,7 +1884,7 @@ fn render_pdf(title: &str, content: &str) -> Vec<u8> {
         let _ = write!(stream, "({}) Tj T* ", pdf_escape(line));
     }
     stream.push_str("ET");
-    let objects = vec![
+    let objects = [
         "<< /Type /Catalog /Pages 2 0 R >>".to_string(),
         "<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_string(),
         "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>".to_string(),
@@ -2343,15 +2652,15 @@ fn register_allowed_mcp_tools_impl(
 
 fn mcp_tool_provenance(package: &NormalizedPackage, extra_provenance: Option<&str>) -> String {
     let mut parts = vec![format!("adapter_package={}", package.id)];
-    if let Some(provenance) = package.provenance.as_deref().map(str::trim) {
-        if !provenance.is_empty() {
-            parts.push(provenance.to_string());
-        }
+    if let Some(provenance) = package.provenance.as_deref().map(str::trim)
+        && !provenance.is_empty()
+    {
+        parts.push(provenance.to_string());
     }
-    if let Some(provenance) = extra_provenance.map(str::trim) {
-        if !provenance.is_empty() {
-            parts.push(provenance.to_string());
-        }
+    if let Some(provenance) = extra_provenance.map(str::trim)
+        && !provenance.is_empty()
+    {
+        parts.push(provenance.to_string());
     }
     parts.join("; ")
 }
@@ -2450,11 +2759,11 @@ fn mcp_specs_from_package(package: &NormalizedPackage) -> Result<Vec<McpServerSp
     Ok(specs)
 }
 
-fn read_mcp_manifest(source: &PathBuf) -> Result<Value, ToolError> {
+fn read_mcp_manifest(source: &Path) -> Result<Value, ToolError> {
     let path = if source.is_dir() {
         source.join("mcp.json")
     } else {
-        source.clone()
+        source.to_path_buf()
     };
     let text = std::fs::read_to_string(&path)
         .map_err(|e| ToolError::Execution(format!("failed to read MCP manifest: {e}")))?;
@@ -3364,6 +3673,96 @@ done
         let mut ids: Vec<&str> = reg.descriptors().map(|d| d.id.0.as_str()).collect();
         ids.sort();
         assert_eq!(ids, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn code_execution_tools_register_as_approval_gated_shell_runtime_tools() {
+        let mut reg = ToolRegistry::new();
+        assert_eq!(
+            register_code_execution_tools(&mut reg, &ShellToolConfig::default()),
+            2
+        );
+
+        for id in ["code_python", "code_typescript"] {
+            let descriptor = reg.descriptor(&ToolId::from(id)).unwrap();
+            assert!(descriptor.requires_approval);
+            assert!(descriptor.permissions.shell);
+            assert!(descriptor.permissions.file_read);
+            assert!(descriptor.permissions.file_write);
+            assert!(descriptor.permissions.network);
+            assert!(is_shell_runtime_tool_id(id));
+        }
+    }
+
+    #[tokio::test]
+    async fn python_code_tool_runs_temp_file_with_minimal_env() {
+        let python = default_python_command();
+        if !command_available(&python) {
+            return;
+        }
+        unsafe {
+            std::env::set_var("AGENT_CODE_TEST_SECRET", "leak-me");
+        }
+        let tool = CodeExecutionTool::python(CodeExecutionConfig {
+            default_timeout_ms: 30_000,
+            max_output_bytes: 64 * 1024,
+            default_cwd: None,
+            python_command: python,
+            typescript_command: "deno".into(),
+        });
+
+        let output = tool
+            .execute(json!({
+                "code": "import os, sys\nprint('secret=' + os.environ.get('AGENT_CODE_TEST_SECRET', ''))\nprint('arg=' + sys.argv[1])",
+                "args": ["ok"]
+            }))
+            .await
+            .unwrap();
+        unsafe {
+            std::env::remove_var("AGENT_CODE_TEST_SECRET");
+        }
+
+        assert_eq!(output["language"], "python");
+        assert_eq!(output["status"], "success");
+        assert_eq!(output["sandbox"], "temporary_cwd_minimal_env");
+        let stdout = output["stdout"].as_str().unwrap();
+        assert!(stdout.contains("secret=\n"));
+        assert!(stdout.contains("arg=ok\n"));
+    }
+
+    #[tokio::test]
+    async fn typescript_code_tool_runs_with_deno_when_available() {
+        if !command_available("deno") {
+            return;
+        }
+        let tool = CodeExecutionTool::typescript(CodeExecutionConfig {
+            default_timeout_ms: 30_000,
+            max_output_bytes: 64 * 1024,
+            default_cwd: None,
+            python_command: default_python_command(),
+            typescript_command: "deno".into(),
+        });
+
+        let output = tool
+            .execute(json!({
+                "code": "const value: string = Deno.args[0]; console.log(`ts=${value}`);",
+                "args": ["ok"]
+            }))
+            .await
+            .unwrap();
+
+        assert_eq!(output["language"], "typescript");
+        assert_eq!(output["status"], "success");
+        assert_eq!(output["stdout"], "ts=ok\n");
+    }
+
+    fn command_available(command: &str) -> bool {
+        std::process::Command::new(command)
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
     }
 
     #[tokio::test]

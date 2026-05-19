@@ -448,13 +448,13 @@ impl ClawHubProvider {
         let entry = self.entry(id)?;
         let source = self.resolve_source(&entry.source);
         let digest = digest(&read_for_digest(&source)?);
-        if let Some(expected) = &entry.digest {
-            if expected != &digest {
-                return Err(AdapterError::DigestMismatch {
-                    expected: expected.clone(),
-                    found: digest,
-                });
-            }
+        if let Some(expected) = &entry.digest
+            && expected != &digest
+        {
+            return Err(AdapterError::DigestMismatch {
+                expected: expected.clone(),
+                found: digest,
+            });
         }
         Ok(ClawHubPin {
             id: entry.id,
@@ -748,7 +748,7 @@ fn hermes_section_capabilities(
             pending_list_item = false;
         }
         let key = trimmed.trim_end_matches(':');
-        if sections.iter().any(|section| *section == key) && trimmed.ends_with(':') {
+        if sections.contains(&key) && trimmed.ends_with(':') {
             active = true;
             active_indent = indent;
             pending_list_item = false;
@@ -765,11 +765,9 @@ fn hermes_section_capabilities(
             }
             continue;
         }
-        if pending_list_item {
-            if let Some(name) = yaml_named_value(trimmed) {
-                capabilities.push(normalized_hermes_capability(name, kind));
-                pending_list_item = false;
-            }
+        if pending_list_item && let Some(name) = yaml_named_value(trimmed) {
+            capabilities.push(normalized_hermes_capability(name, kind));
+            pending_list_item = false;
         }
     }
     capabilities

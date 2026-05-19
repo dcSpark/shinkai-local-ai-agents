@@ -837,6 +837,7 @@ fn resolve_conversation_selection(app: &App, input: &str) -> anyhow::Result<Stri
     Ok(input.to_string())
 }
 
+#[allow(dead_code)]
 fn parse_conversation_range_args(rest: &str) -> anyhow::Result<(String, usize, usize)> {
     parse_conversation_range_args_with_selected(rest, None)
 }
@@ -903,6 +904,7 @@ fn parse_conversation_range_args_explicit(rest: &str) -> anyhow::Result<(String,
     Ok((id.to_string(), from, to))
 }
 
+#[allow(dead_code)]
 fn parse_conversation_delete_plan_args(rest: &str) -> anyhow::Result<(String, bool)> {
     parse_conversation_delete_plan_args_with_selected(rest, None)
 }
@@ -1108,6 +1110,7 @@ fn format_conversation_recovery_guidance(plan: &serde_json::Value) -> String {
     .join("\n")
 }
 
+#[allow(dead_code)]
 fn format_conversation_tree(nodes: &[ConversationTreeNode]) -> String {
     format_conversation_tree_picker(nodes, None).0
 }
@@ -2244,10 +2247,10 @@ fn record_stop_event(store: &dyn EventStore, run_id: RunId, reason: String) -> a
 }
 
 fn update_elapsed_time(app: &mut App) {
-    if app.state == AppState::Running {
-        if let Some(started_at) = app.run_started_at {
-            app.elapsed_ms = started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-        }
+    if app.state == AppState::Running
+        && let Some(started_at) = app.run_started_at
+    {
+        app.elapsed_ms = started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     }
 }
 

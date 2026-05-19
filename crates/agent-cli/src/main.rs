@@ -4,6 +4,8 @@
 //! switches to headless mode for scripting / CI. See `specs/architecture.md`
 //! §20.1 for the surface contract.
 
+#![allow(clippy::items_after_test_module)]
+
 mod headless;
 mod setup;
 mod tui;

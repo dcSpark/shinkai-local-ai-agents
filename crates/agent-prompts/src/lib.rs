@@ -110,10 +110,10 @@ impl PromptStore {
         agent_id: Option<&str>,
         name: &str,
     ) -> Result<Option<PromptDoc>, PromptError> {
-        if let Some(agent_id) = agent_id {
-            if let Some(prompt) = self.get_for_agent(agent_id, name)? {
-                return Ok(Some(prompt));
-            }
+        if let Some(agent_id) = agent_id
+            && let Some(prompt) = self.get_for_agent(agent_id, name)?
+        {
+            return Ok(Some(prompt));
         }
         self.get(name)
     }

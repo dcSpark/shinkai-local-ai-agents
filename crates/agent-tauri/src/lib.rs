@@ -53,11 +53,11 @@ use agent_storage::StoragePaths;
 use agent_tools::{
     ArtifactTool, FakeTool, GeneratedArtifact, ShellTool, ShellToolConfig, SubagentTool, ToolId,
     ToolRegistry, VoiceRuntimeConfig, generated_artifact_data_url_from_env,
-    list_generated_artifacts_from_env, open_generated_artifact_from_env,
+    is_shell_runtime_tool_id, list_generated_artifacts_from_env, open_generated_artifact_from_env,
     register_allowed_mcp_tools_for_category_with_provenance,
     register_allowed_mcp_tools_for_resource_with_provenance,
-    register_allowed_mcp_tools_with_provenance, register_voice_tools, save_voice_capture_from_env,
-    show_generated_artifact_from_env,
+    register_allowed_mcp_tools_with_provenance, register_code_execution_tools,
+    register_voice_tools, save_voice_capture_from_env, show_generated_artifact_from_env,
 };
 use agent_tracing::{
     EventId, EventStore, PublishingEventStore, RunEvent, RunEventKind, RunId, SqliteEventStore,
@@ -80,6 +80,7 @@ struct RunSummary {
     final_output: String,
 }
 
+#[allow(clippy::large_enum_variant)]
 enum PreparedTauriRun {
     Agent {
         input: String,
@@ -380,8 +381,9 @@ fn build_registry(
         let shell_config = ShellToolConfig::from_env();
         registry.register(
             ShellTool::descriptor_for_config(&shell_config),
-            Arc::new(ShellTool::new(shell_config)),
+            Arc::new(ShellTool::new(shell_config.clone())),
         );
+        register_code_execution_tools(&mut registry, &shell_config);
     }
     if enable_subagent {
         registry.register(SubagentTool::descriptor(), Arc::new(SubagentTool));
@@ -1009,7 +1011,7 @@ fn direct_tool_agent_and_registry(
     name: &str,
     mut options: RunOptions,
 ) -> (AgentConfig, Arc<ToolRegistry>) {
-    options.enable_shell |= name == "shell";
+    options.enable_shell |= is_shell_runtime_tool_id(name);
     options.enable_subagent |= name == "subagent";
     options.enable_capability_drafts |= name == "capability_draft";
     let registry = build_registry(
@@ -1026,7 +1028,7 @@ fn forced_tool_agent_and_registry(
     name: &str,
     mut options: RunOptions,
 ) -> Result<(AgentConfig, Arc<ToolRegistry>), String> {
-    options.enable_shell |= name == "shell";
+    options.enable_shell |= is_shell_runtime_tool_id(name);
     options.enable_subagent |= name == "subagent";
     options.enable_capability_drafts |= name == "capability_draft";
     let registry = build_registry(
@@ -1049,6 +1051,8 @@ fn forced_tool_agent_and_registry(
 
 #[cfg(test)]
 mod tauri_slash_tests {
+    #![allow(clippy::await_holding_lock)]
+
     use super::*;
     use agent_tracing::InMemoryEventStore;
 
@@ -1661,7 +1665,7 @@ fn preview_for_recovery(text: &str, max_chars: usize) -> String {
 
 #[tauri::command]
 async fn call_tool(name: String, input: Value, options: RunOptions) -> Result<Value, String> {
-    let enable_shell = options.enable_shell || name == "shell";
+    let enable_shell = options.enable_shell || is_shell_runtime_tool_id(&name);
     let enable_subagent = options.enable_subagent || name == "subagent";
     let enable_capability_drafts = options.enable_capability_drafts || name == "capability_draft";
     let disable_lifecycle_hooks = options.disable_lifecycle_hooks;
@@ -1861,7 +1865,7 @@ async fn approval_execute(approval_id: String, run_id: String) -> Result<Value, 
     }
 
     let registry = build_registry(
-        tool_id == "shell",
+        is_shell_runtime_tool_id(&tool_id),
         tool_id == "subagent",
         tool_id == "capability_draft",
         run_agent_id(&events).as_deref(),
@@ -2940,7 +2944,7 @@ async fn ingest_review(
     decision: String,
     note: Option<String>,
 ) -> Result<IngestionArtifact, String> {
-    let decision = IngestionFindingReviewDecision::from_str(&decision).ok_or_else(|| {
+    let decision = IngestionFindingReviewDecision::parse(&decision).ok_or_else(|| {
         "decision must be acknowledge, approve/allow, or reject/block".to_string()
     })?;
     IngestionStore::from_env()

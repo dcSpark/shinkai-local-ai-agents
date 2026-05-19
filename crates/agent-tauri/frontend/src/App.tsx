@@ -1046,6 +1046,10 @@ export default function App() {
     };
   }
 
+  function isShellRuntimeToolName(name: string) {
+    return name === "shell" || name === "code_python" || name === "code_typescript";
+  }
+
   function parsePreviewShortcut(text: string) {
     const trimmed = text.trim();
     if (trimmed === "/preview") {
@@ -3307,7 +3311,7 @@ export default function App() {
         input: inputBody,
         options: {
           ...runtimeOptions(),
-          enable_shell: enableShell || name === "shell",
+          enable_shell: enableShell || isShellRuntimeToolName(name),
         },
       });
       captureDirectToolMetadata(output);

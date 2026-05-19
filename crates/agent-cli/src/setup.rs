@@ -28,7 +28,8 @@ use agent_tools::{
     ArtifactTool, FakeTool, ShellTool, ShellToolConfig, SubagentTool, ToolRegistry,
     VoiceRuntimeConfig, register_allowed_mcp_tools_for_category_with_provenance,
     register_allowed_mcp_tools_for_resource_with_provenance,
-    register_allowed_mcp_tools_with_provenance, register_voice_tools,
+    register_allowed_mcp_tools_with_provenance, register_code_execution_tools,
+    register_voice_tools,
 };
 
 use crate::{Demo, Provider};
@@ -124,8 +125,9 @@ pub fn build_registry(
         let shell_config = ShellToolConfig::from_env();
         reg.register(
             ShellTool::descriptor_for_config(&shell_config),
-            Arc::new(ShellTool::new(shell_config)),
+            Arc::new(ShellTool::new(shell_config.clone())),
         );
+        register_code_execution_tools(&mut reg, &shell_config);
     }
     if enable_subagent {
         reg.register(SubagentTool::descriptor(), Arc::new(SubagentTool));

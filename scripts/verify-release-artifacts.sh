@@ -122,8 +122,8 @@ for (const platform of platforms) {
     `${platform.id} command must use the project-local Tauri CLI`,
   );
   assert(
-    platform.command.includes("--config ../tauri.conf.json"),
-    `${platform.id} command must point the frontend-local Tauri CLI at the Rust config`,
+    !platform.command.includes("--config ../tauri.conf.json"),
+    `${platform.id} command must rely on the project-root Tauri wrapper instead of a frontend-relative config path`,
   );
   nonEmptyStrings(platform.artifact_globs, `${platform.id} artifact_globs`);
   assert(platform.signing?.required === true, `${platform.id} signing must be required`);

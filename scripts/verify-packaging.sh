@@ -68,10 +68,20 @@ assert(
 const frontend = JSON.parse(fs.readFileSync("crates/agent-tauri/frontend/package.json", "utf8"));
 assert(frontend.scripts?.build === "tsc -b && vite build", "frontend build script must type-check and bundle");
 assert(frontend.scripts?.["type-check"] === "tsc -b --noEmit", "frontend type-check script is missing");
-assert(frontend.scripts?.tauri === "tauri", "frontend must expose a local Tauri CLI script");
-assert(frontend.scripts?.["tauri:version"] === "tauri --version", "frontend must expose a Tauri CLI version check");
+assert(
+  frontend.scripts?.tauri === "node ../../../scripts/tauri-local.mjs",
+  "frontend must expose the project-root Tauri CLI wrapper",
+);
+assert(
+  frontend.scripts?.["tauri:version"] === "node ../../../scripts/tauri-local.mjs --version",
+  "frontend must expose a project-root Tauri CLI version check",
+);
 assert(frontend.devDependencies?.["@tauri-apps/cli"] === "^2.11.2", "frontend must pin the Tauri CLI dev dependency");
 assert(frontend.devDependencies?.vite === "^6.4.2", "frontend must use the patched Vite 6 line");
+
+const tauriWrapper = fs.readFileSync("scripts/tauri-local.mjs", "utf8");
+assert(tauriWrapper.includes("crates/agent-tauri"), "Tauri wrapper must run from the Rust Tauri project root");
+assert(tauriWrapper.includes('"--prefix", "frontend"'), "Tauri wrapper must use the frontend-local CLI package");
 
 const index = fs.readFileSync("crates/agent-tauri/frontend/index.html", "utf8");
 assert(index.includes('rel="manifest"'), "frontend must link the mobile web manifest");
@@ -103,8 +113,8 @@ for (const platform of releaseArtifacts.platforms) {
     `${platform.id} release command must use the project-local Tauri CLI`,
   );
   assert(
-    platform.command.includes("--config ../tauri.conf.json"),
-    `${platform.id} release command must pass the Rust Tauri config path`,
+    !platform.command.includes("--config ../tauri.conf.json"),
+    `${platform.id} release command must rely on the project-root Tauri wrapper instead of a frontend-relative config path`,
   );
 }
 assert(
@@ -120,6 +130,7 @@ assert(ci.includes("npm run build"), "CI must run the frontend production build"
 assert(ci.includes("npm run tauri:version"), "CI must verify the project-local Tauri CLI");
 assert(ci.includes("scripts/verify-packaging.sh"), "CI must run the packaging verifier");
 assert(ci.includes("scripts/verify-release-artifacts.sh"), "CI must run the release artifact manifest verifier");
+assert(ci.includes("scripts/verify-mobile-packaging.sh"), "CI must run the native mobile packaging verifier");
 assert(ci.includes("cargo build -p agent-cli -p agent-daemon -p agent-tauri --release --bins"), "CI must build release binaries");
 assert(ci.includes("scripts/verify-release-binaries.sh"), "CI must verify release binary artifacts");
 

@@ -99,6 +99,9 @@ jobs:
       - name: Release artifact manifest verifier
         run: scripts/verify-release-artifacts.sh --manifest-only
 
+      - name: Native mobile packaging verifier
+        run: scripts/verify-mobile-packaging.sh
+
       - name: Release binary build
         run: cargo build -p agent-cli -p agent-daemon -p agent-tauri --release --bins
 

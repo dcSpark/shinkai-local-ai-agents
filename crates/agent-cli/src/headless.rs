@@ -2915,6 +2915,30 @@ pub async fn model_probe(id: String, json: bool) -> anyhow::Result<()> {
         if let Some(tool_support) = probe.live_probe.reported_tool_support {
             println!("live_tools={tool_support}");
         }
+        if !probe.live_probe.reported_limits.is_empty() {
+            println!(
+                "live_limits={}",
+                probe
+                    .live_probe
+                    .reported_limits
+                    .iter()
+                    .map(|(key, value)| format!("{key}={value}"))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+        }
+        if !probe.live_probe.reported_pricing.is_empty() {
+            println!(
+                "live_pricing={}",
+                probe
+                    .live_probe
+                    .reported_pricing
+                    .iter()
+                    .map(|(key, value)| format!("{key}={value}"))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+        }
     }
     Ok(())
 }

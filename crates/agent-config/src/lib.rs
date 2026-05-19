@@ -388,6 +388,10 @@ pub struct ModelLiveCapabilityProbe {
     pub reported_capabilities: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reported_tool_support: Option<bool>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub reported_limits: BTreeMap<String, u64>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub reported_pricing: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
 }
@@ -1837,6 +1841,8 @@ fn probe_native_provider_capabilities(
         reported_modalities: Vec::new(),
         reported_capabilities: Vec::new(),
         reported_tool_support: None,
+        reported_limits: BTreeMap::new(),
+        reported_pricing: BTreeMap::new(),
         message: Some(format!(
             "{provider_name} does not expose a standard model-list endpoint here; capabilities are inferred from saved model metadata and provider descriptors"
         )),
@@ -1855,6 +1861,8 @@ struct LiveModelMetadata {
     modalities: Vec<String>,
     capabilities: Vec<String>,
     tool_support: Option<bool>,
+    limits: BTreeMap<String, u64>,
+    pricing: BTreeMap<String, String>,
 }
 
 fn probe_anthropic_model_catalog(
@@ -1913,6 +1921,8 @@ fn native_catalog_not_configured(
         reported_modalities: Vec::new(),
         reported_capabilities: Vec::new(),
         reported_tool_support: None,
+        reported_limits: BTreeMap::new(),
+        reported_pricing: BTreeMap::new(),
         message: Some(format!(
             "{provider_name} model catalog probing needs {env_name} to be set"
         )),
@@ -1954,6 +1964,20 @@ fn native_catalog_reachable(
         } else {
             None
         },
+        reported_limits: if model_found {
+            metadata
+                .map(|metadata| metadata.limits.clone())
+                .unwrap_or_default()
+        } else {
+            BTreeMap::new()
+        },
+        reported_pricing: if model_found {
+            metadata
+                .map(|metadata| metadata.pricing.clone())
+                .unwrap_or_default()
+        } else {
+            BTreeMap::new()
+        },
         message: Some(if model_found {
             "model id was listed by the provider catalog".into()
         } else {
@@ -1971,6 +1995,8 @@ fn native_catalog_unreachable(source: &str, message: String) -> ModelLiveCapabil
         reported_modalities: Vec::new(),
         reported_capabilities: Vec::new(),
         reported_tool_support: None,
+        reported_limits: BTreeMap::new(),
+        reported_pricing: BTreeMap::new(),
         message: Some(message),
     }
 }
@@ -2043,6 +2069,179 @@ fn string_array_field(item: &serde_json::Value, keys: &[&str]) -> Vec<String> {
 fn bool_field(item: &serde_json::Value, keys: &[&str]) -> Option<bool> {
     keys.iter()
         .find_map(|key| item.get(*key).and_then(serde_json::Value::as_bool))
+}
+
+fn catalog_field<'a>(item: &'a serde_json::Value, key: &str) -> Option<&'a serde_json::Value> {
+    item.get(key).or_else(|| {
+        item.get("metadata")
+            .and_then(serde_json::Value::as_object)
+            .and_then(|metadata| metadata.get(key))
+    })
+}
+
+fn catalog_object_field<'a>(
+    item: &'a serde_json::Value,
+    key: &str,
+) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+    catalog_field(item, key).and_then(serde_json::Value::as_object)
+}
+
+fn u64_catalog_value(value: &serde_json::Value) -> Option<u64> {
+    value
+        .as_u64()
+        .or_else(|| {
+            value
+                .as_i64()
+                .filter(|value| *value >= 0)
+                .map(|value| value as u64)
+        })
+        .or_else(|| {
+            value
+                .as_f64()
+                .filter(|value| value.is_finite() && *value >= 0.0)
+                .map(|value| value as u64)
+        })
+        .or_else(|| {
+            value
+                .as_str()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .and_then(|value| {
+                    value.parse::<u64>().ok().or_else(|| {
+                        value
+                            .parse::<f64>()
+                            .ok()
+                            .filter(|value| value.is_finite() && *value >= 0.0)
+                            .map(|value| value as u64)
+                    })
+                })
+        })
+}
+
+fn string_catalog_value(value: &serde_json::Value) -> Option<String> {
+    value
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .or_else(|| value.as_f64().map(|value| value.to_string()))
+        .or_else(|| value.as_u64().map(|value| value.to_string()))
+        .or_else(|| value.as_i64().map(|value| value.to_string()))
+}
+
+fn insert_first_u64_catalog_field(
+    target: &mut BTreeMap<String, u64>,
+    output_key: &str,
+    item: &serde_json::Value,
+    input_keys: &[&str],
+) {
+    if target.contains_key(output_key) {
+        return;
+    }
+    if let Some(value) = input_keys
+        .iter()
+        .find_map(|key| catalog_field(item, key).and_then(u64_catalog_value))
+    {
+        target.insert(output_key.to_string(), value);
+    }
+}
+
+fn insert_first_string_catalog_field(
+    target: &mut BTreeMap<String, String>,
+    output_key: &str,
+    item: &serde_json::Value,
+    input_keys: &[&str],
+) {
+    if target.contains_key(output_key) {
+        return;
+    }
+    if let Some(value) = input_keys
+        .iter()
+        .find_map(|key| catalog_field(item, key).and_then(string_catalog_value))
+    {
+        target.insert(output_key.to_string(), value);
+    }
+}
+
+fn live_model_limits(item: &serde_json::Value) -> BTreeMap<String, u64> {
+    let mut limits = BTreeMap::new();
+    insert_first_u64_catalog_field(
+        &mut limits,
+        "context_tokens",
+        item,
+        &[
+            "context_length",
+            "context_window",
+            "context_window_tokens",
+            "max_context_length",
+            "max_context_tokens",
+        ],
+    );
+    insert_first_u64_catalog_field(
+        &mut limits,
+        "input_tokens",
+        item,
+        &[
+            "input_token_limit",
+            "inputTokenLimit",
+            "max_input_tokens",
+            "max_prompt_tokens",
+        ],
+    );
+    insert_first_u64_catalog_field(
+        &mut limits,
+        "output_tokens",
+        item,
+        &[
+            "output_token_limit",
+            "outputTokenLimit",
+            "max_completion_tokens",
+            "max_output_tokens",
+            "max_tokens",
+        ],
+    );
+    limits
+}
+
+fn live_model_pricing(item: &serde_json::Value) -> BTreeMap<String, String> {
+    let mut pricing = BTreeMap::new();
+    insert_first_string_catalog_field(
+        &mut pricing,
+        "input_per_million",
+        item,
+        &[
+            "input_cost_per_million",
+            "input_price_per_million",
+            "prompt_cost_per_million",
+            "prompt_price_per_million",
+        ],
+    );
+    insert_first_string_catalog_field(
+        &mut pricing,
+        "output_per_million",
+        item,
+        &[
+            "output_cost_per_million",
+            "output_price_per_million",
+            "completion_cost_per_million",
+            "completion_price_per_million",
+        ],
+    );
+    if let Some(raw_pricing) = catalog_object_field(item, "pricing") {
+        for key in [
+            "prompt",
+            "input",
+            "completion",
+            "output",
+            "request",
+            "image",
+        ] {
+            if let Some(value) = raw_pricing.get(key).and_then(string_catalog_value) {
+                pricing.insert(format!("pricing.{key}"), value);
+            }
+        }
+    }
+    pricing
 }
 
 fn tool_support_from_capabilities(capabilities: &[String]) -> Option<bool> {
@@ -2134,6 +2333,8 @@ fn openai_model_metadata(item: &serde_json::Value) -> Option<(String, LiveModelM
             modalities,
             capabilities,
             tool_support,
+            limits: live_model_limits(item),
+            pricing: live_model_pricing(item),
         },
     ))
 }
@@ -2188,6 +2389,8 @@ fn parse_anthropic_model_catalog(body: &str) -> Result<NativeModelCatalog, Strin
             )
             .or_else(|| tool_support_from_capabilities(&capabilities)),
             capabilities,
+            limits: live_model_limits(item),
+            pricing: live_model_pricing(item),
         };
         model_ids.push(id.clone());
         model_metadata.insert(id, metadata);
@@ -2277,6 +2480,8 @@ fn parse_gemini_model_catalog(body: &str) -> Result<NativeModelCatalog, String> 
                     modalities,
                     capabilities: item_capabilities,
                     tool_support,
+                    limits: live_model_limits(item),
+                    pricing: live_model_pricing(item),
                 },
             );
         }
@@ -2316,6 +2521,8 @@ fn probe_openai_compatible_models(
             reported_modalities: Vec::new(),
             reported_capabilities: Vec::new(),
             reported_tool_support: None,
+            reported_limits: BTreeMap::new(),
+            reported_pricing: BTreeMap::new(),
             message: Some(
                 "provider does not expose a standard OpenAI-compatible model list".into(),
             ),
@@ -2333,6 +2540,8 @@ fn probe_openai_compatible_models(
             reported_modalities: Vec::new(),
             reported_capabilities: Vec::new(),
             reported_tool_support: None,
+            reported_limits: BTreeMap::new(),
+            reported_pricing: BTreeMap::new(),
             message: Some("no HTTP API base URL is configured for live probing".into()),
         };
     };
@@ -2347,6 +2556,8 @@ fn probe_openai_compatible_models(
                 reported_modalities: Vec::new(),
                 reported_capabilities: Vec::new(),
                 reported_tool_support: None,
+                reported_limits: BTreeMap::new(),
+                reported_pricing: BTreeMap::new(),
                 message: Some(message),
             };
         }
@@ -2379,6 +2590,20 @@ fn probe_openai_compatible_models(
                 } else {
                     None
                 },
+                reported_limits: if model_found {
+                    metadata
+                        .map(|metadata| metadata.limits.clone())
+                        .unwrap_or_default()
+                } else {
+                    BTreeMap::new()
+                },
+                reported_pricing: if model_found {
+                    metadata
+                        .map(|metadata| metadata.pricing.clone())
+                        .unwrap_or_default()
+                } else {
+                    BTreeMap::new()
+                },
                 message: Some(if model_found {
                     "model id was listed by the provider".into()
                 } else {
@@ -2394,6 +2619,8 @@ fn probe_openai_compatible_models(
             reported_modalities: Vec::new(),
             reported_capabilities: Vec::new(),
             reported_tool_support: None,
+            reported_limits: BTreeMap::new(),
+            reported_pricing: BTreeMap::new(),
             message: Some(message),
         },
     }
@@ -4210,7 +4437,7 @@ system_prompt = "Review carefully."
             let (mut stream, _) = listener.accept().unwrap();
             let mut request = [0_u8; 1024];
             let _ = stream.read(&mut request);
-            let body = r#"{"object":"list","data":[{"id":"live-model","modalities":["text","image"],"capabilities":["function_calling"],"supports_tools":true}]}"#;
+            let body = r#"{"object":"list","data":[{"id":"live-model","modalities":["text","image"],"capabilities":["function_calling"],"supports_tools":true,"context_length":128000,"max_output_tokens":4096,"input_cost_per_million":0.15,"pricing":{"prompt":"0.00000015","completion":"0.0000006"}}]}"#;
             let response = format!(
                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
                 body.len(),
@@ -4248,6 +4475,30 @@ system_prompt = "Review carefully."
                 .any(|item| item == "function_calling")
         );
         assert_eq!(probe.live_probe.reported_tool_support, Some(true));
+        assert_eq!(
+            probe.live_probe.reported_limits.get("context_tokens"),
+            Some(&128_000)
+        );
+        assert_eq!(
+            probe.live_probe.reported_limits.get("output_tokens"),
+            Some(&4096)
+        );
+        assert_eq!(
+            probe
+                .live_probe
+                .reported_pricing
+                .get("input_per_million")
+                .map(String::as_str),
+            Some("0.15")
+        );
+        assert_eq!(
+            probe
+                .live_probe
+                .reported_pricing
+                .get("pricing.completion")
+                .map(String::as_str),
+            Some("0.0000006")
+        );
         assert!(probe.declared_modalities.iter().any(|item| item == "text"));
 
         let mut anthropic = ModelConfig::for_id("claude-probe");
@@ -4269,7 +4520,7 @@ system_prompt = "Review carefully."
     #[test]
     fn native_provider_catalog_parsers_extract_model_ids_and_capabilities() {
         let anthropic = parse_anthropic_model_catalog(
-            r#"{"data":[{"id":"claude-sonnet-4-5","display_name":"Claude Sonnet","input_modalities":["text","image"],"capabilities":["tool_use"],"supports_tools":true}]}"#,
+            r#"{"data":[{"id":"claude-sonnet-4-5","display_name":"Claude Sonnet","input_modalities":["text","image"],"capabilities":["tool_use"],"supports_tools":true,"input_token_limit":200000,"output_token_limit":8192}]}"#,
         )
         .unwrap();
         assert_eq!(anthropic.model_ids, vec!["claude-sonnet-4-5"]);
@@ -4288,6 +4539,11 @@ system_prompt = "Review carefully."
                 .any(|capability| capability == "tool_use")
         );
         assert_eq!(anthropic_metadata.tool_support, Some(true));
+        assert_eq!(
+            anthropic_metadata.limits.get("input_tokens"),
+            Some(&200_000)
+        );
+        assert_eq!(anthropic_metadata.limits.get("output_tokens"), Some(&8192));
 
         let gemini = parse_gemini_model_catalog(
             r#"{
@@ -4295,7 +4551,9 @@ system_prompt = "Review carefully."
                     {
                         "name": "models/gemini-2.5-flash",
                         "baseModelId": "gemini-2.5-flash",
-                        "supportedGenerationMethods": ["generateContent", "countTokens"]
+                        "supportedGenerationMethods": ["generateContent", "countTokens"],
+                        "inputTokenLimit": 1048576,
+                        "outputTokenLimit": 65536
                     },
                     {
                         "name": "models/gemini-embedding-001",
@@ -4334,6 +4592,8 @@ system_prompt = "Review carefully."
                 .iter()
                 .any(|modality| modality == "text")
         );
+        assert_eq!(flash_metadata.limits.get("input_tokens"), Some(&1_048_576));
+        assert_eq!(flash_metadata.limits.get("output_tokens"), Some(&65_536));
         let embedding_metadata = gemini.model_metadata.get("gemini-embedding-001").unwrap();
         assert!(
             embedding_metadata

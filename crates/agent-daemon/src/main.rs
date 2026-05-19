@@ -221,6 +221,9 @@ async fn route(
             daemon_capability_propose(&request.body).map(|value| (200, value))
         }
         ("POST", "/hooks/policy") => daemon_hook_policy(&request.body).map(|value| (200, value)),
+        ("POST", "/hooks/available") => {
+            daemon_hook_available(&request.body).map(|value| (200, value))
+        }
         ("POST", "/hooks/policy/set") => {
             daemon_hook_policy_set(&request.body).map(|value| (200, value))
         }
@@ -593,6 +596,7 @@ async fn route(
                     "POST /capabilities/<id>/reject",
                     "POST /capabilities/<id>/delete",
                     "POST /hooks/policy",
+                    "POST /hooks/available",
                     "POST /hooks/policy/set",
                     "GET|POST /agents",
                     "GET /agents/<id>",
@@ -2424,6 +2428,15 @@ fn daemon_hook_policy(body: &str) -> anyhow::Result<serde_json::Value> {
     hook_policy_value(input.agent_id.as_deref())
 }
 
+fn daemon_hook_available(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: HookPolicyInput = if body.trim().is_empty() {
+        HookPolicyInput { agent_id: None }
+    } else {
+        serde_json::from_str(body)?
+    };
+    hook_available_value(input.agent_id.as_deref())
+}
+
 fn daemon_hook_policy_set(body: &str) -> anyhow::Result<serde_json::Value> {
     let input: HookPolicySetInput = serde_json::from_str(body)?;
     let resolver = ConfigResolver::from_env();
@@ -2434,6 +2447,34 @@ fn daemon_hook_policy_set(body: &str) -> anyhow::Result<serde_json::Value> {
         resolver.set_profile_lifecycle_hook_disabled(&input.hook_id, input.disabled)?;
     }
     hook_policy_value(Some(agent_id))
+}
+
+fn hook_available_value(agent_id: Option<&str>) -> anyhow::Result<serde_json::Value> {
+    let agent_id = agent_id.unwrap_or("fake-agent");
+    let policy = ConfigResolver::from_env().lifecycle_hook_policy_layers_for_agent(agent_id)?;
+    let hooks = AdapterRegistry::from_env().lifecycle_hooks()?;
+    let records = hooks
+        .into_iter()
+        .map(|hook| {
+            let disabled = policy
+                .effective_disabled_lifecycle_hooks
+                .iter()
+                .any(|id| id == &hook.id);
+            serde_json::json!({
+                "id": hook.id,
+                "triggers": hook.triggers,
+                "provenance": hook.provenance,
+                "handler": hook.handler,
+                "disabled": disabled,
+                "disabled_source": disabled.then_some(policy.effective_source.clone()),
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(serde_json::json!({
+        "agent_id": policy.agent_id,
+        "effective_source": policy.effective_source,
+        "hooks": records,
+    }))
 }
 
 fn hook_policy_value(agent_id: Option<&str>) -> anyhow::Result<serde_json::Value> {

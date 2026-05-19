@@ -507,6 +507,16 @@ enum HookCommand {
         #[arg(long)]
         json: bool,
     },
+    /// List allowed lifecycle hook declarations and their policy state.
+    Available {
+        /// Agent id whose layered hook policy should annotate hooks.
+        #[arg(long)]
+        agent: Option<String>,
+
+        /// Emit JSON instead of a human-readable summary.
+        #[arg(long)]
+        json: bool,
+    },
     /// Persistently disable one lifecycle hook for the active profile.
     Disable {
         /// Full lifecycle hook id, for example `adapter:<package>:<hook>`.
@@ -2517,6 +2527,21 @@ mod cli_parse_tests {
     }
 
     #[test]
+    fn hooks_available_command_accepts_agent_scope() {
+        let cli =
+            Cli::try_parse_from(["agent", "hooks", "available", "--agent", "critic", "--json"])
+                .unwrap();
+        let Command::Hooks {
+            command: HookCommand::Available { agent, json },
+        } = cli.command
+        else {
+            panic!("expected hook available command");
+        };
+        assert_eq!(agent.as_deref(), Some("critic"));
+        assert!(json);
+    }
+
+    #[test]
     fn agent_save_accepts_portable_agent_config_shape() {
         let cli = Cli::try_parse_from([
             "agent",
@@ -3639,6 +3664,7 @@ async fn main() -> anyhow::Result<()> {
         } => headless::trace_hooks(run_id, json).await,
         Command::Hooks { command } => match command {
             HookCommand::List { agent, json } => headless::hooks_list(agent, json).await,
+            HookCommand::Available { agent, json } => headless::hooks_available(agent, json).await,
             HookCommand::Disable {
                 hook_id,
                 agent,

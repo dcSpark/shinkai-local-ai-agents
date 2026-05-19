@@ -27,6 +27,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::AbortHandle;
 use tokio::time::MissedTickBehavior;
 
+use agent_adapters::AdapterRegistry;
 use agent_config::ConfigResolver;
 use agent_conversations::{ConversationMessage, ConversationStore, ConversationTreeNode};
 use agent_core::{AgentConfig, HarnessApi, UserInput};
@@ -1099,6 +1100,7 @@ fn handle_hooks_slash(app: &mut App, rest: &str, agent: &AgentConfig) {
             text: [
                 "/hooks review [run-id]",
                 "/hooks list",
+                "/hooks available",
                 "/hooks disable <hook-id> [--agent] --confirm",
                 "/hooks enable <hook-id> [--agent] --confirm",
             ]
@@ -1145,10 +1147,55 @@ fn handle_hooks_slash(app: &mut App, rest: &str, agent: &AgentConfig) {
                 }),
             }
         }
+        "available" => handle_hooks_available(app, &agent.id),
         "disable" | "enable" => handle_hook_policy_change(app, command, args, &agent.id),
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Hooks command needs review, list, disable, enable, or help.".into(),
+            text: "Hooks command needs review, list, available, disable, enable, or help.".into(),
+        }),
+    }
+}
+
+fn handle_hooks_available(app: &mut App, agent_id: &str) {
+    let result = (|| -> anyhow::Result<serde_json::Value> {
+        let policy = ConfigResolver::from_env().lifecycle_hook_policy_layers_for_agent(agent_id)?;
+        let hooks = AdapterRegistry::from_env().lifecycle_hooks()?;
+        let records = hooks
+            .into_iter()
+            .map(|hook| {
+                let disabled = policy
+                    .effective_disabled_lifecycle_hooks
+                    .iter()
+                    .any(|id| id == &hook.id);
+                serde_json::json!({
+                    "id": hook.id,
+                    "triggers": hook.triggers,
+                    "provenance": hook.provenance,
+                    "handler": hook.handler,
+                    "disabled": disabled,
+                    "disabled_source": disabled.then_some(policy.effective_source.clone()),
+                })
+            })
+            .collect::<Vec<_>>();
+        Ok(serde_json::json!({
+            "agent_id": policy.agent_id,
+            "effective_source": policy.effective_source,
+            "hooks": records,
+        }))
+    })();
+    match result {
+        Ok(value) => {
+            let count = value["hooks"].as_array().map(Vec::len).unwrap_or_default();
+            push_event(app, format!("Available lifecycle hooks: {count}"));
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: serde_json::to_string_pretty(&value)
+                    .unwrap_or_else(|_| "<unserializable hook catalog>".into()),
+            });
+        }
+        Err(err) => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: format!("Hook catalog failed: {err}"),
         }),
     }
 }

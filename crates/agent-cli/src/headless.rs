@@ -905,6 +905,63 @@ pub async fn hooks_list(agent: Option<String>, json: bool) -> anyhow::Result<()>
     Ok(())
 }
 
+pub async fn hooks_available(agent: Option<String>, json: bool) -> anyhow::Result<()> {
+    let agent_id = agent.unwrap_or_else(|| "fake-agent".into());
+    let policy = ConfigResolver::from_env().lifecycle_hook_policy_layers_for_agent(&agent_id)?;
+    let hooks = AdapterRegistry::from_env().lifecycle_hooks()?;
+    let records = hooks
+        .into_iter()
+        .map(|hook| {
+            let disabled = policy
+                .effective_disabled_lifecycle_hooks
+                .iter()
+                .any(|id| id == &hook.id);
+            serde_json::json!({
+                "id": hook.id,
+                "triggers": hook.triggers,
+                "provenance": hook.provenance,
+                "handler": hook.handler,
+                "disabled": disabled,
+                "disabled_source": disabled.then_some(policy.effective_source.clone()),
+            })
+        })
+        .collect::<Vec<_>>();
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "agent_id": policy.agent_id,
+                "effective_source": policy.effective_source,
+                "hooks": records,
+            }))?
+        );
+    } else if records.is_empty() {
+        println!("No allowed lifecycle hooks are installed.");
+    } else {
+        println!("available lifecycle hooks for {agent_id}:");
+        for record in records {
+            let id = record["id"].as_str().unwrap_or("<unknown>");
+            let triggers = record["triggers"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(serde_json::Value::as_str)
+                .collect::<Vec<_>>()
+                .join(",");
+            let state = if record["disabled"].as_bool().unwrap_or(false) {
+                format!(
+                    "disabled:{}",
+                    record["disabled_source"].as_str().unwrap_or("policy")
+                )
+            } else {
+                "enabled".into()
+            };
+            println!("- {id} triggers={triggers} {state}");
+        }
+    }
+    Ok(())
+}
+
 pub async fn hooks_set_disabled(
     hook_id: String,
     disabled: bool,

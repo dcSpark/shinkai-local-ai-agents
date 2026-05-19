@@ -171,6 +171,20 @@ interface HookPolicyRecord {
   agent_disabled_lifecycle_hooks?: string[];
 }
 
+interface HookCatalogRecord {
+  id: string;
+  triggers: string[];
+  provenance: string;
+  disabled: boolean;
+  disabled_source?: string | null;
+}
+
+interface HookCatalogResponse {
+  agent_id: string;
+  effective_source: string;
+  hooks: HookCatalogRecord[];
+}
+
 interface ResumeResult {
   source_run_id: string;
   resumed_run_id: string;
@@ -305,6 +319,7 @@ export default function App() {
   const [traceEvents, setTraceEvents] = useState<RunEvent[]>([]);
   const [traceSummary, setTraceSummary] = useState<TraceSummary | null>(null);
   const [hookPolicy, setHookPolicy] = useState<HookPolicyRecord | null>(null);
+  const [hookCatalog, setHookCatalog] = useState<HookCatalogRecord[]>([]);
   const [storageReport, setStorageReport] = useState<StorageReport | null>(null);
   const [bundleStatus, setBundleStatus] = useState<BundleStatus | null>(null);
   const [ingestionBackends, setIngestionBackends] = useState<
@@ -1763,6 +1778,23 @@ export default function App() {
     }
   }
 
+  async function refreshHookCatalog() {
+    try {
+      const agent = agentId.trim() || null;
+      const catalog =
+        transport === "daemon"
+          ? await daemonJson<HookCatalogResponse>("/hooks/available", {
+              agent_id: agent,
+            })
+          : await invoke<HookCatalogResponse>("hook_available", { agentId: agent });
+      setHookCatalog(catalog.hooks);
+      appendEvent(`Loaded lifecycle hooks (${catalog.hooks.length}).`);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      appendLine("error", `Hook catalog load failed: ${msg}`);
+    }
+  }
+
   async function setPersistentHookDisabled(
     hookId: string,
     disabled: boolean,
@@ -1789,6 +1821,16 @@ export default function App() {
               scope,
             });
       setHookPolicy(policy);
+      setHookCatalog((hooks) =>
+        hooks.map((hook) => {
+          const isDisabled = policy.disabled_lifecycle_hooks.includes(hook.id);
+          return {
+            ...hook,
+            disabled: isDisabled,
+            disabled_source: isDisabled ? (policy.effective_source ?? "policy") : null,
+          };
+        }),
+      );
       appendEvent(
         `${disabled ? "Disabled" : "Enabled"} hook ${hookId} for future runs in ${scope === "agent" ? `agent ${policy.agent_id ?? agent}` : `profile ${policy.profile}`}.`,
       );
@@ -6765,6 +6807,56 @@ export default function App() {
           ) : (
             <div className="empty-note">No trace loaded.</div>
           )}
+          <section className="hook-remediation-list">
+            <strong>Hook Catalog</strong>
+            <div className="mini-actions">
+              <button
+                type="button"
+                title="List allowed lifecycle hooks and their effective policy state."
+                onClick={() => void refreshHookCatalog()}
+              >
+                List Hooks
+              </button>
+            </div>
+            {hookCatalog.length ? (
+              <div className="context-cards">
+                {hookCatalog.map((hook) => (
+                  <div
+                    className={`context-card compact ${hook.disabled ? "warning" : ""}`}
+                    key={hook.id}
+                  >
+                    <strong>{hook.id}</strong>
+                    <span>
+                      {hook.triggers.join(", ") || "no triggers"} - {hook.provenance}
+                      {hook.disabled
+                        ? ` - disabled by ${hook.disabled_source ?? "policy"}`
+                        : ""}
+                    </span>
+                    <div className="mini-actions">
+                      <button
+                        type="button"
+                        title="Persistently skip this lifecycle hook for future runs in the active profile."
+                        onClick={() =>
+                          void setPersistentHookDisabled(hook.id, true, "profile")
+                        }
+                      >
+                        Disable Profile
+                      </button>
+                      <button
+                        type="button"
+                        title="Persistently skip this lifecycle hook for the active agent config."
+                        onClick={() =>
+                          void setPersistentHookDisabled(hook.id, true, "agent")
+                        }
+                      >
+                        Disable Agent
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </section>
           {hookRemediationsFromEvents(traceEvents).length ? (
             <section className="hook-remediation-list">
               <strong>Hook Review</strong>

@@ -1558,6 +1558,11 @@ async fn hook_policy(agent_id: Option<String>) -> Result<Value, String> {
 }
 
 #[tauri::command]
+async fn hook_available(agent_id: Option<String>) -> Result<Value, String> {
+    hook_available_value(agent_id.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn set_hook_disabled(
     hook_id: String,
     disabled: bool,
@@ -1576,6 +1581,34 @@ async fn set_hook_disabled(
             .map_err(|e| e.to_string())?;
     }
     hook_policy_value(Some(agent_id)).map_err(|e| e.to_string())
+}
+
+fn hook_available_value(agent_id: Option<&str>) -> anyhow::Result<Value> {
+    let agent_id = agent_id.unwrap_or("fake-agent");
+    let policy = ConfigResolver::from_env().lifecycle_hook_policy_layers_for_agent(agent_id)?;
+    let hooks = AdapterRegistry::from_env().lifecycle_hooks()?;
+    let records = hooks
+        .into_iter()
+        .map(|hook| {
+            let disabled = policy
+                .effective_disabled_lifecycle_hooks
+                .iter()
+                .any(|id| id == &hook.id);
+            serde_json::json!({
+                "id": hook.id,
+                "triggers": hook.triggers,
+                "provenance": hook.provenance,
+                "handler": hook.handler,
+                "disabled": disabled,
+                "disabled_source": disabled.then_some(policy.effective_source.clone()),
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(serde_json::json!({
+        "agent_id": policy.agent_id,
+        "effective_source": policy.effective_source,
+        "hooks": records,
+    }))
 }
 
 fn hook_policy_value(agent_id: Option<&str>) -> anyhow::Result<Value> {
@@ -2931,6 +2964,7 @@ pub fn run() {
             call_tool,
             trace_show,
             hook_policy,
+            hook_available,
             set_hook_disabled,
             approval_list,
             approval_decide,

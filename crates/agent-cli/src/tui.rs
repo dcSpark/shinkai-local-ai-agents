@@ -77,8 +77,26 @@ struct App {
     last_run_id: Option<RunId>,
     selected_conversation_id: Option<String>,
     conversation_tree_index: Vec<String>,
+    conversation_browser: Option<ConversationBrowser>,
     pending_conversation_action: Option<PendingConversationAction>,
     quit: bool,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct ConversationBrowser {
+    rows: Vec<ConversationBrowserRow>,
+    selected: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ConversationBrowserRow {
+    id: String,
+    title: String,
+    agent_id: String,
+    depth: usize,
+    own_message_count: usize,
+    expanded_message_count: usize,
+    branch_reason: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -204,8 +222,20 @@ fn handle_terminal_event(
         _ => return,
     };
 
+    if key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('c') {
+        if app.state == AppState::Running {
+            stop_active_run(app, "user requested stop");
+        } else {
+            app.quit = true;
+        }
+        return;
+    }
+    if app.conversation_browser.is_some() && handle_conversation_browser_key(app, key.code) {
+        return;
+    }
+
     match (key.modifiers, key.code) {
-        (KeyModifiers::CONTROL, KeyCode::Char('c')) | (_, KeyCode::Esc) => {
+        (_, KeyCode::Esc) => {
             if app.state == AppState::Running {
                 stop_active_run(app, "user requested stop");
             } else {
@@ -485,6 +515,7 @@ fn handle_conversation_slash(app: &mut App, rest: &str) {
             text: [
                 "/conversation recover <id>",
                 "/conversation tree",
+                "/conversation browse",
                 "/conversation select <id>",
                 "/conversation delete-plan [<id>] [--recursive]",
                 "/conversation delete [<id>] [--recursive]",
@@ -553,6 +584,7 @@ fn handle_conversation_slash(app: &mut App, rest: &str) {
                 let (formatted, index) =
                     format_conversation_tree_picker(&tree, app.selected_conversation_id.as_deref());
                 app.conversation_tree_index = index;
+                open_conversation_browser_from_tree(app, &tree);
                 app.transcript.push(TranscriptLine {
                     kind: LineKind::Assistant,
                     text: formatted,
@@ -561,6 +593,13 @@ fn handle_conversation_slash(app: &mut App, rest: &str) {
             Err(err) => app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
                 text: format!("Conversation tree failed: {err}"),
+            }),
+        },
+        "browse" => match open_conversation_browser(app) {
+            Ok(()) => {}
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Conversation browser failed: {err}"),
             }),
         },
         "select" => match select_conversation(app, args) {
@@ -621,7 +660,7 @@ fn handle_conversation_slash(app: &mut App, rest: &str) {
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Conversation command needs recover, tree, select, delete-plan, delete, range, range-delete, confirm, cancel, or help.".into(),
+            text: "Conversation command needs recover, tree, browse, select, delete-plan, delete, range, range-delete, confirm, cancel, or help.".into(),
         }),
     }
 }
@@ -640,8 +679,12 @@ fn select_conversation(app: &mut App, id: &str) -> anyhow::Result<()> {
         anyhow::bail!("select command needs a conversation id");
     }
     let id = resolve_conversation_selection(app, input)?;
-    let expanded = ConversationStore::from_env().expanded(&id)?;
-    app.selected_conversation_id = Some(id.clone());
+    select_conversation_id(app, &id)
+}
+
+fn select_conversation_id(app: &mut App, id: &str) -> anyhow::Result<()> {
+    let expanded = ConversationStore::from_env().expanded(id)?;
+    app.selected_conversation_id = Some(id.to_string());
     push_event(
         app,
         format!(
@@ -660,6 +703,115 @@ fn select_conversation(app: &mut App, id: &str) -> anyhow::Result<()> {
         ),
     });
     Ok(())
+}
+
+fn open_conversation_browser(app: &mut App) -> anyhow::Result<()> {
+    let tree = ConversationStore::from_env().tree()?;
+    push_event(app, format!("Conversation browser: {} roots", tree.len()));
+    open_conversation_browser_from_tree(app, &tree);
+    Ok(())
+}
+
+fn open_conversation_browser_from_tree(app: &mut App, tree: &[ConversationTreeNode]) {
+    let browser = conversation_browser_from_tree(tree, app.selected_conversation_id.as_deref());
+    app.conversation_tree_index = browser.rows.iter().map(|row| row.id.clone()).collect();
+    if browser.rows.is_empty() {
+        app.conversation_browser = None;
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: "no conversations".into(),
+        });
+        return;
+    }
+    let count = browser.rows.len();
+    app.conversation_browser = Some(browser);
+    push_event(
+        app,
+        format!("Conversation browser opened with {count} item(s)."),
+    );
+}
+
+fn handle_conversation_browser_key(app: &mut App, code: KeyCode) -> bool {
+    match code {
+        KeyCode::Esc | KeyCode::Char('q') => {
+            app.conversation_browser = None;
+            push_event(app, "Conversation browser closed.".to_string());
+        }
+        KeyCode::Up | KeyCode::Char('k') => move_conversation_browser_selection(app, -1),
+        KeyCode::Down | KeyCode::Char('j') => move_conversation_browser_selection(app, 1),
+        KeyCode::Home => set_conversation_browser_selection(app, 0),
+        KeyCode::End => {
+            let last = app
+                .conversation_browser
+                .as_ref()
+                .map(|browser| browser.rows.len().saturating_sub(1))
+                .unwrap_or_default();
+            set_conversation_browser_selection(app, last);
+        }
+        KeyCode::Enter => {
+            if let Some(id) = current_browser_conversation_id(app) {
+                match select_conversation_id(app, &id) {
+                    Ok(()) => app.conversation_browser = None,
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Conversation select failed: {err}"),
+                    }),
+                }
+            }
+        }
+        KeyCode::Char('r') => {
+            if let Some(id) = current_browser_conversation_id(app) {
+                match crate::headless::conversation_recovery_plan_value(&id) {
+                    Ok(plan) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: format!(
+                            "{}\n\n{}",
+                            format_conversation_recovery_guidance(&plan),
+                            serde_json::to_string_pretty(&plan)
+                                .unwrap_or_else(|_| "<unserializable recovery plan>".into())
+                        ),
+                    }),
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Conversation recovery failed: {err}"),
+                    }),
+                }
+            }
+        }
+        KeyCode::Char('d') => {
+            if let Some(id) = current_browser_conversation_id(app) {
+                match conversation_delete_plan_review_value(&id, false) {
+                    Ok(plan) => push_conversation_delete_plan(app, &plan),
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Conversation delete plan failed: {err}"),
+                    }),
+                }
+            }
+        }
+        _ => {}
+    }
+    true
+}
+
+fn current_browser_conversation_id(app: &App) -> Option<String> {
+    app.conversation_browser
+        .as_ref()
+        .and_then(|browser| browser.rows.get(browser.selected).map(|row| row.id.clone()))
+}
+
+fn move_conversation_browser_selection(app: &mut App, delta: isize) {
+    if let Some(browser) = &mut app.conversation_browser {
+        let last = browser.rows.len().saturating_sub(1);
+        let selected = browser.selected.saturating_add_signed(delta).min(last);
+        browser.selected = selected;
+    }
+}
+
+fn set_conversation_browser_selection(app: &mut App, selected: usize) {
+    if let Some(browser) = &mut app.conversation_browser {
+        browser.selected = selected.min(browser.rows.len().saturating_sub(1));
+    }
 }
 
 fn resolve_conversation_selection(app: &App, input: &str) -> anyhow::Result<String> {
@@ -967,6 +1119,39 @@ fn format_conversation_tree_picker(
         push_conversation_tree_node(&mut lines, &mut index, node, 0, selected);
     }
     (lines.join("\n"), index)
+}
+
+fn conversation_browser_from_tree(
+    nodes: &[ConversationTreeNode],
+    selected: Option<&str>,
+) -> ConversationBrowser {
+    let mut rows = Vec::new();
+    for node in nodes {
+        push_conversation_browser_row(&mut rows, node, 0);
+    }
+    let selected = selected
+        .and_then(|id| rows.iter().position(|row| row.id == id))
+        .unwrap_or_default();
+    ConversationBrowser { rows, selected }
+}
+
+fn push_conversation_browser_row(
+    rows: &mut Vec<ConversationBrowserRow>,
+    node: &ConversationTreeNode,
+    depth: usize,
+) {
+    rows.push(ConversationBrowserRow {
+        id: node.id.clone(),
+        title: node.title.clone(),
+        agent_id: node.agent_id.clone(),
+        depth,
+        own_message_count: node.own_message_count,
+        expanded_message_count: node.expanded_message_count,
+        branch_reason: node.branch_reason.clone(),
+    });
+    for child in &node.children {
+        push_conversation_browser_row(rows, child, depth + 1);
+    }
 }
 
 fn push_conversation_tree_node(
@@ -1989,18 +2174,88 @@ fn update_tool_budget_from_snapshot(app: &mut App, snapshot: &serde_json::Value)
 // ---------- rendering ----------
 
 fn render(f: &mut ratatui::Frame, app: &App) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(3),
-            Constraint::Length(1),
-            Constraint::Length(3),
-        ])
-        .split(f.area());
+    if app.conversation_browser.is_some() {
+        let browser_height = (f.area().height / 3).clamp(5, 14);
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(browser_height),
+                Constraint::Min(3),
+                Constraint::Length(1),
+                Constraint::Length(3),
+            ])
+            .split(f.area());
+        render_conversation_browser(f, chunks[0], app);
+        render_transcript(f, chunks[1], app);
+        render_status(f, chunks[2], app);
+        render_input(f, chunks[3], app);
+    } else {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(3),
+                Constraint::Length(1),
+                Constraint::Length(3),
+            ])
+            .split(f.area());
 
-    render_transcript(f, chunks[0], app);
-    render_status(f, chunks[1], app);
-    render_input(f, chunks[2], app);
+        render_transcript(f, chunks[0], app);
+        render_status(f, chunks[1], app);
+        render_input(f, chunks[2], app);
+    }
+}
+
+fn render_conversation_browser(f: &mut ratatui::Frame, area: Rect, app: &App) {
+    let Some(browser) = &app.conversation_browser else {
+        return;
+    };
+    let visible_rows = usize::from(area.height.saturating_sub(2)).max(1);
+    let mut offset = 0usize;
+    if browser.selected >= visible_rows {
+        offset = browser.selected + 1 - visible_rows;
+    }
+    let lines = browser
+        .rows
+        .iter()
+        .enumerate()
+        .skip(offset)
+        .take(visible_rows)
+        .map(|(index, row)| {
+            let selected = index == browser.selected;
+            let marker = if selected { ">" } else { " " };
+            let indent = "  ".repeat(row.depth);
+            let reason = row
+                .branch_reason
+                .as_deref()
+                .map(|reason| format!(" reason={}", compact_preview(reason, 64)))
+                .unwrap_or_default();
+            let style = if selected {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            Line::styled(
+                format!(
+                    "{marker} {}{title} ({id}) agent={agent} own={own} expanded={expanded}{reason}",
+                    indent,
+                    title = row.title.as_str(),
+                    id = row.id.as_str(),
+                    agent = row.agent_id.as_str(),
+                    own = row.own_message_count,
+                    expanded = row.expanded_message_count,
+                ),
+                style,
+            )
+        })
+        .collect::<Vec<_>>();
+    let paragraph = Paragraph::new(lines)
+        .block(Block::default().borders(Borders::ALL).title(
+            " Conversation Browser: Up/Down move | Enter select | r recover | d delete plan | Esc close ",
+        ))
+        .wrap(Wrap { trim: false });
+    f.render_widget(paragraph, area);
 }
 
 fn render_transcript(f: &mut ratatui::Frame, area: Rect, app: &App) {
@@ -2076,12 +2331,15 @@ fn format_duration(ms: u64) -> String {
 }
 
 fn render_input(f: &mut ratatui::Frame, area: Rect, app: &App) {
-    let title = if app.state == AppState::Running {
+    let browser_active = app.conversation_browser.is_some();
+    let title = if browser_active {
+        " Conversation browser active "
+    } else if app.state == AppState::Running {
         " /guide <text> to steer current run "
     } else {
         " Enter to send · Esc to quit "
     };
-    let style = if app.state == AppState::Running {
+    let style = if app.state == AppState::Running || browser_active {
         Style::default().fg(Color::DarkGray)
     } else {
         Style::default()
@@ -2091,7 +2349,7 @@ fn render_input(f: &mut ratatui::Frame, area: Rect, app: &App) {
         .block(Block::default().borders(Borders::ALL).title(title));
     f.render_widget(p, area);
 
-    if app.state == AppState::Idle {
+    if app.state == AppState::Idle && !browser_active {
         // Inside the box: 1 char in for the left border + 2 for "> " + input length.
         let cursor_x = area.x + 3 + app.input.chars().count() as u16;
         let cursor_y = area.y + 1;
@@ -2315,6 +2573,47 @@ mod tests {
             vec!["conv-root".to_string(), "conv-child".to_string()]
         );
         assert!(picker.contains("*[2] Child"));
+    }
+
+    #[test]
+    fn conversation_browser_flattens_tree_and_moves_selection() {
+        let tree = vec![ConversationTreeNode {
+            id: "conv-root".into(),
+            title: "Root".into(),
+            agent_id: "agent-a".into(),
+            parent_id: None,
+            branch_reason: None,
+            own_message_count: 2,
+            expanded_message_count: 2,
+            children: vec![ConversationTreeNode {
+                id: "conv-child".into(),
+                title: "Child".into(),
+                agent_id: "agent-a".into(),
+                parent_id: Some("conv-root".into()),
+                branch_reason: Some("try another path".into()),
+                own_message_count: 1,
+                expanded_message_count: 3,
+                children: Vec::new(),
+            }],
+        }];
+        let browser = conversation_browser_from_tree(&tree, Some("conv-child"));
+        assert_eq!(browser.rows.len(), 2);
+        assert_eq!(browser.selected, 1);
+        assert_eq!(browser.rows[1].depth, 1);
+        assert_eq!(browser.rows[1].id, "conv-child");
+
+        let mut app = App {
+            conversation_browser: Some(browser),
+            ..App::default()
+        };
+        move_conversation_browser_selection(&mut app, -1);
+        assert_eq!(app.conversation_browser.as_ref().unwrap().selected, 0);
+        move_conversation_browser_selection(&mut app, 4);
+        assert_eq!(app.conversation_browser.as_ref().unwrap().selected, 1);
+        assert_eq!(
+            current_browser_conversation_id(&app).as_deref(),
+            Some("conv-child")
+        );
     }
 
     #[test]

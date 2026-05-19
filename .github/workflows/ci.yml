@@ -94,3 +94,6 @@ jobs:
 
       - name: Release binary build
         run: cargo build -p agent-cli -p agent-daemon -p agent-tauri --release --bins
+
+      - name: Release binary verifier
+        run: scripts/verify-release-binaries.sh

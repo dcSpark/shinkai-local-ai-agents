@@ -94,6 +94,7 @@ for (const os of ["ubuntu-latest", "macos-14", "windows-2022"]) {
 assert(ci.includes("npm run build"), "CI must run the frontend production build");
 assert(ci.includes("scripts/verify-packaging.sh"), "CI must run the packaging verifier");
 assert(ci.includes("cargo build -p agent-cli -p agent-daemon -p agent-tauri --release --bins"), "CI must build release binaries");
+assert(ci.includes("scripts/verify-release-binaries.sh"), "CI must verify release binary artifacts");
 
 console.log("packaging metadata verified");
 NODE

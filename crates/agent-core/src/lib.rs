@@ -45,6 +45,7 @@ const MAX_HOOK_CONTEXT_FRAGMENT_CHARS: usize = 4_000;
 const MAX_HOOK_TOOL_INPUT_CHARS: usize = 16_000;
 const MAX_HOOK_TOOL_OUTPUT_CHARS: usize = 16_000;
 const MAX_HOOK_STDOUT_BYTES: u64 = 64 * 1024;
+const DEFAULT_AUTO_COMPACTION_OUTPUT_TOKENS: u32 = 512;
 static HOOK_STDOUT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Tool-related policy slice. v0 cut of `specs/architecture.md` §4.5
@@ -196,6 +197,7 @@ pub struct AgentConfig {
     pub prompt_refinement: Option<PromptRefinement>,
     pub voice: VoiceConfig,
     pub tool_policy: ToolPolicy,
+    pub context_policy: ContextPolicy,
     pub execution_policy: ExecutionPolicy,
     pub cost_policy: CostPolicy,
     pub conversation_history: Vec<Message>,
@@ -232,6 +234,21 @@ pub struct VoiceConfig {
     pub voice: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tone: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ContextPolicy {
+    pub compaction: ContextCompactionPolicy,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ContextCompactionPolicy {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens_before_compaction: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guidance: Option<String>,
 }
 
 /// v0 cut of `ContextSnapshot` from `specs/architecture.md` §4.6 / §8.
@@ -2231,16 +2248,25 @@ impl ContextBuilder<'_> {
             .ingestion_artifacts
             .len()
             .saturating_sub(loaded_artifacts.len());
-        let raw_compacted = self
+        let raw_manual_compacted = self
             .agent
             .compacted_context
             .as_deref()
             .map(str::trim)
             .filter(|text| !text.is_empty());
-        let compacted = raw_compacted
+        let manual_compacted = raw_manual_compacted
             .filter(|text| !text_contains_secret_marker(text))
             .map(str::to_string);
-        let compacted_withheld = raw_compacted.is_some() && compacted.is_none();
+        let manual_compacted_withheld =
+            raw_manual_compacted.is_some() && manual_compacted.is_none();
+        let (conversation, auto_compacted, auto_compacted_applied) = if manual_compacted.is_none() {
+            auto_compact_conversation(self.conversation, &self.agent.context_policy.compaction)
+        } else {
+            (self.conversation, None, false)
+        };
+        let auto_compacted = auto_compacted.filter(|text| !text_contains_secret_marker(text));
+        let auto_compacted_applied = auto_compacted_applied && auto_compacted.is_some();
+        let compacted = manual_compacted.or(auto_compacted);
         let mut visible_tools: Vec<ToolView> = self
             .tools
             .descriptors()
@@ -2405,7 +2431,6 @@ impl ContextBuilder<'_> {
             system_prompt.push_str("\n</skill-context>");
         }
 
-        let conversation = self.conversation;
         let estimated_input_tokens = estimate_context_tokens(
             &system_prompt,
             &conversation,
@@ -2466,7 +2491,11 @@ impl ContextBuilder<'_> {
         if compacted.is_some() {
             provenance.push(ProvenanceRecord {
                 fragment: "compacted_context".into(),
-                source: "run.manual_compaction".into(),
+                source: if auto_compacted_applied {
+                    "agent.context_policy.auto_compaction".into()
+                } else {
+                    "run.manual_compaction".into()
+                },
             });
         }
         if withheld_memory_count > 0 {
@@ -2481,7 +2510,7 @@ impl ContextBuilder<'_> {
                 source: "secret-pattern guardrail".into(),
             });
         }
-        if compacted_withheld {
+        if manual_compacted_withheld {
             provenance.push(ProvenanceRecord {
                 fragment: "withheld_compacted_context".into(),
                 source: "secret-pattern guardrail".into(),
@@ -2552,6 +2581,153 @@ fn estimate_context_tokens(
         }
     }
     total.min(u64::from(u32::MAX)) as u32
+}
+
+fn auto_compact_conversation(
+    conversation: Vec<Message>,
+    policy: &ContextCompactionPolicy,
+) -> (Vec<Message>, Option<String>, bool) {
+    let Some(threshold) = policy
+        .max_tokens_before_compaction
+        .filter(|value| *value > 0)
+    else {
+        return (conversation, None, false);
+    };
+    let conversation_tokens = conversation.iter().fold(0_u32, |total, message| {
+        total.saturating_add(estimate_message_tokens(message))
+    });
+    if conversation_tokens <= threshold {
+        return (conversation, None, false);
+    }
+    let Some((latest, history)) = conversation.split_last() else {
+        return (conversation, None, false);
+    };
+    if history.is_empty()
+        || !matches!(
+            latest,
+            Message::User { .. } | Message::UserWithAttachments { .. }
+        )
+    {
+        return (conversation, None, false);
+    }
+    let history_lines = history
+        .iter()
+        .map(message_compaction_line)
+        .filter(|line| !line.trim().is_empty())
+        .collect::<Vec<_>>();
+    if history_lines.is_empty() {
+        return (conversation, None, false);
+    }
+    let max_output_tokens = policy
+        .max_output_tokens
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_AUTO_COMPACTION_OUTPUT_TOKENS);
+    let compacted = auto_compact_text(
+        &history_lines,
+        policy.guidance.as_deref(),
+        max_output_tokens,
+        conversation_tokens,
+        threshold,
+    );
+    (vec![latest.clone()], Some(compacted), true)
+}
+
+fn message_compaction_line(message: &Message) -> String {
+    match message {
+        Message::System { content } => format!("System: {}", normalize_inline(content)),
+        Message::User { content } => format!("User: {}", normalize_inline(content)),
+        Message::UserWithAttachments {
+            content,
+            attachments,
+        } => format!(
+            "User: {} [{} attachment(s)]",
+            normalize_inline(content),
+            attachments.len()
+        ),
+        Message::Assistant {
+            content,
+            tool_calls,
+        } => {
+            let content = content
+                .as_deref()
+                .map(normalize_inline)
+                .filter(|text| !text.is_empty())
+                .unwrap_or_else(|| "[no text]".into());
+            if tool_calls.is_empty() {
+                format!("Assistant: {content}")
+            } else {
+                let tools = tool_calls
+                    .iter()
+                    .map(|call| call.tool_name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(",");
+                format!("Assistant: {content} [tool_calls: {tools}]")
+            }
+        }
+        Message::ToolResult { content, .. } => {
+            format!("Tool result: {}", normalize_inline(content))
+        }
+    }
+}
+
+fn auto_compact_text(
+    lines: &[String],
+    guidance: Option<&str>,
+    max_output_tokens: u32,
+    original_tokens: u32,
+    threshold: u32,
+) -> String {
+    let guidance = guidance.map(str::trim).filter(|text| !text.is_empty());
+    let header = if let Some(guidance) = guidance {
+        format!(
+            "<auto-compaction trigger=\"max_tokens_before_compaction\" original_tokens=\"{original_tokens}\" threshold=\"{threshold}\" max_output_tokens=\"{max_output_tokens}\">\nGuidance: {guidance}\nSummary:\n"
+        )
+    } else {
+        format!(
+            "<auto-compaction trigger=\"max_tokens_before_compaction\" original_tokens=\"{original_tokens}\" threshold=\"{threshold}\" max_output_tokens=\"{max_output_tokens}\">\nSummary:\n"
+        )
+    };
+    let footer = "\n</auto-compaction>";
+    let overhead = estimate_text_tokens(&header).saturating_add(estimate_text_tokens(footer));
+    let body_budget = max_output_tokens.saturating_sub(overhead).max(1);
+    let body = compact_lines_to_token_estimate(lines, body_budget);
+    format!("{header}{body}{footer}")
+}
+
+fn compact_lines_to_token_estimate(lines: &[String], max_tokens: u32) -> String {
+    let mut out = String::new();
+    for line in lines {
+        let candidate = format!("- {}\n", normalize_inline(line));
+        if estimate_text_tokens(&out).saturating_add(estimate_text_tokens(&candidate)) > max_tokens
+        {
+            if out.is_empty() {
+                let remaining = max_tokens.saturating_sub(estimate_text_tokens("- "));
+                out.push_str("- ");
+                out.push_str(&truncate_to_token_estimate(line, remaining));
+                out.push('\n');
+            }
+            break;
+        }
+        out.push_str(&candidate);
+    }
+    out.trim_end().to_string()
+}
+
+fn normalize_inline(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn truncate_to_token_estimate(text: &str, max_tokens: u32) -> String {
+    let max_chars = (max_tokens as usize).saturating_mul(4).max(1);
+    let normalized = normalize_inline(text);
+    let mut out = String::new();
+    for ch in normalized.chars().take(max_chars) {
+        out.push(ch);
+    }
+    if normalized.chars().count() > out.chars().count() {
+        out.push_str("...");
+    }
+    out
 }
 
 fn skill_visible_content(skill: &SkillView) -> &str {
@@ -3756,6 +3932,20 @@ impl HarnessApi for Harness {
                         .unwrap_or(Value::Null),
                     source: "agent/default".into(),
                 },
+                ConfigValueExplanation {
+                    key: "agent.context_policy.max_tokens_before_compaction".into(),
+                    value: serde_json::to_value(
+                        agent.context_policy.compaction.max_tokens_before_compaction,
+                    )
+                    .unwrap_or(Value::Null),
+                    source: "agent/default".into(),
+                },
+                ConfigValueExplanation {
+                    key: "agent.context_policy.max_compaction_output_tokens".into(),
+                    value: serde_json::to_value(agent.context_policy.compaction.max_output_tokens)
+                        .unwrap_or(Value::Null),
+                    source: "agent/default".into(),
+                },
             ],
         }
     }
@@ -3801,6 +3991,7 @@ mod tests {
                 per_tool_output_interpretation_models: HashMap::new(),
                 per_tool_output_guidance: HashMap::new(),
             },
+            context_policy: ContextPolicy::default(),
             execution_policy: ExecutionPolicy::default(),
             cost_policy: CostPolicy::default(),
             conversation_history: Vec::new(),
@@ -4900,6 +5091,55 @@ JSON
         assert!(snapshot.provenance.iter().any(|record| {
             record.fragment == "conversation_history"
                 && record.source == "profile.main.conversations"
+        }));
+    }
+
+    #[test]
+    fn preview_context_auto_compacts_history_when_policy_threshold_is_exceeded() {
+        let mut agent = agent_with_tools(vec![], 5);
+        agent.context_policy.compaction = ContextCompactionPolicy {
+            max_tokens_before_compaction: Some(24),
+            max_output_tokens: Some(96),
+            guidance: Some("keep decisions and unresolved facts".into()),
+        };
+        agent.conversation_history = vec![
+            Message::user("earlier request about alpha beta gamma delta epsilon"),
+            Message::Assistant {
+                content: Some("earlier answer with retained decision one".into()),
+                tool_calls: Vec::new(),
+            },
+            Message::user("follow up about zeta eta theta iota kappa"),
+            Message::Assistant {
+                content: Some("follow up answer with retained decision two".into()),
+                tool_calls: Vec::new(),
+            },
+        ];
+        let h = Harness::new(
+            Arc::new(FakeProvider::echo()),
+            Arc::new(InMemoryEventStore::new()),
+            registry_with_echo(),
+        );
+
+        let snapshot = h.preview_context(
+            &agent,
+            UserInput {
+                text: "latest request stays explicit".into(),
+            },
+        );
+
+        assert_eq!(snapshot.conversation.len(), 1);
+        assert!(matches!(
+            &snapshot.conversation[0],
+            Message::User { content } if content == "latest request stays explicit"
+        ));
+        let compacted = snapshot.compacted.as_deref().expect("auto compaction");
+        assert!(compacted.contains("<auto-compaction"));
+        assert!(compacted.contains("Guidance: keep decisions and unresolved facts"));
+        assert!(compacted.contains("earlier request"));
+        assert!(snapshot.system_prompt.contains("<compacted-context>"));
+        assert!(snapshot.provenance.iter().any(|record| {
+            record.fragment == "compacted_context"
+                && record.source == "agent.context_policy.auto_compaction"
         }));
     }
 

@@ -8,8 +8,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use agent_core::{
-    AgentConfig, ConfigValueExplanation, CostPolicy, ExecutionPolicy, PromptRefinement,
-    ToolOutputMode, ToolPolicy, VisibilityLevel, VoiceConfig,
+    AgentConfig, ConfigValueExplanation, ContextCompactionPolicy, ContextPolicy, CostPolicy,
+    ExecutionPolicy, PromptRefinement, ToolOutputMode, ToolPolicy, VisibilityLevel, VoiceConfig,
 };
 use agent_llm::{ModelRef, NativeProviderConfig, RigProviderConfig};
 use agent_storage::StoragePaths;
@@ -74,6 +74,12 @@ struct PolicyLayerToml {
     load_memory: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     load_skills: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    max_tokens_before_compaction: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    max_compaction_output_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    compaction_guidance: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     ingestion_guardrail: Option<IngestionGuardrailMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -216,6 +222,12 @@ pub struct AgentConfigFile {
     pub load_memory: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub load_skills: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_tokens_before_compaction: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_compaction_output_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compaction_guidance: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ingestion_guardrail: Option<IngestionGuardrailMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -884,6 +896,9 @@ impl Default for AgentToml {
                 tool_visibility: Some(default_tool_visibility()),
                 load_memory: None,
                 load_skills: None,
+                max_tokens_before_compaction: None,
+                max_compaction_output_tokens: None,
+                compaction_guidance: None,
                 ingestion_guardrail: None,
                 ingestion_guardrail_model: None,
                 input_cost_per_million: None,
@@ -916,6 +931,9 @@ impl From<AgentToml> for AgentConfigFile {
             tool_visibility: value.policy.tool_visibility,
             load_memory: value.policy.load_memory,
             load_skills: value.policy.load_skills,
+            max_tokens_before_compaction: value.policy.max_tokens_before_compaction,
+            max_compaction_output_tokens: value.policy.max_compaction_output_tokens,
+            compaction_guidance: value.policy.compaction_guidance,
             ingestion_guardrail: value.policy.ingestion_guardrail,
             ingestion_guardrail_model: value.policy.ingestion_guardrail_model,
             input_cost_per_million: value.policy.input_cost_per_million,
@@ -948,6 +966,9 @@ impl From<AgentConfigFile> for AgentToml {
                 tool_visibility: value.tool_visibility,
                 load_memory: value.load_memory,
                 load_skills: value.load_skills,
+                max_tokens_before_compaction: value.max_tokens_before_compaction,
+                max_compaction_output_tokens: value.max_compaction_output_tokens,
+                compaction_guidance: value.compaction_guidance,
                 ingestion_guardrail: value.ingestion_guardrail,
                 ingestion_guardrail_model: value.ingestion_guardrail_model,
                 input_cost_per_million: value.input_cost_per_million,
@@ -3105,6 +3126,57 @@ fn resolve_agent(
             (parsed.policy.load_skills, source.clone()),
         ],
     );
+    let max_tokens_before_compaction = resolve_layered(
+        None::<u32>,
+        "default:automatic context compaction off".into(),
+        vec![
+            (
+                global.policy.max_tokens_before_compaction.map(Some),
+                global_source.clone(),
+            ),
+            (
+                profile.policy.max_tokens_before_compaction.map(Some),
+                profile_source.clone(),
+            ),
+            (
+                parsed.policy.max_tokens_before_compaction.map(Some),
+                source.clone(),
+            ),
+        ],
+    );
+    let max_compaction_output_tokens = resolve_layered(
+        None::<u32>,
+        "default:auto compaction output uses runtime default".into(),
+        vec![
+            (
+                global.policy.max_compaction_output_tokens.map(Some),
+                global_source.clone(),
+            ),
+            (
+                profile.policy.max_compaction_output_tokens.map(Some),
+                profile_source.clone(),
+            ),
+            (
+                parsed.policy.max_compaction_output_tokens.map(Some),
+                source.clone(),
+            ),
+        ],
+    );
+    let compaction_guidance = resolve_layered(
+        None::<String>,
+        "default:no auto compaction guidance".into(),
+        vec![
+            (
+                global.policy.compaction_guidance.map(Some),
+                global_source.clone(),
+            ),
+            (
+                profile.policy.compaction_guidance.map(Some),
+                profile_source.clone(),
+            ),
+            (parsed.policy.compaction_guidance.map(Some), source.clone()),
+        ],
+    );
     let ingestion_guardrail = resolve_layered(
         IngestionGuardrailMode::Block,
         "default:ingestion guardrail blocks high-risk content".into(),
@@ -3435,6 +3507,13 @@ fn resolve_agent(
                 .map(|(tool_id, guidance)| (ToolId::from(tool_id.clone()), guidance.clone()))
                 .collect::<HashMap<_, _>>(),
         },
+        context_policy: ContextPolicy {
+            compaction: ContextCompactionPolicy {
+                max_tokens_before_compaction: max_tokens_before_compaction.value,
+                max_output_tokens: max_compaction_output_tokens.value,
+                guidance: compaction_guidance.value.clone(),
+            },
+        },
         execution_policy: ExecutionPolicy {
             max_subagent_depth: max_subagent_depth.value,
             max_recursion_depth: max_recursion_depth.value,
@@ -3611,6 +3690,21 @@ fn resolve_agent(
             "agent.skill_policy.load",
             load_skills.value,
             &load_skills.source,
+        ),
+        config_value(
+            "agent.context_policy.max_tokens_before_compaction",
+            max_tokens_before_compaction.value,
+            &max_tokens_before_compaction.source,
+        ),
+        config_value(
+            "agent.context_policy.max_compaction_output_tokens",
+            max_compaction_output_tokens.value,
+            &max_compaction_output_tokens.source,
+        ),
+        config_value(
+            "agent.context_policy.compaction_guidance",
+            compaction_guidance.value,
+            &compaction_guidance.source,
         ),
         config_value(
             "agent.ingestion_policy.guardrail_mode",
@@ -3998,6 +4092,23 @@ fn validate_agent_config(agent: &AgentConfigFile) -> Result<(), ConfigError> {
     if let Some(model) = &agent.tool_output_interpretation_model {
         validate_model_id(model)?;
     }
+    if agent.max_tokens_before_compaction == Some(0) {
+        return Err(ConfigError::InvalidInput(
+            "max_tokens_before_compaction must be greater than zero".into(),
+        ));
+    }
+    if agent.max_compaction_output_tokens == Some(0) {
+        return Err(ConfigError::InvalidInput(
+            "max_compaction_output_tokens must be greater than zero".into(),
+        ));
+    }
+    if let Some(guidance) = &agent.compaction_guidance
+        && guidance.trim().is_empty()
+    {
+        return Err(ConfigError::InvalidInput(
+            "compaction_guidance cannot be empty".into(),
+        ));
+    }
     validate_voice_config_file(agent.voice.as_ref())?;
     for refinement in agent
         .prompt_refinement
@@ -4294,6 +4405,9 @@ system_prompt = "Review carefully."
             tool_visibility: Some(VisibilityLevel::NameOnly),
             load_memory: Some(true),
             load_skills: Some(true),
+            max_tokens_before_compaction: Some(256),
+            max_compaction_output_tokens: Some(96),
+            compaction_guidance: Some("Keep review decisions.".into()),
             ingestion_guardrail: Some(IngestionGuardrailMode::Warn),
             ingestion_guardrail_model: Some("guardrail-model".into()),
             input_cost_per_million: Some(0.1),
@@ -4320,6 +4434,22 @@ system_prompt = "Review carefully."
         }));
         assert_eq!(resolved.agent.execution_policy.max_subagent_depth, 2);
         assert_eq!(resolved.agent.execution_policy.max_recursion_depth, 1);
+        assert_eq!(
+            resolved
+                .agent
+                .context_policy
+                .compaction
+                .max_tokens_before_compaction,
+            Some(256)
+        );
+        assert_eq!(
+            resolved.agent.context_policy.compaction.max_output_tokens,
+            Some(96)
+        );
+        assert_eq!(
+            resolved.agent.context_policy.compaction.guidance.as_deref(),
+            Some("Keep review decisions.")
+        );
         assert!(
             resolved
                 .agent
@@ -5089,6 +5219,8 @@ model = "global-model"
 max_tool_calls = 2
 tool_visibility = "name_only"
 input_cost_per_million = 0.1
+max_tokens_before_compaction = 128
+compaction_guidance = "keep decisions"
 "#,
         )
         .unwrap();
@@ -5099,6 +5231,7 @@ id = "main"
 name = "Main"
 model = "profile-model"
 tool_output_mode = "raw"
+max_compaction_output_tokens = 64
 "#,
         )
         .unwrap();
@@ -5127,6 +5260,22 @@ allowed_tools = ["echo"]
             VisibilityLevel::NameOnly
         );
         assert_eq!(resolved.agent.cost_policy.input_cost_per_million, Some(0.1));
+        assert_eq!(
+            resolved
+                .agent
+                .context_policy
+                .compaction
+                .max_tokens_before_compaction,
+            Some(128)
+        );
+        assert_eq!(
+            resolved.agent.context_policy.compaction.max_output_tokens,
+            Some(64)
+        );
+        assert_eq!(
+            resolved.agent.context_policy.compaction.guidance.as_deref(),
+            Some("keep decisions")
+        );
 
         assert_source_contains(&resolved.values, "agent.model.default", "profile:");
         assert_source_contains(&resolved.values, "agent.tool_policy.max_calls", "agent:");
@@ -5139,6 +5288,21 @@ allowed_tools = ["echo"]
         assert_source_contains(
             &resolved.values,
             "agent.cost_policy.input_cost_per_million",
+            "global:",
+        );
+        assert_source_contains(
+            &resolved.values,
+            "agent.context_policy.max_tokens_before_compaction",
+            "global:",
+        );
+        assert_source_contains(
+            &resolved.values,
+            "agent.context_policy.max_compaction_output_tokens",
+            "profile:",
+        );
+        assert_source_contains(
+            &resolved.values,
+            "agent.context_policy.compaction_guidance",
             "global:",
         );
         let _ = std::fs::remove_dir_all(dir);

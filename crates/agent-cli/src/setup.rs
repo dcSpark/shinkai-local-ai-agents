@@ -304,6 +304,7 @@ pub fn build_agent(options: &RuntimeOptions) -> AgentConfig {
             prompt_refinement: None,
             voice: VoiceConfig::default(),
             tool_policy: ToolPolicy::default(),
+            context_policy: agent_core::ContextPolicy::default(),
             execution_policy: ExecutionPolicy::default(),
             cost_policy: CostPolicy::default(),
             conversation_history: Vec::new(),

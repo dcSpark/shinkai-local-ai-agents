@@ -22,7 +22,9 @@ use agent_config::{
     ProfileGrant, ProfileGrantKind, supported_model_providers,
 };
 use agent_conversations::{ConversationRole, ConversationStore, ConversationTreeNode};
-use agent_core::{Harness, HarnessApi, ToolOutputMode, UserInput, VisibilityLevel};
+use agent_core::{
+    ContextSnapshot, Harness, HarnessApi, ToolOutputMode, UserInput, VisibilityLevel,
+};
 use agent_ingest::{
     IngestionArtifact, IngestionFindingReviewDecision, IngestionModelCall, IngestionStore,
     supported_backends as supported_ingestion_backends,
@@ -109,18 +111,24 @@ pub async fn run(
             result.run_id,
         )?;
     }
+    let run_events = harness.events(result.run_id);
 
     if json {
-        for evt in harness.events(result.run_id) {
+        for evt in &run_events {
             println!("{}", serde_json::to_string(&evt)?);
         }
     } else {
         println!("{}", result.final_output);
         eprintln!();
         eprintln!("--- trace ({}) ---", result.run_id.0);
-        for evt in harness.events(result.run_id) {
+        for evt in &run_events {
             eprintln!("  [{}] {:?}", evt.id.0, evt.kind);
         }
+        print_auto_compaction_keep_hint(
+            result.run_id,
+            &run_events,
+            options.conversation_id.as_deref(),
+        );
     }
 
     Ok(())
@@ -1447,6 +1455,30 @@ pub async fn compact_keep(
     )?;
 
     print_compaction_record(&record, json)?;
+    Ok(())
+}
+
+pub async fn compact_keep_run(
+    run_id: String,
+    conversation: Option<String>,
+    guidance: Option<String>,
+    json: bool,
+) -> anyhow::Result<()> {
+    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
+    let record = keep_auto_compaction_for_run(run_id, conversation, guidance)?;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "run_id": run_id.0,
+                "record": record,
+            }))?
+        );
+    } else if let Some(record) = record {
+        print_compaction_record(&record, false)?;
+    } else {
+        println!("No auto-compacted context found for run {}", run_id.0);
+    }
     Ok(())
 }
 
@@ -4517,6 +4549,76 @@ fn included_compacted_context(options: &setup::RuntimeOptions) -> anyhow::Result
     Ok(Some(CompactionStore::from_env().show(id)?.content))
 }
 
+pub(crate) fn is_auto_compaction_snapshot(snapshot: &ContextSnapshot) -> bool {
+    snapshot
+        .compacted
+        .as_deref()
+        .is_some_and(|text| !text.trim().is_empty())
+        && snapshot.provenance.iter().any(|record| {
+            record.fragment == "compacted_context"
+                && record.source == "agent.context_policy.auto_compaction"
+        })
+}
+
+pub(crate) fn keep_auto_compaction_for_run(
+    run_id: RunId,
+    conversation_id: Option<String>,
+    guidance: Option<String>,
+) -> anyhow::Result<Option<CompactionRecord>> {
+    let events = open_event_store()?.try_events(run_id)?;
+    keep_auto_compaction_from_events(run_id, &events, conversation_id, guidance)
+}
+
+fn keep_auto_compaction_from_events(
+    run_id: RunId,
+    events: &[RunEvent],
+    conversation_id: Option<String>,
+    guidance: Option<String>,
+) -> anyhow::Result<Option<CompactionRecord>> {
+    let Some(snapshot) = latest_auto_compaction_snapshot(events) else {
+        return Ok(None);
+    };
+    let Some(content) = snapshot.compacted.as_deref() else {
+        return Ok(None);
+    };
+    Ok(Some(CompactionStore::from_env().keep_compacted_context(
+        content,
+        guidance,
+        None,
+        Some(format!("auto-run:{}", run_id.0)),
+        conversation_id,
+    )?))
+}
+
+fn latest_auto_compaction_snapshot(events: &[RunEvent]) -> Option<ContextSnapshot> {
+    events.iter().filter_map(context_built_snapshot).last()
+}
+
+fn context_built_snapshot(event: &RunEvent) -> Option<ContextSnapshot> {
+    let RunEventKind::ContextBuilt { snapshot } = &event.kind else {
+        return None;
+    };
+    let snapshot = serde_json::from_value::<ContextSnapshot>(snapshot.clone()).ok()?;
+    is_auto_compaction_snapshot(&snapshot).then_some(snapshot)
+}
+
+fn print_auto_compaction_keep_hint(
+    run_id: RunId,
+    events: &[RunEvent],
+    conversation_id: Option<&str>,
+) {
+    if latest_auto_compaction_snapshot(events).is_none() {
+        return;
+    }
+    let conversation = conversation_id
+        .map(|id| format!(" --conversation {id}"))
+        .unwrap_or_default();
+    eprintln!(
+        "auto compacted context ready: keep it with `agent compact keep-run {}{conversation}`",
+        run_id.0
+    );
+}
+
 fn stop_compaction_for_run(run_id: RunId) -> anyhow::Result<Option<String>> {
     let source = format!("stopped-run:{}", run_id.0);
     Ok(CompactionStore::from_env()
@@ -5082,6 +5184,69 @@ mod slash_tests {
         assert_eq!(agent.max_tokens_before_compaction, Some(128));
         assert_eq!(agent.max_compaction_output_tokens, Some(48));
         assert_eq!(agent.compaction_guidance.as_deref(), Some("keep decisions"));
+    }
+
+    #[test]
+    fn latest_auto_compaction_snapshot_requires_auto_provenance() {
+        let store = agent_tracing::InMemoryEventStore::new();
+        let run_id = RunId::new();
+        store.append(
+            run_id,
+            None,
+            RunEventKind::ContextBuilt {
+                snapshot: serde_json::json!({
+                    "system_prompt": "system",
+                    "conversation": [],
+                    "compacted": "<auto-compaction>summary</auto-compaction>",
+                    "loaded_memory": [],
+                    "loaded_artifacts": [],
+                    "visible_tools": [],
+                    "visible_skills": [],
+                    "limits": {
+                        "max_tool_calls": 5,
+                        "remaining_tool_calls": 5
+                    },
+                    "estimated_input_tokens": 12,
+                    "provenance": [{
+                        "fragment": "compacted_context",
+                        "source": "run.manual_compaction"
+                    }]
+                }),
+            },
+        );
+        assert!(latest_auto_compaction_snapshot(&store.events(run_id)).is_none());
+
+        store.append(
+            run_id,
+            None,
+            RunEventKind::ContextBuilt {
+                snapshot: serde_json::json!({
+                    "system_prompt": "system",
+                    "conversation": [],
+                    "compacted": "<auto-compaction>summary</auto-compaction>",
+                    "loaded_memory": [],
+                    "loaded_artifacts": [],
+                    "visible_tools": [],
+                    "visible_skills": [],
+                    "limits": {
+                        "max_tool_calls": 5,
+                        "remaining_tool_calls": 5
+                    },
+                    "estimated_input_tokens": 12,
+                    "provenance": [{
+                        "fragment": "compacted_context",
+                        "source": "agent.context_policy.auto_compaction"
+                    }]
+                }),
+            },
+        );
+
+        let snapshot =
+            latest_auto_compaction_snapshot(&store.events(run_id)).expect("auto compaction");
+        assert_eq!(
+            snapshot.compacted.as_deref(),
+            Some("<auto-compaction>summary</auto-compaction>")
+        );
     }
 
     #[test]

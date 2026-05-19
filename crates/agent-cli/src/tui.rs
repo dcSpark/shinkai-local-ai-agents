@@ -30,7 +30,7 @@ use tokio::time::MissedTickBehavior;
 use agent_adapters::AdapterRegistry;
 use agent_config::ConfigResolver;
 use agent_conversations::{ConversationMessage, ConversationStore, ConversationTreeNode};
-use agent_core::{AgentConfig, HarnessApi, UserInput};
+use agent_core::{AgentConfig, ContextSnapshot, HarnessApi, UserInput};
 use agent_prompts::{PromptStore, is_valid_prompt_name};
 use agent_storage::StoragePaths;
 use agent_tools::{ToolId, ToolRegistry};
@@ -75,6 +75,7 @@ struct App {
     run_started_at: Option<Instant>,
     active_run_handle: Option<AbortHandle>,
     last_run_id: Option<RunId>,
+    pending_auto_compaction_run: Option<RunId>,
     selected_conversation_id: Option<String>,
     conversation_tree_index: Vec<String>,
     conversation_browser: Option<ConversationBrowser>,
@@ -167,6 +168,7 @@ async fn main_loop(
     let mut app = App {
         calls_max,
         calls_remaining: calls_max,
+        selected_conversation_id: options.conversation_id.clone(),
         ..App::default()
     };
     if let Some(t) = initial {
@@ -407,6 +409,10 @@ fn handle_slash_command(
     }
     if let Some(rest) = hooks_slash_rest(trimmed) {
         handle_hooks_slash(app, rest, agent);
+        return true;
+    }
+    if let Some(rest) = compact_slash_rest(trimmed) {
+        handle_compact_slash(app, rest);
         return true;
     }
     if let Some(input) = preview_slash_rest(trimmed) {
@@ -1530,6 +1536,101 @@ fn parse_hook_policy_change_args(rest: &str) -> anyhow::Result<(String, bool, bo
     Ok((hook_id, confirmed, agent_scope))
 }
 
+fn compact_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/compact" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/compact ").map(str::trim)
+    }
+}
+
+fn handle_compact_slash(app: &mut App, rest: &str) {
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "help" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: [
+                "/compact keep [run-id]",
+                "/compact status",
+                "/compact dismiss",
+            ]
+            .join("\n"),
+        });
+        return;
+    }
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "keep" => handle_compact_keep(app, args),
+        "status" => {
+            let text = app
+                .pending_auto_compaction_run
+                .map(|run_id| format!("Auto compaction ready from run {run_id}."))
+                .unwrap_or_else(|| "No auto compaction is pending.".into());
+            push_event(app, text);
+        }
+        "dismiss" | "cancel" => {
+            app.pending_auto_compaction_run = None;
+            push_event(app, "Auto compaction keep prompt dismissed.".into());
+        }
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Compact command needs keep, status, dismiss, or help.".into(),
+        }),
+    }
+}
+
+fn handle_compact_keep(app: &mut App, args: &str) {
+    let run_id = match resolve_compact_keep_run_id(app, args) {
+        Ok(run_id) => run_id,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Compact keep failed: {err}"),
+            });
+            return;
+        }
+    };
+    match crate::headless::keep_auto_compaction_for_run(
+        run_id,
+        app.selected_conversation_id.clone(),
+        None,
+    ) {
+        Ok(Some(record)) => {
+            if app.pending_auto_compaction_run == Some(run_id) {
+                app.pending_auto_compaction_run = None;
+            }
+            push_event(app, format!("Kept auto compaction {}", record.id));
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: serde_json::to_string_pretty(&record)
+                    .unwrap_or_else(|_| "<unserializable compaction record>".into()),
+            });
+        }
+        Ok(None) => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: format!("No auto-compacted context found for run {run_id}."),
+        }),
+        Err(err) => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: format!("Compact keep failed: {err}"),
+        }),
+    }
+}
+
+fn resolve_compact_keep_run_id(app: &App, args: &str) -> anyhow::Result<RunId> {
+    let input = args.trim();
+    if input.is_empty() {
+        return app
+            .pending_auto_compaction_run
+            .or(app.last_run_id)
+            .ok_or_else(|| anyhow::anyhow!("keep needs a run id or a pending auto compaction"));
+    }
+    Ok(RunId(uuid::Uuid::parse_str(input)?))
+}
+
 fn preview_slash_rest(trimmed: &str) -> Option<&str> {
     if trimmed == "/preview" {
         Some("")
@@ -1743,13 +1844,23 @@ fn open_event_store() -> anyhow::Result<SqliteEventStore> {
     Ok(SqliteEventStore::open(paths.state_db())?)
 }
 
+fn context_value_has_auto_compaction(snapshot: &serde_json::Value) -> bool {
+    serde_json::from_value::<ContextSnapshot>(snapshot.clone())
+        .ok()
+        .is_some_and(|snapshot| crate::headless::is_auto_compaction_snapshot(&snapshot))
+}
+
 fn handle_run_event(app: &mut App, evt: &RunEvent) {
     match &evt.kind {
         RunEventKind::RunStarted { .. } => {
             app.last_run_id = Some(evt.run_id);
+            app.pending_auto_compaction_run = None;
         }
         RunEventKind::ContextBuilt { snapshot } => {
             update_tool_budget_from_snapshot(app, snapshot);
+            if context_value_has_auto_compaction(snapshot) {
+                app.pending_auto_compaction_run = Some(evt.run_id);
+            }
             let visible_tools = snapshot
                 .get("visible_tools")
                 .and_then(|v| v.as_array())
@@ -2072,6 +2183,12 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
                 app,
                 format!("Run completed in {total_duration_ms} ms{cost}"),
             );
+            if app.pending_auto_compaction_run == Some(evt.run_id) {
+                push_event(
+                    app,
+                    "Auto compacted context ready. Type /compact keep to save it or /compact dismiss.".into(),
+                );
+            }
             app.elapsed_ms = *total_duration_ms;
             app.run_started_at = None;
             app.active_run_handle = None;
@@ -2459,6 +2576,9 @@ mod tests {
         );
         assert_eq!(hooks_slash_rest("/hooks"), Some(""));
         assert_eq!(hooks_slash_rest("/hook"), None);
+        assert_eq!(compact_slash_rest("/compact keep"), Some("keep"));
+        assert_eq!(compact_slash_rest("/compact"), Some(""));
+        assert_eq!(compact_slash_rest("/compactness"), None);
     }
 
     #[test]
@@ -2657,6 +2777,59 @@ mod tests {
         assert_eq!(app.elapsed_ms, 1234);
         assert_eq!(app.run_started_at, None);
         assert_eq!(app.state, AppState::Idle);
+    }
+
+    #[test]
+    fn run_completed_prompts_to_keep_auto_compaction() {
+        let mut app = App {
+            state: AppState::Running,
+            run_started_at: Some(Instant::now()),
+            ..App::default()
+        };
+        let run_id = RunId::new();
+        let store = agent_tracing::InMemoryEventStore::new();
+        let context = store.append(
+            run_id,
+            None,
+            RunEventKind::ContextBuilt {
+                snapshot: serde_json::json!({
+                    "system_prompt": "system",
+                    "conversation": [],
+                    "compacted": "<auto-compaction>summary</auto-compaction>",
+                    "loaded_memory": [],
+                    "loaded_artifacts": [],
+                    "visible_tools": [],
+                    "visible_skills": [],
+                    "limits": {
+                        "max_tool_calls": 5,
+                        "remaining_tool_calls": 5
+                    },
+                    "estimated_input_tokens": 12,
+                    "provenance": [{
+                        "fragment": "compacted_context",
+                        "source": "agent.context_policy.auto_compaction"
+                    }]
+                }),
+            },
+        );
+        handle_run_event(&mut app, &context);
+
+        let completed = store.append(
+            run_id,
+            Some(context.id),
+            RunEventKind::RunCompleted {
+                final_output: "done".into(),
+                total_cost_usd: None,
+                total_duration_ms: 1234,
+            },
+        );
+        handle_run_event(&mut app, &completed);
+
+        assert_eq!(app.pending_auto_compaction_run, Some(run_id));
+        assert!(app.transcript.iter().any(|line| {
+            line.text.contains("Auto compacted context ready")
+                && line.text.contains("/compact keep")
+        }));
     }
 
     #[test]

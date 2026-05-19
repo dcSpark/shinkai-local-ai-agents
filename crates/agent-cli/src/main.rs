@@ -1434,6 +1434,23 @@ enum CompactCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Keep the auto-compacted context emitted by a completed run.
+    KeepRun {
+        /// Run id that emitted an auto-compacted ContextBuilt event.
+        run_id: String,
+
+        /// Conversation this compaction should be linked to.
+        #[arg(long)]
+        conversation: Option<String>,
+
+        /// Guidance associated with the compacted context.
+        #[arg(long)]
+        guidance: Option<String>,
+
+        /// Emit JSON instead of a human-readable summary.
+        #[arg(long)]
+        json: bool,
+    },
     /// List compacted-context artifacts.
     List {
         /// Emit JSON instead of a human-readable summary.
@@ -2993,6 +3010,38 @@ mod cli_parse_tests {
     }
 
     #[test]
+    fn compact_keep_run_command_parses() {
+        let cli = Cli::try_parse_from([
+            "agent",
+            "compact",
+            "keep-run",
+            "00000000-0000-0000-0000-000000000001",
+            "--conversation",
+            "conv-1",
+            "--guidance",
+            "Keep decisions.",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Compact {
+            command:
+                CompactCommand::KeepRun {
+                    run_id,
+                    conversation,
+                    guidance,
+                    json,
+                },
+        } = cli.command
+        else {
+            panic!("expected compact keep-run command");
+        };
+        assert_eq!(run_id, "00000000-0000-0000-0000-000000000001");
+        assert_eq!(conversation.as_deref(), Some("conv-1"));
+        assert_eq!(guidance.as_deref(), Some("Keep decisions."));
+        assert!(json);
+    }
+
+    #[test]
     fn compact_export_import_commands_parse() {
         let export_cli = Cli::try_parse_from([
             "agent",
@@ -4083,6 +4132,12 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await
             }
+            CompactCommand::KeepRun {
+                run_id,
+                conversation,
+                guidance,
+                json,
+            } => headless::compact_keep_run(run_id, conversation, guidance, json).await,
             CompactCommand::List { json } => headless::compact_list(json).await,
             CompactCommand::Show { id, json } => headless::compact_show(id, json).await,
             CompactCommand::Export { id, path, json } => {

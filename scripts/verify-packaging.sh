@@ -68,6 +68,10 @@ assert(
 const frontend = JSON.parse(fs.readFileSync("crates/agent-tauri/frontend/package.json", "utf8"));
 assert(frontend.scripts?.build === "tsc -b && vite build", "frontend build script must type-check and bundle");
 assert(frontend.scripts?.["type-check"] === "tsc -b --noEmit", "frontend type-check script is missing");
+assert(frontend.scripts?.tauri === "tauri", "frontend must expose a local Tauri CLI script");
+assert(frontend.scripts?.["tauri:version"] === "tauri --version", "frontend must expose a Tauri CLI version check");
+assert(frontend.devDependencies?.["@tauri-apps/cli"] === "^2.11.2", "frontend must pin the Tauri CLI dev dependency");
+assert(frontend.devDependencies?.vite === "^6.4.2", "frontend must use the patched Vite 6 line");
 
 const index = fs.readFileSync("crates/agent-tauri/frontend/index.html", "utf8");
 assert(index.includes('rel="manifest"'), "frontend must link the mobile web manifest");
@@ -93,6 +97,16 @@ const releasePlatforms = new Set(releaseArtifacts.platforms?.map((platform) => p
 for (const platform of ["linux", "macos", "windows", "android", "ios"]) {
   assert(releasePlatforms.has(platform), `release artifact manifest must include ${platform}`);
 }
+for (const platform of releaseArtifacts.platforms) {
+  assert(
+    platform.command.startsWith("npm --prefix crates/agent-tauri/frontend run tauri -- "),
+    `${platform.id} release command must use the project-local Tauri CLI`,
+  );
+  assert(
+    platform.command.includes("--config ../tauri.conf.json"),
+    `${platform.id} release command must pass the Rust Tauri config path`,
+  );
+}
 assert(
   releaseArtifacts.updater?.signing_env?.includes("TAURI_SIGNING_PRIVATE_KEY"),
   "release artifact manifest must declare Tauri updater signing",
@@ -103,6 +117,7 @@ for (const os of ["ubuntu-latest", "macos-14", "windows-2022"]) {
   assert(ci.includes(os), `CI matrix must include ${os}`);
 }
 assert(ci.includes("npm run build"), "CI must run the frontend production build");
+assert(ci.includes("npm run tauri:version"), "CI must verify the project-local Tauri CLI");
 assert(ci.includes("scripts/verify-packaging.sh"), "CI must run the packaging verifier");
 assert(ci.includes("scripts/verify-release-artifacts.sh"), "CI must run the release artifact manifest verifier");
 assert(ci.includes("cargo build -p agent-cli -p agent-daemon -p agent-tauri --release --bins"), "CI must build release binaries");

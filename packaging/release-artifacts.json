@@ -22,7 +22,7 @@
       "id": "linux",
       "kind": "desktop",
       "runner": "ubuntu-latest",
-      "command": "cargo tauri build --bundles deb,rpm,appimage",
+      "command": "npm --prefix crates/agent-tauri/frontend run tauri -- build --config ../tauri.conf.json --bundles deb,rpm,appimage",
       "artifact_globs": [
         "target/release/bundle/deb/*.deb",
         "target/release/bundle/rpm/*.rpm",
@@ -37,7 +37,7 @@
       "id": "macos",
       "kind": "desktop",
       "runner": "macos-14",
-      "command": "cargo tauri build --bundles app,dmg",
+      "command": "npm --prefix crates/agent-tauri/frontend run tauri -- build --config ../tauri.conf.json --bundles app,dmg",
       "artifact_globs": [
         "target/release/bundle/macos/Shinkai.app",
         "target/release/bundle/dmg/Shinkai_*.dmg"
@@ -57,7 +57,7 @@
       "id": "windows",
       "kind": "desktop",
       "runner": "windows-2022",
-      "command": "cargo tauri build --bundles nsis,msi",
+      "command": "npm --prefix crates/agent-tauri/frontend run tauri -- build --config ../tauri.conf.json --bundles nsis,msi",
       "artifact_globs": [
         "target/release/bundle/nsis/Shinkai_*.exe",
         "target/release/bundle/msi/Shinkai_*.msi"
@@ -75,7 +75,7 @@
       "id": "android",
       "kind": "mobile",
       "runner": "ubuntu-latest",
-      "command": "cargo tauri android build --apk --aab",
+      "command": "npm --prefix crates/agent-tauri/frontend run tauri -- android build --config ../tauri.conf.json --apk --aab",
       "artifact_globs": [
         "crates/agent-tauri/gen/android/app/build/outputs/apk/**/*.apk",
         "crates/agent-tauri/gen/android/app/build/outputs/bundle/**/*.aab"
@@ -94,7 +94,7 @@
       "id": "ios",
       "kind": "mobile",
       "runner": "macos-14",
-      "command": "cargo tauri ios build --export-method app-store-connect",
+      "command": "npm --prefix crates/agent-tauri/frontend run tauri -- ios build --config ../tauri.conf.json --export-method app-store-connect",
       "artifact_globs": [
         "crates/agent-tauri/gen/apple/build/**/*.ipa",
         "crates/agent-tauri/gen/apple/build/**/*.xcarchive"

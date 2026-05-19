@@ -117,8 +117,13 @@ for (const platform of platforms) {
   assert(["desktop", "mobile"].includes(platform.kind), `${platform.id} kind must be desktop or mobile`);
   assert(typeof platform.runner === "string" && platform.runner.trim(), `${platform.id} runner is missing`);
   assert(
-    typeof platform.command === "string" && platform.command.includes("tauri"),
-    `${platform.id} command must be a Tauri build command`,
+    typeof platform.command === "string"
+      && platform.command.startsWith("npm --prefix crates/agent-tauri/frontend run tauri -- "),
+    `${platform.id} command must use the project-local Tauri CLI`,
+  );
+  assert(
+    platform.command.includes("--config ../tauri.conf.json"),
+    `${platform.id} command must point the frontend-local Tauri CLI at the Rust config`,
   );
   nonEmptyStrings(platform.artifact_globs, `${platform.id} artifact_globs`);
   assert(platform.signing?.required === true, `${platform.id} signing must be required`);

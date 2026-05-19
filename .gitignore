@@ -7,6 +7,7 @@ external/
 # Frontend
 **/node_modules/
 **/dist/
+**/*.tsbuildinfo
 
 # Tauri
 crates/agent-tauri/gen/

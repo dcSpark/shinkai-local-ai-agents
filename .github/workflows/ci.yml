@@ -81,6 +81,10 @@ jobs:
         working-directory: crates/agent-tauri/frontend
         run: npm ci
 
+      - name: Tauri CLI version
+        working-directory: crates/agent-tauri/frontend
+        run: npm run tauri:version
+
       - name: Frontend type-check
         working-directory: crates/agent-tauri/frontend
         run: npx tsc -b --noEmit

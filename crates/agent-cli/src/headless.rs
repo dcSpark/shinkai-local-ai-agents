@@ -1473,6 +1473,31 @@ pub async fn compact_show(id: String, json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn compact_export(id: String, path: String, json: bool) -> anyhow::Result<()> {
+    let record = CompactionStore::from_env().export_record(&id, &path)?;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "path": path,
+                "record": record
+            }))?
+        );
+    } else {
+        println!(
+            "exported compacted-context artifact {} to {}",
+            record.id, path
+        );
+    }
+    Ok(())
+}
+
+pub async fn compact_import(path: String, json: bool) -> anyhow::Result<()> {
+    let record = CompactionStore::from_env().import_record(&path)?;
+    print_compaction_record(&record, json)?;
+    Ok(())
+}
+
 fn print_compaction_record(record: &CompactionRecord, json: bool) -> anyhow::Result<()> {
     if json {
         println!("{}", serde_json::to_string_pretty(&record)?);

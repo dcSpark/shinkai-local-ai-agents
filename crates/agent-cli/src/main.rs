@@ -1448,6 +1448,27 @@ enum CompactCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Export one compacted-context artifact as portable JSON.
+    Export {
+        id: String,
+
+        /// Destination JSON path.
+        #[arg(short, long)]
+        path: String,
+
+        /// Emit JSON instead of a human-readable summary.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Import one portable compacted-context artifact JSON file.
+    Import {
+        /// Source JSON path.
+        path: String,
+
+        /// Emit JSON instead of a human-readable summary.
+        #[arg(long)]
+        json: bool,
+    },
     /// Remove a compacted-context artifact.
     Rm { id: String },
 }
@@ -2956,6 +2977,46 @@ mod cli_parse_tests {
     }
 
     #[test]
+    fn compact_export_import_commands_parse() {
+        let export_cli = Cli::try_parse_from([
+            "agent",
+            "compact",
+            "export",
+            "compact-1",
+            "--path",
+            "/tmp/compact-1.json",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Compact {
+            command: CompactCommand::Export { id, path, json },
+        } = export_cli.command
+        else {
+            panic!("expected compact export command");
+        };
+        assert_eq!(id, "compact-1");
+        assert_eq!(path, "/tmp/compact-1.json");
+        assert!(json);
+
+        let import_cli = Cli::try_parse_from([
+            "agent",
+            "compact",
+            "import",
+            "/tmp/compact-1.json",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Compact {
+            command: CompactCommand::Import { path, json },
+        } = import_cli.command
+        else {
+            panic!("expected compact import command");
+        };
+        assert_eq!(path, "/tmp/compact-1.json");
+        assert!(json);
+    }
+
+    #[test]
     fn local_provider_aliases_parse() {
         let cli = Cli::try_parse_from([
             "agent",
@@ -4008,6 +4069,10 @@ async fn main() -> anyhow::Result<()> {
             }
             CompactCommand::List { json } => headless::compact_list(json).await,
             CompactCommand::Show { id, json } => headless::compact_show(id, json).await,
+            CompactCommand::Export { id, path, json } => {
+                headless::compact_export(id, path, json).await
+            }
+            CompactCommand::Import { path, json } => headless::compact_import(path, json).await,
             CompactCommand::Rm { id } => headless::compact_rm(id).await,
         },
         Command::Conversation { command } => match command {

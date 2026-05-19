@@ -208,8 +208,30 @@ async fn route(
             .await
             .map(|value| (200, value)),
         ("POST", "/voice/capture") => daemon_voice_capture(&request.body).map(|value| (200, value)),
+        ("GET", "/compactions") => daemon_compaction_list().map(|value| (200, value)),
         ("POST", "/compactions/keep") => {
             daemon_compaction_keep(&request.body).map(|value| (200, value))
+        }
+        ("POST", "/compactions/export") => {
+            daemon_compaction_export(&request.body).map(|value| (200, value))
+        }
+        ("POST", "/compactions/import") => {
+            daemon_compaction_import(&request.body).map(|value| (200, value))
+        }
+        _ if request.method == "GET" && request.path.starts_with("/compactions/") => {
+            let id = request.path.trim_start_matches("/compactions/");
+            daemon_compaction_show(id).map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/compactions/")
+            && request.path.ends_with("/delete") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/compactions/")
+                .trim_end_matches("/delete")
+                .trim_end_matches('/');
+            daemon_compaction_delete(id).map(|value| (200, value))
         }
         ("GET", "/memory/backends") => daemon_memory_backends().map(|value| (200, value)),
         ("GET", "/memory") => daemon_memory_list().map(|value| (200, value)),
@@ -581,7 +603,12 @@ async fn route(
                     "POST /bridges/deliveries/retry-all",
                     "POST /bridges/deliveries/<id>/retry",
                     "POST /voice/capture",
+                    "GET /compactions",
                     "POST /compactions/keep",
+                    "GET /compactions/<id>",
+                    "POST /compactions/<id>/delete",
+                    "POST /compactions/export",
+                    "POST /compactions/import",
                     "POST /tool/<name>",
                     "GET /conversations",
                     "GET /conversations/tree",
@@ -1194,6 +1221,35 @@ fn daemon_compaction_keep(body: &str) -> anyhow::Result<serde_json::Value> {
             input.source,
             input.conversation_id,
         )?,
+    )?)
+}
+
+fn daemon_compaction_list() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(CompactionStore::from_env().list()?)?)
+}
+
+fn daemon_compaction_show(id: &str) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(CompactionStore::from_env().show(id)?)?)
+}
+
+fn daemon_compaction_delete(id: &str) -> anyhow::Result<serde_json::Value> {
+    CompactionStore::from_env().remove(id)?;
+    Ok(serde_json::json!({ "deleted": true, "id": id }))
+}
+
+fn daemon_compaction_export(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: CompactionExportInput = serde_json::from_str(body)?;
+    let record = CompactionStore::from_env().export_record(&input.id, &input.path)?;
+    Ok(serde_json::json!({
+        "path": input.path,
+        "record": record
+    }))
+}
+
+fn daemon_compaction_import(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: CompactionPathInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        CompactionStore::from_env().import_record(input.path)?,
     )?)
 }
 
@@ -3697,6 +3753,17 @@ struct CompactionKeepInput {
     source: Option<String>,
     conversation_id: Option<String>,
     max_output_tokens: Option<u32>,
+}
+
+#[derive(serde::Deserialize)]
+struct CompactionExportInput {
+    id: String,
+    path: String,
+}
+
+#[derive(serde::Deserialize)]
+struct CompactionPathInput {
+    path: String,
 }
 
 #[derive(serde::Deserialize)]

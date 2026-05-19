@@ -1479,6 +1479,46 @@ async fn compaction_keep(
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+async fn compaction_list() -> Result<Vec<CompactionRecord>, String> {
+    CompactionStore::from_env()
+        .list()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn compaction_show(id: String) -> Result<CompactionRecord, String> {
+    CompactionStore::from_env()
+        .show(&id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn compaction_delete(id: String) -> Result<bool, String> {
+    CompactionStore::from_env()
+        .remove(&id)
+        .map(|_| true)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn compaction_export(id: String, path: String) -> Result<serde_json::Value, String> {
+    let record = CompactionStore::from_env()
+        .export_record(&id, &path)
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "path": path,
+        "record": record
+    }))
+}
+
+#[tauri::command]
+async fn compaction_import(path: String) -> Result<CompactionRecord, String> {
+    CompactionStore::from_env()
+        .import_record(path)
+        .map_err(|e| e.to_string())
+}
+
 fn conversation_recovery_plan_value(id: &str) -> anyhow::Result<serde_json::Value> {
     let conversation_store = ConversationStore::from_env();
     let expanded = conversation_store.expanded(id)?;
@@ -3003,6 +3043,11 @@ pub fn run() {
             conversation_delete,
             conversation_delete_range,
             compaction_keep,
+            compaction_list,
+            compaction_show,
+            compaction_delete,
+            compaction_export,
+            compaction_import,
             call_tool,
             trace_show,
             hook_policy,

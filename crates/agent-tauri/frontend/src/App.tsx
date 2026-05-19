@@ -229,6 +229,17 @@ interface BundleStatus {
   manifest: BundleManifest;
 }
 
+interface CompactionExportResult {
+  path: string;
+  record: CompactionRecord;
+}
+
+interface CompactionTransferStatus {
+  operation: "exported" | "imported";
+  path: string;
+  record: CompactionRecord;
+}
+
 interface VoiceCaptureResponse {
   audio_path: string;
   artifact: GeneratedArtifact;
@@ -328,6 +339,11 @@ export default function App() {
   const [hookCatalog, setHookCatalog] = useState<HookCatalogRecord[]>([]);
   const [storageReport, setStorageReport] = useState<StorageReport | null>(null);
   const [bundleStatus, setBundleStatus] = useState<BundleStatus | null>(null);
+  const [compactionRecords, setCompactionRecords] = useState<CompactionRecord[]>(
+    [],
+  );
+  const [compactionTransferStatus, setCompactionTransferStatus] =
+    useState<CompactionTransferStatus | null>(null);
   const [ingestionBackends, setIngestionBackends] = useState<
     IngestionBackendDescriptor[]
   >([]);
@@ -3317,12 +3333,133 @@ export default function App() {
             });
       setOpsId(record.id);
       setOpsValue(record.content);
+      setCompactionRecords((records) => upsertCompactionRecord(records, record));
       appendEvent(
         `Kept compacted context ${record.id}${record.conversation_id ? ` for ${record.conversation_id}` : ""}.`,
       );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Keep compacted context failed: ${msg}`);
+    }
+  }
+
+  async function listCompactionsFromOps() {
+    try {
+      const records =
+        transport === "daemon"
+          ? await daemonJson<CompactionRecord[]>("/compactions")
+          : await invoke<CompactionRecord[]>("compaction_list");
+      setCompactionRecords(records);
+      appendEvent(`Loaded ${records.length} compacted-context artifacts.`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Compaction list failed: ${msg}`);
+    }
+  }
+
+  async function showCompactionFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Compaction show");
+    if (!id) return null;
+    try {
+      const record =
+        transport === "daemon"
+          ? await daemonJson<CompactionRecord>(
+              `/compactions/${encodeURIComponent(id)}`,
+            )
+          : await invoke<CompactionRecord>("compaction_show", { id });
+      setOpsId(record.id);
+      setOpsValue(record.content);
+      setCompactionRecords((records) => upsertCompactionRecord(records, record));
+      appendJson("Compaction", record);
+      return record;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Compaction show failed: ${msg}`);
+      return null;
+    }
+  }
+
+  async function useCompactionFromOps() {
+    const record = await showCompactionFromOps();
+    if (!record) return;
+    setManualCompactedContext(record.content);
+    appendEvent(`Manual compacted context set from ${record.id}.`);
+  }
+
+  async function exportCompactionFromOps() {
+    const id = requireOpsId("Compaction export");
+    if (!id) return;
+    const path = opsValue.trim() || defaultCompactionPath(id);
+    setOpsValue(path);
+    await exportCompactionToPath(id, path);
+  }
+
+  async function exportCompactionToPath(id: string, path: string) {
+    try {
+      const result =
+        transport === "daemon"
+          ? await daemonJson<CompactionExportResult>("/compactions/export", {
+              id,
+              path,
+            })
+          : await invoke<CompactionExportResult>("compaction_export", {
+              id,
+              path,
+            });
+      setCompactionTransferStatus({
+        operation: "exported",
+        path: result.path,
+        record: result.record,
+      });
+      setCompactionRecords((records) =>
+        upsertCompactionRecord(records, result.record),
+      );
+      appendEvent(`Exported compacted context ${result.record.id} to ${result.path}.`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Compaction export failed: ${msg}`);
+    }
+  }
+
+  async function importCompactionFromOps() {
+    const path = requireOpsValue("Compaction import");
+    if (!path) return;
+    try {
+      const record =
+        transport === "daemon"
+          ? await daemonJson<CompactionRecord>("/compactions/import", { path })
+          : await invoke<CompactionRecord>("compaction_import", { path });
+      setCompactionTransferStatus({ operation: "imported", path, record });
+      setCompactionRecords((records) => upsertCompactionRecord(records, record));
+      setOpsId(record.id);
+      setOpsValue(record.content);
+      appendJson("Compaction imported", record);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Compaction import failed: ${msg}`);
+    }
+  }
+
+  async function deleteCompactionFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Compaction delete");
+    if (!id) return;
+    try {
+      if (transport === "daemon") {
+        await daemonJson<{ deleted: boolean; id: string }>(
+          `/compactions/${encodeURIComponent(id)}/delete`,
+          {},
+        );
+      } else {
+        await invoke<boolean>("compaction_delete", { id });
+      }
+      setCompactionRecords((records) => records.filter((record) => record.id !== id));
+      if (opsId.trim() === id) {
+        setOpsId("");
+      }
+      appendEvent(`Deleted compacted context ${id}.`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Compaction delete failed: ${msg}`);
     }
   }
 
@@ -5481,6 +5618,14 @@ export default function App() {
     return [record, ...rest];
   }
 
+  function upsertCompactionRecord(
+    records: CompactionRecord[],
+    record: CompactionRecord,
+  ) {
+    const rest = records.filter((item) => item.id !== record.id);
+    return [record, ...rest];
+  }
+
   function upsertPromptDoc(docs: PromptDoc[], doc: PromptDoc) {
     const rest = docs.filter((item) => item.name !== doc.name);
     return [doc, ...rest].sort((a, b) => a.name.localeCompare(b.name));
@@ -5536,6 +5681,10 @@ export default function App() {
   function upsertApproval(records: ApprovalRecord[], record: ApprovalRecord) {
     const rest = records.filter((item) => item.approval_id !== record.approval_id);
     return [record, ...rest];
+  }
+
+  function defaultCompactionPath(id: string) {
+    return `/tmp/${id || "compacted-context"}.json`;
   }
 
   function hasHighRiskFindings(artifact: IngestionArtifact) {
@@ -8495,6 +8644,155 @@ export default function App() {
                   ))}
                 </div>
               ) : null}
+            </div>
+            ) : null}
+
+            {activeSection === "chat" ? (
+            <div className="operation-group">
+              <div className="operation-title">Compactions</div>
+              <div className="button-grid">
+                <button
+                  type="button"
+                  title="List saved compacted-context artifacts."
+                  onClick={() => void listCompactionsFromOps()}
+                  disabled={running}
+                >
+                  List Compact
+                </button>
+                <button
+                  type="button"
+                  title="Show compacted-context artifact Id and load its content into Value."
+                  onClick={() => void showCompactionFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Show Compact
+                </button>
+                <button
+                  type="button"
+                  title="Use compacted-context artifact Id as the next manual compacted context."
+                  onClick={() => void useCompactionFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Use Compact
+                </button>
+                <button
+                  type="button"
+                  title="Export compacted-context artifact Id to Value, or to /tmp when Value is blank."
+                  onClick={() => void exportCompactionFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Export Compact
+                </button>
+                <button
+                  type="button"
+                  title="Import a compacted-context JSON artifact from the path in Value."
+                  onClick={() => void importCompactionFromOps()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Import Compact
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  title="Delete compacted-context artifact Id."
+                  onClick={() => void deleteCompactionFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Delete Compact
+                </button>
+              </div>
+              {compactionTransferStatus ? (
+                <div className="bundle-card">
+                  <div className="bundle-card-head">
+                    <strong>
+                      Compaction {compactionTransferStatus.operation}
+                    </strong>
+                    <span>{compactionTransferStatus.record.id}</span>
+                  </div>
+                  <span title={compactionTransferStatus.path}>
+                    {compactionTransferStatus.path}
+                  </span>
+                  <span>{compactionTransferStatus.record.source}</span>
+                  <span>{compactionTransferStatus.record.created_at}</span>
+                </div>
+              ) : null}
+              {compactionRecords.length ? (
+                <div className="memory-review">
+                  {compactionRecords.map((record) => (
+                    <div className="memory-card" key={record.id}>
+                      <div className="memory-card-head">
+                        <strong>{record.id}</strong>
+                        <span>{record.max_output_tokens} tokens</span>
+                      </div>
+                      <div className="memory-meta">
+                        <span>{record.source}</span>
+                        {record.conversation_id ? (
+                          <span>conversation {record.conversation_id}</span>
+                        ) : null}
+                        <span>{record.created_at}</span>
+                      </div>
+                      <p>{previewText(record.content, 260)}</p>
+                      <div className="mini-actions">
+                        <button
+                          type="button"
+                          title="Move this compaction id into the Id field."
+                          onClick={() => setOpsId(record.id)}
+                          disabled={running}
+                        >
+                          Set Id
+                        </button>
+                        <button
+                          type="button"
+                          title="Load this compacted context into Value."
+                          onClick={() => {
+                            setOpsId(record.id);
+                            setOpsValue(record.content);
+                          }}
+                          disabled={running}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          title="Use this artifact as the next manual compacted context."
+                          onClick={() => {
+                            setOpsId(record.id);
+                            setOpsValue(record.content);
+                            setManualCompactedContext(record.content);
+                          }}
+                          disabled={running}
+                        >
+                          Use
+                        </button>
+                        <button
+                          type="button"
+                          title="Set Value to a default export path for this artifact."
+                          onClick={() => {
+                            setOpsId(record.id);
+                            setOpsValue(defaultCompactionPath(record.id));
+                          }}
+                          disabled={running}
+                        >
+                          Path
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          title="Delete this compacted context artifact."
+                          onClick={() => void deleteCompactionFromOps(record.id)}
+                          disabled={running}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-note">
+                  No compacted-context artifacts loaded. List saved artifacts or keep one from preview.
+                </div>
+              )}
             </div>
             ) : null}
 

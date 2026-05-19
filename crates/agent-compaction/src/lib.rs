@@ -6,7 +6,7 @@
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use agent_storage::{StorageError, StoragePaths};
 use chrono::{DateTime, Utc};
@@ -28,7 +28,7 @@ pub enum CompactionError {
     InvalidInput(String),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CompactionRecord {
     pub id: String,
     pub content: String,
@@ -216,6 +216,39 @@ impl CompactionStore {
         Ok(())
     }
 
+    pub fn export_record(
+        &self,
+        id: &str,
+        path: impl AsRef<Path>,
+    ) -> Result<CompactionRecord, CompactionError> {
+        let record = self.show(id)?;
+        if let Some(parent) = path.as_ref().parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)?;
+            }
+        }
+        std::fs::write(path, serde_json::to_string_pretty(&record)?)?;
+        Ok(record)
+    }
+
+    pub fn import_record(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> Result<CompactionRecord, CompactionError> {
+        let mut record: CompactionRecord = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+        normalize_imported_record(&mut record)?;
+        self.paths.ensure_base_dirs()?;
+        if self.path_for(&record.id).exists() {
+            let existing = self.show(&record.id)?;
+            if existing == record {
+                return Ok(existing);
+            }
+            record.id = self.next_import_id(&record);
+        }
+        self.write(&record)?;
+        Ok(record)
+    }
+
     pub fn remove_by_conversation_ids(
         &self,
         conversation_ids: &[String],
@@ -249,6 +282,27 @@ impl CompactionStore {
     fn path_for(&self, id: &str) -> PathBuf {
         self.paths.compactions_dir().join(format!("{id}.json"))
     }
+
+    fn next_import_id(&self, record: &CompactionRecord) -> String {
+        let hash = hash_text(&record.content);
+        for idx in 0.. {
+            let suffix = if idx == 0 {
+                String::new()
+            } else {
+                format!("-{idx}")
+            };
+            let id = format!(
+                "compact-{}-{}{}",
+                Utc::now().timestamp_nanos_opt().unwrap_or_default(),
+                &hash[..8],
+                suffix
+            );
+            if !self.path_for(&id).exists() {
+                return id;
+            }
+        }
+        unreachable!("compaction import id loop is unbounded")
+    }
 }
 
 fn read_record(path: PathBuf) -> Result<CompactionRecord, CompactionError> {
@@ -259,6 +313,40 @@ fn clean_optional(value: Option<String>) -> Option<String> {
     value
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn normalize_imported_record(record: &mut CompactionRecord) -> Result<(), CompactionError> {
+    record.id = record.id.trim().to_string();
+    validate_id(&record.id)?;
+    if record.content.trim().is_empty() {
+        return Err(CompactionError::InvalidInput(
+            "compacted context must not be empty".into(),
+        ));
+    }
+    record.guidance = clean_optional(record.guidance.take());
+    record.conversation_id = clean_optional(record.conversation_id.take());
+    if let Some(id) = record.conversation_id.as_deref() {
+        validate_id(id)
+            .map_err(|_| CompactionError::InvalidInput(format!("invalid conversation id: {id}")))?;
+    }
+    record.source = record.source.trim().to_string();
+    if record.source.is_empty() {
+        return Err(CompactionError::InvalidInput(
+            "compaction source must not be empty".into(),
+        ));
+    }
+    if record.max_output_tokens == 0 {
+        return Err(CompactionError::InvalidInput(
+            "max_output_tokens must be greater than zero".into(),
+        ));
+    }
+    if record.original_input_hash.trim().is_empty() {
+        record.original_input_hash = hash_text(&record.content);
+    }
+    if record.original_input_excerpt.trim().is_empty() {
+        record.original_input_excerpt = excerpt(&record.content, 500);
+    }
+    Ok(())
 }
 
 fn validate_id(id: &str) -> Result<(), CompactionError> {
@@ -473,6 +561,69 @@ mod tests {
         assert_eq!(record.conversation_id.as_deref(), Some("conv-1"));
         assert_eq!(record.guidance.as_deref(), Some("keep decisions"));
         assert_eq!(store.show(&record.id).unwrap().content, content);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn exports_and_imports_portable_compaction_records() {
+        let dir = std::env::temp_dir().join(format!("compaction-portable-test-{}", uuid_like()));
+        let import_dir =
+            std::env::temp_dir().join(format!("compaction-import-test-{}", uuid_like()));
+        let store = CompactionStore::new(StoragePaths::new(&dir));
+        let import_store = CompactionStore::new(StoragePaths::new(&import_dir));
+        let export_path = std::env::temp_dir().join(format!("{}.json", uuid_like()));
+
+        let record = store
+            .keep_compacted_context(
+                "<manual-compaction>\n- saved\n</manual-compaction>",
+                Some("keep facts".into()),
+                Some(64),
+                Some("manual".into()),
+                Some("conv-1".into()),
+            )
+            .unwrap();
+
+        let exported = store.export_record(&record.id, &export_path).unwrap();
+        let imported = import_store.import_record(&export_path).unwrap();
+
+        assert_eq!(exported, record);
+        assert_eq!(imported.id, record.id);
+        assert_eq!(imported.content, record.content);
+        assert_eq!(imported.conversation_id.as_deref(), Some("conv-1"));
+        assert_eq!(import_store.import_record(&export_path).unwrap(), imported);
+        let _ = std::fs::remove_file(export_path);
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_dir_all(import_dir);
+    }
+
+    #[test]
+    fn import_mints_new_id_for_different_collision() {
+        let dir = std::env::temp_dir().join(format!("compaction-collision-test-{}", uuid_like()));
+        let store = CompactionStore::new(StoragePaths::new(&dir));
+        let first = store
+            .keep_compacted_context(
+                "<manual-compaction>\n- first\n</manual-compaction>",
+                None,
+                Some(64),
+                Some("manual".into()),
+                None,
+            )
+            .unwrap();
+        let mut colliding = first.clone();
+        colliding.content = "<manual-compaction>\n- second\n</manual-compaction>".into();
+        let import_path = std::env::temp_dir().join(format!("{}.json", uuid_like()));
+        std::fs::write(
+            &import_path,
+            serde_json::to_string_pretty(&colliding).unwrap(),
+        )
+        .unwrap();
+
+        let imported = store.import_record(&import_path).unwrap();
+
+        assert_ne!(imported.id, first.id);
+        assert_eq!(imported.content, colliding.content);
+        assert_eq!(store.list().unwrap().len(), 2);
+        let _ = std::fs::remove_file(import_path);
         let _ = std::fs::remove_dir_all(dir);
     }
 

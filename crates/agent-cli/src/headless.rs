@@ -3620,8 +3620,10 @@ pub async fn remote_run(
     demo: String,
     options: setup::RuntimeOptions,
 ) -> anyhow::Result<()> {
+    let url_for_hint = url.clone();
     let client = DaemonHttpClient::new(url);
-    print_remote(client.post_json(
+    let conversation_id = options.conversation_id.clone();
+    let response = client.post_json(
         "/run",
         serde_json::json!({
             "input": input,
@@ -3654,7 +3656,16 @@ pub async fn remote_run(
             "require_approval": options.require_approval,
             "auto_approve": options.auto_approve
         }),
-    )?)
+    )?;
+    if let Some(run_id) = response.get("run_id").and_then(|value| value.as_str()) {
+        print_remote_auto_compaction_keep_hint(
+            &client,
+            &url_for_hint,
+            run_id,
+            conversation_id.as_deref(),
+        );
+    }
+    print_remote(response)
 }
 
 pub async fn remote_run_start(
@@ -3954,6 +3965,44 @@ pub async fn remote_memory_import(url: String, path: String, user: bool) -> anyh
         "/memory/import",
         serde_json::json!({ "path": path, "user": user }),
     )?)
+}
+
+pub async fn remote_compact_keep_run(
+    url: String,
+    run_id: String,
+    conversation: Option<String>,
+    guidance: Option<String>,
+) -> anyhow::Result<()> {
+    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
+    let client = DaemonHttpClient::new(url);
+    let events: Vec<RunEvent> =
+        serde_json::from_value(client.get_json(&format!("/trace/{}", run_id.0))?)?;
+    let Some(snapshot) = latest_auto_compaction_snapshot(&events) else {
+        return print_remote(serde_json::json!({
+            "run_id": run_id.0,
+            "record": null
+        }));
+    };
+    let Some(content) = snapshot.compacted else {
+        return print_remote(serde_json::json!({
+            "run_id": run_id.0,
+            "record": null
+        }));
+    };
+    let record = client.post_json(
+        "/compactions/keep",
+        serde_json::json!({
+            "content": content,
+            "guidance": guidance,
+            "source": format!("auto-run:{}", run_id.0),
+            "conversation_id": conversation,
+            "max_output_tokens": null
+        }),
+    )?;
+    print_remote(serde_json::json!({
+        "run_id": run_id.0,
+        "record": record
+    }))
 }
 
 pub async fn remote_skill_list(url: String) -> anyhow::Result<()> {
@@ -4616,6 +4665,29 @@ fn print_auto_compaction_keep_hint(
     eprintln!(
         "auto compacted context ready: keep it with `agent compact keep-run {}{conversation}`",
         run_id.0
+    );
+}
+
+fn print_remote_auto_compaction_keep_hint(
+    client: &DaemonHttpClient,
+    url: &str,
+    run_id: &str,
+    conversation_id: Option<&str>,
+) {
+    let Ok(value) = client.get_json(&format!("/trace/{run_id}")) else {
+        return;
+    };
+    let Ok(events) = serde_json::from_value::<Vec<RunEvent>>(value) else {
+        return;
+    };
+    if latest_auto_compaction_snapshot(&events).is_none() {
+        return;
+    }
+    let conversation = conversation_id
+        .map(|id| format!(" --conversation {id}"))
+        .unwrap_or_default();
+    eprintln!(
+        "auto compacted context ready: keep it with `agent remote --url {url} compact keep-run {run_id}{conversation}`"
     );
 }
 

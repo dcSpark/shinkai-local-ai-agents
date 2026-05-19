@@ -2046,6 +2046,11 @@ enum RemoteCommand {
         #[command(subcommand)]
         command: RemoteMemoryCommand,
     },
+    /// Remote compacted-context artifact operations.
+    Compact {
+        #[command(subcommand)]
+        command: RemoteCompactCommand,
+    },
     /// Remote skill operations.
     Skill {
         #[command(subcommand)]
@@ -2170,6 +2175,23 @@ enum RemoteMemoryCommand {
         path: String,
         #[arg(long)]
         user: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum RemoteCompactCommand {
+    /// Keep the auto-compacted context emitted by a completed daemon run.
+    KeepRun {
+        /// Run id that emitted an auto-compacted ContextBuilt event.
+        run_id: String,
+
+        /// Conversation this compaction should be linked to.
+        #[arg(long)]
+        conversation: Option<String>,
+
+        /// Guidance associated with the compacted context.
+        #[arg(long)]
+        guidance: Option<String>,
     },
 }
 
@@ -3039,6 +3061,42 @@ mod cli_parse_tests {
         assert_eq!(conversation.as_deref(), Some("conv-1"));
         assert_eq!(guidance.as_deref(), Some("Keep decisions."));
         assert!(json);
+    }
+
+    #[test]
+    fn remote_compact_keep_run_command_parses() {
+        let cli = Cli::try_parse_from([
+            "agent",
+            "remote",
+            "--url",
+            "http://127.0.0.1:7878",
+            "compact",
+            "keep-run",
+            "00000000-0000-0000-0000-000000000001",
+            "--conversation",
+            "conv-1",
+            "--guidance",
+            "Keep decisions.",
+        ])
+        .unwrap();
+        let Command::Remote {
+            command:
+                RemoteCommand::Compact {
+                    command:
+                        RemoteCompactCommand::KeepRun {
+                            run_id,
+                            conversation,
+                            guidance,
+                        },
+                },
+            ..
+        } = cli.command
+        else {
+            panic!("expected remote compact keep-run command");
+        };
+        assert_eq!(run_id, "00000000-0000-0000-0000-000000000001");
+        assert_eq!(conversation.as_deref(), Some("conv-1"));
+        assert_eq!(guidance.as_deref(), Some("Keep decisions."));
     }
 
     #[test]
@@ -4724,6 +4782,13 @@ async fn main() -> anyhow::Result<()> {
                 RemoteMemoryCommand::Import { path, user } => {
                     headless::remote_memory_import(url, path, user).await
                 }
+            },
+            RemoteCommand::Compact { command } => match command {
+                RemoteCompactCommand::KeepRun {
+                    run_id,
+                    conversation,
+                    guidance,
+                } => headless::remote_compact_keep_run(url, run_id, conversation, guidance).await,
             },
             RemoteCommand::Skill { command } => match command {
                 RemoteSkillCommand::List => headless::remote_skill_list(url).await,

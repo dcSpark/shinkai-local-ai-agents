@@ -734,6 +734,24 @@ textarea:disabled {
   font-weight: 800;
 }
 
+.voice-capture {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.voice-capture audio {
+  width: 100%;
+  min-width: 0;
+}
+
+.voice-capture span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #aeb5bd;
+  font-size: 0.78rem;
+}
+
 .storage-report {
   display: grid;
   gap: 0.5rem;
@@ -935,6 +953,16 @@ textarea:disabled {
   gap: 0.15rem;
 }
 
+.context-card.warning {
+  border-color: #735c26;
+  background: #211a0f;
+}
+
+.context-card.danger {
+  border-color: #65333b;
+  background: #241318;
+}
+
 .context-card strong {
   min-width: 0;
   color: #f1f2f4;
@@ -955,6 +983,12 @@ textarea:disabled {
   font-size: 0.76rem;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.hook-remediation-list {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
 }
 
 .tool-parameters {

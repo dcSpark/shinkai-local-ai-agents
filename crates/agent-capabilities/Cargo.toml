@@ -1,0 +1,21 @@
+[package]
+name = "agent-capabilities"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "Draft/quarantine store for agent-created tools, skills, and agents."
+
+[dependencies]
+agent-storage = { path = "../agent-storage" }
+agent-tools = { path = "../agent-tools" }
+async-trait.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 authors.workspace = true
-description = "Agent Harness CLI binary — TUI plus headless --print mode."
+description = "Shinkai CLI binary — TUI plus headless --print mode."
 
 [[bin]]
 name = "agent"
@@ -17,12 +17,16 @@ agent-api-client = { path = "../agent-api-client" }
 agent-adapters = { path = "../agent-adapters" }
 agent-batch = { path = "../agent-batch" }
 agent-bundles = { path = "../agent-bundles" }
+agent-capabilities = { path = "../agent-capabilities" }
+agent-compaction = { path = "../agent-compaction" }
 agent-config = { path = "../agent-config" }
+agent-conversations = { path = "../agent-conversations" }
 agent-ingest = { path = "../agent-ingest" }
 agent-tracing = { path = "../agent-tracing" }
 agent-llm = { path = "../agent-llm" }
 agent-memory = { path = "../agent-memory" }
 agent-prompts = { path = "../agent-prompts" }
+agent-secrets = { path = "../agent-secrets" }
 agent-skills = { path = "../agent-skills" }
 agent-storage = { path = "../agent-storage" }
 agent-tools = { path = "../agent-tools" }

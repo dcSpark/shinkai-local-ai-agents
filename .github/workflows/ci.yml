@@ -84,3 +84,13 @@ jobs:
       - name: Frontend type-check
         working-directory: crates/agent-tauri/frontend
         run: npx tsc -b --noEmit
+
+      - name: Frontend production build
+        working-directory: crates/agent-tauri/frontend
+        run: npm run build
+
+      - name: Packaging metadata verifier
+        run: scripts/verify-packaging.sh
+
+      - name: Release binary build
+        run: cargo build -p agent-cli -p agent-daemon -p agent-tauri --release --bins

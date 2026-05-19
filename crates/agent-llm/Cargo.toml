@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 authors.workspace = true
-description = "LLM provider abstraction for the Agent Harness."
+description = "LLM provider abstraction for Shinkai."
 
 [dependencies]
 async-trait.workspace = true
@@ -13,6 +13,7 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 rig-core.workspace = true
+futures = "0.3"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

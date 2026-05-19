@@ -5,7 +5,10 @@ members = [
     "crates/agent-api-client",
     "crates/agent-batch",
     "crates/agent-bundles",
+    "crates/agent-capabilities",
+    "crates/agent-compaction",
     "crates/agent-config",
+    "crates/agent-conversations",
     "crates/agent-core",
     "crates/agent-daemon",
     "crates/agent-ingest",
@@ -13,6 +16,8 @@ members = [
     "crates/agent-llm",
     "crates/agent-memory",
     "crates/agent-prompts",
+    "crates/agent-sandbox",
+    "crates/agent-secrets",
     "crates/agent-storage",
     "crates/agent-skills",
     "crates/agent-tools",
@@ -25,7 +30,7 @@ version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0 OR MIT"
 rust-version = "1.94"
-authors = ["Agent Harness contributors"]
+authors = ["Shinkai contributors"]
 
 [workspace.dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "io-std", "time", "process"] }
@@ -41,3 +46,5 @@ rig-core = "0.35"
 rusqlite = { version = "0.32", features = ["bundled"] }
 toml = "0.8"
 tar = "0.4"
+quick-xml = "0.38"
+base64 = "0.22"

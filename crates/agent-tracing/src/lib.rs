@@ -3,8 +3,9 @@
 //! See `specs/architecture.md` §4.7 (RunEvent), §15 (storage and durability).
 //! v0 ships an in-memory store and a `PublishingEventStore` wrapper that
 //! forwards every appended event over a `tokio` channel for live UIs.
-//! SQLite lands in a later slice.
+//! SQLite-backed durability is available for the CLI, daemon, and Tauri app.
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -16,8 +17,14 @@ use tokio::sync::mpsc::UnboundedSender;
 /// See `specs/architecture.md` §4.7 / §15.3.
 pub const SCHEMA_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct EventId(pub u64);
+
+impl std::fmt::Display for EventId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RunId(pub uuid::Uuid);
@@ -50,9 +57,19 @@ pub struct RunEvent {
     pub kind: RunEventKind,
 }
 
-/// Subset of `RunEventKind` from `specs/architecture.md` §4.7. v0 carries
-/// the variants needed by the tools-enabled run loop. Memory, ingestion,
-/// hooks, batch, subagents, streaming tokens, and approvals land later.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResumePlan {
+    pub source_run_id: RunId,
+    pub agent_id: String,
+    pub original_input: String,
+    pub selected_event_id: EventId,
+    pub omitted_events: usize,
+    pub prompt: String,
+}
+
+/// Subset of `RunEventKind` from `specs/architecture.md` §4.7. The enum is
+/// append-only; older serialized traces continue to deserialize as variants
+/// gain optional fields or new variants are added.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum RunEventKind {
@@ -67,6 +84,9 @@ pub enum RunEventKind {
         model: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         request_digest: Option<String>,
+    },
+    LlmStreamToken {
+        delta: String,
     },
     LlmRequestCompleted {
         tokens_in: u32,
@@ -92,6 +112,10 @@ pub enum RunEventKind {
         call_id: String,
         tool_id: String,
         input: serde_json::Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        permissions: Option<serde_json::Value>,
     },
     ToolCallStarted {
         call_id: String,
@@ -155,6 +179,24 @@ pub enum RunEventKind {
         artifact_id: String,
         content_hash: String,
         sections: u32,
+        #[serde(default)]
+        findings: Vec<String>,
+        #[serde(default)]
+        high_risk_findings: u32,
+        #[serde(default)]
+        finding_snippets: Vec<String>,
+    },
+    HookFired {
+        hook_id: String,
+        trigger: String,
+        payload_digest: String,
+    },
+    HookFailed {
+        hook_id: String,
+        trigger: String,
+        error: String,
+        attempt: u32,
+        will_retry: bool,
     },
     PolicyDenied {
         reason: String,
@@ -206,6 +248,16 @@ pub enum TraceValidationError {
     EmptyGuidance,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum ResumePlanError {
+    #[error("run {0} has no trace events")]
+    EmptyTrace(RunId),
+    #[error("run {0} has no RunStarted event")]
+    MissingRunStarted(RunId),
+    #[error("event {event_id} was not found in run {run_id}")]
+    EventNotFound { run_id: RunId, event_id: EventId },
+}
+
 pub fn validate_quality_score(score: f32) -> Result<(), TraceValidationError> {
     if score.is_finite() && (0.0..=10.0).contains(&score) {
         Ok(())
@@ -225,6 +277,299 @@ pub fn validate_guidance_content(content: &str) -> Result<String, TraceValidatio
 
 pub fn latest_event_id(events: &[RunEvent]) -> Option<EventId> {
     events.last().map(|event| event.id)
+}
+
+pub fn build_resume_plan(
+    run_id: RunId,
+    events: &[RunEvent],
+    from_event: Option<EventId>,
+) -> Result<ResumePlan, ResumePlanError> {
+    if events.is_empty() {
+        return Err(ResumePlanError::EmptyTrace(run_id));
+    }
+    let (agent_id, original_input) = events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RunEventKind::RunStarted { agent_id, input } => Some((agent_id.clone(), input.clone())),
+            _ => None,
+        })
+        .ok_or(ResumePlanError::MissingRunStarted(run_id))?;
+    let selected_index = if let Some(event_id) = from_event {
+        events
+            .iter()
+            .position(|event| event.id == event_id)
+            .ok_or(ResumePlanError::EventNotFound { run_id, event_id })?
+    } else {
+        events
+            .iter()
+            .rposition(|event| !is_terminal_run_event(&event.kind))
+            .unwrap_or(events.len() - 1)
+    };
+    let selected_event_id = events[selected_index].id;
+    let selected_events = &events[..=selected_index];
+    let omitted_events = selected_events.len().saturating_sub(80);
+    let excerpt_events = &selected_events[omitted_events..];
+    let mut excerpt = String::new();
+    if omitted_events > 0 {
+        excerpt.push_str(&format!(
+            "... omitted {omitted_events} earlier trace event(s) ...\n"
+        ));
+    }
+    for event in excerpt_events {
+        excerpt.push_str(&resume_event_line(event));
+        excerpt.push('\n');
+    }
+    let prompt = format!(
+        "Resume stopped run {run_id} from saved event {}.\n\nOriginal user input:\n{}\n\nSaved trace through event {}:\n{}\nContinue from the selected step. Avoid repeating completed successful tool calls unless they are needed to finish the task.",
+        selected_event_id.0,
+        original_input.trim(),
+        selected_event_id.0,
+        excerpt.trim_end()
+    );
+
+    Ok(ResumePlan {
+        source_run_id: run_id,
+        agent_id,
+        original_input,
+        selected_event_id,
+        omitted_events,
+        prompt,
+    })
+}
+
+fn resume_event_line(event: &RunEvent) -> String {
+    let parent = event
+        .parent_event
+        .map(|id| id.0.to_string())
+        .unwrap_or_else(|| "-".into());
+    format!(
+        "[{}] parent={} {}",
+        event.id.0,
+        parent,
+        resume_event_label(&event.kind)
+    )
+}
+
+fn resume_event_label(kind: &RunEventKind) -> String {
+    match kind {
+        RunEventKind::RunStarted { agent_id, input } => {
+            format!("RunStarted agent={agent_id} input={input:?}")
+        }
+        RunEventKind::ContextBuilt { snapshot } => {
+            let tools = snapshot
+                .get("visible_tools")
+                .and_then(|value| value.as_array())
+                .map_or(0, Vec::len);
+            let skills = snapshot
+                .get("visible_skills")
+                .and_then(|value| value.as_array())
+                .map_or(0, Vec::len);
+            format!("ContextBuilt visible_tools={tools} visible_skills={skills}")
+        }
+        RunEventKind::LlmRequestStarted {
+            model,
+            request_digest,
+        } => {
+            let digest = request_digest
+                .as_ref()
+                .map(|value| format!(" request_digest={value}"))
+                .unwrap_or_default();
+            format!("LlmRequestStarted model={model}{digest}")
+        }
+        RunEventKind::LlmStreamToken { delta } => {
+            format!("LlmStreamToken delta={delta:?}")
+        }
+        RunEventKind::LlmRequestCompleted {
+            tokens_in,
+            tokens_out,
+            cost_usd,
+            duration_ms,
+        } => {
+            let cost = cost_usd
+                .map(|value| format!(" cost_usd={value:.6}"))
+                .unwrap_or_default();
+            format!(
+                "LlmRequestCompleted tokens_in={tokens_in} tokens_out={tokens_out}{cost} duration_ms={duration_ms}"
+            )
+        }
+        RunEventKind::PromptRefinementStarted {
+            model,
+            original_input,
+            ..
+        } => format!("PromptRefinementStarted model={model} input={original_input:?}"),
+        RunEventKind::PromptRefinementCompleted {
+            refined_input,
+            tokens_in,
+            tokens_out,
+            cost_usd,
+            duration_ms,
+        } => {
+            let cost = cost_usd
+                .map(|value| format!(" cost_usd={value:.6}"))
+                .unwrap_or_default();
+            format!(
+                "PromptRefinementCompleted tokens_in={tokens_in} tokens_out={tokens_out}{cost} duration_ms={duration_ms} refined={refined_input:?}"
+            )
+        }
+        RunEventKind::ToolCallProposed {
+            call_id,
+            tool_id,
+            input,
+            ..
+        } => format!("ToolCallProposed call={call_id} tool={tool_id} input={input}"),
+        RunEventKind::ToolCallStarted { call_id } => format!("ToolCallStarted call={call_id}"),
+        RunEventKind::ToolCallCompleted {
+            call_id,
+            output,
+            cost_usd,
+            duration_ms,
+        } => {
+            let cost = cost_usd
+                .map(|value| format!(" cost_usd={value:.6}"))
+                .unwrap_or_default();
+            format!(
+                "ToolCallCompleted call={call_id} duration_ms={duration_ms}{cost} output={output}"
+            )
+        }
+        RunEventKind::ToolOutputInterpreted {
+            call_id,
+            model,
+            summary,
+        } => {
+            format!("ToolOutputInterpreted call={call_id} model={model} summary={summary:?}")
+        }
+        RunEventKind::ToolCallFailed { call_id, error } => {
+            format!("ToolCallFailed call={call_id} error={error}")
+        }
+        RunEventKind::ApprovalRequested {
+            approval_id,
+            action,
+            reason,
+        } => format!("ApprovalRequested id={approval_id} action={action} reason={reason}"),
+        RunEventKind::ApprovalResolved {
+            approval_id,
+            approved,
+        } => format!("ApprovalResolved id={approval_id} approved={approved}"),
+        RunEventKind::GuidanceInjected { content } => {
+            format!("GuidanceInjected content={content:?}")
+        }
+        RunEventKind::QualityScored { target, score } => {
+            format!("QualityScored target={target} score={score}")
+        }
+        RunEventKind::MemoryLoaded { ids } => format!("MemoryLoaded ids={}", ids.join(",")),
+        RunEventKind::MemoryRead {
+            backend,
+            fragment_ids,
+        } => {
+            format!(
+                "MemoryRead backend={backend} fragment_ids={}",
+                fragment_ids.join(",")
+            )
+        }
+        RunEventKind::MemoryWritten {
+            id,
+            operation,
+            source_range,
+            generating_model,
+        } => {
+            let range = source_range
+                .as_ref()
+                .map(|value| format!(" range={value:?}"))
+                .unwrap_or_default();
+            let model = generating_model
+                .as_ref()
+                .map(|value| format!(" model={value}"))
+                .unwrap_or_default();
+            format!("MemoryWritten id={id} operation={operation}{range}{model}")
+        }
+        RunEventKind::IngestionReferenced {
+            artifact_id,
+            source,
+        } => format!("IngestionReferenced artifact={artifact_id} source={source}"),
+        RunEventKind::IngestionStarted { source, backend } => {
+            format!("IngestionStarted source={source} backend={backend}")
+        }
+        RunEventKind::IngestionCompleted {
+            artifact_id,
+            content_hash,
+            sections,
+            findings,
+            high_risk_findings,
+            finding_snippets,
+        } => {
+            let risk = if *high_risk_findings > 0 {
+                format!(" high_risk_findings={high_risk_findings}")
+            } else {
+                String::new()
+            };
+            let finding_count = if findings.is_empty() {
+                String::new()
+            } else {
+                format!(" findings={}", findings.len())
+            };
+            let snippet_count = if finding_snippets.is_empty() {
+                String::new()
+            } else {
+                format!(" snippets={}", finding_snippets.len())
+            };
+            format!(
+                "IngestionCompleted artifact={artifact_id} hash={content_hash} sections={sections}{risk}{finding_count}{snippet_count}"
+            )
+        }
+        RunEventKind::HookFired {
+            hook_id,
+            trigger,
+            payload_digest,
+        } => {
+            format!("HookFired hook={hook_id} trigger={trigger} payload_digest={payload_digest}")
+        }
+        RunEventKind::HookFailed {
+            hook_id,
+            trigger,
+            error,
+            attempt,
+            will_retry,
+        } => {
+            format!(
+                "HookFailed hook={hook_id} trigger={trigger} attempt={attempt} will_retry={will_retry} error={error}"
+            )
+        }
+        RunEventKind::PolicyDenied { reason } => format!("PolicyDenied reason={reason}"),
+        RunEventKind::ChildRunStarted {
+            child_run_id,
+            agent_id,
+        } => format!("ChildRunStarted child={} agent={agent_id}", child_run_id.0),
+        RunEventKind::ChildRunCompleted {
+            child_run_id,
+            status,
+        } => format!("ChildRunCompleted child={} status={status}", child_run_id.0),
+        RunEventKind::BatchRunStarted { batch_id, items } => {
+            format!("BatchRunStarted batch={batch_id} items={items}")
+        }
+        RunEventKind::BatchItemStatus {
+            batch_id,
+            item_key,
+            status,
+        } => format!("BatchItemStatus batch={batch_id} item={item_key} status={status}"),
+        RunEventKind::BatchRunCompleted {
+            batch_id,
+            succeeded,
+            failed,
+        } => format!("BatchRunCompleted batch={batch_id} succeeded={succeeded} failed={failed}"),
+        RunEventKind::RunPaused { reason } => format!("RunPaused reason={reason}"),
+        RunEventKind::RunCancelled { reason } => format!("RunCancelled reason={reason}"),
+        RunEventKind::RunCompleted {
+            final_output,
+            total_cost_usd,
+            total_duration_ms,
+        } => {
+            let cost = total_cost_usd
+                .map(|value| format!(" cost_usd={value:.6}"))
+                .unwrap_or_default();
+            format!("RunCompleted duration_ms={total_duration_ms}{cost} output={final_output:?}")
+        }
+        RunEventKind::RunFailed { reason } => format!("RunFailed reason={reason}"),
+    }
 }
 
 pub fn is_terminal_run_event(kind: &RunEventKind) -> bool {
@@ -247,12 +592,37 @@ pub struct TraceSummary {
     pub approvals: u32,
     pub guidance_injections: u32,
     pub quality_scores: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality_score_average: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality_score_min: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality_score_max: Option<f32>,
     pub memory_fragments: u32,
     pub artifact_refs: u32,
+    #[serde(default)]
+    pub hooks: u32,
+    #[serde(default)]
+    pub hook_failures: u32,
     pub tokens_in: u32,
     pub tokens_out: u32,
     pub cost_usd: Option<f64>,
     pub duration_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HookRemediation {
+    pub event_id: EventId,
+    pub hook_id: String,
+    pub trigger: String,
+    pub error: String,
+    pub attempt: u32,
+    pub will_retry: bool,
+    pub final_failure: bool,
+    #[serde(default)]
+    pub policy_denials: Vec<String>,
+    #[serde(default)]
+    pub suggested_actions: Vec<String>,
 }
 
 impl TraceSummary {
@@ -266,14 +636,79 @@ impl TraceSummary {
             approvals: 0,
             guidance_injections: 0,
             quality_scores: 0,
+            quality_score_average: None,
+            quality_score_min: None,
+            quality_score_max: None,
             memory_fragments: 0,
             artifact_refs: 0,
+            hooks: 0,
+            hook_failures: 0,
             tokens_in: 0,
             tokens_out: 0,
             cost_usd: None,
             duration_ms: None,
         }
     }
+}
+
+pub fn hook_remediation_plan(events: &[RunEvent]) -> Vec<HookRemediation> {
+    let mut denials_by_parent = BTreeMap::<EventId, Vec<String>>::new();
+    for event in events {
+        if let RunEventKind::PolicyDenied { reason } = &event.kind
+            && let Some(parent) = event.parent_event
+        {
+            denials_by_parent
+                .entry(parent)
+                .or_default()
+                .push(reason.clone());
+        }
+    }
+
+    events
+        .iter()
+        .filter_map(|event| {
+            let RunEventKind::HookFailed {
+                hook_id,
+                trigger,
+                error,
+                attempt,
+                will_retry,
+            } = &event.kind
+            else {
+                return None;
+            };
+            let final_failure = !will_retry;
+            let mut suggested_actions = Vec::new();
+            if *will_retry {
+                suggested_actions.push(
+                    "Wait for the configured hook retry; review the final attempt if it fails."
+                        .into(),
+                );
+            } else {
+                suggested_actions.push(format!(
+                    "Fix or disable hook `{hook_id}` in the adapter configuration, then replay the run."
+                ));
+                suggested_actions.push(
+                    "Use a one-run lifecycle-hook override only after accepting the skipped enforcement."
+                        .into(),
+                );
+            }
+            Some(HookRemediation {
+                event_id: event.id,
+                hook_id: hook_id.clone(),
+                trigger: trigger.clone(),
+                error: error.clone(),
+                attempt: *attempt,
+                will_retry: *will_retry,
+                final_failure,
+                policy_denials: event
+                    .parent_event
+                    .and_then(|parent| denials_by_parent.get(&parent).cloned())
+                    .unwrap_or_default(),
+                suggested_actions,
+            })
+        })
+        .collect()
 }
 
 pub fn summarize_trace(events: &[RunEvent], fallback_run_id: RunId) -> TraceSummary {
@@ -286,10 +721,12 @@ pub fn summarize_trace(events: &[RunEvent], fallback_run_id: RunId) -> TraceSumm
     let mut event_cost_usd = 0.0;
     let mut has_event_cost = false;
     let mut completed_cost_usd = None;
+    let mut quality_score_total = 0.0f32;
 
     for event in events {
         match &event.kind {
             RunEventKind::ContextBuilt { .. } => summary.context_snapshots += 1,
+            RunEventKind::LlmStreamToken { .. } => {}
             RunEventKind::LlmRequestCompleted {
                 tokens_in,
                 tokens_out,
@@ -326,7 +763,22 @@ pub fn summarize_trace(events: &[RunEvent], fallback_run_id: RunId) -> TraceSumm
             }
             RunEventKind::ApprovalRequested { .. } => summary.approvals += 1,
             RunEventKind::GuidanceInjected { .. } => summary.guidance_injections += 1,
-            RunEventKind::QualityScored { .. } => summary.quality_scores += 1,
+            RunEventKind::QualityScored { score, .. } => {
+                summary.quality_scores += 1;
+                quality_score_total += *score;
+                summary.quality_score_min = Some(
+                    summary
+                        .quality_score_min
+                        .map(|current| current.min(*score))
+                        .unwrap_or(*score),
+                );
+                summary.quality_score_max = Some(
+                    summary
+                        .quality_score_max
+                        .map(|current| current.max(*score))
+                        .unwrap_or(*score),
+                );
+            }
             RunEventKind::MemoryLoaded { ids } => {
                 summary.memory_fragments =
                     summary.memory_fragments.saturating_add(ids.len() as u32);
@@ -337,6 +789,8 @@ pub fn summarize_trace(events: &[RunEvent], fallback_run_id: RunId) -> TraceSumm
                     .saturating_add(fragment_ids.len() as u32);
             }
             RunEventKind::IngestionReferenced { .. } => summary.artifact_refs += 1,
+            RunEventKind::HookFired { .. } => summary.hooks += 1,
+            RunEventKind::HookFailed { .. } => summary.hook_failures += 1,
             RunEventKind::RunCompleted {
                 total_cost_usd,
                 total_duration_ms,
@@ -349,6 +803,9 @@ pub fn summarize_trace(events: &[RunEvent], fallback_run_id: RunId) -> TraceSumm
         }
     }
 
+    if summary.quality_scores > 0 {
+        summary.quality_score_average = Some(quality_score_total / summary.quality_scores as f32);
+    }
     summary.cost_usd = completed_cost_usd.or_else(|| has_event_cost.then_some(event_cost_usd));
     summary
 }
@@ -380,8 +837,8 @@ pub enum TraceStoreError {
 }
 
 /// Process-local in-memory event store. Cheap to instantiate, useful for tests
-/// and the `--print` CLI mode. Replaced by a SQLite-backed implementation in a
-/// later slice (see `specs/architecture.md` §15).
+/// and the `--print` CLI mode. Persistent clients use
+/// [`SqliteEventStore`] (see `specs/architecture.md` §15).
 pub struct InMemoryEventStore {
     inner: Arc<Mutex<Inner>>,
 }
@@ -657,6 +1114,47 @@ mod tests {
     }
 
     #[test]
+    fn resume_plan_uses_original_input_and_selected_step() {
+        let store = InMemoryEventStore::new();
+        let run = RunId::new();
+        let started = store.append(
+            run,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "researcher".into(),
+                input: "finish report".into(),
+            },
+        );
+        let proposed = store.append(
+            run,
+            Some(started.id),
+            RunEventKind::ToolCallProposed {
+                call_id: "tool-1".into(),
+                tool_id: "echo".into(),
+                input: serde_json::json!({"text": "draft"}),
+                model: Some("fake".into()),
+                permissions: None,
+            },
+        );
+        store.append(
+            run,
+            Some(proposed.id),
+            RunEventKind::RunCancelled {
+                reason: "user requested stop".into(),
+            },
+        );
+
+        let plan = build_resume_plan(run, &store.events(run), Some(proposed.id)).unwrap();
+
+        assert_eq!(plan.agent_id, "researcher");
+        assert_eq!(plan.original_input, "finish report");
+        assert_eq!(plan.selected_event_id, proposed.id);
+        assert!(plan.prompt.contains("finish report"));
+        assert!(plan.prompt.contains("ToolCallProposed"));
+        assert!(!plan.prompt.contains("RunCancelled"));
+    }
+
+    #[test]
     fn event_id_monotonic_per_store() {
         let store = InMemoryEventStore::new();
         let r = RunId::new();
@@ -690,6 +1188,8 @@ mod tests {
                 call_id: "c1".into(),
                 tool_id: "echo".into(),
                 input: serde_json::json!({"x": 1}),
+                model: Some("fake-model".into()),
+                permissions: Some(serde_json::json!({"shell": false})),
             },
         );
         let evts = store.events(r);
@@ -700,10 +1200,31 @@ mod tests {
                 call_id,
                 tool_id,
                 input,
+                model,
+                permissions,
             } => {
                 assert_eq!(call_id, "c1");
                 assert_eq!(tool_id, "echo");
                 assert_eq!(input, serde_json::json!({"x": 1}));
+                assert_eq!(model.as_deref(), Some("fake-model"));
+                assert_eq!(permissions, Some(serde_json::json!({"shell": false})));
+            }
+            other => panic!("unexpected kind: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tool_call_proposed_reads_older_trace_shape() {
+        let kind: RunEventKind = serde_json::from_str(
+            r#"{"type":"ToolCallProposed","call_id":"c1","tool_id":"echo","input":{"x":1}}"#,
+        )
+        .unwrap();
+        match kind {
+            RunEventKind::ToolCallProposed {
+                model, permissions, ..
+            } => {
+                assert_eq!(model, None);
+                assert_eq!(permissions, None);
             }
             other => panic!("unexpected kind: {other:?}"),
         }
@@ -774,6 +1295,27 @@ mod tests {
             } => {
                 assert_eq!(source_range, None);
                 assert_eq!(generating_model, None);
+            }
+            other => panic!("unexpected kind: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ingestion_completed_event_reads_older_trace_shape() {
+        let kind: RunEventKind = serde_json::from_str(
+            r#"{"type":"IngestionCompleted","artifact_id":"ingest-1","content_hash":"abc","sections":2}"#,
+        )
+        .unwrap();
+        match kind {
+            RunEventKind::IngestionCompleted {
+                findings,
+                high_risk_findings,
+                finding_snippets,
+                ..
+            } => {
+                assert!(findings.is_empty());
+                assert_eq!(high_risk_findings, 0);
+                assert!(finding_snippets.is_empty());
             }
             other => panic!("unexpected kind: {other:?}"),
         }
@@ -897,6 +1439,26 @@ mod tests {
         store.append(
             run,
             None,
+            RunEventKind::HookFired {
+                hook_id: "audit".into(),
+                trigger: "run_started".into(),
+                payload_digest: "abc123".into(),
+            },
+        );
+        store.append(
+            run,
+            None,
+            RunEventKind::HookFailed {
+                hook_id: "audit".into(),
+                trigger: "run_started".into(),
+                error: "temporary failure".into(),
+                attempt: 1,
+                will_retry: false,
+            },
+        );
+        store.append(
+            run,
+            None,
             RunEventKind::QualityScored {
                 target: "last_answer".into(),
                 score: 8.0,
@@ -915,7 +1477,7 @@ mod tests {
         let summary = summarize_trace(&store.events(run), run);
 
         assert_eq!(summary.run_id, run);
-        assert_eq!(summary.events, 7);
+        assert_eq!(summary.events, 9);
         assert_eq!(summary.context_snapshots, 1);
         assert_eq!(summary.llm_calls, 1);
         assert_eq!(summary.tool_calls, 1);
@@ -925,7 +1487,61 @@ mod tests {
         assert_eq!(summary.duration_ms, Some(99));
         assert_eq!(summary.memory_fragments, 2);
         assert_eq!(summary.artifact_refs, 1);
+        assert_eq!(summary.hooks, 1);
+        assert_eq!(summary.hook_failures, 1);
         assert_eq!(summary.quality_scores, 1);
+        assert_eq!(summary.quality_score_average, Some(8.0));
+        assert_eq!(summary.quality_score_min, Some(8.0));
+        assert_eq!(summary.quality_score_max, Some(8.0));
+    }
+
+    #[test]
+    fn hook_remediation_plan_links_failures_denials_and_actions() {
+        let run = RunId::new();
+        let store = InMemoryEventStore::new();
+        let fired = store.append(
+            run,
+            None,
+            RunEventKind::HookFired {
+                hook_id: "guard".into(),
+                trigger: "before_tool_call".into(),
+                payload_digest: "abc123".into(),
+            },
+        );
+        let failed = store.append(
+            run,
+            Some(fired.id),
+            RunEventKind::HookFailed {
+                hook_id: "guard".into(),
+                trigger: "before_tool_call".into(),
+                error: "blocked".into(),
+                attempt: 2,
+                will_retry: false,
+            },
+        );
+        store.append(
+            run,
+            Some(fired.id),
+            RunEventKind::PolicyDenied {
+                reason: "hook guard tool call mutation failed: blocked".into(),
+            },
+        );
+
+        let plan = hook_remediation_plan(&store.events(run));
+
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].event_id, failed.id);
+        assert_eq!(plan[0].hook_id, "guard");
+        assert_eq!(plan[0].trigger, "before_tool_call");
+        assert_eq!(plan[0].attempt, 2);
+        assert!(plan[0].final_failure);
+        assert_eq!(plan[0].policy_denials.len(), 1);
+        assert!(
+            plan[0]
+                .suggested_actions
+                .iter()
+                .any(|action| action.contains("lifecycle-hook override"))
+        );
     }
 
     #[tokio::test]

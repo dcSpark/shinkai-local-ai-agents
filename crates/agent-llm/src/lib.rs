@@ -9,11 +9,16 @@
 use std::sync::Mutex;
 
 use async_trait::async_trait;
+use futures::{Stream, StreamExt};
 use rig::{
     OneOrMany,
     client::CompletionClient,
-    completion::{self, CompletionModel as _},
-    providers::openai,
+    completion::{self, CompletionModel as _, GetTokenUsage as _},
+    message::{
+        Document, DocumentMediaType, DocumentSourceKind, ImageDetail, ImageMediaType, UserContent,
+    },
+    providers::{anthropic, gemini, openai},
+    streaming::StreamedAssistantContent,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -56,6 +61,11 @@ pub enum Message {
     User {
         content: String,
     },
+    UserWithAttachments {
+        content: String,
+        #[serde(default)]
+        attachments: Vec<LlmAttachment>,
+    },
     Assistant {
         content: Option<String>,
         #[serde(default)]
@@ -79,6 +89,78 @@ impl Message {
             content: content.into(),
         }
     }
+
+    pub fn user_with_attachments(
+        content: impl Into<String>,
+        attachments: Vec<LlmAttachment>,
+    ) -> Self {
+        Message::UserWithAttachments {
+            content: content.into(),
+            attachments,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum LlmAttachment {
+    Image {
+        data_base64: String,
+        media_type: LlmImageMediaType,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<LlmImageDetail>,
+    },
+    Document {
+        data_base64: String,
+        media_type: LlmDocumentMediaType,
+    },
+}
+
+impl LlmAttachment {
+    pub fn image_base64(data_base64: impl Into<String>, media_type: LlmImageMediaType) -> Self {
+        Self::Image {
+            data_base64: data_base64.into(),
+            media_type,
+            detail: Some(LlmImageDetail::Auto),
+        }
+    }
+
+    pub fn document_base64(
+        data_base64: impl Into<String>,
+        media_type: LlmDocumentMediaType,
+    ) -> Self {
+        Self::Document {
+            data_base64: data_base64.into(),
+            media_type,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LlmImageMediaType {
+    Jpeg,
+    Png,
+    Gif,
+    Webp,
+    Svg,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LlmDocumentMediaType {
+    Pdf,
+    Txt,
+    Markdown,
+    Csv,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LlmImageDetail {
+    Low,
+    High,
+    Auto,
 }
 
 #[derive(Debug, Clone)]
@@ -107,7 +189,17 @@ pub enum LlmError {
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError>;
+
+    async fn complete_streaming(
+        &self,
+        req: LlmRequest,
+        _on_delta: LlmStreamCallback<'_>,
+    ) -> Result<LlmResponse, LlmError> {
+        self.complete(req).await
+    }
 }
+
+pub type LlmStreamCallback<'a> = &'a mut (dyn FnMut(String) + Send);
 
 /// Configuration for the first real provider slice. Rig reads OpenAI-compatible
 /// endpoints through the OpenAI provider; base URL and API key env var are
@@ -117,9 +209,13 @@ pub trait LlmProvider: Send + Sync {
 pub struct RigProviderConfig {
     pub api_base_url: Option<String>,
     pub api_key_env: String,
+    #[serde(default)]
+    pub allow_missing_api_key: bool,
     pub model: ModelRef,
     pub max_output_tokens: Option<u64>,
     pub temperature: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub additional_params: Option<Value>,
 }
 
 impl Default for RigProviderConfig {
@@ -127,9 +223,79 @@ impl Default for RigProviderConfig {
         Self {
             api_base_url: None,
             api_key_env: "OPENAI_API_KEY".into(),
+            allow_missing_api_key: false,
             model: ModelRef::from("gpt-4o-mini"),
             max_output_tokens: None,
             temperature: None,
+            additional_params: None,
+        }
+    }
+}
+
+impl RigProviderConfig {
+    pub fn ollama(model: ModelRef) -> Self {
+        Self {
+            api_base_url: Some(
+                std::env::var("OLLAMA_OPENAI_BASE_URL")
+                    .unwrap_or_else(|_| "http://127.0.0.1:11434/v1".into()),
+            ),
+            api_key_env: "OLLAMA_API_KEY".into(),
+            allow_missing_api_key: true,
+            model,
+            max_output_tokens: None,
+            temperature: None,
+            additional_params: None,
+        }
+    }
+
+    pub fn llama_cpp(model: ModelRef) -> Self {
+        Self {
+            api_base_url: Some(
+                std::env::var("LLAMA_CPP_OPENAI_BASE_URL")
+                    .unwrap_or_else(|_| "http://127.0.0.1:8080/v1".into()),
+            ),
+            api_key_env: "LLAMA_CPP_API_KEY".into(),
+            allow_missing_api_key: true,
+            model,
+            max_output_tokens: None,
+            temperature: None,
+            additional_params: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NativeProviderConfig {
+    pub api_key_env: String,
+    #[serde(default)]
+    pub allow_missing_api_key: bool,
+    pub model: ModelRef,
+    pub max_output_tokens: Option<u64>,
+    pub temperature: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub additional_params: Option<Value>,
+}
+
+impl NativeProviderConfig {
+    pub fn anthropic(model: ModelRef) -> Self {
+        Self {
+            api_key_env: "ANTHROPIC_API_KEY".into(),
+            allow_missing_api_key: false,
+            model,
+            max_output_tokens: None,
+            temperature: None,
+            additional_params: None,
+        }
+    }
+
+    pub fn gemini(model: ModelRef) -> Self {
+        Self {
+            api_key_env: "GEMINI_API_KEY".into(),
+            allow_missing_api_key: false,
+            model,
+            max_output_tokens: None,
+            temperature: None,
+            additional_params: None,
         }
     }
 }
@@ -151,15 +317,57 @@ impl RigProvider {
         config: RigProviderConfig,
         api_key_override: Option<String>,
     ) -> Result<Self, LlmError> {
-        let api_key = match api_key_override.and_then(non_empty_secret) {
-            Some(api_key) => api_key,
-            None => std::env::var(&config.api_key_env).map_err(|_| {
-                LlmError::Config(format!(
-                    "environment variable {} is not set",
-                    config.api_key_env
-                ))
-            })?,
-        };
+        let api_key = api_key_for_config(
+            &config.api_key_env,
+            config.allow_missing_api_key,
+            api_key_override,
+        )?;
+        Ok(Self { config, api_key })
+    }
+}
+
+pub struct AnthropicProvider {
+    config: NativeProviderConfig,
+    api_key: String,
+}
+
+impl AnthropicProvider {
+    pub fn from_config(config: NativeProviderConfig) -> Result<Self, LlmError> {
+        Self::from_config_with_api_key_override(config, None)
+    }
+
+    pub fn from_config_with_api_key_override(
+        config: NativeProviderConfig,
+        api_key_override: Option<String>,
+    ) -> Result<Self, LlmError> {
+        let api_key = api_key_for_config(
+            &config.api_key_env,
+            config.allow_missing_api_key,
+            api_key_override,
+        )?;
+        Ok(Self { config, api_key })
+    }
+}
+
+pub struct GeminiProvider {
+    config: NativeProviderConfig,
+    api_key: String,
+}
+
+impl GeminiProvider {
+    pub fn from_config(config: NativeProviderConfig) -> Result<Self, LlmError> {
+        Self::from_config_with_api_key_override(config, None)
+    }
+
+    pub fn from_config_with_api_key_override(
+        config: NativeProviderConfig,
+        api_key_override: Option<String>,
+    ) -> Result<Self, LlmError> {
+        let api_key = api_key_for_config(
+            &config.api_key_env,
+            config.allow_missing_api_key,
+            api_key_override,
+        )?;
         Ok(Self { config, api_key })
     }
 }
@@ -172,6 +380,23 @@ fn non_empty_secret(value: String) -> Option<String> {
         Some(value)
     } else {
         Some(trimmed.to_string())
+    }
+}
+
+fn api_key_for_config(
+    api_key_env: &str,
+    allow_missing_api_key: bool,
+    api_key_override: Option<String>,
+) -> Result<String, LlmError> {
+    match api_key_override.and_then(non_empty_secret) {
+        Some(api_key) => Ok(api_key),
+        None => match std::env::var(api_key_env) {
+            Ok(value) => Ok(value),
+            Err(_) if allow_missing_api_key => Ok("local-provider".into()),
+            Err(_) => Err(LlmError::Config(format!(
+                "environment variable {api_key_env} is not set"
+            ))),
+        },
     }
 }
 
@@ -210,12 +435,227 @@ impl LlmProvider for RigProvider {
             .tools(tools)
             .max_tokens_opt(self.config.max_output_tokens)
             .temperature_opt(self.config.temperature)
+            .additional_params_opt(self.config.additional_params.clone())
             .send()
             .await
             .map_err(|e| LlmError::Provider(e.to_string()))?;
 
         Ok(rig_response_to_llm(response.choice, response.usage))
     }
+
+    async fn complete_streaming(
+        &self,
+        req: LlmRequest,
+        on_delta: LlmStreamCallback<'_>,
+    ) -> Result<LlmResponse, LlmError> {
+        let model_id = if req.model.0 == self.config.model.0 {
+            self.config.model.0.clone()
+        } else {
+            req.model.0.clone()
+        };
+
+        let mut client_builder = openai::Client::builder().api_key(&self.api_key);
+        if let Some(base_url) = self.config.api_base_url.as_deref() {
+            client_builder = client_builder.base_url(base_url);
+        }
+        let client = client_builder
+            .build()
+            .map_err(|e| LlmError::Provider(e.to_string()))?
+            .completions_api();
+        let model = client.completion_model(model_id);
+
+        let (prompt, history) = rig_prompt_and_history(&req.messages)?;
+        let tools = req
+            .tools
+            .into_iter()
+            .map(|tool| completion::ToolDefinition {
+                name: tool.name,
+                description: tool.description,
+                parameters: tool.input_schema,
+            })
+            .collect();
+        let mut stream = model
+            .completion_request(prompt)
+            .messages(history)
+            .tools(tools)
+            .max_tokens_opt(self.config.max_output_tokens)
+            .temperature_opt(self.config.temperature)
+            .additional_params_opt(self.config.additional_params.clone())
+            .stream()
+            .await
+            .map_err(|e| LlmError::Provider(e.to_string()))?;
+
+        while let Some(chunk) = stream.next().await {
+            match chunk.map_err(|e| LlmError::Provider(e.to_string()))? {
+                StreamedAssistantContent::Text(text) => {
+                    if !text.text.is_empty() {
+                        on_delta(text.text);
+                    }
+                }
+                StreamedAssistantContent::Reasoning(reasoning) => {
+                    let text = reasoning.display_text();
+                    if !text.is_empty() {
+                        on_delta(text);
+                    }
+                }
+                StreamedAssistantContent::ReasoningDelta { reasoning, .. } => {
+                    if !reasoning.is_empty() {
+                        on_delta(reasoning);
+                    }
+                }
+                StreamedAssistantContent::ToolCall { .. }
+                | StreamedAssistantContent::ToolCallDelta { .. }
+                | StreamedAssistantContent::Final(_) => {}
+            }
+        }
+
+        let usage = stream
+            .response
+            .as_ref()
+            .and_then(|response| response.token_usage())
+            .unwrap_or_default();
+        Ok(rig_response_to_llm(stream.choice, usage))
+    }
+}
+
+#[async_trait]
+impl LlmProvider for AnthropicProvider {
+    async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError> {
+        let client =
+            anthropic::Client::new(&self.api_key).map_err(|e| LlmError::Provider(e.to_string()))?;
+        let model = client.completion_model(model_id_for_request(&self.config.model, &req));
+        let (prompt, history) = rig_prompt_and_history(&req.messages)?;
+        let tools = rig_tool_definitions(req.tools);
+        let response = model
+            .completion_request(prompt)
+            .messages(history)
+            .tools(tools)
+            .max_tokens_opt(self.config.max_output_tokens)
+            .temperature_opt(self.config.temperature)
+            .additional_params_opt(self.config.additional_params.clone())
+            .send()
+            .await
+            .map_err(|e| LlmError::Provider(e.to_string()))?;
+
+        Ok(rig_response_to_llm(response.choice, response.usage))
+    }
+
+    async fn complete_streaming(
+        &self,
+        req: LlmRequest,
+        on_delta: LlmStreamCallback<'_>,
+    ) -> Result<LlmResponse, LlmError> {
+        let client =
+            anthropic::Client::new(&self.api_key).map_err(|e| LlmError::Provider(e.to_string()))?;
+        let model = client.completion_model(model_id_for_request(&self.config.model, &req));
+        let (prompt, history) = rig_prompt_and_history(&req.messages)?;
+        let tools = rig_tool_definitions(req.tools);
+        let mut stream = model
+            .completion_request(prompt)
+            .messages(history)
+            .tools(tools)
+            .max_tokens_opt(self.config.max_output_tokens)
+            .temperature_opt(self.config.temperature)
+            .additional_params_opt(self.config.additional_params.clone())
+            .stream()
+            .await
+            .map_err(|e| LlmError::Provider(e.to_string()))?;
+
+        drain_rig_stream(&mut stream, on_delta).await?;
+        let usage = stream
+            .response
+            .as_ref()
+            .and_then(|response| response.token_usage())
+            .unwrap_or_default();
+        Ok(rig_response_to_llm(stream.choice, usage))
+    }
+}
+
+#[async_trait]
+impl LlmProvider for GeminiProvider {
+    async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError> {
+        let client =
+            gemini::Client::new(&self.api_key).map_err(|e| LlmError::Provider(e.to_string()))?;
+        let model = client.completion_model(model_id_for_request(&self.config.model, &req));
+        let (prompt, history) = rig_prompt_and_history(&req.messages)?;
+        let tools = rig_tool_definitions(req.tools);
+        let response = model
+            .completion_request(prompt)
+            .messages(history)
+            .tools(tools)
+            .max_tokens_opt(self.config.max_output_tokens)
+            .temperature_opt(self.config.temperature)
+            .additional_params_opt(self.config.additional_params.clone())
+            .send()
+            .await
+            .map_err(|e| LlmError::Provider(e.to_string()))?;
+
+        Ok(rig_response_to_llm(response.choice, response.usage))
+    }
+
+    async fn complete_streaming(
+        &self,
+        req: LlmRequest,
+        on_delta: LlmStreamCallback<'_>,
+    ) -> Result<LlmResponse, LlmError> {
+        let client =
+            gemini::Client::new(&self.api_key).map_err(|e| LlmError::Provider(e.to_string()))?;
+        let model = client.completion_model(model_id_for_request(&self.config.model, &req));
+        let (prompt, history) = rig_prompt_and_history(&req.messages)?;
+        let tools = rig_tool_definitions(req.tools);
+        let mut stream = model
+            .completion_request(prompt)
+            .messages(history)
+            .tools(tools)
+            .max_tokens_opt(self.config.max_output_tokens)
+            .temperature_opt(self.config.temperature)
+            .additional_params_opt(self.config.additional_params.clone())
+            .stream()
+            .await
+            .map_err(|e| LlmError::Provider(e.to_string()))?;
+
+        drain_rig_stream(&mut stream, on_delta).await?;
+        let usage = stream
+            .response
+            .as_ref()
+            .and_then(|response| response.token_usage())
+            .unwrap_or_default();
+        Ok(rig_response_to_llm(stream.choice, usage))
+    }
+}
+
+async fn drain_rig_stream<S, E, R>(
+    stream: &mut S,
+    on_delta: LlmStreamCallback<'_>,
+) -> Result<(), LlmError>
+where
+    S: Stream<Item = Result<StreamedAssistantContent<R>, E>> + Unpin,
+    E: std::fmt::Display,
+{
+    while let Some(chunk) = stream.next().await {
+        match chunk.map_err(|e| LlmError::Provider(e.to_string()))? {
+            StreamedAssistantContent::Text(text) => {
+                if !text.text.is_empty() {
+                    on_delta(text.text);
+                }
+            }
+            StreamedAssistantContent::Reasoning(reasoning) => {
+                let text = reasoning.display_text();
+                if !text.is_empty() {
+                    on_delta(text);
+                }
+            }
+            StreamedAssistantContent::ReasoningDelta { reasoning, .. } => {
+                if !reasoning.is_empty() {
+                    on_delta(reasoning);
+                }
+            }
+            StreamedAssistantContent::ToolCall { .. }
+            | StreamedAssistantContent::ToolCallDelta { .. }
+            | StreamedAssistantContent::Final(_) => {}
+        }
+    }
+    Ok(())
 }
 
 /// One step in a scripted [`FakeProvider`] sequence.
@@ -223,6 +663,9 @@ impl LlmProvider for RigProvider {
 pub enum FakeStep {
     /// Reply with a final text answer (terminates the run loop).
     Reply(String),
+    /// Reply with text chunks that should be surfaced through streaming event
+    /// callbacks before the final response is returned.
+    StreamReply(Vec<String>),
     /// Request a single tool call. The next step in the sequence handles the
     /// tool result.
     CallTool {
@@ -270,16 +713,37 @@ impl FakeProvider {
 #[async_trait]
 impl LlmProvider for FakeProvider {
     async fn complete(&self, req: LlmRequest) -> Result<LlmResponse, LlmError> {
-        let mut response = {
+        let (response, _) = self.response_for_request(req);
+        Ok(response)
+    }
+
+    async fn complete_streaming(
+        &self,
+        req: LlmRequest,
+        on_delta: LlmStreamCallback<'_>,
+    ) -> Result<LlmResponse, LlmError> {
+        let (response, deltas) = self.response_for_request(req);
+        for delta in deltas {
+            if !delta.is_empty() {
+                on_delta(delta);
+            }
+        }
+        Ok(response)
+    }
+}
+
+impl FakeProvider {
+    fn response_for_request(&self, req: LlmRequest) -> (LlmResponse, Vec<String>) {
+        let (mut response, deltas) = {
             let mut g = self.inner.lock().expect("fake provider mutex poisoned");
             match &mut *g {
                 FakeInner::Echo => {
                     let text = last_user_text(&req.messages)
                         .map(|t| format!("[fake] {t}"))
                         .unwrap_or_else(|| "[fake] (no input)".into());
-                    text_response(text)
+                    (text_response(text), Vec::new())
                 }
-                FakeInner::Canned(s) => text_response(s.clone()),
+                FakeInner::Canned(s) => (text_response(s.clone()), Vec::new()),
                 FakeInner::Sequence { steps, cursor } => {
                     let step = steps
                         .get(*cursor)
@@ -287,23 +751,30 @@ impl LlmProvider for FakeProvider {
                         .unwrap_or_else(|| FakeStep::Reply("[fake] (script exhausted)".into()));
                     *cursor += 1;
                     match step {
-                        FakeStep::Reply(text) => text_response(text),
-                        FakeStep::CallTool { id, tool, input } => LlmResponse {
-                            content: None,
-                            tool_calls: vec![LlmToolCall {
-                                id,
-                                tool_name: tool,
-                                input,
-                            }],
-                            tokens_in: 0,
-                            tokens_out: 0,
-                        },
-                        FakeStep::CallTools(tool_calls) => LlmResponse {
-                            content: None,
-                            tool_calls,
-                            tokens_in: 0,
-                            tokens_out: 0,
-                        },
+                        FakeStep::Reply(text) => (text_response(text), Vec::new()),
+                        FakeStep::StreamReply(deltas) => (text_response(deltas.concat()), deltas),
+                        FakeStep::CallTool { id, tool, input } => (
+                            LlmResponse {
+                                content: None,
+                                tool_calls: vec![LlmToolCall {
+                                    id,
+                                    tool_name: tool,
+                                    input,
+                                }],
+                                tokens_in: 0,
+                                tokens_out: 0,
+                            },
+                            Vec::new(),
+                        ),
+                        FakeStep::CallTools(tool_calls) => (
+                            LlmResponse {
+                                content: None,
+                                tool_calls,
+                                tokens_in: 0,
+                                tokens_out: 0,
+                            },
+                            Vec::new(),
+                        ),
                     }
                 }
             }
@@ -311,7 +782,7 @@ impl LlmProvider for FakeProvider {
 
         response.tokens_in = (req.messages.iter().map(message_chars).sum::<usize>() / 4) as u32;
         response.tokens_out = (response.content.as_deref().map(str::len).unwrap_or(0) / 4) as u32;
-        Ok(response)
+        (response, deltas)
     }
 }
 
@@ -327,6 +798,7 @@ fn text_response(text: String) -> LlmResponse {
 fn last_user_text(messages: &[Message]) -> Option<&str> {
     messages.iter().rev().find_map(|m| match m {
         Message::User { content } => Some(content.as_str()),
+        Message::UserWithAttachments { content, .. } => Some(content.as_str()),
         _ => None,
     })
 }
@@ -344,10 +816,42 @@ fn rig_prompt_and_history(
     Ok((prompt, converted))
 }
 
+fn model_id_for_request(configured_model: &ModelRef, req: &LlmRequest) -> String {
+    if req.model.0 == configured_model.0 {
+        configured_model.0.clone()
+    } else {
+        req.model.0.clone()
+    }
+}
+
+fn rig_tool_definitions(tools: Vec<ToolSchema>) -> Vec<completion::ToolDefinition> {
+    tools
+        .into_iter()
+        .map(|tool| completion::ToolDefinition {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.input_schema,
+        })
+        .collect()
+}
+
 fn to_rig_message(message: &Message) -> Result<completion::Message, LlmError> {
     match message {
         Message::System { content } => Ok(completion::Message::system(content.clone())),
         Message::User { content } => Ok(completion::Message::user(content.clone())),
+        Message::UserWithAttachments {
+            content,
+            attachments,
+        } => {
+            let mut parts = Vec::with_capacity(attachments.len() + 1);
+            parts.push(UserContent::text(content.clone()));
+            for attachment in attachments {
+                parts.push(to_rig_attachment(attachment));
+            }
+            let content = OneOrMany::many(parts)
+                .map_err(|_| LlmError::Config("user message has no content".into()))?;
+            Ok(completion::Message::User { content })
+        }
         Message::Assistant {
             content,
             tool_calls,
@@ -376,6 +880,55 @@ fn to_rig_message(message: &Message) -> Result<completion::Message, LlmError> {
             tool_call_id.clone(),
             content.clone(),
         )),
+    }
+}
+
+fn to_rig_attachment(attachment: &LlmAttachment) -> UserContent {
+    match attachment {
+        LlmAttachment::Image {
+            data_base64,
+            media_type,
+            detail,
+        } => UserContent::image_base64(
+            data_base64.clone(),
+            Some(to_rig_image_media_type(*media_type)),
+            Some(to_rig_image_detail(detail.unwrap_or(LlmImageDetail::Auto))),
+        ),
+        LlmAttachment::Document {
+            data_base64,
+            media_type,
+        } => UserContent::Document(Document {
+            data: DocumentSourceKind::Base64(data_base64.clone()),
+            media_type: Some(to_rig_document_media_type(*media_type)),
+            additional_params: None,
+        }),
+    }
+}
+
+fn to_rig_image_media_type(media_type: LlmImageMediaType) -> ImageMediaType {
+    match media_type {
+        LlmImageMediaType::Jpeg => ImageMediaType::JPEG,
+        LlmImageMediaType::Png => ImageMediaType::PNG,
+        LlmImageMediaType::Gif => ImageMediaType::GIF,
+        LlmImageMediaType::Webp => ImageMediaType::WEBP,
+        LlmImageMediaType::Svg => ImageMediaType::SVG,
+    }
+}
+
+fn to_rig_document_media_type(media_type: LlmDocumentMediaType) -> DocumentMediaType {
+    match media_type {
+        LlmDocumentMediaType::Pdf => DocumentMediaType::PDF,
+        LlmDocumentMediaType::Txt => DocumentMediaType::TXT,
+        LlmDocumentMediaType::Markdown => DocumentMediaType::MARKDOWN,
+        LlmDocumentMediaType::Csv => DocumentMediaType::CSV,
+    }
+}
+
+fn to_rig_image_detail(detail: LlmImageDetail) -> ImageDetail {
+    match detail {
+        LlmImageDetail::Low => ImageDetail::Low,
+        LlmImageDetail::High => ImageDetail::High,
+        LlmImageDetail::Auto => ImageDetail::Auto,
     }
 }
 
@@ -424,6 +977,19 @@ fn u64_to_u32(value: u64) -> u32 {
 fn message_chars(m: &Message) -> usize {
     match m {
         Message::System { content } | Message::User { content } => content.len(),
+        Message::UserWithAttachments {
+            content,
+            attachments,
+        } => {
+            content.len()
+                + attachments
+                    .iter()
+                    .map(|attachment| match attachment {
+                        LlmAttachment::Image { data_base64, .. }
+                        | LlmAttachment::Document { data_base64, .. } => data_base64.len() / 16,
+                    })
+                    .sum::<usize>()
+        }
         Message::Assistant {
             content,
             tool_calls,
@@ -486,6 +1052,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn fake_provider_stream_reply_calls_delta_sink() {
+        let p =
+            FakeProvider::sequence(vec![FakeStep::StreamReply(vec!["hel".into(), "lo".into()])]);
+        let mut deltas = Vec::new();
+        let r = p
+            .complete_streaming(req_user("go"), &mut |delta| deltas.push(delta))
+            .await
+            .unwrap();
+
+        assert_eq!(r.content.as_deref(), Some("hello"));
+        assert_eq!(deltas, vec!["hel", "lo"]);
+    }
+
+    #[tokio::test]
     async fn sequence_exhaustion_returns_fallback_text() {
         let p = FakeProvider::sequence(vec![FakeStep::Reply("only".into())]);
         let _ = p.complete(req_user("go")).await.unwrap();
@@ -515,6 +1095,49 @@ mod tests {
             RigProvider::from_config_with_api_key_override(config, Some(" test-key ".into()))
                 .is_ok()
         );
+    }
+
+    #[test]
+    fn native_provider_configs_use_expected_api_key_envs() {
+        let anthropic = NativeProviderConfig::anthropic(ModelRef::from("claude-sonnet-4-5"));
+        assert_eq!(anthropic.api_key_env, "ANTHROPIC_API_KEY");
+        assert!(
+            AnthropicProvider::from_config_with_api_key_override(
+                anthropic,
+                Some(" anthropic-key ".into()),
+            )
+            .is_ok()
+        );
+
+        let gemini = NativeProviderConfig::gemini(ModelRef::from("gemini-2.5-flash"));
+        assert_eq!(gemini.api_key_env, "GEMINI_API_KEY");
+        assert!(
+            GeminiProvider::from_config_with_api_key_override(gemini, Some(" gemini-key ".into()))
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn local_openai_compatible_configs_allow_missing_api_key() {
+        let ollama = RigProviderConfig::ollama(ModelRef::from("llama3.1"));
+        if std::env::var("OLLAMA_OPENAI_BASE_URL").is_err() {
+            assert_eq!(
+                ollama.api_base_url.as_deref(),
+                Some("http://127.0.0.1:11434/v1")
+            );
+        }
+        assert!(ollama.allow_missing_api_key);
+        assert!(RigProvider::from_config(ollama).is_ok());
+
+        let llama_cpp = RigProviderConfig::llama_cpp(ModelRef::from("local-model"));
+        if std::env::var("LLAMA_CPP_OPENAI_BASE_URL").is_err() {
+            assert_eq!(
+                llama_cpp.api_base_url.as_deref(),
+                Some("http://127.0.0.1:8080/v1")
+            );
+        }
+        assert!(llama_cpp.allow_missing_api_key);
+        assert!(RigProvider::from_config(llama_cpp).is_ok());
     }
 
     #[test]
@@ -572,6 +1195,39 @@ mod tests {
                 ));
             }
             other => panic!("expected tool result prompt, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rig_message_conversion_preserves_user_attachments() {
+        let messages = vec![Message::user_with_attachments(
+            "extract the receipt",
+            vec![
+                LlmAttachment::image_base64("aW1hZ2U=", LlmImageMediaType::Png),
+                LlmAttachment::document_base64("JVBERi0xLjQ=", LlmDocumentMediaType::Pdf),
+            ],
+        )];
+        let (prompt, history) = rig_prompt_and_history(&messages).unwrap();
+
+        assert!(history.is_empty());
+        match prompt {
+            completion::Message::User { content } => {
+                let parts = content.iter().collect::<Vec<_>>();
+                assert_eq!(parts.len(), 3);
+                assert!(matches!(
+                    parts[0],
+                    completion::message::UserContent::Text(_)
+                ));
+                assert!(matches!(
+                    parts[1],
+                    completion::message::UserContent::Image(_)
+                ));
+                assert!(matches!(
+                    parts[2],
+                    completion::message::UserContent::Document(_)
+                ));
+            }
+            other => panic!("expected user prompt, got {other:?}"),
         }
     }
 }

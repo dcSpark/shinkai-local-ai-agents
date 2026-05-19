@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 authors.workspace = true
-description = "RunEvent stream and event store for the Agent Harness."
+description = "RunEvent stream and event store for Shinkai."
 
 [dependencies]
 serde.workspace = true

@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 authors.workspace = true
-description = "File-backed memory v0 for Agent Harness."
+description = "File-backed memory v0 for Shinkai."
 
 [dependencies]
 agent-core = { path = "../agent-core" }

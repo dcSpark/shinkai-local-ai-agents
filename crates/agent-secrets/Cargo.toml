@@ -1,0 +1,16 @@
+[package]
+name = "agent-secrets"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "Secret handles and local development secret store for Shinkai."
+
+[dependencies]
+agent-storage = { path = "../agent-storage" }
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2 = "0.10"
+thiserror.workspace = true

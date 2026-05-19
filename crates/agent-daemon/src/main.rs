@@ -1,30 +1,62 @@
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
-use agent_adapters::AdapterRegistry;
+use agent_adapters::{AdapterRegistry, ClawHubProvider, NormalizedPackage};
 use agent_batch::{BatchItemState, BatchPlan};
 use agent_bundles::{export_bundle, import_bundle};
-use agent_config::{ConfigResolver, ModelConfig};
+use agent_capabilities::{
+    CapabilityDraft, CapabilityDraftInput, CapabilityDraftStatus, CapabilityDraftStore,
+    CapabilityDraftTool, CapabilityKind,
+};
+use agent_compaction::{CompactionRecord, CompactionStore};
+use agent_config::{
+    AgentConfigFile, ConfigResolver, IngestionGuardrailMode, ModelConfig, ModelRuntimeConfig,
+    ProfileGrant, ProfileGrantKind, supported_model_providers,
+};
+use agent_conversations::ConversationStore;
 use agent_core::{
-    AgentConfig, ApprovalMode, CostPolicy, Harness, HarnessApi, IngestedArtifactView,
-    PromptRefinement, ToolOutputMode, ToolPolicy, UserInput, VisibilityLevel,
+    AgentConfig, ApprovalMode, ConfigValueExplanation, CostPolicy, ExecutionPolicy, Harness,
+    HarnessApi, HookTrigger, IngestedArtifactView, MemoryFragment, PromptRefinement,
+    RunHookHandler, RunLifecycleHook, RunResult, SkillView, ToolOutputMode, ToolPolicy, UserInput,
+    VisibilityLevel, VoiceConfig,
 };
-use agent_ingest::{IngestionArtifact, IngestionStore};
-use agent_llm::{FakeProvider, FakeStep, LlmProvider, ModelRef, RigProvider, RigProviderConfig};
-use agent_memory::{MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget};
-use agent_prompts::PromptStore;
-use agent_skills::SkillRegistry;
+use agent_ingest::{
+    IngestionArtifact, IngestionFindingReviewDecision, IngestionModelCall, IngestionStore,
+    supported_backends as supported_ingestion_backends,
+};
+use agent_llm::{
+    AnthropicProvider, FakeProvider, FakeStep, GeminiProvider, LlmProvider, ModelRef,
+    NativeProviderConfig, RigProvider, RigProviderConfig,
+};
+use agent_memory::{
+    MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget,
+    supported_backends as supported_memory_backends,
+};
+use agent_prompts::{PromptStore, is_valid_prompt_name};
+use agent_skills::{SkillDoc, SkillRegistry};
 use agent_storage::StoragePaths;
-use agent_tools::{FakeTool, ShellTool, ShellToolConfig, SubagentTool, ToolId, ToolRegistry};
-use agent_tracing::{
-    EventStore, RunEventKind, RunId, SqliteEventStore, is_terminal_run_event, latest_event_id,
-    summarize_trace, validate_guidance_content, validate_quality_score,
+use agent_tools::{
+    ArtifactTool, FakeTool, ShellTool, ShellToolConfig, SubagentTool, ToolId, ToolRegistry,
+    VoiceRuntimeConfig, generated_artifact_data_url_from_env, list_generated_artifacts_from_env,
+    open_generated_artifact_from_env, register_allowed_mcp_tools_for_category_with_provenance,
+    register_allowed_mcp_tools_for_resource_with_provenance,
+    register_allowed_mcp_tools_with_provenance, register_voice_tools, save_voice_capture_from_env,
+    show_generated_artifact_from_env,
 };
+use agent_tracing::{
+    EventId, EventStore, RunEvent, RunEventKind, RunId, SqliteEventStore, build_resume_plan,
+    hook_remediation_plan, is_terminal_run_event, latest_event_id, summarize_trace,
+    validate_guidance_content, validate_quality_score,
+};
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::task::AbortHandle;
-use tokio::time::{Duration, timeout};
+use tokio::time::{Duration, sleep, timeout};
+
+static BRIDGE_DELIVERY_WORKER_STARTED: OnceLock<()> = OnceLock::new();
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -38,7 +70,8 @@ async fn main() -> std::io::Result<()> {
 async fn run_server(addr: &str) -> std::io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
     let state = Arc::new(DaemonState::default());
-    println!("agent-daemon listening on http://{addr}");
+    maybe_start_bridge_delivery_worker();
+    println!("Shinkai daemon listening on http://{addr}");
     loop {
         let (mut socket, _) = listener.accept().await?;
         let state = state.clone();
@@ -60,6 +93,7 @@ struct DaemonState {
 struct HttpRequest {
     method: String,
     path: String,
+    headers: HashMap<String, String>,
     body: String,
 }
 
@@ -72,9 +106,18 @@ async fn read_request(socket: &mut tokio::net::TcpStream) -> anyhow::Result<Http
     let mut parts = request_line.split_whitespace();
     let method = parts.next().unwrap_or_default().to_string();
     let path = parts.next().unwrap_or_default().to_string();
+    let headers = head
+        .lines()
+        .skip(1)
+        .filter_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            Some((name.trim().to_ascii_lowercase(), value.trim().to_string()))
+        })
+        .collect();
     Ok(HttpRequest {
         method,
         path,
+        headers,
         body: body.to_string(),
     })
 }
@@ -110,7 +153,7 @@ async fn route(
         ("GET", "/version") => Ok((
             200,
             serde_json::json!({
-                "name": "agent-daemon",
+                "name": "shinkai-daemon",
                 "trace_schema_version": agent_tracing::SCHEMA_VERSION
             }),
         )),
@@ -119,10 +162,18 @@ async fn route(
         ("POST", "/run/start") => daemon_run_start(&request.body, state)
             .await
             .map(|value| (200, value)),
+        _ if request.method == "GET" && request.path.starts_with("/run/events/") => {
+            let (path, query) = split_query(&request.path);
+            let id = path.trim_start_matches("/run/events/");
+            daemon_run_events(id, query_param_u64(query, "after")).map(|value| (200, value))
+        }
+        ("POST", "/resume") => daemon_resume(&request.body).await.map(|value| (200, value)),
         ("POST", "/preview-context") => {
             daemon_preview_context(&request.body).map(|value| (200, value))
         }
-        ("POST", "/explain-config") => daemon_explain_config().map(|value| (200, value)),
+        ("POST", "/explain-config") => {
+            daemon_explain_config(&request.body).map(|value| (200, value))
+        }
         ("POST", "/explain-tools") => daemon_explain_tools(&request.body).map(|value| (200, value)),
         ("POST", "/guide") => daemon_guide(&request.body).map(|value| (200, value)),
         ("POST", "/cancel") => daemon_cancel(&request.body, state)
@@ -133,6 +184,23 @@ async fn route(
         ("POST", "/batch/resume") => daemon_batch_resume(&request.body)
             .await
             .map(|value| (200, value)),
+        ("POST", "/bridges/telegram/webhook") => {
+            { daemon_telegram_bridge(&request.body, &request.headers) }
+                .await
+                .map(|value| (200, value))
+        }
+        ("POST", "/bridges/slack/slash") => daemon_slack_bridge(&request.body, &request.headers)
+            .await
+            .map(|value| (200, value)),
+        ("POST", "/bridges/webhook") => daemon_webhook_bridge(&request.body, &request.headers)
+            .await
+            .map(|value| (200, value)),
+        ("GET", "/bridges/deliveries") => daemon_bridge_delivery_list().map(|value| (200, value)),
+        ("POST", "/bridges/deliveries/retry-all") => daemon_bridge_delivery_retry_all()
+            .await
+            .map(|value| (200, value)),
+        ("POST", "/voice/capture") => daemon_voice_capture(&request.body).map(|value| (200, value)),
+        ("GET", "/memory/backends") => daemon_memory_backends().map(|value| (200, value)),
         ("GET", "/memory") => daemon_memory_list().map(|value| (200, value)),
         ("POST", "/memory") => daemon_memory_create(&request.body).map(|value| (200, value)),
         ("POST", "/memory/generate") => {
@@ -141,21 +209,114 @@ async fn route(
         ("POST", "/memory/rollback") => {
             daemon_memory_rollback(&request.body).map(|value| (200, value))
         }
+        ("POST", "/memory/export") => daemon_memory_export(&request.body).map(|value| (200, value)),
+        ("POST", "/memory/import") => daemon_memory_import(&request.body).map(|value| (200, value)),
         ("GET", "/skills") => daemon_skill_list().map(|value| (200, value)),
         ("POST", "/skills/import") => daemon_skill_import(&request.body).map(|value| (200, value)),
+        ("POST", "/skills/import-doc") => {
+            daemon_skill_import_doc(&request.body).map(|value| (200, value))
+        }
+        ("GET", "/capabilities") => daemon_capability_list().map(|value| (200, value)),
+        ("POST", "/capabilities/propose") => {
+            daemon_capability_propose(&request.body).map(|value| (200, value))
+        }
+        ("POST", "/hooks/policy") => daemon_hook_policy(&request.body).map(|value| (200, value)),
+        ("POST", "/hooks/policy/set") => {
+            daemon_hook_policy_set(&request.body).map(|value| (200, value))
+        }
         _ if request.method == "GET" && request.path.starts_with("/skills/") => {
             let id = request.path.trim_start_matches("/skills/");
             daemon_skill_show(id).map(|value| (200, value))
         }
+        _ if request.method == "GET" && request.path.starts_with("/capabilities/") => {
+            let id = request.path.trim_start_matches("/capabilities/");
+            daemon_capability_show(id).map(|value| (200, value))
+        }
+        ("GET", "/agents") => daemon_agent_list().map(|value| (200, value)),
+        ("POST", "/agents") => daemon_agent_save(&request.body).map(|value| (200, value)),
+        ("POST", "/agents/import") => daemon_agent_import(&request.body).map(|value| (200, value)),
         ("GET", "/models") => daemon_model_list().map(|value| (200, value)),
+        ("GET", "/model-providers") => daemon_model_providers().map(|value| (200, value)),
         ("POST", "/models") => daemon_model_save(&request.body).map(|value| (200, value)),
+        ("POST", "/models/import") => daemon_model_import(&request.body).map(|value| (200, value)),
         ("GET", "/prompts") => daemon_prompt_list().map(|value| (200, value)),
+        ("POST", "/prompts/list") => {
+            daemon_prompt_list_scoped(&request.body).map(|value| (200, value))
+        }
         ("POST", "/prompts") => daemon_prompt_save(&request.body).map(|value| (200, value)),
+        ("POST", "/prompts/show") => {
+            daemon_prompt_show_scoped(&request.body).map(|value| (200, value))
+        }
+        ("POST", "/prompts/delete") => {
+            daemon_prompt_delete_scoped(&request.body).map(|value| (200, value))
+        }
+        ("GET", "/conversations") => daemon_conversation_list().map(|value| (200, value)),
+        ("GET", "/conversations/tree") => daemon_conversation_tree().map(|value| (200, value)),
+        _ if request.method == "GET"
+            && request.path.starts_with("/conversations/")
+            && request.path.ends_with("/recover") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/conversations/")
+                .trim_end_matches("/recover");
+            daemon_conversation_recover(id).map(|value| (200, value))
+        }
+        _ if request.method == "GET" && request.path.starts_with("/conversations/") => {
+            let id = request.path.trim_start_matches("/conversations/");
+            daemon_conversation_show(id).map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/conversations/")
+            && request.path.ends_with("/delete-plan") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/conversations/")
+                .trim_end_matches("/delete-plan");
+            daemon_conversation_delete_plan(id, &request.body).map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/conversations/")
+            && request.path.ends_with("/delete-range") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/conversations/")
+                .trim_end_matches("/delete-range");
+            daemon_conversation_delete_range(id, &request.body).map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/conversations/")
+            && request.path.ends_with("/delete") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/conversations/")
+                .trim_end_matches("/delete");
+            daemon_conversation_delete(id, &request.body).map(|value| (200, value))
+        }
+        ("GET", "/ingest/backends") => daemon_ingest_backends().map(|value| (200, value)),
         ("GET", "/ingest") => daemon_ingest_list().map(|value| (200, value)),
-        ("POST", "/ingest") => daemon_ingest_add(&request.body).map(|value| (200, value)),
+        ("POST", "/ingest") => daemon_ingest_add(&request.body)
+            .await
+            .map(|value| (200, value)),
+        ("GET", "/artifacts") => daemon_artifact_list().map(|value| (200, value)),
         ("GET", "/adapters") => daemon_adapter_list().map(|value| (200, value)),
         ("POST", "/adapters/import") => {
             daemon_adapter_import(&request.body).map(|value| (200, value))
+        }
+        ("POST", "/adapters/clawhub/search") => {
+            daemon_clawhub_search(&request.body).map(|value| (200, value))
+        }
+        ("POST", "/adapters/clawhub/inspect") => {
+            daemon_clawhub_inspect(&request.body).map(|value| (200, value))
+        }
+        ("POST", "/adapters/clawhub/pin") => {
+            daemon_clawhub_pin(&request.body).map(|value| (200, value))
+        }
+        ("POST", "/adapters/clawhub/install") => {
+            daemon_clawhub_install(&request.body).map(|value| (200, value))
         }
         ("POST", "/bundles/export") => {
             daemon_bundle_export(&request.body).map(|value| (200, value))
@@ -173,6 +334,16 @@ async fn route(
                 .trim_end_matches("/summary");
             trace_summary(id).map(|value| (200, value))
         }
+        _ if request.method == "GET"
+            && request.path.starts_with("/trace/")
+            && request.path.ends_with("/hooks") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/trace/")
+                .trim_end_matches("/hooks");
+            trace_hooks(id).map(|value| (200, value))
+        }
         _ if request.method == "GET" && request.path.starts_with("/trace/") => {
             let id = request.path.trim_start_matches("/trace/");
             trace_show(id).map(|value| (200, value))
@@ -180,6 +351,18 @@ async fn route(
         _ if request.method == "GET" && request.path.starts_with("/run/status/") => {
             let id = request.path.trim_start_matches("/run/status/");
             daemon_run_status(id, state).await.map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/bridges/deliveries/")
+            && request.path.ends_with("/retry") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/bridges/deliveries/")
+                .trim_end_matches("/retry");
+            daemon_bridge_delivery_retry(id)
+                .await
+                .map(|value| (200, value))
         }
         _ if request.method == "GET" && request.path.starts_with("/approvals/") => {
             let id = request.path.trim_start_matches("/approvals/");
@@ -193,10 +376,54 @@ async fn route(
         _ if request.method == "POST" && request.path.starts_with("/memory/") => {
             daemon_memory_route(&request.path, &request.body).map(|value| (200, value))
         }
+        _ if request.method == "POST"
+            && request.path.starts_with("/skills/")
+            && request.path.ends_with("/export") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/skills/")
+                .trim_end_matches("/export");
+            daemon_skill_export(id, &request.body).map(|value| (200, value))
+        }
         _ if request.method == "POST" && request.path.starts_with("/skills/") => {
             daemon_skill_route(&request.path).map(|value| (200, value))
         }
+        _ if request.method == "POST" && request.path.starts_with("/capabilities/") => {
+            daemon_capability_route(&request.path).map(|value| (200, value))
+        }
+        _ if request.method == "GET" && request.path.starts_with("/agents/") => {
+            let id = request.path.trim_start_matches("/agents/");
+            daemon_agent_show(id).map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/agents/")
+            && request.path.ends_with("/delete") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/agents/")
+                .trim_end_matches("/delete");
+            daemon_agent_delete(id).map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/agents/")
+            && request.path.ends_with("/export") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/agents/")
+                .trim_end_matches("/export");
+            daemon_agent_export(id, &request.body).map(|value| (200, value))
+        }
         _ if request.method == "GET" && request.path.starts_with("/models/") => {
+            if request.path.ends_with("/probe") {
+                let id = request
+                    .path
+                    .trim_start_matches("/models/")
+                    .trim_end_matches("/probe");
+                return daemon_model_probe(id).map(|value| (200, value));
+            }
             let id = request.path.trim_start_matches("/models/");
             daemon_model_show(id).map(|value| (200, value))
         }
@@ -209,6 +436,16 @@ async fn route(
                 .trim_start_matches("/models/")
                 .trim_end_matches("/delete");
             daemon_model_delete(id).map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/models/")
+            && request.path.ends_with("/export") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/models/")
+                .trim_end_matches("/export");
+            daemon_model_export(id, &request.body).map(|value| (200, value))
         }
         _ if request.method == "GET" && request.path.starts_with("/prompts/") => {
             let name = request.path.trim_start_matches("/prompts/");
@@ -236,7 +473,19 @@ async fn route(
                 .path
                 .trim_start_matches("/ingest/")
                 .trim_end_matches("/rerun");
-            daemon_ingest_rerun(id, &request.body).map(|value| (200, value))
+            daemon_ingest_rerun(id, &request.body)
+                .await
+                .map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/ingest/")
+            && request.path.ends_with("/review") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/ingest/")
+                .trim_end_matches("/review");
+            daemon_ingest_review(id, &request.body).map(|value| (200, value))
         }
         _ if request.method == "POST"
             && request.path.starts_with("/ingest/")
@@ -247,6 +496,30 @@ async fn route(
                 .trim_start_matches("/ingest/")
                 .trim_end_matches("/rm");
             daemon_ingest_rm(id).map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/artifacts/")
+            && request.path.ends_with("/open") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/artifacts/")
+                .trim_end_matches("/open");
+            daemon_artifact_open(id).map(|value| (200, value))
+        }
+        _ if request.method == "GET"
+            && request.path.starts_with("/artifacts/")
+            && request.path.ends_with("/data-url") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/artifacts/")
+                .trim_end_matches("/data-url");
+            daemon_artifact_data_url(id).map(|value| (200, value))
+        }
+        _ if request.method == "GET" && request.path.starts_with("/artifacts/") => {
+            let id = request.path.trim_start_matches("/artifacts/");
+            daemon_artifact_show(id).map(|value| (200, value))
         }
         _ if request.method == "POST" && request.path.starts_with("/adapters/") => {
             daemon_adapter_route(&request.path).map(|value| (200, value))
@@ -271,9 +544,12 @@ async fn route(
                     "GET /storage",
                     "GET /trace/<run_id>",
                     "GET /trace/<run_id>/summary",
+                    "GET /trace/<run_id>/hooks",
                     "POST /run",
                     "POST /run/start",
                     "GET /run/status/<run_id>",
+                    "GET /run/events/<run_id>?after=<event_id>",
+                    "POST /resume",
                     "POST /preview-context",
                     "POST /explain-config",
                     "POST /explain-tools",
@@ -282,23 +558,75 @@ async fn route(
                     "POST /score",
                     "POST /batch",
                     "POST /batch/resume",
+                    "POST /bridges/telegram/webhook",
+                    "POST /bridges/slack/slash",
+                    "POST /bridges/webhook",
+                    "GET /bridges/deliveries",
+                    "POST /bridges/deliveries/retry-all",
+                    "POST /bridges/deliveries/<id>/retry",
+                    "POST /voice/capture",
                     "POST /tool/<name>",
+                    "GET /conversations",
+                    "GET /conversations/tree",
+                    "GET /conversations/<id>",
+                    "GET /conversations/<id>/recover",
+                    "POST /conversations/<id>/delete-plan",
+                    "POST /conversations/<id>/delete-range",
+                    "POST /conversations/<id>/delete",
                     "GET /approvals/<run_id>",
                     "POST /approvals/<run_id>/<approval_id>/decide",
                     "POST /approvals/<run_id>/<approval_id>/execute",
                     "GET|POST /memory",
+                    "GET /memory/backends",
                     "GET /skills",
+                    "POST /memory/export",
+                    "POST /memory/import",
                     "POST /skills/import",
+                    "POST /skills/import-doc",
                     "GET /skills/<id>",
                     "POST /skills/<id>/allow",
+                    "POST /skills/<id>/export",
+                    "GET /capabilities",
+                    "POST /capabilities/propose",
+                    "GET /capabilities/<id>",
+                    "POST /capabilities/<id>/allow",
+                    "POST /capabilities/<id>/reject",
+                    "POST /capabilities/<id>/delete",
+                    "POST /hooks/policy",
+                    "POST /hooks/policy/set",
+                    "GET|POST /agents",
+                    "GET /agents/<id>",
+                    "POST /agents/<id>/delete",
+                    "POST /agents/<id>/export",
+                    "POST /agents/import",
+                    "GET|POST /models",
+                    "GET /model-providers",
+                    "GET /models/<id>",
+                    "GET /models/<id>/probe",
+                    "POST /models/<id>/delete",
+                    "POST /models/<id>/export",
+                    "POST /models/import",
                     "GET|POST /prompts",
                     "GET /prompts/<name>",
                     "POST /prompts/<name>/delete",
+                    "POST /prompts/list",
+                    "POST /prompts/show",
+                    "POST /prompts/delete",
                     "GET|POST /ingest",
+                    "GET /ingest/backends",
                     "GET /ingest/<id>",
                     "POST /ingest/<id>/rerun",
+                    "POST /ingest/<id>/review",
+                    "GET /artifacts",
+                    "GET /artifacts/<id>",
+                    "GET /artifacts/<id>/data-url",
+                    "POST /artifacts/<id>/open",
                     "GET /adapters",
                     "POST /adapters/import",
+                    "POST /adapters/clawhub/search",
+                    "POST /adapters/clawhub/inspect",
+                    "POST /adapters/clawhub/pin",
+                    "POST /adapters/clawhub/install",
                     "GET /adapters/<id>",
                     "POST /adapters/<id>/allow",
                     "POST /bundles/export",
@@ -311,13 +639,9 @@ async fn route(
 
 async fn daemon_run(body: &str) -> anyhow::Result<serde_json::Value> {
     let input: DaemonRunInput = serde_json::from_str(body)?;
-    let harness = Harness::new(
-        provider_for_run(input.demo.as_deref(), &input.input, &input.options)?,
-        Arc::new(open_event_store()?),
-        build_registry(input.options.enable_shell, input.options.enable_subagent),
-    );
-    let agent = build_agent(&input.options);
-    let result = harness.run(&agent, UserInput { text: input.input }).await?;
+    let result =
+        execute_prepared_daemon_run(prepare_daemon_run(input)?, Arc::new(open_event_store()?))
+            .await?;
     Ok(serde_json::json!({
         "run_id": result.run_id.0,
         "final_output": result.final_output
@@ -329,27 +653,16 @@ async fn daemon_run_start(
     state: Arc<DaemonState>,
 ) -> anyhow::Result<serde_json::Value> {
     let input: DaemonRunInput = serde_json::from_str(body)?;
+    let prepared = prepare_daemon_run(input)?;
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let (started_tx, started_rx) = tokio::sync::oneshot::channel::<String>();
 
-    let provider = provider_for_run(input.demo.as_deref(), &input.input, &input.options)?;
     let store = Arc::new(agent_tracing::PublishingEventStore::new(
         open_event_store()?,
         tx,
     ));
-    let harness = Harness::new(
-        provider,
-        store,
-        build_registry(input.options.enable_shell, input.options.enable_subagent),
-    );
-    let agent = build_agent(&input.options);
-    let input_text = input.input;
 
-    let run_task = tokio::spawn(async move {
-        let result = harness.run(&agent, UserInput { text: input_text }).await;
-        drop(harness);
-        result
-    });
+    let run_task = tokio::spawn(async move { execute_prepared_daemon_run(prepared, store).await });
     let abort_handle = run_task.abort_handle();
 
     let state_for_events = state.clone();
@@ -396,6 +709,42 @@ async fn daemon_run_start(
         "run_id": run_id,
         "status": status["status"],
         "active": status["active"]
+    }))
+}
+
+async fn daemon_resume(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: DaemonResumeInput = serde_json::from_str(body)?;
+    let source_run_id = RunId(uuid::Uuid::parse_str(&input.run_id)?);
+    let events = open_event_store()?.try_events(source_run_id)?;
+    let plan = build_resume_plan(source_run_id, &events, input.from_event.map(EventId))?;
+    let mut options = input.options;
+    if options.agent_id.is_none() {
+        options.agent_id = Some(plan.agent_id.clone());
+    }
+    let retained_compaction = if options.compacted_context.is_none() {
+        stop_compaction_for_run(source_run_id)?
+    } else {
+        None
+    };
+    if let Some(compaction) = retained_compaction.as_deref() {
+        options.compacted_context = Some(CompactionStore::from_env().show(compaction)?.content);
+    }
+    let result = execute_prepared_daemon_run(
+        prepare_daemon_run(DaemonRunInput {
+            input: plan.prompt,
+            demo: input.demo,
+            options,
+        })?,
+        Arc::new(open_event_store()?),
+    )
+    .await?;
+
+    Ok(serde_json::json!({
+        "source_run_id": source_run_id.0,
+        "resumed_run_id": result.run_id.0,
+        "from_event": plan.selected_event_id.0,
+        "retained_compaction": retained_compaction,
+        "final_output": result.final_output,
     }))
 }
 
@@ -478,25 +827,280 @@ async fn daemon_run_status(id: &str, state: Arc<DaemonState>) -> anyhow::Result<
     }))
 }
 
+fn daemon_run_events(id: &str, after: Option<u64>) -> anyhow::Result<serde_json::Value> {
+    let run_id = RunId(uuid::Uuid::parse_str(id)?);
+    let events = open_event_store()?.try_events(run_id)?;
+    let after = after.unwrap_or(0);
+    let last_event_id = events.last().map(|event| event.id.0).unwrap_or(after);
+    let terminal = events
+        .iter()
+        .any(|event| is_terminal_run_event(&event.kind));
+    let filtered = events
+        .into_iter()
+        .filter(|event| event.id.0 > after)
+        .collect::<Vec<_>>();
+
+    Ok(serde_json::json!({
+        "run_id": run_id.0,
+        "after": after,
+        "last_event_id": last_event_id,
+        "terminal": terminal,
+        "events": filtered,
+    }))
+}
+
+fn split_query(path: &str) -> (&str, Option<&str>) {
+    path.split_once('?')
+        .map(|(path, query)| (path, Some(query)))
+        .unwrap_or((path, None))
+}
+
+fn query_param_u64(query: Option<&str>, key: &str) -> Option<u64> {
+    query?
+        .split('&')
+        .filter_map(|part| part.split_once('='))
+        .find_map(|(candidate, value)| {
+            if candidate == key {
+                value.parse::<u64>().ok()
+            } else {
+                None
+            }
+        })
+}
+
+enum PreparedDaemonRun {
+    Agent {
+        input: String,
+        demo: Option<String>,
+        options: DaemonRuntimeOptions,
+        agent: AgentConfig,
+        registry: Arc<ToolRegistry>,
+    },
+    DirectTool {
+        name: String,
+        input: serde_json::Value,
+        agent: AgentConfig,
+        registry: Arc<ToolRegistry>,
+    },
+}
+
+fn prepare_daemon_run(input: DaemonRunInput) -> anyhow::Result<PreparedDaemonRun> {
+    if let Some(command) = parse_daemon_tool_slash(&input.input)? {
+        return match command {
+            DaemonToolSlash::Manual { name, input: value } => {
+                let (agent, registry) = direct_tool_agent_and_registry(&name, input.options);
+                Ok(PreparedDaemonRun::DirectTool {
+                    name,
+                    input: value,
+                    agent,
+                    registry,
+                })
+            }
+            DaemonToolSlash::Forced { name, prompt } => {
+                let text = forced_tool_prompt(&name, &prompt);
+                let (agent, registry) =
+                    forced_tool_agent_and_registry(&name, input.options.clone())?;
+                Ok(PreparedDaemonRun::Agent {
+                    input: text,
+                    demo: input.demo,
+                    options: input.options,
+                    agent,
+                    registry,
+                })
+            }
+        };
+    }
+
+    let input_text =
+        resolve_saved_prompt_or_literal(input.input, input.options.agent_id.as_deref())?;
+    let registry = build_registry(
+        input.options.enable_shell,
+        input.options.enable_subagent,
+        input.options.enable_capability_drafts,
+        input.options.agent_id.as_deref(),
+    );
+    let agent = build_agent(&input.options);
+    Ok(PreparedDaemonRun::Agent {
+        input: input_text,
+        demo: input.demo,
+        options: input.options,
+        agent,
+        registry,
+    })
+}
+
+async fn execute_prepared_daemon_run(
+    prepared: PreparedDaemonRun,
+    store: Arc<dyn EventStore>,
+) -> anyhow::Result<RunResult> {
+    match prepared {
+        PreparedDaemonRun::Agent {
+            input,
+            demo,
+            options,
+            agent,
+            registry,
+        } => {
+            let provider = provider_for_run(demo.as_deref(), &input, &options)?;
+            let harness = build_harness_with_hook_policy(
+                provider,
+                store,
+                registry,
+                options.disable_lifecycle_hooks,
+                options.agent_id.as_deref(),
+            );
+            Ok(harness.run(&agent, UserInput { text: input }).await?)
+        }
+        PreparedDaemonRun::DirectTool {
+            name,
+            input,
+            agent,
+            registry,
+        } => {
+            let harness = build_harness(Arc::new(FakeProvider::echo()), store, registry);
+            let result = harness.call_tool(&agent, ToolId::from(name), input).await?;
+            Ok(RunResult {
+                run_id: result.run_id,
+                final_output: serde_json::to_string(&result.output).unwrap_or_default(),
+            })
+        }
+    }
+}
+
+enum DaemonToolSlash {
+    Manual {
+        name: String,
+        input: serde_json::Value,
+    },
+    Forced {
+        name: String,
+        prompt: String,
+    },
+}
+
+fn parse_daemon_tool_slash(input: &str) -> anyhow::Result<Option<DaemonToolSlash>> {
+    let trimmed = input.trim();
+    if let Some(rest) = trimmed.strip_prefix("/tool!").map(str::trim) {
+        let (name, input) = parse_direct_tool_slash_rest(rest)?;
+        return Ok(Some(DaemonToolSlash::Manual { name, input }));
+    }
+    if let Some(rest) = trimmed.strip_prefix("/tool ").map(str::trim) {
+        let (name, prompt) = parse_forced_tool_slash_rest(rest)?;
+        return Ok(Some(DaemonToolSlash::Forced { name, prompt }));
+    }
+    Ok(None)
+}
+
+fn parse_direct_tool_slash_rest(rest: &str) -> anyhow::Result<(String, serde_json::Value)> {
+    let (name, input) = rest
+        .trim()
+        .split_once(char::is_whitespace)
+        .map(|(name, input)| (name.to_string(), input.trim().to_string()))
+        .unwrap_or_else(|| (rest.trim().to_string(), "{}".into()));
+    if name.is_empty() {
+        anyhow::bail!("missing tool name");
+    }
+    Ok((name, serde_json::from_str(&input)?))
+}
+
+fn parse_forced_tool_slash_rest(rest: &str) -> anyhow::Result<(String, String)> {
+    let (name, prompt) = rest
+        .trim()
+        .split_once(char::is_whitespace)
+        .map(|(name, prompt)| (name.trim().to_string(), prompt.trim().to_string()))
+        .unwrap_or_else(|| (rest.trim().to_string(), String::new()));
+    if name.is_empty() {
+        anyhow::bail!("missing tool name");
+    }
+    Ok((name, prompt))
+}
+
+fn forced_tool_prompt(name: &str, prompt: &str) -> String {
+    let prompt = prompt.trim();
+    if prompt.is_empty() {
+        format!("Call the `{name}` tool with appropriate inputs, then answer from its result.")
+    } else {
+        format!("Call the `{name}` tool for this request, then answer from its result.\n\n{prompt}")
+    }
+}
+
+fn direct_tool_agent_and_registry(
+    name: &str,
+    mut options: DaemonRuntimeOptions,
+) -> (AgentConfig, Arc<ToolRegistry>) {
+    options.enable_shell |= name == "shell";
+    options.enable_subagent |= name == "subagent";
+    options.enable_capability_drafts |= name == "capability_draft";
+    let registry = build_registry(
+        options.enable_shell,
+        options.enable_subagent,
+        options.enable_capability_drafts,
+        options.agent_id.as_deref(),
+    );
+    let agent = build_agent(&options);
+    (agent, registry)
+}
+
+fn forced_tool_agent_and_registry(
+    name: &str,
+    mut options: DaemonRuntimeOptions,
+) -> anyhow::Result<(AgentConfig, Arc<ToolRegistry>)> {
+    options.enable_shell |= name == "shell";
+    options.enable_subagent |= name == "subagent";
+    options.enable_capability_drafts |= name == "capability_draft";
+    let registry = build_registry(
+        options.enable_shell,
+        options.enable_subagent,
+        options.enable_capability_drafts,
+        options.agent_id.as_deref(),
+    );
+    let tool_id = ToolId::from(name.to_string());
+    let mut agent = build_agent(&options);
+    if !agent.tool_policy.allowed_tools.is_empty()
+        && !agent.tool_policy.allowed_tools.contains(&tool_id)
+    {
+        anyhow::bail!("tool {name:?} is not allowed by this agent");
+    }
+    agent.tool_policy.allowed_tools = vec![tool_id.clone()];
+    agent.tool_policy.required_tool = Some(tool_id);
+    Ok((agent, registry))
+}
+
 fn daemon_preview_context(body: &str) -> anyhow::Result<serde_json::Value> {
     let input: DaemonPreviewInput = serde_json::from_str(body)?;
-    let harness = Harness::new(
+    let input_text =
+        resolve_saved_prompt_or_literal(input.input, input.options.agent_id.as_deref())?;
+    let harness = build_harness(
         Arc::new(FakeProvider::echo()),
         Arc::new(open_event_store()?),
-        build_registry(input.options.enable_shell, input.options.enable_subagent),
+        build_registry(
+            input.options.enable_shell,
+            input.options.enable_subagent,
+            input.options.enable_capability_drafts,
+            input.options.agent_id.as_deref(),
+        ),
     );
     Ok(serde_json::to_value(harness.preview_context(
         &build_agent(&input.options),
-        UserInput { text: input.input },
+        UserInput { text: input_text },
     ))?)
 }
 
-fn daemon_explain_config() -> anyhow::Result<serde_json::Value> {
-    let resolved = ConfigResolver::from_env().resolve_default_agent()?;
-    Ok(serde_json::json!({
-        "agent_id": resolved.agent.id,
-        "values": resolved.values
-    }))
+fn daemon_explain_config(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: DaemonOptionsInput = serde_json::from_str(body)?;
+    let harness = build_harness(
+        Arc::new(FakeProvider::echo()),
+        Arc::new(open_event_store()?),
+        build_registry(
+            input.options.enable_shell,
+            input.options.enable_subagent,
+            input.options.enable_capability_drafts,
+            input.options.agent_id.as_deref(),
+        ),
+    );
+    Ok(serde_json::to_value(
+        harness.explain_config(&build_agent(&input.options)),
+    )?)
 }
 
 fn daemon_storage_report() -> anyhow::Result<serde_json::Value> {
@@ -505,12 +1109,150 @@ fn daemon_storage_report() -> anyhow::Result<serde_json::Value> {
     )?)
 }
 
+fn daemon_conversation_list() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(ConversationStore::from_env().list()?)?)
+}
+
+fn daemon_conversation_tree() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(ConversationStore::from_env().tree()?)?)
+}
+
+fn daemon_conversation_show(id: &str) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(
+        ConversationStore::from_env().expanded(id)?,
+    )?)
+}
+
+fn daemon_conversation_recover(id: &str) -> anyhow::Result<serde_json::Value> {
+    conversation_recovery_plan_value(id)
+}
+
+fn daemon_conversation_delete_plan(id: &str, body: &str) -> anyhow::Result<serde_json::Value> {
+    let input = parse_recursive_input(body)?;
+    let requested = id.to_string();
+    Ok(serde_json::to_value(
+        ConversationStore::from_env()
+            .deletion_plan(std::slice::from_ref(&requested), input.recursive)?,
+    )?)
+}
+
+fn daemon_conversation_delete(id: &str, body: &str) -> anyhow::Result<serde_json::Value> {
+    let input = parse_recursive_input(body)?;
+    let store = ConversationStore::from_env();
+    let requested = id.to_string();
+    let planned = store.deletion_plan(std::slice::from_ref(&requested), input.recursive)?;
+    let deleted = store.delete(id, input.recursive)?;
+    Ok(serde_json::json!({
+        "requested": id,
+        "recursive": input.recursive,
+        "planned": planned,
+        "deleted": deleted
+    }))
+}
+
+fn daemon_conversation_delete_range(id: &str, body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: ConversationRangeInput = serde_json::from_str(body)?;
+    let store = ConversationStore::from_env();
+    let before = store.expanded(id)?.messages.len();
+    let conversation = store.delete_message_range(id, input.from, input.to)?;
+    let after = store.expanded(id)?.messages.len();
+    Ok(serde_json::json!({
+        "id": id,
+        "from": input.from,
+        "to": input.to,
+        "deleted_messages": before.saturating_sub(after),
+        "expanded_message_count": after,
+        "conversation": conversation
+    }))
+}
+
+fn conversation_recovery_plan_value(id: &str) -> anyhow::Result<serde_json::Value> {
+    let conversation_store = ConversationStore::from_env();
+    let expanded = conversation_store.expanded(id)?;
+    let mut compactions = CompactionStore::from_env()
+        .list()?
+        .into_iter()
+        .filter(|record| record.conversation_id.as_deref() == Some(id))
+        .collect::<Vec<_>>();
+    compactions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    let mut memories = MemoryStore::from_env()
+        .list()?
+        .into_iter()
+        .filter(|record| record.source_conversation_id.as_deref() == Some(id))
+        .collect::<Vec<_>>();
+    memories.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    let latest_compaction = compactions.first();
+    Ok(serde_json::json!({
+        "conversation_id": id,
+        "title": expanded.conversation.title,
+        "agent_id": expanded.conversation.agent_id,
+        "own_message_count": expanded.conversation.messages.len(),
+        "expanded_message_count": expanded.messages.len(),
+        "linked_compactions": compactions.iter().map(compaction_recovery_summary).collect::<Vec<_>>(),
+        "linked_memories": memories.iter().map(memory_recovery_summary).collect::<Vec<_>>(),
+        "suggested_run": {
+            "conversation_id": id,
+            "include_compact": latest_compaction.map(|record| record.id.clone()),
+            "load_memory": !memories.is_empty(),
+            "compacted_context": latest_compaction.map(|record| record.content.clone()),
+        }
+    }))
+}
+
+fn compaction_recovery_summary(record: &CompactionRecord) -> serde_json::Value {
+    serde_json::json!({
+        "id": record.id,
+        "source": record.source,
+        "guidance": record.guidance,
+        "max_output_tokens": record.max_output_tokens,
+        "original_input_excerpt": record.original_input_excerpt,
+        "content_preview": preview_for_recovery(&record.content, 240),
+        "created_at": record.created_at,
+    })
+}
+
+fn memory_recovery_summary(record: &MemoryRecord) -> serde_json::Value {
+    serde_json::json!({
+        "id": record.id,
+        "target": record.target,
+        "author": record.author,
+        "source_range": record.source_range,
+        "generating_model": record.generating_model,
+        "content_preview": preview_for_recovery(&record.content, 240),
+        "updated_at": record.updated_at,
+    })
+}
+
+fn preview_for_recovery(text: &str, max_chars: usize) -> String {
+    let compact = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.chars().count() <= max_chars {
+        return compact;
+    }
+    compact
+        .chars()
+        .take(max_chars.saturating_sub(3))
+        .collect::<String>()
+        + "..."
+}
+
+fn parse_recursive_input(body: &str) -> anyhow::Result<RecursiveInput> {
+    if body.trim().is_empty() {
+        return Ok(RecursiveInput::default());
+    }
+    Ok(serde_json::from_str(body)?)
+}
+
 fn daemon_explain_tools(body: &str) -> anyhow::Result<serde_json::Value> {
     let input: DaemonOptionsInput = serde_json::from_str(body)?;
-    let harness = Harness::new(
+    let harness = build_harness(
         Arc::new(FakeProvider::echo()),
         Arc::new(open_event_store()?),
-        build_registry(input.options.enable_shell, input.options.enable_subagent),
+        build_registry(
+            input.options.enable_shell,
+            input.options.enable_subagent,
+            input.options.enable_capability_drafts,
+            input.options.agent_id.as_deref(),
+        ),
     );
     Ok(serde_json::to_value(
         harness.explain_tools(&build_agent(&input.options)),
@@ -563,17 +1305,217 @@ async fn daemon_cancel(body: &str, state: Arc<DaemonState>) -> anyhow::Result<se
         run_id,
         Some(parent),
         RunEventKind::RunCancelled {
-            reason: input.reason,
+            reason: input.reason.clone(),
         },
     );
     if let Some(handle) = active_handle {
         handle.abort();
     }
+    let compaction = if stop_mode_summarises(input.mode.as_deref(), &input.reason) {
+        Some(create_stop_compaction(
+            run_id,
+            &input.reason,
+            &existing_events,
+        )?)
+    } else {
+        None
+    };
     Ok(serde_json::json!({
         "run_id": run_id.0,
         "recorded": "cancelled",
-        "aborted": aborted
+        "aborted": aborted,
+        "compaction": compaction
     }))
+}
+
+fn stop_mode_summarises(mode: Option<&str>, reason: &str) -> bool {
+    mode.is_some_and(|mode| matches!(mode, "summarise" | "summarize" | "summary"))
+        || reason.contains("mode=summarise")
+        || reason.contains("mode=summarize")
+}
+
+fn create_stop_compaction(
+    run_id: RunId,
+    reason: &str,
+    events: &[RunEvent],
+) -> anyhow::Result<CompactionRecord> {
+    CompactionStore::from_env()
+        .create_from_text(
+            &stopped_run_summary_text(run_id, reason, events),
+            Some("Stopped run summary retained by user request.".into()),
+            Some(512),
+            Some(format!("stopped-run:{}", run_id.0)),
+        )
+        .map_err(Into::into)
+}
+
+fn stop_compaction_for_run(run_id: RunId) -> anyhow::Result<Option<String>> {
+    let source = format!("stopped-run:{}", run_id.0);
+    Ok(CompactionStore::from_env()
+        .list()?
+        .into_iter()
+        .filter(|record| record.source == source)
+        .max_by_key(|record| record.created_at)
+        .map(|record| record.id))
+}
+
+fn stopped_run_summary_text(run_id: RunId, reason: &str, events: &[RunEvent]) -> String {
+    let summary = summarize_trace(events, run_id);
+    let mut lines = vec![
+        format!("Stopped run: {}", run_id.0),
+        format!("Reason: {reason}"),
+        format!(
+            "Observed before stop: {} events, {} LLM calls, {} tool calls, {} approvals, {} guidance injections.",
+            summary.events,
+            summary.llm_calls,
+            summary.tool_calls,
+            summary.approvals,
+            summary.guidance_injections
+        ),
+        format!(
+            "Token/cost counters before stop: input={}, output={}, cost={}.",
+            summary.tokens_in,
+            summary.tokens_out,
+            summary
+                .cost_usd
+                .map(|value| format!("{value:.6}"))
+                .unwrap_or_else(|| "unknown".into())
+        ),
+        "Recent trace events:".into(),
+    ];
+    for event in events.iter().rev().take(12).rev() {
+        lines.push(format!("- {} {}", event.id.0, stop_event_label(event)));
+    }
+    lines.join("\n")
+}
+
+fn stop_event_label(event: &RunEvent) -> String {
+    match &event.kind {
+        RunEventKind::RunStarted { agent_id, .. } => format!("run started for agent {agent_id}"),
+        RunEventKind::ContextBuilt { .. } => "context built".into(),
+        RunEventKind::LlmRequestStarted { model, .. } => {
+            format!("LLM request started with {model}")
+        }
+        RunEventKind::LlmStreamToken { delta } => {
+            format!("LLM stream token {:?}", delta)
+        }
+        RunEventKind::LlmRequestCompleted {
+            tokens_in,
+            tokens_out,
+            ..
+        } => format!("LLM request completed tokens={tokens_in}/{tokens_out}"),
+        RunEventKind::PromptRefinementStarted { model, .. } => {
+            format!("prompt refinement started with {model}")
+        }
+        RunEventKind::PromptRefinementCompleted {
+            tokens_in,
+            tokens_out,
+            ..
+        } => format!("prompt refinement completed tokens={tokens_in}/{tokens_out}"),
+        RunEventKind::ToolCallProposed { tool_id, .. } => {
+            format!("tool proposed {tool_id}")
+        }
+        RunEventKind::ToolCallStarted { call_id } => format!("tool started {call_id}"),
+        RunEventKind::ToolCallCompleted { call_id, .. } => {
+            format!("tool completed {call_id}")
+        }
+        RunEventKind::ToolCallFailed { call_id, error } => {
+            format!("tool failed {call_id}: {error}")
+        }
+        RunEventKind::ToolOutputInterpreted { call_id, model, .. } => {
+            format!("tool output interpreted {call_id} with {model}")
+        }
+        RunEventKind::ApprovalRequested { approval_id, .. } => {
+            format!("approval requested {approval_id}")
+        }
+        RunEventKind::ApprovalResolved {
+            approval_id,
+            approved,
+        } => format!("approval resolved {approval_id} approved={approved}"),
+        RunEventKind::GuidanceInjected { .. } => "guidance injected".into(),
+        RunEventKind::QualityScored { target, score } => {
+            format!("quality scored {target}={score}")
+        }
+        RunEventKind::MemoryLoaded { ids } => format!("memory loaded {} ids", ids.len()),
+        RunEventKind::MemoryRead {
+            backend,
+            fragment_ids,
+        } => format!("memory read {backend} {} fragments", fragment_ids.len()),
+        RunEventKind::MemoryWritten { id, operation, .. } => {
+            format!("memory {operation} {id}")
+        }
+        RunEventKind::IngestionReferenced {
+            artifact_id,
+            source,
+        } => format!("ingestion referenced {artifact_id} from {source}"),
+        RunEventKind::IngestionStarted { source, backend } => {
+            format!("ingestion started {source} via {backend}")
+        }
+        RunEventKind::IngestionCompleted {
+            artifact_id,
+            sections,
+            findings,
+            high_risk_findings,
+            finding_snippets,
+            ..
+        } => {
+            let risk = if *high_risk_findings > 0 {
+                format!(" high-risk={high_risk_findings}")
+            } else if !findings.is_empty() {
+                format!(" findings={}", findings.len())
+            } else {
+                String::new()
+            };
+            let snippet = finding_snippets
+                .first()
+                .map(|snippet| format!(" snippet={snippet:?}"))
+                .unwrap_or_default();
+            format!("ingestion completed {artifact_id} sections={sections}{risk}{snippet}")
+        }
+        RunEventKind::HookFired {
+            hook_id,
+            trigger,
+            payload_digest,
+        } => format!(
+            "hook fired {hook_id} trigger={trigger} digest={}",
+            &payload_digest[..payload_digest.len().min(12)]
+        ),
+        RunEventKind::HookFailed {
+            hook_id,
+            trigger,
+            error,
+            attempt,
+            will_retry,
+        } => format!(
+            "hook failed {hook_id} trigger={trigger} attempt={attempt} retry={will_retry}: {error}"
+        ),
+        RunEventKind::PolicyDenied { reason } => format!("policy denied: {reason}"),
+        RunEventKind::ChildRunStarted {
+            child_run_id,
+            agent_id,
+        } => format!("child run {child_run_id} started for {agent_id}"),
+        RunEventKind::ChildRunCompleted {
+            child_run_id,
+            status,
+        } => format!("child run {child_run_id} completed status={status}"),
+        RunEventKind::BatchRunStarted { batch_id, items } => {
+            format!("batch {batch_id} started items={items}")
+        }
+        RunEventKind::BatchItemStatus {
+            batch_id,
+            item_key,
+            status,
+        } => format!("batch {batch_id} item {item_key} status={status}"),
+        RunEventKind::BatchRunCompleted {
+            batch_id,
+            succeeded,
+            failed,
+        } => format!("batch {batch_id} completed succeeded={succeeded} failed={failed}"),
+        RunEventKind::RunPaused { reason } => format!("run paused: {reason}"),
+        RunEventKind::RunCancelled { reason } => format!("run cancelled: {reason}"),
+        RunEventKind::RunCompleted { .. } => "run completed".into(),
+        RunEventKind::RunFailed { reason } => format!("run failed: {reason}"),
+    }
 }
 
 fn daemon_score(body: &str) -> anyhow::Result<serde_json::Value> {
@@ -670,10 +1612,15 @@ async fn execute_daemon_batch_plan(
             },
         );
         let provider = provider_for_run(demo.as_deref(), &item.input, &options)?;
-        let harness = Harness::new(
+        let harness = build_harness(
             provider,
             store.clone(),
-            build_registry(options.enable_shell, options.enable_subagent),
+            build_registry(
+                options.enable_shell,
+                options.enable_subagent,
+                options.enable_capability_drafts,
+                options.agent_id.as_deref(),
+            ),
         );
         let agent = build_agent(&options);
         match harness
@@ -764,6 +1711,611 @@ async fn execute_daemon_batch_plan(
     }))
 }
 
+#[derive(serde::Deserialize)]
+struct VoiceCaptureRequest {
+    data_url: String,
+    filename: Option<String>,
+}
+
+fn daemon_voice_capture(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: VoiceCaptureRequest = serde_json::from_str(body)?;
+    let artifact = save_voice_capture_from_env(&input.data_url, input.filename.as_deref())?;
+    Ok(serde_json::json!({
+        "audio_path": artifact.path,
+        "artifact": artifact
+    }))
+}
+
+async fn daemon_telegram_bridge(
+    body: &str,
+    headers: &HashMap<String, String>,
+) -> anyhow::Result<serde_json::Value> {
+    verify_telegram_bridge(headers)?;
+    let update: TelegramUpdate = serde_json::from_str(body)?;
+    let message = update
+        .message
+        .or(update.edited_message)
+        .ok_or_else(|| anyhow::anyhow!("telegram update did not include a message"))?;
+    let text = message
+        .text
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("telegram message did not include text"))?;
+    let result = run_bridge_agent("telegram", text).await?;
+    let reply = serde_json::json!({
+        "method": "sendMessage",
+        "chat_id": message.chat.id,
+        "text": result.final_output,
+        "reply_to_message_id": message.message_id
+    });
+    let delivery = maybe_deliver_telegram_reply(&reply).await;
+    Ok(serde_json::json!({
+        "bridge": "telegram",
+        "update_id": update.update_id,
+        "chat_id": message.chat.id,
+        "message_id": message.message_id,
+        "from_user_id": message.from.map(|user| user.id),
+        "run_id": result.run_id.0,
+        "text": reply["text"],
+        "telegram_response": reply,
+        "delivery": delivery
+    }))
+}
+
+async fn daemon_slack_bridge(
+    body: &str,
+    headers: &HashMap<String, String>,
+) -> anyhow::Result<serde_json::Value> {
+    verify_slack_bridge(body, headers)?;
+    let form = parse_form_body(body);
+    let text = form
+        .get("text")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("slack slash command did not include text"))?;
+    let result = run_bridge_agent("slack", text).await?;
+    let response = serde_json::json!({
+        "response_type": bridge_env("slack", "RESPONSE_TYPE").unwrap_or_else(|| "ephemeral".into()),
+        "text": result.final_output,
+    });
+    let delivery = match form.get("response_url").map(String::as_str) {
+        Some(url) if !url.trim().is_empty() => {
+            post_bridge_json_with_retries("slack.response_url", url, response.clone()).await
+        }
+        _ => serde_json::json!({
+            "attempted": false,
+            "reason": "missing response_url"
+        }),
+    };
+    Ok(serde_json::json!({
+        "response_type": response["response_type"],
+        "text": response["text"],
+        "bridge": {
+            "platform": "slack",
+            "team_id": form.get("team_id"),
+            "channel_id": form.get("channel_id"),
+            "user_id": form.get("user_id"),
+            "command": form.get("command"),
+            "run_id": result.run_id.0
+        },
+        "delivery": delivery
+    }))
+}
+
+async fn daemon_webhook_bridge(
+    body: &str,
+    headers: &HashMap<String, String>,
+) -> anyhow::Result<serde_json::Value> {
+    verify_webhook_bridge(headers)?;
+    let input: WebhookBridgeRequest = serde_json::from_str(body)?;
+    let text = input.text.trim().to_string();
+    if text.is_empty() {
+        anyhow::bail!("webhook bridge did not include text");
+    }
+    let result = run_bridge_agent("webhook", &text).await?;
+    let response = serde_json::json!({
+        "text": result.final_output,
+        "run_id": result.run_id.0,
+    });
+    let delivery = match input.response_url.as_deref().map(str::trim) {
+        Some(url) if !url.is_empty() => {
+            post_bridge_json_with_retries("webhook.response_url", url, response.clone()).await
+        }
+        _ => serde_json::json!({
+            "attempted": false,
+            "reason": "missing response_url"
+        }),
+    };
+    Ok(serde_json::json!({
+        "text": response["text"],
+        "bridge": {
+            "platform": "webhook",
+            "user_id": input.user_id,
+            "conversation_id": input.conversation_id,
+            "run_id": response["run_id"],
+        },
+        "metadata": input.metadata,
+        "response": response,
+        "delivery": delivery
+    }))
+}
+
+async fn maybe_deliver_telegram_reply(reply: &serde_json::Value) -> serde_json::Value {
+    let Some(token) =
+        bridge_env("telegram", "BOT_TOKEN").or_else(|| std::env::var("TELEGRAM_BOT_TOKEN").ok())
+    else {
+        return serde_json::json!({
+            "attempted": false,
+            "reason": "missing AGENT_TELEGRAM_BOT_TOKEN"
+        });
+    };
+    let base_url =
+        bridge_env("telegram", "API_BASE_URL").unwrap_or_else(|| "https://api.telegram.org".into());
+    let url = format!("{}/bot{token}/sendMessage", base_url.trim_end_matches('/'));
+    let payload = serde_json::json!({
+        "chat_id": reply["chat_id"],
+        "text": reply["text"],
+        "reply_to_message_id": reply["reply_to_message_id"]
+    });
+    post_bridge_json_with_retries("telegram.sendMessage", &url, payload).await
+}
+
+async fn post_bridge_json_with_retries(
+    target: &str,
+    url: &str,
+    payload: serde_json::Value,
+) -> serde_json::Value {
+    let mut result = post_bridge_json_attempts(target, url, payload.clone()).await;
+    if result
+        .get("attempted")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+        && !result
+            .get("delivered")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+        && let Ok(record) =
+            BridgeDeliveryStore::from_env().save_failed(target, url, payload, result.clone())
+        && let Some(map) = result.as_object_mut()
+    {
+        map.insert(
+            "dead_letter_id".into(),
+            serde_json::Value::String(record.id.clone()),
+        );
+    }
+    result
+}
+
+async fn post_bridge_json_attempts(
+    target: &str,
+    url: &str,
+    payload: serde_json::Value,
+) -> serde_json::Value {
+    let attempts = bridge_env("messaging", "DELIVERY_ATTEMPTS")
+        .and_then(|value| value.parse::<u32>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(3);
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+    {
+        Ok(client) => client,
+        Err(err) => {
+            return serde_json::json!({
+                "attempted": true,
+                "delivered": false,
+                "target": target,
+                "attempts": 0,
+                "error": err.to_string()
+            });
+        }
+    };
+    let mut last_error = None;
+    let mut last_status = None;
+    for attempt in 1..=attempts {
+        match client.post(url).json(&payload).send().await {
+            Ok(response) => {
+                let status = response.status().as_u16();
+                last_status = Some(status);
+                if response.status().is_success() {
+                    return serde_json::json!({
+                        "attempted": true,
+                        "delivered": true,
+                        "target": target,
+                        "attempts": attempt,
+                        "status": status
+                    });
+                }
+                last_error = Some(format!("HTTP {status}"));
+            }
+            Err(err) => {
+                last_error = Some(err.to_string());
+            }
+        }
+        if attempt < attempts {
+            sleep(Duration::from_millis(100)).await;
+        }
+    }
+    serde_json::json!({
+        "attempted": true,
+        "delivered": false,
+        "target": target,
+        "attempts": attempts,
+        "status": last_status,
+        "error": last_error
+    })
+}
+
+fn daemon_bridge_delivery_list() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::json!({
+        "deliveries": BridgeDeliveryStore::from_env().list_public()?
+    }))
+}
+
+async fn daemon_bridge_delivery_retry_all() -> anyhow::Result<serde_json::Value> {
+    retry_bridge_deliveries_once(bridge_delivery_worker_batch_limit()).await
+}
+
+async fn daemon_bridge_delivery_retry(id: &str) -> anyhow::Result<serde_json::Value> {
+    let store = BridgeDeliveryStore::from_env();
+    let record = store.show(id)?;
+    let delivery =
+        post_bridge_json_attempts(&record.target, &record.url, record.payload.clone()).await;
+    let delivered = delivery
+        .get("delivered")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    if delivered {
+        store.delete(&record.id)?;
+    } else {
+        store.update_result(&record.id, delivery.clone())?;
+    }
+    Ok(serde_json::json!({
+        "id": record.id,
+        "delivery": delivery,
+        "resolved": delivered
+    }))
+}
+
+async fn retry_bridge_deliveries_once(limit: usize) -> anyhow::Result<serde_json::Value> {
+    let store = BridgeDeliveryStore::from_env();
+    let records = store.list_records()?;
+    let mut deliveries = Vec::new();
+    let mut resolved = 0usize;
+    for record in records.into_iter().take(limit) {
+        let delivery =
+            post_bridge_json_attempts(&record.target, &record.url, record.payload.clone()).await;
+        let delivered = delivery
+            .get("delivered")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        if delivered {
+            store.delete(&record.id)?;
+            resolved += 1;
+        } else {
+            store.update_result(&record.id, delivery.clone())?;
+        }
+        deliveries.push(serde_json::json!({
+            "id": record.id,
+            "target": record.target,
+            "delivered": delivered,
+            "delivery": delivery
+        }));
+    }
+    Ok(serde_json::json!({
+        "attempted": deliveries.len(),
+        "resolved": resolved,
+        "remaining": store.list_records()?.len(),
+        "deliveries": deliveries
+    }))
+}
+
+fn maybe_start_bridge_delivery_worker() {
+    let Some(interval) = bridge_delivery_worker_interval() else {
+        return;
+    };
+    if BRIDGE_DELIVERY_WORKER_STARTED.set(()).is_err() {
+        return;
+    }
+    tokio::spawn(async move {
+        loop {
+            sleep(interval).await;
+            if let Err(err) =
+                retry_bridge_deliveries_once(bridge_delivery_worker_batch_limit()).await
+            {
+                eprintln!("bridge delivery retry worker failed: {err}");
+            }
+        }
+    });
+}
+
+fn bridge_delivery_worker_interval() -> Option<Duration> {
+    bridge_env("messaging", "DELIVERY_WORKER_INTERVAL_MS")
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .map(Duration::from_millis)
+}
+
+fn bridge_delivery_worker_batch_limit() -> usize {
+    bridge_env("messaging", "DELIVERY_WORKER_BATCH")
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(10)
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct BridgeDeliveryRecord {
+    id: String,
+    target: String,
+    url: String,
+    payload: serde_json::Value,
+    last_delivery: serde_json::Value,
+    created_ms: u64,
+    updated_ms: u64,
+}
+
+struct BridgeDeliveryStore {
+    dir: std::path::PathBuf,
+}
+
+impl BridgeDeliveryStore {
+    fn from_env() -> Self {
+        Self {
+            dir: StoragePaths::from_env().bridge_deliveries_dir(),
+        }
+    }
+
+    fn list_public(&self) -> anyhow::Result<Vec<serde_json::Value>> {
+        Ok(self
+            .list_records()?
+            .iter()
+            .map(public_bridge_delivery_record)
+            .collect())
+    }
+
+    fn list_records(&self) -> anyhow::Result<Vec<BridgeDeliveryRecord>> {
+        let mut records = Vec::new();
+        let entries = match std::fs::read_dir(&self.dir) {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(records),
+            Err(err) => return Err(err.into()),
+        };
+        for entry in entries {
+            let entry = entry?;
+            if entry.path().extension().and_then(|ext| ext.to_str()) != Some("json") {
+                continue;
+            }
+            let record: BridgeDeliveryRecord =
+                serde_json::from_str(&std::fs::read_to_string(entry.path())?)?;
+            records.push(record);
+        }
+        records.sort_by(|left, right| right.created_ms.cmp(&left.created_ms));
+        Ok(records)
+    }
+
+    fn show(&self, id: &str) -> anyhow::Result<BridgeDeliveryRecord> {
+        let path = self.record_path(id)?;
+        Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
+    }
+
+    fn save_failed(
+        &self,
+        target: &str,
+        url: &str,
+        payload: serde_json::Value,
+        delivery: serde_json::Value,
+    ) -> anyhow::Result<BridgeDeliveryRecord> {
+        std::fs::create_dir_all(&self.dir)?;
+        let now = current_time_ms();
+        let record = BridgeDeliveryRecord {
+            id: format!("bridge-delivery-{}", uuid::Uuid::new_v4()),
+            target: target.into(),
+            url: url.into(),
+            payload,
+            last_delivery: delivery,
+            created_ms: now,
+            updated_ms: now,
+        };
+        std::fs::write(
+            self.record_path(&record.id)?,
+            serde_json::to_string_pretty(&record)?,
+        )?;
+        Ok(record)
+    }
+
+    fn update_result(&self, id: &str, delivery: serde_json::Value) -> anyhow::Result<()> {
+        let mut record = self.show(id)?;
+        record.last_delivery = delivery;
+        record.updated_ms = current_time_ms();
+        std::fs::write(
+            self.record_path(id)?,
+            serde_json::to_string_pretty(&record)?,
+        )?;
+        Ok(())
+    }
+
+    fn delete(&self, id: &str) -> anyhow::Result<()> {
+        let path = self.record_path(id)?;
+        if path.exists() {
+            std::fs::remove_file(path)?;
+        }
+        Ok(())
+    }
+
+    fn record_path(&self, id: &str) -> anyhow::Result<std::path::PathBuf> {
+        let valid = !id.trim().is_empty()
+            && id
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'));
+        if !valid {
+            anyhow::bail!("invalid bridge delivery id");
+        }
+        Ok(self.dir.join(format!("{id}.json")))
+    }
+}
+
+fn public_bridge_delivery_record(record: &BridgeDeliveryRecord) -> serde_json::Value {
+    serde_json::json!({
+        "id": record.id,
+        "target": record.target,
+        "url": redact_delivery_url(&record.url),
+        "payload": record.payload,
+        "last_delivery": record.last_delivery,
+        "created_ms": record.created_ms,
+        "updated_ms": record.updated_ms
+    })
+}
+
+fn redact_delivery_url(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return "<redacted>".into();
+    };
+    let host = rest.split('/').next().unwrap_or_default();
+    format!("{scheme}://{host}/<redacted>")
+}
+
+fn current_time_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or_default()
+}
+
+async fn run_bridge_agent(platform: &str, prompt: &str) -> anyhow::Result<RunResult> {
+    execute_prepared_daemon_run(
+        prepare_daemon_run(DaemonRunInput {
+            input: prompt.to_string(),
+            demo: bridge_env(platform, "DEMO"),
+            options: bridge_runtime_options(platform),
+        })?,
+        Arc::new(open_event_store()?),
+    )
+    .await
+}
+
+fn bridge_runtime_options(platform: &str) -> DaemonRuntimeOptions {
+    DaemonRuntimeOptions {
+        agent_id: bridge_env(platform, "AGENT_ID"),
+        provider: bridge_env(platform, "PROVIDER"),
+        model: bridge_env(platform, "MODEL"),
+        api_base_url: bridge_env(platform, "API_BASE_URL"),
+        api_key_env: bridge_env(platform, "API_KEY_ENV"),
+        max_tool_calls: bridge_env(platform, "MAX_TOOL_CALLS").and_then(|value| value.parse().ok()),
+        load_memory: bridge_env(platform, "LOAD_MEMORY").is_some_and(|value| is_truthy(&value)),
+        load_skills: bridge_env(platform, "LOAD_SKILLS").is_some_and(|value| is_truthy(&value)),
+        ..DaemonRuntimeOptions::default()
+    }
+}
+
+fn bridge_env(platform: &str, suffix: &str) -> Option<String> {
+    let platform_key = format!("AGENT_{}_{}", platform.to_ascii_uppercase(), suffix);
+    std::env::var(platform_key)
+        .ok()
+        .or_else(|| std::env::var(format!("AGENT_BRIDGE_{suffix}")).ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn is_truthy(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
+fn parse_form_body(body: &str) -> HashMap<String, String> {
+    url::form_urlencoded::parse(body.as_bytes())
+        .into_owned()
+        .collect()
+}
+
+fn verify_telegram_bridge(headers: &HashMap<String, String>) -> anyhow::Result<()> {
+    let Some(expected) = bridge_env("telegram", "SECRET_TOKEN") else {
+        return Ok(());
+    };
+    let provided = header_value(headers, "x-telegram-bot-api-secret-token")
+        .ok_or_else(|| anyhow::anyhow!("telegram bridge authentication token is missing"))?;
+    if constant_time_eq(provided.as_bytes(), expected.as_bytes()) {
+        Ok(())
+    } else {
+        anyhow::bail!("telegram bridge authentication token is invalid")
+    }
+}
+
+fn verify_webhook_bridge(headers: &HashMap<String, String>) -> anyhow::Result<()> {
+    let Some(expected) = bridge_env("webhook", "SECRET_TOKEN") else {
+        return Ok(());
+    };
+    let provided = header_value(headers, "x-agent-bridge-token")
+        .or_else(|| {
+            header_value(headers, "authorization").and_then(|value| value.strip_prefix("Bearer "))
+        })
+        .ok_or_else(|| anyhow::anyhow!("webhook bridge authentication token is missing"))?;
+    if constant_time_eq(provided.as_bytes(), expected.as_bytes()) {
+        Ok(())
+    } else {
+        anyhow::bail!("webhook bridge authentication token is invalid")
+    }
+}
+
+fn verify_slack_bridge(body: &str, headers: &HashMap<String, String>) -> anyhow::Result<()> {
+    let Some(secret) = bridge_env("slack", "SIGNING_SECRET") else {
+        return Ok(());
+    };
+    let signature = header_value(headers, "x-slack-signature")
+        .ok_or_else(|| anyhow::anyhow!("slack bridge signature is missing"))?;
+    let timestamp = header_value(headers, "x-slack-request-timestamp")
+        .ok_or_else(|| anyhow::anyhow!("slack bridge request timestamp is missing"))?;
+    let timestamp_secs = timestamp
+        .parse::<i64>()
+        .map_err(|_| anyhow::anyhow!("slack bridge request timestamp is invalid"))?;
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs() as i64;
+    if (now_secs - timestamp_secs).abs() > 300 {
+        anyhow::bail!("slack bridge request timestamp is too old");
+    }
+    let expected = slack_signature(&secret, timestamp, body)?;
+    if constant_time_eq(signature.as_bytes(), expected.as_bytes()) {
+        Ok(())
+    } else {
+        anyhow::bail!("slack bridge signature is invalid")
+    }
+}
+
+fn slack_signature(secret: &str, timestamp: &str, body: &str) -> anyhow::Result<String> {
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())?;
+    mac.update(format!("v0:{timestamp}:{body}").as_bytes());
+    let digest = mac.finalize().into_bytes();
+    Ok(format!("v0={}", hex_lower(&digest)))
+}
+
+fn header_value<'a>(headers: &'a HashMap<String, String>, name: &str) -> Option<&'a str> {
+    headers.get(&name.to_ascii_lowercase()).map(String::as_str)
+}
+
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut diff = 0_u8;
+    for (left, right) in left.iter().zip(right.iter()) {
+        diff |= left ^ right;
+    }
+    diff == 0
+}
+
+fn hex_lower(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        use std::fmt::Write as _;
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
 async fn daemon_tool(name: &str, body: &str) -> anyhow::Result<serde_json::Value> {
     let mut input: serde_json::Value = if body.trim().is_empty() {
         serde_json::json!({})
@@ -775,18 +2327,46 @@ async fn daemon_tool(name: &str, body: &str) -> anyhow::Result<serde_json::Value
         .and_then(|map| map.remove("__require_approval"))
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
+    let auto_approve = input
+        .as_object_mut()
+        .and_then(|map| map.remove("__auto_approve"))
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let agent_id = input
+        .as_object_mut()
+        .and_then(|map| map.remove("__agent_id"))
+        .and_then(|value| value.as_str().map(str::to_string));
+    let disable_lifecycle_hooks = input
+        .as_object_mut()
+        .and_then(|map| map.remove("__disable_lifecycle_hooks"))
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
     let enable_shell = name == "shell";
     let enable_subagent = name == "subagent";
-    let harness = Harness::new(
+    let enable_capability_drafts = name == "capability_draft";
+    let harness = build_harness_with_hook_policy(
         Arc::new(FakeProvider::echo()),
         Arc::new(open_event_store()?),
-        build_registry(enable_shell, enable_subagent),
+        build_registry(
+            enable_shell,
+            enable_subagent,
+            enable_capability_drafts,
+            agent_id.as_deref(),
+        ),
+        disable_lifecycle_hooks,
+        agent_id.as_deref(),
     );
     let mut agent = build_agent(&DaemonRuntimeOptions {
+        agent_id,
         enable_shell,
         enable_subagent,
+        enable_capability_drafts,
+        auto_approve,
         ..DaemonRuntimeOptions::default()
     });
+    if auto_approve {
+        agent.tool_policy.approval_mode = ApprovalMode::AutoApprove;
+    }
     if require_approval {
         agent.tool_policy.approval_mode = ApprovalMode::RequireExplicit;
     }
@@ -811,6 +2391,66 @@ fn trace_summary(id: &str) -> anyhow::Result<serde_json::Value> {
     let run_id = RunId(uuid::Uuid::parse_str(id)?);
     let events = open_event_store()?.try_events(run_id)?;
     Ok(serde_json::to_value(summarize_trace(&events, run_id))?)
+}
+
+fn trace_hooks(id: &str) -> anyhow::Result<serde_json::Value> {
+    let run_id = RunId(uuid::Uuid::parse_str(id)?);
+    let events = open_event_store()?.try_events(run_id)?;
+    Ok(serde_json::to_value(hook_remediation_plan(&events))?)
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct HookPolicyInput {
+    #[serde(default)]
+    agent_id: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct HookPolicySetInput {
+    hook_id: String,
+    disabled: bool,
+    #[serde(default)]
+    agent_id: Option<String>,
+    #[serde(default)]
+    scope: Option<String>,
+}
+
+fn daemon_hook_policy(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: HookPolicyInput = if body.trim().is_empty() {
+        HookPolicyInput { agent_id: None }
+    } else {
+        serde_json::from_str(body)?
+    };
+    hook_policy_value(input.agent_id.as_deref())
+}
+
+fn daemon_hook_policy_set(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: HookPolicySetInput = serde_json::from_str(body)?;
+    let resolver = ConfigResolver::from_env();
+    let agent_id = input.agent_id.as_deref().unwrap_or("fake-agent");
+    if input.scope.as_deref() == Some("agent") {
+        resolver.set_agent_lifecycle_hook_disabled(agent_id, &input.hook_id, input.disabled)?;
+    } else {
+        resolver.set_profile_lifecycle_hook_disabled(&input.hook_id, input.disabled)?;
+    }
+    hook_policy_value(Some(agent_id))
+}
+
+fn hook_policy_value(agent_id: Option<&str>) -> anyhow::Result<serde_json::Value> {
+    let agent_id = agent_id.unwrap_or("fake-agent");
+    let resolver = ConfigResolver::from_env();
+    let policy = resolver.lifecycle_hook_policy_layers_for_agent(agent_id)?;
+    let effective_hooks = policy.effective_disabled_lifecycle_hooks.clone();
+    Ok(serde_json::json!({
+        "agent_id": policy.agent_id,
+        "profile": policy.profile,
+        "effective_source": policy.effective_source,
+        "disabled_lifecycle_hooks": effective_hooks,
+        "effective_disabled_lifecycle_hooks": policy.effective_disabled_lifecycle_hooks,
+        "global_disabled_lifecycle_hooks": policy.global_disabled_lifecycle_hooks,
+        "profile_disabled_lifecycle_hooks": policy.profile_disabled_lifecycle_hooks,
+        "agent_disabled_lifecycle_hooks": policy.agent_disabled_lifecycle_hooks,
+    }))
 }
 
 fn approvals_for_run(id: &str) -> anyhow::Result<serde_json::Value> {
@@ -926,6 +2566,7 @@ async fn execute_approved_tool(
                     call_id,
                     tool_id,
                     input,
+                    ..
                 } => Some((call_id.clone(), tool_id.clone(), input.clone())),
                 _ => None,
             }
@@ -942,7 +2583,12 @@ async fn execute_approved_tool(
     }) {
         anyhow::bail!("tool call {call_id} has already completed");
     }
-    let registry = build_registry(tool_id == "shell", tool_id == "subagent");
+    let registry = build_registry(
+        tool_id == "shell",
+        tool_id == "subagent",
+        tool_id == "capability_draft",
+        run_agent_id(&events).as_deref(),
+    );
     store.append(
         run_id,
         Some(proposed_id),
@@ -979,8 +2625,19 @@ async fn execute_approved_tool(
     }))
 }
 
+fn run_agent_id(events: &[RunEvent]) -> Option<String> {
+    events.iter().find_map(|event| match &event.kind {
+        RunEventKind::RunStarted { agent_id, .. } => Some(agent_id.clone()),
+        _ => None,
+    })
+}
+
 fn daemon_memory_list() -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(MemoryStore::from_env().list()?)?)
+}
+
+fn daemon_memory_backends() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(supported_memory_backends())?)
 }
 
 fn daemon_memory_create(body: &str) -> anyhow::Result<serde_json::Value> {
@@ -1025,6 +2682,35 @@ fn daemon_memory_rollback(body: &str) -> anyhow::Result<serde_json::Value> {
         None,
     )?;
     Ok(serde_json::json!({ "rolled_back": true, "user": input.user }))
+}
+
+fn daemon_memory_export(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: MemoryFileInput = serde_json::from_str(body)?;
+    let target = if input.user {
+        MemoryTarget::User
+    } else {
+        MemoryTarget::Agent
+    };
+    let records = MemoryStore::from_env().export_target(target, &input.path)?;
+    Ok(serde_json::json!({
+        "path": input.path,
+        "user": input.user,
+        "records": records
+    }))
+}
+
+fn daemon_memory_import(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: MemoryFileInput = serde_json::from_str(body)?;
+    let target = if input.user {
+        MemoryTarget::User
+    } else {
+        MemoryTarget::Agent
+    };
+    let records = MemoryStore::from_env().import_file(&input.path, Some(target))?;
+    for record in &records {
+        record_memory_written(record, "imported")?;
+    }
+    Ok(serde_json::to_value(records)?)
 }
 
 fn daemon_memory_route(path: &str, body: &str) -> anyhow::Result<serde_json::Value> {
@@ -1087,9 +2773,23 @@ fn daemon_skill_import(body: &str) -> anyhow::Result<serde_json::Value> {
     )?)
 }
 
+fn daemon_skill_import_doc(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: PathInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        SkillRegistry::from_env().import_doc(input.path)?,
+    )?)
+}
+
 fn daemon_skill_show(id: &str) -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(
         SkillRegistry::from_env().inspect(id)?,
+    )?)
+}
+
+fn daemon_skill_export(id: &str, body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: PathInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        SkillRegistry::from_env().export(id, input.path)?,
     )?)
 }
 
@@ -1109,10 +2809,227 @@ fn daemon_skill_route(path: &str) -> anyhow::Result<serde_json::Value> {
     }
 }
 
+fn daemon_capability_list() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(
+        CapabilityDraftStore::from_env().list()?,
+    )?)
+}
+
+fn daemon_capability_propose(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: CapabilityProposeInput = serde_json::from_str(body)?;
+    let draft = CapabilityDraftStore::from_env().propose(CapabilityDraftInput {
+        id: None,
+        kind: CapabilityKind::parse(&input.kind)?,
+        name: input.name,
+        body: input.body,
+        guidance: input.guidance,
+        created_by: input.created_by.unwrap_or_else(|| "user".into()),
+        provenance: "daemon:capabilities/propose".into(),
+    })?;
+    Ok(serde_json::to_value(draft)?)
+}
+
+fn daemon_capability_show(id: &str) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(
+        CapabilityDraftStore::from_env().show(id)?,
+    )?)
+}
+
+fn daemon_capability_route(path: &str) -> anyhow::Result<serde_json::Value> {
+    let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
+    if parts.len() != 3 || parts[0] != "capabilities" {
+        anyhow::bail!("invalid capability route");
+    }
+    match parts[2] {
+        "allow" => review_capability_draft(parts[1], CapabilityDraftStatus::Allowed),
+        "reject" => review_capability_draft(parts[1], CapabilityDraftStatus::Rejected),
+        "delete" => {
+            let deleted = CapabilityDraftStore::from_env().delete(parts[1])?;
+            Ok(serde_json::json!({ "id": parts[1], "deleted": deleted }))
+        }
+        _ => anyhow::bail!("unknown capability action"),
+    }
+}
+
+fn review_capability_draft(
+    id: &str,
+    status: CapabilityDraftStatus,
+) -> anyhow::Result<serde_json::Value> {
+    let store = CapabilityDraftStore::from_env();
+    if status == CapabilityDraftStatus::Allowed {
+        let draft = store.show(id)?;
+        if draft.kind == CapabilityKind::Skill {
+            let skill = promote_capability_skill(&draft)?;
+            let draft = store.set_status(id, status)?;
+            return capability_review_value(
+                &draft,
+                Some(("promoted_skill", serde_json::to_value(skill)?)),
+            );
+        }
+        if draft.kind == CapabilityKind::Agent {
+            let agent = promote_capability_agent(&draft)?;
+            let draft = store.set_status(id, status)?;
+            return capability_review_value(
+                &draft,
+                Some(("promoted_agent", serde_json::to_value(agent)?)),
+            );
+        }
+        if draft.kind == CapabilityKind::Tool {
+            let tool = promote_capability_tool(&draft)?;
+            let draft = store.set_status(id, status)?;
+            return capability_review_value(
+                &draft,
+                Some(("promoted_tool", serde_json::to_value(tool)?)),
+            );
+        }
+    } else if status == CapabilityDraftStatus::Rejected {
+        let draft = store.show(id)?;
+        if draft.kind == CapabilityKind::Skill {
+            let skill = quarantine_capability_skill(&draft)?;
+            let draft = store.set_status(id, status)?;
+            return capability_review_value(
+                &draft,
+                skill
+                    .map(|skill| {
+                        serde_json::to_value(skill).map(|value| ("quarantined_skill", value))
+                    })
+                    .transpose()?,
+            );
+        }
+        if draft.kind == CapabilityKind::Agent {
+            delete_capability_agent(&draft)?;
+            let draft = store.set_status(id, status)?;
+            return capability_review_value(&draft, None);
+        }
+        if draft.kind == CapabilityKind::Tool {
+            let tool = quarantine_capability_tool(&draft)?;
+            let draft = store.set_status(id, status)?;
+            return capability_review_value(
+                &draft,
+                tool.map(|tool| {
+                    serde_json::to_value(tool).map(|value| ("quarantined_tool", value))
+                })
+                .transpose()?,
+            );
+        }
+    }
+
+    Ok(serde_json::to_value(store.set_status(id, status)?)?)
+}
+
+fn capability_review_value(
+    draft: &CapabilityDraft,
+    artifact_entry: Option<(&'static str, serde_json::Value)>,
+) -> anyhow::Result<serde_json::Value> {
+    if let Some((key, artifact)) = artifact_entry {
+        let mut value = serde_json::Map::new();
+        value.insert("draft".into(), serde_json::to_value(draft)?);
+        value.insert(key.into(), artifact);
+        Ok(serde_json::Value::Object(value))
+    } else {
+        Ok(serde_json::to_value(draft)?)
+    }
+}
+
+fn promote_capability_skill(draft: &CapabilityDraft) -> anyhow::Result<SkillDoc> {
+    SkillRegistry::from_env()
+        .promote_agent_created_skill(
+            &draft.id,
+            &draft.name,
+            &draft.body,
+            &draft.created_by,
+            &draft.provenance,
+        )
+        .map_err(Into::into)
+}
+
+fn quarantine_capability_skill(draft: &CapabilityDraft) -> anyhow::Result<Option<SkillDoc>> {
+    SkillRegistry::from_env()
+        .quarantine_agent_created_skill(&draft.id, &draft.name)
+        .map_err(Into::into)
+}
+
+fn promote_capability_agent(draft: &CapabilityDraft) -> anyhow::Result<AgentConfigFile> {
+    ConfigResolver::from_env()
+        .promote_agent_created_config(&draft.id, &draft.name, &draft.body)
+        .map_err(Into::into)
+}
+
+fn delete_capability_agent(draft: &CapabilityDraft) -> anyhow::Result<bool> {
+    ConfigResolver::from_env()
+        .delete_agent_created_config(&draft.id, &draft.name)
+        .map_err(Into::into)
+}
+
+fn promote_capability_tool(draft: &CapabilityDraft) -> anyhow::Result<NormalizedPackage> {
+    AdapterRegistry::from_env()
+        .promote_agent_created_tool(
+            &draft.id,
+            &draft.name,
+            &draft.body,
+            &draft.created_by,
+            &draft.provenance,
+        )
+        .map_err(Into::into)
+}
+
+fn quarantine_capability_tool(
+    draft: &CapabilityDraft,
+) -> anyhow::Result<Option<NormalizedPackage>> {
+    AdapterRegistry::from_env()
+        .quarantine_agent_created_tool(&draft.id)
+        .map_err(Into::into)
+}
+
+fn daemon_agent_list() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(
+        ConfigResolver::from_env().list_agent_configs()?,
+    )?)
+}
+
+fn daemon_agent_show(id: &str) -> anyhow::Result<serde_json::Value> {
+    let Some(agent) = ConfigResolver::from_env().show_agent_config(id)? else {
+        anyhow::bail!("agent {id:?} not found");
+    };
+    Ok(serde_json::to_value(agent)?)
+}
+
+fn daemon_agent_save(body: &str) -> anyhow::Result<serde_json::Value> {
+    let agent: AgentConfigFile = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        ConfigResolver::from_env().save_agent_config(&agent)?,
+    )?)
+}
+
+fn daemon_agent_delete(id: &str) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::json!({
+        "id": id,
+        "deleted": ConfigResolver::from_env().delete_agent_config(id)?
+    }))
+}
+
+fn daemon_agent_export(id: &str, body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: PathInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        ConfigResolver::from_env().export_agent_config(id, input.path)?,
+    )?)
+}
+
+fn daemon_agent_import(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: PathInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        ConfigResolver::from_env().import_agent_config(input.path)?,
+    )?)
+}
+
 fn daemon_model_list() -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(
         ConfigResolver::from_env().list_models()?,
     )?)
+}
+
+fn daemon_model_providers() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(supported_model_providers())?)
 }
 
 fn daemon_model_show(id: &str) -> anyhow::Result<serde_json::Value> {
@@ -1120,6 +3037,12 @@ fn daemon_model_show(id: &str) -> anyhow::Result<serde_json::Value> {
         anyhow::bail!("model {id:?} not found");
     };
     Ok(serde_json::to_value(model)?)
+}
+
+fn daemon_model_probe(id: &str) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(
+        ConfigResolver::from_env().probe_model_capabilities(id)?,
+    )?)
 }
 
 fn daemon_model_save(body: &str) -> anyhow::Result<serde_json::Value> {
@@ -1136,45 +3059,128 @@ fn daemon_model_delete(id: &str) -> anyhow::Result<serde_json::Value> {
     }))
 }
 
+fn daemon_model_export(id: &str, body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: PathInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        ConfigResolver::from_env().export_model_config(id, input.path)?,
+    )?)
+}
+
+fn daemon_model_import(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: PathInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        ConfigResolver::from_env().import_model_config(input.path)?,
+    )?)
+}
+
 fn daemon_prompt_list() -> anyhow::Result<serde_json::Value> {
-    Ok(serde_json::to_value(PromptStore::from_env().list()?)?)
+    Ok(serde_json::to_value(
+        PromptStore::from_env().list_scoped(None)?,
+    )?)
+}
+
+fn daemon_prompt_list_scoped(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: PromptScopeInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        PromptStore::from_env().list_scoped(input.agent_id.as_deref())?,
+    )?)
 }
 
 fn daemon_prompt_save(body: &str) -> anyhow::Result<serde_json::Value> {
     let input: PromptSaveInput = serde_json::from_str(body)?;
-    Ok(serde_json::to_value(
-        PromptStore::from_env().save(&input.name, &input.body)?,
-    )?)
+    Ok(serde_json::to_value(PromptStore::from_env().save_scoped(
+        input.agent_id.as_deref(),
+        &input.name,
+        &input.body,
+    )?)?)
 }
 
 fn daemon_prompt_show(name: &str) -> anyhow::Result<serde_json::Value> {
-    let Some(prompt) = PromptStore::from_env().get(name)? else {
+    let Some(prompt) = PromptStore::from_env().get_scoped(None, name)? else {
         anyhow::bail!("saved prompt {name:?} not found");
     };
     Ok(serde_json::to_value(prompt)?)
 }
 
+fn daemon_prompt_show_scoped(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: PromptNameInput = serde_json::from_str(body)?;
+    let Some(prompt) =
+        PromptStore::from_env().get_scoped(input.agent_id.as_deref(), &input.name)?
+    else {
+        anyhow::bail!("saved prompt {:?} not found", input.name);
+    };
+    Ok(serde_json::to_value(prompt)?)
+}
+
 fn daemon_prompt_delete(name: &str) -> anyhow::Result<serde_json::Value> {
-    let deleted = PromptStore::from_env().delete(name)?;
+    let deleted = PromptStore::from_env().delete_scoped(None, name)?;
     Ok(serde_json::json!({ "name": name, "deleted": deleted }))
+}
+
+fn daemon_prompt_delete_scoped(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: PromptNameInput = serde_json::from_str(body)?;
+    let deleted = PromptStore::from_env().delete_scoped(input.agent_id.as_deref(), &input.name)?;
+    Ok(serde_json::json!({
+        "name": input.name,
+        "agent_id": input.agent_id,
+        "deleted": deleted
+    }))
+}
+
+fn resolve_saved_prompt_or_literal(
+    input: String,
+    agent_id: Option<&str>,
+) -> anyhow::Result<String> {
+    let trimmed = input.trim();
+    let Some(name) = trimmed.strip_prefix("/run ").map(str::trim) else {
+        return Ok(input);
+    };
+    if !is_valid_prompt_name(name) {
+        return Ok(name.to_string());
+    }
+    Ok(PromptStore::from_env()
+        .resolve_for_agent(agent_id, name)?
+        .map(|prompt| prompt.body)
+        .unwrap_or_else(|| name.to_string()))
 }
 
 fn daemon_ingest_list() -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(IngestionStore::from_env().list()?)?)
 }
 
-fn daemon_ingest_add(body: &str) -> anyhow::Result<serde_json::Value> {
-    let input: PathInput = serde_json::from_str(body)?;
-    ingest_path_with_trace(input.path, input.backend)
+fn daemon_ingest_backends() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(supported_ingestion_backends())?)
 }
 
-fn daemon_ingest_rerun(id: &str, body: &str) -> anyhow::Result<serde_json::Value> {
+async fn daemon_ingest_add(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: PathInput = serde_json::from_str(body)?;
+    ingest_path_with_trace(
+        input.path,
+        input.backend,
+        input.vision_model,
+        input.guardrail_model,
+    )
+    .await
+}
+
+async fn daemon_ingest_rerun(id: &str, body: &str) -> anyhow::Result<serde_json::Value> {
     let input: BackendInput = serde_json::from_str(body)?;
     let source = IngestionStore::from_env().show(id)?.source;
-    ingest_path_with_trace(source.display().to_string(), input.backend)
+    ingest_path_with_trace(
+        source.display().to_string(),
+        input.backend,
+        input.vision_model,
+        input.guardrail_model,
+    )
+    .await
 }
 
-fn ingest_path_with_trace(path: String, backend: String) -> anyhow::Result<serde_json::Value> {
+async fn ingest_path_with_trace(
+    path: String,
+    backend: String,
+    vision_model: Option<String>,
+    guardrail_model: Option<String>,
+) -> anyhow::Result<serde_json::Value> {
     let trace_run_id = RunId::new();
     let store = open_event_store()?;
     let started = store.append(
@@ -1185,7 +3191,8 @@ fn ingest_path_with_trace(path: String, backend: String) -> anyhow::Result<serde
             backend: backend.clone(),
         },
     );
-    let artifact = IngestionStore::from_env().ingest_with_backend(path, &backend)?;
+    let artifact =
+        ingest_with_optional_models(path, &backend, vision_model, guardrail_model).await?;
     store.append(
         trace_run_id,
         Some(started.id),
@@ -1197,8 +3204,141 @@ fn ingest_path_with_trace(path: String, backend: String) -> anyhow::Result<serde
     }))
 }
 
+async fn ingest_with_optional_models(
+    path: String,
+    backend: &str,
+    vision_model: Option<String>,
+    guardrail_model: Option<String>,
+) -> anyhow::Result<IngestionArtifact> {
+    let store = IngestionStore::from_env();
+    let vision_model = clean_optional_string(vision_model);
+    let guardrail_model =
+        clean_optional_string(guardrail_model).or_else(configured_ingestion_guardrail_model);
+    let vision_provider = match vision_model.as_deref() {
+        Some(model) => {
+            ensure_model_supports_vision(model)?;
+            Some(ingestion_provider_for_model(model, Some(2048), Some(0.0))?)
+        }
+        None => None,
+    };
+    let guardrail_provider = match guardrail_model.as_deref() {
+        Some(model) => Some(ingestion_provider_for_model(model, Some(256), Some(0.0))?),
+        None => None,
+    };
+
+    Ok(store
+        .ingest_with_backend_and_models(
+            path,
+            backend,
+            vision_model
+                .map(ModelRef::from)
+                .zip(vision_provider.as_ref())
+                .map(|(model, provider)| IngestionModelCall {
+                    provider: provider.as_ref(),
+                    model,
+                }),
+            guardrail_model
+                .map(ModelRef::from)
+                .zip(guardrail_provider.as_ref())
+                .map(|(model, provider)| IngestionModelCall {
+                    provider: provider.as_ref(),
+                    model,
+                }),
+        )
+        .await?)
+}
+
+fn ensure_model_supports_vision(model: &str) -> anyhow::Result<()> {
+    if ConfigResolver::from_env().model_supports_modality(model, "image")? {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "vision model {model:?} does not advertise image support; save the model with available_modalities=[\"text\",\"image\"] or choose a vision-capable provider"
+    )
+}
+
+fn ingestion_provider_for_model(
+    model: &str,
+    max_output_tokens: Option<u64>,
+    temperature: Option<f64>,
+) -> anyhow::Result<Arc<dyn LlmProvider>> {
+    let model_runtime = ConfigResolver::from_env()
+        .resolve_model_runtime(model)?
+        .unwrap_or_default();
+    ingestion_provider_for_runtime(model, &model_runtime, max_output_tokens, temperature)
+}
+
+fn ingestion_provider_for_runtime(
+    model: &str,
+    model_runtime: &ModelRuntimeConfig,
+    max_output_tokens: Option<u64>,
+    temperature: Option<f64>,
+) -> anyhow::Result<Arc<dyn LlmProvider>> {
+    let provider = model_runtime
+        .provider
+        .as_deref()
+        .unwrap_or("rig")
+        .trim()
+        .to_ascii_lowercase();
+    match provider.as_str() {
+        "anthropic" => Ok(Arc::new(AnthropicProvider::from_config(
+            model_runtime.native_provider_config(
+                ModelRef::from(model),
+                NativeProviderConfig::anthropic,
+                max_output_tokens,
+                temperature,
+            ),
+        )?)),
+        "gemini" => Ok(Arc::new(GeminiProvider::from_config(
+            model_runtime.native_provider_config(
+                ModelRef::from(model),
+                NativeProviderConfig::gemini,
+                max_output_tokens,
+                temperature,
+            ),
+        )?)),
+        _ => Ok(Arc::new(RigProvider::from_config(
+            model_runtime.rig_provider_config(
+                ModelRef::from(model),
+                max_output_tokens,
+                temperature,
+            )?,
+        )?)),
+    }
+}
+
+fn configured_ingestion_guardrail_model() -> Option<String> {
+    ConfigResolver::from_env()
+        .resolve_agent("fake-agent")
+        .ok()
+        .and_then(|resolved| {
+            resolved
+                .values
+                .into_iter()
+                .find(|value| value.key == "agent.ingestion_policy.guardrail_model")
+        })
+        .and_then(|value| value.value.as_str().map(str::to_string))
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn clean_optional_string(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 fn daemon_ingest_show(id: &str) -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(IngestionStore::from_env().show(id)?)?)
+}
+
+fn daemon_ingest_review(id: &str, body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: IngestReviewInput = serde_json::from_str(body)?;
+    let decision = IngestionFindingReviewDecision::from_str(&input.decision).ok_or_else(|| {
+        anyhow::anyhow!("decision must be acknowledge, approve/allow, or reject/block")
+    })?;
+    Ok(serde_json::to_value(
+        IngestionStore::from_env().review_finding(id, input.finding, decision, input.note)?,
+    )?)
 }
 
 fn daemon_ingest_rm(id: &str) -> anyhow::Result<serde_json::Value> {
@@ -1206,11 +3346,32 @@ fn daemon_ingest_rm(id: &str) -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::json!({ "id": id, "removed": true }))
 }
 
+fn daemon_artifact_list() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(list_generated_artifacts_from_env()?)?)
+}
+
+fn daemon_artifact_show(id: &str) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(show_generated_artifact_from_env(id)?)?)
+}
+
+fn daemon_artifact_open(id: &str) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(open_generated_artifact_from_env(id)?)?)
+}
+
+fn daemon_artifact_data_url(id: &str) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(generated_artifact_data_url_from_env(
+        id,
+    )?)?)
+}
+
 fn ingestion_completed_event(artifact: &IngestionArtifact) -> RunEventKind {
     RunEventKind::IngestionCompleted {
         artifact_id: artifact.id.clone(),
         content_hash: artifact.content_hash.clone(),
         sections: artifact.sections.len() as u32,
+        findings: artifact.finding_summaries(),
+        high_risk_findings: artifact.high_risk_finding_count() as u32,
+        finding_snippets: artifact.finding_source_snippets(),
     }
 }
 
@@ -1245,6 +3406,35 @@ fn daemon_adapter_route(path: &str) -> anyhow::Result<serde_json::Value> {
     }
 }
 
+fn daemon_clawhub_search(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: ClawHubSearchInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        ClawHubProvider::from_catalog(input.catalog)?.search(input.query.as_deref()),
+    )?)
+}
+
+fn daemon_clawhub_inspect(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: ClawHubEntryInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        ClawHubProvider::from_catalog(input.catalog)?.inspect(&input.id)?,
+    )?)
+}
+
+fn daemon_clawhub_pin(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: ClawHubEntryInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        ClawHubProvider::from_catalog(input.catalog)?.pin(&input.id)?,
+    )?)
+}
+
+fn daemon_clawhub_install(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: ClawHubEntryInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        ClawHubProvider::from_catalog(input.catalog)?
+            .install(&input.id, &AdapterRegistry::from_env())?,
+    )?)
+}
+
 fn daemon_bundle_export(body: &str) -> anyhow::Result<serde_json::Value> {
     let input: PathInput = serde_json::from_str(body)?;
     Ok(serde_json::to_value(export_bundle(input.path)?)?)
@@ -1258,6 +3448,15 @@ fn daemon_bundle_import(body: &str) -> anyhow::Result<serde_json::Value> {
 #[derive(serde::Deserialize)]
 struct DaemonRunInput {
     input: String,
+    demo: Option<String>,
+    #[serde(flatten)]
+    options: DaemonRuntimeOptions,
+}
+
+#[derive(serde::Deserialize)]
+struct DaemonResumeInput {
+    run_id: String,
+    from_event: Option<u64>,
     demo: Option<String>,
     #[serde(flatten)]
     options: DaemonRuntimeOptions,
@@ -1292,9 +3491,44 @@ struct DaemonBatchResumeInput {
     options: DaemonRuntimeOptions,
 }
 
+#[derive(serde::Deserialize)]
+struct WebhookBridgeRequest {
+    text: String,
+    user_id: Option<String>,
+    conversation_id: Option<String>,
+    response_url: Option<String>,
+    metadata: Option<serde_json::Value>,
+}
+
+#[derive(serde::Deserialize)]
+struct TelegramUpdate {
+    update_id: Option<i64>,
+    message: Option<TelegramMessage>,
+    edited_message: Option<TelegramMessage>,
+}
+
+#[derive(serde::Deserialize)]
+struct TelegramMessage {
+    message_id: i64,
+    chat: TelegramChat,
+    from: Option<TelegramUser>,
+    text: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct TelegramChat {
+    id: i64,
+}
+
+#[derive(serde::Deserialize)]
+struct TelegramUser {
+    id: i64,
+}
+
 #[derive(Clone, Default, serde::Deserialize)]
 struct DaemonRuntimeOptions {
     provider: Option<String>,
+    agent_id: Option<String>,
     model: Option<String>,
     api_base_url: Option<String>,
     api_key_env: Option<String>,
@@ -1302,13 +3536,20 @@ struct DaemonRuntimeOptions {
     max_output_tokens: Option<u64>,
     temperature: Option<f64>,
     max_tool_calls: Option<u32>,
+    #[serde(default)]
+    allowed_tool_categories: Vec<String>,
+    #[serde(default)]
+    allowed_skill_categories: Vec<String>,
     tool_visibility: Option<VisibilityLevel>,
+    skill_visibility: Option<VisibilityLevel>,
     input_cost_per_million: Option<f64>,
     output_cost_per_million: Option<f64>,
     #[serde(default)]
     enable_shell: bool,
     #[serde(default)]
     enable_subagent: bool,
+    #[serde(default)]
+    enable_capability_drafts: bool,
     #[serde(default)]
     load_memory: bool,
     #[serde(default)]
@@ -1324,8 +3565,24 @@ struct DaemonRuntimeOptions {
     #[serde(default)]
     require_approval: bool,
     #[serde(default)]
+    auto_approve: bool,
+    #[serde(default)]
     raw_tool_output: bool,
+    #[serde(default)]
+    disable_lifecycle_hooks: bool,
     compacted_context: Option<String>,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct RecursiveInput {
+    #[serde(default)]
+    recursive: bool,
+}
+
+#[derive(serde::Deserialize)]
+struct ConversationRangeInput {
+    from: usize,
+    to: usize,
 }
 
 #[derive(serde::Deserialize)]
@@ -1338,6 +3595,7 @@ struct GuideInput {
 struct CancelInput {
     run_id: String,
     reason: String,
+    mode: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -1379,9 +3637,37 @@ struct MemoryRollbackInput {
 }
 
 #[derive(serde::Deserialize)]
+struct MemoryFileInput {
+    path: String,
+    #[serde(default)]
+    user: bool,
+}
+
+#[derive(serde::Deserialize)]
 struct PromptSaveInput {
     name: String,
     body: String,
+    agent_id: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct PromptScopeInput {
+    agent_id: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct PromptNameInput {
+    name: String,
+    agent_id: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct CapabilityProposeInput {
+    kind: String,
+    name: String,
+    body: String,
+    guidance: Option<String>,
+    created_by: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -1389,12 +3675,40 @@ struct PathInput {
     path: String,
     #[serde(default = "default_ingest_backend")]
     backend: String,
+    #[serde(default)]
+    vision_model: Option<String>,
+    #[serde(default)]
+    guardrail_model: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct ClawHubSearchInput {
+    catalog: String,
+    query: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct ClawHubEntryInput {
+    catalog: String,
+    id: String,
 }
 
 #[derive(serde::Deserialize)]
 struct BackendInput {
     #[serde(default = "default_ingest_backend")]
     backend: String,
+    #[serde(default)]
+    vision_model: Option<String>,
+    #[serde(default)]
+    guardrail_model: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct IngestReviewInput {
+    finding: u32,
+    decision: String,
+    #[serde(default)]
+    note: Option<String>,
 }
 
 fn default_ingest_backend() -> String {
@@ -1406,32 +3720,83 @@ fn provider_for_run(
     input: &str,
     options: &DaemonRuntimeOptions,
 ) -> anyhow::Result<Arc<dyn LlmProvider>> {
+    let prompt_refinement_enabled = effective_prompt_refinement_enabled(options);
     match options.provider.as_deref() {
         Some("rig") => {
-            let model = rig_model_id(options);
+            let model = model_id_for_provider(options, "rig");
             let model_runtime = ConfigResolver::from_env()
                 .resolve_model_runtime(&model)
                 .ok()
-                .flatten();
-            let config = RigProviderConfig {
-                api_base_url: options.api_base_url.clone(),
-                api_key_env: options
-                    .api_key_env
-                    .clone()
-                    .unwrap_or_else(|| "OPENAI_API_KEY".into()),
-                model: ModelRef::from(model),
-                max_output_tokens: options.max_output_tokens.or_else(|| {
-                    model_runtime
-                        .as_ref()
-                        .and_then(|model| model.max_output_tokens)
-                }),
-                temperature: options.temperature.or_else(|| {
-                    model_runtime
-                        .as_ref()
-                        .and_then(|model| model.default_temperature)
-                }),
-            };
+                .flatten()
+                .unwrap_or_default();
+            let mut config = model_runtime.rig_provider_config(
+                ModelRef::from(model),
+                options.max_output_tokens,
+                options.temperature,
+            )?;
+            if let Some(api_base_url) = options.api_base_url.clone() {
+                config.api_base_url = Some(api_base_url);
+            }
+            if let Some(api_key_env) = options.api_key_env.clone() {
+                config.api_key_env = api_key_env;
+            } else if model_runtime.api_key_env.is_none() {
+                config.api_key_env = "OPENAI_API_KEY".into();
+            }
             Ok(Arc::new(RigProvider::from_config_with_api_key_override(
+                config,
+                options.api_key.clone(),
+            )?))
+        }
+        Some("ollama") => {
+            let model = model_id_for_provider(options, "ollama");
+            let mut config = RigProviderConfig::ollama(ModelRef::from(model));
+            if let Some(base_url) = options.api_base_url.clone() {
+                config.api_base_url = Some(base_url);
+            }
+            config.max_output_tokens = options.max_output_tokens;
+            config.temperature = options.temperature;
+            Ok(Arc::new(RigProvider::from_config_with_api_key_override(
+                config,
+                options.api_key.clone(),
+            )?))
+        }
+        Some("llama_cpp" | "llama-cpp" | "llamacpp") => {
+            let model = model_id_for_provider(options, "llama_cpp");
+            let mut config = RigProviderConfig::llama_cpp(ModelRef::from(model));
+            if let Some(base_url) = options.api_base_url.clone() {
+                config.api_base_url = Some(base_url);
+            }
+            config.max_output_tokens = options.max_output_tokens;
+            config.temperature = options.temperature;
+            Ok(Arc::new(RigProvider::from_config_with_api_key_override(
+                config,
+                options.api_key.clone(),
+            )?))
+        }
+        Some("anthropic") => {
+            let model = model_id_for_provider(options, "anthropic");
+            let config = native_provider_config(
+                model,
+                options,
+                NativeProviderConfig::anthropic,
+                "ANTHROPIC_API_KEY",
+            );
+            Ok(Arc::new(
+                AnthropicProvider::from_config_with_api_key_override(
+                    config,
+                    options.api_key.clone(),
+                )?,
+            ))
+        }
+        Some("gemini") => {
+            let model = model_id_for_provider(options, "gemini");
+            let config = native_provider_config(
+                model,
+                options,
+                NativeProviderConfig::gemini,
+                "GEMINI_API_KEY",
+            );
+            Ok(Arc::new(GeminiProvider::from_config_with_api_key_override(
                 config,
                 options.api_key.clone(),
             )?))
@@ -1439,7 +3804,7 @@ fn provider_for_run(
         _ => Ok(match demo {
             Some("tool") => {
                 let mut steps = Vec::new();
-                if options.enable_prompt_refinement {
+                if prompt_refinement_enabled {
                     steps.push(FakeStep::Reply(format!("refined: {input}")));
                 }
                 steps.extend([
@@ -1452,7 +3817,7 @@ fn provider_for_run(
                 ]);
                 Arc::new(FakeProvider::sequence(steps))
             }
-            _ if options.enable_prompt_refinement => Arc::new(FakeProvider::sequence(vec![
+            _ if prompt_refinement_enabled => Arc::new(FakeProvider::sequence(vec![
                 FakeStep::Reply(format!("refined: {input}")),
                 FakeStep::Reply(format!("[fake] refined: {input}")),
             ])),
@@ -1461,39 +3826,245 @@ fn provider_for_run(
     }
 }
 
-fn rig_model_id(options: &DaemonRuntimeOptions) -> String {
+fn effective_prompt_refinement_enabled(options: &DaemonRuntimeOptions) -> bool {
+    if options.enable_prompt_refinement {
+        return true;
+    }
+    ConfigResolver::from_env()
+        .resolve_agent(options.agent_id.as_deref().unwrap_or("fake-agent"))
+        .map(|resolved| resolved.agent.prompt_refinement.is_some())
+        .unwrap_or(false)
+}
+
+fn native_provider_config(
+    model: String,
+    options: &DaemonRuntimeOptions,
+    constructor: fn(ModelRef) -> NativeProviderConfig,
+    default_api_key_env: &str,
+) -> NativeProviderConfig {
+    let model_runtime = ConfigResolver::from_env()
+        .resolve_model_runtime(&model)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let runtime_has_api_key_env = model_runtime.api_key_env.is_some();
+    let mut config = model_runtime.native_provider_config(
+        ModelRef::from(model),
+        constructor,
+        options.max_output_tokens,
+        options.temperature,
+    );
+    if let Some(api_key_env) = options.api_key_env.clone() {
+        config.api_key_env = api_key_env;
+    } else if !runtime_has_api_key_env {
+        config.api_key_env = default_api_key_env.into();
+    }
+    config
+}
+
+fn model_id_for_provider(options: &DaemonRuntimeOptions, provider: &str) -> String {
     if let Some(model) = options.model.clone() {
         return model;
     }
     let configured = ConfigResolver::from_env()
-        .resolve_default_agent()
+        .resolve_agent(options.agent_id.as_deref().unwrap_or("fake-agent"))
         .map(|resolved| resolved.agent.model.0)
         .unwrap_or_else(|_| "fake-model".into());
     if configured == "fake-model" {
-        "gpt-4o-mini".into()
+        default_model_for_provider(provider).into()
     } else {
         configured
     }
 }
 
-fn build_registry(enable_shell: bool, enable_subagent: bool) -> Arc<ToolRegistry> {
+fn default_model_for_provider(provider: &str) -> &'static str {
+    match provider {
+        "ollama" => "llama3.1",
+        "llama_cpp" | "llama-cpp" | "llamacpp" => "local-model",
+        "anthropic" => "claude-sonnet-4-5",
+        "gemini" => "gemini-2.5-flash",
+        "rig" => "gpt-4o-mini",
+        _ => "fake-model",
+    }
+}
+
+fn build_registry(
+    enable_shell: bool,
+    enable_subagent: bool,
+    enable_capability_drafts: bool,
+    agent_id: Option<&str>,
+) -> Arc<ToolRegistry> {
     let mut registry = ToolRegistry::new();
     registry.register(FakeTool::echo_descriptor(), Arc::new(FakeTool::echo()));
+    registry.register(
+        ArtifactTool::descriptor(),
+        Arc::new(ArtifactTool::from_env()),
+    );
     if enable_shell {
+        let shell_config = ShellToolConfig::from_env();
         registry.register(
-            ShellTool::descriptor(),
-            Arc::new(ShellTool::new(ShellToolConfig::default())),
+            ShellTool::descriptor_for_config(&shell_config),
+            Arc::new(ShellTool::new(shell_config)),
         );
     }
     if enable_subagent {
         registry.register(SubagentTool::descriptor(), Arc::new(SubagentTool));
     }
+    if enable_capability_drafts {
+        registry.register(
+            CapabilityDraftTool::descriptor(),
+            Arc::new(CapabilityDraftTool::from_env()),
+        );
+    }
+    register_voice_tools(&mut registry, voice_runtime_config_for_agent(agent_id));
+    register_profile_scoped_mcp_tools(&mut registry);
     Arc::new(registry)
 }
 
+fn voice_runtime_config_for_agent(agent_id: Option<&str>) -> VoiceRuntimeConfig {
+    ConfigResolver::from_env()
+        .resolve_agent(agent_id.unwrap_or("fake-agent"))
+        .map(|resolved| {
+            let voice = resolved.agent.voice;
+            VoiceRuntimeConfig {
+                input_enabled: voice.input_enabled,
+                output_enabled: voice.output_enabled,
+                input_backend: voice.input_backend,
+                input_provider: voice.input_provider,
+                input_model: voice.input_model,
+                output_backend: voice.output_backend,
+                tts_provider: voice.tts_provider,
+                tts_model: voice.tts_model,
+                voice: voice.voice,
+                tone: voice.tone,
+            }
+        })
+        .unwrap_or_default()
+}
+
+fn build_harness(
+    provider: Arc<dyn LlmProvider>,
+    events: Arc<dyn EventStore>,
+    registry: Arc<ToolRegistry>,
+) -> Harness {
+    build_harness_with_hook_policy(provider, events, registry, false, None)
+}
+
+fn build_harness_with_hook_policy(
+    provider: Arc<dyn LlmProvider>,
+    events: Arc<dyn EventStore>,
+    registry: Arc<ToolRegistry>,
+    disable_lifecycle_hooks: bool,
+    agent_id: Option<&str>,
+) -> Harness {
+    let harness = Harness::new(provider, events, registry);
+    if disable_lifecycle_hooks {
+        harness
+    } else {
+        harness.with_hooks(build_lifecycle_hooks(agent_id))
+    }
+}
+
+fn build_lifecycle_hooks(agent_id: Option<&str>) -> Vec<RunLifecycleHook> {
+    let paths = StoragePaths::from_env();
+    let disabled = ConfigResolver::new(paths.clone())
+        .disabled_lifecycle_hooks_for_agent(agent_id.unwrap_or("fake-agent"))
+        .unwrap_or_default()
+        .into_iter()
+        .collect::<HashSet<_>>();
+    AdapterRegistry::new(paths)
+        .lifecycle_hooks()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|hook| !disabled.contains(hook.id.trim()))
+        .filter_map(|hook| {
+            let triggers = hook
+                .triggers
+                .iter()
+                .filter_map(|trigger| HookTrigger::from_config_str(trigger))
+                .collect::<Vec<_>>();
+            (!triggers.is_empty()).then(|| {
+                let mut lifecycle_hook = RunLifecycleHook::new(hook.id, triggers);
+                if let Some(handler) = hook.handler {
+                    lifecycle_hook = lifecycle_hook.with_handler(
+                        RunHookHandler::command(handler.command, handler.args, handler.timeout_ms)
+                            .with_retry_attempts(handler.retry_attempts),
+                    );
+                }
+                lifecycle_hook
+            })
+        })
+        .collect()
+}
+
+fn register_profile_scoped_mcp_tools(registry: &mut ToolRegistry) -> usize {
+    let active_paths = StoragePaths::from_env();
+    let active_profile = active_paths.active_profile_id().to_string();
+    let active_provenance = format!("profile={active_profile}");
+    let mut registered = AdapterRegistry::new(active_paths.clone())
+        .list()
+        .map(|packages| {
+            register_allowed_mcp_tools_with_provenance(registry, packages, Some(&active_provenance))
+        })
+        .unwrap_or_default();
+    let Ok(grants) = ConfigResolver::new(active_paths.clone()).list_profile_grants() else {
+        return registered;
+    };
+    for grant in grants.into_iter().filter(|grant| {
+        matches!(
+            grant.kind,
+            ProfileGrantKind::Tool | ProfileGrantKind::Category
+        ) && grant.to_profile == active_profile
+    }) {
+        let source_paths =
+            StoragePaths::new_with_profile(active_paths.root().to_path_buf(), &grant.from_profile);
+        let Ok(packages) = AdapterRegistry::new(source_paths).list() else {
+            continue;
+        };
+        let provenance = format!(
+            "profile={}; shared_from_profile={}; grant={}",
+            grant.from_profile, grant.from_profile, grant.id
+        );
+        registered += match grant.kind {
+            ProfileGrantKind::Tool => register_allowed_mcp_tools_for_resource_with_provenance(
+                registry,
+                packages,
+                &grant.resource,
+                Some(&provenance),
+            ),
+            ProfileGrantKind::Category => register_allowed_mcp_tools_for_category_with_provenance(
+                registry,
+                packages,
+                &grant.resource,
+                Some(&provenance),
+            ),
+            _ => 0,
+        };
+    }
+    registered
+}
+
 fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
-    let mut agent = ConfigResolver::from_env()
-        .resolve_default_agent()
+    let resolved = ConfigResolver::from_env()
+        .resolve_agent(options.agent_id.as_deref().unwrap_or("fake-agent"));
+    let config_load_memory = resolved
+        .as_ref()
+        .ok()
+        .is_some_and(|resolved| config_bool(&resolved.values, "agent.memory_policy.load"));
+    let config_load_skills = resolved
+        .as_ref()
+        .ok()
+        .is_some_and(|resolved| config_bool(&resolved.values, "agent.skill_policy.load"));
+    let ingestion_guardrail = if options.allow_unsafe_ingest {
+        IngestionGuardrailMode::Allow
+    } else {
+        resolved
+            .as_ref()
+            .ok()
+            .map(|resolved| config_ingestion_guardrail(&resolved.values))
+            .unwrap_or(IngestionGuardrailMode::Block)
+    };
+    let mut agent = resolved
         .map(|resolved| resolved.agent)
         .unwrap_or_else(|_| AgentConfig {
             id: "fake-agent".into(),
@@ -1501,24 +4072,40 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
             system_prompt: "You echo what the user says.".into(),
             model: ModelRef::from("fake-model"),
             prompt_refinement: None,
+            voice: VoiceConfig::default(),
             tool_policy: ToolPolicy::default(),
+            execution_policy: ExecutionPolicy::default(),
             cost_policy: CostPolicy::default(),
+            conversation_history: Vec::new(),
             compacted_context: None,
             memory_fragments: Vec::new(),
             ingestion_artifacts: Vec::new(),
+            allowed_skill_categories: Vec::new(),
             skill_views: Vec::new(),
         });
 
     if let Some(model) = options.model.clone() {
         agent.model = ModelRef::from(model);
-    } else if options.provider.as_deref() == Some("rig") && agent.model.0 == "fake-model" {
-        agent.model = ModelRef::from("gpt-4o-mini");
+    } else if let Some(provider) = options.provider.as_deref()
+        && provider != "fake"
+        && agent.model.0 == "fake-model"
+    {
+        agent.model = ModelRef::from(default_model_for_provider(provider));
     }
     if let Some(max_tool_calls) = options.max_tool_calls {
         agent.tool_policy.max_calls = max_tool_calls;
     }
+    if !options.allowed_tool_categories.is_empty() {
+        agent.tool_policy.allowed_categories = options.allowed_tool_categories.clone();
+    }
+    if !options.allowed_skill_categories.is_empty() {
+        agent.allowed_skill_categories = options.allowed_skill_categories.clone();
+    }
     if let Some(visibility) = options.tool_visibility {
         agent.tool_policy.visibility = visibility;
+    }
+    if options.auto_approve {
+        agent.tool_policy.approval_mode = ApprovalMode::AutoApprove;
     }
     if options.require_approval {
         agent.tool_policy.approval_mode = ApprovalMode::RequireExplicit;
@@ -1549,14 +4136,19 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
             model: options.prompt_refinement_model.clone().map(ModelRef::from),
         });
     }
-    if options.load_memory
-        && let Ok(memory) = MemoryStore::from_env().load_fragments()
+    if (options.load_memory || config_load_memory)
+        && let Ok(memory) = load_memory_fragments_with_profile_grants()
     {
         agent.memory_fragments = memory;
     }
-    if options.load_skills
-        && let Ok(skills) = SkillRegistry::from_env().visible_skill_views()
+    if (options.load_skills || config_load_skills)
+        && let Ok(mut skills) = load_skill_views_with_profile_grants()
     {
+        if let Some(visibility) = options.skill_visibility {
+            for skill in &mut skills {
+                apply_skill_visibility(skill, visibility);
+            }
+        }
         agent.skill_views = skills;
     }
     if !options.include_ingest.is_empty() {
@@ -1566,18 +4158,24 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
             .iter()
             .filter_map(|id| store.show(id).ok())
             .map(|artifact| {
-                let high_risk = artifact.has_high_risk_findings();
-                let mut findings: Vec<String> = artifact
-                    .findings
-                    .into_iter()
-                    .map(|finding| format!("{:?}: {}", finding.severity, finding.message))
-                    .collect();
-                let content = if high_risk && !options.allow_unsafe_ingest {
+                let high_risk = artifact.has_unapproved_high_risk_findings();
+                let mut findings = artifact.finding_summaries();
+                let blocked =
+                    high_risk && matches!(ingestion_guardrail, IngestionGuardrailMode::Block);
+                let warned =
+                    high_risk && matches!(ingestion_guardrail, IngestionGuardrailMode::Warn);
+                let content = if blocked {
                     findings.push(
                         "Policy: content withheld; enable unsafe ingest override to include".into(),
                     );
                     String::new()
                 } else {
+                    if warned {
+                        findings.push(
+                            "Policy: unapproved high-risk content included with ingestion guardrail warning"
+                                .into(),
+                        );
+                    }
                     artifact.extracted_text.unwrap_or_default()
                 };
                 IngestedArtifactView {
@@ -1586,8 +4184,10 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
                     sections: artifact.sections.len(),
                     content,
                     findings,
-                    provenance: if high_risk && !options.allow_unsafe_ingest {
+                    provenance: if blocked {
                         "agent.ingest blocked by prompt-injection guardrail".into()
+                    } else if warned {
+                        "agent.ingest warning from prompt-injection guardrail".into()
                     } else {
                         "agent.ingest explicit reference".into()
                     },
@@ -1597,6 +4197,126 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
     }
 
     agent
+}
+
+fn apply_skill_visibility(skill: &mut SkillView, visibility: VisibilityLevel) {
+    skill.visibility = visibility;
+    match visibility {
+        VisibilityLevel::FullSchema => {}
+        VisibilityLevel::NameAndDescription => {
+            skill.body = None;
+            skill.estimated_tokens = 0;
+        }
+        VisibilityLevel::NameOnly => {
+            skill.description = None;
+            skill.body = None;
+            skill.estimated_tokens = 0;
+        }
+    }
+}
+
+fn config_bool(values: &[ConfigValueExplanation], key: &str) -> bool {
+    values
+        .iter()
+        .find(|value| value.key == key)
+        .and_then(|value| value.value.as_bool())
+        .unwrap_or(false)
+}
+
+fn config_ingestion_guardrail(values: &[ConfigValueExplanation]) -> IngestionGuardrailMode {
+    values
+        .iter()
+        .find(|value| value.key == "agent.ingestion_policy.guardrail_mode")
+        .and_then(|value| value.value.as_str())
+        .and_then(IngestionGuardrailMode::from_config_str)
+        .unwrap_or(IngestionGuardrailMode::Block)
+}
+
+fn load_memory_fragments_with_profile_grants() -> anyhow::Result<Vec<MemoryFragment>> {
+    let active_paths = StoragePaths::from_env();
+    let active_profile = active_paths.active_profile_id().to_string();
+    let mut fragments = MemoryStore::new(active_paths.clone()).load_fragments()?;
+    let resolver = ConfigResolver::new(active_paths.clone());
+    for grant in resolver.list_profile_grants()?.into_iter().filter(|grant| {
+        grant.kind == ProfileGrantKind::Memory && grant.to_profile == active_profile
+    }) {
+        let source_paths =
+            StoragePaths::new_with_profile(active_paths.root().to_path_buf(), &grant.from_profile);
+        let records = MemoryStore::new(source_paths).list()?;
+        for record in records
+            .into_iter()
+            .filter(|record| memory_record_matches_grant(record, &grant.resource))
+        {
+            fragments.push(MemoryStore::fragment_from_record(
+                record,
+                Some(format!(
+                    "shared_from_profile={}; grant={}",
+                    grant.from_profile, grant.id
+                )),
+            ));
+        }
+    }
+    Ok(fragments)
+}
+
+fn memory_record_matches_grant(record: &MemoryRecord, resource: &str) -> bool {
+    resource == "*" || record.id == resource || record.owning_agent.as_deref() == Some(resource)
+}
+
+fn load_skill_views_with_profile_grants() -> anyhow::Result<Vec<SkillView>> {
+    let active_paths = StoragePaths::from_env();
+    let active_profile = active_paths.active_profile_id().to_string();
+    let mut skills = SkillRegistry::new(active_paths.clone()).visible_skill_views()?;
+    let mut loaded_ids = skills
+        .iter()
+        .map(|skill| skill.id.clone())
+        .collect::<HashSet<_>>();
+    let resolver = ConfigResolver::new(active_paths.clone());
+    for grant in resolver.list_profile_grants()?.into_iter().filter(|grant| {
+        matches!(
+            grant.kind,
+            ProfileGrantKind::Skill | ProfileGrantKind::Category
+        ) && grant.to_profile == active_profile
+    }) {
+        let source_paths =
+            StoragePaths::new_with_profile(active_paths.root().to_path_buf(), &grant.from_profile);
+        for mut skill in SkillRegistry::new(source_paths)
+            .visible_skill_views()?
+            .into_iter()
+            .filter(|skill| skill_view_matches_grant(skill, &grant))
+        {
+            if loaded_ids.contains(&skill.id) {
+                continue;
+            }
+            let shared_provenance = format!(
+                "shared_from_profile={}; grant={}",
+                grant.from_profile, grant.id
+            );
+            skill.provenance = Some(match skill.provenance {
+                Some(base) => format!("{base}; {shared_provenance}"),
+                None => shared_provenance,
+            });
+            loaded_ids.insert(skill.id.clone());
+            skills.push(skill);
+        }
+    }
+    Ok(skills)
+}
+
+fn skill_view_matches_grant(skill: &SkillView, grant: &ProfileGrant) -> bool {
+    match grant.kind {
+        ProfileGrantKind::Skill => {
+            grant.resource == "*" || skill.id == grant.resource || skill.name == grant.resource
+        }
+        ProfileGrantKind::Category => {
+            grant.resource == "*"
+                || skill
+                    .categories
+                    .iter()
+                    .any(|category| category == &grant.resource)
+        }
+        _ => false,
+    }
 }
 
 fn open_event_store() -> anyhow::Result<SqliteEventStore> {
@@ -1614,7 +4334,628 @@ fn http_json(status: u16, body: serde_json::Value) -> String {
     };
     let body = body.to_string();
     format!(
-        "HTTP/1.1 {status_text}\r\ncontent-type: application/json\r\naccess-control-allow-origin: *\r\naccess-control-allow-methods: GET, POST, OPTIONS\r\naccess-control-allow-headers: content-type\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status_text}\r\ncontent-type: application/json\r\naccess-control-allow-origin: *\r\naccess-control-allow-methods: GET, POST, OPTIONS\r\naccess-control-allow-headers: content-type, x-agent-bridge-token, authorization\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
         body.len()
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[tokio::test]
+    async fn messaging_bridges_route_to_agent_and_shape_platform_responses() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("messaging-bridges");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        let previous_bridge_agent = std::env::var_os("AGENT_BRIDGE_AGENT_ID");
+        let previous_telegram_agent = std::env::var_os("AGENT_TELEGRAM_AGENT_ID");
+        let previous_slack_agent = std::env::var_os("AGENT_SLACK_AGENT_ID");
+        let previous_webhook_agent = std::env::var_os("AGENT_WEBHOOK_AGENT_ID");
+        let previous_slack_response = std::env::var_os("AGENT_SLACK_RESPONSE_TYPE");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+            std::env::remove_var("AGENT_BRIDGE_AGENT_ID");
+            std::env::remove_var("AGENT_TELEGRAM_AGENT_ID");
+            std::env::remove_var("AGENT_SLACK_AGENT_ID");
+            std::env::remove_var("AGENT_WEBHOOK_AGENT_ID");
+            std::env::remove_var("AGENT_SLACK_RESPONSE_TYPE");
+        }
+
+        let telegram = daemon_telegram_bridge(
+            r#"{
+                "update_id": 10,
+                "message": {
+                    "message_id": 7,
+                    "chat": { "id": 42 },
+                    "from": { "id": 99 },
+                    "text": "hello telegram"
+                }
+            }"#,
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(telegram["bridge"], "telegram");
+        assert_eq!(telegram["telegram_response"]["method"], "sendMessage");
+        assert_eq!(telegram["telegram_response"]["chat_id"], 42);
+        assert_eq!(
+            telegram["telegram_response"]["text"],
+            "[fake] hello telegram"
+        );
+        assert!(telegram["run_id"].as_str().is_some());
+
+        let slack = daemon_slack_bridge(
+            "team_id=T1&channel_id=C1&user_id=U1&command=%2Fagent&text=hello+slack",
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(slack["response_type"], "ephemeral");
+        assert_eq!(slack["text"], "[fake] hello slack");
+        assert_eq!(slack["bridge"]["platform"], "slack");
+        assert_eq!(slack["bridge"]["team_id"], "T1");
+        assert_eq!(slack["bridge"]["channel_id"], "C1");
+        assert_eq!(slack["bridge"]["user_id"], "U1");
+        assert!(slack["bridge"]["run_id"].as_str().is_some());
+
+        let webhook = daemon_webhook_bridge(
+            r#"{"text":"hello webhook","user_id":"mobile-user","conversation_id":"thread-1","metadata":{"source":"web"}}"#,
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(webhook["text"], "[fake] hello webhook");
+        assert_eq!(webhook["bridge"]["platform"], "webhook");
+        assert_eq!(webhook["bridge"]["user_id"], "mobile-user");
+        assert_eq!(webhook["bridge"]["conversation_id"], "thread-1");
+        assert_eq!(webhook["metadata"]["source"], "web");
+        assert!(webhook["bridge"]["run_id"].as_str().is_some());
+        assert_eq!(webhook["delivery"]["attempted"], false);
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        restore_env("AGENT_BRIDGE_AGENT_ID", previous_bridge_agent);
+        restore_env("AGENT_TELEGRAM_AGENT_ID", previous_telegram_agent);
+        restore_env("AGENT_SLACK_AGENT_ID", previous_slack_agent);
+        restore_env("AGENT_WEBHOOK_AGENT_ID", previous_webhook_agent);
+        restore_env("AGENT_SLACK_RESPONSE_TYPE", previous_slack_response);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn messaging_bridge_auth_rejects_invalid_and_accepts_valid_headers() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("messaging-bridge-auth");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        let previous_telegram = std::env::var_os("AGENT_TELEGRAM_SECRET_TOKEN");
+        let previous_slack = std::env::var_os("AGENT_SLACK_SIGNING_SECRET");
+        let previous_webhook = std::env::var_os("AGENT_WEBHOOK_SECRET_TOKEN");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+            std::env::set_var("AGENT_TELEGRAM_SECRET_TOKEN", "telegram-secret");
+            std::env::set_var("AGENT_SLACK_SIGNING_SECRET", "slack-secret");
+            std::env::set_var("AGENT_WEBHOOK_SECRET_TOKEN", "webhook-secret");
+        }
+
+        let telegram_body = r#"{
+            "message": {
+                "message_id": 8,
+                "chat": { "id": 43 },
+                "text": "signed telegram"
+            }
+        }"#;
+        let mut bad_telegram_headers = HashMap::new();
+        bad_telegram_headers.insert(
+            "x-telegram-bot-api-secret-token".into(),
+            "wrong-secret".into(),
+        );
+        assert!(
+            daemon_telegram_bridge(telegram_body, &bad_telegram_headers)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("invalid")
+        );
+
+        let mut good_telegram_headers = HashMap::new();
+        good_telegram_headers.insert(
+            "x-telegram-bot-api-secret-token".into(),
+            "telegram-secret".into(),
+        );
+        assert!(
+            daemon_telegram_bridge(telegram_body, &good_telegram_headers)
+                .await
+                .unwrap()["run_id"]
+                .as_str()
+                .is_some()
+        );
+
+        let slack_body = "team_id=T1&channel_id=C1&user_id=U1&command=%2Fagent&text=signed+slack";
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+            .to_string();
+        let mut bad_slack_headers = HashMap::new();
+        bad_slack_headers.insert("x-slack-request-timestamp".into(), timestamp.clone());
+        bad_slack_headers.insert("x-slack-signature".into(), "v0=bad".into());
+        assert!(
+            daemon_slack_bridge(slack_body, &bad_slack_headers)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("invalid")
+        );
+
+        let mut good_slack_headers = HashMap::new();
+        good_slack_headers.insert("x-slack-request-timestamp".into(), timestamp.clone());
+        good_slack_headers.insert(
+            "x-slack-signature".into(),
+            slack_signature("slack-secret", &timestamp, slack_body).unwrap(),
+        );
+        assert_eq!(
+            daemon_slack_bridge(slack_body, &good_slack_headers)
+                .await
+                .unwrap()["text"],
+            "[fake] signed slack"
+        );
+
+        let webhook_body = r#"{"text":"signed webhook"}"#;
+        let mut bad_webhook_headers = HashMap::new();
+        bad_webhook_headers.insert("x-agent-bridge-token".into(), "wrong-secret".into());
+        assert!(
+            daemon_webhook_bridge(webhook_body, &bad_webhook_headers)
+                .await
+                .unwrap_err()
+                .to_string()
+                .contains("invalid")
+        );
+        let mut good_webhook_headers = HashMap::new();
+        good_webhook_headers.insert("x-agent-bridge-token".into(), "webhook-secret".into());
+        assert_eq!(
+            daemon_webhook_bridge(webhook_body, &good_webhook_headers)
+                .await
+                .unwrap()["text"],
+            "[fake] signed webhook"
+        );
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        restore_env("AGENT_TELEGRAM_SECRET_TOKEN", previous_telegram);
+        restore_env("AGENT_SLACK_SIGNING_SECRET", previous_slack);
+        restore_env("AGENT_WEBHOOK_SECRET_TOKEN", previous_webhook);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn messaging_bridges_deliver_outbound_replies_with_retries() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("messaging-bridge-delivery");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        let previous_telegram_token = std::env::var_os("AGENT_TELEGRAM_BOT_TOKEN");
+        let previous_telegram_base = std::env::var_os("AGENT_TELEGRAM_API_BASE_URL");
+        let previous_slack_secret = std::env::var_os("AGENT_SLACK_SIGNING_SECRET");
+        let previous_attempts = std::env::var_os("AGENT_MESSAGING_DELIVERY_ATTEMPTS");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+            std::env::set_var("AGENT_TELEGRAM_BOT_TOKEN", "test-token");
+            std::env::set_var("AGENT_MESSAGING_DELIVERY_ATTEMPTS", "3");
+            std::env::remove_var("AGENT_SLACK_SIGNING_SECRET");
+        }
+
+        let (telegram_base, telegram_server) = spawn_json_server(vec![200]);
+        unsafe {
+            std::env::set_var("AGENT_TELEGRAM_API_BASE_URL", &telegram_base);
+        }
+        let telegram = daemon_telegram_bridge(
+            r#"{
+                "message": {
+                    "message_id": 9,
+                    "chat": { "id": 44 },
+                    "text": "deliver telegram"
+                }
+            }"#,
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(telegram["delivery"]["delivered"], true);
+        assert_eq!(telegram["delivery"]["target"], "telegram.sendMessage");
+        let telegram_requests = telegram_server.join().unwrap();
+        assert_eq!(telegram_requests.len(), 1);
+        assert!(
+            telegram_requests[0]
+                .0
+                .contains("/bottest-token/sendMessage")
+        );
+        assert!(telegram_requests[0].1.contains("[fake] deliver telegram"));
+
+        let (slack_url, slack_server) = spawn_json_server(vec![500, 200]);
+        let slack_body = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("team_id", "T1")
+            .append_pair("channel_id", "C1")
+            .append_pair("user_id", "U1")
+            .append_pair("command", "/agent")
+            .append_pair("text", "deliver slack")
+            .append_pair("response_url", &format!("{slack_url}/response"))
+            .finish();
+        let slack = daemon_slack_bridge(&slack_body, &HashMap::new())
+            .await
+            .unwrap();
+        assert_eq!(slack["delivery"]["delivered"], true);
+        assert_eq!(slack["delivery"]["attempts"], 2);
+        assert_eq!(slack["delivery"]["target"], "slack.response_url");
+        let slack_requests = slack_server.join().unwrap();
+        assert_eq!(slack_requests.len(), 2);
+        assert!(slack_requests[1].1.contains("[fake] deliver slack"));
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        restore_env("AGENT_TELEGRAM_BOT_TOKEN", previous_telegram_token);
+        restore_env("AGENT_TELEGRAM_API_BASE_URL", previous_telegram_base);
+        restore_env("AGENT_SLACK_SIGNING_SECRET", previous_slack_secret);
+        restore_env("AGENT_MESSAGING_DELIVERY_ATTEMPTS", previous_attempts);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn trace_hooks_returns_remediation_plan() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("trace-hooks");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+        let run_id = RunId::new();
+        let store = open_event_store().unwrap();
+        let fired = store.append(
+            run_id,
+            None,
+            RunEventKind::HookFired {
+                hook_id: "guard".into(),
+                trigger: "before_tool_call".into(),
+                payload_digest: "abc123".into(),
+            },
+        );
+        store.append(
+            run_id,
+            Some(fired.id),
+            RunEventKind::HookFailed {
+                hook_id: "guard".into(),
+                trigger: "before_tool_call".into(),
+                error: "blocked".into(),
+                attempt: 1,
+                will_retry: false,
+            },
+        );
+
+        let plan = trace_hooks(&run_id.0.to_string()).unwrap();
+
+        assert_eq!(plan[0]["hook_id"], "guard");
+        assert_eq!(plan[0]["final_failure"], true);
+        assert!(plan[0]["suggested_actions"].as_array().unwrap().len() >= 2);
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn failed_bridge_deliveries_are_listed_and_retry_removes_dead_letter() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("messaging-bridge-dead-letter");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        let previous_slack_secret = std::env::var_os("AGENT_SLACK_SIGNING_SECRET");
+        let previous_attempts = std::env::var_os("AGENT_MESSAGING_DELIVERY_ATTEMPTS");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+            std::env::set_var("AGENT_MESSAGING_DELIVERY_ATTEMPTS", "3");
+            std::env::remove_var("AGENT_SLACK_SIGNING_SECRET");
+        }
+
+        let (slack_url, slack_server) = spawn_json_server(vec![500, 500, 500, 200]);
+        let slack_body = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("team_id", "T1")
+            .append_pair("channel_id", "C1")
+            .append_pair("user_id", "U1")
+            .append_pair("command", "/agent")
+            .append_pair("text", "dead letter slack")
+            .append_pair("response_url", &format!("{slack_url}/response"))
+            .finish();
+        let slack = daemon_slack_bridge(&slack_body, &HashMap::new())
+            .await
+            .unwrap();
+        assert_eq!(slack["delivery"]["delivered"], false);
+        assert_eq!(slack["delivery"]["attempts"], 3);
+        let dead_letter_id = slack["delivery"]["dead_letter_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let list = daemon_bridge_delivery_list().unwrap();
+        let deliveries = list["deliveries"].as_array().unwrap();
+        assert_eq!(deliveries.len(), 1);
+        assert_eq!(deliveries[0]["id"], dead_letter_id);
+        assert_eq!(deliveries[0]["target"], "slack.response_url");
+        assert!(
+            deliveries[0]["url"]
+                .as_str()
+                .unwrap()
+                .ends_with("/<redacted>")
+        );
+
+        let retry = daemon_bridge_delivery_retry(&dead_letter_id).await.unwrap();
+        assert_eq!(retry["resolved"], true);
+        assert_eq!(retry["delivery"]["delivered"], true);
+
+        let list = daemon_bridge_delivery_list().unwrap();
+        assert!(list["deliveries"].as_array().unwrap().is_empty());
+        let slack_requests = slack_server.join().unwrap();
+        assert_eq!(slack_requests.len(), 4);
+        assert!(slack_requests[3].1.contains("[fake] dead letter slack"));
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        restore_env("AGENT_SLACK_SIGNING_SECRET", previous_slack_secret);
+        restore_env("AGENT_MESSAGING_DELIVERY_ATTEMPTS", previous_attempts);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn bridge_delivery_retry_all_drains_dead_letters_for_worker_path() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("messaging-bridge-retry-all");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        let previous_slack_secret = std::env::var_os("AGENT_SLACK_SIGNING_SECRET");
+        let previous_attempts = std::env::var_os("AGENT_MESSAGING_DELIVERY_ATTEMPTS");
+        let previous_batch = std::env::var_os("AGENT_MESSAGING_DELIVERY_WORKER_BATCH");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+            std::env::set_var("AGENT_MESSAGING_DELIVERY_ATTEMPTS", "3");
+            std::env::set_var("AGENT_MESSAGING_DELIVERY_WORKER_BATCH", "10");
+            std::env::remove_var("AGENT_SLACK_SIGNING_SECRET");
+        }
+
+        let (slack_url, slack_server) = spawn_json_server(vec![500, 500, 500, 200]);
+        let slack_body = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("team_id", "T1")
+            .append_pair("channel_id", "C1")
+            .append_pair("user_id", "U1")
+            .append_pair("command", "/agent")
+            .append_pair("text", "retry all slack")
+            .append_pair("response_url", &format!("{slack_url}/response"))
+            .finish();
+        let slack = daemon_slack_bridge(&slack_body, &HashMap::new())
+            .await
+            .unwrap();
+        assert_eq!(slack["delivery"]["delivered"], false);
+
+        let retry = daemon_bridge_delivery_retry_all().await.unwrap();
+        assert_eq!(retry["attempted"], 1);
+        assert_eq!(retry["resolved"], 1);
+        assert_eq!(retry["remaining"], 0);
+        assert_eq!(retry["deliveries"][0]["delivered"], true);
+        assert!(
+            daemon_bridge_delivery_list().unwrap()["deliveries"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+        let slack_requests = slack_server.join().unwrap();
+        assert_eq!(slack_requests.len(), 4);
+        assert!(slack_requests[3].1.contains("[fake] retry all slack"));
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        restore_env("AGENT_SLACK_SIGNING_SECRET", previous_slack_secret);
+        restore_env("AGENT_MESSAGING_DELIVERY_ATTEMPTS", previous_attempts);
+        restore_env("AGENT_MESSAGING_DELIVERY_WORKER_BATCH", previous_batch);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn bridge_delivery_worker_env_is_opt_in_and_bounded() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let previous_interval = std::env::var_os("AGENT_MESSAGING_DELIVERY_WORKER_INTERVAL_MS");
+        let previous_bridge_interval = std::env::var_os("AGENT_BRIDGE_DELIVERY_WORKER_INTERVAL_MS");
+        let previous_batch = std::env::var_os("AGENT_MESSAGING_DELIVERY_WORKER_BATCH");
+        let previous_bridge_batch = std::env::var_os("AGENT_BRIDGE_DELIVERY_WORKER_BATCH");
+        unsafe {
+            std::env::remove_var("AGENT_MESSAGING_DELIVERY_WORKER_INTERVAL_MS");
+            std::env::remove_var("AGENT_BRIDGE_DELIVERY_WORKER_INTERVAL_MS");
+            std::env::remove_var("AGENT_MESSAGING_DELIVERY_WORKER_BATCH");
+            std::env::remove_var("AGENT_BRIDGE_DELIVERY_WORKER_BATCH");
+        }
+        assert!(bridge_delivery_worker_interval().is_none());
+        assert_eq!(bridge_delivery_worker_batch_limit(), 10);
+
+        unsafe {
+            std::env::set_var("AGENT_MESSAGING_DELIVERY_WORKER_INTERVAL_MS", "250");
+            std::env::set_var("AGENT_MESSAGING_DELIVERY_WORKER_BATCH", "2");
+        }
+        assert_eq!(
+            bridge_delivery_worker_interval(),
+            Some(Duration::from_millis(250))
+        );
+        assert_eq!(bridge_delivery_worker_batch_limit(), 2);
+
+        unsafe {
+            std::env::set_var("AGENT_MESSAGING_DELIVERY_WORKER_INTERVAL_MS", "0");
+            std::env::set_var("AGENT_MESSAGING_DELIVERY_WORKER_BATCH", "0");
+        }
+        assert!(bridge_delivery_worker_interval().is_none());
+        assert_eq!(bridge_delivery_worker_batch_limit(), 10);
+
+        restore_env(
+            "AGENT_MESSAGING_DELIVERY_WORKER_INTERVAL_MS",
+            previous_interval,
+        );
+        restore_env(
+            "AGENT_BRIDGE_DELIVERY_WORKER_INTERVAL_MS",
+            previous_bridge_interval,
+        );
+        restore_env("AGENT_MESSAGING_DELIVERY_WORKER_BATCH", previous_batch);
+        restore_env("AGENT_BRIDGE_DELIVERY_WORKER_BATCH", previous_bridge_batch);
+    }
+
+    #[test]
+    fn daemon_voice_capture_writes_scoped_audio_artifact() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("voice-capture");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+
+        let result = daemon_voice_capture(
+            r#"{"data_url":"data:audio/webm;base64,aGVsbG8=","filename":"../note.webm"}"#,
+        )
+        .unwrap();
+
+        let path = PathBuf::from(result["audio_path"].as_str().unwrap());
+        assert!(path.starts_with(StoragePaths::from_env().artifacts_dir()));
+        assert_eq!(std::fs::read(path).unwrap(), b"hello");
+        assert_eq!(result["artifact"]["format"], "webm");
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn daemon_hook_policy_persists_profile_disable() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("hook-policy");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+
+        let initial = daemon_hook_policy(r#"{"agent_id":"fake-agent"}"#).unwrap();
+        assert_eq!(
+            initial["disabled_lifecycle_hooks"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
+
+        let updated =
+            daemon_hook_policy_set(r#"{"hook_id":"adapter:pkg:audit","disabled":true}"#).unwrap();
+        assert_eq!(updated["disabled_lifecycle_hooks"][0], "adapter:pkg:audit");
+        assert_eq!(
+            updated["profile_disabled_lifecycle_hooks"][0],
+            "adapter:pkg:audit"
+        );
+        let agent_updated = daemon_hook_policy_set(
+            r#"{"hook_id":"adapter:pkg:agent-audit","disabled":true,"agent_id":"fake-agent","scope":"agent"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            agent_updated["agent_disabled_lifecycle_hooks"][0],
+            "adapter:pkg:agent-audit"
+        );
+        let listed = daemon_hook_policy(r#"{"agent_id":"fake-agent"}"#).unwrap();
+        assert_eq!(
+            listed["disabled_lifecycle_hooks"][0],
+            "adapter:pkg:agent-audit"
+        );
+        assert_eq!(
+            listed["profile_disabled_lifecycle_hooks"][0],
+            "adapter:pkg:audit"
+        );
+        assert_eq!(
+            listed["agent_disabled_lifecycle_hooks"][0],
+            "adapter:pkg:agent-audit"
+        );
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    fn spawn_json_server(
+        statuses: Vec<u16>,
+    ) -> (String, std::thread::JoinHandle<Vec<(String, String)>>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            let mut requests = Vec::new();
+            for status in statuses {
+                let (mut stream, _) = listener.accept().unwrap();
+                let (request_line, body) = read_http_request(&mut stream);
+                requests.push((request_line, body));
+                write_http_response(&mut stream, status);
+            }
+            requests
+        });
+        (format!("http://{addr}"), handle)
+    }
+
+    fn read_http_request(stream: &mut std::net::TcpStream) -> (String, String) {
+        use std::io::Read;
+
+        let mut buffer = Vec::new();
+        let mut temp = [0u8; 1024];
+        loop {
+            let read = stream.read(&mut temp).unwrap();
+            assert!(read > 0, "HTTP client closed before headers");
+            buffer.extend_from_slice(&temp[..read]);
+            if buffer.windows(4).any(|window| window == b"\r\n\r\n") {
+                break;
+            }
+        }
+        let header_end = buffer
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .unwrap()
+            + 4;
+        let headers = String::from_utf8_lossy(&buffer[..header_end]);
+        let request_line = headers.lines().next().unwrap_or_default().to_string();
+        let content_length = headers
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| value.trim().parse::<usize>().unwrap())
+            })
+            .unwrap_or(0);
+        while buffer.len() < header_end + content_length {
+            let read = stream.read(&mut temp).unwrap();
+            assert!(read > 0, "HTTP client closed before body");
+            buffer.extend_from_slice(&temp[..read]);
+        }
+        (
+            request_line,
+            String::from_utf8(buffer[header_end..header_end + content_length].to_vec()).unwrap(),
+        )
+    }
+
+    fn write_http_response(stream: &mut std::net::TcpStream, status: u16) {
+        use std::io::Write;
+
+        let status_text = if status == 200 { "OK" } else { "ERROR" };
+        write!(
+            stream,
+            "HTTP/1.1 {status} {status_text}\r\ncontent-type: application/json\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok"
+        )
+        .unwrap();
+    }
+
+    fn restore_env(key: &str, value: Option<std::ffi::OsString>) {
+        unsafe {
+            if let Some(value) = value {
+                std::env::set_var(key, value);
+            } else {
+                std::env::remove_var(key);
+            }
+        }
+    }
+
+    fn temp_dir(label: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "agent-daemon-{label}-{}-{nanos}",
+            std::process::id()
+        ))
+    }
 }

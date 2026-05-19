@@ -1,0 +1,408 @@
+//! `agent-compaction` — portable manual context compaction v0.
+//!
+//! This crate stores user-triggered compaction artifacts as JSON under the
+//! harness cache. The runtime can then include one of those artifacts as the
+//! compacted context for a run without silently compacting conversations.
+
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::path::PathBuf;
+
+use agent_storage::{StorageError, StoragePaths};
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+
+const DEFAULT_MAX_OUTPUT_TOKENS: u32 = 512;
+
+#[derive(Debug, thiserror::Error)]
+pub enum CompactionError {
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("storage error: {0}")]
+    Storage(#[from] StorageError),
+    #[error("json error: {0}")]
+    Json(#[from] serde_json::Error),
+    #[error("compaction not found: {0}")]
+    NotFound(String),
+    #[error("invalid compaction input: {0}")]
+    InvalidInput(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompactionRecord {
+    pub id: String,
+    pub content: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guidance: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversation_id: Option<String>,
+    pub source: String,
+    pub max_output_tokens: u32,
+    pub original_input_hash: String,
+    pub original_input_excerpt: String,
+    pub created_at: DateTime<Utc>,
+}
+
+pub struct CompactionStore {
+    paths: StoragePaths,
+}
+
+impl CompactionStore {
+    pub fn new(paths: StoragePaths) -> Self {
+        Self { paths }
+    }
+
+    pub fn from_env() -> Self {
+        Self::new(StoragePaths::from_env())
+    }
+
+    pub fn create_from_text(
+        &self,
+        text: &str,
+        guidance: Option<String>,
+        max_output_tokens: Option<u32>,
+        source: Option<String>,
+    ) -> Result<CompactionRecord, CompactionError> {
+        self.create_from_text_for_conversation(text, guidance, max_output_tokens, source, None)
+    }
+
+    pub fn create_from_text_for_conversation(
+        &self,
+        text: &str,
+        guidance: Option<String>,
+        max_output_tokens: Option<u32>,
+        source: Option<String>,
+        conversation_id: Option<String>,
+    ) -> Result<CompactionRecord, CompactionError> {
+        let text = text.trim();
+        if text.is_empty() {
+            return Err(CompactionError::InvalidInput(
+                "selected conversation text must not be empty".into(),
+            ));
+        }
+        let max_output_tokens = max_output_tokens.unwrap_or(DEFAULT_MAX_OUTPUT_TOKENS);
+        if max_output_tokens == 0 {
+            return Err(CompactionError::InvalidInput(
+                "max_output_tokens must be greater than zero".into(),
+            ));
+        }
+        self.paths.ensure_base_dirs()?;
+        let created_at = Utc::now();
+        let conversation_id = clean_optional(conversation_id);
+        if let Some(id) = conversation_id.as_deref() {
+            validate_id(id).map_err(|_| {
+                CompactionError::InvalidInput(format!("invalid conversation id: {id}"))
+            })?;
+        }
+        let source = source
+            .map(|source| source.trim().to_string())
+            .filter(|source| !source.is_empty())
+            .unwrap_or_else(|| {
+                conversation_id
+                    .as_ref()
+                    .map(|id| format!("conversation:{id}"))
+                    .unwrap_or_else(|| "manual-selection".into())
+            });
+        let guidance = guidance
+            .map(|guidance| guidance.trim().to_string())
+            .filter(|guidance| !guidance.is_empty());
+        let original_input_hash = hash_text(text);
+        let content = compact_text(text, guidance.as_deref(), &source, max_output_tokens);
+        let record = CompactionRecord {
+            id: format!(
+                "compact-{}-{}",
+                created_at.timestamp_nanos_opt().unwrap_or_default(),
+                &original_input_hash[..8]
+            ),
+            content,
+            guidance,
+            conversation_id,
+            source,
+            max_output_tokens,
+            original_input_hash,
+            original_input_excerpt: excerpt(text, 500),
+            created_at,
+        };
+        self.write(&record)?;
+        Ok(record)
+    }
+
+    pub fn list(&self) -> Result<Vec<CompactionRecord>, CompactionError> {
+        self.paths.ensure_base_dirs()?;
+        let mut records = Vec::new();
+        for entry in std::fs::read_dir(self.paths.compactions_dir())? {
+            let entry = entry?;
+            if entry.path().extension().and_then(|s| s.to_str()) == Some("json") {
+                records.push(read_record(entry.path())?);
+            }
+        }
+        records.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(records)
+    }
+
+    pub fn show(&self, id: &str) -> Result<CompactionRecord, CompactionError> {
+        validate_id(id)?;
+        let path = self.path_for(id);
+        if !path.exists() {
+            return Err(CompactionError::NotFound(id.into()));
+        }
+        read_record(path)
+    }
+
+    pub fn remove(&self, id: &str) -> Result<(), CompactionError> {
+        validate_id(id)?;
+        let path = self.path_for(id);
+        if !path.exists() {
+            return Err(CompactionError::NotFound(id.into()));
+        }
+        std::fs::remove_file(path)?;
+        Ok(())
+    }
+
+    pub fn remove_by_conversation_ids(
+        &self,
+        conversation_ids: &[String],
+    ) -> Result<Vec<String>, CompactionError> {
+        if conversation_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let records = self.list()?;
+        let mut removed = Vec::new();
+        for record in records {
+            if record
+                .conversation_id
+                .as_ref()
+                .is_some_and(|id| conversation_ids.iter().any(|candidate| candidate == id))
+            {
+                self.remove(&record.id)?;
+                removed.push(record.id);
+            }
+        }
+        Ok(removed)
+    }
+
+    fn write(&self, record: &CompactionRecord) -> Result<(), CompactionError> {
+        std::fs::write(
+            self.path_for(&record.id),
+            serde_json::to_string_pretty(record)?,
+        )?;
+        Ok(())
+    }
+
+    fn path_for(&self, id: &str) -> PathBuf {
+        self.paths.compactions_dir().join(format!("{id}.json"))
+    }
+}
+
+fn read_record(path: PathBuf) -> Result<CompactionRecord, CompactionError> {
+    Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
+}
+
+fn clean_optional(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn validate_id(id: &str) -> Result<(), CompactionError> {
+    let valid = !id.trim().is_empty()
+        && id
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'));
+    if valid {
+        Ok(())
+    } else {
+        Err(CompactionError::InvalidInput(format!(
+            "invalid compaction id: {id}"
+        )))
+    }
+}
+
+fn compact_text(text: &str, guidance: Option<&str>, source: &str, max_tokens: u32) -> String {
+    let header = if let Some(guidance) = guidance {
+        format!(
+            "<manual-compaction source=\"{source}\" max_output_tokens=\"{max_tokens}\">\nGuidance: {guidance}\nSummary:\n"
+        )
+    } else {
+        format!(
+            "<manual-compaction source=\"{source}\" max_output_tokens=\"{max_tokens}\">\nSummary:\n"
+        )
+    };
+    let footer = "\n</manual-compaction>";
+    let overhead = estimate_tokens(&header).saturating_add(estimate_tokens(footer));
+    let body_budget = max_tokens.saturating_sub(overhead).max(1);
+    let body = bullet_compact(text, body_budget);
+    format!("{header}{body}{footer}")
+}
+
+fn bullet_compact(text: &str, max_tokens: u32) -> String {
+    let mut out = String::new();
+    for line in text.lines().map(str::trim).filter(|line| !line.is_empty()) {
+        let candidate = format!("- {}\n", normalize_whitespace(line));
+        if estimate_tokens(&out).saturating_add(estimate_tokens(&candidate)) > max_tokens {
+            let remaining = max_tokens.saturating_sub(estimate_tokens(&out));
+            if remaining > 0 && out.is_empty() {
+                out.push_str("- ");
+                out.push_str(&truncate_to_token_estimate(line, remaining));
+                out.push('\n');
+            }
+            break;
+        }
+        out.push_str(&candidate);
+    }
+    if out.trim().is_empty() {
+        format!("- {}\n", truncate_to_token_estimate(text, max_tokens))
+    } else {
+        out.trim_end().to_string()
+    }
+}
+
+fn truncate_to_token_estimate(text: &str, max_tokens: u32) -> String {
+    let max_chars = (max_tokens as usize).saturating_mul(4).max(1);
+    let mut out = String::new();
+    for ch in normalize_whitespace(text).chars().take(max_chars) {
+        out.push(ch);
+    }
+    if normalize_whitespace(text).chars().count() > out.chars().count() {
+        out.push_str("...");
+    }
+    out
+}
+
+fn normalize_whitespace(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn excerpt(text: &str, max_chars: usize) -> String {
+    let normalized = normalize_whitespace(text);
+    let mut out = String::new();
+    for ch in normalized.chars().take(max_chars) {
+        out.push(ch);
+    }
+    if normalized.chars().count() > out.chars().count() {
+        out.push_str("...");
+    }
+    out
+}
+
+fn estimate_tokens(text: &str) -> u32 {
+    if text.trim().is_empty() {
+        return 0;
+    }
+    let chars = text.chars().count();
+    let char_estimate = chars.div_ceil(4);
+    let word_floor = text.split_whitespace().count();
+    char_estimate.max(word_floor).min(u32::MAX as usize) as u32
+}
+
+fn hash_text(text: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    text.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_list_show_and_remove_compaction() {
+        let dir = std::env::temp_dir().join(format!("compaction-test-{}", uuid_like()));
+        let store = CompactionStore::new(StoragePaths::new(&dir));
+
+        let record = store
+            .create_from_text_for_conversation(
+                "User: remember alpha\nAssistant: alpha was stored",
+                Some("keep decisions".into()),
+                Some(80),
+                Some("manual range 1:2".into()),
+                Some("conv-1".into()),
+            )
+            .unwrap();
+
+        assert!(record.content.contains("Guidance: keep decisions"));
+        assert_eq!(record.conversation_id.as_deref(), Some("conv-1"));
+        assert_eq!(store.list().unwrap().len(), 1);
+        assert_eq!(store.show(&record.id).unwrap().id, record.id);
+        store.remove(&record.id).unwrap();
+        assert!(store.list().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn removes_only_matching_conversation_compactions() {
+        let dir = std::env::temp_dir().join(format!("compaction-conv-test-{}", uuid_like()));
+        let store = CompactionStore::new(StoragePaths::new(&dir));
+        let keep = store
+            .create_from_text_for_conversation(
+                "keep this",
+                None,
+                None,
+                None,
+                Some("conv-keep".into()),
+            )
+            .unwrap();
+        let remove = store
+            .create_from_text_for_conversation(
+                "remove this",
+                None,
+                None,
+                None,
+                Some("conv-remove".into()),
+            )
+            .unwrap();
+
+        let removed = store
+            .remove_by_conversation_ids(&["conv-remove".to_string()])
+            .unwrap();
+        assert_eq!(removed, vec![remove.id]);
+        assert!(store.show(&keep.id).is_ok());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn compaction_rejects_empty_input_and_invalid_ids() {
+        let dir = std::env::temp_dir().join(format!("compaction-invalid-test-{}", uuid_like()));
+        let store = CompactionStore::new(StoragePaths::new(&dir));
+
+        assert!(
+            store
+                .create_from_text(" ", None, Some(100), None)
+                .unwrap_err()
+                .to_string()
+                .contains("must not be empty")
+        );
+        assert!(
+            store
+                .show("../nope")
+                .unwrap_err()
+                .to_string()
+                .contains("invalid")
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn compacted_content_respects_rough_token_budget() {
+        let text = (0..200)
+            .map(|idx| format!("line {idx} with enough words to take space"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let compacted = compact_text(&text, None, "test", 64);
+
+        assert!(estimate_tokens(&compacted) <= 70);
+        assert!(compacted.contains("<manual-compaction"));
+        assert!(compacted.contains("</manual-compaction>"));
+    }
+
+    fn uuid_like() -> String {
+        format!(
+            "{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        )
+    }
+}

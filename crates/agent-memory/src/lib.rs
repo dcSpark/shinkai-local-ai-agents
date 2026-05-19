@@ -37,11 +37,47 @@ pub struct MemoryRecord {
     pub updated_at: DateTime<Utc>,
     pub author: MemoryAuthor,
     pub source_range: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_conversation_id: Option<String>,
     #[serde(default)]
     pub generating_model: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryBackendDescriptor {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    #[serde(default)]
+    pub storage: String,
+    #[serde(default)]
+    pub supports_generation: bool,
+    #[serde(default)]
+    pub supports_rollback: bool,
+}
+
+pub trait MemoryBackend: Send + Sync {
+    fn descriptor(&self) -> MemoryBackendDescriptor;
+    fn load_records(&self) -> Result<Vec<MemoryRecord>, MemoryError>;
+    fn load_fragments(&self) -> Result<Vec<MemoryFragment>, MemoryError>;
+    fn write_record(
+        &self,
+        target: MemoryTarget,
+        content: &str,
+        author: MemoryAuthor,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+    ) -> Result<MemoryRecord, MemoryError>;
+    fn generate_records(
+        &self,
+        target: MemoryTarget,
+        text: &str,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+    ) -> Result<Vec<MemoryRecord>, MemoryError>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MemoryTarget {
     Agent,
@@ -75,6 +111,17 @@ impl MemoryStore {
         author: MemoryAuthor,
         source_range: Option<String>,
     ) -> Result<MemoryRecord, MemoryError> {
+        self.create_for_conversation(target, content, author, source_range, None)
+    }
+
+    pub fn create_for_conversation(
+        &self,
+        target: MemoryTarget,
+        content: &str,
+        author: MemoryAuthor,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+    ) -> Result<MemoryRecord, MemoryError> {
         scan(content)?;
         self.paths.ensure_base_dirs()?;
         let now = Utc::now();
@@ -82,12 +129,13 @@ impl MemoryStore {
             id: format!("mem-{}", now.timestamp_nanos_opt().unwrap_or_default()),
             content: content.into(),
             target,
-            owning_profile: default_profile(),
+            owning_profile: self.paths.active_profile_id().into(),
             owning_agent: default_agent(),
             created_at: now,
             updated_at: now,
             author,
             source_range,
+            source_conversation_id: clean_optional(source_conversation_id),
             generating_model: (author == MemoryAuthor::Model)
                 .then(|| "manual-memory-generator-v0".into()),
         };
@@ -103,14 +151,25 @@ impl MemoryStore {
         text: &str,
         source_range: Option<String>,
     ) -> Result<Vec<MemoryRecord>, MemoryError> {
+        self.generate_from_conversation_text(target, text, source_range, None)
+    }
+
+    pub fn generate_from_conversation_text(
+        &self,
+        target: MemoryTarget,
+        text: &str,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+    ) -> Result<Vec<MemoryRecord>, MemoryError> {
         let candidates = generated_memory_candidates(text);
         let mut records = Vec::new();
         for candidate in candidates {
-            records.push(self.create(
+            records.push(self.create_for_conversation(
                 target,
                 &candidate,
                 MemoryAuthor::Model,
                 source_range.clone(),
+                source_conversation_id.clone(),
             )?);
         }
         Ok(records)
@@ -136,6 +195,35 @@ impl MemoryStore {
             }
         }
         Err(MemoryError::NotFound(id.into()))
+    }
+
+    pub fn delete_by_source_conversation_ids(
+        &self,
+        conversation_ids: &[String],
+    ) -> Result<Vec<String>, MemoryError> {
+        if conversation_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut deleted = Vec::new();
+        for target in [MemoryTarget::Agent, MemoryTarget::User] {
+            let mut records = self.list_target(target)?;
+            let before = records.len();
+            records.retain(|record| {
+                let should_delete = record
+                    .source_conversation_id
+                    .as_ref()
+                    .is_some_and(|id| conversation_ids.iter().any(|candidate| candidate == id));
+                if should_delete {
+                    deleted.push(record.id.clone());
+                }
+                !should_delete
+            });
+            if records.len() != before {
+                self.write_target(target, &records)?;
+            }
+        }
+        deleted.sort();
+        Ok(deleted)
     }
 
     pub fn delete(&self, id: &str) -> Result<(), MemoryError> {
@@ -176,19 +264,103 @@ impl MemoryStore {
         Ok(())
     }
 
+    pub fn export_target(
+        &self,
+        target: MemoryTarget,
+        path: impl AsRef<Path>,
+    ) -> Result<Vec<MemoryRecord>, MemoryError> {
+        let records = self.list_target(target)?;
+        if let Some(parent) = path.as_ref().parent() {
+            if !parent.as_os_str().is_empty() {
+                std::fs::create_dir_all(parent)?;
+            }
+        }
+        std::fs::write(path, render_records(&records)?)?;
+        Ok(records)
+    }
+
+    pub fn import_file(
+        &self,
+        path: impl AsRef<Path>,
+        target: Option<MemoryTarget>,
+    ) -> Result<Vec<MemoryRecord>, MemoryError> {
+        let text = std::fs::read_to_string(path)?;
+        let mut records = parse_records(&text)?;
+        if records.is_empty() && !text.trim().is_empty() {
+            return self
+                .create(
+                    target.unwrap_or(MemoryTarget::Agent),
+                    text.trim(),
+                    MemoryAuthor::Human,
+                    None,
+                )
+                .map(|record| vec![record]);
+        }
+        self.paths.ensure_base_dirs()?;
+        let mut imported = Vec::new();
+        for record in &mut records {
+            scan(&record.content)?;
+            if let Some(target) = target {
+                record.target = target;
+            }
+            record.owning_profile = self.paths.active_profile_id().into();
+            record.owning_agent = default_agent();
+            record.updated_at = Utc::now();
+        }
+        for import_target in [MemoryTarget::Agent, MemoryTarget::User] {
+            let mut existing = self.list_target(import_target)?;
+            let mut existing_ids = existing
+                .iter()
+                .map(|record| record.id.clone())
+                .collect::<std::collections::HashSet<_>>();
+            let mut target_records = records
+                .iter()
+                .filter(|record| record.target == import_target)
+                .cloned()
+                .collect::<Vec<_>>();
+            for (idx, record) in target_records.iter_mut().enumerate() {
+                if !existing_ids.insert(record.id.clone()) {
+                    record.id = format!(
+                        "mem-{}-{idx}",
+                        Utc::now().timestamp_nanos_opt().unwrap_or_default()
+                    );
+                    existing_ids.insert(record.id.clone());
+                }
+            }
+            if !target_records.is_empty() {
+                imported.extend(target_records.clone());
+                existing.extend(target_records);
+                self.write_target(import_target, &existing)?;
+            }
+        }
+        imported.sort_by(|a, b| a.id.cmp(&b.id));
+        Ok(imported)
+    }
+
     pub fn load_fragments(&self) -> Result<Vec<MemoryFragment>, MemoryError> {
         Ok(self
             .list()?
             .into_iter()
-            .map(|record| {
-                let provenance = memory_provenance(&record);
-                MemoryFragment {
-                    id: record.id,
-                    content: record.content,
-                    provenance,
-                }
-            })
+            .map(|record| Self::fragment_from_record(record, None))
             .collect())
+    }
+
+    pub fn fragment_from_record(
+        record: MemoryRecord,
+        extra_provenance: Option<String>,
+    ) -> MemoryFragment {
+        let mut provenance = memory_provenance(&record);
+        if let Some(extra) = extra_provenance {
+            if !extra.trim().is_empty() {
+                provenance.push_str("; ");
+                provenance.push_str(extra.trim());
+            }
+        }
+        MemoryFragment {
+            id: record.id,
+            content: record.content,
+            provenance,
+        }
     }
 
     fn list_target(&self, target: MemoryTarget) -> Result<Vec<MemoryRecord>, MemoryError> {
@@ -217,6 +389,60 @@ impl MemoryStore {
             MemoryTarget::User => self.paths.user_memory_file(),
         }
     }
+}
+
+impl MemoryBackend for MemoryStore {
+    fn descriptor(&self) -> MemoryBackendDescriptor {
+        MemoryBackendDescriptor {
+            id: "local-markdown-v0".into(),
+            name: "Local Markdown".into(),
+            description:
+                "Human-readable memory.md/user.md storage with injection scanning and rollback."
+                    .into(),
+            storage: self.paths.default_agent_dir().display().to_string(),
+            supports_generation: true,
+            supports_rollback: true,
+        }
+    }
+
+    fn load_records(&self) -> Result<Vec<MemoryRecord>, MemoryError> {
+        self.list()
+    }
+
+    fn load_fragments(&self) -> Result<Vec<MemoryFragment>, MemoryError> {
+        MemoryStore::load_fragments(self)
+    }
+
+    fn write_record(
+        &self,
+        target: MemoryTarget,
+        content: &str,
+        author: MemoryAuthor,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+    ) -> Result<MemoryRecord, MemoryError> {
+        self.create_for_conversation(
+            target,
+            content,
+            author,
+            source_range,
+            source_conversation_id,
+        )
+    }
+
+    fn generate_records(
+        &self,
+        target: MemoryTarget,
+        text: &str,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+    ) -> Result<Vec<MemoryRecord>, MemoryError> {
+        self.generate_from_conversation_text(target, text, source_range, source_conversation_id)
+    }
+}
+
+pub fn supported_backends() -> Vec<MemoryBackendDescriptor> {
+    vec![MemoryStore::from_env().descriptor()]
 }
 
 fn render_records(records: &[MemoryRecord]) -> Result<String, MemoryError> {
@@ -251,10 +477,19 @@ fn memory_provenance(record: &MemoryRecord) -> String {
     if let Some(range) = &record.source_range {
         parts.push(format!("range={range}"));
     }
+    if let Some(conversation_id) = &record.source_conversation_id {
+        parts.push(format!("conversation={conversation_id}"));
+    }
     if let Some(model) = &record.generating_model {
         parts.push(format!("generator={model}"));
     }
     parts.join("; ")
+}
+
+fn clean_optional(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 fn parse_records(text: &str) -> Result<Vec<MemoryRecord>, MemoryError> {
@@ -453,6 +688,89 @@ mod tests {
     }
 
     #[test]
+    fn file_store_is_described_as_memory_backend() {
+        let dir = std::env::temp_dir().join(format!("memory-backend-test-{}", std::process::id()));
+        let store = MemoryStore::new(StoragePaths::new(&dir));
+        let backend: &dyn MemoryBackend = &store;
+        let descriptor = backend.descriptor();
+
+        assert_eq!(descriptor.id, "local-markdown-v0");
+        assert!(descriptor.supports_generation);
+        assert!(descriptor.supports_rollback);
+        assert!(descriptor.storage.contains("fake-agent"));
+
+        let record = backend
+            .write_record(
+                MemoryTarget::User,
+                "Prefers examples.",
+                MemoryAuthor::Human,
+                Some("1:1".into()),
+                Some("conv-1".into()),
+            )
+            .unwrap();
+        assert_eq!(record.target, MemoryTarget::User);
+        assert_eq!(backend.load_records().unwrap().len(), 1);
+        assert!(
+            backend.load_fragments().unwrap()[0]
+                .provenance
+                .contains("conversation=conv-1")
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn memory_records_use_active_profile_provenance() {
+        let dir = std::env::temp_dir().join(format!("memory-profile-test-{}", std::process::id()));
+        let store = MemoryStore::new(StoragePaths::new_with_profile(&dir, "research"));
+        let record = store
+            .create(
+                MemoryTarget::Agent,
+                "Use research context.",
+                MemoryAuthor::Human,
+                None,
+            )
+            .unwrap();
+
+        assert_eq!(record.owning_profile, "research");
+        assert!(
+            store.load_fragments().unwrap()[0]
+                .provenance
+                .contains("profile=research")
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn export_import_memory_retargets_active_profile() {
+        let dir = std::env::temp_dir().join(format!("memory-portable-test-{}", std::process::id()));
+        let main_store = MemoryStore::new(StoragePaths::new(&dir));
+        main_store
+            .create(
+                MemoryTarget::Agent,
+                "remember this",
+                MemoryAuthor::Human,
+                None,
+            )
+            .unwrap();
+        let export_path = dir.join("agent-memory.md");
+        let exported = main_store
+            .export_target(MemoryTarget::Agent, &export_path)
+            .unwrap();
+        assert_eq!(exported.len(), 1);
+
+        let research_store = MemoryStore::new(StoragePaths::new_with_profile(&dir, "research"));
+        let imported = research_store
+            .import_file(&export_path, Some(MemoryTarget::User))
+            .unwrap();
+        assert_eq!(imported.len(), 1);
+        assert_eq!(imported[0].content, "remember this");
+        assert_eq!(imported[0].target, MemoryTarget::User);
+        assert_eq!(imported[0].owning_profile, "research");
+        assert_eq!(research_store.list().unwrap()[0].target, MemoryTarget::User);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn scan_rejects_prompt_injection_memory_writes() {
         let dir = std::env::temp_dir().join(format!("memory-scan-test-{}", std::process::id()));
         let store = MemoryStore::new(StoragePaths::new(&dir));
@@ -513,6 +831,43 @@ mod tests {
         assert_eq!(
             store.list().unwrap()[0].content,
             "prefers terse status updates"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn deletes_only_memories_sourced_from_matching_conversations() {
+        let dir = std::env::temp_dir().join(format!("memory-conv-test-{}", std::process::id()));
+        let store = MemoryStore::new(StoragePaths::new(&dir));
+        let keep = store
+            .create_for_conversation(
+                MemoryTarget::Agent,
+                "keep",
+                MemoryAuthor::Human,
+                None,
+                Some("conv-keep".into()),
+            )
+            .unwrap();
+        let remove = store
+            .create_for_conversation(
+                MemoryTarget::User,
+                "remove",
+                MemoryAuthor::Human,
+                Some("1:1".into()),
+                Some("conv-remove".into()),
+            )
+            .unwrap();
+
+        let deleted = store
+            .delete_by_source_conversation_ids(&["conv-remove".to_string()])
+            .unwrap();
+        assert_eq!(deleted, vec![remove.id]);
+        let remaining = store.list().unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, keep.id);
+        assert_eq!(
+            store.load_fragments().unwrap()[0].provenance,
+            "Agent memory; Human; profile=main; agent=fake-agent; conversation=conv-keep"
         );
         let _ = std::fs::remove_dir_all(dir);
     }

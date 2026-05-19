@@ -24,6 +24,7 @@ export type RunEventKind =
       model: string;
       request_digest?: string | null;
     }
+  | { type: "LlmStreamToken"; delta: string }
   | {
       type: "LlmRequestCompleted";
       tokens_in: number;
@@ -50,6 +51,8 @@ export type RunEventKind =
       call_id: string;
       tool_id: string;
       input: unknown;
+      model?: string | null;
+      permissions?: unknown | null;
     }
   | { type: "ToolCallStarted"; call_id: string }
   | {
@@ -91,6 +94,23 @@ export type RunEventKind =
       artifact_id: string;
       content_hash: string;
       sections: number;
+      findings?: string[];
+      high_risk_findings?: number;
+      finding_snippets?: string[];
+    }
+  | {
+      type: "HookFired";
+      hook_id: string;
+      trigger: string;
+      payload_digest: string;
+    }
+  | {
+      type: "HookFailed";
+      hook_id: string;
+      trigger: string;
+      error: string;
+      attempt: number;
+      will_retry: boolean;
     }
   | { type: "PolicyDenied"; reason: string }
   | { type: "ChildRunStarted"; child_run_id: Uuid; agent_id: string }
@@ -124,12 +144,143 @@ export type RunSummary = {
 };
 
 export type Demo = "echo" | "tool";
-export type Provider = "fake" | "rig";
+export type Provider =
+  | "fake"
+  | "rig"
+  | "ollama"
+  | "llama_cpp"
+  | "anthropic"
+  | "gemini";
+
+export type ModelProviderOptionTarget = "runtime" | "provider_options";
+export type ModelProviderOptionKind = "number" | "integer" | "string" | "boolean";
+
+export type ModelProviderOptionDescriptor = {
+  key: string;
+  target: ModelProviderOptionTarget;
+  label: string;
+  kind: ModelProviderOptionKind;
+  min?: number | null;
+  max?: number | null;
+  allowed_values?: string[];
+  notes?: string | null;
+};
+
+export type ModelProviderDescriptor = {
+  id: Provider | string;
+  name: string;
+  default_model: string;
+  api_key_env?: string | null;
+  api_base_url?: string | null;
+  supports_api_base_url: boolean;
+  local: boolean;
+  native: boolean;
+  available_modalities: string[];
+  tool_support?: boolean | null;
+  reasoning_modes: string[];
+  settings: string[];
+  option_schema: ModelProviderOptionDescriptor[];
+  notes?: string | null;
+};
+
 export type ToolVisibility = "full_schema" | "name_and_description" | "name_only";
+export type ToolOutputMode = "interpreted" | "raw";
 
 export type PromptDoc = {
   name: string;
   body: string;
+};
+
+export type ConversationRole = "system" | "user" | "assistant" | "tool";
+
+export type BranchRef = {
+  conversation_id: string;
+  parent_message_count: number;
+};
+
+export type ConversationMessage = {
+  role: ConversationRole;
+  content: string;
+  created_at: string;
+};
+
+export type ConversationDoc = {
+  id: string;
+  title: string;
+  agent_id: string;
+  parent?: BranchRef | null;
+  branch_reason?: string | null;
+  messages: ConversationMessage[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type ExpandedConversation = {
+  conversation: ConversationDoc;
+  messages: ConversationMessage[];
+};
+
+export type ConversationTreeNode = {
+  id: string;
+  title: string;
+  agent_id: string;
+  parent_id?: string | null;
+  branch_reason?: string | null;
+  own_message_count: number;
+  expanded_message_count: number;
+  children: ConversationTreeNode[];
+};
+
+export type ConversationDeleteResult = {
+  requested: string;
+  recursive: boolean;
+  planned: string[];
+  deleted: string[];
+};
+
+export type ConversationDeleteRangeResult = {
+  id: string;
+  from: number;
+  to: number;
+  deleted_messages: number;
+  expanded_message_count: number;
+  conversation: ConversationDoc;
+};
+
+export type ConversationRecoveryCompaction = {
+  id: string;
+  source: string;
+  guidance?: string | null;
+  max_output_tokens: number;
+  original_input_excerpt: string;
+  content_preview: string;
+  created_at: string;
+};
+
+export type ConversationRecoveryMemory = {
+  id: string;
+  target: MemoryTarget;
+  author: MemoryAuthor;
+  source_range?: string | null;
+  generating_model?: string | null;
+  content_preview: string;
+  updated_at: string;
+};
+
+export type ConversationRecoveryPlan = {
+  conversation_id: string;
+  title: string;
+  agent_id: string;
+  own_message_count: number;
+  expanded_message_count: number;
+  linked_compactions: ConversationRecoveryCompaction[];
+  linked_memories: ConversationRecoveryMemory[];
+  suggested_run: {
+    conversation_id: string;
+    include_compact?: string | null;
+    load_memory: boolean;
+    compacted_context?: string | null;
+  };
 };
 
 export type BundleManifest = {
@@ -146,6 +297,7 @@ export type Message =
 
 export type RunOptions = {
   provider: Provider;
+  agent_id: string | null;
   model: string | null;
   api_base_url: string | null;
   api_key_env: string;
@@ -155,9 +307,13 @@ export type RunOptions = {
   input_cost_per_million: number | null;
   output_cost_per_million: number | null;
   max_tool_calls: number | null;
+  allowed_tool_categories: string[];
+  allowed_skill_categories: string[];
   tool_visibility: ToolVisibility | null;
+  skill_visibility: ToolVisibility | null;
   enable_shell: boolean;
   enable_subagent: boolean;
+  enable_capability_drafts: boolean;
   load_memory: boolean;
   load_skills: boolean;
   include_ingest: string[];
@@ -166,7 +322,9 @@ export type RunOptions = {
   prompt_refinement_instructions: string | null;
   prompt_refinement_model: string | null;
   require_approval: boolean;
+  auto_approve: boolean;
   raw_tool_output: boolean;
+  disable_lifecycle_hooks: boolean;
   compacted_context: string | null;
 };
 
@@ -205,7 +363,17 @@ export type MemoryRecord = {
   updated_at: string;
   author: MemoryAuthor;
   source_range: string | null;
+  source_conversation_id?: string | null;
   generating_model?: string | null;
+};
+
+export type MemoryBackendDescriptor = {
+  id: string;
+  name: string;
+  description: string;
+  storage: string;
+  supports_generation: boolean;
+  supports_rollback: boolean;
 };
 
 export type IngestedArtifactView = {
@@ -219,9 +387,28 @@ export type IngestedArtifactView = {
 
 export type IngestionFindingSeverity = "info" | "warning" | "high";
 
+export type IngestionBackendDescriptor = {
+  id: string;
+  name: string;
+  description: string;
+  modalities: string[];
+};
+
 export type IngestionFinding = {
   severity: IngestionFindingSeverity;
   message: string;
+};
+
+export type IngestionFindingReviewDecision =
+  | "acknowledge"
+  | "approve"
+  | "reject";
+
+export type IngestionFindingReview = {
+  finding_index: number;
+  decision: IngestionFindingReviewDecision;
+  note?: string | null;
+  reviewed_at: string;
 };
 
 export type IngestSection = {
@@ -238,12 +425,27 @@ export type IngestionArtifact = {
   sections: IngestSection[];
   extracted_text: string | null;
   findings: IngestionFinding[];
+  finding_reviews: IngestionFindingReview[];
   created_at: string;
 };
 
 export type IngestionResult = {
   trace_run_id: string;
   artifact: IngestionArtifact;
+};
+
+export type GeneratedArtifact = {
+  id: string;
+  format: string;
+  path: string;
+  bytes: number;
+  modified_ms?: number | null;
+};
+
+export type GeneratedArtifactDataUrl = {
+  artifact: GeneratedArtifact;
+  media_type: string;
+  data_url: string;
 };
 
 export type AdapterFindingSeverity = "info" | "warning" | "high";
@@ -259,6 +461,9 @@ export type AdapterPermissions = {
   file_write: boolean;
   network: boolean;
   secrets: boolean;
+  wallet: boolean;
+  payment: boolean;
+  browser_profile: boolean;
 };
 
 export type AdapterCapability = {
@@ -278,14 +483,44 @@ export type AdapterPackage = {
   capabilities: AdapterCapability[];
   permissions: AdapterPermissions;
   findings: AdapterFinding[];
+  provenance?: string | null;
 };
+
+export type CapabilityKind = "tool" | "skill" | "agent";
+export type CapabilityDraftStatus = "quarantined" | "allowed" | "rejected";
+
+export type CapabilityDraft = {
+  id: string;
+  kind: CapabilityKind;
+  name: string;
+  body: string;
+  guidance?: string | null;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  status: CapabilityDraftStatus;
+  provenance: string;
+};
+
+export type CapabilityReviewResult =
+  | CapabilityDraft
+  | {
+      draft: CapabilityDraft;
+      promoted_skill?: SkillDoc;
+      quarantined_skill?: SkillDoc;
+      promoted_agent?: unknown;
+      promoted_tool?: AdapterPackage;
+      quarantined_tool?: AdapterPackage;
+    };
 
 export type SkillDoc = {
   id: string;
   name: string;
   description: string;
+  categories: string[];
   body: string;
   source_path: string | null;
+  provenance?: string | null;
   digest: string;
   estimated_tokens: number;
   quarantined: boolean;
@@ -295,17 +530,23 @@ export type ToolView = {
   id: string;
   name: string;
   description: string | null;
+  categories: string[];
   input_schema: unknown | null;
+  output_mode: ToolOutputMode;
   output_interpretation_guidance?: string | null;
   visibility: string;
+  provenance?: string | null;
 };
 
 export type SkillView = {
   id: string;
   name: string;
   description: string | null;
+  categories: string[];
+  body?: string | null;
   estimated_tokens: number;
   visibility: string;
+  provenance?: string | null;
 };
 
 export type ProvenanceRecord = {

@@ -44,6 +44,7 @@ pub struct StorageReport {
 #[derive(Debug, Clone)]
 pub struct StoragePaths {
     root: PathBuf,
+    profile_id: String,
 }
 
 impl StoragePaths {
@@ -61,15 +62,31 @@ impl StoragePaths {
     }
 
     pub fn new(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into() }
+        Self::new_with_profile(root, "main")
+    }
+
+    pub fn new_with_profile(root: impl Into<PathBuf>, profile_id: impl Into<String>) -> Self {
+        let profile_id = clean_profile_id(profile_id.into()).unwrap_or_else(|| "main".into());
+        Self {
+            root: root.into(),
+            profile_id,
+        }
     }
 
     pub fn from_env() -> Self {
-        Self::new(Self::default_root())
+        let profile_id = std::env::var("AGENT_HARNESS_PROFILE")
+            .ok()
+            .and_then(clean_profile_id)
+            .unwrap_or_else(|| "main".into());
+        Self::new_with_profile(Self::default_root(), profile_id)
     }
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    pub fn active_profile_id(&self) -> &str {
+        &self.profile_id
     }
 
     pub fn global_config(&self) -> PathBuf {
@@ -80,16 +97,36 @@ impl StoragePaths {
         self.root.join("profiles")
     }
 
+    pub fn profile_dir(&self, profile_id: &str) -> PathBuf {
+        self.profiles_dir().join(profile_id)
+    }
+
+    pub fn profile_config(&self, profile_id: &str) -> PathBuf {
+        self.profile_dir(profile_id).join("profile.toml")
+    }
+
     pub fn main_profile_dir(&self) -> PathBuf {
-        self.profiles_dir().join("main")
+        self.profile_dir("main")
     }
 
     pub fn main_profile_config(&self) -> PathBuf {
-        self.main_profile_dir().join("profile.toml")
+        self.profile_config("main")
+    }
+
+    pub fn active_profile_dir(&self) -> PathBuf {
+        self.profile_dir(&self.profile_id)
+    }
+
+    pub fn active_profile_config(&self) -> PathBuf {
+        self.profile_config(&self.profile_id)
+    }
+
+    pub fn profile_agents_dir(&self, profile_id: &str) -> PathBuf {
+        self.profile_dir(profile_id).join("agents")
     }
 
     pub fn agents_dir(&self) -> PathBuf {
-        self.main_profile_dir().join("agents")
+        self.profile_agents_dir(&self.profile_id)
     }
 
     pub fn default_agent_dir(&self) -> PathBuf {
@@ -100,24 +137,92 @@ impl StoragePaths {
         self.default_agent_dir().join("agent.toml")
     }
 
+    pub fn profile_agent_config(&self, profile_id: &str, agent_id: &str) -> PathBuf {
+        self.profile_agents_dir(profile_id)
+            .join(agent_id)
+            .join("agent.toml")
+    }
+
+    pub fn agent_config(&self, agent_id: &str) -> PathBuf {
+        self.profile_agent_config(&self.profile_id, agent_id)
+    }
+
+    pub fn profile_agent_prompts_dir(&self, profile_id: &str, agent_id: &str) -> PathBuf {
+        self.profile_agents_dir(profile_id)
+            .join(agent_id)
+            .join("prompts")
+    }
+
+    pub fn agent_prompts_dir(&self, agent_id: &str) -> PathBuf {
+        self.profile_agent_prompts_dir(&self.profile_id, agent_id)
+    }
+
+    pub fn profile_skills_dir(&self, profile_id: &str) -> PathBuf {
+        self.profile_dir(profile_id).join("skills")
+    }
+
     pub fn skills_dir(&self) -> PathBuf {
-        self.main_profile_dir().join("skills")
+        self.profile_skills_dir(&self.profile_id)
+    }
+
+    pub fn profile_adapters_dir(&self, profile_id: &str) -> PathBuf {
+        self.profile_dir(profile_id).join("adapters")
     }
 
     pub fn adapters_dir(&self) -> PathBuf {
-        self.main_profile_dir().join("adapters")
+        self.profile_adapters_dir(&self.profile_id)
+    }
+
+    pub fn profile_capability_drafts_dir(&self, profile_id: &str) -> PathBuf {
+        self.profile_dir(profile_id).join("capability-drafts")
+    }
+
+    pub fn capability_drafts_dir(&self) -> PathBuf {
+        self.profile_capability_drafts_dir(&self.profile_id)
+    }
+
+    pub fn profile_models_dir(&self, profile_id: &str) -> PathBuf {
+        self.profile_dir(profile_id).join("models")
     }
 
     pub fn models_dir(&self) -> PathBuf {
-        self.main_profile_dir().join("models")
+        self.profile_models_dir(&self.profile_id)
     }
 
     pub fn model_config(&self, model: &str) -> PathBuf {
         self.models_dir().join(format!("{model}.toml"))
     }
 
+    pub fn profile_prompts_dir(&self, profile_id: &str) -> PathBuf {
+        self.profile_dir(profile_id).join("prompts")
+    }
+
     pub fn prompts_dir(&self) -> PathBuf {
-        self.main_profile_dir().join("prompts")
+        self.profile_prompts_dir(&self.profile_id)
+    }
+
+    pub fn profile_conversations_dir(&self, profile_id: &str) -> PathBuf {
+        self.profile_dir(profile_id).join("conversations")
+    }
+
+    pub fn conversations_dir(&self) -> PathBuf {
+        self.profile_conversations_dir(&self.profile_id)
+    }
+
+    pub fn profile_grants_file(&self, profile_id: &str) -> PathBuf {
+        self.profile_dir(profile_id).join("grants.json")
+    }
+
+    pub fn grants_file(&self) -> PathBuf {
+        self.profile_grants_file(&self.profile_id)
+    }
+
+    pub fn profile_secrets_file(&self, profile_id: &str) -> PathBuf {
+        self.profile_dir(profile_id).join("secrets.json")
+    }
+
+    pub fn secrets_file(&self) -> PathBuf {
+        self.profile_secrets_file(&self.profile_id)
     }
 
     pub fn memory_file(&self) -> PathBuf {
@@ -144,19 +249,42 @@ impl StoragePaths {
         self.cache_dir().join("batches")
     }
 
+    pub fn compactions_dir(&self) -> PathBuf {
+        self.cache_dir().join("compactions")
+    }
+
+    pub fn bridge_deliveries_dir(&self) -> PathBuf {
+        self.cache_dir().join("bridge-deliveries")
+    }
+
+    pub fn artifacts_dir(&self) -> PathBuf {
+        self.cache_dir().join("artifacts")
+    }
+
     pub fn state_db(&self) -> PathBuf {
         self.root.join("state.sqlite")
     }
 
+    pub fn ensure_profile_dirs(&self, profile_id: &str) -> Result<(), StorageError> {
+        std::fs::create_dir_all(self.profile_agents_dir(profile_id))?;
+        std::fs::create_dir_all(self.profile_skills_dir(profile_id))?;
+        std::fs::create_dir_all(self.profile_adapters_dir(profile_id))?;
+        std::fs::create_dir_all(self.profile_capability_drafts_dir(profile_id))?;
+        std::fs::create_dir_all(self.profile_models_dir(profile_id))?;
+        std::fs::create_dir_all(self.profile_prompts_dir(profile_id))?;
+        std::fs::create_dir_all(self.profile_conversations_dir(profile_id))?;
+        Ok(())
+    }
+
     pub fn ensure_base_dirs(&self) -> Result<(), StorageError> {
+        self.ensure_profile_dirs(&self.profile_id)?;
         std::fs::create_dir_all(self.default_agent_dir())?;
-        std::fs::create_dir_all(self.skills_dir())?;
-        std::fs::create_dir_all(self.adapters_dir())?;
-        std::fs::create_dir_all(self.models_dir())?;
-        std::fs::create_dir_all(self.prompts_dir())?;
         std::fs::create_dir_all(self.memory_backup_dir())?;
         std::fs::create_dir_all(self.ingestion_cache_dir())?;
         std::fs::create_dir_all(self.batches_dir())?;
+        std::fs::create_dir_all(self.compactions_dir())?;
+        std::fs::create_dir_all(self.bridge_deliveries_dir())?;
+        std::fs::create_dir_all(self.artifacts_dir())?;
         Ok(())
     }
 
@@ -197,6 +325,15 @@ impl StoragePaths {
             path,
         })
     }
+}
+
+fn clean_profile_id(id: String) -> Option<String> {
+    let id = id.trim().to_string();
+    let valid = !id.is_empty()
+        && id
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'));
+    valid.then_some(id)
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -258,6 +395,7 @@ mod tests {
     #[test]
     fn paths_match_spec_layout() {
         let paths = StoragePaths::new("/tmp/harness");
+        assert_eq!(paths.active_profile_id(), "main");
         assert_eq!(
             paths.global_config(),
             PathBuf::from("/tmp/harness/config.toml")
@@ -271,10 +409,63 @@ mod tests {
             PathBuf::from("/tmp/harness/profiles/main/profile.toml")
         );
         assert_eq!(
+            paths.profile_config("research"),
+            PathBuf::from("/tmp/harness/profiles/research/profile.toml")
+        );
+        assert_eq!(
+            paths.profile_conversations_dir("research"),
+            PathBuf::from("/tmp/harness/profiles/research/conversations")
+        );
+        assert_eq!(
+            paths.capability_drafts_dir(),
+            PathBuf::from("/tmp/harness/profiles/main/capability-drafts")
+        );
+        assert_eq!(
+            paths.profile_grants_file("research"),
+            PathBuf::from("/tmp/harness/profiles/research/grants.json")
+        );
+        assert_eq!(
+            paths.secrets_file(),
+            PathBuf::from("/tmp/harness/profiles/main/secrets.json")
+        );
+        assert_eq!(
             paths.model_config("fake-model"),
             PathBuf::from("/tmp/harness/profiles/main/models/fake-model.toml")
         );
+        assert_eq!(
+            paths.conversations_dir(),
+            PathBuf::from("/tmp/harness/profiles/main/conversations")
+        );
+        assert_eq!(
+            paths.compactions_dir(),
+            PathBuf::from("/tmp/harness/cache/compactions")
+        );
+        assert_eq!(
+            paths.bridge_deliveries_dir(),
+            PathBuf::from("/tmp/harness/cache/bridge-deliveries")
+        );
+        assert_eq!(
+            paths.artifacts_dir(),
+            PathBuf::from("/tmp/harness/cache/artifacts")
+        );
         assert_eq!(paths.state_db(), PathBuf::from("/tmp/harness/state.sqlite"));
+    }
+
+    #[test]
+    fn active_profile_retargets_profile_scoped_paths() {
+        let paths = StoragePaths::new_with_profile("/tmp/harness", "research");
+        assert_eq!(paths.active_profile_id(), "research");
+        assert_eq!(
+            paths.default_agent_config(),
+            PathBuf::from("/tmp/harness/profiles/research/agents/fake-agent/agent.toml")
+        );
+        assert_eq!(
+            paths.conversations_dir(),
+            PathBuf::from("/tmp/harness/profiles/research/conversations")
+        );
+
+        let fallback = StoragePaths::new_with_profile("/tmp/harness", "../bad");
+        assert_eq!(fallback.active_profile_id(), "main");
     }
 
     #[test]
@@ -298,7 +489,7 @@ mod tests {
         assert_eq!(report.root, root);
         assert_eq!(report.total_bytes, 22);
         assert_eq!(report.total_files, 4);
-        assert_eq!(report.total_directories, 13);
+        assert_eq!(report.total_directories, 18);
         assert_eq!(report.largest_file, Some(paths.memory_file()));
         assert_eq!(report.largest_file_bytes, 7);
         assert_eq!(

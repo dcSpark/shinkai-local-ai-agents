@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 authors.workspace = true
+description = "Shinkai HTTP daemon."
 
 [[bin]]
 name = "agent-daemon"
@@ -15,7 +16,10 @@ agent-api-client = { path = "../agent-api-client" }
 agent-adapters = { path = "../agent-adapters" }
 agent-batch = { path = "../agent-batch" }
 agent-bundles = { path = "../agent-bundles" }
+agent-capabilities = { path = "../agent-capabilities" }
+agent-compaction = { path = "../agent-compaction" }
 agent-config = { path = "../agent-config" }
+agent-conversations = { path = "../agent-conversations" }
 agent-core = { path = "../agent-core" }
 agent-ingest = { path = "../agent-ingest" }
 agent-llm = { path = "../agent-llm" }
@@ -26,7 +30,11 @@ agent-storage = { path = "../agent-storage" }
 agent-tools = { path = "../agent-tools" }
 agent-tracing = { path = "../agent-tracing" }
 anyhow.workspace = true
+hmac = "0.12"
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 serde.workspace = true
 serde_json.workspace = true
+sha2 = "0.10"
 tokio = { workspace = true, features = ["net", "io-util", "rt-multi-thread", "macros"] }
+url = "2"
 uuid.workspace = true

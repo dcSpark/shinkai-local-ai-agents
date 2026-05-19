@@ -1,4 +1,4 @@
-//! Tauri v2 backend for the Agent Harness webapp.
+//! Tauri v2 backend for the Shinkai webapp.
 //!
 //! Wires the same `agent-core::HarnessApi` as the TUI does (see
 //! `specs/architecture.md` §3 — three-surface architecture). This crate is one
@@ -7,33 +7,61 @@
 //! v0 surface:
 //! - One `tauri::command`: `run_agent(input, demo) -> RunSummary`.
 //! - Streams every `RunEvent` to the frontend via `app.emit("run-event", _)`.
-//!
-//! Slash commands, multiple agents, configurable models, and the rest of
-//! `general_requirements.md` §5 land in later slices.
+//! - Mirrors the CLI's `/tool` forced-call and `/tool!` manual-call shortcuts.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
 use agent_adapters::{AdapterRegistry, NormalizedPackage, inspect_source};
 use agent_batch::{BatchItemState, BatchPlan};
 use agent_bundles::{BundleManifest, export_bundle, import_bundle};
-use agent_config::{ConfigResolver, ModelConfig};
-use agent_core::{
-    AgentConfig, ApprovalMode, ConfigExplanation, ContextSnapshot, CostPolicy, Harness, HarnessApi,
-    IngestedArtifactView, PromptRefinement, RunResult, ToolOutputMode, ToolPolicy, ToolView,
-    UserInput, VisibilityLevel,
+use agent_capabilities::{
+    CapabilityDraft, CapabilityDraftInput, CapabilityDraftStatus, CapabilityDraftStore,
+    CapabilityDraftTool, CapabilityKind,
 };
-use agent_ingest::{IngestionArtifact, IngestionStore};
-use agent_llm::{FakeProvider, FakeStep, LlmProvider, ModelRef, RigProvider, RigProviderConfig};
-use agent_memory::{MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget};
+use agent_compaction::{CompactionRecord, CompactionStore};
+use agent_config::{
+    AgentConfigFile, ConfigResolver, IngestionGuardrailMode, ModelConfig, ModelProviderDescriptor,
+    ModelRuntimeConfig, ProfileGrantKind, supported_model_providers,
+};
+use agent_conversations::{
+    ConversationDoc, ConversationStore, ConversationTreeNode, ExpandedConversation,
+};
+use agent_core::{
+    AgentConfig, ApprovalMode, ConfigExplanation, ConfigValueExplanation, ContextSnapshot,
+    CostPolicy, ExecutionPolicy, Harness, HarnessApi, HookTrigger, IngestedArtifactView,
+    MemoryFragment, PromptRefinement, RunHookHandler, RunLifecycleHook, RunResult, SkillView,
+    ToolOutputMode, ToolPolicy, ToolView, UserInput, VisibilityLevel, VoiceConfig,
+};
+use agent_ingest::{
+    IngestionArtifact, IngestionBackendDescriptor, IngestionFindingReviewDecision,
+    IngestionModelCall, IngestionStore, supported_backends as supported_ingestion_backends,
+};
+use agent_llm::{
+    AnthropicProvider, FakeProvider, FakeStep, GeminiProvider, LlmProvider, ModelRef,
+    NativeProviderConfig, RigProvider, RigProviderConfig,
+};
+use agent_memory::{
+    MemoryAuthor, MemoryBackendDescriptor, MemoryRecord, MemoryStore, MemoryTarget,
+    supported_backends as supported_memory_backends,
+};
 use agent_prompts::{PromptDoc, PromptStore};
 use agent_skills::{SkillDoc, SkillRegistry};
 use agent_storage::StoragePaths;
-use agent_tools::{FakeTool, ShellTool, ShellToolConfig, SubagentTool, ToolId, ToolRegistry};
+use agent_tools::{
+    ArtifactTool, FakeTool, GeneratedArtifact, ShellTool, ShellToolConfig, SubagentTool, ToolId,
+    ToolRegistry, VoiceRuntimeConfig, generated_artifact_data_url_from_env,
+    list_generated_artifacts_from_env, open_generated_artifact_from_env,
+    register_allowed_mcp_tools_for_category_with_provenance,
+    register_allowed_mcp_tools_for_resource_with_provenance,
+    register_allowed_mcp_tools_with_provenance, register_voice_tools, save_voice_capture_from_env,
+    show_generated_artifact_from_env,
+};
 use agent_tracing::{
-    EventStore, PublishingEventStore, RunEvent, RunEventKind, RunId, SqliteEventStore,
-    is_terminal_run_event, latest_event_id, validate_guidance_content, validate_quality_score,
+    EventId, EventStore, PublishingEventStore, RunEvent, RunEventKind, RunId, SqliteEventStore,
+    build_resume_plan, is_terminal_run_event, latest_event_id, validate_guidance_content,
+    validate_quality_score,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -51,6 +79,22 @@ struct RunSummary {
     final_output: String,
 }
 
+enum PreparedTauriRun {
+    Agent {
+        input: String,
+        demo: Demo,
+        options: RunOptions,
+        agent: AgentConfig,
+        registry: Arc<ToolRegistry>,
+    },
+    DirectTool {
+        name: String,
+        input: Value,
+        agent: AgentConfig,
+        registry: Arc<ToolRegistry>,
+    },
+}
+
 #[derive(Deserialize, Clone, Copy)]
 #[serde(rename_all = "lowercase")]
 enum Demo {
@@ -64,12 +108,18 @@ enum ProviderKind {
     #[default]
     Fake,
     Rig,
+    Ollama,
+    #[serde(rename = "llama_cpp")]
+    LlamaCpp,
+    Anthropic,
+    Gemini,
 }
 
 #[derive(Deserialize, Clone)]
 #[serde(default)]
 struct RunOptions {
     provider: ProviderKind,
+    agent_id: Option<String>,
     model: Option<String>,
     api_base_url: Option<String>,
     api_key_env: String,
@@ -77,11 +127,17 @@ struct RunOptions {
     max_output_tokens: Option<u64>,
     temperature: Option<f64>,
     max_tool_calls: Option<u32>,
+    #[serde(default)]
+    allowed_tool_categories: Vec<String>,
+    #[serde(default)]
+    allowed_skill_categories: Vec<String>,
     tool_visibility: Option<VisibilityLevel>,
+    skill_visibility: Option<VisibilityLevel>,
     input_cost_per_million: Option<f64>,
     output_cost_per_million: Option<f64>,
     enable_shell: bool,
     enable_subagent: bool,
+    enable_capability_drafts: bool,
     load_memory: bool,
     load_skills: bool,
     include_ingest: Vec<String>,
@@ -90,7 +146,9 @@ struct RunOptions {
     prompt_refinement_instructions: Option<String>,
     prompt_refinement_model: Option<String>,
     require_approval: bool,
+    auto_approve: bool,
     raw_tool_output: bool,
+    disable_lifecycle_hooks: bool,
     compacted_context: Option<String>,
 }
 
@@ -98,6 +156,7 @@ impl Default for RunOptions {
     fn default() -> Self {
         Self {
             provider: ProviderKind::Fake,
+            agent_id: None,
             model: None,
             api_base_url: None,
             api_key_env: "OPENAI_API_KEY".into(),
@@ -105,11 +164,15 @@ impl Default for RunOptions {
             max_output_tokens: None,
             temperature: None,
             max_tool_calls: None,
+            allowed_tool_categories: Vec::new(),
+            allowed_skill_categories: Vec::new(),
             tool_visibility: None,
+            skill_visibility: None,
             input_cost_per_million: None,
             output_cost_per_million: None,
             enable_shell: false,
             enable_subagent: false,
+            enable_capability_drafts: false,
             load_memory: false,
             load_skills: false,
             include_ingest: Vec::new(),
@@ -118,7 +181,9 @@ impl Default for RunOptions {
             prompt_refinement_instructions: None,
             prompt_refinement_model: None,
             require_approval: false,
+            auto_approve: false,
             raw_tool_output: false,
+            disable_lifecycle_hooks: false,
             compacted_context: None,
         }
     }
@@ -129,18 +194,17 @@ fn build_provider(
     input: &str,
     options: &RunOptions,
 ) -> Result<Arc<dyn LlmProvider>, String> {
+    let prompt_refinement_enabled = effective_prompt_refinement_enabled(options);
     match options.provider {
         ProviderKind::Fake => Ok(match demo {
-            Demo::Echo if options.enable_prompt_refinement => {
-                Arc::new(FakeProvider::sequence(vec![
-                    FakeStep::Reply(format!("refined: {input}")),
-                    FakeStep::Reply(format!("[fake] refined: {input}")),
-                ]))
-            }
+            Demo::Echo if prompt_refinement_enabled => Arc::new(FakeProvider::sequence(vec![
+                FakeStep::Reply(format!("refined: {input}")),
+                FakeStep::Reply(format!("[fake] refined: {input}")),
+            ])),
             Demo::Echo => Arc::new(FakeProvider::echo()),
             Demo::Tool => {
                 let mut steps = Vec::new();
-                if options.enable_prompt_refinement {
+                if prompt_refinement_enabled {
                     steps.push(FakeStep::Reply(format!("refined: {input}")));
                 }
                 steps.extend([
@@ -155,66 +219,319 @@ fn build_provider(
             }
         }),
         ProviderKind::Rig => {
-            let model = rig_model_id(options);
+            let model = model_id_for_provider(options, ProviderKind::Rig);
             let model_runtime = ConfigResolver::from_env()
                 .resolve_model_runtime(&model)
                 .ok()
-                .flatten();
-            let config = RigProviderConfig {
-                api_base_url: options.api_base_url.clone(),
-                api_key_env: options.api_key_env.clone(),
-                model: ModelRef::from(model),
-                max_output_tokens: options.max_output_tokens.or_else(|| {
-                    model_runtime
-                        .as_ref()
-                        .and_then(|model| model.max_output_tokens)
-                }),
-                temperature: options.temperature.or_else(|| {
-                    model_runtime
-                        .as_ref()
-                        .and_then(|model| model.default_temperature)
-                }),
-            };
+                .flatten()
+                .unwrap_or_default();
+            let mut config = model_runtime
+                .rig_provider_config(
+                    ModelRef::from(model),
+                    options.max_output_tokens,
+                    options.temperature,
+                )
+                .map_err(|e| e.to_string())?;
+            if let Some(api_base_url) = options.api_base_url.clone() {
+                config.api_base_url = Some(api_base_url);
+            }
+            if options.api_key_env != "OPENAI_API_KEY" || model_runtime.api_key_env.is_none() {
+                config.api_key_env = options.api_key_env.clone();
+            }
             RigProvider::from_config_with_api_key_override(config, options.api_key.clone())
+                .map(|provider| Arc::new(provider) as Arc<dyn LlmProvider>)
+                .map_err(|e| e.to_string())
+        }
+        ProviderKind::Ollama => {
+            let model = model_id_for_provider(options, ProviderKind::Ollama);
+            let mut config = RigProviderConfig::ollama(ModelRef::from(model));
+            if let Some(base_url) = options.api_base_url.clone() {
+                config.api_base_url = Some(base_url);
+            }
+            config.max_output_tokens = options.max_output_tokens;
+            config.temperature = options.temperature;
+            RigProvider::from_config_with_api_key_override(config, options.api_key.clone())
+                .map(|provider| Arc::new(provider) as Arc<dyn LlmProvider>)
+                .map_err(|e| e.to_string())
+        }
+        ProviderKind::LlamaCpp => {
+            let model = model_id_for_provider(options, ProviderKind::LlamaCpp);
+            let mut config = RigProviderConfig::llama_cpp(ModelRef::from(model));
+            if let Some(base_url) = options.api_base_url.clone() {
+                config.api_base_url = Some(base_url);
+            }
+            config.max_output_tokens = options.max_output_tokens;
+            config.temperature = options.temperature;
+            RigProvider::from_config_with_api_key_override(config, options.api_key.clone())
+                .map(|provider| Arc::new(provider) as Arc<dyn LlmProvider>)
+                .map_err(|e| e.to_string())
+        }
+        ProviderKind::Anthropic => {
+            let model = model_id_for_provider(options, ProviderKind::Anthropic);
+            let config = native_provider_config(
+                model,
+                options,
+                NativeProviderConfig::anthropic,
+                "ANTHROPIC_API_KEY",
+            );
+            AnthropicProvider::from_config_with_api_key_override(config, options.api_key.clone())
+                .map(|provider| Arc::new(provider) as Arc<dyn LlmProvider>)
+                .map_err(|e| e.to_string())
+        }
+        ProviderKind::Gemini => {
+            let model = model_id_for_provider(options, ProviderKind::Gemini);
+            let config = native_provider_config(
+                model,
+                options,
+                NativeProviderConfig::gemini,
+                "GEMINI_API_KEY",
+            );
+            GeminiProvider::from_config_with_api_key_override(config, options.api_key.clone())
                 .map(|provider| Arc::new(provider) as Arc<dyn LlmProvider>)
                 .map_err(|e| e.to_string())
         }
     }
 }
 
-fn rig_model_id(options: &RunOptions) -> String {
+fn native_provider_config(
+    model: String,
+    options: &RunOptions,
+    constructor: fn(ModelRef) -> NativeProviderConfig,
+    default_api_key_env: &str,
+) -> NativeProviderConfig {
+    let model_runtime = ConfigResolver::from_env()
+        .resolve_model_runtime(&model)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    let runtime_has_api_key_env = model_runtime.api_key_env.is_some();
+    let mut config = model_runtime.native_provider_config(
+        ModelRef::from(model),
+        constructor,
+        options.max_output_tokens,
+        options.temperature,
+    );
+    if !runtime_has_api_key_env && options.api_key_env != "OPENAI_API_KEY" {
+        config.api_key_env = options.api_key_env.clone();
+    } else if !runtime_has_api_key_env {
+        config.api_key_env = default_api_key_env.into();
+    }
+    config
+}
+
+fn effective_prompt_refinement_enabled(options: &RunOptions) -> bool {
+    if options.enable_prompt_refinement {
+        return true;
+    }
+    ConfigResolver::from_env()
+        .resolve_agent(options.agent_id.as_deref().unwrap_or("fake-agent"))
+        .map(|resolved| resolved.agent.prompt_refinement.is_some())
+        .unwrap_or(false)
+}
+
+fn model_id_for_provider(options: &RunOptions, provider: ProviderKind) -> String {
     if let Some(model) = options.model.clone() {
         return model;
     }
     let configured = ConfigResolver::from_env()
-        .resolve_default_agent()
+        .resolve_agent(options.agent_id.as_deref().unwrap_or("fake-agent"))
         .map(|resolved| resolved.agent.model.0)
         .unwrap_or_else(|_| "fake-model".into());
     if configured == "fake-model" {
-        "gpt-4o-mini".into()
+        default_model_for_provider(provider).into()
     } else {
         configured
     }
 }
 
-fn build_registry(enable_shell: bool, enable_subagent: bool) -> Arc<ToolRegistry> {
+fn default_model_for_provider(provider: ProviderKind) -> &'static str {
+    match provider {
+        ProviderKind::Fake => "fake-model",
+        ProviderKind::Rig => "gpt-4o-mini",
+        ProviderKind::Ollama => "llama3.1",
+        ProviderKind::LlamaCpp => "local-model",
+        ProviderKind::Anthropic => "claude-sonnet-4-5",
+        ProviderKind::Gemini => "gemini-2.5-flash",
+    }
+}
+
+fn build_registry(
+    enable_shell: bool,
+    enable_subagent: bool,
+    enable_capability_drafts: bool,
+    agent_id: Option<&str>,
+) -> Arc<ToolRegistry> {
     let mut registry = ToolRegistry::new();
     registry.register(FakeTool::echo_descriptor(), Arc::new(FakeTool::echo()));
+    registry.register(
+        ArtifactTool::descriptor(),
+        Arc::new(ArtifactTool::from_env()),
+    );
     if enable_shell {
+        let shell_config = ShellToolConfig::from_env();
         registry.register(
-            ShellTool::descriptor(),
-            Arc::new(ShellTool::new(ShellToolConfig::default())),
+            ShellTool::descriptor_for_config(&shell_config),
+            Arc::new(ShellTool::new(shell_config)),
         );
     }
     if enable_subagent {
         registry.register(SubagentTool::descriptor(), Arc::new(SubagentTool));
     }
+    if enable_capability_drafts {
+        registry.register(
+            CapabilityDraftTool::descriptor(),
+            Arc::new(CapabilityDraftTool::from_env()),
+        );
+    }
+    register_voice_tools(&mut registry, voice_runtime_config_for_agent(agent_id));
+    register_profile_scoped_mcp_tools(&mut registry);
     Arc::new(registry)
 }
 
+fn voice_runtime_config_for_agent(agent_id: Option<&str>) -> VoiceRuntimeConfig {
+    ConfigResolver::from_env()
+        .resolve_agent(agent_id.unwrap_or("fake-agent"))
+        .map(|resolved| {
+            let voice = resolved.agent.voice;
+            VoiceRuntimeConfig {
+                input_enabled: voice.input_enabled,
+                output_enabled: voice.output_enabled,
+                input_backend: voice.input_backend,
+                input_provider: voice.input_provider,
+                input_model: voice.input_model,
+                output_backend: voice.output_backend,
+                tts_provider: voice.tts_provider,
+                tts_model: voice.tts_model,
+                voice: voice.voice,
+                tone: voice.tone,
+            }
+        })
+        .unwrap_or_default()
+}
+
+fn build_harness(
+    provider: Arc<dyn LlmProvider>,
+    events: Arc<dyn EventStore>,
+    registry: Arc<ToolRegistry>,
+) -> Harness {
+    build_harness_with_hook_policy(provider, events, registry, false, None)
+}
+
+fn build_harness_with_hook_policy(
+    provider: Arc<dyn LlmProvider>,
+    events: Arc<dyn EventStore>,
+    registry: Arc<ToolRegistry>,
+    disable_lifecycle_hooks: bool,
+    agent_id: Option<&str>,
+) -> Harness {
+    let harness = Harness::new(provider, events, registry);
+    if disable_lifecycle_hooks {
+        harness
+    } else {
+        harness.with_hooks(build_lifecycle_hooks(agent_id))
+    }
+}
+
+fn build_lifecycle_hooks(agent_id: Option<&str>) -> Vec<RunLifecycleHook> {
+    let paths = StoragePaths::from_env();
+    let disabled = ConfigResolver::new(paths.clone())
+        .disabled_lifecycle_hooks_for_agent(agent_id.unwrap_or("fake-agent"))
+        .unwrap_or_default()
+        .into_iter()
+        .collect::<HashSet<_>>();
+    AdapterRegistry::new(paths)
+        .lifecycle_hooks()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|hook| !disabled.contains(hook.id.trim()))
+        .filter_map(|hook| {
+            let triggers = hook
+                .triggers
+                .iter()
+                .filter_map(|trigger| HookTrigger::from_config_str(trigger))
+                .collect::<Vec<_>>();
+            (!triggers.is_empty()).then(|| {
+                let mut lifecycle_hook = RunLifecycleHook::new(hook.id, triggers);
+                if let Some(handler) = hook.handler {
+                    lifecycle_hook = lifecycle_hook.with_handler(
+                        RunHookHandler::command(handler.command, handler.args, handler.timeout_ms)
+                            .with_retry_attempts(handler.retry_attempts),
+                    );
+                }
+                lifecycle_hook
+            })
+        })
+        .collect()
+}
+
+fn register_profile_scoped_mcp_tools(registry: &mut ToolRegistry) -> usize {
+    let active_paths = StoragePaths::from_env();
+    let active_profile = active_paths.active_profile_id().to_string();
+    let active_provenance = format!("profile={active_profile}");
+    let mut registered = AdapterRegistry::new(active_paths.clone())
+        .list()
+        .map(|packages| {
+            register_allowed_mcp_tools_with_provenance(registry, packages, Some(&active_provenance))
+        })
+        .unwrap_or_default();
+    let Ok(grants) = ConfigResolver::new(active_paths.clone()).list_profile_grants() else {
+        return registered;
+    };
+    for grant in grants.into_iter().filter(|grant| {
+        matches!(
+            grant.kind,
+            ProfileGrantKind::Tool | ProfileGrantKind::Category
+        ) && grant.to_profile == active_profile
+    }) {
+        let source_paths =
+            StoragePaths::new_with_profile(active_paths.root().to_path_buf(), &grant.from_profile);
+        let Ok(packages) = AdapterRegistry::new(source_paths).list() else {
+            continue;
+        };
+        let provenance = format!(
+            "profile={}; shared_from_profile={}; grant={}",
+            grant.from_profile, grant.from_profile, grant.id
+        );
+        registered += match grant.kind {
+            ProfileGrantKind::Tool => register_allowed_mcp_tools_for_resource_with_provenance(
+                registry,
+                packages,
+                &grant.resource,
+                Some(&provenance),
+            ),
+            ProfileGrantKind::Category => register_allowed_mcp_tools_for_category_with_provenance(
+                registry,
+                packages,
+                &grant.resource,
+                Some(&provenance),
+            ),
+            _ => 0,
+        };
+    }
+    registered
+}
+
 fn build_agent(options: &RunOptions) -> AgentConfig {
-    let mut agent = ConfigResolver::from_env()
-        .resolve_default_agent()
+    let resolved = ConfigResolver::from_env()
+        .resolve_agent(options.agent_id.as_deref().unwrap_or("fake-agent"));
+    let config_load_memory = resolved
+        .as_ref()
+        .ok()
+        .is_some_and(|resolved| config_bool(&resolved.values, "agent.memory_policy.load"));
+    let config_load_skills = resolved
+        .as_ref()
+        .ok()
+        .is_some_and(|resolved| config_bool(&resolved.values, "agent.skill_policy.load"));
+    let ingestion_guardrail = if options.allow_unsafe_ingest {
+        IngestionGuardrailMode::Allow
+    } else {
+        resolved
+            .as_ref()
+            .ok()
+            .map(|resolved| config_ingestion_guardrail(&resolved.values))
+            .unwrap_or(IngestionGuardrailMode::Block)
+    };
+    let mut agent = resolved
         .map(|resolved| resolved.agent)
         .unwrap_or_else(|_| AgentConfig {
             id: "fake-agent".into(),
@@ -222,24 +539,37 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
             system_prompt: "You echo what the user says.".into(),
             model: ModelRef::from("fake-model"),
             prompt_refinement: None,
+            voice: VoiceConfig::default(),
             tool_policy: ToolPolicy::default(),
+            execution_policy: ExecutionPolicy::default(),
             cost_policy: CostPolicy::default(),
+            conversation_history: Vec::new(),
             compacted_context: None,
             memory_fragments: Vec::new(),
             ingestion_artifacts: Vec::new(),
+            allowed_skill_categories: Vec::new(),
             skill_views: Vec::new(),
         });
 
     if let Some(model) = options.model.clone() {
         agent.model = ModelRef::from(model);
-    } else if matches!(options.provider, ProviderKind::Rig) && agent.model.0 == "fake-model" {
-        agent.model = ModelRef::from("gpt-4o-mini");
+    } else if !matches!(options.provider, ProviderKind::Fake) && agent.model.0 == "fake-model" {
+        agent.model = ModelRef::from(default_model_for_provider(options.provider));
     }
     if let Some(max_tool_calls) = options.max_tool_calls {
         agent.tool_policy.max_calls = max_tool_calls;
     }
+    if !options.allowed_tool_categories.is_empty() {
+        agent.tool_policy.allowed_categories = options.allowed_tool_categories.clone();
+    }
+    if !options.allowed_skill_categories.is_empty() {
+        agent.allowed_skill_categories = options.allowed_skill_categories.clone();
+    }
     if let Some(visibility) = options.tool_visibility {
         agent.tool_policy.visibility = visibility;
+    }
+    if options.auto_approve {
+        agent.tool_policy.approval_mode = ApprovalMode::AutoApprove;
     }
     if options.require_approval {
         agent.tool_policy.approval_mode = ApprovalMode::RequireExplicit;
@@ -270,14 +600,19 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
             model: options.prompt_refinement_model.clone().map(ModelRef::from),
         });
     }
-    if options.load_memory
-        && let Ok(memory) = MemoryStore::from_env().load_fragments()
+    if (options.load_memory || config_load_memory)
+        && let Ok(memory) = load_memory_fragments_with_profile_grants()
     {
         agent.memory_fragments = memory;
     }
-    if options.load_skills
-        && let Ok(skills) = SkillRegistry::from_env().visible_skill_views()
+    if (options.load_skills || config_load_skills)
+        && let Ok(mut skills) = load_skill_views_with_profile_grants()
     {
+        if let Some(visibility) = options.skill_visibility {
+            for skill in &mut skills {
+                apply_skill_visibility(skill, visibility);
+            }
+        }
         agent.skill_views = skills;
     }
     if !options.include_ingest.is_empty() {
@@ -287,18 +622,24 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
             .iter()
             .filter_map(|id| store.show(id).ok())
             .map(|artifact| {
-                let high_risk = artifact.has_high_risk_findings();
-                let mut findings: Vec<String> = artifact
-                    .findings
-                    .into_iter()
-                    .map(|finding| format!("{:?}: {}", finding.severity, finding.message))
-                    .collect();
-                let content = if high_risk && !options.allow_unsafe_ingest {
+                let high_risk = artifact.has_unapproved_high_risk_findings();
+                let mut findings = artifact.finding_summaries();
+                let blocked =
+                    high_risk && matches!(ingestion_guardrail, IngestionGuardrailMode::Block);
+                let warned =
+                    high_risk && matches!(ingestion_guardrail, IngestionGuardrailMode::Warn);
+                let content = if blocked {
                     findings.push(
                         "Policy: content withheld; enable unsafe ingest override to include".into(),
                     );
                     String::new()
                 } else {
+                    if warned {
+                        findings.push(
+                            "Policy: unapproved high-risk content included with ingestion guardrail warning"
+                                .into(),
+                        );
+                    }
                     artifact.extracted_text.unwrap_or_default()
                 };
                 IngestedArtifactView {
@@ -307,8 +648,10 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
                     sections: artifact.sections.len(),
                     content,
                     findings,
-                    provenance: if high_risk && !options.allow_unsafe_ingest {
+                    provenance: if blocked {
                         "agent.ingest blocked by prompt-injection guardrail".into()
+                    } else if warned {
+                        "agent.ingest warning from prompt-injection guardrail".into()
                     } else {
                         "agent.ingest explicit reference".into()
                     },
@@ -318,6 +661,504 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
     }
 
     agent
+}
+
+fn apply_skill_visibility(skill: &mut SkillView, visibility: VisibilityLevel) {
+    skill.visibility = visibility;
+    match visibility {
+        VisibilityLevel::FullSchema => {}
+        VisibilityLevel::NameAndDescription => {
+            skill.body = None;
+            skill.estimated_tokens = 0;
+        }
+        VisibilityLevel::NameOnly => {
+            skill.description = None;
+            skill.body = None;
+            skill.estimated_tokens = 0;
+        }
+    }
+}
+
+fn config_bool(values: &[ConfigValueExplanation], key: &str) -> bool {
+    values
+        .iter()
+        .find(|value| value.key == key)
+        .and_then(|value| value.value.as_bool())
+        .unwrap_or(false)
+}
+
+fn config_ingestion_guardrail(values: &[ConfigValueExplanation]) -> IngestionGuardrailMode {
+    values
+        .iter()
+        .find(|value| value.key == "agent.ingestion_policy.guardrail_mode")
+        .and_then(|value| value.value.as_str())
+        .and_then(IngestionGuardrailMode::from_config_str)
+        .unwrap_or(IngestionGuardrailMode::Block)
+}
+
+fn load_memory_fragments_with_profile_grants()
+-> Result<Vec<MemoryFragment>, Box<dyn std::error::Error>> {
+    let active_paths = StoragePaths::from_env();
+    let active_profile = active_paths.active_profile_id().to_string();
+    let mut fragments = MemoryStore::new(active_paths.clone()).load_fragments()?;
+    let resolver = ConfigResolver::new(active_paths.clone());
+    for grant in resolver.list_profile_grants()?.into_iter().filter(|grant| {
+        grant.kind == ProfileGrantKind::Memory && grant.to_profile == active_profile
+    }) {
+        let source_paths =
+            StoragePaths::new_with_profile(active_paths.root().to_path_buf(), &grant.from_profile);
+        let records = MemoryStore::new(source_paths).list()?;
+        for record in records
+            .into_iter()
+            .filter(|record| memory_record_matches_grant(record, &grant.resource))
+        {
+            fragments.push(MemoryStore::fragment_from_record(
+                record,
+                Some(format!(
+                    "shared_from_profile={}; grant={}",
+                    grant.from_profile, grant.id
+                )),
+            ));
+        }
+    }
+    Ok(fragments)
+}
+
+fn memory_record_matches_grant(record: &MemoryRecord, resource: &str) -> bool {
+    resource == "*" || record.id == resource || record.owning_agent.as_deref() == Some(resource)
+}
+
+fn load_skill_views_with_profile_grants() -> Result<Vec<SkillView>, Box<dyn std::error::Error>> {
+    let active_paths = StoragePaths::from_env();
+    let active_profile = active_paths.active_profile_id().to_string();
+    let mut skills = SkillRegistry::new(active_paths.clone()).visible_skill_views()?;
+    let mut loaded_ids = skills
+        .iter()
+        .map(|skill| skill.id.clone())
+        .collect::<HashSet<_>>();
+    let resolver = ConfigResolver::new(active_paths.clone());
+    for grant in resolver.list_profile_grants()?.into_iter().filter(|grant| {
+        matches!(
+            grant.kind,
+            ProfileGrantKind::Skill | ProfileGrantKind::Category
+        ) && grant.to_profile == active_profile
+    }) {
+        let source_paths =
+            StoragePaths::new_with_profile(active_paths.root().to_path_buf(), &grant.from_profile);
+        for mut skill in SkillRegistry::new(source_paths)
+            .visible_skill_views()?
+            .into_iter()
+            .filter(|skill| skill_view_matches_grant(skill, &grant))
+        {
+            if loaded_ids.contains(&skill.id) {
+                continue;
+            }
+            let shared_provenance = format!(
+                "shared_from_profile={}; grant={}",
+                grant.from_profile, grant.id
+            );
+            skill.provenance = Some(match skill.provenance {
+                Some(base) => format!("{base}; {shared_provenance}"),
+                None => shared_provenance,
+            });
+            loaded_ids.insert(skill.id.clone());
+            skills.push(skill);
+        }
+    }
+    Ok(skills)
+}
+
+fn skill_view_matches_grant(skill: &SkillView, grant: &agent_config::ProfileGrant) -> bool {
+    match grant.kind {
+        ProfileGrantKind::Skill => {
+            grant.resource == "*" || skill.id == grant.resource || skill.name == grant.resource
+        }
+        ProfileGrantKind::Category => {
+            grant.resource == "*"
+                || skill
+                    .categories
+                    .iter()
+                    .any(|category| category == &grant.resource)
+        }
+        _ => false,
+    }
+}
+
+fn prepare_tauri_run(
+    input: String,
+    demo: Demo,
+    options: RunOptions,
+) -> Result<PreparedTauriRun, String> {
+    if let Some(command) = parse_tauri_tool_slash(&input)? {
+        return match command {
+            TauriToolSlash::Manual { name, input: value } => {
+                let (agent, registry) = direct_tool_agent_and_registry(&name, options);
+                Ok(PreparedTauriRun::DirectTool {
+                    name,
+                    input: value,
+                    agent,
+                    registry,
+                })
+            }
+            TauriToolSlash::Forced { name, prompt } => {
+                let text = forced_tool_prompt(&name, &prompt);
+                let (agent, registry) = forced_tool_agent_and_registry(&name, options.clone())?;
+                Ok(PreparedTauriRun::Agent {
+                    input: text,
+                    demo,
+                    options,
+                    agent,
+                    registry,
+                })
+            }
+        };
+    }
+
+    let registry = build_registry(
+        options.enable_shell,
+        options.enable_subagent,
+        options.enable_capability_drafts,
+        options.agent_id.as_deref(),
+    );
+    let agent = build_agent(&options);
+    Ok(PreparedTauriRun::Agent {
+        input,
+        demo,
+        options,
+        agent,
+        registry,
+    })
+}
+
+async fn execute_prepared_tauri_run(
+    prepared: PreparedTauriRun,
+    store: Arc<dyn EventStore>,
+) -> Result<RunResult, String> {
+    match prepared {
+        PreparedTauriRun::Agent {
+            input,
+            demo,
+            options,
+            agent,
+            registry,
+        } => {
+            let provider = build_provider(demo, &input, &options)?;
+            let harness = build_harness_with_hook_policy(
+                provider,
+                store,
+                registry,
+                options.disable_lifecycle_hooks,
+                options.agent_id.as_deref(),
+            );
+            harness
+                .run(&agent, UserInput { text: input })
+                .await
+                .map_err(|e| e.to_string())
+        }
+        PreparedTauriRun::DirectTool {
+            name,
+            input,
+            agent,
+            registry,
+        } => {
+            let harness = build_harness(Arc::new(FakeProvider::echo()), store, registry);
+            let result = harness
+                .call_tool(&agent, ToolId::from(name), input)
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok(RunResult {
+                run_id: result.run_id,
+                final_output: serde_json::to_string(&result.output).map_err(|e| e.to_string())?,
+            })
+        }
+    }
+}
+
+enum TauriToolSlash {
+    Manual { name: String, input: Value },
+    Forced { name: String, prompt: String },
+}
+
+fn parse_tauri_tool_slash(input: &str) -> Result<Option<TauriToolSlash>, String> {
+    let trimmed = input.trim();
+    if let Some(rest) = trimmed.strip_prefix("/tool!").map(str::trim) {
+        let (name, input) = parse_direct_tool_slash_rest(rest)?;
+        return Ok(Some(TauriToolSlash::Manual { name, input }));
+    }
+    if let Some(rest) = trimmed.strip_prefix("/tool ").map(str::trim) {
+        let (name, prompt) = parse_forced_tool_slash_rest(rest)?;
+        return Ok(Some(TauriToolSlash::Forced { name, prompt }));
+    }
+    Ok(None)
+}
+
+fn parse_direct_tool_slash_rest(rest: &str) -> Result<(String, Value), String> {
+    let (name, input) = rest
+        .trim()
+        .split_once(char::is_whitespace)
+        .map(|(name, input)| (name.to_string(), input.trim().to_string()))
+        .unwrap_or_else(|| (rest.trim().to_string(), "{}".into()));
+    if name.is_empty() {
+        return Err("missing tool name".into());
+    }
+    serde_json::from_str(&input)
+        .map(|value| (name, value))
+        .map_err(|e| e.to_string())
+}
+
+fn parse_forced_tool_slash_rest(rest: &str) -> Result<(String, String), String> {
+    let (name, prompt) = rest
+        .trim()
+        .split_once(char::is_whitespace)
+        .map(|(name, prompt)| (name.trim().to_string(), prompt.trim().to_string()))
+        .unwrap_or_else(|| (rest.trim().to_string(), String::new()));
+    if name.is_empty() {
+        return Err("missing tool name".into());
+    }
+    Ok((name, prompt))
+}
+
+fn forced_tool_prompt(name: &str, prompt: &str) -> String {
+    let prompt = prompt.trim();
+    if prompt.is_empty() {
+        format!("Call the `{name}` tool with appropriate inputs, then answer from its result.")
+    } else {
+        format!("Call the `{name}` tool for this request, then answer from its result.\n\n{prompt}")
+    }
+}
+
+fn direct_tool_agent_and_registry(
+    name: &str,
+    mut options: RunOptions,
+) -> (AgentConfig, Arc<ToolRegistry>) {
+    options.enable_shell |= name == "shell";
+    options.enable_subagent |= name == "subagent";
+    options.enable_capability_drafts |= name == "capability_draft";
+    let registry = build_registry(
+        options.enable_shell,
+        options.enable_subagent,
+        options.enable_capability_drafts,
+        options.agent_id.as_deref(),
+    );
+    let agent = build_agent(&options);
+    (agent, registry)
+}
+
+fn forced_tool_agent_and_registry(
+    name: &str,
+    mut options: RunOptions,
+) -> Result<(AgentConfig, Arc<ToolRegistry>), String> {
+    options.enable_shell |= name == "shell";
+    options.enable_subagent |= name == "subagent";
+    options.enable_capability_drafts |= name == "capability_draft";
+    let registry = build_registry(
+        options.enable_shell,
+        options.enable_subagent,
+        options.enable_capability_drafts,
+        options.agent_id.as_deref(),
+    );
+    let tool_id = ToolId::from(name.to_string());
+    let mut agent = build_agent(&options);
+    if !agent.tool_policy.allowed_tools.is_empty()
+        && !agent.tool_policy.allowed_tools.contains(&tool_id)
+    {
+        return Err(format!("tool {name:?} is not allowed by this agent"));
+    }
+    agent.tool_policy.allowed_tools = vec![tool_id.clone()];
+    agent.tool_policy.required_tool = Some(tool_id);
+    Ok((agent, registry))
+}
+
+#[cfg(test)]
+mod tauri_slash_tests {
+    use super::*;
+    use agent_tracing::InMemoryEventStore;
+
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn parses_direct_tool_without_space_after_bang() {
+        let parsed = parse_tauri_tool_slash(r#"/tool!echo {"text":"hi"}"#).unwrap();
+        match parsed {
+            Some(TauriToolSlash::Manual { name, input }) => {
+                assert_eq!(name, "echo");
+                assert_eq!(input, serde_json::json!({"text": "hi"}));
+            }
+            _ => panic!("expected direct tool command"),
+        }
+    }
+
+    #[test]
+    fn parses_direct_tool_with_implicit_empty_object() {
+        let parsed = parse_tauri_tool_slash("/tool!echo").unwrap();
+        match parsed {
+            Some(TauriToolSlash::Manual { name, input }) => {
+                assert_eq!(name, "echo");
+                assert_eq!(input, serde_json::json!({}));
+            }
+            _ => panic!("expected direct tool command"),
+        }
+    }
+
+    #[test]
+    fn parses_forced_tool_with_prompt() {
+        let parsed = parse_tauri_tool_slash("/tool echo summarize hello").unwrap();
+        match parsed {
+            Some(TauriToolSlash::Forced { name, prompt }) => {
+                assert_eq!(name, "echo");
+                assert_eq!(prompt, "summarize hello");
+            }
+            _ => panic!("expected forced tool command"),
+        }
+    }
+
+    #[test]
+    fn forced_tool_prompt_keeps_user_request() {
+        assert_eq!(
+            forced_tool_prompt("echo", "summarize hello"),
+            "Call the `echo` tool for this request, then answer from its result.\n\nsummarize hello"
+        );
+    }
+
+    #[test]
+    fn prepares_forced_tool_agent_policy() {
+        let prepared = prepare_tauri_run(
+            "/tool echo summarize hello".into(),
+            Demo::Tool,
+            RunOptions::default(),
+        )
+        .unwrap();
+        match prepared {
+            PreparedTauriRun::Agent { input, agent, .. } => {
+                let tool_id = ToolId::from("echo");
+                assert_eq!(agent.tool_policy.allowed_tools, vec![tool_id.clone()]);
+                assert_eq!(agent.tool_policy.required_tool, Some(tool_id));
+                assert!(input.contains("summarize hello"));
+            }
+            _ => panic!("expected forced agent run"),
+        }
+    }
+
+    #[tokio::test]
+    async fn executes_direct_tool_slash_as_manual_call() {
+        let prepared = prepare_tauri_run(
+            r#"/tool!echo {"text":"manual"}"#.into(),
+            Demo::Echo,
+            RunOptions::default(),
+        )
+        .unwrap();
+        let store = Arc::new(InMemoryEventStore::new());
+        let run_store: Arc<dyn EventStore> = store.clone();
+        let result = execute_prepared_tauri_run(prepared, run_store)
+            .await
+            .unwrap();
+
+        assert_eq!(result.final_output, r#"{"text":"manual"}"#);
+        let events = store.events(result.run_id);
+        assert!(events.iter().any(|event| matches!(
+            &event.kind,
+            RunEventKind::RunStarted { input, .. } if input.starts_with("/tool! echo")
+        )));
+    }
+
+    #[tokio::test]
+    async fn voice_capture_command_writes_audio_artifact() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "agent-tauri-voice-capture-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+
+        let artifact = voice_capture(
+            "data:audio/webm;base64,aGVsbG8=".into(),
+            Some("../clip.webm".into()),
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            artifact
+                .path
+                .starts_with(StoragePaths::from_env().artifacts_dir())
+        );
+        assert_eq!(artifact.format, "webm");
+        assert_eq!(std::fs::read(&artifact.path).unwrap(), b"hello");
+
+        unsafe {
+            if let Some(value) = previous_home {
+                std::env::set_var("AGENT_HARNESS_HOME", value);
+            } else {
+                std::env::remove_var("AGENT_HARNESS_HOME");
+            }
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn hook_policy_command_persists_profile_disable() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("agent-tauri-hook-policy-{}", uuid::Uuid::new_v4()));
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+
+        let initial = hook_policy(Some("fake-agent".into())).await.unwrap();
+        assert_eq!(
+            initial["disabled_lifecycle_hooks"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
+        let updated = set_hook_disabled("adapter:pkg:audit".into(), true, None, None)
+            .await
+            .unwrap();
+        assert_eq!(updated["disabled_lifecycle_hooks"][0], "adapter:pkg:audit");
+        assert_eq!(
+            updated["profile_disabled_lifecycle_hooks"][0],
+            "adapter:pkg:audit"
+        );
+        let agent_updated = set_hook_disabled(
+            "adapter:pkg:agent-audit".into(),
+            true,
+            Some("fake-agent".into()),
+            Some("agent".into()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            agent_updated["agent_disabled_lifecycle_hooks"][0],
+            "adapter:pkg:agent-audit"
+        );
+        let listed = hook_policy(Some("fake-agent".into())).await.unwrap();
+        assert_eq!(
+            listed["disabled_lifecycle_hooks"][0],
+            "adapter:pkg:agent-audit"
+        );
+        assert_eq!(
+            listed["profile_disabled_lifecycle_hooks"][0],
+            "adapter:pkg:audit"
+        );
+        assert_eq!(
+            listed["agent_disabled_lifecycle_hooks"][0],
+            "adapter:pkg:agent-audit"
+        );
+
+        unsafe {
+            if let Some(value) = previous_home {
+                std::env::set_var("AGENT_HARNESS_HOME", value);
+            } else {
+                std::env::remove_var("AGENT_HARNESS_HOME");
+            }
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }
 
 #[tauri::command]
@@ -330,20 +1171,10 @@ async fn run_agent(
 ) -> Result<RunSummary, String> {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<RunEvent>();
 
-    let provider = build_provider(demo, &input, &options)?;
-    let store = Arc::new(PublishingEventStore::new(open_event_store()?, tx));
-    let harness = Harness::new(
-        provider,
-        store,
-        build_registry(options.enable_shell, options.enable_subagent),
-    );
-    let agent = build_agent(&options);
+    let prepared = prepare_tauri_run(input, demo, options)?;
+    let store: Arc<dyn EventStore> = Arc::new(PublishingEventStore::new(open_event_store()?, tx));
 
-    let run_task = tokio::spawn(async move {
-        let result = harness.run(&agent, UserInput { text: input }).await;
-        drop(harness);
-        result
-    });
+    let run_task = tokio::spawn(async move { execute_prepared_tauri_run(prepared, store).await });
     let abort_handle = run_task.abort_handle();
 
     // Forward every published RunEvent to the frontend until the channel
@@ -378,7 +1209,7 @@ async fn run_agent(
     });
 
     let result: Result<RunResult, String> = match run_task.await {
-        Ok(result) => result.map_err(|e| e.to_string()),
+        Ok(result) => result,
         Err(err) if err.is_cancelled() => Err("run cancelled".to_string()),
         Err(err) => Err(err.to_string()),
     };
@@ -394,32 +1225,127 @@ async fn run_agent(
 }
 
 #[tauri::command]
+async fn resume_run(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    run_id: String,
+    from_event: Option<u64>,
+    demo: Demo,
+    mut options: RunOptions,
+) -> Result<Value, String> {
+    let source_run_id = RunId(uuid::Uuid::parse_str(&run_id).map_err(|e| e.to_string())?);
+    let source_events = open_event_store()?
+        .try_events(source_run_id)
+        .map_err(|e| e.to_string())?;
+    let plan = build_resume_plan(source_run_id, &source_events, from_event.map(EventId))
+        .map_err(|e| e.to_string())?;
+    if options.agent_id.is_none() {
+        options.agent_id = Some(plan.agent_id.clone());
+    }
+    let retained_compaction = if options.compacted_context.is_none() {
+        stop_compaction_for_run(source_run_id)?
+    } else {
+        None
+    };
+    if let Some(compaction) = retained_compaction.as_deref() {
+        options.compacted_context = Some(
+            CompactionStore::from_env()
+                .show(compaction)
+                .map_err(|e| e.to_string())?
+                .content,
+        );
+    }
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<RunEvent>();
+    let prepared = prepare_tauri_run(plan.prompt, demo, options)?;
+    let store: Arc<dyn EventStore> = Arc::new(PublishingEventStore::new(open_event_store()?, tx));
+    let run_task = tokio::spawn(async move { execute_prepared_tauri_run(prepared, store).await });
+    let abort_handle = run_task.abort_handle();
+    let active_runs = state.active_runs.clone();
+    let forward = tokio::spawn(async move {
+        let mut seen_run_id = None::<String>;
+        while let Some(evt) = rx.recv().await {
+            let run_id = evt.run_id.0.to_string();
+            match &evt.kind {
+                RunEventKind::RunStarted { .. } => {
+                    seen_run_id = Some(run_id.clone());
+                    active_runs
+                        .lock()
+                        .await
+                        .insert(run_id.clone(), abort_handle.clone());
+                }
+                RunEventKind::RunPaused { .. }
+                | RunEventKind::RunCancelled { .. }
+                | RunEventKind::RunCompleted { .. }
+                | RunEventKind::RunFailed { .. } => {
+                    active_runs.lock().await.remove(&run_id);
+                }
+                _ => {}
+            }
+            let _ = app.emit("run-event", evt);
+        }
+        if let Some(run_id) = seen_run_id {
+            active_runs.lock().await.remove(&run_id);
+        }
+    });
+
+    let result: Result<RunResult, String> = match run_task.await {
+        Ok(result) => result,
+        Err(err) if err.is_cancelled() => Err("run cancelled".to_string()),
+        Err(err) => Err(err.to_string()),
+    };
+    let _ = forward.await;
+    let result = result?;
+    Ok(serde_json::json!({
+        "source_run_id": source_run_id.0,
+        "resumed_run_id": result.run_id.0,
+        "from_event": plan.selected_event_id.0,
+        "retained_compaction": retained_compaction,
+        "final_output": result.final_output,
+    }))
+}
+
+#[tauri::command]
 async fn preview_context(input: String, options: RunOptions) -> Result<ContextSnapshot, String> {
-    let harness = Harness::new(
+    let harness = build_harness(
         Arc::new(FakeProvider::echo()),
         Arc::new(open_event_store()?),
-        build_registry(options.enable_shell, options.enable_subagent),
+        build_registry(
+            options.enable_shell,
+            options.enable_subagent,
+            options.enable_capability_drafts,
+            options.agent_id.as_deref(),
+        ),
     );
     Ok(harness.preview_context(&build_agent(&options), UserInput { text: input }))
 }
 
 #[tauri::command]
-async fn explain_config(_options: RunOptions) -> Result<ConfigExplanation, String> {
-    let resolved = ConfigResolver::from_env()
-        .resolve_default_agent()
-        .map_err(|e| e.to_string())?;
-    Ok(ConfigExplanation {
-        agent_id: resolved.agent.id,
-        values: resolved.values,
-    })
+async fn explain_config(options: RunOptions) -> Result<ConfigExplanation, String> {
+    let harness = build_harness(
+        Arc::new(FakeProvider::echo()),
+        Arc::new(open_event_store()?),
+        build_registry(
+            options.enable_shell,
+            options.enable_subagent,
+            options.enable_capability_drafts,
+            options.agent_id.as_deref(),
+        ),
+    );
+    Ok(harness.explain_config(&build_agent(&options)))
 }
 
 #[tauri::command]
 async fn explain_tools(options: RunOptions) -> Result<Vec<ToolView>, String> {
-    let harness = Harness::new(
+    let harness = build_harness(
         Arc::new(FakeProvider::echo()),
         Arc::new(open_event_store()?),
-        build_registry(options.enable_shell, options.enable_subagent),
+        build_registry(
+            options.enable_shell,
+            options.enable_subagent,
+            options.enable_capability_drafts,
+            options.agent_id.as_deref(),
+        ),
     );
     Ok(harness.explain_tools(&build_agent(&options)))
 }
@@ -435,17 +1361,174 @@ async fn storage_report() -> Result<Value, String> {
 }
 
 #[tauri::command]
+async fn conversation_list() -> Result<Vec<ConversationDoc>, String> {
+    ConversationStore::from_env()
+        .list()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn conversation_tree() -> Result<Vec<ConversationTreeNode>, String> {
+    ConversationStore::from_env()
+        .tree()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn conversation_show(id: String) -> Result<ExpandedConversation, String> {
+    ConversationStore::from_env()
+        .expanded(&id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn conversation_recover(id: String) -> Result<serde_json::Value, String> {
+    conversation_recovery_plan_value(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn conversation_delete_plan(id: String, recursive: bool) -> Result<Vec<String>, String> {
+    ConversationStore::from_env()
+        .deletion_plan(std::slice::from_ref(&id), recursive)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn conversation_delete(id: String, recursive: bool) -> Result<serde_json::Value, String> {
+    let store = ConversationStore::from_env();
+    let planned = store
+        .deletion_plan(std::slice::from_ref(&id), recursive)
+        .map_err(|e| e.to_string())?;
+    let deleted = store.delete(&id, recursive).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "requested": id,
+        "recursive": recursive,
+        "planned": planned,
+        "deleted": deleted
+    }))
+}
+
+#[tauri::command]
+async fn conversation_delete_range(
+    id: String,
+    from: usize,
+    to: usize,
+) -> Result<serde_json::Value, String> {
+    let store = ConversationStore::from_env();
+    let before = store
+        .expanded(&id)
+        .map_err(|e| e.to_string())?
+        .messages
+        .len();
+    let conversation = store
+        .delete_message_range(&id, from, to)
+        .map_err(|e| e.to_string())?;
+    let after = store
+        .expanded(&id)
+        .map_err(|e| e.to_string())?
+        .messages
+        .len();
+    Ok(serde_json::json!({
+        "id": id,
+        "from": from,
+        "to": to,
+        "deleted_messages": before.saturating_sub(after),
+        "expanded_message_count": after,
+        "conversation": conversation
+    }))
+}
+
+fn conversation_recovery_plan_value(id: &str) -> anyhow::Result<serde_json::Value> {
+    let conversation_store = ConversationStore::from_env();
+    let expanded = conversation_store.expanded(id)?;
+    let mut compactions = CompactionStore::from_env()
+        .list()?
+        .into_iter()
+        .filter(|record| record.conversation_id.as_deref() == Some(id))
+        .collect::<Vec<_>>();
+    compactions.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    let mut memories = MemoryStore::from_env()
+        .list()?
+        .into_iter()
+        .filter(|record| record.source_conversation_id.as_deref() == Some(id))
+        .collect::<Vec<_>>();
+    memories.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    let latest_compaction = compactions.first();
+    Ok(serde_json::json!({
+        "conversation_id": id,
+        "title": expanded.conversation.title,
+        "agent_id": expanded.conversation.agent_id,
+        "own_message_count": expanded.conversation.messages.len(),
+        "expanded_message_count": expanded.messages.len(),
+        "linked_compactions": compactions.iter().map(compaction_recovery_summary).collect::<Vec<_>>(),
+        "linked_memories": memories.iter().map(memory_recovery_summary).collect::<Vec<_>>(),
+        "suggested_run": {
+            "conversation_id": id,
+            "include_compact": latest_compaction.map(|record| record.id.clone()),
+            "load_memory": !memories.is_empty(),
+            "compacted_context": latest_compaction.map(|record| record.content.clone()),
+        }
+    }))
+}
+
+fn compaction_recovery_summary(record: &CompactionRecord) -> serde_json::Value {
+    serde_json::json!({
+        "id": record.id,
+        "source": record.source,
+        "guidance": record.guidance,
+        "max_output_tokens": record.max_output_tokens,
+        "original_input_excerpt": record.original_input_excerpt,
+        "content_preview": preview_for_recovery(&record.content, 240),
+        "created_at": record.created_at,
+    })
+}
+
+fn memory_recovery_summary(record: &MemoryRecord) -> serde_json::Value {
+    serde_json::json!({
+        "id": record.id,
+        "target": record.target,
+        "author": record.author,
+        "source_range": record.source_range,
+        "generating_model": record.generating_model,
+        "content_preview": preview_for_recovery(&record.content, 240),
+        "updated_at": record.updated_at,
+    })
+}
+
+fn preview_for_recovery(text: &str, max_chars: usize) -> String {
+    let compact = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.chars().count() <= max_chars {
+        return compact;
+    }
+    compact
+        .chars()
+        .take(max_chars.saturating_sub(3))
+        .collect::<String>()
+        + "..."
+}
+
+#[tauri::command]
 async fn call_tool(name: String, input: Value, options: RunOptions) -> Result<Value, String> {
     let enable_shell = options.enable_shell || name == "shell";
     let enable_subagent = options.enable_subagent || name == "subagent";
-    let harness = Harness::new(
+    let enable_capability_drafts = options.enable_capability_drafts || name == "capability_draft";
+    let disable_lifecycle_hooks = options.disable_lifecycle_hooks;
+    let harness = build_harness_with_hook_policy(
         Arc::new(FakeProvider::echo()),
         Arc::new(open_event_store()?),
-        build_registry(enable_shell, enable_subagent),
+        build_registry(
+            enable_shell,
+            enable_subagent,
+            enable_capability_drafts,
+            options.agent_id.as_deref(),
+        ),
+        disable_lifecycle_hooks,
+        options.agent_id.as_deref(),
     );
     let agent = build_agent(&RunOptions {
         enable_shell,
         enable_subagent,
+        enable_capability_drafts,
         ..options
     });
     harness
@@ -467,6 +1550,49 @@ async fn trace_show(run_id: String) -> Result<Vec<RunEvent>, String> {
     open_event_store()?
         .try_events(run_id)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn hook_policy(agent_id: Option<String>) -> Result<Value, String> {
+    hook_policy_value(agent_id.as_deref()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn set_hook_disabled(
+    hook_id: String,
+    disabled: bool,
+    agent_id: Option<String>,
+    scope: Option<String>,
+) -> Result<Value, String> {
+    let resolver = ConfigResolver::from_env();
+    let agent_id = agent_id.as_deref().unwrap_or("fake-agent");
+    if scope.as_deref() == Some("agent") {
+        resolver
+            .set_agent_lifecycle_hook_disabled(agent_id, &hook_id, disabled)
+            .map_err(|e| e.to_string())?;
+    } else {
+        resolver
+            .set_profile_lifecycle_hook_disabled(&hook_id, disabled)
+            .map_err(|e| e.to_string())?;
+    }
+    hook_policy_value(Some(agent_id)).map_err(|e| e.to_string())
+}
+
+fn hook_policy_value(agent_id: Option<&str>) -> anyhow::Result<Value> {
+    let agent_id = agent_id.unwrap_or("fake-agent");
+    let resolver = ConfigResolver::from_env();
+    let policy = resolver.lifecycle_hook_policy_layers_for_agent(agent_id)?;
+    let effective_hooks = policy.effective_disabled_lifecycle_hooks.clone();
+    Ok(serde_json::json!({
+        "agent_id": policy.agent_id,
+        "profile": policy.profile,
+        "effective_source": policy.effective_source,
+        "disabled_lifecycle_hooks": effective_hooks,
+        "effective_disabled_lifecycle_hooks": policy.effective_disabled_lifecycle_hooks,
+        "global_disabled_lifecycle_hooks": policy.global_disabled_lifecycle_hooks,
+        "profile_disabled_lifecycle_hooks": policy.profile_disabled_lifecycle_hooks,
+        "agent_disabled_lifecycle_hooks": policy.agent_disabled_lifecycle_hooks,
+    }))
 }
 
 #[tauri::command]
@@ -531,6 +1657,7 @@ async fn approval_execute(approval_id: String, run_id: String) -> Result<Value, 
                     call_id,
                     tool_id,
                     input,
+                    ..
                 } => Some((call_id.clone(), tool_id.clone(), input.clone())),
                 _ => None,
             }
@@ -548,7 +1675,12 @@ async fn approval_execute(approval_id: String, run_id: String) -> Result<Value, 
         return Err(format!("tool call {call_id} has already completed"));
     }
 
-    let registry = build_registry(tool_id == "shell", tool_id == "subagent");
+    let registry = build_registry(
+        tool_id == "shell",
+        tool_id == "subagent",
+        tool_id == "capability_draft",
+        run_agent_id(&events).as_deref(),
+    );
     store.append(
         run_id,
         Some(proposed_id),
@@ -588,6 +1720,13 @@ async fn approval_execute(approval_id: String, run_id: String) -> Result<Value, 
     }))
 }
 
+fn run_agent_id(events: &[RunEvent]) -> Option<String> {
+    events.iter().find_map(|event| match &event.kind {
+        RunEventKind::RunStarted { agent_id, .. } => Some(agent_id.clone()),
+        _ => None,
+    })
+}
+
 #[tauri::command]
 async fn guide(run_id: String, text: String) -> Result<(), String> {
     let text = validate_guidance_content(&text).map_err(|e| e.to_string())?;
@@ -618,7 +1757,8 @@ async fn cancel(
     state: State<'_, AppState>,
     run_id: String,
     reason: String,
-) -> Result<(), String> {
+    mode: Option<String>,
+) -> Result<Value, String> {
     let parsed_run_id = RunId(uuid::Uuid::parse_str(&run_id).map_err(|e| e.to_string())?);
     let store = open_event_store()?;
     let events = store.try_events(parsed_run_id).map_err(|e| e.to_string())?;
@@ -626,7 +1766,11 @@ async fn cancel(
         .iter()
         .any(|event| is_terminal_run_event(&event.kind))
     {
-        return Ok(());
+        return Ok(serde_json::json!({
+            "run_id": parsed_run_id.0,
+            "recorded": "not_active",
+            "aborted": false
+        }));
     }
     let parent = latest_event_id(&events)
         .ok_or_else(|| format!("run {parsed_run_id} has no trace events"))?;
@@ -638,10 +1782,188 @@ async fn cancel(
         },
     );
     let _ = app.emit("run-event", event);
-    if let Some(handle) = state.active_runs.lock().await.remove(&run_id) {
+    let active_handle = state.active_runs.lock().await.remove(&run_id);
+    let aborted = active_handle.is_some();
+    if let Some(handle) = active_handle {
         handle.abort();
     }
-    Ok(())
+    let compaction = if stop_mode_summarises(mode.as_deref(), &reason) {
+        Some(create_stop_compaction(parsed_run_id, &reason, &events).map_err(|e| e.to_string())?)
+    } else {
+        None
+    };
+    Ok(serde_json::json!({
+        "run_id": parsed_run_id.0,
+        "recorded": "cancelled",
+        "aborted": aborted,
+        "compaction": compaction
+    }))
+}
+
+fn stop_mode_summarises(mode: Option<&str>, reason: &str) -> bool {
+    mode.is_some_and(|mode| matches!(mode, "summarise" | "summarize" | "summary"))
+        || reason.contains("mode=summarise")
+        || reason.contains("mode=summarize")
+}
+
+fn create_stop_compaction(
+    run_id: RunId,
+    reason: &str,
+    events: &[RunEvent],
+) -> anyhow::Result<CompactionRecord> {
+    CompactionStore::from_env()
+        .create_from_text(
+            &stopped_run_summary_text(run_id, reason, events),
+            Some("Stopped run summary retained by user request.".into()),
+            Some(512),
+            Some(format!("stopped-run:{}", run_id.0)),
+        )
+        .map_err(Into::into)
+}
+
+fn stop_compaction_for_run(run_id: RunId) -> Result<Option<String>, String> {
+    let source = format!("stopped-run:{}", run_id.0);
+    Ok(CompactionStore::from_env()
+        .list()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .filter(|record| record.source == source)
+        .max_by_key(|record| record.created_at)
+        .map(|record| record.id))
+}
+
+fn stopped_run_summary_text(run_id: RunId, reason: &str, events: &[RunEvent]) -> String {
+    let mut lines = vec![
+        format!("Stopped run: {}", run_id.0),
+        format!("Reason: {reason}"),
+        format!("Observed before stop: {} trace events.", events.len()),
+        "Recent trace events:".into(),
+    ];
+    for event in events.iter().rev().take(12).rev() {
+        lines.push(format!("- {} {}", event.id.0, stop_event_label(event)));
+    }
+    lines.join("\n")
+}
+
+fn stop_event_label(event: &RunEvent) -> String {
+    match &event.kind {
+        RunEventKind::RunStarted { agent_id, .. } => format!("run started for agent {agent_id}"),
+        RunEventKind::ContextBuilt { .. } => "context built".into(),
+        RunEventKind::LlmRequestStarted { model, .. } => {
+            format!("LLM request started with {model}")
+        }
+        RunEventKind::LlmStreamToken { delta } => {
+            format!("LLM stream token {:?}", delta)
+        }
+        RunEventKind::LlmRequestCompleted {
+            tokens_in,
+            tokens_out,
+            ..
+        } => format!("LLM request completed tokens={tokens_in}/{tokens_out}"),
+        RunEventKind::PromptRefinementStarted { model, .. } => {
+            format!("prompt refinement started with {model}")
+        }
+        RunEventKind::PromptRefinementCompleted {
+            tokens_in,
+            tokens_out,
+            ..
+        } => format!("prompt refinement completed tokens={tokens_in}/{tokens_out}"),
+        RunEventKind::ToolCallProposed { tool_id, .. } => format!("tool proposed {tool_id}"),
+        RunEventKind::ToolCallStarted { call_id } => format!("tool started {call_id}"),
+        RunEventKind::ToolCallCompleted { call_id, .. } => format!("tool completed {call_id}"),
+        RunEventKind::ToolOutputInterpreted { call_id, model, .. } => {
+            format!("tool output interpreted {call_id} with {model}")
+        }
+        RunEventKind::ToolCallFailed { call_id, error } => {
+            format!("tool failed {call_id}: {error}")
+        }
+        RunEventKind::ApprovalRequested { approval_id, .. } => {
+            format!("approval requested {approval_id}")
+        }
+        RunEventKind::ApprovalResolved {
+            approval_id,
+            approved,
+        } => format!("approval resolved {approval_id} approved={approved}"),
+        RunEventKind::GuidanceInjected { .. } => "guidance injected".into(),
+        RunEventKind::QualityScored { target, score } => format!("quality scored {target}={score}"),
+        RunEventKind::MemoryLoaded { ids } => format!("memory loaded {} ids", ids.len()),
+        RunEventKind::MemoryRead {
+            backend,
+            fragment_ids,
+        } => format!("memory read {backend} {} fragments", fragment_ids.len()),
+        RunEventKind::MemoryWritten { id, operation, .. } => format!("memory {operation} {id}"),
+        RunEventKind::IngestionReferenced {
+            artifact_id,
+            source,
+        } => format!("ingestion referenced {artifact_id} from {source}"),
+        RunEventKind::IngestionStarted { source, backend } => {
+            format!("ingestion started {source} via {backend}")
+        }
+        RunEventKind::IngestionCompleted {
+            artifact_id,
+            sections,
+            findings,
+            high_risk_findings,
+            finding_snippets,
+            ..
+        } => {
+            let risk = if *high_risk_findings > 0 {
+                format!(" high-risk={high_risk_findings}")
+            } else if !findings.is_empty() {
+                format!(" findings={}", findings.len())
+            } else {
+                String::new()
+            };
+            let snippet = finding_snippets
+                .first()
+                .map(|snippet| format!(" snippet={snippet:?}"))
+                .unwrap_or_default();
+            format!("ingestion completed {artifact_id} sections={sections}{risk}{snippet}")
+        }
+        RunEventKind::HookFired {
+            hook_id,
+            trigger,
+            payload_digest,
+        } => format!(
+            "hook fired {hook_id} trigger={trigger} digest={}",
+            &payload_digest[..payload_digest.len().min(12)]
+        ),
+        RunEventKind::HookFailed {
+            hook_id,
+            trigger,
+            error,
+            attempt,
+            will_retry,
+        } => format!(
+            "hook failed {hook_id} trigger={trigger} attempt={attempt} retry={will_retry}: {error}"
+        ),
+        RunEventKind::PolicyDenied { reason } => format!("policy denied: {reason}"),
+        RunEventKind::ChildRunStarted {
+            child_run_id,
+            agent_id,
+        } => format!("child run {child_run_id} started for {agent_id}"),
+        RunEventKind::ChildRunCompleted {
+            child_run_id,
+            status,
+        } => format!("child run {child_run_id} completed status={status}"),
+        RunEventKind::BatchRunStarted { batch_id, items } => {
+            format!("batch {batch_id} started items={items}")
+        }
+        RunEventKind::BatchItemStatus {
+            batch_id,
+            item_key,
+            status,
+        } => format!("batch {batch_id} item {item_key} status={status}"),
+        RunEventKind::BatchRunCompleted {
+            batch_id,
+            succeeded,
+            failed,
+        } => format!("batch {batch_id} completed succeeded={succeeded} failed={failed}"),
+        RunEventKind::RunPaused { reason } => format!("run paused: {reason}"),
+        RunEventKind::RunCancelled { reason } => format!("run cancelled: {reason}"),
+        RunEventKind::RunCompleted { .. } => "run completed".into(),
+        RunEventKind::RunFailed { reason } => format!("run failed: {reason}"),
+    }
 }
 
 #[tauri::command]
@@ -728,10 +2050,15 @@ async fn execute_batch_plan(
             },
         );
         let provider = build_provider(demo, &item.input, &options)?;
-        let harness = Harness::new(
+        let harness = build_harness(
             provider,
             store.clone(),
-            build_registry(options.enable_shell, options.enable_subagent),
+            build_registry(
+                options.enable_shell,
+                options.enable_subagent,
+                options.enable_capability_drafts,
+                options.agent_id.as_deref(),
+            ),
         );
         let agent = build_agent(&options);
         match harness
@@ -861,6 +2188,11 @@ async fn memory_list() -> Result<Vec<MemoryRecord>, String> {
 }
 
 #[tauri::command]
+async fn memory_backends() -> Result<Vec<MemoryBackendDescriptor>, String> {
+    Ok(supported_memory_backends())
+}
+
+#[tauri::command]
 async fn memory_edit(id: String, content: String) -> Result<MemoryRecord, String> {
     let record = MemoryStore::from_env()
         .edit(&id, &content)
@@ -957,6 +2289,189 @@ async fn skill_quarantine(id: String) -> Result<SkillDoc, String> {
 }
 
 #[tauri::command]
+async fn capability_propose(
+    kind: String,
+    name: String,
+    body: String,
+    guidance: Option<String>,
+    created_by: Option<String>,
+) -> Result<CapabilityDraft, String> {
+    CapabilityDraftStore::from_env()
+        .propose(CapabilityDraftInput {
+            id: None,
+            kind: CapabilityKind::parse(&kind).map_err(|e| e.to_string())?,
+            name,
+            body,
+            guidance,
+            created_by: created_by.unwrap_or_else(|| "user".into()),
+            provenance: "tauri:capability_propose".into(),
+        })
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn capability_list() -> Result<Vec<CapabilityDraft>, String> {
+    CapabilityDraftStore::from_env()
+        .list()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn capability_show(id: String) -> Result<CapabilityDraft, String> {
+    CapabilityDraftStore::from_env()
+        .show(&id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn capability_allow(id: String) -> Result<serde_json::Value, String> {
+    review_capability_draft(&id, CapabilityDraftStatus::Allowed).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn capability_reject(id: String) -> Result<serde_json::Value, String> {
+    review_capability_draft(&id, CapabilityDraftStatus::Rejected).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn capability_delete(id: String) -> Result<serde_json::Value, String> {
+    let deleted = CapabilityDraftStore::from_env()
+        .delete(&id)
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "id": id, "deleted": deleted }))
+}
+
+fn review_capability_draft(
+    id: &str,
+    status: CapabilityDraftStatus,
+) -> anyhow::Result<serde_json::Value> {
+    let store = CapabilityDraftStore::from_env();
+    if status == CapabilityDraftStatus::Allowed {
+        let draft = store.show(id)?;
+        if draft.kind == CapabilityKind::Skill {
+            let skill = promote_capability_skill(&draft)?;
+            let draft = store.set_status(id, status)?;
+            return capability_review_value(
+                &draft,
+                Some(("promoted_skill", serde_json::to_value(skill)?)),
+            );
+        }
+        if draft.kind == CapabilityKind::Agent {
+            let agent = promote_capability_agent(&draft)?;
+            let draft = store.set_status(id, status)?;
+            return capability_review_value(
+                &draft,
+                Some(("promoted_agent", serde_json::to_value(agent)?)),
+            );
+        }
+        if draft.kind == CapabilityKind::Tool {
+            let tool = promote_capability_tool(&draft)?;
+            let draft = store.set_status(id, status)?;
+            return capability_review_value(
+                &draft,
+                Some(("promoted_tool", serde_json::to_value(tool)?)),
+            );
+        }
+    } else if status == CapabilityDraftStatus::Rejected {
+        let draft = store.show(id)?;
+        if draft.kind == CapabilityKind::Skill {
+            let skill = quarantine_capability_skill(&draft)?;
+            let draft = store.set_status(id, status)?;
+            return capability_review_value(
+                &draft,
+                skill
+                    .map(|skill| {
+                        serde_json::to_value(skill).map(|value| ("quarantined_skill", value))
+                    })
+                    .transpose()?,
+            );
+        }
+        if draft.kind == CapabilityKind::Agent {
+            delete_capability_agent(&draft)?;
+            let draft = store.set_status(id, status)?;
+            return capability_review_value(&draft, None);
+        }
+        if draft.kind == CapabilityKind::Tool {
+            let tool = quarantine_capability_tool(&draft)?;
+            let draft = store.set_status(id, status)?;
+            return capability_review_value(
+                &draft,
+                tool.map(|tool| {
+                    serde_json::to_value(tool).map(|value| ("quarantined_tool", value))
+                })
+                .transpose()?,
+            );
+        }
+    }
+
+    Ok(serde_json::to_value(store.set_status(id, status)?)?)
+}
+
+fn capability_review_value(
+    draft: &CapabilityDraft,
+    artifact_entry: Option<(&'static str, serde_json::Value)>,
+) -> anyhow::Result<serde_json::Value> {
+    if let Some((key, artifact)) = artifact_entry {
+        let mut value = serde_json::Map::new();
+        value.insert("draft".into(), serde_json::to_value(draft)?);
+        value.insert(key.into(), artifact);
+        Ok(serde_json::Value::Object(value))
+    } else {
+        Ok(serde_json::to_value(draft)?)
+    }
+}
+
+fn promote_capability_skill(draft: &CapabilityDraft) -> anyhow::Result<SkillDoc> {
+    SkillRegistry::from_env()
+        .promote_agent_created_skill(
+            &draft.id,
+            &draft.name,
+            &draft.body,
+            &draft.created_by,
+            &draft.provenance,
+        )
+        .map_err(Into::into)
+}
+
+fn quarantine_capability_skill(draft: &CapabilityDraft) -> anyhow::Result<Option<SkillDoc>> {
+    SkillRegistry::from_env()
+        .quarantine_agent_created_skill(&draft.id, &draft.name)
+        .map_err(Into::into)
+}
+
+fn promote_capability_agent(draft: &CapabilityDraft) -> anyhow::Result<AgentConfigFile> {
+    ConfigResolver::from_env()
+        .promote_agent_created_config(&draft.id, &draft.name, &draft.body)
+        .map_err(Into::into)
+}
+
+fn delete_capability_agent(draft: &CapabilityDraft) -> anyhow::Result<bool> {
+    ConfigResolver::from_env()
+        .delete_agent_created_config(&draft.id, &draft.name)
+        .map_err(Into::into)
+}
+
+fn promote_capability_tool(draft: &CapabilityDraft) -> anyhow::Result<NormalizedPackage> {
+    AdapterRegistry::from_env()
+        .promote_agent_created_tool(
+            &draft.id,
+            &draft.name,
+            &draft.body,
+            &draft.created_by,
+            &draft.provenance,
+        )
+        .map_err(Into::into)
+}
+
+fn quarantine_capability_tool(
+    draft: &CapabilityDraft,
+) -> anyhow::Result<Option<NormalizedPackage>> {
+    AdapterRegistry::from_env()
+        .quarantine_agent_created_tool(&draft.id)
+        .map_err(Into::into)
+}
+
+#[tauri::command]
 async fn prompt_save(name: String, body: String) -> Result<PromptDoc, String> {
     PromptStore::from_env()
         .save(&name, &body)
@@ -991,11 +2506,24 @@ async fn model_list() -> Result<Vec<ModelConfig>, String> {
 }
 
 #[tauri::command]
+async fn model_provider_list() -> Result<Vec<ModelProviderDescriptor>, String> {
+    Ok(supported_model_providers())
+}
+
+#[tauri::command]
 async fn model_show(id: String) -> Result<ModelConfig, String> {
     ConfigResolver::from_env()
         .show_model(&id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("model {id:?} not found"))
+}
+
+#[tauri::command]
+async fn model_probe(id: String) -> Result<serde_json::Value, String> {
+    ConfigResolver::from_env()
+        .probe_model_capabilities(&id)
+        .map_err(|e| e.to_string())
+        .and_then(|probe| serde_json::to_value(probe).map_err(|e| e.to_string()))
 }
 
 #[tauri::command]
@@ -1017,9 +2545,11 @@ async fn ingest_add(
     app: AppHandle,
     path: String,
     backend: Option<String>,
+    vision_model: Option<String>,
+    guardrail_model: Option<String>,
 ) -> Result<IngestionArtifact, String> {
     let backend = backend.unwrap_or_else(|| "local-v0".into());
-    ingest_with_trace(app, path, backend).await
+    ingest_with_trace(app, path, backend, vision_model, guardrail_model).await
 }
 
 #[tauri::command]
@@ -1027,19 +2557,30 @@ async fn ingest_rerun(
     app: AppHandle,
     id: String,
     backend: Option<String>,
+    vision_model: Option<String>,
+    guardrail_model: Option<String>,
 ) -> Result<IngestionArtifact, String> {
     let source = IngestionStore::from_env()
         .show(&id)
         .map_err(|e| e.to_string())?
         .source;
     let backend = backend.unwrap_or_else(|| "local-v0".into());
-    ingest_with_trace(app, source.display().to_string(), backend).await
+    ingest_with_trace(
+        app,
+        source.display().to_string(),
+        backend,
+        vision_model,
+        guardrail_model,
+    )
+    .await
 }
 
 async fn ingest_with_trace(
     app: AppHandle,
     path: String,
     backend: String,
+    vision_model: Option<String>,
+    guardrail_model: Option<String>,
 ) -> Result<IngestionArtifact, String> {
     let trace_run_id = RunId::new();
     let store = open_event_store()?;
@@ -1052,8 +2593,8 @@ async fn ingest_with_trace(
         },
     );
     let _ = app.emit("run-event", &started);
-    let artifact = IngestionStore::from_env()
-        .ingest_with_backend(path, &backend)
+    let artifact = ingest_with_optional_models(path, &backend, vision_model, guardrail_model)
+        .await
         .map_err(|e| e.to_string())?;
     let completed = store.append(
         trace_run_id,
@@ -1064,9 +2605,140 @@ async fn ingest_with_trace(
     Ok(artifact)
 }
 
+async fn ingest_with_optional_models(
+    path: String,
+    backend: &str,
+    vision_model: Option<String>,
+    guardrail_model: Option<String>,
+) -> Result<IngestionArtifact, Box<dyn std::error::Error + Send + Sync>> {
+    let store = IngestionStore::from_env();
+    let vision_model = clean_optional_string(vision_model);
+    let guardrail_model =
+        clean_optional_string(guardrail_model).or_else(configured_ingestion_guardrail_model);
+    let vision_provider = match vision_model.as_deref() {
+        Some(model) => {
+            ensure_model_supports_vision(model)?;
+            Some(ingestion_provider_for_model(model, Some(2048), Some(0.0))?)
+        }
+        None => None,
+    };
+    let guardrail_provider = match guardrail_model.as_deref() {
+        Some(model) => Some(ingestion_provider_for_model(model, Some(256), Some(0.0))?),
+        None => None,
+    };
+
+    Ok(store
+        .ingest_with_backend_and_models(
+            path,
+            backend,
+            vision_model
+                .map(ModelRef::from)
+                .zip(vision_provider.as_ref())
+                .map(|(model, provider)| IngestionModelCall {
+                    provider: provider.as_ref(),
+                    model,
+                }),
+            guardrail_model
+                .map(ModelRef::from)
+                .zip(guardrail_provider.as_ref())
+                .map(|(model, provider)| IngestionModelCall {
+                    provider: provider.as_ref(),
+                    model,
+                }),
+        )
+        .await?)
+}
+
+fn ensure_model_supports_vision(
+    model: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if ConfigResolver::from_env().model_supports_modality(model, "image")? {
+        return Ok(());
+    }
+    Err(format!(
+        "vision model {model:?} does not advertise image support; save the model with available_modalities=[\"text\",\"image\"] or choose a vision-capable provider"
+    )
+    .into())
+}
+
+fn ingestion_provider_for_model(
+    model: &str,
+    max_output_tokens: Option<u64>,
+    temperature: Option<f64>,
+) -> Result<Arc<dyn LlmProvider>, Box<dyn std::error::Error + Send + Sync>> {
+    let model_runtime = ConfigResolver::from_env()
+        .resolve_model_runtime(model)?
+        .unwrap_or_default();
+    ingestion_provider_for_runtime(model, &model_runtime, max_output_tokens, temperature)
+}
+
+fn ingestion_provider_for_runtime(
+    model: &str,
+    model_runtime: &ModelRuntimeConfig,
+    max_output_tokens: Option<u64>,
+    temperature: Option<f64>,
+) -> Result<Arc<dyn LlmProvider>, Box<dyn std::error::Error + Send + Sync>> {
+    let provider = model_runtime
+        .provider
+        .as_deref()
+        .unwrap_or("rig")
+        .trim()
+        .to_ascii_lowercase();
+    match provider.as_str() {
+        "anthropic" => Ok(Arc::new(AnthropicProvider::from_config(
+            model_runtime.native_provider_config(
+                ModelRef::from(model),
+                NativeProviderConfig::anthropic,
+                max_output_tokens,
+                temperature,
+            ),
+        )?)),
+        "gemini" => Ok(Arc::new(GeminiProvider::from_config(
+            model_runtime.native_provider_config(
+                ModelRef::from(model),
+                NativeProviderConfig::gemini,
+                max_output_tokens,
+                temperature,
+            ),
+        )?)),
+        _ => Ok(Arc::new(RigProvider::from_config(
+            model_runtime.rig_provider_config(
+                ModelRef::from(model),
+                max_output_tokens,
+                temperature,
+            )?,
+        )?)),
+    }
+}
+
+fn configured_ingestion_guardrail_model() -> Option<String> {
+    ConfigResolver::from_env()
+        .resolve_agent("fake-agent")
+        .ok()
+        .and_then(|resolved| {
+            resolved
+                .values
+                .into_iter()
+                .find(|value| value.key == "agent.ingestion_policy.guardrail_model")
+        })
+        .and_then(|value| value.value.as_str().map(str::to_string))
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn clean_optional_string(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 #[tauri::command]
 async fn ingest_list() -> Result<Vec<IngestionArtifact>, String> {
     IngestionStore::from_env().list().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn ingest_backends() -> Result<Vec<IngestionBackendDescriptor>, String> {
+    Ok(supported_ingestion_backends())
 }
 
 #[tauri::command]
@@ -1077,10 +2749,54 @@ async fn ingest_show(id: String) -> Result<IngestionArtifact, String> {
 }
 
 #[tauri::command]
+async fn ingest_review(
+    id: String,
+    finding: u32,
+    decision: String,
+    note: Option<String>,
+) -> Result<IngestionArtifact, String> {
+    let decision = IngestionFindingReviewDecision::from_str(&decision).ok_or_else(|| {
+        "decision must be acknowledge, approve/allow, or reject/block".to_string()
+    })?;
+    IngestionStore::from_env()
+        .review_finding(&id, finding, decision, note)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn ingest_rm(id: String) -> Result<(), String> {
     IngestionStore::from_env()
         .remove(&id)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn artifact_list() -> Result<Vec<GeneratedArtifact>, String> {
+    list_generated_artifacts_from_env().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn artifact_show(id: String) -> Result<GeneratedArtifact, String> {
+    show_generated_artifact_from_env(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn artifact_open(id: String) -> Result<GeneratedArtifact, String> {
+    open_generated_artifact_from_env(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn artifact_data_url(id: String) -> Result<serde_json::Value, String> {
+    let preview = generated_artifact_data_url_from_env(&id).map_err(|e| e.to_string())?;
+    serde_json::to_value(preview).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn voice_capture(
+    data_url: String,
+    filename: Option<String>,
+) -> Result<GeneratedArtifact, String> {
+    save_voice_capture_from_env(&data_url, filename.as_deref()).map_err(|e| e.to_string())
 }
 
 fn ingestion_completed_event(artifact: &IngestionArtifact) -> RunEventKind {
@@ -1088,6 +2804,9 @@ fn ingestion_completed_event(artifact: &IngestionArtifact) -> RunEventKind {
         artifact_id: artifact.id.clone(),
         content_hash: artifact.content_hash.clone(),
         sections: artifact.sections.len() as u32,
+        findings: artifact.finding_summaries(),
+        high_risk_findings: artifact.high_risk_finding_count() as u32,
+        finding_snippets: artifact.finding_source_snippets(),
     }
 }
 
@@ -1197,12 +2916,22 @@ pub fn run() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             run_agent,
+            resume_run,
             preview_context,
             explain_config,
             explain_tools,
             storage_report,
+            conversation_list,
+            conversation_tree,
+            conversation_show,
+            conversation_recover,
+            conversation_delete_plan,
+            conversation_delete,
+            conversation_delete_range,
             call_tool,
             trace_show,
+            hook_policy,
+            set_hook_disabled,
             approval_list,
             approval_decide,
             approval_execute,
@@ -1214,6 +2943,7 @@ pub fn run() {
             memory_create,
             memory_generate,
             memory_list,
+            memory_backends,
             memory_edit,
             memory_delete,
             memory_rollback,
@@ -1222,19 +2952,34 @@ pub fn run() {
             skill_inspect,
             skill_allow,
             skill_quarantine,
+            capability_propose,
+            capability_list,
+            capability_show,
+            capability_allow,
+            capability_reject,
+            capability_delete,
             prompt_save,
             prompt_list,
             prompt_show,
             prompt_delete,
             model_list,
+            model_provider_list,
             model_show,
+            model_probe,
             model_save,
             model_delete,
             ingest_add,
             ingest_rerun,
             ingest_list,
+            ingest_backends,
             ingest_show,
+            ingest_review,
             ingest_rm,
+            artifact_list,
+            artifact_show,
+            artifact_open,
+            artifact_data_url,
+            voice_capture,
             bundle_export,
             bundle_import,
             adapter_inspect,
@@ -1245,5 +2990,5 @@ pub fn run() {
             adapter_quarantine
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Agent Harness Tauri app");
+        .expect("error while running Shinkai Tauri app");
 }

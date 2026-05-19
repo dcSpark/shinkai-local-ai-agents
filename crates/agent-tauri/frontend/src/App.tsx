@@ -4,11 +4,28 @@ import { listen } from "@tauri-apps/api/event";
 import type {
   AdapterPackage,
   BundleManifest,
+  CapabilityDraft,
+  CapabilityKind,
+  CapabilityReviewResult,
   ContextSnapshot,
+  ConversationDeleteResult,
+  ConversationDeleteRangeResult,
+  ConversationDoc,
+  ConversationMessage,
+  ConversationRecoveryPlan,
+  ConversationTreeNode,
   Demo,
+  ExpandedConversation,
+  GeneratedArtifact,
+  GeneratedArtifactDataUrl,
   IngestionArtifact,
+  IngestionBackendDescriptor,
+  IngestionFindingReviewDecision,
   IngestionResult,
+  MemoryBackendDescriptor,
   MemoryRecord,
+  ModelProviderDescriptor,
+  ModelProviderOptionDescriptor,
   PromptDoc,
   Provider,
   RunEvent,
@@ -23,10 +40,12 @@ type Transport = "in-process" | "daemon";
 type ActiveSection =
   | "chat"
   | "trace"
+  | "conversations"
   | "memory"
   | "skills"
   | "prompts"
   | "ingest"
+  | "artifacts"
   | "adapters"
   | "approvals";
 type AgentMode = "answer" | "action" | "workflow" | "custom";
@@ -54,6 +73,16 @@ interface ContextReviewCard {
   value: string;
   detail: string;
   tone: "neutral" | "ok" | "warning" | "danger";
+}
+
+interface ConversationTreeRow {
+  node: ConversationTreeNode;
+  depth: number;
+}
+
+interface ConversationRange {
+  from: number;
+  to: number;
 }
 
 type JsonValue =
@@ -90,8 +119,13 @@ interface TraceSummary {
   approvals: number;
   guidance_injections: number;
   quality_scores: number;
+  quality_score_average?: number | null;
+  quality_score_min?: number | null;
+  quality_score_max?: number | null;
   memory_fragments: number;
   artifact_refs: number;
+  hooks: number;
+  hook_failures: number;
   tokens_in: number;
   tokens_out: number;
   cost_usd: number | null;
@@ -112,6 +146,37 @@ interface TraceTimelineItem {
   meta: string;
   detail: string;
   tone: "neutral" | "ok" | "warning" | "danger";
+}
+
+interface HookRemediationRecord {
+  event_id: number;
+  hook_id: string;
+  trigger: string;
+  error: string;
+  attempt: number;
+  will_retry: boolean;
+  final_failure: boolean;
+  policy_denials: string[];
+  suggested_actions: string[];
+}
+
+interface HookPolicyRecord {
+  agent_id?: string | null;
+  profile: string;
+  effective_source?: string;
+  disabled_lifecycle_hooks: string[];
+  effective_disabled_lifecycle_hooks?: string[];
+  global_disabled_lifecycle_hooks?: string[];
+  profile_disabled_lifecycle_hooks?: string[];
+  agent_disabled_lifecycle_hooks?: string[];
+}
+
+interface ResumeResult {
+  source_run_id: string;
+  resumed_run_id: string;
+  from_event: number;
+  retained_compaction?: string | null;
+  final_output: string;
 }
 
 interface ApprovalRecord {
@@ -149,6 +214,11 @@ interface BundleStatus {
   manifest: BundleManifest;
 }
 
+interface VoiceCaptureResponse {
+  audio_path: string;
+  artifact: GeneratedArtifact;
+}
+
 const CALLS_MAX = 5;
 
 function hasTauriRuntime() {
@@ -178,21 +248,39 @@ export default function App() {
     tauriRuntime ? "in-process" : "daemon",
   );
   const [daemonUrl, setDaemonUrl] = useState("http://127.0.0.1:7878");
+  const [agentId, setAgentId] = useState("");
   const [opsValue, setOpsValue] = useState("");
   const [opsId, setOpsId] = useState("");
+  const [capabilityKind, setCapabilityKind] = useState<CapabilityKind>("skill");
   const [memorySourceRange, setMemorySourceRange] = useState("");
   const [opsUserMemory, setOpsUserMemory] = useState(false);
   const [ingestBackend, setIngestBackend] = useState("local-v0");
+  const [ingestVisionModel, setIngestVisionModel] = useState("");
+  const [ingestGuardrailModel, setIngestGuardrailModel] = useState("");
+  const [ingestFindingIndex, setIngestFindingIndex] = useState("0");
+  const [ingestReviewDecision, setIngestReviewDecision] =
+    useState<IngestionFindingReviewDecision>("approve");
+  const [ingestReviewNote, setIngestReviewNote] = useState("");
   const [model, setModel] = useState("");
   const [apiBaseUrl, setApiBaseUrl] = useState("");
   const [apiKeyEnv, setApiKeyEnv] = useState("OPENAI_API_KEY");
   const [apiKey, setApiKey] = useState("");
+  const [modelProviderDescriptors, setModelProviderDescriptors] = useState<
+    ModelProviderDescriptor[]
+  >([]);
+  const [providerTopP, setProviderTopP] = useState("");
+  const [providerTopK, setProviderTopK] = useState("");
+  const [providerReasoningEffort, setProviderReasoningEffort] = useState("");
+  const [providerFrequencyPenalty, setProviderFrequencyPenalty] = useState("");
+  const [providerPresencePenalty, setProviderPresencePenalty] = useState("");
+  const [modelSupportsImage, setModelSupportsImage] = useState(false);
   const [inputCostPerMillion, setInputCostPerMillion] = useState("");
   const [outputCostPerMillion, setOutputCostPerMillion] = useState("");
   const [maxToolCalls, setMaxToolCalls] = useState("");
   const [toolVisibility, setToolVisibility] = useState<ToolVisibility | "">("");
   const [enableShell, setEnableShell] = useState(false);
   const [enableSubagent, setEnableSubagent] = useState(false);
+  const [enableCapabilityDrafts, setEnableCapabilityDrafts] = useState(false);
   const [loadMemory, setLoadMemory] = useState(false);
   const [loadSkills, setLoadSkills] = useState(false);
   const [includeIngestIds, setIncludeIngestIds] = useState<string[]>([]);
@@ -201,7 +289,7 @@ export default function App() {
   const [promptRefinementInstructions, setPromptRefinementInstructions] =
     useState("");
   const [promptRefinementModel, setPromptRefinementModel] = useState("");
-  const [requireApproval, setRequireApproval] = useState(false);
+  const [requireApproval, setRequireApproval] = useState(true);
   const [rawToolOutput, setRawToolOutput] = useState(false);
   const [stopRetentionMode, setStopRetentionMode] =
     useState<StopRetentionMode>("discard");
@@ -216,14 +304,44 @@ export default function App() {
   const [contextCopyStatus, setContextCopyStatus] = useState("");
   const [traceEvents, setTraceEvents] = useState<RunEvent[]>([]);
   const [traceSummary, setTraceSummary] = useState<TraceSummary | null>(null);
+  const [hookPolicy, setHookPolicy] = useState<HookPolicyRecord | null>(null);
   const [storageReport, setStorageReport] = useState<StorageReport | null>(null);
   const [bundleStatus, setBundleStatus] = useState<BundleStatus | null>(null);
+  const [ingestionBackends, setIngestionBackends] = useState<
+    IngestionBackendDescriptor[]
+  >([]);
   const [ingestionArtifacts, setIngestionArtifacts] = useState<
     IngestionArtifact[]
   >([]);
+  const [generatedArtifacts, setGeneratedArtifacts] = useState<
+    GeneratedArtifact[]
+  >([]);
+  const [recordingVoice, setRecordingVoice] = useState(false);
+  const [voicePreviewUrl, setVoicePreviewUrl] = useState<string | null>(null);
+  const [voiceCaptureArtifact, setVoiceCaptureArtifact] =
+    useState<GeneratedArtifact | null>(null);
+  const [voiceOutputArtifact, setVoiceOutputArtifact] =
+    useState<GeneratedArtifact | null>(null);
+  const [voiceOutputPreviewUrl, setVoiceOutputPreviewUrl] = useState<string | null>(
+    null,
+  );
+  const [voiceOutputBusy, setVoiceOutputBusy] = useState(false);
   const [memoryRecords, setMemoryRecords] = useState<MemoryRecord[]>([]);
+  const [memoryBackends, setMemoryBackends] = useState<MemoryBackendDescriptor[]>(
+    [],
+  );
   const [promptDocs, setPromptDocs] = useState<PromptDoc[]>([]);
+  const [conversationDocs, setConversationDocs] = useState<ConversationDoc[]>([]);
+  const [conversationTree, setConversationTree] = useState<ConversationTreeNode[]>(
+    [],
+  );
+  const [expandedConversation, setExpandedConversation] =
+    useState<ExpandedConversation | null>(null);
+  const [conversationDeletePlan, setConversationDeletePlan] = useState<string[]>(
+    [],
+  );
   const [skillDocs, setSkillDocs] = useState<SkillDoc[]>([]);
+  const [capabilityDrafts, setCapabilityDrafts] = useState<CapabilityDraft[]>([]);
   const [adapterPackages, setAdapterPackages] = useState<AdapterPackage[]>([]);
   const [activeSection, setActiveSection] = useState<ActiveSection>("chat");
   const [approvals, setApprovals] = useState<ApprovalRecord[]>([]);
@@ -233,6 +351,8 @@ export default function App() {
   const rootRunIdRef = useRef<string | null>(null);
   const runStartedAtRef = useRef<number | null>(null);
   const remoteSeenEventKeysRef = useRef<Set<string>>(new Set());
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const voiceChunksRef = useRef<Blob[]>([]);
   const runLabel = lastRunId ? lastRunId.slice(0, 8) : "none";
   const effectiveMaxToolCalls =
     parseOptionalNonNegativeInt(maxToolCalls) ?? CALLS_MAX;
@@ -249,6 +369,18 @@ export default function App() {
     slashCommandItems[
       Math.min(slashCommandIndex, Math.max(0, slashCommandItems.length - 1))
     ];
+  const selectedProviderDescriptor = modelProviderDescriptors.find(
+    (descriptor) => descriptor.id === provider,
+  );
+  const supportsApiBaseUrl = providerSupportsRuntimeOption("api_base_url");
+  const supportsTopP = providerSupportsProviderOption("top_p");
+  const supportsTopK = providerSupportsProviderOption("top_k");
+  const supportsReasoningEffort = providerSupportsProviderOption("reasoning_effort");
+  const supportsFrequencyPenalty = providerSupportsProviderOption("frequency_penalty");
+  const supportsPresencePenalty = providerSupportsProviderOption("presence_penalty");
+  const providerOptionKeys = providerOptionSchema()
+    .map((option) => option.key)
+    .join(", ");
   const activeSlashCommandId =
     activeSlashCommand && slashCommandItems.length
       ? `slash-command-${slashCommandIndex}`
@@ -266,6 +398,12 @@ export default function App() {
       promise.then((unlisten) => unlisten());
     };
   }, []);
+
+  useEffect(() => {
+    if (transport === "in-process") {
+      void refreshModelProviderDescriptors(true);
+    }
+  }, [transport]);
 
   useEffect(() => {
     const transcriptEl = transcriptRef.current;
@@ -314,6 +452,14 @@ export default function App() {
     return () => window.removeEventListener("keydown", onEscape);
   }, [lastRunId, running, stopRetentionMode]);
 
+  useEffect(() => {
+    return () => {
+      if (voicePreviewUrl) {
+        URL.revokeObjectURL(voicePreviewUrl);
+      }
+    };
+  }, [voicePreviewUrl]);
+
   function handleRunEvent(evt: RunEvent) {
     const k = evt.kind;
     switch (k.type) {
@@ -339,6 +485,8 @@ export default function App() {
         appendEvent(
           `LLM call started (${k.model})${requestDigest}`,
         );
+        return;
+      case "LlmStreamToken":
         return;
       case "LlmRequestCompleted":
         setTokensIn((v) => v + k.tokens_in);
@@ -369,7 +517,9 @@ export default function App() {
         return;
       case "ToolCallProposed":
         appendEvent(
-          `Tool proposed: ${k.tool_id}(${JSON.stringify(k.input)}) [${k.call_id}]`,
+          `Tool proposed: ${k.tool_id}(${JSON.stringify(k.input)})${
+            k.model ? ` via ${k.model}` : ""
+          } [${k.call_id}]`,
         );
         return;
       case "ToolCallStarted":
@@ -454,8 +604,29 @@ export default function App() {
       case "IngestionStarted":
         appendEvent(`Ingestion started: ${k.source} via ${k.backend}`);
         return;
-      case "IngestionCompleted":
-        appendEvent(`Ingestion completed: ${k.artifact_id} (${k.sections} sections)`);
+      case "IngestionCompleted": {
+        const risk = k.high_risk_findings
+          ? `; ${k.high_risk_findings} high-risk findings`
+          : k.findings?.length
+            ? `; ${k.findings.length} findings`
+            : "";
+        const snippet = k.finding_snippets?.[0]
+          ? `; source "${k.finding_snippets[0]}"`
+          : "";
+        appendEvent(
+          `Ingestion completed: ${k.artifact_id} (${k.sections} sections${risk}${snippet})`,
+        );
+        return;
+      }
+      case "HookFired":
+        appendEvent(
+          `Hook fired: ${k.hook_id} (${k.trigger}, digest ${k.payload_digest.slice(0, 12)})`,
+        );
+        return;
+      case "HookFailed":
+        appendEvent(
+          `Hook failed: ${k.hook_id} (${k.trigger}, attempt ${k.attempt}, retry=${k.will_retry}): ${k.error}`,
+        );
         return;
       case "PolicyDenied":
         appendEvent(`Policy denied: ${k.reason}`);
@@ -539,6 +710,7 @@ export default function App() {
   function runtimeOptions(): RunOptions {
     return {
       provider,
+      agent_id: agentId.trim() || null,
       model: model.trim() || null,
       api_base_url: apiBaseUrl.trim() || null,
       api_key_env: apiKeyEnv.trim() || "OPENAI_API_KEY",
@@ -548,9 +720,13 @@ export default function App() {
       input_cost_per_million: parseOptionalNonNegativeFloat(inputCostPerMillion),
       output_cost_per_million: parseOptionalNonNegativeFloat(outputCostPerMillion),
       max_tool_calls: parseOptionalNonNegativeInt(maxToolCalls),
+      allowed_tool_categories: [],
+      allowed_skill_categories: [],
       tool_visibility: toolVisibility || null,
+      skill_visibility: null,
       enable_shell: enableShell,
       enable_subagent: enableSubagent,
+      enable_capability_drafts: enableCapabilityDrafts,
       load_memory: loadMemory,
       load_skills: loadSkills,
       include_ingest: includeIngestIds,
@@ -560,7 +736,9 @@ export default function App() {
         promptRefinementInstructions.trim() || null,
       prompt_refinement_model: promptRefinementModel.trim() || null,
       require_approval: requireApproval,
+      auto_approve: !requireApproval,
       raw_tool_output: rawToolOutput,
+      disable_lifecycle_hooks: false,
       compacted_context: manualCompactedContext.trim() || null,
     };
   }
@@ -752,17 +930,41 @@ export default function App() {
     }
   }
 
-  function parseToolShortcut(text: string) {
+  function parseConversationRangeFromOps() {
+    const value = requireOpsValue("Conversation range delete");
+    if (!value) return null;
+    const parsed = parseJsonObject("Conversation range delete", value);
+    if (!parsed) return null;
+    const from = Number(parsed.from);
+    const to = Number(parsed.to);
+    if (
+      !Number.isInteger(from) ||
+      !Number.isInteger(to) ||
+      from < 0 ||
+      to < 0
+    ) {
+      appendLine(
+        "error",
+        'Conversation range delete needs Value like { "from": 2, "to": 4 }.',
+      );
+      return null;
+    }
+    if (from > to) {
+      appendLine("error", "Conversation range start must be before the end.");
+      return null;
+    }
+    return { from, to } satisfies ConversationRange;
+  }
+
+  function parseDirectToolShortcut(text: string) {
     const trimmed = text.trim();
     const rest = trimmed.startsWith("/tool!")
       ? trimmed.slice("/tool!".length).trim()
-      : trimmed.startsWith("/tool ")
-        ? trimmed.slice("/tool ".length).trim()
-        : null;
+      : null;
     if (rest === null) return null;
     const match = rest.match(/^(\S+)(?:\s+([\s\S]*))?$/);
     if (!match) {
-      appendLine("error", "Tool shortcut needs a tool name.");
+      appendLine("error", "Direct tool shortcut needs a tool name.");
       return null;
     }
     return {
@@ -784,18 +986,18 @@ export default function App() {
   function parseAgentShortcut(text: string) {
     const trimmed = text.trim();
     if (trimmed === "/agent") {
-      appendLine("error", "Agent shortcut needs an agent id: echo or tool.");
+      appendLine("error", "Agent shortcut needs an agent id: echo, tool, or a saved agent id.");
       return null;
     }
     if (!trimmed.startsWith("/agent ")) {
       return null;
     }
     const id = trimmed.slice("/agent ".length).trim();
-    if (id === "echo" || id === "tool") {
-      return id as Demo;
+    if (!id) {
+      appendLine("error", "Agent shortcut needs an agent id.");
+      return null;
     }
-    appendLine("error", `Unknown agent ${id}. Available agents: echo, tool.`);
-    return null;
+    return id;
   }
 
   function parseExportShortcut(text: string) {
@@ -809,6 +1011,15 @@ export default function App() {
   }
 
   function slashCommandCatalog(): SlashCommandSuggestion[] {
+    const forcedToolCommands = contextPreview?.visible_tools.map((tool) => ({
+      command: `/tool ${tool.id} `,
+      label: `Ask ${tool.name} through the agent`,
+    })) ?? [
+      {
+        command: "/tool echo ",
+        label: "Ask echo through the agent",
+      },
+    ];
     const toolCommands = contextPreview?.visible_tools.map((tool) => ({
       command: `/tool!${tool.id} ${compactJson(sampleToolInput(tool.input_schema))}`,
       label: `Call ${tool.name} directly`,
@@ -823,6 +1034,8 @@ export default function App() {
       { command: "/preview", label: "Preview context" },
       { command: "/agent tool", label: "Switch to Tool agent" },
       { command: "/agent echo", label: "Switch to Echo agent" },
+      { command: "/agent ", label: "Use saved agent id" },
+      ...forcedToolCommands,
       ...toolCommands,
       { command: "/run ", label: "Run saved prompt" },
       { command: "/prompt ", label: "Load saved prompt" },
@@ -839,7 +1052,7 @@ export default function App() {
       { command: "/visibility names", label: "Show tool names only" },
       { command: "/visibility config", label: "Use configured tool visibility" },
       { command: "/approval on", label: "Require approval for tool actions" },
-      { command: "/approval off", label: "Disable run approval gate" },
+      { command: "/approval off", label: "Auto-approve tool actions" },
       { command: "/approval status", label: "Show approval gate status" },
       { command: "/refine on", label: "Enable prompt refinement" },
       { command: "/refine off", label: "Disable prompt refinement" },
@@ -888,6 +1101,7 @@ export default function App() {
       { command: "/storage", label: "Show storage usage" },
       { command: "/memory", label: "List memory records" },
       { command: "/ingest", label: "List ingestion artifacts" },
+      { command: "/artifacts", label: "List generated artifacts" },
       { command: "/skills", label: "List imported skills" },
       { command: "/adapters", label: "List adapter manifests" },
       { command: "/trace", label: "Load last run trace" },
@@ -984,8 +1198,13 @@ export default function App() {
     let approvals = 0;
     let guidanceInjections = 0;
     let qualityScores = 0;
+    let qualityScoreTotal = 0;
+    let qualityScoreMin: number | null = null;
+    let qualityScoreMax: number | null = null;
     let memoryFragments = 0;
     let artifactRefs = 0;
+    let hooks = 0;
+    let hookFailures = 0;
     let tokensIn = 0;
     let tokensOut = 0;
     let eventCostUsd = 0;
@@ -1031,6 +1250,15 @@ export default function App() {
           break;
         case "QualityScored":
           qualityScores += 1;
+          qualityScoreTotal += kind.score;
+          qualityScoreMin =
+            qualityScoreMin === null
+              ? kind.score
+              : Math.min(qualityScoreMin, kind.score);
+          qualityScoreMax =
+            qualityScoreMax === null
+              ? kind.score
+              : Math.max(qualityScoreMax, kind.score);
           break;
         case "MemoryLoaded":
           memoryFragments += kind.ids.length;
@@ -1040,6 +1268,12 @@ export default function App() {
           break;
         case "IngestionReferenced":
           artifactRefs += 1;
+          break;
+        case "HookFired":
+          hooks += 1;
+          break;
+        case "HookFailed":
+          hookFailures += 1;
           break;
         case "RunCompleted":
           completedCostUsd = kind.total_cost_usd;
@@ -1057,8 +1291,15 @@ export default function App() {
       approvals,
       guidance_injections: guidanceInjections,
       quality_scores: qualityScores,
+      quality_score_average: qualityScores
+        ? qualityScoreTotal / qualityScores
+        : null,
+      quality_score_min: qualityScoreMin,
+      quality_score_max: qualityScoreMax,
       memory_fragments: memoryFragments,
       artifact_refs: artifactRefs,
+      hooks,
+      hook_failures: hookFailures,
       tokens_in: tokensIn,
       tokens_out: tokensOut,
       cost_usd: completedCostUsd ?? (hasEventCost ? eventCostUsd : null),
@@ -1137,6 +1378,14 @@ export default function App() {
               : "Request was sent to the provider.",
             tone: "neutral",
           };
+        case "LlmStreamToken":
+          return {
+            id: event.id,
+            title: "LLM stream token",
+            meta: at,
+            detail: previewText(kind.delta, 180),
+            tone: "neutral",
+          };
         case "LlmRequestCompleted":
           return {
             id: event.id,
@@ -1165,7 +1414,7 @@ export default function App() {
           return {
             id: event.id,
             title: "Tool proposed",
-            meta: `${at} / ${kind.tool_id}`,
+            meta: `${at} / ${kind.tool_id}${kind.model ? ` / ${kind.model}` : ""}`,
             detail: previewText(compactJson(kind.input), 180),
             tone: "warning",
           };
@@ -1278,12 +1527,34 @@ export default function App() {
             tone: "neutral",
           };
         case "IngestionCompleted":
+          const ingestionFindings = kind.findings?.length
+            ? `${kind.findings.join("; ")}`
+            : "no findings";
+          const ingestionSnippet = kind.finding_snippets?.[0]
+            ? ` / ${kind.finding_snippets[0]}`
+            : "";
           return {
             id: event.id,
             title: "Ingestion completed",
-            meta: `${at} / ${kind.sections} sections`,
-            detail: `${kind.artifact_id}; ${kind.content_hash.slice(0, 16)}...`,
-            tone: "ok",
+            meta: `${at} / ${kind.sections} sections / ${kind.high_risk_findings ?? 0} high-risk`,
+            detail: `${kind.artifact_id}; ${kind.content_hash.slice(0, 16)}...; ${ingestionFindings}${ingestionSnippet}`,
+            tone: kind.high_risk_findings ? "warning" : "ok",
+          };
+        case "HookFired":
+          return {
+            id: event.id,
+            title: "Hook fired",
+            meta: `${at} / ${kind.hook_id}`,
+            detail: `${kind.trigger}; digest ${kind.payload_digest.slice(0, 16)}...`,
+            tone: "neutral",
+          };
+        case "HookFailed":
+          return {
+            id: event.id,
+            title: "Hook failed",
+            meta: `${at} / ${kind.hook_id} / attempt ${kind.attempt}`,
+            detail: `${kind.trigger}; retry=${kind.will_retry}; ${kind.error}`,
+            tone: kind.will_retry ? "warning" : "danger",
           };
         case "PolicyDenied":
           return {
@@ -1391,7 +1662,177 @@ export default function App() {
         `Trace summary: ${summary.context_snapshots} contexts, ${summary.llm_calls} LLM calls, ${summary.tool_calls} tools, tokens ${summary.tokens_in}/${summary.tokens_out}`,
       );
     }
+    void refreshHookPolicy(false);
     return summary;
+  }
+
+  function traceOriginalPrompt(events: RunEvent[]) {
+    for (const event of events) {
+      if (event.kind.type === "RunStarted") {
+        return event.kind.input;
+      }
+    }
+    return "";
+  }
+
+  function hookRemediationsFromEvents(events: RunEvent[]): HookRemediationRecord[] {
+    const denialsByParent = new Map<number, string[]>();
+    for (const event of events) {
+      if (event.kind.type === "PolicyDenied" && event.parent_event !== null) {
+        const denials = denialsByParent.get(event.parent_event) ?? [];
+        denials.push(event.kind.reason);
+        denialsByParent.set(event.parent_event, denials);
+      }
+    }
+    return events
+      .filter((event) => event.kind.type === "HookFailed")
+      .map((event) => {
+        const kind = event.kind as Extract<RunEvent["kind"], { type: "HookFailed" }>;
+        const finalFailure = !kind.will_retry;
+        return {
+          event_id: event.id,
+          hook_id: kind.hook_id,
+          trigger: kind.trigger,
+          error: kind.error,
+          attempt: kind.attempt,
+          will_retry: kind.will_retry,
+          final_failure: finalFailure,
+          policy_denials:
+            event.parent_event === null
+              ? []
+              : denialsByParent.get(event.parent_event) ?? [],
+          suggested_actions: finalFailure
+            ? [
+                `Fix or disable hook ${kind.hook_id}, then replay the run.`,
+                "Replay with hooks skipped once only after accepting the override.",
+              ]
+            : ["Wait for the configured hook retry and review the final attempt."],
+        };
+      });
+  }
+
+  function loadTracePromptToComposer() {
+    const prompt = traceOriginalPrompt(traceEvents);
+    if (!prompt) {
+      appendLine("error", "Load prompt needs a trace with a RunStarted event.");
+      return;
+    }
+    setInput(prompt);
+    setActiveSection("chat");
+    appendEvent("Loaded original trace prompt into the composer.");
+  }
+
+  async function replayTracePrompt() {
+    const prompt = traceOriginalPrompt(traceEvents);
+    if (!prompt) {
+      appendLine("error", "Replay needs a trace with a RunStarted event.");
+      return;
+    }
+    await runAgentPrompt(prompt, "replay trace prompt");
+  }
+
+  async function replayTracePromptWithoutHooks() {
+    const prompt = traceOriginalPrompt(traceEvents);
+    if (!prompt) {
+      appendLine("error", "Hook override needs a trace with a RunStarted event.");
+      return;
+    }
+    await runAgentPrompt(prompt, "replay trace prompt (hooks skipped once)", {
+      disable_lifecycle_hooks: true,
+    });
+  }
+
+  async function refreshHookPolicy(announce = true) {
+    try {
+      const agent = agentId.trim() || null;
+      const policy =
+        transport === "daemon"
+          ? await daemonJson<HookPolicyRecord>("/hooks/policy", { agent_id: agent })
+          : await invoke<HookPolicyRecord>("hook_policy", { agentId: agent });
+      setHookPolicy(policy);
+      if (announce) {
+        appendEvent(
+          `Loaded hook policy (${policy.disabled_lifecycle_hooks.length} disabled).`,
+        );
+      }
+      return policy;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      appendLine("error", `Hook policy load failed: ${msg}`);
+      return null;
+    }
+  }
+
+  async function setPersistentHookDisabled(
+    hookId: string,
+    disabled: boolean,
+    scope: "profile" | "agent" = "profile",
+  ) {
+    const action = disabled ? "Disable lifecycle hook" : "Enable lifecycle hook";
+    const agent = agentId.trim() || "fake-agent";
+    if (!confirmLocalChange(`${action} ${hookId}`)) {
+      return;
+    }
+    try {
+      const policy =
+        transport === "daemon"
+          ? await daemonJson<HookPolicyRecord>("/hooks/policy/set", {
+              hook_id: hookId,
+              disabled,
+              agent_id: agent,
+              scope,
+            })
+          : await invoke<HookPolicyRecord>("set_hook_disabled", {
+              hookId,
+              disabled,
+              agentId: agent,
+              scope,
+            });
+      setHookPolicy(policy);
+      appendEvent(
+        `${disabled ? "Disabled" : "Enabled"} hook ${hookId} for future runs in ${scope === "agent" ? `agent ${policy.agent_id ?? agent}` : `profile ${policy.profile}`}.`,
+      );
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      appendLine("error", `Hook policy update failed: ${msg}`);
+    }
+  }
+
+  function hookIsPersistentlyDisabled(hookId: string) {
+    return hookPolicy?.disabled_lifecycle_hooks.includes(hookId) ?? false;
+  }
+
+  function hookIsProfileDisabled(hookId: string) {
+    return hookPolicy?.profile_disabled_lifecycle_hooks?.includes(hookId) ?? false;
+  }
+
+  function hookIsAgentDisabled(hookId: string) {
+    return hookPolicy?.agent_disabled_lifecycle_hooks?.includes(hookId) ?? false;
+  }
+
+  function hookIsGlobalDisabled(hookId: string) {
+    return hookPolicy?.global_disabled_lifecycle_hooks?.includes(hookId) ?? false;
+  }
+
+  function hookPolicyScopeSummary(hookId: string) {
+    const scopes = [
+      hookIsGlobalDisabled(hookId) ? "global" : null,
+      hookIsProfileDisabled(hookId) ? "profile" : null,
+      hookIsAgentDisabled(hookId) ? "agent" : null,
+    ].filter(Boolean);
+    return scopes.length ? ` - scopes ${scopes.join("/")}` : "";
+  }
+
+  function hookPolicyConflictNote(hookId: string) {
+    if (!hookPolicy || hookPolicy.effective_source !== "agent") return "";
+    const agentDisabled = hookIsAgentDisabled(hookId);
+    if (!agentDisabled && hookIsProfileDisabled(hookId)) {
+      return "Profile disable is shadowed by the agent policy.";
+    }
+    if (!agentDisabled && hookIsGlobalDisabled(hookId)) {
+      return "Global disable is shadowed by the agent policy.";
+    }
+    return "";
   }
 
   function confirmLocalChange(action: string) {
@@ -1720,7 +2161,9 @@ export default function App() {
         setInput("");
         setRequireApproval(false);
         appendLine("user", "/approval off");
-        appendEvent("Approval gate disabled for this run configuration.");
+        appendEvent(
+          "Approval gate disabled; sensitive tool calls will be auto-approved for this run configuration.",
+        );
         return;
       }
       if (value === "status") {
@@ -1973,10 +2416,16 @@ export default function App() {
     const isAgentShortcut = prompt === "/agent" || prompt.startsWith("/agent ");
     const nextAgent = parseAgentShortcut(prompt);
     if (nextAgent) {
-      setDemo(nextAgent);
       setInput("");
       appendLine("user", `/agent ${nextAgent}`);
-      appendEvent(`Switched agent to ${agentDisplayName(nextAgent)}`);
+      if (nextAgent === "echo" || nextAgent === "tool") {
+        setDemo(nextAgent);
+        setAgentId("");
+        appendEvent(`Switched demo agent to ${agentDisplayName(nextAgent)}`);
+      } else {
+        setAgentId(nextAgent);
+        appendEvent(`Selected configured agent ${nextAgent}`);
+      }
       return;
     }
     if (isAgentShortcut) return;
@@ -1989,8 +2438,13 @@ export default function App() {
       return;
     }
 
-    const isToolShortcut = prompt.startsWith("/tool!") || prompt.startsWith("/tool ");
-    const toolShortcut = parseToolShortcut(prompt);
+    if (prompt === "/tool") {
+      appendLine("error", "Tool run shortcut needs a tool name: /tool <name> <request>.");
+      return;
+    }
+
+    const isToolShortcut = prompt.startsWith("/tool!");
+    const toolShortcut = parseDirectToolShortcut(prompt);
     if (toolShortcut) {
       const inputBody = parseJsonObject("Tool shortcut", toolShortcut.inputText);
       if (!inputBody) return;
@@ -2051,6 +2505,14 @@ export default function App() {
       setActiveSection("ingest");
       appendLine("user", "/ingest");
       await reviewIngestion();
+      return;
+    }
+
+    if (prompt === "/artifacts") {
+      setInput("");
+      setActiveSection("artifacts");
+      appendLine("user", "/artifacts");
+      await reviewGeneratedArtifacts();
       return;
     }
 
@@ -2190,7 +2652,11 @@ export default function App() {
     await runAgentPrompt(prompt, savedPromptName ? `/run ${savedPromptName}` : prompt);
   }
 
-  async function runAgentPrompt(prompt: string, displayText: string) {
+  async function runAgentPrompt(
+    prompt: string,
+    displayText: string,
+    optionOverrides: Partial<RunOptions> = {},
+  ) {
     if (running) return;
     setInput("");
     setRunning(true);
@@ -2207,13 +2673,14 @@ export default function App() {
     remoteSeenEventKeysRef.current = new Set();
     runStartedAtRef.current = performance.now();
     appendLine("user", displayText);
+    const options = { ...runtimeOptions(), ...optionOverrides };
 
     try {
       if (transport === "daemon") {
         const started = await daemonJson<RemoteRunStart>("/run/start", {
           input: prompt,
           demo,
-          ...runtimeOptions(),
+          ...options,
         });
         setLastRunId(started.run_id);
         rootRunIdRef.current = started.run_id;
@@ -2226,7 +2693,7 @@ export default function App() {
       const summary = await invoke<RunSummary>("run_agent", {
         input: prompt,
         demo,
-        options: runtimeOptions(),
+        options,
       });
       setLastRunId(summary.run_id);
       if (!terminalEventSeenRef.current) {
@@ -2256,6 +2723,8 @@ export default function App() {
         const inputBody: Record<string, unknown> = { command };
         if (requireApproval) {
           inputBody.__require_approval = true;
+        } else {
+          inputBody.__auto_approve = true;
         }
         const output = await daemonJson<unknown>("/tool/shell", inputBody);
         captureDirectToolMetadata(output);
@@ -2287,6 +2756,230 @@ export default function App() {
       return;
     }
     await callToolDirect(name, inputBody, `tool ${name} ${JSON.stringify(inputBody)}`);
+  }
+
+  async function startVoiceCapture() {
+    if (running || recordingVoice) return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      appendLine("error", "Voice capture is not available in this webview.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      voiceChunksRef.current = [];
+      mediaRecorderRef.current = recorder;
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          voiceChunksRef.current.push(event.data);
+        }
+      };
+      recorder.onstop = () => {
+        setRecordingVoice(false);
+        stream.getTracks().forEach((track) => track.stop());
+        const mediaType = recorder.mimeType || "audio/webm";
+        const blob = new Blob(voiceChunksRef.current, { type: mediaType });
+        void persistVoiceCapture(blob);
+      };
+      recorder.start();
+      setRecordingVoice(true);
+      appendEvent("Voice recording started.");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setRecordingVoice(false);
+      appendLine("error", `Voice capture failed: ${msg}`);
+    }
+  }
+
+  function stopVoiceCapture() {
+    if (!recordingVoice) return;
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      recorder.stop();
+    }
+  }
+
+  async function persistVoiceCapture(blob: Blob) {
+    if (blob.size === 0) {
+      appendLine("error", "Voice capture was empty.");
+      return;
+    }
+    try {
+      if (voicePreviewUrl) {
+        URL.revokeObjectURL(voicePreviewUrl);
+      }
+      const previewUrl = URL.createObjectURL(blob);
+      setVoicePreviewUrl(previewUrl);
+      const dataUrl = await blobToDataUrl(blob);
+      const extension = voiceExtensionForBlob(blob);
+      const artifact = await saveVoiceCaptureArtifact(dataUrl, `capture.${extension}`);
+      setVoiceCaptureArtifact(artifact);
+      setGeneratedArtifacts((artifacts) =>
+        upsertGeneratedArtifact(artifacts, artifact),
+      );
+      setOpsId("voice_transcribe");
+      setOpsValue(previewJson({ audio_path: artifact.path }));
+      appendEvent(
+        `Voice captured: ${fileName(artifact.path)} / ${formatBytes(artifact.bytes)}`,
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Voice capture save failed: ${msg}`);
+    }
+  }
+
+  function blobToDataUrl(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result));
+      reader.onerror = () => reject(reader.error ?? new Error("read failed"));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function voiceExtensionForBlob(blob: Blob) {
+    const type = blob.type.split(";")[0].toLowerCase();
+    switch (type) {
+      case "audio/wav":
+      case "audio/x-wav":
+        return "wav";
+      case "audio/mpeg":
+      case "audio/mp3":
+        return "mp3";
+      case "audio/mp4":
+      case "audio/x-m4a":
+        return "m4a";
+      case "audio/ogg":
+        return "ogg";
+      case "audio/webm":
+      default:
+        return "webm";
+    }
+  }
+
+  async function saveVoiceCaptureArtifact(dataUrl: string, filename: string) {
+    if (transport === "daemon") {
+      const result = await daemonJson<VoiceCaptureResponse>("/voice/capture", {
+        data_url: dataUrl,
+        filename,
+      });
+      return result.artifact;
+    }
+    return invoke<GeneratedArtifact>("voice_capture", {
+      dataUrl,
+      filename,
+    });
+  }
+
+  async function transcribeVoiceCapture() {
+    if (!voiceCaptureArtifact || running) return;
+    await callToolDirect(
+      "voice_transcribe",
+      { audio_path: voiceCaptureArtifact.path },
+      `voice transcribe ${fileName(voiceCaptureArtifact.path)}`,
+    );
+  }
+
+  async function speakVoiceOutput() {
+    if (running || voiceOutputBusy) return;
+    const text = voiceSpeakText();
+    if (!text) {
+      appendLine("error", "Voice output needs composer text or a recent assistant answer.");
+      return;
+    }
+    setVoiceOutputBusy(true);
+    try {
+      await callToolDirect("voice_speak", { text }, `voice speak ${previewText(text, 48)}`);
+    } finally {
+      setVoiceOutputBusy(false);
+    }
+  }
+
+  function stageVoiceSpeak() {
+    const text = voiceSpeakText();
+    if (!text) {
+      appendLine("error", "Voice output needs composer text or a recent assistant answer.");
+      return;
+    }
+    setOpsId("voice_speak");
+    setOpsValue(previewJson({ text }));
+    appendEvent("voice_speak staged.");
+  }
+
+  function voiceSpeakText() {
+    return input.trim() || latestAssistantText();
+  }
+
+  function latestAssistantText() {
+    return (
+      [...transcript]
+        .reverse()
+        .find((line) => line.kind === "assistant")
+        ?.text.trim() ?? ""
+    );
+  }
+
+  async function refreshVoiceOutputFromToolOutput(value: unknown) {
+    const artifact = voiceOutputArtifactFromToolOutput(value);
+    if (!artifact) return;
+    setGeneratedArtifacts((artifacts) =>
+      upsertGeneratedArtifact(artifacts, artifact),
+    );
+    await previewGeneratedAudioArtifact(artifact);
+  }
+
+  function voiceOutputArtifactFromToolOutput(value: unknown) {
+    const wrapper = isUnknownRecord(value) ? value : null;
+    const output = wrapper && isUnknownRecord(wrapper.output) ? wrapper.output : wrapper;
+    if (!output) return null;
+    const artifactId = output.artifact_id;
+    const format = output.format;
+    const path = output.path;
+    const bytes = output.bytes;
+    if (
+      typeof artifactId !== "string" ||
+      typeof format !== "string" ||
+      typeof path !== "string" ||
+      typeof bytes !== "number" ||
+      !isAudioFormat(format)
+    ) {
+      return null;
+    }
+    return {
+      id: artifactId,
+      format,
+      path,
+      bytes,
+      modified_ms: null,
+    };
+  }
+
+  async function previewGeneratedAudioArtifact(artifact: GeneratedArtifact) {
+    if (!isAudioFormat(artifact.format)) return;
+    try {
+      const preview = await loadGeneratedArtifactDataUrl(artifact.id);
+      setVoiceOutputArtifact(preview.artifact);
+      setVoiceOutputPreviewUrl(preview.data_url);
+      setGeneratedArtifacts((artifacts) =>
+        upsertGeneratedArtifact(artifacts, preview.artifact),
+      );
+      appendEvent(`Voice output ready: ${fileName(preview.artifact.path)}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Voice output preview failed: ${msg}`);
+    }
+  }
+
+  async function loadGeneratedArtifactDataUrl(id: string) {
+    return transport === "daemon"
+      ? await daemonJson<GeneratedArtifactDataUrl>(
+          `/artifacts/${encodeURIComponent(id)}/data-url`,
+        )
+      : await invoke<GeneratedArtifactDataUrl>("artifact_data_url", { id });
+  }
+
+  function isAudioFormat(format: string) {
+    return ["mp3", "wav", "webm", "m4a", "ogg"].includes(format.toLowerCase());
   }
 
   async function stageToolFromPreview(tool: ContextSnapshot["visible_tools"][number]) {
@@ -2476,16 +3169,22 @@ export default function App() {
     try {
       if (transport === "daemon") {
         const daemonInput = { ...inputBody };
+        if (agentId.trim()) {
+          daemonInput.__agent_id = agentId.trim();
+        }
         if (requireApproval) {
           daemonInput.__require_approval = true;
+        } else {
+          daemonInput.__auto_approve = true;
         }
         const output = await daemonJson<unknown>(
           `/tool/${encodeURIComponent(name)}`,
           daemonInput,
         );
         captureDirectToolMetadata(output);
+        void refreshVoiceOutputFromToolOutput(output);
         appendJson("Tool output", output);
-        return;
+        return output;
       }
       const output = await invoke<unknown>("call_tool", {
         name,
@@ -2496,11 +3195,14 @@ export default function App() {
         },
       });
       captureDirectToolMetadata(output);
+      void refreshVoiceOutputFromToolOutput(output);
       appendJson("Tool output", output);
+      return output;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       captureRunIdFromError(msg);
       appendLine("error", `Tool call failed: ${msg}`);
+      return null;
     }
   }
 
@@ -2570,6 +3272,20 @@ export default function App() {
     }
   }
 
+  async function reviewMemoryBackends() {
+    try {
+      const backends =
+        transport === "daemon"
+          ? await daemonJson<MemoryBackendDescriptor[]>("/memory/backends")
+          : await invoke<MemoryBackendDescriptor[]>("memory_backends");
+      setMemoryBackends(backends);
+      appendJson("Memory backends", backends);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Memory backends failed: ${msg}`);
+    }
+  }
+
   async function previewWithMemoryFromOps() {
     const prompt = input.trim() || "preview";
     const options = {
@@ -2613,6 +3329,115 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Skill review failed: ${msg}`);
+    }
+  }
+
+  async function reviewCapabilities() {
+    try {
+      const drafts =
+        transport === "daemon"
+          ? await daemonJson<CapabilityDraft[]>("/capabilities")
+          : await invoke<CapabilityDraft[]>("capability_list");
+      setCapabilityDrafts(drafts);
+      appendEvent(`Capability drafts: ${drafts.length}`);
+      appendJson("Capability drafts", drafts);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Capability review failed: ${msg}`);
+    }
+  }
+
+  async function proposeCapabilityFromOps() {
+    const name = requireOpsId("Capability propose");
+    const body = requireOpsValue("Capability propose");
+    if (!name || !body) return;
+    try {
+      const draft =
+        transport === "daemon"
+          ? await daemonJson<CapabilityDraft>("/capabilities/propose", {
+              kind: capabilityKind,
+              name,
+              body,
+              created_by: "user",
+            })
+          : await invoke<CapabilityDraft>("capability_propose", {
+              kind: capabilityKind,
+              name,
+              body,
+              guidance: null,
+              createdBy: "user",
+            });
+      setCapabilityDrafts((drafts) => upsertCapabilityDraft(drafts, draft));
+      appendJson("Capability draft proposed", draft);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Capability propose failed: ${msg}`);
+    }
+  }
+
+  async function showCapabilityFromOps() {
+    const id = requireOpsId("Capability show");
+    if (!id) return;
+    try {
+      const draft =
+        transport === "daemon"
+          ? await daemonJson<CapabilityDraft>(`/capabilities/${id}`)
+          : await invoke<CapabilityDraft>("capability_show", { id });
+      setCapabilityDrafts((drafts) => upsertCapabilityDraft(drafts, draft));
+      appendJson("Capability draft", draft);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Capability show failed: ${msg}`);
+    }
+  }
+
+  async function reviewCapabilityDraft(allow: boolean, explicitId?: string) {
+    const id =
+      explicitId ?? requireOpsId(allow ? "Capability allow" : "Capability reject");
+    if (!id) return;
+    try {
+      const result =
+        transport === "daemon"
+          ? await daemonJson<CapabilityReviewResult>(
+              `/capabilities/${id}/${allow ? "allow" : "reject"}`,
+              {},
+            )
+          : await invoke<CapabilityReviewResult>(
+              allow ? "capability_allow" : "capability_reject",
+              { id },
+            );
+      const draft = capabilityDraftFromReviewResult(result);
+      setCapabilityDrafts((drafts) => upsertCapabilityDraft(drafts, draft));
+      const skill = skillFromCapabilityReviewResult(result);
+      if (skill) {
+        setSkillDocs((docs) => upsertSkillDoc(docs, skill));
+      }
+      const adapterPackage = adapterPackageFromCapabilityReviewResult(result);
+      if (adapterPackage) {
+        setAdapterPackages((packages) =>
+          upsertAdapterPackage(packages, adapterPackage),
+        );
+      }
+      appendJson(allow ? "Capability allowed" : "Capability rejected", result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Capability review failed: ${msg}`);
+    }
+  }
+
+  async function deleteCapabilityFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Capability delete");
+    if (!id) return;
+    try {
+      const result =
+        transport === "daemon"
+          ? await daemonJson<unknown>(`/capabilities/${id}/delete`, {})
+          : await invoke<unknown>("capability_delete", { id });
+      setCapabilityDrafts((drafts) => drafts.filter((draft) => draft.id !== id));
+      appendJson("Capability draft deleted", result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Capability delete failed: ${msg}`);
     }
   }
 
@@ -2722,6 +3547,198 @@ export default function App() {
     }
   }
 
+  async function fetchConversationList() {
+    return transport === "daemon"
+      ? await daemonJson<ConversationDoc[]>("/conversations")
+      : await invoke<ConversationDoc[]>("conversation_list");
+  }
+
+  async function fetchConversationTree() {
+    return transport === "daemon"
+      ? await daemonJson<ConversationTreeNode[]>("/conversations/tree")
+      : await invoke<ConversationTreeNode[]>("conversation_tree");
+  }
+
+  async function fetchConversation(id: string) {
+    return transport === "daemon"
+      ? await daemonJson<ExpandedConversation>(
+          `/conversations/${encodeURIComponent(id)}`,
+        )
+      : await invoke<ExpandedConversation>("conversation_show", { id });
+  }
+
+  async function fetchConversationRecovery(id: string) {
+    return transport === "daemon"
+      ? await daemonJson<ConversationRecoveryPlan>(
+          `/conversations/${encodeURIComponent(id)}/recover`,
+        )
+      : await invoke<ConversationRecoveryPlan>("conversation_recover", { id });
+  }
+
+  async function reviewConversations() {
+    try {
+      const [conversations, tree] = await Promise.all([
+        fetchConversationList(),
+        fetchConversationTree(),
+      ]);
+      setConversationDocs(conversations);
+      setConversationTree(tree);
+      setConversationDeletePlan([]);
+      appendEvent(
+        `Conversations: ${conversations.length} total, ${tree.length} root branches`,
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Conversation review failed: ${msg}`);
+    }
+  }
+
+  async function showConversationFromOps() {
+    const id = requireOpsId("Conversation show");
+    if (!id) return;
+    await showConversation(id);
+  }
+
+  async function showConversation(id: string) {
+    try {
+      const conversation = await fetchConversation(id);
+      setExpandedConversation(conversation);
+      setOpsId(conversation.conversation.id);
+      appendJson("Conversation", conversation);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Conversation show failed: ${msg}`);
+    }
+  }
+
+  async function recoverConversationFromOps() {
+    const id = requireOpsId("Conversation recovery");
+    if (!id) return;
+    await recoverConversation(id);
+  }
+
+  async function recoverConversation(id: string) {
+    try {
+      const plan = await fetchConversationRecovery(id);
+      const suggested = plan.suggested_run;
+      setOpsId(suggested.conversation_id || plan.conversation_id);
+      setAgentId(plan.agent_id.trim());
+      setLoadMemory(suggested.load_memory);
+      const compactedContext = suggested.compacted_context?.trim()
+        ? suggested.compacted_context
+        : "";
+      setManualCompactedContext(compactedContext);
+      if (compactedContext) {
+        setOpsValue(compactedContext);
+      }
+      appendJson("Conversation recovery plan", plan);
+      appendEvent(
+        `Recovery settings applied: ${plan.linked_compactions.length} compactions, ${plan.linked_memories.length} memories, ${suggested.load_memory ? "memory on" : "memory off"}, ${compactedContext ? "compacted context on" : "no compacted context"}`,
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Conversation recovery failed: ${msg}`);
+    }
+  }
+
+  async function previewConversationDeleteFromOps(recursive: boolean) {
+    const id = requireOpsId("Conversation delete preview");
+    if (!id) return;
+    await previewConversationDelete(id, recursive);
+  }
+
+  async function previewConversationDelete(id: string, recursive: boolean) {
+    try {
+      const plan =
+        transport === "daemon"
+          ? await daemonJson<string[]>(
+              `/conversations/${encodeURIComponent(id)}/delete-plan`,
+              { recursive },
+            )
+          : await invoke<string[]>("conversation_delete_plan", { id, recursive });
+      setConversationDeletePlan(plan);
+      appendJson("Conversation delete plan", { id, recursive, plan });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Conversation delete preview failed: ${msg}`);
+    }
+  }
+
+  async function deleteConversationFromOps(recursive: boolean) {
+    const id = requireOpsId("Conversation delete");
+    if (!id) return;
+    await deleteConversation(id, recursive);
+  }
+
+  async function deleteConversation(id: string, recursive: boolean) {
+    if (!confirmLocalChange(`Delete conversation ${id}${recursive ? " recursively" : ""}`)) {
+      return;
+    }
+    try {
+      const result =
+        transport === "daemon"
+          ? await daemonJson<ConversationDeleteResult>(
+              `/conversations/${encodeURIComponent(id)}/delete`,
+              { recursive },
+            )
+          : await invoke<ConversationDeleteResult>("conversation_delete", {
+              id,
+              recursive,
+            });
+      const deleted = new Set(result.deleted);
+      if (
+        expandedConversation &&
+        deleted.has(expandedConversation.conversation.id)
+      ) {
+        setExpandedConversation(null);
+      }
+      setConversationDocs((docs) =>
+        docs.filter((conversation) => !deleted.has(conversation.id)),
+      );
+      setConversationTree((tree) => filterConversationTree(tree, deleted));
+      setConversationDeletePlan([]);
+      appendJson("Conversation deleted", result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Conversation delete failed: ${msg}`);
+    }
+  }
+
+  async function deleteConversationRangeFromOps() {
+    const id = requireOpsId("Conversation range delete");
+    const range = parseConversationRangeFromOps();
+    if (!id || !range) return;
+    if (
+      !confirmLocalChange(
+        `Delete conversation messages ${range.from}:${range.to} from ${id}`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const result =
+        transport === "daemon"
+          ? await daemonJson<ConversationDeleteRangeResult>(
+              `/conversations/${encodeURIComponent(id)}/delete-range`,
+              range,
+            )
+          : await invoke<ConversationDeleteRangeResult>(
+              "conversation_delete_range",
+              { id, from: range.from, to: range.to },
+            );
+      setConversationDocs((docs) => [
+        result.conversation,
+        ...docs.filter((conversation) => conversation.id !== result.id),
+      ]);
+      const expanded = await fetchConversation(id);
+      setExpandedConversation(expanded);
+      appendJson("Conversation message range deleted", result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Conversation range delete failed: ${msg}`);
+    }
+  }
+
   async function reviewIngestion() {
     try {
       const artifacts =
@@ -2734,6 +3751,38 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Ingestion review failed: ${msg}`);
+    }
+  }
+
+  async function reviewGeneratedArtifacts() {
+    try {
+      const artifacts =
+        transport === "daemon"
+          ? await daemonJson<GeneratedArtifact[]>("/artifacts")
+          : await invoke<GeneratedArtifact[]>("artifact_list");
+      setGeneratedArtifacts(artifacts);
+      appendEvent(`Generated artifacts: ${artifacts.length}`);
+      appendLine("assistant", JSON.stringify(artifacts, null, 2));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Artifact review failed: ${msg}`);
+    }
+  }
+
+  async function reviewIngestionBackends() {
+    try {
+      const backends =
+        transport === "daemon"
+          ? await daemonJson<IngestionBackendDescriptor[]>("/ingest/backends")
+          : await invoke<IngestionBackendDescriptor[]>("ingest_backends");
+      setIngestionBackends(backends);
+      if (!backends.some((backend) => backend.id === ingestBackend)) {
+        setIngestBackend(backends[0]?.id ?? "local-v0");
+      }
+      appendJson("Ingestion backends", backends);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Ingestion backends failed: ${msg}`);
     }
   }
 
@@ -2803,17 +3852,67 @@ export default function App() {
         await daemonJson("/cancel", {
           run_id: lastRunId,
           reason,
+          mode,
         });
       } else {
         await invoke("cancel", {
           runId: lastRunId,
           reason,
+          mode,
         });
       }
       appendEvent(`Cancellation recorded for ${lastRunId} (${stopRetentionLabel(mode)}).`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Cancel failed: ${msg}`);
+    }
+  }
+
+  async function resumeLastRun() {
+    if (!lastRunId || running) return;
+    const sourceRunId = lastRunId;
+    setRunning(true);
+    setTokensIn(0);
+    setTokensOut(0);
+    setCostUsd(0);
+    setCalls(0);
+    setElapsedMs(0);
+    setTraceEvents([]);
+    setTraceSummary(null);
+    setApprovals([]);
+    terminalEventSeenRef.current = false;
+    rootRunIdRef.current = null;
+    remoteSeenEventKeysRef.current = new Set();
+    runStartedAtRef.current = performance.now();
+    appendEvent(`Resuming ${sourceRunId}`);
+    try {
+      const result =
+        transport === "daemon"
+          ? await daemonJson<ResumeResult>("/resume", {
+              run_id: sourceRunId,
+              from_event: null,
+              demo,
+              ...runtimeOptions(),
+            })
+          : await invoke<ResumeResult>("resume_run", {
+              runId: sourceRunId,
+              fromEvent: null,
+              demo,
+              options: runtimeOptions(),
+            });
+      setLastRunId(result.resumed_run_id);
+      rootRunIdRef.current = result.resumed_run_id;
+      if (!terminalEventSeenRef.current) {
+        appendLine("assistant", result.final_output);
+        appendEvent(`Resumed ${sourceRunId} as ${result.resumed_run_id}`);
+      }
+      setRunning(false);
+      runStartedAtRef.current = null;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Resume failed: ${msg}`);
+      setRunning(false);
+      runStartedAtRef.current = null;
     }
   }
 
@@ -2882,6 +3981,7 @@ export default function App() {
           {},
         );
         captureDirectToolMetadata(output);
+        void refreshVoiceOutputFromToolOutput(output);
         appendJson("Approved tool output", output);
       }
     } else {
@@ -2896,6 +3996,7 @@ export default function App() {
           approvalId,
         });
         captureDirectToolMetadata(output);
+        void refreshVoiceOutputFromToolOutput(output);
         appendJson("Approved tool output", output);
       }
     }
@@ -3214,6 +4315,33 @@ export default function App() {
     }
   }
 
+  async function fetchModelProviderDescriptors() {
+    return transport === "daemon"
+      ? await daemonJson<ModelProviderDescriptor[]>("/model-providers")
+      : await invoke<ModelProviderDescriptor[]>("model_provider_list");
+  }
+
+  async function refreshModelProviderDescriptors(quiet = false) {
+    try {
+      const providers = await fetchModelProviderDescriptors();
+      setModelProviderDescriptors(providers);
+      return providers;
+    } catch (err: unknown) {
+      if (!quiet) {
+        const msg = err instanceof Error ? err.message : String(err);
+        appendLine("error", `Model provider list failed: ${msg}`);
+      }
+      return null;
+    }
+  }
+
+  async function listModelProvidersFromOps() {
+    const providers = await refreshModelProviderDescriptors();
+    if (providers) {
+      appendJson("Model providers", providers);
+    }
+  }
+
   async function showModelFromOps() {
     const id = requireOpsId("Model show");
     if (!id) return;
@@ -3226,6 +4354,21 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Model show failed: ${msg}`);
+    }
+  }
+
+  async function probeModelFromOps() {
+    const id = requireOpsId("Model probe");
+    if (!id) return;
+    try {
+      const doc =
+        transport === "daemon"
+          ? await daemonJson<unknown>(`/models/${encodeURIComponent(id)}/probe`)
+          : await invoke<unknown>("model_probe", { id });
+      appendJson("Model capability probe", doc);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Model probe failed: ${msg}`);
     }
   }
 
@@ -3245,6 +4388,106 @@ export default function App() {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Model save failed: ${msg}`);
     }
+  }
+
+  async function saveCurrentModelFromControls() {
+    if (provider === "fake") {
+      appendLine("error", "Choose a non-fake provider before saving model metadata.");
+      return;
+    }
+    const id = model.trim() || defaultModelForProvider(provider);
+    const providerOptions = providerOptionsFromControls();
+    if (providerOptions === false) return;
+    const metadata =
+      providerOptions && Object.keys(providerOptions).length
+        ? { provider_options: providerOptions }
+        : {};
+    const modelDoc = {
+      id,
+      provider,
+      api_base_url: supportsApiBaseUrl ? apiBaseUrl.trim() || null : null,
+      api_key_env: apiKeyEnv.trim() || defaultApiKeyEnvForProvider(provider),
+      allow_missing_api_key: provider === "ollama" || provider === "llama_cpp" ? true : null,
+      available_modalities: modelSupportsImage ? ["text", "image"] : [],
+      metadata,
+    };
+    try {
+      const doc =
+        transport === "daemon"
+          ? await daemonJson<unknown>("/models", modelDoc)
+          : await invoke<unknown>("model_save", { model: modelDoc });
+      appendJson("Model saved", doc);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Model save failed: ${msg}`);
+    }
+  }
+
+  function providerOptionsFromControls(): Record<string, unknown> | false | null {
+    const options: Record<string, unknown> = {};
+    if (
+      !addProviderOption(options, "top_p", providerTopP) ||
+      !addProviderOption(options, "top_k", providerTopK) ||
+      !addProviderOption(options, "reasoning_effort", providerReasoningEffort) ||
+      !addProviderOption(options, "frequency_penalty", providerFrequencyPenalty) ||
+      !addProviderOption(options, "presence_penalty", providerPresencePenalty)
+    ) {
+      return false;
+    }
+    return Object.keys(options).length ? options : null;
+  }
+
+  function addProviderOption(
+    options: Record<string, unknown>,
+    key: string,
+    raw: string,
+  ) {
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      return true;
+    }
+    const descriptor = providerOptionDescriptor(key);
+    if (!descriptor && !providerSupportsProviderOption(key)) {
+      appendLine("error", `${providerOptionLabel(key)} is not supported by ${provider}.`);
+      return false;
+    }
+    const value = parseProviderOptionValue(key, trimmed, descriptor ?? undefined);
+    if (value === false) {
+      return false;
+    }
+    options[key] = value;
+    return true;
+  }
+
+  function parseProviderOptionValue(
+    key: string,
+    raw: string,
+    descriptor?: ModelProviderOptionDescriptor,
+  ): number | string | false {
+    const kind = descriptor?.kind ?? fallbackProviderOptionKind(key);
+    if (kind === "string") {
+      return raw;
+    }
+    const value = Number(raw);
+    if (!Number.isFinite(value)) {
+      appendLine("error", `${providerOptionLabel(key)} must be a number.`);
+      return false;
+    }
+    if (kind === "integer" && !Number.isInteger(value)) {
+      appendLine("error", `${providerOptionLabel(key)} must be an integer.`);
+      return false;
+    }
+    const min = descriptor?.min ?? fallbackProviderOptionMin(key);
+    const max = descriptor?.max ?? fallbackProviderOptionMax(key);
+    if (min !== null && value < min) {
+      appendLine("error", `${providerOptionLabel(key)} must be at least ${min}.`);
+      return false;
+    }
+    if (max !== null && value > max) {
+      appendLine("error", `${providerOptionLabel(key)} must be at most ${max}.`);
+      return false;
+    }
+    return value;
   }
 
   async function deleteModelFromOps() {
@@ -3321,8 +4564,10 @@ export default function App() {
     const path = requireOpsValue("Ingest add");
     if (!path) return;
     const backend = ingestBackend.trim() || "local-v0";
+    const visionModel = ingestVisionModel.trim() || null;
+    const guardrailModel = ingestGuardrailModel.trim() || null;
     try {
-      const artifact = await ingestPath(path, backend);
+      const artifact = await ingestPath(path, backend, visionModel, guardrailModel);
       setIngestionArtifacts((artifacts) => upsertArtifact(artifacts, artifact));
       appendJson("Ingestion artifact created", artifact);
     } catch (err: unknown) {
@@ -3331,16 +4576,28 @@ export default function App() {
     }
   }
 
-  async function ingestPath(path: string, backend: string) {
+  async function ingestPath(
+    path: string,
+    backend: string,
+    visionModel: string | null,
+    guardrailModel: string | null,
+  ) {
     if (transport === "daemon") {
       return normalizeIngestionResponse(
         await daemonJson<IngestionArtifact | IngestionResult>("/ingest", {
           path,
           backend,
+          vision_model: visionModel,
+          guardrail_model: guardrailModel,
         }),
       );
     }
-    return invoke<IngestionArtifact>("ingest_add", { path, backend });
+    return invoke<IngestionArtifact>("ingest_add", {
+      path,
+      backend,
+      visionModel,
+      guardrailModel,
+    });
   }
 
   async function rerunIngestFromOps() {
@@ -3351,11 +4608,18 @@ export default function App() {
 
   async function rerunIngestId(id: string) {
     const backend = ingestBackend.trim() || "local-v0";
+    const visionModel = ingestVisionModel.trim() || null;
+    const guardrailModel = ingestGuardrailModel.trim() || null;
     try {
       const artifact =
         transport === "daemon"
-          ? await rerunIngestViaDaemon(id, backend)
-          : await invoke<IngestionArtifact>("ingest_rerun", { id, backend });
+          ? await rerunIngestViaDaemon(id, backend, visionModel, guardrailModel)
+          : await invoke<IngestionArtifact>("ingest_rerun", {
+              id,
+              backend,
+              visionModel,
+              guardrailModel,
+            });
       setIngestionArtifacts((artifacts) => upsertArtifact(artifacts, artifact));
       appendJson(`Ingestion artifact rerun with ${backend}`, artifact);
     } catch (err: unknown) {
@@ -3364,11 +4628,16 @@ export default function App() {
     }
   }
 
-  async function rerunIngestViaDaemon(id: string, backend: string) {
+  async function rerunIngestViaDaemon(
+    id: string,
+    backend: string,
+    visionModel: string | null,
+    guardrailModel: string | null,
+  ) {
     return normalizeIngestionResponse(
       await daemonJson<IngestionArtifact | IngestionResult>(
         `/ingest/${id}/rerun`,
-        { backend },
+        { backend, vision_model: visionModel, guardrail_model: guardrailModel },
       ),
     );
   }
@@ -3386,6 +4655,84 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Ingest show failed: ${msg}`);
+    }
+  }
+
+  async function reviewIngestFindingFromOps() {
+    const id = requireOpsId("Review ingest");
+    if (!id) return;
+    const finding = Number(ingestFindingIndex);
+    if (!Number.isInteger(finding) || finding < 0) {
+      appendLine("error", "Finding index must be a zero-based integer.");
+      return;
+    }
+    const note = ingestReviewNote.trim() || null;
+    try {
+      const artifact =
+        transport === "daemon"
+          ? await daemonJson<IngestionArtifact>(`/ingest/${id}/review`, {
+              finding,
+              decision: ingestReviewDecision,
+              note,
+            })
+          : await invoke<IngestionArtifact>("ingest_review", {
+              id,
+              finding,
+              decision: ingestReviewDecision,
+              note,
+            });
+      setIngestionArtifacts((artifacts) => upsertArtifact(artifacts, artifact));
+      appendJson("Ingestion finding reviewed", artifact);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Ingest review failed: ${msg}`);
+    }
+  }
+
+  async function showGeneratedArtifactFromOps() {
+    const id = requireOpsId("Artifact show");
+    if (!id) return;
+    await showGeneratedArtifact(id);
+  }
+
+  async function showGeneratedArtifact(id: string) {
+    try {
+      const artifact =
+        transport === "daemon"
+          ? await daemonJson<GeneratedArtifact>(`/artifacts/${encodeURIComponent(id)}`)
+          : await invoke<GeneratedArtifact>("artifact_show", { id });
+      setGeneratedArtifacts((artifacts) =>
+        upsertGeneratedArtifact(artifacts, artifact),
+      );
+      appendJson("Generated artifact", artifact);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Artifact show failed: ${msg}`);
+    }
+  }
+
+  async function openGeneratedArtifactFromOps() {
+    const id = requireOpsId("Artifact open");
+    if (!id) return;
+    await openGeneratedArtifact(id);
+  }
+
+  async function openGeneratedArtifact(id: string) {
+    try {
+      const artifact =
+        transport === "daemon"
+          ? await daemonJson<GeneratedArtifact>(
+              `/artifacts/${encodeURIComponent(id)}/open`,
+              {},
+            )
+          : await invoke<GeneratedArtifact>("artifact_open", { id });
+      setGeneratedArtifacts((artifacts) =>
+        upsertGeneratedArtifact(artifacts, artifact),
+      );
+      appendEvent(`Opened artifact: ${artifact.id}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Artifact open failed: ${msg}`);
     }
   }
 
@@ -3662,7 +5009,7 @@ export default function App() {
     const sections = [
       "# Manual Compaction Draft",
       `Created: ${new Date().toISOString()}`,
-      `Agent: ${agentDisplayName(demo)}`,
+      `Agent: ${activeAgentLabel()}`,
       `Run: ${lastRunId ?? "none"}`,
     ];
     if (guidance.trim()) {
@@ -3704,6 +5051,8 @@ export default function App() {
       `time ${summary.duration_ms === null ? "n/a" : formatDuration(summary.duration_ms)}`,
       `${summary.llm_calls} LLM calls`,
       `${summary.tool_calls} tool calls`,
+      `${summary.hooks} hooks`,
+      `${summary.hook_failures} hook failures`,
       `${summary.events} events`,
     ].join(", ");
   }
@@ -3753,8 +5102,7 @@ export default function App() {
   }
 
   function runReadinessCards(): ContextReviewCard[] {
-    const modelName =
-      provider === "fake" ? "fake-model" : model.trim() || "gpt-4o-mini";
+    const modelName = model.trim() || defaultModelForProvider(provider);
     const includedHighRisk = includeIngestIds.filter((id) => {
       const artifact = ingestionArtifacts.find((item) => item.id === id);
       return artifact ? hasHighRiskFindings(artifact) : false;
@@ -3775,7 +5123,7 @@ export default function App() {
     return [
       {
         title: "Agent",
-        value: agentDisplayName(demo),
+        value: activeAgentLabel(),
         detail: `${provider} provider / ${modelName}`,
         tone: "neutral",
       },
@@ -3795,9 +5143,11 @@ export default function App() {
       },
       {
         title: "Safety",
-        value: requireApproval ? "Approval gate on" : "Approval gate off",
+        value: requireApproval ? "Approval gate on" : "Auto-approve on",
         detail: enableShell
-          ? "Shell access is enabled for this run."
+          ? requireApproval
+            ? "Shell access is enabled and gated."
+            : "Shell access is enabled without a pause."
           : "Shell access is disabled.",
         tone: safetyTone,
       },
@@ -3826,6 +5176,138 @@ export default function App() {
     ];
   }
 
+  function descriptorForProvider(value: Provider) {
+    return modelProviderDescriptors.find((descriptor) => descriptor.id === value);
+  }
+
+  function runtimeOptionDescriptor(key: string) {
+    return selectedProviderDescriptor?.option_schema.find(
+      (option) => option.target === "runtime" && option.key === key,
+    );
+  }
+
+  function providerOptionDescriptor(key: string) {
+    return selectedProviderDescriptor?.option_schema.find(
+      (option) => option.target === "provider_options" && option.key === key,
+    );
+  }
+
+  function providerOptionSchema() {
+    return (
+      selectedProviderDescriptor?.option_schema.filter(
+        (option) => option.target === "provider_options",
+      ) ?? []
+    );
+  }
+
+  function providerSupportsRuntimeOption(key: string) {
+    if (provider === "fake") {
+      return false;
+    }
+    if (selectedProviderDescriptor?.option_schema.length) {
+      return Boolean(runtimeOptionDescriptor(key));
+    }
+    return key === "api_base_url"
+      ? provider === "rig" || provider === "ollama" || provider === "llama_cpp"
+      : key === "api_key_env";
+  }
+
+  function providerSupportsProviderOption(key: string) {
+    if (provider === "fake") {
+      return false;
+    }
+    if (selectedProviderDescriptor?.option_schema.length) {
+      return Boolean(providerOptionDescriptor(key));
+    }
+    if (key === "reasoning_effort" || key === "frequency_penalty" || key === "presence_penalty") {
+      return provider === "rig";
+    }
+    if (key === "top_k") {
+      return provider !== "anthropic";
+    }
+    return key === "top_p";
+  }
+
+  function providerOptionLabel(key: string) {
+    return providerOptionDescriptor(key)?.label ?? runtimeOptionDescriptor(key)?.label ?? key;
+  }
+
+  function fallbackProviderOptionKind(key: string) {
+    return key === "reasoning_effort" ? "string" : key === "top_k" ? "integer" : "number";
+  }
+
+  function fallbackProviderOptionMin(key: string) {
+    if (key === "top_p") return 0;
+    if (key === "top_k") return 1;
+    if (key === "frequency_penalty" || key === "presence_penalty") return -2;
+    return null;
+  }
+
+  function fallbackProviderOptionMax(key: string) {
+    if (key === "top_p") return 1;
+    if (key === "frequency_penalty" || key === "presence_penalty") return 2;
+    return null;
+  }
+
+  function defaultModelForProvider(value: Provider) {
+    const descriptor = descriptorForProvider(value);
+    if (descriptor?.default_model) {
+      return descriptor.default_model;
+    }
+    switch (value) {
+      case "fake":
+        return "fake-model";
+      case "ollama":
+        return "llama3.1";
+      case "llama_cpp":
+        return "local-model";
+      case "anthropic":
+        return "claude-sonnet-4-5";
+      case "gemini":
+        return "gemini-2.5-flash";
+      case "rig":
+        return "gpt-4o-mini";
+    }
+  }
+
+  function defaultApiKeyEnvForProvider(value: Provider) {
+    const descriptor = descriptorForProvider(value);
+    if (descriptor?.api_key_env) {
+      return descriptor.api_key_env;
+    }
+    switch (value) {
+      case "anthropic":
+        return "ANTHROPIC_API_KEY";
+      case "gemini":
+        return "GEMINI_API_KEY";
+      case "ollama":
+        return "OLLAMA_API_KEY";
+      case "llama_cpp":
+        return "LLAMA_CPP_API_KEY";
+      case "fake":
+      case "rig":
+        return "OPENAI_API_KEY";
+    }
+  }
+
+  function defaultApiBaseUrlForProvider(value: Provider) {
+    const descriptor = descriptorForProvider(value);
+    if (descriptor?.api_base_url) {
+      return descriptor.api_base_url;
+    }
+    switch (value) {
+      case "ollama":
+        return "http://127.0.0.1:11434/v1";
+      case "llama_cpp":
+        return "http://127.0.0.1:8080/v1";
+      case "fake":
+      case "rig":
+      case "anthropic":
+      case "gemini":
+        return "";
+    }
+  }
+
   function fileName(path: string) {
     const parts = path.split(/[\\/]/);
     return parts[parts.length - 1] || path;
@@ -3840,9 +5322,47 @@ export default function App() {
     return agent === "tool" ? "Tool agent" : "Echo agent";
   }
 
+  function activeAgentLabel() {
+    return agentId.trim() || agentDisplayName(demo);
+  }
+
+  function flattenConversationTree(
+    nodes: ConversationTreeNode[],
+    depth = 0,
+  ): ConversationTreeRow[] {
+    return nodes.flatMap((node) => [
+      { node, depth },
+      ...flattenConversationTree(node.children, depth + 1),
+    ]);
+  }
+
+  function filterConversationTree(
+    nodes: ConversationTreeNode[],
+    deleted: Set<string>,
+  ): ConversationTreeNode[] {
+    return nodes
+      .filter((node) => !deleted.has(node.id))
+      .map((node) => ({
+        ...node,
+        children: filterConversationTree(node.children, deleted),
+      }));
+  }
+
+  function conversationMessageTitle(message: ConversationMessage, index: number) {
+    return `${index + 1}. ${message.role} / ${message.created_at}`;
+  }
+
   function upsertArtifact(
     artifacts: IngestionArtifact[],
     artifact: IngestionArtifact,
+  ) {
+    const rest = artifacts.filter((item) => item.id !== artifact.id);
+    return [artifact, ...rest];
+  }
+
+  function upsertGeneratedArtifact(
+    artifacts: GeneratedArtifact[],
+    artifact: GeneratedArtifact,
   ) {
     const rest = artifacts.filter((item) => item.id !== artifact.id);
     return [artifact, ...rest];
@@ -3863,6 +5383,40 @@ export default function App() {
     return [doc, ...rest];
   }
 
+  function upsertCapabilityDraft(
+    drafts: CapabilityDraft[],
+    draft: CapabilityDraft,
+  ) {
+    const rest = drafts.filter((item) => item.id !== draft.id);
+    return [draft, ...rest];
+  }
+
+  function capabilityDraftFromReviewResult(result: CapabilityReviewResult) {
+    return isUnknownRecord(result) && "draft" in result
+      ? (result.draft as CapabilityDraft)
+      : (result as CapabilityDraft);
+  }
+
+  function skillFromCapabilityReviewResult(result: CapabilityReviewResult) {
+    if (!isUnknownRecord(result) || !("draft" in result)) return null;
+    const promoted = result.promoted_skill;
+    if (isUnknownRecord(promoted)) return promoted as SkillDoc;
+    const quarantined = result.quarantined_skill;
+    if (isUnknownRecord(quarantined)) return quarantined as SkillDoc;
+    return null;
+  }
+
+  function adapterPackageFromCapabilityReviewResult(
+    result: CapabilityReviewResult,
+  ) {
+    if (!isUnknownRecord(result) || !("draft" in result)) return null;
+    const promoted = result.promoted_tool;
+    if (isUnknownRecord(promoted)) return promoted as AdapterPackage;
+    const quarantined = result.quarantined_tool;
+    if (isUnknownRecord(quarantined)) return quarantined as AdapterPackage;
+    return null;
+  }
+
   function upsertAdapterPackage(
     packages: AdapterPackage[],
     adapterPackage: AdapterPackage,
@@ -3880,10 +5434,27 @@ export default function App() {
     return artifact.findings.some((finding) => finding.severity === "high");
   }
 
+  function reviewForFinding(artifact: IngestionArtifact, index: number) {
+    return artifact.finding_reviews.find(
+      (review) => review.finding_index === index,
+    );
+  }
+
+  function hasUnapprovedHighRiskFindings(artifact: IngestionArtifact) {
+    return artifact.findings.some(
+      (finding, index) =>
+        finding.severity === "high" &&
+        reviewForFinding(artifact, index)?.decision !== "approve",
+    );
+  }
+
   function guardrailStateForArtifact(id: string) {
     const artifact = ingestionArtifacts.find((item) => item.id === id);
     if (!artifact) return "unknown artifact; review ingestion before running";
     if (!hasHighRiskFindings(artifact)) return "allowed; no high-risk findings";
+    if (!hasUnapprovedHighRiskFindings(artifact)) {
+      return "allowed; high-risk findings approved";
+    }
     return allowUnsafeIngest
       ? "unsafe override enabled; flagged content will be included"
       : "blocked; flagged content will be withheld";
@@ -3898,14 +5469,17 @@ export default function App() {
       ].join("\n");
     }
     const highRisk = ingestionArtifacts.filter(hasHighRiskFindings);
+    const unapprovedHighRisk = ingestionArtifacts.filter(
+      hasUnapprovedHighRiskFindings,
+    );
     const includedHighRisk = includeIngestIds.filter((id) => {
       const artifact = ingestionArtifacts.find((item) => item.id === id);
-      return artifact ? hasHighRiskFindings(artifact) : false;
+      return artifact ? hasUnapprovedHighRiskFindings(artifact) : false;
     });
     const lines = [
-      `Guardrails: ${ingestionArtifacts.length} artifacts, ${highRisk.length} high-risk, ${includeIngestIds.length} included.`,
+      `Guardrails: ${ingestionArtifacts.length} artifacts, ${highRisk.length} high-risk, ${unapprovedHighRisk.length} unapproved, ${includeIngestIds.length} included.`,
       `Unsafe ingest override: ${allowUnsafeIngest ? "on" : "off"}`,
-      `Included high-risk artifacts: ${includedHighRisk.length}`,
+      `Included unapproved high-risk artifacts: ${includedHighRisk.length}`,
     ];
     for (const artifact of ingestionArtifacts) {
       const included = includeIngestIds.includes(artifact.id) ? "included" : "not included";
@@ -4119,15 +5693,24 @@ export default function App() {
   }
 
   function showOperationsPanel() {
-    return ["chat", "memory", "skills", "prompts", "ingest", "adapters"].includes(
-      activeSection,
-    );
+    return [
+      "chat",
+      "conversations",
+      "memory",
+      "skills",
+      "prompts",
+      "ingest",
+      "artifacts",
+      "adapters",
+    ].includes(activeSection);
   }
 
   function operationsTitle() {
     switch (activeSection) {
       case "chat":
         return "Tools";
+      case "conversations":
+        return "Conversations";
       case "memory":
         return "Memory";
       case "skills":
@@ -4136,6 +5719,8 @@ export default function App() {
         return "Prompts and models";
       case "ingest":
         return "Ingestion";
+      case "artifacts":
+        return "Artifacts";
       case "adapters":
         return "Adapters and storage";
       default:
@@ -4181,6 +5766,23 @@ export default function App() {
           <span className="rail-copy">
             <span className="rail-label">Trace</span>
             <span className="rail-hint">Inspect runs</span>
+          </span>
+        </button>
+        <button
+          type="button"
+          className={sectionClass("conversations")}
+          title="Conversations"
+          aria-label="Conversation branches"
+          onClick={() => {
+            setActiveSection("conversations");
+            if (!running && !conversationTree.length) void reviewConversations();
+          }}
+          disabled={running}
+        >
+          <span className="rail-letter">B</span>
+          <span className="rail-copy">
+            <span className="rail-label">Conversations</span>
+            <span className="rail-hint">Branches</span>
           </span>
         </button>
         <button
@@ -4241,6 +5843,20 @@ export default function App() {
         </button>
         <button
           type="button"
+          className={sectionClass("artifacts")}
+          title="Artifacts"
+          aria-label="Generated artifacts"
+          onClick={() => setActiveSection("artifacts")}
+          disabled={running}
+        >
+          <span className="rail-letter">G</span>
+          <span className="rail-copy">
+            <span className="rail-label">Artifacts</span>
+            <span className="rail-hint">Generated files</span>
+          </span>
+        </button>
+        <button
+          type="button"
           className={sectionClass("adapters")}
           title="Adapters"
           aria-label="Adapter manifests"
@@ -4279,7 +5895,7 @@ export default function App() {
           </div>
           <div className="status-pills">
             <span className="pill" title="Active agent">
-              Agent {agentDisplayName(demo)}
+              Agent {activeAgentLabel()}
             </span>
             <span className={running ? "pill running" : "pill idle"}>
               {running ? "Running" : "Idle"}
@@ -4385,6 +6001,13 @@ export default function App() {
             </button>
             <button
               type="button"
+              onClick={() => void resumeLastRun()}
+              disabled={running || !lastRunId}
+            >
+              Resume Run
+            </button>
+            <button
+              type="button"
               onClick={() => void guideLastRun()}
               disabled={!lastRunId || !input.trim()}
             >
@@ -4420,7 +6043,7 @@ export default function App() {
             />
           </label>
           <label>
-            Agent
+            Demo behavior
             <select
               value={demo}
               onChange={(e) => setDemo(e.target.value as Demo)}
@@ -4431,14 +6054,46 @@ export default function App() {
             </select>
           </label>
           <label>
+            Agent id
+            <input
+              value={agentId}
+              onChange={(e) => setAgentId(e.target.value)}
+              placeholder="blank for demo default"
+              disabled={running}
+            />
+          </label>
+          <label>
             Provider
             <select
               value={provider}
-              onChange={(e) => setProvider(e.target.value as Provider)}
+              title={
+                providerOptionKeys
+                  ? `Provider options: ${providerOptionKeys}`
+                  : "Provider options unavailable"
+              }
+              onChange={(e) => {
+                const nextProvider = e.target.value as Provider;
+                setProvider(nextProvider);
+                if (
+                  [
+                    "OPENAI_API_KEY",
+                    "OLLAMA_API_KEY",
+                    "LLAMA_CPP_API_KEY",
+                    "ANTHROPIC_API_KEY",
+                    "GEMINI_API_KEY",
+                  ].includes(apiKeyEnv)
+                ) {
+                  setApiKeyEnv(defaultApiKeyEnvForProvider(nextProvider));
+                }
+              }}
               disabled={running}
             >
               <option value="fake">fake</option>
               <option value="rig">rig</option>
+              <option value="ollama">ollama</option>
+              <option value="llama_cpp">llama.cpp</option>
+              <option value="anthropic">anthropic</option>
+              <option value="gemini">gemini</option>
             </select>
           </label>
           <label>
@@ -4446,8 +6101,17 @@ export default function App() {
             <input
               value={model}
               onChange={(e) => setModel(e.target.value)}
-              placeholder={provider === "rig" ? "gpt-4o-mini" : "fake-model"}
+              placeholder={defaultModelForProvider(provider)}
               disabled={running}
+            />
+          </label>
+          <label>
+            Image input
+            <input
+              type="checkbox"
+              checked={modelSupportsImage}
+              onChange={(e) => setModelSupportsImage(e.target.checked)}
+              disabled={running || provider === "fake"}
             />
           </label>
           <label>
@@ -4455,9 +6119,9 @@ export default function App() {
             <input
               value={apiBaseUrl}
               onChange={(e) => setApiBaseUrl(e.target.value)}
-              placeholder="blank for OpenAI"
+              placeholder={defaultApiBaseUrlForProvider(provider) || "provider default"}
               title="Use a custom /v1 base URL only for local or OpenAI-compatible providers."
-              disabled={running || provider !== "rig"}
+              disabled={running || !supportsApiBaseUrl}
             />
           </label>
           <label>
@@ -4465,7 +6129,7 @@ export default function App() {
             <input
               value={apiKeyEnv}
               onChange={(e) => setApiKeyEnv(e.target.value)}
-              disabled={running || provider !== "rig"}
+              disabled={running || provider === "fake"}
             />
           </label>
           <label>
@@ -4475,9 +6139,72 @@ export default function App() {
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               placeholder="optional; not saved"
-              disabled={running || provider !== "rig"}
+              disabled={running || provider === "fake"}
             />
           </label>
+          <label>
+            Top p
+            <input
+              value={providerTopP}
+              onChange={(e) => setProviderTopP(e.target.value)}
+              placeholder="provider default"
+              inputMode="decimal"
+              disabled={running || !supportsTopP}
+            />
+          </label>
+          <label>
+            Top k
+            <input
+              value={providerTopK}
+              onChange={(e) => setProviderTopK(e.target.value)}
+              placeholder="provider default"
+              inputMode="numeric"
+              disabled={running || !supportsTopK}
+            />
+          </label>
+          <label>
+            Reasoning effort
+            <input
+              value={providerReasoningEffort}
+              onChange={(e) => setProviderReasoningEffort(e.target.value)}
+              placeholder="provider default"
+              list="reasoning-effort-options"
+              disabled={running || !supportsReasoningEffort}
+            />
+            <datalist id="reasoning-effort-options">
+              {(providerOptionDescriptor("reasoning_effort")?.allowed_values ?? [
+                "low",
+                "medium",
+                "high",
+              ]).map((value) => (
+                <option key={value} value={value} />
+              ))}
+            </datalist>
+          </label>
+          {supportsFrequencyPenalty || providerFrequencyPenalty ? (
+            <label>
+              Frequency penalty
+              <input
+                value={providerFrequencyPenalty}
+                onChange={(e) => setProviderFrequencyPenalty(e.target.value)}
+                placeholder="provider default"
+                inputMode="decimal"
+                disabled={running || !supportsFrequencyPenalty}
+              />
+            </label>
+          ) : null}
+          {supportsPresencePenalty || providerPresencePenalty ? (
+            <label>
+              Presence penalty
+              <input
+                value={providerPresencePenalty}
+                onChange={(e) => setProviderPresencePenalty(e.target.value)}
+                placeholder="provider default"
+                inputMode="decimal"
+                disabled={running || !supportsPresencePenalty}
+              />
+            </label>
+          ) : null}
           <label>
             Input $/M
             <input
@@ -4596,6 +6323,15 @@ export default function App() {
               disabled={running}
             />
             <span>Subagent</span>
+          </label>
+          <label className="switch">
+            <input
+              type="checkbox"
+              checked={enableCapabilityDrafts}
+              onChange={(e) => setEnableCapabilityDrafts(e.target.checked)}
+              disabled={running}
+            />
+            <span>Draft tool</span>
           </label>
           <label className="switch">
             <input
@@ -4815,6 +6551,11 @@ export default function App() {
                       <div className="context-card" key={tool.id}>
                         <strong>{tool.name}</strong>
                         <span>{tool.visibility}</span>
+                        <span>output {tool.output_mode}</span>
+                        {tool.categories.length ? (
+                          <span>categories {tool.categories.join(", ")}</span>
+                        ) : null}
+                        {tool.provenance ? <span>{tool.provenance}</span> : null}
                         {tool.description ? <p>{tool.description}</p> : null}
                         {tool.input_schema ? (
                           <div className="tool-parameters">
@@ -4866,6 +6607,9 @@ export default function App() {
                         <strong>{skill.name}</strong>
                         <span>{skill.visibility}</span>
                         <span>~{skill.estimated_tokens} tokens</span>
+                        {skill.categories.length ? (
+                          <span>categories {skill.categories.join(", ")}</span>
+                        ) : null}
                         {skill.description ? <p>{skill.description}</p> : null}
                         <div className="mini-actions">
                           <button
@@ -4967,6 +6711,22 @@ export default function App() {
             >
               Clear Trace
             </button>
+            <button
+              type="button"
+              title="Load the original prompt from the loaded trace into the composer."
+              onClick={loadTracePromptToComposer}
+              disabled={running || !traceOriginalPrompt(traceEvents)}
+            >
+              Load Prompt
+            </button>
+            <button
+              type="button"
+              title="Run the original prompt from the loaded trace again."
+              onClick={() => void replayTracePrompt()}
+              disabled={running || !traceOriginalPrompt(traceEvents)}
+            >
+              Replay
+            </button>
           </div>
           {traceSummary ? (
             <div className="trace-summary">
@@ -4989,13 +6749,128 @@ export default function App() {
               </span>
               <span>approvals {traceSummary.approvals}</span>
               <span>guidance {traceSummary.guidance_injections}</span>
-              <span>scores {traceSummary.quality_scores}</span>
+              <span>
+                scores {traceSummary.quality_scores}
+                {traceSummary.quality_score_average == null
+                  ? ""
+                  : ` avg ${traceSummary.quality_score_average.toFixed(1)}`}
+              </span>
               <span>memory {traceSummary.memory_fragments}</span>
               <span>artifacts {traceSummary.artifact_refs}</span>
+              <span>
+                hooks {traceSummary.hooks}
+                {traceSummary.hook_failures ? ` / ${traceSummary.hook_failures} failed` : ""}
+              </span>
             </div>
           ) : (
             <div className="empty-note">No trace loaded.</div>
           )}
+          {hookRemediationsFromEvents(traceEvents).length ? (
+            <section className="hook-remediation-list">
+              <strong>Hook Review</strong>
+              <div className="mini-actions">
+                <button
+                  type="button"
+                  title="Load persisted lifecycle hook policy for the active agent/profile."
+                  onClick={() => void refreshHookPolicy()}
+                >
+                  Refresh Policy
+                </button>
+                {hookPolicy ? (
+                  <span>
+                    profile {hookPolicy.profile} - disabled{" "}
+                    {hookPolicy.disabled_lifecycle_hooks.length}
+                    {hookPolicy.effective_source
+                      ? ` - source ${hookPolicy.effective_source}`
+                      : ""}
+                    {hookPolicy.agent_id ? ` - agent ${hookPolicy.agent_id}` : ""}
+                  </span>
+                ) : null}
+              </div>
+              <div className="context-cards">
+                {hookRemediationsFromEvents(traceEvents).map((item) => {
+                  const persistentlyDisabled = hookIsPersistentlyDisabled(item.hook_id);
+                  const profileDisabled = hookIsProfileDisabled(item.hook_id);
+                  const agentDisabled = hookIsAgentDisabled(item.hook_id);
+                  return (
+                    <div
+                      className={`context-card compact ${item.final_failure ? "danger" : "warning"}`}
+                      key={`${item.hook_id}:${item.event_id}`}
+                    >
+                      <strong>
+                        {item.hook_id} / {item.trigger}
+                      </strong>
+                      <span>
+                        event {item.event_id} - attempt {item.attempt} -{" "}
+                        {item.final_failure ? "final" : "retrying"}
+                        {persistentlyDisabled ? " - disabled for future runs" : ""}
+                        {hookPolicyScopeSummary(item.hook_id)}
+                      </span>
+                      {hookPolicyConflictNote(item.hook_id) ? (
+                        <p>{hookPolicyConflictNote(item.hook_id)}</p>
+                      ) : null}
+                      <p>{item.error}</p>
+                      {item.policy_denials.length ? (
+                        <p>{item.policy_denials.join(" | ")}</p>
+                      ) : null}
+                      <div className="mini-actions">
+                        <button
+                          type="button"
+                          title="Load the original trace prompt into the composer."
+                          onClick={loadTracePromptToComposer}
+                          disabled={running || !traceOriginalPrompt(traceEvents)}
+                        >
+                          Load Prompt
+                        </button>
+                        <button
+                          type="button"
+                          title="Replay the original trace prompt with hooks enabled."
+                          onClick={() => void replayTracePrompt()}
+                          disabled={running || !traceOriginalPrompt(traceEvents)}
+                        >
+                          Replay
+                        </button>
+                        <button
+                          type="button"
+                          title="Replay the original trace prompt with lifecycle hooks skipped for this run."
+                          onClick={() => void replayTracePromptWithoutHooks()}
+                          disabled={running || !traceOriginalPrompt(traceEvents)}
+                        >
+                          Skip Hooks
+                        </button>
+                        <button
+                          type="button"
+                          title="Persistently skip or re-enable this lifecycle hook for future runs in the active profile."
+                          onClick={() =>
+                            void setPersistentHookDisabled(
+                              item.hook_id,
+                              !profileDisabled,
+                              "profile",
+                            )
+                          }
+                        >
+                          {profileDisabled ? "Enable Profile" : "Disable Profile"}
+                        </button>
+                        <button
+                          type="button"
+                          title="Persistently skip or re-enable this lifecycle hook for the active agent config."
+                          onClick={() =>
+                            void setPersistentHookDisabled(
+                              item.hook_id,
+                              !agentDisabled,
+                              "agent",
+                            )
+                          }
+                        >
+                          {agentDisabled ? "Enable Agent" : "Disable Agent"}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
           {traceEvents.length ? (
             <section className="trace-timeline">
               <strong>Run Timeline</strong>
@@ -5068,7 +6943,7 @@ export default function App() {
             <input
               value={opsId}
               onChange={(e) => setOpsId(e.target.value)}
-              placeholder="tool, model, prompt, artifact, skill, adapter, or batch id"
+              placeholder="tool, model, prompt, conversation, artifact, skill, adapter, or batch id"
               disabled={running}
             />
           </label>
@@ -5082,6 +6957,274 @@ export default function App() {
             <span>User memory</span>
           </label>
           <div className="operation-groups">
+            {activeSection === "conversations" ? (
+            <div className="operation-group">
+              <div className="operation-title">Conversations</div>
+              <div className="button-grid">
+                <button
+                  type="button"
+                  title="List conversations and refresh the branch tree."
+                  onClick={() => void reviewConversations()}
+                  disabled={running}
+                >
+                  List
+                </button>
+                <button
+                  type="button"
+                  title="Show expanded conversation Id."
+                  onClick={() => void showConversationFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Show
+                </button>
+                <button
+                  type="button"
+                  title="Build a recovery plan and apply suggested run settings."
+                  onClick={() => void recoverConversationFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Recover
+                </button>
+                <button
+                  type="button"
+                  title='Delete a leaf conversation message range using Value like { "from": 2, "to": 4 }.'
+                  onClick={() => void deleteConversationRangeFromOps()}
+                  disabled={running || !opsId.trim() || !opsValue.trim()}
+                >
+                  Delete Range
+                </button>
+                <button
+                  type="button"
+                  title="Preview which conversations would be deleted."
+                  onClick={() => void previewConversationDeleteFromOps(false)}
+                  disabled={running || !opsId.trim()}
+                >
+                  Plan Delete
+                </button>
+                <button
+                  type="button"
+                  title="Preview recursive deletion including child branches."
+                  onClick={() => void previewConversationDeleteFromOps(true)}
+                  disabled={running || !opsId.trim()}
+                >
+                  Plan Recursive
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  title="Delete conversation Id if it has no child branches."
+                  onClick={() => void deleteConversationFromOps(false)}
+                  disabled={running || !opsId.trim()}
+                >
+                  Delete
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  title="Delete conversation Id and all child branches."
+                  onClick={() => void deleteConversationFromOps(true)}
+                  disabled={running || !opsId.trim()}
+                >
+                  Delete Recursive
+                </button>
+              </div>
+              {conversationDocs.length ? (
+                <div className="empty-note">
+                  Loaded {conversationDocs.length} conversation records.
+                </div>
+              ) : null}
+              {conversationDeletePlan.length ? (
+                <div className="ingestion-review">
+                  <div className="ingestion-card high-risk">
+                    <div className="ingestion-card-head">
+                      <strong>Delete impact</strong>
+                      <span>{conversationDeletePlan.length} conversations</span>
+                    </div>
+                    <div className="finding-list">
+                      {conversationDeletePlan.map((id) => (
+                        <span className="finding warning" key={id}>
+                          {id}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              {conversationTree.length ? (
+                <div className="ingestion-review">
+                  {flattenConversationTree(conversationTree).map(({ node, depth }) => (
+                    <div
+                      className="ingestion-card"
+                      key={node.id}
+                      style={{ marginLeft: `${Math.min(depth, 5) * 0.65}rem` }}
+                    >
+                      <div className="ingestion-card-head">
+                        <strong>{node.title}</strong>
+                        <span>{depth ? `branch ${depth}` : "root"}</span>
+                      </div>
+                      <span>{node.id}</span>
+                      <span>
+                        agent {node.agent_id} / {node.own_message_count} own /{" "}
+                        {node.expanded_message_count} expanded
+                      </span>
+                      {node.parent_id ? <span>parent {node.parent_id}</span> : null}
+                      {node.branch_reason ? (
+                        <p>{previewText(node.branch_reason, 180)}</p>
+                      ) : null}
+                      <span>
+                        {node.children.length
+                          ? `${node.children.length} child branches`
+                          : "leaf branch"}
+                      </span>
+                      <div className="mini-actions">
+                        <button
+                          type="button"
+                          title="Move this conversation id into the Id field."
+                          onClick={() => setOpsId(node.id)}
+                          disabled={running}
+                        >
+                          Set Id
+                        </button>
+                        <button
+                          type="button"
+                          title="Show expanded conversation messages."
+                          onClick={() => void showConversation(node.id)}
+                          disabled={running}
+                        >
+                          Show
+                        </button>
+                        <button
+                          type="button"
+                          title="Build a recovery plan and apply suggested run settings."
+                          onClick={() => void recoverConversation(node.id)}
+                          disabled={running}
+                        >
+                          Recover
+                        </button>
+                        <button
+                          type="button"
+                          title="Preview deletion impact for this branch."
+                          onClick={() => void previewConversationDelete(node.id, false)}
+                          disabled={running}
+                        >
+                          Plan
+                        </button>
+                        <button
+                          type="button"
+                          title="Preview recursive deletion impact for this branch."
+                          onClick={() => void previewConversationDelete(node.id, true)}
+                          disabled={running}
+                        >
+                          Plan Rec
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          title="Delete this leaf conversation."
+                          onClick={() => void deleteConversation(node.id, false)}
+                          disabled={running}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-note">
+                  No conversation tree loaded. List conversations to review branches.
+                </div>
+              )}
+            </div>
+            ) : null}
+
+            {activeSection === "conversations" && expandedConversation ? (
+            <div className="operation-group">
+              <div className="operation-title">Selected Conversation</div>
+              <div className="ingestion-review">
+                <div className="ingestion-card">
+                  <div className="ingestion-card-head">
+                    <strong>{expandedConversation.conversation.title}</strong>
+                    <span>{expandedConversation.messages.length} messages</span>
+                  </div>
+                  <span>{expandedConversation.conversation.id}</span>
+                  <span>agent {expandedConversation.conversation.agent_id}</span>
+                  {expandedConversation.conversation.parent ? (
+                    <span>
+                      parent {expandedConversation.conversation.parent.conversation_id} @{" "}
+                      {expandedConversation.conversation.parent.parent_message_count}
+                    </span>
+                  ) : null}
+                  {expandedConversation.conversation.branch_reason ? (
+                    <p>
+                      {previewText(
+                        expandedConversation.conversation.branch_reason,
+                        220,
+                      )}
+                    </p>
+                  ) : null}
+                  <div className="mini-actions">
+                    <button
+                      type="button"
+                      title="Move this conversation id into the Id field."
+                      onClick={() => setOpsId(expandedConversation.conversation.id)}
+                      disabled={running}
+                    >
+                      Set Id
+                    </button>
+                    <button
+                      type="button"
+                      title="Preview recursive deletion impact."
+                      onClick={() =>
+                        void previewConversationDelete(
+                          expandedConversation.conversation.id,
+                          true,
+                        )
+                      }
+                      disabled={running}
+                    >
+                      Plan Recursive
+                    </button>
+                    <button
+                      type="button"
+                      title="Build a recovery plan and apply suggested run settings."
+                      onClick={() =>
+                        void recoverConversation(expandedConversation.conversation.id)
+                      }
+                      disabled={running}
+                    >
+                      Recover
+                    </button>
+                  </div>
+                </div>
+                {expandedConversation.messages.map((message, index) => (
+                  <div
+                    className="memory-card"
+                    key={`${expandedConversation.conversation.id}:${index}:${message.created_at}`}
+                  >
+                    <div className="memory-card-head">
+                      <strong>{conversationMessageTitle(message, index)}</strong>
+                      <span>{message.role}</span>
+                    </div>
+                    <p>{previewText(message.content, 420)}</p>
+                    <div className="mini-actions">
+                      <button
+                        type="button"
+                        title="Stage this single message index for range deletion."
+                        onClick={() =>
+                          setOpsValue(JSON.stringify({ from: index, to: index }))
+                        }
+                        disabled={running}
+                      >
+                        Set Range
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            ) : null}
+
             {activeSection === "memory" ? (
             <div className="operation-group">
               <div className="operation-title">Memory</div>
@@ -5103,6 +7246,14 @@ export default function App() {
                   disabled={running}
                 >
                   List Memory
+                </button>
+                <button
+                  type="button"
+                  title="List available memory backends."
+                  onClick={() => void reviewMemoryBackends()}
+                  disabled={running}
+                >
+                  Backends
                 </button>
                 <button
                   type="button"
@@ -5155,6 +7306,32 @@ export default function App() {
                   Rollback
                 </button>
               </div>
+              {memoryBackends.length ? (
+                <div className="memory-review">
+                  {memoryBackends.map((backend) => (
+                    <div className="memory-card" key={backend.id}>
+                      <div className="memory-card-head">
+                        <strong>{backend.id}</strong>
+                        <span>{backend.name}</span>
+                      </div>
+                      <div className="memory-meta">
+                        <span>
+                          {backend.supports_generation
+                            ? "generation"
+                            : "no generation"}
+                        </span>
+                        <span>
+                          {backend.supports_rollback ? "rollback" : "no rollback"}
+                        </span>
+                        <span title={backend.storage}>
+                          storage {fileName(backend.storage)}
+                        </span>
+                      </div>
+                      <p>{backend.description}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
               {memoryRecords.length ? (
                 <div className="memory-review">
                   {memoryRecords.map((record) => (
@@ -5369,6 +7546,14 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  title="List provider defaults and capability hints."
+                  onClick={() => void listModelProvidersFromOps()}
+                  disabled={running}
+                >
+                  Providers
+                </button>
+                <button
+                  type="button"
                   title="Show model Id."
                   onClick={() => void showModelFromOps()}
                   disabled={running || !opsId.trim()}
@@ -5377,11 +7562,27 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  title="Probe declared and live capabilities for model Id."
+                  onClick={() => void probeModelFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Probe Model
+                </button>
+                <button
+                  type="button"
                   title="Save model Id using Value as a JSON metadata object."
                   onClick={() => void saveModelFromOps()}
                   disabled={running || !opsId.trim()}
                 >
                   Save Model
+                </button>
+                <button
+                  type="button"
+                  title="Save the current provider, model, API settings, and provider options."
+                  onClick={() => void saveCurrentModelFromControls()}
+                  disabled={running || provider === "fake"}
+                >
+                  Save Current
                 </button>
                 <button
                   type="button"
@@ -5449,6 +7650,142 @@ export default function App() {
                   Quarantine
                 </button>
               </div>
+              <div className="operation-title">Capability Drafts</div>
+              <label>
+                Draft kind
+                <select
+                  value={capabilityKind}
+                  onChange={(e) =>
+                    setCapabilityKind(e.target.value as CapabilityKind)
+                  }
+                  disabled={running}
+                >
+                  <option value="skill">skill</option>
+                  <option value="tool">tool</option>
+                  <option value="agent">agent</option>
+                </select>
+              </label>
+              <div className="button-grid">
+                <button
+                  type="button"
+                  title="List quarantined, allowed, and rejected capability drafts."
+                  onClick={() => void reviewCapabilities()}
+                  disabled={running}
+                >
+                  List Drafts
+                </button>
+                <button
+                  type="button"
+                  title="Create a quarantined draft from Id as name and Value as body."
+                  onClick={() => void proposeCapabilityFromOps()}
+                  disabled={running || !opsId.trim() || !opsValue.trim()}
+                >
+                  Propose Draft
+                </button>
+                <button
+                  type="button"
+                  title="Show capability draft Id."
+                  onClick={() => void showCapabilityFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Show Draft
+                </button>
+                <button
+                  type="button"
+                  title="Allow capability draft Id after review."
+                  onClick={() => void reviewCapabilityDraft(true)}
+                  disabled={running || !opsId.trim()}
+                >
+                  Allow Draft
+                </button>
+                <button
+                  type="button"
+                  title="Reject capability draft Id and quarantine its promoted capability if present."
+                  onClick={() => void reviewCapabilityDraft(false)}
+                  disabled={running || !opsId.trim()}
+                >
+                  Reject Draft
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  title="Delete capability draft Id."
+                  onClick={() => void deleteCapabilityFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Delete Draft
+                </button>
+              </div>
+              {capabilityDrafts.length ? (
+                <div className="ingestion-review">
+                  {capabilityDrafts.map((draft) => (
+                    <div className="ingestion-card" key={draft.id}>
+                      <div className="ingestion-card-head">
+                        <strong>{draft.name}</strong>
+                        <span>{draft.status}</span>
+                      </div>
+                      <span>{draft.id}</span>
+                      <span>{draft.kind}</span>
+                      <span>{draft.created_by}</span>
+                      <p>{previewText(draft.body)}</p>
+                      {draft.guidance ? <p>{previewText(draft.guidance)}</p> : null}
+                      <div className="mini-actions">
+                        <button
+                          type="button"
+                          title="Move this draft id into the Id field."
+                          onClick={() => setOpsId(draft.id)}
+                          disabled={running}
+                        >
+                          Set Id
+                        </button>
+                        <button
+                          type="button"
+                          title="Load this draft into the edit fields."
+                          onClick={() => {
+                            setOpsId(draft.name);
+                            setOpsValue(draft.body);
+                            setCapabilityKind(draft.kind);
+                          }}
+                          disabled={running}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          title="Allow this draft after review."
+                          onClick={() => {
+                            setOpsId(draft.id);
+                            void reviewCapabilityDraft(true, draft.id);
+                          }}
+                          disabled={running || draft.status === "allowed"}
+                        >
+                          Allow
+                        </button>
+                        <button
+                          type="button"
+                          title="Reject this draft."
+                          onClick={() => {
+                            setOpsId(draft.id);
+                            void reviewCapabilityDraft(false, draft.id);
+                          }}
+                          disabled={running || draft.status === "rejected"}
+                        >
+                          Reject
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          title="Delete this draft."
+                          onClick={() => void deleteCapabilityFromOps(draft.id)}
+                          disabled={running}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
               {skillDocs.length ? (
                 <div className="ingestion-review">
                   {skillDocs.map((skill) => (
@@ -5528,11 +7865,102 @@ export default function App() {
                   onChange={(e) => setIngestBackend(e.target.value)}
                   disabled={running}
                 >
-                  <option value="local-v0">local-v0</option>
-                  <option value="local-lines-v0">local-lines-v0</option>
+                  {(ingestionBackends.length
+                    ? ingestionBackends
+                    : [
+                        {
+                          id: "local-v0",
+                          name: "Local Text",
+                          description: "",
+                          modalities: [],
+                        },
+                        {
+                          id: "local-lines-v0",
+                          name: "Local Lines",
+                          description: "",
+                          modalities: [],
+                        },
+                        {
+                          id: "local-structured-v0",
+                          name: "Local Structured",
+                          description: "",
+                          modalities: [],
+                        },
+                        {
+                          id: "local-layout-v0",
+                          name: "Local Layout/OCR",
+                          description: "",
+                          modalities: [],
+                        },
+                      ]
+                  ).map((backend) => (
+                    <option value={backend.id} key={backend.id}>
+                      {backend.id}
+                    </option>
+                  ))}
                 </select>
               </label>
+              <label>
+                Vision model
+                <input
+                  value={ingestVisionModel}
+                  onChange={(e) => setIngestVisionModel(e.target.value)}
+                  placeholder="optional OCR/layout model"
+                  disabled={running}
+                />
+              </label>
+              <label>
+                Guardrail model
+                <input
+                  value={ingestGuardrailModel}
+                  onChange={(e) => setIngestGuardrailModel(e.target.value)}
+                  placeholder="profile default"
+                  disabled={running}
+                />
+              </label>
+              <label>
+                Finding index
+                <input
+                  value={ingestFindingIndex}
+                  onChange={(e) => setIngestFindingIndex(e.target.value)}
+                  placeholder="0"
+                  disabled={running}
+                />
+              </label>
+              <label>
+                Review decision
+                <select
+                  value={ingestReviewDecision}
+                  onChange={(e) =>
+                    setIngestReviewDecision(
+                      e.target.value as IngestionFindingReviewDecision,
+                    )
+                  }
+                  disabled={running}
+                >
+                  <option value="approve">approve</option>
+                  <option value="acknowledge">acknowledge</option>
+                  <option value="reject">reject</option>
+                </select>
+              </label>
+              <label>
+                Review note
+                <input
+                  value={ingestReviewNote}
+                  onChange={(e) => setIngestReviewNote(e.target.value)}
+                  placeholder="optional"
+                  disabled={running}
+                />
+              </label>
               <div className="button-grid">
+                <button
+                  type="button"
+                  title="List available ingestion backends."
+                  onClick={() => void reviewIngestionBackends()}
+                  disabled={running}
+                >
+                  Backends
+                </button>
                 <button
                   type="button"
                   title="List ingestion artifacts."
@@ -5593,6 +8021,14 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  title="Review finding index on ingestion artifact Id."
+                  onClick={() => void reviewIngestFindingFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Review Finding
+                </button>
+                <button
+                  type="button"
                   className="danger"
                   title="Remove ingestion artifact Id."
                   onClick={() => void removeIngestFromOps()}
@@ -5601,12 +8037,32 @@ export default function App() {
                   Remove Ingest
                 </button>
               </div>
+              {ingestionBackends.length ? (
+                <div className="ingestion-review">
+                  {ingestionBackends.map((backend) => (
+                    <div className="ingestion-card" key={backend.id}>
+                      <div className="ingestion-card-head">
+                        <strong>{backend.id}</strong>
+                        <span>{backend.name}</span>
+                      </div>
+                      <span>
+                        {backend.modalities.length
+                          ? backend.modalities.join(", ")
+                          : "no modalities"}
+                      </span>
+                      <p>{backend.description}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
               {ingestionArtifacts.length ? (
                 <div className="ingestion-review">
                   {ingestionArtifacts.map((artifact) => (
                     <div
                       className={`ingestion-card ${
-                        hasHighRiskFindings(artifact) ? "high-risk" : ""
+                        hasUnapprovedHighRiskFindings(artifact)
+                          ? "high-risk"
+                          : ""
                       }`}
                       key={artifact.id}
                     >
@@ -5619,14 +8075,20 @@ export default function App() {
                       </span>
                       {artifact.findings.length ? (
                         <div className="finding-list">
-                          {artifact.findings.map((finding) => (
-                            <span
-                              className={`finding ${finding.severity}`}
-                              key={`${artifact.id}:${finding.severity}:${finding.message}`}
-                            >
-                              {finding.severity}: {finding.message}
-                            </span>
-                          ))}
+                          {artifact.findings.map((finding, index) => {
+                            const review = reviewForFinding(artifact, index);
+                            return (
+                              <span
+                                className={`finding ${finding.severity}`}
+                                key={`${artifact.id}:${index}:${finding.severity}:${finding.message}`}
+                              >
+                                #{index} {finding.severity}: {finding.message}
+                                {review
+                                  ? ` (${review.decision}${review.note ? `: ${review.note}` : ""})`
+                                  : ""}
+                              </span>
+                            );
+                          })}
                         </div>
                       ) : (
                         <span className="finding none">no findings</span>
@@ -5667,6 +8129,166 @@ export default function App() {
                         >
                           Rerun
                         </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            ) : null}
+
+            {activeSection === "artifacts" ? (
+            <div className="operation-group">
+              <div className="operation-title">Voice</div>
+              <div className="button-grid">
+                <button
+                  type="button"
+                  title="Start microphone capture."
+                  onClick={() => void startVoiceCapture()}
+                  disabled={running || recordingVoice}
+                >
+                  Record
+                </button>
+                <button
+                  type="button"
+                  title="Stop microphone capture."
+                  onClick={stopVoiceCapture}
+                  disabled={!recordingVoice}
+                >
+                  Stop
+                </button>
+                <button
+                  type="button"
+                  title="Transcribe the latest voice capture."
+                  onClick={() => void transcribeVoiceCapture()}
+                  disabled={running || recordingVoice || !voiceCaptureArtifact}
+                >
+                  Transcribe
+                </button>
+                <button
+                  type="button"
+                  title="Create speech audio from composer text or the latest assistant answer."
+                  onClick={() => void speakVoiceOutput()}
+                  disabled={running || recordingVoice || voiceOutputBusy}
+                >
+                  Speak
+                </button>
+                <button
+                  type="button"
+                  title="Stage voice_speak with composer text or the latest assistant answer."
+                  onClick={stageVoiceSpeak}
+                  disabled={running || recordingVoice}
+                >
+                  Stage TTS
+                </button>
+              </div>
+              {voicePreviewUrl || voiceCaptureArtifact ? (
+                <div className="voice-capture">
+                  {voicePreviewUrl ? (
+                    <audio src={voicePreviewUrl} controls />
+                  ) : null}
+                  {voiceCaptureArtifact ? (
+                    <span title={voiceCaptureArtifact.path}>
+                      {voiceCaptureArtifact.id} / {formatBytes(voiceCaptureArtifact.bytes)}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+              {voiceOutputPreviewUrl || voiceOutputArtifact ? (
+                <div className="voice-capture">
+                  {voiceOutputPreviewUrl ? (
+                    <audio src={voiceOutputPreviewUrl} controls />
+                  ) : null}
+                  {voiceOutputArtifact ? (
+                    <span title={voiceOutputArtifact.path}>
+                      {voiceOutputArtifact.id} / {formatBytes(voiceOutputArtifact.bytes)}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+            ) : null}
+
+            {activeSection === "artifacts" ? (
+            <div className="operation-group">
+              <div className="operation-title">Artifacts</div>
+              <div className="button-grid">
+                <button
+                  type="button"
+                  title="List generated document artifacts."
+                  onClick={() => void reviewGeneratedArtifacts()}
+                  disabled={running}
+                >
+                  List Artifacts
+                </button>
+                <button
+                  type="button"
+                  title="Show generated artifact Id."
+                  onClick={() => void showGeneratedArtifactFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Show Artifact
+                </button>
+                <button
+                  type="button"
+                  title="Open generated artifact Id in the OS default app."
+                  onClick={() => void openGeneratedArtifactFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Open Artifact
+                </button>
+              </div>
+              {generatedArtifacts.length ? (
+                <div className="ingestion-review">
+                  {generatedArtifacts.map((artifact) => (
+                    <div className="ingestion-card" key={artifact.id}>
+                      <div className="ingestion-card-head">
+                        <strong>{artifact.id}</strong>
+                        <span>{artifact.format}</span>
+                      </div>
+                      <span title={artifact.path}>
+                        {fileName(artifact.path)} / {formatBytes(artifact.bytes)}
+                      </span>
+                      {artifact.modified_ms ? (
+                        <span>
+                          modified {new Date(artifact.modified_ms).toLocaleString()}
+                        </span>
+                      ) : null}
+                      <div className="mini-actions">
+                        <button
+                          type="button"
+                          title="Move this artifact id into the Id field."
+                          onClick={() => setOpsId(artifact.id)}
+                          disabled={running}
+                        >
+                          Set Id
+                        </button>
+                        <button
+                          type="button"
+                          title="Show this generated artifact."
+                          onClick={() => void showGeneratedArtifact(artifact.id)}
+                          disabled={running}
+                        >
+                          Show
+                        </button>
+                        <button
+                          type="button"
+                          title="Open this generated artifact in the OS default app."
+                          onClick={() => void openGeneratedArtifact(artifact.id)}
+                          disabled={running}
+                        >
+                          Open
+                        </button>
+                        {isAudioFormat(artifact.format) ? (
+                          <button
+                            type="button"
+                            title="Play this generated audio artifact inline."
+                            onClick={() => void previewGeneratedAudioArtifact(artifact)}
+                            disabled={running}
+                          >
+                            Play
+                          </button>
+                        ) : null}
                       </div>
                     </div>
                   ))}
@@ -6094,6 +8716,13 @@ export default function App() {
               disabled={!running || !lastRunId}
             >
               Stop
+            </button>
+            <button
+              type="button"
+              onClick={() => void resumeLastRun()}
+              disabled={running || !lastRunId}
+            >
+              Resume
             </button>
             <button
               type="button"

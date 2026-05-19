@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Agent Harness",
+  "productName": "Shinkai",
   "version": "0.1.0",
-  "identifier": "io.agent-harness.app",
+  "identifier": "io.shinkai.agent-app",
   "build": {
     "beforeDevCommand": "npm --prefix frontend run dev",
     "beforeBuildCommand": "npm --prefix frontend run build",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Agent Harness",
+        "title": "Shinkai",
         "width": 1024,
         "height": 720,
         "resizable": true

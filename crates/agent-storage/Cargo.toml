@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 authors.workspace = true
-description = "Filesystem layout helpers for Agent Harness config, state, and cache paths."
+description = "Filesystem layout helpers for Shinkai config, state, and cache paths."
 
 [dependencies]
 serde.workspace = true

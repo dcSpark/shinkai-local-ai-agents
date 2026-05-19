@@ -1,0 +1,12 @@
+[package]
+name = "agent-sandbox"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+description = "Sandbox enforcement assessment and reporting for Shinkai tools."
+
+[dependencies]
+agent-tools = { path = "../agent-tools" }
+serde.workspace = true

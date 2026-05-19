@@ -5,14 +5,14 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 authors.workspace = true
-description = "Agent Harness — Tauri v2 desktop UI."
+description = "Shinkai — Tauri v2 desktop UI."
 
 [lib]
 name = "agent_tauri_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [[bin]]
-name = "agent-harness"
+name = "shinkai"
 path = "src/main.rs"
 
 [build-dependencies]
@@ -23,7 +23,10 @@ agent-core = { path = "../agent-core" }
 agent-adapters = { path = "../agent-adapters" }
 agent-batch = { path = "../agent-batch" }
 agent-bundles = { path = "../agent-bundles" }
+agent-capabilities = { path = "../agent-capabilities" }
+agent-compaction = { path = "../agent-compaction" }
 agent-config = { path = "../agent-config" }
+agent-conversations = { path = "../agent-conversations" }
 agent-ingest = { path = "../agent-ingest" }
 agent-tracing = { path = "../agent-tracing" }
 agent-llm = { path = "../agent-llm" }
@@ -32,6 +35,7 @@ agent-prompts = { path = "../agent-prompts" }
 agent-skills = { path = "../agent-skills" }
 agent-storage = { path = "../agent-storage" }
 agent-tools = { path = "../agent-tools" }
+anyhow.workspace = true
 tauri = { version = "2", features = [] }
 tokio = { workspace = true, features = ["sync", "rt-multi-thread", "macros"] }
 serde.workspace = true

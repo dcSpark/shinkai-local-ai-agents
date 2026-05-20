@@ -27,7 +27,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::AbortHandle;
 use tokio::time::MissedTickBehavior;
 
-use agent_adapters::AdapterRegistry;
+use agent_adapters::{AdapterRegistry, NormalizedPackage};
 use agent_config::ConfigResolver;
 use agent_conversations::{
     ConversationMessage, ConversationPolicy, ConversationStore, ConversationTreeNode,
@@ -419,6 +419,10 @@ fn handle_slash_command(
     }
     if let Some(rest) = conversation_slash_rest(trimmed) {
         handle_conversation_slash(app, rest);
+        return true;
+    }
+    if let Some(rest) = adapters_slash_rest(trimmed) {
+        handle_adapters_slash(app, rest);
         return true;
     }
     if let Some(rest) = hooks_slash_rest(trimmed) {
@@ -1569,6 +1573,193 @@ fn hooks_slash_rest(trimmed: &str) -> Option<&str> {
     } else {
         trimmed.strip_prefix("/hooks ").map(str::trim)
     }
+}
+
+fn adapters_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/adapters" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/adapters ").map(str::trim)
+    }
+}
+
+fn handle_adapters_slash(app: &mut App, rest: &str) {
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "help" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: [
+                "/adapters list",
+                "/adapters show <id>",
+                "/adapters import-manifest <path>",
+                "/adapters export <id> <path>",
+                "/adapters quarantine <id>",
+                "/adapters allow <id> --confirm",
+            ]
+            .join("\n"),
+        });
+        return;
+    }
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "list" => match AdapterRegistry::from_env().list() {
+            Ok(packages) => {
+                push_event(app, format!("Loaded {} adapter manifest(s).", packages.len()));
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(
+                        &packages
+                            .iter()
+                            .map(adapter_package_summary)
+                            .collect::<Vec<_>>(),
+                    )
+                    .unwrap_or_else(|_| "<unserializable adapter list>".into()),
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Adapter list failed: {err}"),
+            }),
+        },
+        "show" => match first_adapter_arg(args, "show") {
+            Ok(id) => match AdapterRegistry::from_env().show(id) {
+                Ok(package) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&package)
+                        .unwrap_or_else(|_| "<unserializable adapter manifest>".into()),
+                }),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Adapter show failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "import-manifest" => match first_adapter_arg(args, "import-manifest") {
+            Ok(path) => match AdapterRegistry::from_env().import_manifest(path) {
+                Ok(package) => {
+                    push_event(app, format!("Imported quarantined adapter {}", package.id));
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&adapter_package_summary(&package))
+                            .unwrap_or_else(|_| "<unserializable adapter manifest>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Adapter manifest import failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "export" => match adapter_export_args(args) {
+            Ok((id, path)) => match AdapterRegistry::from_env().export_manifest(id, path) {
+                Ok(package) => push_event(
+                    app,
+                    format!("Exported adapter manifest {} to {path}", package.id),
+                ),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Adapter export failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "quarantine" => match first_adapter_arg(args, "quarantine") {
+            Ok(id) => match AdapterRegistry::from_env().quarantine(id) {
+                Ok(package) => push_event(app, format!("Quarantined adapter {}", package.id)),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Adapter quarantine failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "allow" => handle_adapter_allow_slash(app, args),
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Adapters command needs list, show, import-manifest, export, quarantine, allow, or help.".into(),
+        }),
+    }
+}
+
+fn first_adapter_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    args.split_whitespace()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("adapters {command} needs an argument"))
+}
+
+fn adapter_export_args(args: &str) -> anyhow::Result<(&str, &str)> {
+    let mut parts = args.split_whitespace();
+    let id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("adapters export needs an adapter id"))?;
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("adapters export needs a path"))?;
+    if parts.next().is_some() {
+        anyhow::bail!("adapters export accepts exactly an adapter id and path");
+    }
+    Ok((id, path))
+}
+
+fn handle_adapter_allow_slash(app: &mut App, args: &str) {
+    let mut parts = args.split_whitespace();
+    let Some(id) = parts.next() else {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "adapters allow needs an adapter id".into(),
+        });
+        return;
+    };
+    let confirmed = parts.any(|part| part == "--confirm");
+    if !confirmed {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: serde_json::to_string_pretty(&serde_json::json!({
+                "pending_action": "allow_adapter",
+                "adapter_id": id,
+                "confirm_command": format!("/adapters allow {id} --confirm"),
+            }))
+            .unwrap_or_else(|_| "<unserializable adapter confirmation>".into()),
+        });
+        return;
+    }
+    match AdapterRegistry::from_env().allow(id) {
+        Ok(package) => push_event(app, format!("Allowed adapter {}", package.id)),
+        Err(err) => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: format!("Adapter allow failed: {err}"),
+        }),
+    }
+}
+
+fn adapter_package_summary(package: &NormalizedPackage) -> serde_json::Value {
+    serde_json::json!({
+        "id": package.id,
+        "adapter": package.adapter,
+        "quarantined": package.quarantined,
+        "digest": package.digest,
+        "source": package.source,
+        "capabilities": package.capabilities.len(),
+        "findings": package.findings.len(),
+        "secret_requirements": package.secret_requirements.len(),
+    })
 }
 
 fn handle_hooks_slash(app: &mut App, rest: &str, agent: &AgentConfig) {
@@ -2865,6 +3056,12 @@ mod tests {
         );
         assert_eq!(hooks_slash_rest("/hooks"), Some(""));
         assert_eq!(hooks_slash_rest("/hook"), None);
+        assert_eq!(
+            adapters_slash_rest("/adapters show adapter-1"),
+            Some("show adapter-1")
+        );
+        assert_eq!(adapters_slash_rest("/adapters"), Some(""));
+        assert_eq!(adapters_slash_rest("/adapter"), None);
         assert_eq!(compact_slash_rest("/compact keep"), Some("keep"));
         assert_eq!(compact_slash_rest("/compact"), Some(""));
         assert_eq!(compact_slash_rest("/compactness"), None);
@@ -2886,6 +3083,16 @@ mod tests {
         );
         assert!(parse_hook_policy_change_args("").is_err());
         assert!(parse_hook_policy_change_args("adapter:pkg:audit --force").is_err());
+    }
+
+    #[test]
+    fn adapter_export_args_require_id_and_path() {
+        assert_eq!(
+            adapter_export_args("adapter-1 ./adapter.json").unwrap(),
+            ("adapter-1", "./adapter.json")
+        );
+        assert!(adapter_export_args("adapter-1").is_err());
+        assert!(adapter_export_args("adapter-1 ./adapter.json extra").is_err());
     }
 
     #[test]

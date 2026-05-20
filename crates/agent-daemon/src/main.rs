@@ -298,6 +298,40 @@ async fn route(
         ("POST", "/hooks/policy/set") => {
             daemon_hook_policy_set(&request.body).map(|value| (200, value))
         }
+        ("GET", "/profiles/current") => daemon_profile_current().map(|value| (200, value)),
+        ("GET", "/profiles") => daemon_profile_list().map(|value| (200, value)),
+        ("POST", "/profiles") => daemon_profile_create(&request.body).map(|value| (200, value)),
+        ("GET", "/profile-grants") => daemon_profile_grant_list("").map(|value| (200, value)),
+        ("POST", "/profile-grants/list") => {
+            daemon_profile_grant_list(&request.body).map(|value| (200, value))
+        }
+        ("POST", "/profile-grants") => {
+            daemon_profile_grant_create(&request.body).map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/profile-grants/")
+            && request.path.ends_with("/revoke") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/profile-grants/")
+                .trim_end_matches("/revoke");
+            daemon_profile_grant_revoke(id).map(|value| (200, value))
+        }
+        _ if request.method == "GET" && request.path.starts_with("/profiles/") => {
+            let id = request.path.trim_start_matches("/profiles/");
+            daemon_profile_show(id).map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/profiles/")
+            && request.path.ends_with("/delete") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/profiles/")
+                .trim_end_matches("/delete");
+            daemon_profile_delete(id).map(|value| (200, value))
+        }
         _ if request.method == "GET" && request.path.starts_with("/skills/") => {
             let id = request.path.trim_start_matches("/skills/");
             daemon_skill_show(id).map(|value| (200, value))
@@ -772,6 +806,14 @@ async fn route(
                     "POST /hooks/policy",
                     "POST /hooks/available",
                     "POST /hooks/policy/set",
+                    "GET /profiles/current",
+                    "GET|POST /profiles",
+                    "GET /profiles/<id>",
+                    "POST /profiles/<id>/delete",
+                    "GET /profile-grants",
+                    "POST /profile-grants/list",
+                    "POST /profile-grants",
+                    "POST /profile-grants/<id>/revoke",
                     "GET|POST /agents",
                     "GET /agents/<id>",
                     "POST /agents/<id>/delete",
@@ -4537,6 +4579,80 @@ fn quarantine_capability_tool(
         .map_err(Into::into)
 }
 
+fn daemon_profile_current() -> anyhow::Result<serde_json::Value> {
+    let active_profile = StoragePaths::from_env().active_profile_id().to_string();
+    Ok(serde_json::to_value(
+        ConfigResolver::from_env().show_profile(&active_profile)?,
+    )?)
+}
+
+fn daemon_profile_list() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(
+        ConfigResolver::from_env().list_profiles()?,
+    )?)
+}
+
+fn daemon_profile_show(id: &str) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(
+        ConfigResolver::from_env().show_profile(id)?,
+    )?)
+}
+
+fn daemon_profile_create(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: ProfileCreateInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        ConfigResolver::from_env().create_profile(&input.id, input.name)?,
+    )?)
+}
+
+fn daemon_profile_delete(id: &str) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::json!({
+        "id": id,
+        "deleted": ConfigResolver::from_env().delete_profile(id)?
+    }))
+}
+
+fn daemon_profile_grant_list(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input = if body.trim().is_empty() {
+        ProfileGrantListInput::default()
+    } else {
+        serde_json::from_str(body)?
+    };
+    let resolver = ConfigResolver::from_env();
+    let grants = if let Some(from_profile) = clean_input_string(input.from_profile) {
+        resolver.list_profile_grants_from(&from_profile)?
+    } else {
+        resolver.list_profile_grants()?
+    };
+    Ok(serde_json::to_value(grants)?)
+}
+
+fn daemon_profile_grant_create(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: ProfileGrantInput = serde_json::from_str(body)?;
+    let from_profile = clean_input_string(input.from_profile)
+        .unwrap_or_else(|| StoragePaths::from_env().active_profile_id().to_string());
+    Ok(serde_json::to_value(
+        ConfigResolver::from_env().grant_profile_access(
+            &from_profile,
+            &input.to_profile,
+            input.kind,
+            &input.resource,
+        )?,
+    )?)
+}
+
+fn daemon_profile_grant_revoke(id: &str) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(
+        ConfigResolver::from_env().revoke_profile_grant(id)?,
+    )?)
+}
+
+fn clean_input_string(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 fn daemon_agent_list() -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(
         ConfigResolver::from_env().list_agent_configs()?,
@@ -5133,6 +5249,28 @@ struct DaemonPreviewInput {
 struct DaemonOptionsInput {
     #[serde(flatten)]
     options: DaemonRuntimeOptions,
+}
+
+#[derive(serde::Deserialize)]
+struct ProfileCreateInput {
+    id: String,
+    name: Option<String>,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct ProfileGrantListInput {
+    #[serde(default, alias = "from")]
+    from_profile: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct ProfileGrantInput {
+    #[serde(default, alias = "from")]
+    from_profile: Option<String>,
+    #[serde(alias = "to")]
+    to_profile: String,
+    kind: ProfileGrantKind,
+    resource: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -7503,6 +7641,68 @@ mod tests {
                 .iter()
                 .any(|entry| entry["record"]["content"] == "Private daemon fact.")
         );
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        restore_env("AGENT_HARNESS_PROFILE", previous_profile);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn profile_routes_create_list_grant_revoke_and_delete() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("profile-routes");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        let previous_profile = std::env::var_os("AGENT_HARNESS_PROFILE");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+            std::env::remove_var("AGENT_HARNESS_PROFILE");
+        }
+
+        let current = daemon_profile_current().unwrap();
+        assert_eq!(current["id"], "main");
+
+        let created = daemon_profile_create(r#"{"id":"research","name":"Research Team"}"#).unwrap();
+        assert_eq!(created["id"], "research");
+        assert_eq!(created["name"], "Research Team");
+
+        let listed = daemon_profile_list().unwrap();
+        assert_eq!(listed.as_array().unwrap().len(), 2);
+        assert!(
+            listed
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["id"] == "research")
+        );
+
+        let shown = daemon_profile_show("research").unwrap();
+        assert_eq!(shown["name"], "Research Team");
+
+        let grant = daemon_profile_grant_create(
+            r#"{"to_profile":"research","kind":"memory","resource":"critic"}"#,
+        )
+        .unwrap();
+        assert_eq!(grant["from_profile"], "main");
+        assert_eq!(grant["to_profile"], "research");
+        assert_eq!(grant["kind"], "memory");
+        assert_eq!(grant["resource"], "critic");
+
+        let grants = daemon_profile_grant_list(r#"{"from_profile":"main"}"#).unwrap();
+        assert_eq!(grants.as_array().unwrap(), &[grant.clone()]);
+
+        let revoked = daemon_profile_grant_revoke(grant["id"].as_str().unwrap()).unwrap();
+        assert_eq!(revoked["id"], grant["id"]);
+        assert!(
+            daemon_profile_grant_list("")
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+
+        let deleted = daemon_profile_delete("research").unwrap();
+        assert_eq!(deleted["deleted"], true);
+        assert_eq!(daemon_profile_list().unwrap().as_array().unwrap().len(), 1);
 
         restore_env("AGENT_HARNESS_HOME", previous_home);
         restore_env("AGENT_HARNESS_PROFILE", previous_profile);

@@ -309,6 +309,23 @@ export type AgentSummary = {
   path: string;
 };
 
+export type ProfileSummary = {
+  id: string;
+  name: string;
+  path: string;
+};
+
+export type ProfileGrantKind = "agent" | "memory" | "tool" | "skill" | "category";
+
+export type ProfileGrant = {
+  id: string;
+  from_profile: string;
+  to_profile: string;
+  kind: ProfileGrantKind;
+  resource: string;
+  created_at: string;
+};
+
 export type PromptDoc = {
   name: string;
   body: string;

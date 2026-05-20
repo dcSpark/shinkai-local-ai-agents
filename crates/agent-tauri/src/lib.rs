@@ -24,7 +24,7 @@ use agent_compaction::{CompactionRecord, CompactionStore};
 use agent_config::{
     AgentConfigFile, AgentSummary, ConfigResolver, IngestionGuardrailMode, ModelConfig,
     ModelDoctorReport, ModelMetadataCatalog, ModelProviderCatalog, ModelProviderDescriptor,
-    ModelRuntimeConfig, ProfileGrantKind, configured_model_providers,
+    ModelRuntimeConfig, ProfileGrant, ProfileGrantKind, ProfileSummary, configured_model_providers,
 };
 use agent_conversations::{
     ConversationDoc, ConversationPolicy, ConversationRole, ConversationStore, ConversationTreeNode,
@@ -1318,6 +1318,62 @@ mod tauri_slash_tests {
                 std::env::set_var("AGENT_HARNESS_HOME", value);
             } else {
                 std::env::remove_var("AGENT_HARNESS_HOME");
+            }
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn profile_commands_manage_grants() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("agent-tauri-profiles-{}", uuid::Uuid::new_v4()));
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        let previous_profile = std::env::var_os("AGENT_HARNESS_PROFILE");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+            std::env::remove_var("AGENT_HARNESS_PROFILE");
+        }
+
+        let current = profile_current().await.unwrap();
+        assert_eq!(current.id, "main");
+
+        let created = profile_create("research".into(), Some("Research Team".into()))
+            .await
+            .unwrap();
+        assert_eq!(created.id, "research");
+        assert_eq!(profile_show("research".into()).await.unwrap(), created);
+        assert_eq!(profile_list().await.unwrap().len(), 2);
+
+        let grant = profile_grant(
+            None,
+            "research".into(),
+            ProfileGrantKind::Memory,
+            "critic".into(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(grant.from_profile, "main");
+        assert_eq!(grant.to_profile, "research");
+        assert_eq!(
+            profile_grant_list(Some("main".into())).await.unwrap(),
+            vec![grant.clone()]
+        );
+        assert_eq!(profile_grant_revoke(grant.id.clone()).await.unwrap(), grant);
+
+        let deleted = profile_delete("research".into()).await.unwrap();
+        assert_eq!(deleted["deleted"], true);
+
+        unsafe {
+            if let Some(value) = previous_home {
+                std::env::set_var("AGENT_HARNESS_HOME", value);
+            } else {
+                std::env::remove_var("AGENT_HARNESS_HOME");
+            }
+            if let Some(value) = previous_profile {
+                std::env::set_var("AGENT_HARNESS_PROFILE", value);
+            } else {
+                std::env::remove_var("AGENT_HARNESS_PROFILE");
             }
         }
         let _ = std::fs::remove_dir_all(dir);
@@ -3070,6 +3126,85 @@ async fn agent_delete(id: String) -> Result<serde_json::Value, String> {
 }
 
 #[tauri::command]
+async fn profile_current() -> Result<ProfileSummary, String> {
+    let active_profile = StoragePaths::from_env().active_profile_id().to_string();
+    ConfigResolver::from_env()
+        .show_profile(&active_profile)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn profile_list() -> Result<Vec<ProfileSummary>, String> {
+    ConfigResolver::from_env()
+        .list_profiles()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn profile_show(id: String) -> Result<ProfileSummary, String> {
+    ConfigResolver::from_env()
+        .show_profile(&id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn profile_create(id: String, name: Option<String>) -> Result<ProfileSummary, String> {
+    ConfigResolver::from_env()
+        .create_profile(&id, name)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn profile_delete(id: String) -> Result<serde_json::Value, String> {
+    let deleted = ConfigResolver::from_env()
+        .delete_profile(&id)
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "id": id,
+        "deleted": deleted
+    }))
+}
+
+#[tauri::command]
+async fn profile_grant_list(from_profile: Option<String>) -> Result<Vec<ProfileGrant>, String> {
+    let resolver = ConfigResolver::from_env();
+    if let Some(from_profile) = clean_tauri_input_string(from_profile) {
+        resolver
+            .list_profile_grants_from(&from_profile)
+            .map_err(|e| e.to_string())
+    } else {
+        resolver.list_profile_grants().map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+async fn profile_grant(
+    from_profile: Option<String>,
+    to_profile: String,
+    kind: ProfileGrantKind,
+    resource: String,
+) -> Result<ProfileGrant, String> {
+    let from_profile = clean_tauri_input_string(from_profile)
+        .unwrap_or_else(|| StoragePaths::from_env().active_profile_id().to_string());
+    ConfigResolver::from_env()
+        .grant_profile_access(&from_profile, &to_profile, kind, &resource)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn profile_grant_revoke(id: String) -> Result<ProfileGrant, String> {
+    ConfigResolver::from_env()
+        .revoke_profile_grant(&id)
+        .map_err(|e| e.to_string())
+}
+
+fn clean_tauri_input_string(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+#[tauri::command]
 async fn prompt_save(
     name: String,
     body: String,
@@ -3847,6 +3982,14 @@ pub fn run() {
             agent_export,
             agent_import,
             agent_delete,
+            profile_current,
+            profile_list,
+            profile_show,
+            profile_create,
+            profile_delete,
+            profile_grant_list,
+            profile_grant,
+            profile_grant_revoke,
             prompt_save,
             prompt_list,
             prompt_show,

@@ -39,6 +39,9 @@ import type {
   ModelProviderDescriptor,
   ModelProviderOptionDescriptor,
   PromptDoc,
+  ProfileGrant,
+  ProfileGrantKind,
+  ProfileSummary,
   Provider,
   RunEvent,
   RunOptions,
@@ -55,6 +58,7 @@ type ActiveSection =
   | "chat"
   | "trace"
   | "conversations"
+  | "profiles"
   | "memory"
   | "skills"
   | "prompts"
@@ -520,6 +524,9 @@ export default function App() {
   );
   const [skillDocs, setSkillDocs] = useState<SkillDoc[]>([]);
   const [agentConfigs, setAgentConfigs] = useState<AgentConfigEntry[]>([]);
+  const [profileSummaries, setProfileSummaries] = useState<ProfileSummary[]>([]);
+  const [currentProfile, setCurrentProfile] = useState<ProfileSummary | null>(null);
+  const [profileGrants, setProfileGrants] = useState<ProfileGrant[]>([]);
   const [capabilityDrafts, setCapabilityDrafts] = useState<CapabilityDraft[]>([]);
   const [adapterPackages, setAdapterPackages] = useState<AdapterPackage[]>([]);
   const [adapterDoctorReport, setAdapterDoctorReport] =
@@ -4274,6 +4281,183 @@ export default function App() {
     }
   }
 
+  async function showCurrentProfileFromOps() {
+    try {
+      const profile =
+        transport === "daemon"
+          ? await daemonJson<ProfileSummary>("/profiles/current")
+          : await invoke<ProfileSummary>("profile_current");
+      setCurrentProfile(profile);
+      setProfileSummaries((profiles) => upsertProfileSummary(profiles, profile));
+      appendJson("Current profile", profile);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Current profile failed: ${msg}`);
+    }
+  }
+
+  async function listProfilesFromOps() {
+    try {
+      const profiles =
+        transport === "daemon"
+          ? await daemonJson<ProfileSummary[]>("/profiles")
+          : await invoke<ProfileSummary[]>("profile_list");
+      setProfileSummaries(profiles);
+      appendEvent(`Profiles: ${profiles.length}`);
+      appendJson("Profiles", profiles);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Profile list failed: ${msg}`);
+    }
+  }
+
+  async function showProfileFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Profile show");
+    if (!id) return;
+    try {
+      const profile =
+        transport === "daemon"
+          ? await daemonJson<ProfileSummary>(`/profiles/${encodeURIComponent(id)}`)
+          : await invoke<ProfileSummary>("profile_show", { id });
+      setProfileSummaries((profiles) => upsertProfileSummary(profiles, profile));
+      if (currentProfile?.id === profile.id) {
+        setCurrentProfile(profile);
+      }
+      appendJson("Profile", profile);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Profile show failed: ${msg}`);
+    }
+  }
+
+  async function createProfileFromOps() {
+    const id = requireOpsId("Profile create");
+    if (!id) return;
+    const name = opsValue.trim() || null;
+    try {
+      const profile =
+        transport === "daemon"
+          ? await daemonJson<ProfileSummary>("/profiles", { id, name })
+          : await invoke<ProfileSummary>("profile_create", { id, name });
+      setProfileSummaries((profiles) => upsertProfileSummary(profiles, profile));
+      appendJson("Profile created", profile);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Profile create failed: ${msg}`);
+    }
+  }
+
+  async function deleteProfileFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Profile delete");
+    if (!id) return;
+    if (!confirmLocalChange(`Delete profile ${id}`)) return;
+    try {
+      const result =
+        transport === "daemon"
+          ? await daemonJson<unknown>(`/profiles/${encodeURIComponent(id)}/delete`, {})
+          : await invoke<unknown>("profile_delete", { id });
+      setProfileSummaries((profiles) => profiles.filter((profile) => profile.id !== id));
+      setProfileGrants((grants) =>
+        grants.filter((grant) => grant.from_profile !== id && grant.to_profile !== id),
+      );
+      if (currentProfile?.id === id) {
+        setCurrentProfile(null);
+      }
+      appendJson("Profile deleted", result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Profile delete failed: ${msg}`);
+    }
+  }
+
+  async function listProfileGrantsFromOps(fromProfile?: string) {
+    const from_profile = fromProfile ?? null;
+    try {
+      const grants =
+        transport === "daemon"
+          ? await daemonJson<ProfileGrant[]>(
+              from_profile ? "/profile-grants/list" : "/profile-grants",
+              from_profile ? { from_profile } : undefined,
+            )
+          : await invoke<ProfileGrant[]>("profile_grant_list", {
+              fromProfile: from_profile,
+            });
+      setProfileGrants(grants);
+      appendEvent(`Profile grants: ${grants.length}`);
+      appendJson("Profile grants", grants);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Profile grants failed: ${msg}`);
+    }
+  }
+
+  async function listProfileGrantsForOps() {
+    const fromProfile = opsId.trim() || null;
+    await listProfileGrantsFromOps(fromProfile ?? undefined);
+  }
+
+  async function grantProfileFromOps() {
+    const toProfile = requireOpsId("Profile grant");
+    const payload = parseOpsJsonObject("Profile grant");
+    if (!toProfile || !payload) return;
+    const kind = payload.kind;
+    const resource = payload.resource;
+    const fromProfile =
+      typeof payload.from_profile === "string"
+        ? payload.from_profile
+        : typeof payload.fromProfile === "string"
+          ? payload.fromProfile
+          : null;
+    if (!isProfileGrantKind(kind) || typeof resource !== "string" || !resource.trim()) {
+      appendLine(
+        "error",
+        'Profile grant needs Value JSON like { "kind": "memory", "resource": "critic" }.',
+      );
+      return;
+    }
+    try {
+      const grant =
+        transport === "daemon"
+          ? await daemonJson<ProfileGrant>("/profile-grants", {
+              from_profile: fromProfile,
+              to_profile: toProfile,
+              kind,
+              resource,
+            })
+          : await invoke<ProfileGrant>("profile_grant", {
+              fromProfile,
+              toProfile,
+              kind,
+              resource,
+            });
+      setProfileGrants((grants) => upsertProfileGrant(grants, grant));
+      appendJson("Profile grant", grant);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Profile grant failed: ${msg}`);
+    }
+  }
+
+  async function revokeProfileGrantFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Profile grant revoke");
+    if (!id) return;
+    if (!confirmLocalChange(`Revoke profile grant ${id}`)) return;
+    try {
+      const revoked =
+        transport === "daemon"
+          ? await daemonJson<ProfileGrant>(
+              `/profile-grants/${encodeURIComponent(id)}/revoke`,
+              {},
+            )
+          : await invoke<ProfileGrant>("profile_grant_revoke", { id });
+      setProfileGrants((grants) => grants.filter((grant) => grant.id !== revoked.id));
+      appendJson("Profile grant revoked", revoked);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Profile grant revoke failed: ${msg}`);
+    }
+  }
+
   async function reviewCapabilities() {
     try {
       const drafts =
@@ -7271,6 +7455,26 @@ export default function App() {
     return [doc, ...rest].sort((a, b) => a.id.localeCompare(b.id));
   }
 
+  function upsertProfileSummary(profiles: ProfileSummary[], profile: ProfileSummary) {
+    const rest = profiles.filter((item) => item.id !== profile.id);
+    return [profile, ...rest].sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  function upsertProfileGrant(grants: ProfileGrant[], grant: ProfileGrant) {
+    const rest = grants.filter((item) => item.id !== grant.id);
+    return [grant, ...rest].sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  function isProfileGrantKind(value: unknown): value is ProfileGrantKind {
+    return (
+      value === "agent" ||
+      value === "memory" ||
+      value === "tool" ||
+      value === "skill" ||
+      value === "category"
+    );
+  }
+
   function upsertCapabilityDraft(
     drafts: CapabilityDraft[],
     draft: CapabilityDraft,
@@ -7643,6 +7847,7 @@ export default function App() {
     return [
       "chat",
       "conversations",
+      "profiles",
       "memory",
       "skills",
       "prompts",
@@ -7658,6 +7863,8 @@ export default function App() {
         return "Tools";
       case "conversations":
         return "Conversations";
+      case "profiles":
+        return "Profiles";
       case "memory":
         return "Memory";
       case "skills":
@@ -7733,6 +7940,27 @@ export default function App() {
           <span className="rail-copy">
             <span className="rail-label">Conversations</span>
             <span className="rail-hint">Branches</span>
+          </span>
+        </button>
+        <button
+          type="button"
+          className={sectionClass("profiles")}
+          title="Profiles"
+          aria-label="Profiles and grants"
+          onClick={() => {
+            setActiveSection("profiles");
+            if (!running) {
+              void showCurrentProfileFromOps();
+              void listProfilesFromOps();
+              void listProfileGrantsFromOps();
+            }
+          }}
+          disabled={running}
+        >
+          <span className="rail-letter">R</span>
+          <span className="rail-copy">
+            <span className="rail-label">Profiles</span>
+            <span className="rail-hint">Grants</span>
           </span>
         </button>
         <button
@@ -9489,6 +9717,168 @@ export default function App() {
                   </div>
                 ))}
               </div>
+            </div>
+            ) : null}
+
+            {activeSection === "profiles" ? (
+            <div className="operation-group">
+              <div className="operation-title">Profiles</div>
+              <div className="button-grid">
+                <button
+                  type="button"
+                  title="Show the active profile selected by the current harness environment."
+                  onClick={() => void showCurrentProfileFromOps()}
+                  disabled={running}
+                >
+                  Current
+                </button>
+                <button
+                  type="button"
+                  title="List local profile records."
+                  onClick={() => void listProfilesFromOps()}
+                  disabled={running}
+                >
+                  List
+                </button>
+                <button
+                  type="button"
+                  title="Show profile Id."
+                  onClick={() => void showProfileFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Show
+                </button>
+                <button
+                  type="button"
+                  title="Create profile Id, using Value as the optional display name."
+                  onClick={() => void createProfileFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Create
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  title="Delete profile Id."
+                  onClick={() => void deleteProfileFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Delete
+                </button>
+                <button
+                  type="button"
+                  title="List all profile grants, or grants from profile Id when Id is set."
+                  onClick={() => void listProfileGrantsForOps()}
+                  disabled={running}
+                >
+                  List Grants
+                </button>
+                <button
+                  type="button"
+                  title='Grant to profile Id using Value JSON like { "kind": "memory", "resource": "critic" }.'
+                  onClick={() => void grantProfileFromOps()}
+                  disabled={running || !opsId.trim() || !opsValue.trim()}
+                >
+                  Grant
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  title="Revoke profile grant Id."
+                  onClick={() => void revokeProfileGrantFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Revoke Grant
+                </button>
+              </div>
+              {currentProfile ? (
+                <div className="empty-note">
+                  Active profile: {currentProfile.name || currentProfile.id} ({currentProfile.id})
+                </div>
+              ) : null}
+              {profileSummaries.length ? (
+                <div className="ingestion-review">
+                  {profileSummaries.map((profile) => (
+                    <div className="ingestion-card" key={profile.id}>
+                      <div className="ingestion-card-head">
+                        <strong>{profile.name || profile.id}</strong>
+                        <span>{profile.id}</span>
+                      </div>
+                      <span title={profile.path}>{fileName(profile.path)}</span>
+                      <div className="mini-actions">
+                        <button
+                          type="button"
+                          title="Move this profile id into the Id field."
+                          onClick={() => setOpsId(profile.id)}
+                          disabled={running}
+                        >
+                          Set Id
+                        </button>
+                        <button
+                          type="button"
+                          title="Show this profile record."
+                          onClick={() => void showProfileFromOps(profile.id)}
+                          disabled={running}
+                        >
+                          Show
+                        </button>
+                        <button
+                          type="button"
+                          title="List grants from this profile."
+                          onClick={() => void listProfileGrantsFromOps(profile.id)}
+                          disabled={running}
+                        >
+                          Grants
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          title="Delete this profile."
+                          onClick={() => void deleteProfileFromOps(profile.id)}
+                          disabled={running || profile.id === "main"}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {profileGrants.length ? (
+                <div className="ingestion-review">
+                  {profileGrants.map((grant) => (
+                    <div className="ingestion-card" key={grant.id}>
+                      <div className="ingestion-card-head">
+                        <strong>
+                          {grant.from_profile} to {grant.to_profile}
+                        </strong>
+                        <span>{grant.kind}</span>
+                      </div>
+                      <span>{grant.resource}</span>
+                      <span>{grant.id}</span>
+                      <div className="mini-actions">
+                        <button
+                          type="button"
+                          title="Move this grant id into the Id field."
+                          onClick={() => setOpsId(grant.id)}
+                          disabled={running}
+                        >
+                          Set Id
+                        </button>
+                        <button
+                          type="button"
+                          title="Revoke this profile grant."
+                          className="danger"
+                          onClick={() => void revokeProfileGrantFromOps(grant.id)}
+                          disabled={running}
+                        >
+                          Revoke
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
             ) : null}
 

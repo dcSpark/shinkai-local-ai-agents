@@ -17,6 +17,10 @@ use agent_storage::StoragePaths;
 use agent_tools::ToolId;
 use serde::{Deserialize, Serialize};
 
+const MODEL_METADATA_CATALOG_FILE: &str = "metadata-catalog.json";
+const MODEL_METADATA_CATALOG_ENV: &str = "AGENT_MODEL_METADATA_CATALOG";
+const BUNDLED_MODEL_METADATA_CATALOG_JSON: &str = include_str!("../model_metadata_catalog.json");
+
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     #[error("storage error: {0}")]
@@ -425,6 +429,41 @@ pub struct ModelLiveCapabilityProbe {
     pub reported_pricing: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelMetadataCatalog {
+    pub schema_version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+    #[serde(default)]
+    pub models: Vec<ModelMetadataCatalogEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelMetadataCatalogEntry {
+    pub provider: String,
+    pub model_id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modalities: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub capabilities: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_support: Option<bool>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub limits: BTreeMap<String, u64>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub pricing: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct LoadedModelMetadataCatalog {
+    source: String,
+    catalog: ModelMetadataCatalog,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1720,7 +1759,13 @@ impl ConfigResolver {
                 api_key_env.as_deref(),
             )
         };
-        let live_probe = apply_curated_metadata_fallback(live_probe, &provider, model_id);
+        let metadata_catalog = self.load_model_metadata_catalog()?;
+        let live_probe = apply_curated_metadata_fallback(
+            live_probe,
+            &provider,
+            model_id,
+            metadata_catalog.as_ref(),
+        );
 
         Ok(ModelCapabilityProbe {
             model_id: model_id.into(),
@@ -1740,6 +1785,29 @@ impl ConfigResolver {
                 }),
             live_probe,
         })
+    }
+
+    fn load_model_metadata_catalog(
+        &self,
+    ) -> Result<Option<LoadedModelMetadataCatalog>, ConfigError> {
+        if let Some(path) = std::env::var_os(MODEL_METADATA_CATALOG_ENV)
+            .map(PathBuf::from)
+            .filter(|path| !path.as_os_str().is_empty())
+        {
+            return read_model_metadata_catalog(&path, format!("env:{MODEL_METADATA_CATALOG_ENV}"))
+                .map(Some);
+        }
+
+        let profile_path = self.paths.models_dir().join(MODEL_METADATA_CATALOG_FILE);
+        if profile_path.exists() {
+            return read_model_metadata_catalog(
+                &profile_path,
+                format!("profile:{}", profile_path.display()),
+            )
+            .map(Some);
+        }
+
+        Ok(None)
     }
 }
 
@@ -1952,106 +2020,92 @@ struct LiveModelMetadata {
     pricing: BTreeMap<String, String>,
 }
 
-fn live_metadata(
-    modalities: &[&str],
-    capabilities: &[&str],
-    tool_support: Option<bool>,
-    limits: &[(&str, u64)],
-    pricing: &[(&str, &str)],
-) -> LiveModelMetadata {
-    LiveModelMetadata {
-        modalities: modalities
-            .iter()
-            .map(|value| (*value).to_string())
-            .collect(),
-        capabilities: capabilities
-            .iter()
-            .map(|value| (*value).to_string())
-            .collect(),
-        tool_support,
-        limits: limits
-            .iter()
-            .map(|(key, value)| ((*key).to_string(), *value))
-            .collect(),
-        pricing: pricing
-            .iter()
-            .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
-            .collect(),
-    }
+fn read_model_metadata_catalog(
+    path: &Path,
+    source: String,
+) -> Result<LoadedModelMetadataCatalog, ConfigError> {
+    let catalog: ModelMetadataCatalog = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+    validate_model_metadata_catalog(&catalog)?;
+    Ok(LoadedModelMetadataCatalog { source, catalog })
 }
 
-fn curated_model_metadata(provider: &str, model_id: &str) -> Option<(String, LiveModelMetadata)> {
-    let model_id = model_id.trim();
-    match provider {
-        "rig" => match model_id {
-            "gpt-4o-mini" | "gpt-4o-mini-2024-07-18" => Some((
-                "https://platform.openai.com/docs/models/gpt-4o-mini".into(),
-                live_metadata(
-                    &["text", "image"],
-                    &[
-                        "streaming",
-                        "function_calling",
-                        "structured_outputs",
-                        "fine_tuning",
-                    ],
-                    Some(true),
-                    &[("context_tokens", 128_000), ("output_tokens", 16_384)],
-                    &[
-                        ("input_per_million", "0.15"),
-                        ("cached_input_per_million", "0.075"),
-                        ("output_per_million", "0.60"),
-                    ],
-                ),
-            )),
-            _ => None,
-        },
-        "anthropic" => match model_id {
-            "claude-sonnet-4-5" | "claude-sonnet-4-5-20250929" => Some((
-                "https://platform.claude.com/docs/en/about-claude/models/all-models".into(),
-                live_metadata(
-                    &["text", "image"],
-                    &["vision", "tool_use", "extended_thinking"],
-                    Some(true),
-                    &[("context_tokens", 200_000), ("output_tokens", 64_000)],
-                    &[
-                        ("input_per_million", "3.00"),
-                        ("output_per_million", "15.00"),
-                    ],
-                ),
-            )),
-            _ => None,
-        },
-        "gemini" => match model_id {
-            "gemini-2.5-flash" | "gemini-2.5-flash-preview-09-2025" => Some((
-                "https://ai.google.dev/gemini-api/docs/models/gemini".into(),
-                live_metadata(
-                    &["text", "image", "video", "audio"],
-                    &[
-                        "batch",
-                        "caching",
-                        "code_execution",
-                        "file_search",
-                        "function_calling",
-                        "grounding",
-                        "structured_outputs",
-                        "thinking",
-                        "url_context",
-                    ],
-                    Some(true),
-                    &[("input_tokens", 1_048_576), ("output_tokens", 65_536)],
-                    &[
-                        ("input_per_million", "0.30"),
-                        ("audio_input_per_million", "1.00"),
-                        ("output_per_million", "2.50"),
-                        ("cached_input_per_million", "0.03"),
-                        ("cached_audio_input_per_million", "0.10"),
-                    ],
-                ),
-            )),
-            _ => None,
-        },
-        _ => None,
+fn validate_model_metadata_catalog(catalog: &ModelMetadataCatalog) -> Result<(), ConfigError> {
+    if catalog.schema_version != 1 {
+        return Err(ConfigError::InvalidInput(format!(
+            "unsupported model metadata catalog schema_version {}; expected 1",
+            catalog.schema_version
+        )));
     }
+    for model in &catalog.models {
+        if model.provider.trim().is_empty() {
+            return Err(ConfigError::InvalidInput(
+                "model metadata catalog entries require provider".into(),
+            ));
+        }
+        if model.model_id.trim().is_empty() {
+            return Err(ConfigError::InvalidInput(
+                "model metadata catalog entries require model_id".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn bundled_model_metadata_catalog() -> Option<LoadedModelMetadataCatalog> {
+    let catalog: ModelMetadataCatalog =
+        serde_json::from_str(BUNDLED_MODEL_METADATA_CATALOG_JSON).ok()?;
+    validate_model_metadata_catalog(&catalog).ok()?;
+    Some(LoadedModelMetadataCatalog {
+        source: "bundled:agent-config/model_metadata_catalog.json".into(),
+        catalog,
+    })
+}
+
+fn catalog_model_metadata(
+    loaded: &LoadedModelMetadataCatalog,
+    provider: &str,
+    model_id: &str,
+) -> Option<(String, LiveModelMetadata)> {
+    let model_id = model_id.trim();
+    loaded
+        .catalog
+        .models
+        .iter()
+        .find(|entry| {
+            normalized_provider(Some(&entry.provider)).as_deref() == Some(provider)
+                && entry.model_id.trim() == model_id
+        })
+        .map(|entry| {
+            let source = entry
+                .source
+                .clone()
+                .or_else(|| loaded.catalog.source.clone())
+                .unwrap_or_else(|| loaded.source.clone());
+            (
+                source,
+                LiveModelMetadata {
+                    modalities: entry.modalities.clone(),
+                    capabilities: entry.capabilities.clone(),
+                    tool_support: entry.tool_support,
+                    limits: entry.limits.clone(),
+                    pricing: entry.pricing.clone(),
+                },
+            )
+        })
+}
+
+fn curated_model_metadata(
+    provider: &str,
+    model_id: &str,
+    configured_catalog: Option<&LoadedModelMetadataCatalog>,
+) -> Option<(String, LiveModelMetadata)> {
+    configured_catalog
+        .and_then(|catalog| catalog_model_metadata(catalog, provider, model_id))
+        .or_else(|| {
+            bundled_model_metadata_catalog()
+                .as_ref()
+                .and_then(|catalog| catalog_model_metadata(catalog, provider, model_id))
+        })
 }
 
 fn append_probe_message(message: Option<String>, note: &str) -> Option<String> {
@@ -2066,11 +2120,13 @@ fn apply_curated_metadata_fallback(
     mut probe: ModelLiveCapabilityProbe,
     provider: &str,
     model_id: &str,
+    configured_catalog: Option<&LoadedModelMetadataCatalog>,
 ) -> ModelLiveCapabilityProbe {
     if probe.model_found == Some(false) {
         return probe;
     }
-    let Some((source, fallback)) = curated_model_metadata(provider, model_id) else {
+    let Some((source, fallback)) = curated_model_metadata(provider, model_id, configured_catalog)
+    else {
         return probe;
     };
     let mut applied = false;
@@ -5126,6 +5182,82 @@ system_prompt = "Review carefully."
                 .get("output_per_million")
                 .map(String::as_str),
             Some("2.50")
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn model_capability_probe_uses_profile_metadata_catalog_for_non_default_model() {
+        let dir = std::env::temp_dir().join(format!("agent-catalog-probe-test-{}", uuid_like()));
+        let paths = StoragePaths::new(&dir);
+        std::fs::create_dir_all(paths.models_dir()).unwrap();
+        std::fs::write(
+            paths.models_dir().join(MODEL_METADATA_CATALOG_FILE),
+            r#"{
+              "schema_version": 1,
+              "source": "profile-test-catalog",
+              "models": [
+                {
+                  "provider": "openai",
+                  "model_id": "private-non-default",
+                  "modalities": ["text", "image"],
+                  "capabilities": ["function_calling", "structured_outputs"],
+                  "tool_support": true,
+                  "limits": {
+                    "context_tokens": 123456,
+                    "output_tokens": 7890
+                  },
+                  "pricing": {
+                    "input_per_million": "1.23"
+                  },
+                  "source": "profile-test-catalog/private-non-default"
+                }
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        let resolver = ConfigResolver::new(paths);
+        let mut model = ModelConfig::for_id("private-non-default");
+        model.provider = Some("rig".into());
+        resolver.save_model(&model).unwrap();
+
+        let probe = resolver
+            .probe_model_capabilities("private-non-default")
+            .unwrap();
+
+        assert_eq!(probe.live_probe.status, "not_configured");
+        assert_eq!(
+            probe.live_probe.fallback_source.as_deref(),
+            Some("profile-test-catalog/private-non-default")
+        );
+        assert!(
+            probe
+                .live_probe
+                .reported_modalities
+                .iter()
+                .any(|modality| modality == "image")
+        );
+        assert!(
+            probe
+                .live_probe
+                .reported_capabilities
+                .iter()
+                .any(|capability| capability == "structured_outputs")
+        );
+        assert_eq!(probe.live_probe.reported_tool_support, Some(true));
+        assert_eq!(
+            probe.live_probe.reported_limits.get("context_tokens"),
+            Some(&123_456)
+        );
+        assert_eq!(
+            probe
+                .live_probe
+                .reported_pricing
+                .get("input_per_million")
+                .map(String::as_str),
+            Some("1.23")
         );
 
         let _ = std::fs::remove_dir_all(dir);

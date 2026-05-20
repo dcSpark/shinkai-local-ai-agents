@@ -1,0 +1,141 @@
+{
+  "schema_version": 1,
+  "source": "bundled:agent-config/model_metadata_catalog.json",
+  "updated_at": "2026-05-19",
+  "models": [
+    {
+      "provider": "rig",
+      "model_id": "gpt-4o-mini",
+      "modalities": ["text", "image"],
+      "capabilities": [
+        "streaming",
+        "function_calling",
+        "structured_outputs",
+        "fine_tuning"
+      ],
+      "tool_support": true,
+      "limits": {
+        "context_tokens": 128000,
+        "output_tokens": 16384
+      },
+      "pricing": {
+        "input_per_million": "0.15",
+        "cached_input_per_million": "0.075",
+        "output_per_million": "0.60"
+      },
+      "source": "https://platform.openai.com/docs/models/gpt-4o-mini"
+    },
+    {
+      "provider": "rig",
+      "model_id": "gpt-4o-mini-2024-07-18",
+      "modalities": ["text", "image"],
+      "capabilities": [
+        "streaming",
+        "function_calling",
+        "structured_outputs",
+        "fine_tuning"
+      ],
+      "tool_support": true,
+      "limits": {
+        "context_tokens": 128000,
+        "output_tokens": 16384
+      },
+      "pricing": {
+        "input_per_million": "0.15",
+        "cached_input_per_million": "0.075",
+        "output_per_million": "0.60"
+      },
+      "source": "https://platform.openai.com/docs/models/gpt-4o-mini"
+    },
+    {
+      "provider": "anthropic",
+      "model_id": "claude-sonnet-4-5",
+      "modalities": ["text", "image"],
+      "capabilities": ["vision", "tool_use", "extended_thinking"],
+      "tool_support": true,
+      "limits": {
+        "context_tokens": 200000,
+        "output_tokens": 64000
+      },
+      "pricing": {
+        "input_per_million": "3.00",
+        "output_per_million": "15.00"
+      },
+      "source": "https://platform.claude.com/docs/en/about-claude/models/all-models"
+    },
+    {
+      "provider": "anthropic",
+      "model_id": "claude-sonnet-4-5-20250929",
+      "modalities": ["text", "image"],
+      "capabilities": ["vision", "tool_use", "extended_thinking"],
+      "tool_support": true,
+      "limits": {
+        "context_tokens": 200000,
+        "output_tokens": 64000
+      },
+      "pricing": {
+        "input_per_million": "3.00",
+        "output_per_million": "15.00"
+      },
+      "source": "https://platform.claude.com/docs/en/about-claude/models/all-models"
+    },
+    {
+      "provider": "gemini",
+      "model_id": "gemini-2.5-flash",
+      "modalities": ["text", "image", "video", "audio"],
+      "capabilities": [
+        "batch",
+        "caching",
+        "code_execution",
+        "file_search",
+        "function_calling",
+        "grounding",
+        "structured_outputs",
+        "thinking",
+        "url_context"
+      ],
+      "tool_support": true,
+      "limits": {
+        "input_tokens": 1048576,
+        "output_tokens": 65536
+      },
+      "pricing": {
+        "input_per_million": "0.30",
+        "audio_input_per_million": "1.00",
+        "output_per_million": "2.50",
+        "cached_input_per_million": "0.03",
+        "cached_audio_input_per_million": "0.10"
+      },
+      "source": "https://ai.google.dev/gemini-api/docs/models/gemini"
+    },
+    {
+      "provider": "gemini",
+      "model_id": "gemini-2.5-flash-preview-09-2025",
+      "modalities": ["text", "image", "video", "audio"],
+      "capabilities": [
+        "batch",
+        "caching",
+        "code_execution",
+        "file_search",
+        "function_calling",
+        "grounding",
+        "structured_outputs",
+        "thinking",
+        "url_context"
+      ],
+      "tool_support": true,
+      "limits": {
+        "input_tokens": 1048576,
+        "output_tokens": 65536
+      },
+      "pricing": {
+        "input_per_million": "0.30",
+        "audio_input_per_million": "1.00",
+        "output_per_million": "2.50",
+        "cached_input_per_million": "0.03",
+        "cached_audio_input_per_million": "0.10"
+      },
+      "source": "https://ai.google.dev/gemini-api/docs/models/gemini"
+    }
+  ]
+}

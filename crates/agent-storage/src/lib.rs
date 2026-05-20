@@ -15,6 +15,15 @@ pub enum StorageError {
     Io(#[from] std::io::Error),
     #[error("invalid storage quota in {var}: {value}")]
     InvalidQuota { var: String, value: String },
+    #[error(
+        "storage quota exceeded: quota {quota_bytes} bytes, current {current_bytes} bytes, attempted write {attempted_bytes} bytes, projected {projected_bytes} bytes"
+    )]
+    QuotaExceeded {
+        quota_bytes: u64,
+        current_bytes: u64,
+        attempted_bytes: u64,
+        projected_bytes: u64,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -356,6 +365,31 @@ impl StoragePaths {
             quota_exceeded: quota_bytes.is_some_and(|quota| total.bytes > quota),
             buckets,
         })
+    }
+
+    pub fn ensure_quota_for_write(&self, attempted_bytes: u64) -> Result<(), StorageError> {
+        self.ensure_quota_for_write_with_quota(attempted_bytes, storage_quota_bytes_from_env()?)
+    }
+
+    pub fn ensure_quota_for_write_with_quota(
+        &self,
+        attempted_bytes: u64,
+        quota_bytes: Option<u64>,
+    ) -> Result<(), StorageError> {
+        let Some(quota_bytes) = quota_bytes else {
+            return Ok(());
+        };
+        let current_bytes = stats_path(&self.root)?.bytes;
+        let projected_bytes = current_bytes.saturating_add(attempted_bytes);
+        if projected_bytes > quota_bytes {
+            return Err(StorageError::QuotaExceeded {
+                quota_bytes,
+                current_bytes,
+                attempted_bytes,
+                projected_bytes,
+            });
+        }
+        Ok(())
     }
 
     pub fn cache_retention_plan(
@@ -793,6 +827,46 @@ mod tests {
         assert!(!under_quota.quota_exceeded);
 
         std::fs::remove_dir_all(report.root).unwrap();
+    }
+
+    #[test]
+    fn quota_preflight_rejects_projected_writes_over_quota() {
+        let root = std::env::temp_dir().join(format!(
+            "agent-storage-quota-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("used.bin"), b"12345").unwrap();
+        let paths = StoragePaths::new(&root);
+
+        paths
+            .ensure_quota_for_write_with_quota(5, Some(10))
+            .unwrap();
+        let err = paths
+            .ensure_quota_for_write_with_quota(6, Some(10))
+            .expect_err("projected writes above quota must fail");
+        match err {
+            StorageError::QuotaExceeded {
+                quota_bytes,
+                current_bytes,
+                attempted_bytes,
+                projected_bytes,
+            } => {
+                assert_eq!(quota_bytes, 10);
+                assert_eq!(current_bytes, 5);
+                assert_eq!(attempted_bytes, 6);
+                assert_eq!(projected_bytes, 11);
+            }
+            other => panic!("unexpected error: {other:?}"),
+        }
+        paths
+            .ensure_quota_for_write_with_quota(u64::MAX, None)
+            .unwrap();
+
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

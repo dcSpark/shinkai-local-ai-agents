@@ -1138,6 +1138,7 @@ pub fn register_payment_tools_from_env(registry: &mut ToolRegistry) -> usize {
 
 pub struct ArtifactTool {
     output_dir: PathBuf,
+    quota_paths: Option<StoragePaths>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -1180,12 +1181,17 @@ pub struct GeneratedArtifactDataUrl {
 
 impl ArtifactTool {
     pub fn from_env() -> Self {
-        Self::new(StoragePaths::from_env().artifacts_dir())
+        let paths = StoragePaths::from_env();
+        Self {
+            output_dir: paths.artifacts_dir(),
+            quota_paths: Some(paths),
+        }
     }
 
     pub fn new(output_dir: impl Into<PathBuf>) -> Self {
         Self {
             output_dir: output_dir.into(),
+            quota_paths: None,
         }
     }
 
@@ -1271,6 +1277,7 @@ impl Tool for ArtifactTool {
         let filename = format!("{artifact_id}.{extension}");
         let path = scoped_artifact_path(&self.output_dir, &filename)?;
         let bytes = render_artifact(&format, title, content, rows)?;
+        ensure_artifact_quota(self.quota_paths.as_ref(), bytes.len())?;
 
         std::fs::create_dir_all(&self.output_dir)
             .map_err(|e| ToolError::Execution(e.to_string()))?;
@@ -1552,17 +1559,24 @@ impl VoiceTranscribeTool {
 pub struct VoiceSpeakTool {
     config: VoiceRuntimeConfig,
     output_dir: PathBuf,
+    quota_paths: Option<StoragePaths>,
 }
 
 impl VoiceSpeakTool {
     pub fn from_env(config: VoiceRuntimeConfig) -> Self {
-        Self::new(config, StoragePaths::from_env().artifacts_dir())
+        let paths = StoragePaths::from_env();
+        Self {
+            config,
+            output_dir: paths.artifacts_dir(),
+            quota_paths: Some(paths),
+        }
     }
 
     pub fn new(config: VoiceRuntimeConfig, output_dir: impl Into<PathBuf>) -> Self {
         Self {
             config,
             output_dir: output_dir.into(),
+            quota_paths: None,
         }
     }
 
@@ -1695,6 +1709,7 @@ impl VoiceSpeakTool {
         let tone = voice_value(input, "tone", &self.config.tone);
         let format = voice_output_format(input, "wav")?;
         let (artifact_id, path) = self.voice_output_path(input, &format)?;
+        ensure_artifact_quota(self.quota_paths.as_ref(), 0)?;
         std::fs::create_dir_all(&self.output_dir)
             .map_err(|e| ToolError::Execution(e.to_string()))?;
         let output_path = path.display().to_string();
@@ -1713,6 +1728,7 @@ impl VoiceSpeakTool {
         )
         .await?;
         if !path.exists() && !output.stdout_bytes.is_empty() {
+            ensure_artifact_quota(self.quota_paths.as_ref(), output.stdout_bytes.len())?;
             std::fs::write(&path, &output.stdout_bytes)
                 .map_err(|e| ToolError::Execution(e.to_string()))?;
         }
@@ -1724,6 +1740,7 @@ impl VoiceSpeakTool {
                 ))
             })?
             .len();
+        ensure_artifact_quota_after_external_write(self.quota_paths.as_ref(), &path)?;
         Ok(json!({
             "artifact_id": artifact_id,
             "format": format,
@@ -1795,6 +1812,7 @@ impl VoiceSpeakTool {
                 "voice speech request failed with {status}: {body}"
             )));
         }
+        ensure_artifact_quota(self.quota_paths.as_ref(), bytes.len())?;
         std::fs::create_dir_all(&self.output_dir)
             .map_err(|e| ToolError::Execution(e.to_string()))?;
         std::fs::write(&path, &bytes).map_err(|e| ToolError::Execution(e.to_string()))?;
@@ -2086,7 +2104,8 @@ pub fn save_voice_capture_from_env(
     data_url: &str,
     filename: Option<&str>,
 ) -> Result<GeneratedArtifact, ToolError> {
-    save_voice_capture(StoragePaths::from_env().artifacts_dir(), data_url, filename)
+    let paths = StoragePaths::from_env();
+    save_voice_capture_with_quota(paths.artifacts_dir(), data_url, filename, Some(&paths))
 }
 
 pub fn save_voice_capture(
@@ -2094,8 +2113,18 @@ pub fn save_voice_capture(
     data_url: &str,
     filename: Option<&str>,
 ) -> Result<GeneratedArtifact, ToolError> {
+    save_voice_capture_with_quota(output_dir, data_url, filename, None)
+}
+
+fn save_voice_capture_with_quota(
+    output_dir: impl AsRef<Path>,
+    data_url: &str,
+    filename: Option<&str>,
+    quota_paths: Option<&StoragePaths>,
+) -> Result<GeneratedArtifact, ToolError> {
     let output_dir = output_dir.as_ref();
     let (bytes, extension) = decode_audio_data_url(data_url)?;
+    ensure_artifact_quota(quota_paths, bytes.len())?;
     std::fs::create_dir_all(output_dir).map_err(|e| ToolError::Execution(e.to_string()))?;
     let stem = filename
         .and_then(|name| Path::new(name).file_stem())
@@ -2107,6 +2136,33 @@ pub fn save_voice_capture(
     let path = scoped_artifact_path(output_dir, &filename)?;
     std::fs::write(&path, bytes).map_err(|e| ToolError::Execution(e.to_string()))?;
     show_generated_artifact(output_dir, &artifact_id)
+}
+
+fn ensure_artifact_quota(
+    quota_paths: Option<&StoragePaths>,
+    attempted_bytes: usize,
+) -> Result<(), ToolError> {
+    let Some(paths) = quota_paths else {
+        return Ok(());
+    };
+    let attempted_bytes = u64::try_from(attempted_bytes).unwrap_or(u64::MAX);
+    paths
+        .ensure_quota_for_write(attempted_bytes)
+        .map_err(|e| ToolError::Execution(e.to_string()))
+}
+
+fn ensure_artifact_quota_after_external_write(
+    quota_paths: Option<&StoragePaths>,
+    path: &Path,
+) -> Result<(), ToolError> {
+    let Some(paths) = quota_paths else {
+        return Ok(());
+    };
+    if let Err(err) = paths.ensure_quota_for_write(0) {
+        let _ = std::fs::remove_file(path);
+        return Err(ToolError::Execution(err.to_string()));
+    }
+    Ok(())
 }
 
 fn decode_audio_data_url(data_url: &str) -> Result<(Vec<u8>, &'static str), ToolError> {

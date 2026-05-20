@@ -6915,6 +6915,9 @@ export default function App() {
     if (runtime.command) parts.push(runtime.command);
     if (runtime.endpoint) parts.push(compactPreview(runtime.endpoint, 80));
     if (runtime.env_keys?.length) parts.push(`env ${runtime.env_keys.join(", ")}`);
+    if (runtime.header_keys?.length) {
+      parts.push(`headers ${runtime.header_keys.join(", ")}`);
+    }
     if (runtime.auth_schemes?.length) {
       parts.push(`auth ${runtime.auth_schemes.join(", ")}`);
     }

@@ -120,6 +120,8 @@ pub struct NormalizedRuntime {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub env_keys: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub header_keys: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub input_modes: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub output_modes: Vec<String>,
@@ -1224,17 +1226,27 @@ fn mcp_capability_runtime(server: &serde_json::Value) -> Option<NormalizedRuntim
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    if let Some(headers) = server.get("headers").and_then(serde_json::Value::as_object) {
-        env_keys.extend(headers.keys().filter_map(|name| clean_secret_name(name)));
-    }
+    let mut header_keys = server
+        .get("headers")
+        .and_then(serde_json::Value::as_object)
+        .map(|headers| {
+            headers
+                .keys()
+                .filter_map(|name| clean_secret_name(name))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     env_keys.sort();
     env_keys.dedup();
+    header_keys.sort();
+    header_keys.dedup();
     Some(NormalizedRuntime {
         transport: transport.into(),
         endpoint,
         command,
         args: json_string_list(server, &["args"]).unwrap_or_default(),
         env_keys,
+        header_keys,
         input_modes: Vec::new(),
         output_modes: Vec::new(),
         auth_schemes: Vec::new(),
@@ -1397,6 +1409,7 @@ fn a2a_capability_runtime(
         command: None,
         args: Vec::new(),
         env_keys: Vec::new(),
+        header_keys: Vec::new(),
         input_modes,
         output_modes,
         auth_schemes,
@@ -1861,6 +1874,7 @@ fn default_hermes_external_agent_runtime() -> NormalizedRuntime {
         command: None,
         args: Vec::new(),
         env_keys: Vec::new(),
+        header_keys: Vec::new(),
         input_modes: Vec::new(),
         output_modes: Vec::new(),
         auth_schemes: Vec::new(),
@@ -2519,7 +2533,11 @@ mod tests {
             search_runtime.endpoint.as_deref(),
             Some("https://example.invalid/mcp")
         );
-        assert_eq!(search_runtime.env_keys, vec!["Authorization".to_string()]);
+        assert!(search_runtime.env_keys.is_empty());
+        assert_eq!(
+            search_runtime.header_keys,
+            vec!["Authorization".to_string()]
+        );
         assert!(package.permissions.shell);
         assert!(package.permissions.network);
         assert!(package.permissions.secrets);

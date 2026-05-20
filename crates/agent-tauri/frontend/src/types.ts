@@ -670,6 +670,7 @@ export type AdapterCapabilityRuntime = {
   command?: string | null;
   args?: string[];
   env_keys?: string[];
+  header_keys?: string[];
   input_modes?: string[];
   output_modes?: string[];
   auth_schemes?: string[];

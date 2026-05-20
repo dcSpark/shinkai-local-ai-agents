@@ -4747,6 +4747,9 @@ fn adapter_runtime_summary(runtime: &NormalizedRuntime) -> String {
     if !runtime.env_keys.is_empty() {
         parts.push(format!("env_keys={}", runtime.env_keys.join(",")));
     }
+    if !runtime.header_keys.is_empty() {
+        parts.push(format!("header_keys={}", runtime.header_keys.join(",")));
+    }
     if !runtime.auth_schemes.is_empty() {
         parts.push(format!("auth_schemes={}", runtime.auth_schemes.join(",")));
     }

@@ -377,6 +377,10 @@ impl AdapterRegistry {
 
         let result = (|| {
             std::fs::create_dir_all(&staging_dir)?;
+            self.paths.ensure_quota_for_path_write(
+                &staged_source,
+                u64::try_from(body.len()).unwrap_or(u64::MAX),
+            )?;
             std::fs::write(&staged_source, body)?;
             let final_source = source_dir.join("mcp.json");
             let mut package = inspect_source(&staged_source)?;

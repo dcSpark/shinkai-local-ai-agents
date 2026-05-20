@@ -102,6 +102,13 @@ interface RemoteRunStart {
   active: boolean;
 }
 
+interface RemoteResumeStart extends RemoteRunStart {
+  source_run_id: string;
+  resumed_run_id?: string | null;
+  from_event: number;
+  retained_compaction?: string | null;
+}
+
 interface RemoteRunStatus {
   run_id: string;
   status: "running" | "completed" | "failed" | "cancelled" | "paused" | "unknown";
@@ -4448,20 +4455,29 @@ export default function App() {
     runStartedAtRef.current = performance.now();
     appendEvent(`Resuming ${sourceRunId}`);
     try {
-      const result =
-        transport === "daemon"
-          ? await daemonJson<ResumeResult>("/resume", {
-              run_id: sourceRunId,
-              from_event: null,
-              demo,
-              ...runtimeOptions(),
-            })
-          : await invoke<ResumeResult>("resume_run", {
-              runId: sourceRunId,
-              fromEvent: null,
-              demo,
-              options: runtimeOptions(),
-            });
+      if (transport === "daemon") {
+        const started = await daemonJson<RemoteResumeStart>("/resume/start", {
+          run_id: sourceRunId,
+          from_event: null,
+          demo,
+          ...runtimeOptions(),
+        });
+        const resumedRunId = started.resumed_run_id ?? started.run_id;
+        setLastRunId(resumedRunId);
+        rootRunIdRef.current = resumedRunId;
+        appendEvent(
+          `Remote resume started: ${sourceRunId} -> ${resumedRunId}` +
+            (started.retained_compaction ? ` (retained ${started.retained_compaction})` : ""),
+        );
+        await pollRemoteRun(resumedRunId);
+        return;
+      }
+      const result = await invoke<ResumeResult>("resume_run", {
+        runId: sourceRunId,
+        fromEvent: null,
+        demo,
+        options: runtimeOptions(),
+      });
       setLastRunId(result.resumed_run_id);
       rootRunIdRef.current = result.resumed_run_id;
       if (!terminalEventSeenRef.current) {

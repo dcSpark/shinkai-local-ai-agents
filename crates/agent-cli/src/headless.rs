@@ -2663,8 +2663,13 @@ pub async fn memory_backends(json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn memory_classify(id: String, model: Option<String>, apply: bool) -> anyhow::Result<()> {
-    let model = memory_classification_model(model)?;
+pub async fn memory_classify(
+    id: String,
+    model: Option<String>,
+    agent: Option<String>,
+    apply: bool,
+) -> anyhow::Result<()> {
+    let model = memory_classification_model(model, agent.as_deref())?;
     let store = MemoryStore::from_env();
     let record = store.get(&id)?;
     let provider = ingestion_provider_for_model(&model, Some(256), Some(0.0))?;
@@ -2941,6 +2946,7 @@ pub async fn agent_save(
     tool_visibility: Option<VisibilityLevel>,
     load_memory: bool,
     memory_backend: Option<String>,
+    memory_model: Option<String>,
     load_skills: bool,
     ingestion_guardrail: Option<IngestionGuardrailMode>,
     ingestion_guardrail_model: Option<String>,
@@ -2978,6 +2984,7 @@ pub async fn agent_save(
         tool_visibility,
         load_memory,
         memory_backend,
+        memory_model,
         load_skills,
         ingestion_guardrail,
         ingestion_guardrail_model,
@@ -3058,6 +3065,7 @@ fn agent_config_from_parts(
     tool_visibility: Option<VisibilityLevel>,
     load_memory: bool,
     memory_backend: Option<String>,
+    memory_model: Option<String>,
     load_skills: bool,
     ingestion_guardrail: Option<IngestionGuardrailMode>,
     ingestion_guardrail_model: Option<String>,
@@ -3108,6 +3116,7 @@ fn agent_config_from_parts(
         skill_visibility,
         load_memory: load_memory.then_some(true),
         memory_backend: clean_optional_string(memory_backend),
+        memory_model: clean_optional_string(memory_model),
         load_skills: load_skills.then_some(true),
         max_tokens_before_compaction,
         max_compaction_output_tokens,
@@ -3962,8 +3971,12 @@ fn configured_ingestion_guardrail_model() -> Option<String> {
         .filter(|value| !value.trim().is_empty())
 }
 
-fn memory_classification_model(model: Option<String>) -> anyhow::Result<String> {
+fn memory_classification_model(
+    model: Option<String>,
+    agent_id: Option<&str>,
+) -> anyhow::Result<String> {
     clean_optional_string(model)
+        .or_else(|| configured_agent_memory_model(agent_id))
         .or_else(|| {
             std::env::var("AGENT_MEMORY_CLASSIFICATION_MODEL")
                 .ok()
@@ -3974,6 +3987,14 @@ fn memory_classification_model(model: Option<String>) -> anyhow::Result<String> 
                 "memory classification requires a model or AGENT_MEMORY_CLASSIFICATION_MODEL"
             )
         })
+}
+
+fn configured_agent_memory_model(agent_id: Option<&str>) -> Option<String> {
+    let agent_id = agent_id.map(str::trim).filter(|id| !id.is_empty())?;
+    ConfigResolver::from_env()
+        .resolve_agent(agent_id)
+        .ok()
+        .and_then(|resolved| resolved.agent.memory_model.map(|model| model.0))
 }
 
 async fn classify_memory_with_provider(
@@ -4946,11 +4967,12 @@ pub async fn remote_memory_classify(
     url: String,
     id: String,
     model: Option<String>,
+    agent: Option<String>,
     apply: bool,
 ) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).post_json(
         "/memory/classify",
-        serde_json::json!({ "id": id, "model": model, "apply": apply }),
+        serde_json::json!({ "id": id, "model": model, "agent_id": agent, "apply": apply }),
     )?)
 }
 
@@ -5197,6 +5219,7 @@ pub async fn remote_agent_save(
     tool_visibility: Option<VisibilityLevel>,
     load_memory: bool,
     memory_backend: Option<String>,
+    memory_model: Option<String>,
     load_skills: bool,
     ingestion_guardrail: Option<IngestionGuardrailMode>,
     ingestion_guardrail_model: Option<String>,
@@ -5234,6 +5257,7 @@ pub async fn remote_agent_save(
         tool_visibility,
         load_memory,
         memory_backend,
+        memory_model,
         load_skills,
         ingestion_guardrail,
         ingestion_guardrail_model,
@@ -6466,6 +6490,7 @@ mod slash_tests {
             None,
             false,
             Some("local-markdown-v0".into()),
+            Some("memory-classifier".into()),
             false,
             None,
             None,
@@ -6481,6 +6506,7 @@ mod slash_tests {
         assert_eq!(agent.max_compaction_output_tokens, Some(48));
         assert_eq!(agent.compaction_guidance.as_deref(), Some("keep decisions"));
         assert_eq!(agent.memory_backend.as_deref(), Some("local-markdown-v0"));
+        assert_eq!(agent.memory_model.as_deref(), Some("memory-classifier"));
     }
 
     #[test]
@@ -6512,6 +6538,7 @@ mod slash_tests {
             vec!["echo=name_and_description".into()],
             None,
             false,
+            None,
             None,
             false,
             None,
@@ -6561,6 +6588,7 @@ mod slash_tests {
             Vec::new(),
             None,
             false,
+            None,
             None,
             false,
             None,

@@ -583,6 +583,7 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
             conversation_history: Vec::new(),
             compacted_context: None,
             memory_backend: agent_core::DEFAULT_MEMORY_BACKEND_ID.into(),
+            memory_model: None,
             memory_fragments: Vec::new(),
             ingestion_artifacts: Vec::new(),
             allowed_skill_categories: Vec::new(),
@@ -2543,9 +2544,10 @@ async fn memory_generate_conversation(
 async fn memory_classify(
     id: String,
     model: Option<String>,
+    agent_id: Option<String>,
     apply: Option<bool>,
 ) -> Result<serde_json::Value, String> {
-    let model = memory_classification_model(model)?;
+    let model = memory_classification_model(model, agent_id.as_deref())?;
     let store = MemoryStore::from_env();
     let record = store.get(&id).map_err(|e| e.to_string())?;
     let provider =
@@ -3254,8 +3256,12 @@ fn configured_ingestion_guardrail_model() -> Option<String> {
         .filter(|value| !value.trim().is_empty())
 }
 
-fn memory_classification_model(model: Option<String>) -> Result<String, String> {
+fn memory_classification_model(
+    model: Option<String>,
+    agent_id: Option<&str>,
+) -> Result<String, String> {
     clean_optional_string(model)
+        .or_else(|| configured_agent_memory_model(agent_id))
         .or_else(|| {
             std::env::var("AGENT_MEMORY_CLASSIFICATION_MODEL")
                 .ok()
@@ -3265,6 +3271,14 @@ fn memory_classification_model(model: Option<String>) -> Result<String, String> 
             "memory classification requires a model or AGENT_MEMORY_CLASSIFICATION_MODEL"
                 .to_string()
         })
+}
+
+fn configured_agent_memory_model(agent_id: Option<&str>) -> Option<String> {
+    let agent_id = agent_id.map(str::trim).filter(|id| !id.is_empty())?;
+    ConfigResolver::from_env()
+        .resolve_agent(agent_id)
+        .ok()
+        .and_then(|resolved| resolved.agent.memory_model.map(|model| model.0))
 }
 
 async fn classify_memory_with_provider(

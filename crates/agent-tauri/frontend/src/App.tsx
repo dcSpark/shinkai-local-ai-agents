@@ -4997,17 +4997,20 @@ export default function App() {
     const id = requireOpsId("Memory classify");
     if (!id) return;
     const model = memoryClassificationModel.trim() || null;
+    const policyAgentId = agentId.trim() || null;
     try {
       const result =
         transport === "daemon"
           ? await daemonJson<MemoryClassifyResult>("/memory/classify", {
               id,
               model,
+              agent_id: policyAgentId,
               apply: true,
             })
           : await invoke<MemoryClassifyResult>("memory_classify", {
               id,
               model,
+              agentId: policyAgentId,
               apply: true,
             });
       const record = result.record;

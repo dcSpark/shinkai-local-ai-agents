@@ -90,6 +90,8 @@ struct PolicyLayerToml {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     memory_backend: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    memory_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     load_skills: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     max_tokens_before_compaction: Option<u32>,
@@ -259,6 +261,8 @@ pub struct AgentConfigFile {
     pub load_memory: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub memory_backend: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub load_skills: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1103,6 +1107,7 @@ impl Default for AgentToml {
                 skill_visibility: Some(default_skill_visibility()),
                 load_memory: None,
                 memory_backend: None,
+                memory_model: None,
                 load_skills: None,
                 max_tokens_before_compaction: None,
                 max_compaction_output_tokens: None,
@@ -1146,6 +1151,7 @@ impl From<AgentToml> for AgentConfigFile {
             skill_visibility: value.policy.skill_visibility,
             load_memory: value.policy.load_memory,
             memory_backend: value.policy.memory_backend,
+            memory_model: value.policy.memory_model,
             load_skills: value.policy.load_skills,
             max_tokens_before_compaction: value.policy.max_tokens_before_compaction,
             max_compaction_output_tokens: value.policy.max_compaction_output_tokens,
@@ -1188,6 +1194,7 @@ impl From<AgentConfigFile> for AgentToml {
                 skill_visibility: value.skill_visibility,
                 load_memory: value.load_memory,
                 memory_backend: value.memory_backend,
+                memory_model: value.memory_model,
                 load_skills: value.load_skills,
                 max_tokens_before_compaction: value.max_tokens_before_compaction,
                 max_compaction_output_tokens: value.max_compaction_output_tokens,
@@ -3660,6 +3667,18 @@ fn resolve_agent(
             (parsed.policy.memory_backend, source.clone()),
         ],
     );
+    let memory_model = resolve_layered(
+        None::<String>,
+        "default:memory model disabled".into(),
+        vec![
+            (global.policy.memory_model.map(Some), global_source.clone()),
+            (
+                profile.policy.memory_model.map(Some),
+                profile_source.clone(),
+            ),
+            (parsed.policy.memory_model.map(Some), source.clone()),
+        ],
+    );
     let load_skills = resolve_layered(
         false,
         "default:skill loading off".into(),
@@ -4075,6 +4094,7 @@ fn resolve_agent(
         conversation_history: Vec::new(),
         compacted_context: None,
         memory_backend: memory_backend.value.clone(),
+        memory_model: memory_model.value.clone().map(ModelRef::from),
         memory_fragments: Vec::new(),
         ingestion_artifacts: Vec::new(),
         allowed_skill_categories: allowed_skill_categories.value.clone(),
@@ -4277,6 +4297,11 @@ fn resolve_agent(
             "agent.memory_policy.backend",
             memory_backend.value,
             &memory_backend.source,
+        ),
+        config_value(
+            "agent.memory_policy.model",
+            memory_model.value,
+            &memory_model.source,
         ),
         config_value(
             "agent.skill_policy.load",
@@ -4727,6 +4752,9 @@ fn validate_agent_config(agent: &AgentConfigFile) -> Result<(), ConfigError> {
     if let Some(model) = &agent.tool_output_interpretation_model {
         validate_model_id(model)?;
     }
+    if let Some(model) = &agent.memory_model {
+        validate_model_id(model)?;
+    }
     if let Some(memory_backend) = &agent.memory_backend {
         if memory_backend.trim().is_empty() {
             return Err(ConfigError::InvalidInput(
@@ -5078,6 +5106,7 @@ system_prompt = "Review carefully."
             skill_visibility: Some(VisibilityLevel::NameAndDescription),
             load_memory: Some(true),
             memory_backend: Some("local-markdown-v0".into()),
+            memory_model: Some("memory-classifier".into()),
             load_skills: Some(true),
             max_tokens_before_compaction: Some(256),
             max_compaction_output_tokens: Some(96),
@@ -5126,9 +5155,21 @@ system_prompt = "Review carefully."
             Some(&VisibilityLevel::NameOnly)
         );
         assert_eq!(resolved.agent.memory_backend, "local-markdown-v0");
+        assert_eq!(
+            resolved
+                .agent
+                .memory_model
+                .as_ref()
+                .map(|model| model.0.as_str()),
+            Some("memory-classifier")
+        );
         assert!(resolved.values.iter().any(|value| {
             value.key == "agent.memory_policy.backend"
                 && value.value == serde_json::json!("local-markdown-v0")
+        }));
+        assert!(resolved.values.iter().any(|value| {
+            value.key == "agent.memory_policy.model"
+                && value.value == serde_json::json!("memory-classifier")
         }));
         assert!(resolved.values.iter().any(|value| {
             value.key == "agent.hook_policy.disabled_lifecycle_hooks"

@@ -3695,7 +3695,7 @@ fn daemon_memory_generate_pending(body: &str) -> anyhow::Result<serde_json::Valu
 
 async fn daemon_memory_classify(body: &str) -> anyhow::Result<serde_json::Value> {
     let input: MemoryClassifyInput = serde_json::from_str(body)?;
-    let model = memory_classification_model(input.model)?;
+    let model = memory_classification_model(input.model, input.agent_id.as_deref())?;
     let store = MemoryStore::from_env();
     let record = store.get(&input.id)?;
     let provider = ingestion_provider_for_model(&model, Some(256), Some(0.0))?;
@@ -3747,8 +3747,12 @@ async fn classify_memory_with_provider(
     Ok(output)
 }
 
-fn memory_classification_model(model: Option<String>) -> anyhow::Result<String> {
+fn memory_classification_model(
+    model: Option<String>,
+    agent_id: Option<&str>,
+) -> anyhow::Result<String> {
     clean_optional_string(model)
+        .or_else(|| configured_agent_memory_model(agent_id))
         .or_else(|| {
             std::env::var("AGENT_MEMORY_CLASSIFICATION_MODEL")
                 .ok()
@@ -3759,6 +3763,14 @@ fn memory_classification_model(model: Option<String>) -> anyhow::Result<String> 
                 "memory classification requires a model or AGENT_MEMORY_CLASSIFICATION_MODEL"
             )
         })
+}
+
+fn configured_agent_memory_model(agent_id: Option<&str>) -> Option<String> {
+    let agent_id = agent_id.map(str::trim).filter(|id| !id.is_empty())?;
+    ConfigResolver::from_env()
+        .resolve_agent(agent_id)
+        .ok()
+        .and_then(|resolved| resolved.agent.memory_model.map(|model| model.0))
 }
 
 fn generate_pending_memories_once(
@@ -5134,6 +5146,8 @@ struct MemoryGeneratePendingInput {
 struct MemoryClassifyInput {
     id: String,
     model: Option<String>,
+    #[serde(default)]
+    agent_id: Option<String>,
     #[serde(default = "default_true")]
     apply: bool,
 }
@@ -5619,6 +5633,7 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
             conversation_history: Vec::new(),
             compacted_context: None,
             memory_backend: agent_core::DEFAULT_MEMORY_BACKEND_ID.into(),
+            memory_model: None,
             memory_fragments: Vec::new(),
             ingestion_artifacts: Vec::new(),
             allowed_skill_categories: Vec::new(),
@@ -6712,6 +6727,37 @@ mod tests {
         assert!(updated.topics.iter().any(|topic| topic == "planning"));
         assert!(updated.topics.iter().any(|topic| topic == "research"));
         assert_eq!(updated.classification.tasks, vec!["review".to_string()]);
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn memory_classification_model_uses_agent_policy_after_explicit_model() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("memory-classifier-policy");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+        ConfigResolver::from_env()
+            .save_agent_config(&AgentConfigFile {
+                id: "critic".into(),
+                name: "Critic".into(),
+                system_prompt: "Classify carefully.".into(),
+                memory_model: Some("memory-classifier".into()),
+                ..AgentConfigFile::default()
+            })
+            .unwrap();
+
+        assert_eq!(
+            memory_classification_model(Some("explicit-model".into()), Some("critic")).unwrap(),
+            "explicit-model"
+        );
+        assert_eq!(
+            memory_classification_model(None, Some("critic")).unwrap(),
+            "memory-classifier"
+        );
 
         restore_env("AGENT_HARNESS_HOME", previous_home);
         let _ = std::fs::remove_dir_all(dir);

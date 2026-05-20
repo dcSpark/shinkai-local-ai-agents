@@ -768,9 +768,13 @@ enum MemoryCommand {
     Classify {
         id: String,
 
-        /// Saved model id. Falls back to AGENT_MEMORY_CLASSIFICATION_MODEL.
+        /// Saved model id. Falls back to --agent memory policy, then AGENT_MEMORY_CLASSIFICATION_MODEL.
         #[arg(long)]
         model: Option<String>,
+
+        /// Agent id whose memory model policy is used when --model is omitted.
+        #[arg(long)]
+        agent: Option<String>,
 
         /// Return model classification without updating the memory record.
         #[arg(long = "no-apply")]
@@ -970,6 +974,9 @@ enum AgentCommand {
         /// Memory backend id for this agent. Defaults to the built-in local markdown backend.
         #[arg(long = "memory-backend")]
         memory_backend: Option<String>,
+        /// Saved model id used by memory operations such as classification.
+        #[arg(long = "memory-model")]
+        memory_model: Option<String>,
         /// Load allowed skills into context for this agent by default.
         #[arg(long = "load-skills")]
         load_skills: bool,
@@ -2611,8 +2618,12 @@ enum RemoteMemoryCommand {
     },
     Classify {
         id: String,
+        /// Saved model id. Falls back to --agent memory policy, then AGENT_MEMORY_CLASSIFICATION_MODEL.
         #[arg(long)]
         model: Option<String>,
+        /// Agent id whose memory model policy is used when --model is omitted.
+        #[arg(long)]
+        agent: Option<String>,
         #[arg(long = "no-apply")]
         no_apply: bool,
     },
@@ -2797,6 +2808,8 @@ enum RemoteAgentCommand {
         load_memory: bool,
         #[arg(long = "memory-backend")]
         memory_backend: Option<String>,
+        #[arg(long = "memory-model")]
+        memory_model: Option<String>,
         #[arg(long = "load-skills")]
         load_skills: bool,
         #[arg(long = "ingest-guardrail", value_enum)]
@@ -3406,6 +3419,8 @@ mod cli_parse_tests {
             "--load-memory",
             "--memory-backend",
             "local-markdown-v0",
+            "--memory-model",
+            "memory-classifier",
             "--load-skills",
             "--ingest-guardrail",
             "warn",
@@ -3447,6 +3462,7 @@ mod cli_parse_tests {
                     tool_visibility,
                     load_memory,
                     memory_backend,
+                    memory_model,
                     load_skills,
                     ingestion_guardrail,
                     ingestion_guardrail_model,
@@ -3503,6 +3519,7 @@ mod cli_parse_tests {
         assert!(matches!(tool_visibility, Some(ToolVisibility::NameOnly)));
         assert!(load_memory);
         assert_eq!(memory_backend.as_deref(), Some("local-markdown-v0"));
+        assert_eq!(memory_model.as_deref(), Some("memory-classifier"));
         assert!(load_skills);
         assert!(matches!(
             ingestion_guardrail,
@@ -3558,6 +3575,8 @@ mod cli_parse_tests {
             "--load-memory",
             "--memory-backend",
             "local-markdown-v0",
+            "--memory-model",
+            "memory-classifier",
             "--ingest-guardrail",
             "allow",
             "--ingest-guardrail-model",
@@ -3588,6 +3607,7 @@ mod cli_parse_tests {
                     tool_visibility_overrides,
                     load_memory,
                     memory_backend,
+                    memory_model,
                     ingestion_guardrail,
                     ingestion_guardrail_model,
                     refinement_instructions,
@@ -3622,6 +3642,7 @@ mod cli_parse_tests {
         assert_eq!(tool_visibility_overrides, vec!["echo=name-only"]);
         assert!(load_memory);
         assert_eq!(memory_backend.as_deref(), Some("local-markdown-v0"));
+        assert_eq!(memory_model.as_deref(), Some("memory-classifier"));
         assert!(matches!(
             ingestion_guardrail,
             Some(IngestionGuardrailArg::Allow)
@@ -4601,6 +4622,8 @@ mod cli_parse_tests {
             "mem-local",
             "--model",
             "classifier",
+            "--agent",
+            "critic",
             "--no-apply",
         ])
         .unwrap();
@@ -4609,6 +4632,7 @@ mod cli_parse_tests {
                 MemoryCommand::Classify {
                     id,
                     model,
+                    agent,
                     no_apply,
                 },
         } = into_command(cli)
@@ -4617,6 +4641,7 @@ mod cli_parse_tests {
         };
         assert_eq!(id, "mem-local");
         assert_eq!(model.as_deref(), Some("classifier"));
+        assert_eq!(agent.as_deref(), Some("critic"));
         assert!(no_apply);
 
         let cli = parse_cli([
@@ -4682,6 +4707,8 @@ mod cli_parse_tests {
             "mem-1",
             "--model",
             "classifier",
+            "--agent",
+            "critic",
             "--no-apply",
         ])
         .unwrap();
@@ -4690,6 +4717,7 @@ mod cli_parse_tests {
                 RemoteMemoryCommand::Classify {
                     id,
                     model,
+                    agent,
                     no_apply,
                 },
         } = into_remote_command(cli)
@@ -4698,6 +4726,7 @@ mod cli_parse_tests {
         };
         assert_eq!(id, "mem-1");
         assert_eq!(model.as_deref(), Some("classifier"));
+        assert_eq!(agent.as_deref(), Some("critic"));
         assert!(no_apply);
 
         let cli = parse_cli([
@@ -5454,8 +5483,9 @@ async fn main() -> anyhow::Result<()> {
             MemoryCommand::Classify {
                 id,
                 model,
+                agent,
                 no_apply,
-            } => headless::memory_classify(id, model, !no_apply).await,
+            } => headless::memory_classify(id, model, agent, !no_apply).await,
             MemoryCommand::Edit { id, content } => headless::memory_edit(id, content).await,
             MemoryCommand::Delete { id } => headless::memory_delete(id).await,
             MemoryCommand::Rollback { user } => headless::memory_rollback(user).await,
@@ -5520,6 +5550,7 @@ async fn main() -> anyhow::Result<()> {
                 tool_visibility,
                 load_memory,
                 memory_backend,
+                memory_model,
                 load_skills,
                 ingestion_guardrail,
                 ingestion_guardrail_model,
@@ -5557,6 +5588,7 @@ async fn main() -> anyhow::Result<()> {
                     tool_visibility.map(VisibilityLevel::from),
                     load_memory,
                     memory_backend,
+                    memory_model,
                     load_skills,
                     ingestion_guardrail.map(IngestionGuardrailMode::from),
                     ingestion_guardrail_model,
@@ -6150,8 +6182,9 @@ async fn main() -> anyhow::Result<()> {
                 RemoteMemoryCommand::Classify {
                     id,
                     model,
+                    agent,
                     no_apply,
-                } => headless::remote_memory_classify(url, id, model, !no_apply).await,
+                } => headless::remote_memory_classify(url, id, model, agent, !no_apply).await,
                 RemoteMemoryCommand::Edit { id, content } => {
                     headless::remote_memory_edit(url, id, content).await
                 }
@@ -6271,6 +6304,7 @@ async fn main() -> anyhow::Result<()> {
                     tool_visibility,
                     load_memory,
                     memory_backend,
+                    memory_model,
                     load_skills,
                     ingestion_guardrail,
                     ingestion_guardrail_model,
@@ -6309,6 +6343,7 @@ async fn main() -> anyhow::Result<()> {
                         tool_visibility.map(VisibilityLevel::from),
                         load_memory,
                         memory_backend,
+                        memory_model,
                         load_skills,
                         ingestion_guardrail.map(IngestionGuardrailMode::from),
                         ingestion_guardrail_model,

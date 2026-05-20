@@ -339,6 +339,7 @@ pub fn build_agent(options: &RuntimeOptions) -> AgentConfig {
             conversation_history: Vec::new(),
             compacted_context: None,
             memory_backend: agent_core::DEFAULT_MEMORY_BACKEND_ID.into(),
+            memory_model: None,
             memory_fragments: Vec::new(),
             ingestion_artifacts: Vec::new(),
             allowed_skill_categories: Vec::new(),

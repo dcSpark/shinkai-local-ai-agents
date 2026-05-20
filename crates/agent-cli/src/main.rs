@@ -978,7 +978,7 @@ enum AgentCommand {
         /// Allow the approval controller to approve one tool category. Repeat for multiple categories.
         #[arg(long = "approval-controller-tool-category")]
         approval_controller_allowed_tool_categories: Vec<String>,
-        /// Allow this agent to create quarantined tool, skill, or agent drafts.
+        /// Allow this agent to create quarantined tool, skill, agent, or subagent drafts.
         #[arg(long)]
         capability_drafts_enabled: Option<bool>,
         /// Guidance shown when this agent can create capability drafts.
@@ -1562,7 +1562,7 @@ enum SecretsCommand {
 enum CapabilityCommand {
     /// Propose a quarantined capability draft. Body is read from stdin when omitted.
     Propose {
-        /// Capability kind: tool, skill, or agent.
+        /// Capability kind: tool, skill, agent, or subagent.
         #[arg(long)]
         kind: String,
         /// Human-readable draft name.

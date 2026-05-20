@@ -750,7 +750,7 @@ export type AdapterDoctorReport = {
   errors?: string[];
 };
 
-export type CapabilityKind = "tool" | "skill" | "agent";
+export type CapabilityKind = "tool" | "skill" | "agent" | "subagent";
 export type CapabilityDraftStatus = "quarantined" | "allowed" | "rejected";
 
 export type CapabilityDraft = {

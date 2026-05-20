@@ -9583,6 +9583,7 @@ export default function App() {
                   <option value="skill">skill</option>
                   <option value="tool">tool</option>
                   <option value="agent">agent</option>
+                  <option value="subagent">subagent</option>
                 </select>
               </label>
               <div className="button-grid">

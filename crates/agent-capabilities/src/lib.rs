@@ -35,6 +35,7 @@ pub enum CapabilityError {
 pub enum CapabilityKind {
     Tool,
     Skill,
+    #[serde(alias = "subagent")]
     Agent,
 }
 
@@ -256,8 +257,9 @@ impl CapabilityDraftTool {
         ToolDescriptor {
             id: ToolId::from("capability_draft"),
             name: "Capability Draft".into(),
-            description: "Creates a quarantined tool, skill, or agent draft for human review."
-                .into(),
+            description:
+                "Creates a quarantined tool, skill, agent, or subagent draft for human review."
+                    .into(),
             categories: vec!["agent".into(), "capability".into(), "draft".into()],
             input_schema: json!({
                 "type": "object",
@@ -265,8 +267,8 @@ impl CapabilityDraftTool {
                 "properties": {
                     "kind": {
                         "type": "string",
-                        "enum": ["tool", "skill", "agent"],
-                        "description": "Capability type to draft."
+                        "enum": ["tool", "skill", "agent", "subagent"],
+                        "description": "Capability type to draft. Subagent drafts are reviewed and saved as agent configs."
                     },
                     "name": {
                         "type": "string",
@@ -475,6 +477,50 @@ mod tests {
             Some("Review before enabling.")
         );
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn subagent_kind_alias_imports_as_agent() {
+        let path = std::env::temp_dir().join(format!(
+            "agent-capabilities-subagent-alias-{}-{}.json",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        std::fs::write(
+            &path,
+            r#"{
+              "id": "review-subagent",
+              "kind": "subagent",
+              "name": "Review Subagent",
+              "body": "Check the answer for gaps.",
+              "created_by": "agent",
+              "created_at": "2026-05-20T00:00:00Z",
+              "updated_at": "2026-05-20T00:00:00Z",
+              "status": "allowed",
+              "provenance": "portable:test"
+            }"#,
+        )
+        .unwrap();
+
+        let imported = temp_store("subagent-import").import(&path).unwrap();
+
+        assert_eq!(
+            CapabilityKind::parse("subagent").unwrap(),
+            CapabilityKind::Agent
+        );
+        assert_eq!(imported.kind, CapabilityKind::Agent);
+        assert_eq!(imported.status, CapabilityDraftStatus::Quarantined);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn draft_tool_schema_advertises_subagent_alias() {
+        let descriptor = CapabilityDraftTool::descriptor();
+        let kinds = descriptor.input_schema["properties"]["kind"]["enum"]
+            .as_array()
+            .expect("kind enum should be an array");
+
+        assert!(kinds.contains(&json!("subagent")));
     }
 
     #[test]

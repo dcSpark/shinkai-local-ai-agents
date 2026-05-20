@@ -572,7 +572,7 @@ pub struct ToolPolicy {
     pub approval_mode: ApprovalMode,
     /// Optional delegated controller agent allowed to approve scoped tool calls.
     pub approval_controller: Option<ApprovalControllerPolicy>,
-    /// Whether agents may create quarantined tool, skill, or agent drafts.
+    /// Whether agents may create quarantined tool, skill, agent, or subagent drafts.
     pub capability_drafts_enabled: bool,
     /// Optional guidance shown to agents when capability drafting is enabled.
     pub capability_draft_guidance: Option<String>,

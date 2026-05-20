@@ -693,6 +693,58 @@ export type AdapterPackage = {
   provenance?: string | null;
 };
 
+export type AdapterDoctorStatus = "ok" | "warning" | "error";
+export type AdapterCapabilitySupport =
+  | "executable"
+  | "metadata_only"
+  | "unsupported";
+
+export type AdapterDoctorCapabilityReport = {
+  id: string;
+  kind: string;
+  name: string;
+  quarantined: boolean;
+  support: AdapterCapabilitySupport;
+  runtime?: AdapterCapabilityRuntime | null;
+  notes?: string[];
+};
+
+export type AdapterDoctorPackageReport = {
+  id: string;
+  adapter: string;
+  quarantined: boolean;
+  status: AdapterDoctorStatus;
+  capability_count: number;
+  ready_capability_count: number;
+  executable_capability_count: number;
+  metadata_only_capability_count: number;
+  unsupported_capability_count: number;
+  secret_requirement_count: number;
+  finding_count: number;
+  high_risk_finding_count: number;
+  capabilities: AdapterDoctorCapabilityReport[];
+  warnings?: string[];
+  errors?: string[];
+};
+
+export type AdapterDoctorReport = {
+  status: AdapterDoctorStatus;
+  package_count: number;
+  allowed_package_count: number;
+  quarantined_package_count: number;
+  capability_count: number;
+  ready_capability_count: number;
+  executable_capability_count: number;
+  metadata_only_capability_count: number;
+  unsupported_capability_count: number;
+  secret_requirement_count: number;
+  finding_count: number;
+  high_risk_finding_count: number;
+  packages: AdapterDoctorPackageReport[];
+  warnings?: string[];
+  errors?: string[];
+};
+
 export type CapabilityKind = "tool" | "skill" | "agent";
 export type CapabilityDraftStatus = "quarantined" | "allowed" | "rejected";
 

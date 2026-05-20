@@ -5534,6 +5534,7 @@ fn handle_adapters_slash(app: &mut App, rest: &str) {
             kind: LineKind::Assistant,
             text: [
                 "/adapters list",
+                "/adapters doctor",
                 "/adapters show <id>",
                 "/adapters import-manifest <path>",
                 "/adapters export <id> <path>",
@@ -5566,6 +5567,20 @@ fn handle_adapters_slash(app: &mut App, rest: &str) {
             Err(err) => app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
                 text: format!("Adapter list failed: {err}"),
+            }),
+        },
+        "doctor" => match AdapterRegistry::from_env().doctor_report() {
+            Ok(report) => {
+                push_event(app, format!("Adapter doctor status {:?}.", report.status));
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&report)
+                        .unwrap_or_else(|_| "<unserializable adapter doctor report>".into()),
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Adapter doctor failed: {err}"),
             }),
         },
         "show" => match first_adapter_arg(args, "show") {
@@ -5637,7 +5652,7 @@ fn handle_adapters_slash(app: &mut App, rest: &str) {
         "allow" => handle_adapter_allow_slash(app, args),
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Adapters command needs list, show, import-manifest, export, quarantine, allow, or help.".into(),
+            text: "Adapters command needs list, doctor, show, import-manifest, export, quarantine, allow, or help.".into(),
         }),
     }
 }
@@ -7512,6 +7527,7 @@ mod tests {
             adapters_slash_rest("/adapters show adapter-1"),
             Some("show adapter-1")
         );
+        assert_eq!(adapters_slash_rest("/adapters doctor"), Some("doctor"));
         assert_eq!(adapters_slash_rest("/adapters"), Some(""));
         assert_eq!(adapters_slash_rest("/adapter"), None);
         assert_eq!(compact_slash_rest("/compact keep"), Some("keep"));

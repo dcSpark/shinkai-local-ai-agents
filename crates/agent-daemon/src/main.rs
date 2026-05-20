@@ -416,6 +416,7 @@ async fn route(
             .map(|value| (200, value)),
         ("GET", "/artifacts") => daemon_artifact_list().map(|value| (200, value)),
         ("GET", "/adapters") => daemon_adapter_list().map(|value| (200, value)),
+        ("GET", "/adapters/doctor") => daemon_adapter_doctor().map(|value| (200, value)),
         ("POST", "/adapters/import") => {
             daemon_adapter_import(&request.body).map(|value| (200, value))
         }
@@ -807,6 +808,7 @@ async fn route(
                     "POST /artifacts/<id>/open",
                     "POST /artifacts/<id>/delete",
                     "GET /adapters",
+                    "GET /adapters/doctor",
                     "POST /adapters/import",
                     "POST /adapters/import-manifest",
                     "POST /adapters/clawhub/search",
@@ -4928,6 +4930,12 @@ fn ingestion_completed_event(artifact: &IngestionArtifact) -> RunEventKind {
 
 fn daemon_adapter_list() -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(AdapterRegistry::from_env().list()?)?)
+}
+
+fn daemon_adapter_doctor() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(
+        AdapterRegistry::from_env().doctor_report()?,
+    )?)
 }
 
 fn daemon_adapter_import(body: &str) -> anyhow::Result<serde_json::Value> {

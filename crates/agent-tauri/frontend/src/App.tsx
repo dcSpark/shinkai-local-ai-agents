@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
   AdapterCapabilityRuntime,
+  AdapterDoctorReport,
   AdapterPackage,
   AgentConfigFile,
   AgentSummary,
@@ -458,6 +459,8 @@ export default function App() {
   const [agentConfigs, setAgentConfigs] = useState<AgentConfigEntry[]>([]);
   const [capabilityDrafts, setCapabilityDrafts] = useState<CapabilityDraft[]>([]);
   const [adapterPackages, setAdapterPackages] = useState<AdapterPackage[]>([]);
+  const [adapterDoctorReport, setAdapterDoctorReport] =
+    useState<AdapterDoctorReport | null>(null);
   const [activeSection, setActiveSection] = useState<ActiveSection>("chat");
   const [approvals, setApprovals] = useState<ApprovalRecord[]>([]);
   const [approvalUnlock, setApprovalUnlock] = useState("");
@@ -1273,6 +1276,7 @@ export default function App() {
       { command: "/artifacts", label: "List generated artifacts" },
       { command: "/skills", label: "List imported skills" },
       { command: "/adapters", label: "List adapter manifests" },
+      { command: "/adapters doctor", label: "Check adapter operability" },
       { command: "/trace", label: "Load last run trace" },
       { command: "/approvals", label: "Review current run approvals" },
       { command: "/batch ", label: "Run lines as deterministic batch" },
@@ -2845,6 +2849,14 @@ export default function App() {
       setActiveSection("adapters");
       appendLine("user", "/adapters");
       await reviewAdapters();
+      return;
+    }
+
+    if (prompt === "/adapters doctor") {
+      setInput("");
+      setActiveSection("adapters");
+      appendLine("user", "/adapters doctor");
+      await adapterDoctorFromOps();
       return;
     }
 
@@ -4919,6 +4931,20 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Adapter review failed: ${msg}`);
+    }
+  }
+
+  async function adapterDoctorFromOps() {
+    try {
+      const report =
+        transport === "daemon"
+          ? await daemonJson<AdapterDoctorReport>("/adapters/doctor")
+          : await invoke<AdapterDoctorReport>("adapter_doctor");
+      setAdapterDoctorReport(report);
+      appendJson("Adapter doctor", report);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Adapter doctor failed: ${msg}`);
     }
   }
 
@@ -10340,6 +10366,14 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  title="Summarize adapter review and runtime operability status."
+                  onClick={() => void adapterDoctorFromOps()}
+                  disabled={running}
+                >
+                  Doctor
+                </button>
+                <button
+                  type="button"
                   title="Import adapter manifest or package path from Value."
                   onClick={() => void importAdapterFromOps()}
                   disabled={running || !opsValue.trim()}
@@ -10387,6 +10421,63 @@ export default function App() {
                   Block Adapter
                 </button>
               </div>
+              {adapterDoctorReport ? (
+                <div className="bundle-card">
+                  <div className="bundle-card-head">
+                    <strong>Adapter doctor {adapterDoctorReport.status}</strong>
+                    <span>
+                      {adapterDoctorReport.ready_capability_count}/
+                      {adapterDoctorReport.executable_capability_count} executable ready
+                    </span>
+                  </div>
+                  <span>
+                    {adapterDoctorReport.package_count} packages /{" "}
+                    {adapterDoctorReport.quarantined_package_count} quarantined /{" "}
+                    {adapterDoctorReport.unsupported_capability_count} unsupported
+                  </span>
+                  <span>
+                    {adapterDoctorReport.secret_requirement_count} secrets /{" "}
+                    {adapterDoctorReport.high_risk_finding_count} high-risk findings
+                  </span>
+                  {adapterDoctorReport.errors?.length ? (
+                    <div className="finding-list">
+                      {adapterDoctorReport.errors.slice(0, 4).map((error) => (
+                        <span className="finding high" key={error}>
+                          {error}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {adapterDoctorReport.warnings?.length ? (
+                    <div className="finding-list">
+                      {adapterDoctorReport.warnings.slice(0, 4).map((warning) => (
+                        <span className="finding warning" key={warning}>
+                          {warning}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {adapterDoctorReport.packages.length ? (
+                    <div className="finding-list">
+                      {adapterDoctorReport.packages.map((pkg) => (
+                        <span
+                          className={`finding ${
+                            pkg.status === "error"
+                              ? "high"
+                              : pkg.status === "warning"
+                                ? "warning"
+                                : "none"
+                          }`}
+                          key={`adapter-doctor:${pkg.id}`}
+                        >
+                          {pkg.id}: {pkg.ready_capability_count} ready /{" "}
+                          {pkg.unsupported_capability_count} unsupported
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               {adapterPackages.length ? (
                 <div className="ingestion-review">
                   {adapterPackages.map((adapterPackage) => {

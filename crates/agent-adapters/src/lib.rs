@@ -219,6 +219,77 @@ pub enum FindingSeverity {
     High,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AdapterDoctorStatus {
+    Ok,
+    Warning,
+    Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AdapterCapabilitySupport {
+    Executable,
+    MetadataOnly,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdapterDoctorCapabilityReport {
+    pub id: String,
+    pub kind: CapabilityKind,
+    pub name: String,
+    pub quarantined: bool,
+    pub support: AdapterCapabilitySupport,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<NormalizedRuntime>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdapterDoctorPackageReport {
+    pub id: String,
+    pub adapter: AdapterKind,
+    pub quarantined: bool,
+    pub status: AdapterDoctorStatus,
+    pub capability_count: usize,
+    pub ready_capability_count: usize,
+    pub executable_capability_count: usize,
+    pub metadata_only_capability_count: usize,
+    pub unsupported_capability_count: usize,
+    pub secret_requirement_count: usize,
+    pub finding_count: usize,
+    pub high_risk_finding_count: usize,
+    pub capabilities: Vec<AdapterDoctorCapabilityReport>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdapterDoctorReport {
+    pub status: AdapterDoctorStatus,
+    pub package_count: usize,
+    pub allowed_package_count: usize,
+    pub quarantined_package_count: usize,
+    pub capability_count: usize,
+    pub ready_capability_count: usize,
+    pub executable_capability_count: usize,
+    pub metadata_only_capability_count: usize,
+    pub unsupported_capability_count: usize,
+    pub secret_requirement_count: usize,
+    pub finding_count: usize,
+    pub high_risk_finding_count: usize,
+    pub packages: Vec<AdapterDoctorPackageReport>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub warnings: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<String>,
+}
+
 pub fn inspect_source(source: impl AsRef<Path>) -> Result<NormalizedPackage, AdapterError> {
     let source = source.as_ref();
     let bytes = read_for_digest(source)?;
@@ -326,6 +397,10 @@ impl AdapterRegistry {
         }
         packages.sort_by(|a, b| a.id.cmp(&b.id));
         Ok(packages)
+    }
+
+    pub fn doctor_report(&self) -> Result<AdapterDoctorReport, AdapterError> {
+        Ok(adapter_doctor_report_from_packages(self.list()?))
     }
 
     pub fn show(&self, id: &str) -> Result<NormalizedPackage, AdapterError> {
@@ -459,6 +534,330 @@ impl AdapterRegistry {
         validate_package_id(id)?;
         Ok(self.paths.adapters_dir().join(format!("{id}.json")))
     }
+}
+
+pub fn adapter_doctor_report_from_packages(
+    packages: Vec<NormalizedPackage>,
+) -> AdapterDoctorReport {
+    let package_reports = packages
+        .iter()
+        .map(adapter_doctor_package_report)
+        .collect::<Vec<_>>();
+    let allowed_package_count = packages
+        .iter()
+        .filter(|package| !package.quarantined)
+        .count();
+    let high_risk_finding_count = packages
+        .iter()
+        .map(|package| high_risk_finding_count(package))
+        .sum();
+    let errors = package_reports
+        .iter()
+        .flat_map(|package| {
+            package
+                .errors
+                .iter()
+                .map(|error| format!("{}: {error}", package.id))
+        })
+        .collect::<Vec<_>>();
+    let warnings = package_reports
+        .iter()
+        .flat_map(|package| {
+            package
+                .warnings
+                .iter()
+                .map(|warning| format!("{}: {warning}", package.id))
+        })
+        .collect::<Vec<_>>();
+    let status = if !errors.is_empty() {
+        AdapterDoctorStatus::Error
+    } else if !warnings.is_empty() {
+        AdapterDoctorStatus::Warning
+    } else {
+        AdapterDoctorStatus::Ok
+    };
+
+    AdapterDoctorReport {
+        status,
+        package_count: packages.len(),
+        allowed_package_count,
+        quarantined_package_count: packages.len().saturating_sub(allowed_package_count),
+        capability_count: package_reports
+            .iter()
+            .map(|package| package.capability_count)
+            .sum(),
+        ready_capability_count: package_reports
+            .iter()
+            .map(|package| package.ready_capability_count)
+            .sum(),
+        executable_capability_count: package_reports
+            .iter()
+            .map(|package| package.executable_capability_count)
+            .sum(),
+        metadata_only_capability_count: package_reports
+            .iter()
+            .map(|package| package.metadata_only_capability_count)
+            .sum(),
+        unsupported_capability_count: package_reports
+            .iter()
+            .map(|package| package.unsupported_capability_count)
+            .sum(),
+        secret_requirement_count: packages
+            .iter()
+            .map(|package| package.secret_requirements.len())
+            .sum(),
+        finding_count: packages.iter().map(|package| package.findings.len()).sum(),
+        high_risk_finding_count,
+        packages: package_reports,
+        warnings,
+        errors,
+    }
+}
+
+fn adapter_doctor_package_report(package: &NormalizedPackage) -> AdapterDoctorPackageReport {
+    let capabilities = package
+        .capabilities
+        .iter()
+        .map(|capability| adapter_doctor_capability_report(package, capability))
+        .collect::<Vec<_>>();
+    let mut warnings = Vec::new();
+    let mut errors = Vec::new();
+
+    if package.quarantined {
+        warnings.push("package is quarantined and will not register runtime capabilities".into());
+    }
+    if !package.secret_requirements.is_empty() {
+        warnings.push(format!(
+            "{} secret requirement(s) must be configured outside the manifest",
+            package.secret_requirements.len()
+        ));
+    }
+    for finding in &package.findings {
+        match finding.severity {
+            FindingSeverity::High => {
+                errors.push(format!(
+                    "high-risk static scan finding blocks allow: {}",
+                    finding.message
+                ));
+            }
+            FindingSeverity::Warning => {
+                warnings.push(format!("static scan warning: {}", finding.message));
+            }
+            FindingSeverity::Info => {}
+        }
+    }
+    if package.adapter == AdapterKind::Unknown {
+        warnings
+            .push("adapter kind is unknown; capabilities are metadata-only or unsupported".into());
+    }
+    for capability in capabilities
+        .iter()
+        .filter(|capability| capability.support == AdapterCapabilitySupport::Unsupported)
+    {
+        warnings.push(format!(
+            "capability {} is not executable by the current adapter runtime",
+            capability.id
+        ));
+    }
+
+    let executable_capability_count = capabilities
+        .iter()
+        .filter(|capability| capability.support == AdapterCapabilitySupport::Executable)
+        .count();
+    let metadata_only_capability_count = capabilities
+        .iter()
+        .filter(|capability| capability.support == AdapterCapabilitySupport::MetadataOnly)
+        .count();
+    let unsupported_capability_count = capabilities
+        .iter()
+        .filter(|capability| capability.support == AdapterCapabilitySupport::Unsupported)
+        .count();
+    let ready_capability_count = capabilities
+        .iter()
+        .filter(|capability| {
+            !package.quarantined
+                && !capability.quarantined
+                && capability.support == AdapterCapabilitySupport::Executable
+        })
+        .count();
+    let status = if !errors.is_empty() {
+        AdapterDoctorStatus::Error
+    } else if !warnings.is_empty() {
+        AdapterDoctorStatus::Warning
+    } else {
+        AdapterDoctorStatus::Ok
+    };
+
+    AdapterDoctorPackageReport {
+        id: package.id.clone(),
+        adapter: package.adapter,
+        quarantined: package.quarantined,
+        status,
+        capability_count: capabilities.len(),
+        ready_capability_count,
+        executable_capability_count,
+        metadata_only_capability_count,
+        unsupported_capability_count,
+        secret_requirement_count: package.secret_requirements.len(),
+        finding_count: package.findings.len(),
+        high_risk_finding_count: high_risk_finding_count(package),
+        capabilities,
+        warnings,
+        errors,
+    }
+}
+
+fn adapter_doctor_capability_report(
+    package: &NormalizedPackage,
+    capability: &NormalizedCapability,
+) -> AdapterDoctorCapabilityReport {
+    let (support, mut notes) = adapter_capability_support(package, capability);
+    if package.quarantined || capability.quarantined {
+        notes.push("quarantined: not registered until the package is allowed".into());
+    }
+    AdapterDoctorCapabilityReport {
+        id: capability.id.clone(),
+        kind: capability.kind,
+        name: capability.name.clone(),
+        quarantined: capability.quarantined,
+        support,
+        runtime: capability.runtime.clone(),
+        notes,
+    }
+}
+
+fn adapter_capability_support(
+    package: &NormalizedPackage,
+    capability: &NormalizedCapability,
+) -> (AdapterCapabilitySupport, Vec<String>) {
+    match capability.kind {
+        CapabilityKind::Tool if package.adapter == AdapterKind::Mcp => (
+            AdapterCapabilitySupport::Executable,
+            vec!["MCP tools register as approval-gated tools when allowed".into()],
+        ),
+        CapabilityKind::ExternalAgent => external_agent_capability_support(package, capability),
+        CapabilityKind::Hook => match capability.hook_handler.as_ref() {
+            Some(handler) if !handler.command.trim().is_empty() => (
+                AdapterCapabilitySupport::Executable,
+                vec!["lifecycle hook command can run through the harness hook policy".into()],
+            ),
+            _ => (
+                AdapterCapabilitySupport::MetadataOnly,
+                vec!["hook declaration has no executable handler command".into()],
+            ),
+        },
+        CapabilityKind::Skill => (
+            AdapterCapabilitySupport::MetadataOnly,
+            vec![
+                "skill content is reviewable metadata here; use the skill registry importer to load it into agent context"
+                    .into(),
+            ],
+        ),
+        CapabilityKind::SourceProvider => (
+            AdapterCapabilitySupport::MetadataOnly,
+            vec!["source-provider entries are catalog metadata, not runtime tools".into()],
+        ),
+        _ => (
+            AdapterCapabilitySupport::Unsupported,
+            vec![
+                "this adapter capability kind is not registered by the current runtime adapters"
+                    .into(),
+            ],
+        ),
+    }
+}
+
+fn external_agent_capability_support(
+    package: &NormalizedPackage,
+    capability: &NormalizedCapability,
+) -> (AdapterCapabilitySupport, Vec<String>) {
+    if !external_agent_adapter_supported(package) {
+        return (
+            AdapterCapabilitySupport::Unsupported,
+            vec![
+                "external-agent execution is only wired for A2A and Hermes external agents".into(),
+            ],
+        );
+    }
+    let Some(runtime) = capability.runtime.as_ref() else {
+        return (
+            AdapterCapabilitySupport::Unsupported,
+            vec!["external-agent capability has no runtime metadata".into()],
+        );
+    };
+    let Some(endpoint) = runtime.endpoint.as_deref().map(str::trim) else {
+        return (
+            AdapterCapabilitySupport::Unsupported,
+            vec!["external-agent runtime has no HTTP(S) endpoint".into()],
+        );
+    };
+    if !(endpoint.starts_with("http://") || endpoint.starts_with("https://")) {
+        return (
+            AdapterCapabilitySupport::Unsupported,
+            vec!["external-agent endpoint must use http:// or https://".into()],
+        );
+    }
+    if !external_agent_runtime_supported(runtime) {
+        return (
+            AdapterCapabilitySupport::Unsupported,
+            vec![format!(
+                "external-agent transport {} is not supported",
+                runtime.transport
+            )],
+        );
+    }
+    if package.adapter == AdapterKind::A2a || external_agent_transport_is_a2a(&runtime.transport) {
+        (
+            AdapterCapabilitySupport::Executable,
+            vec!["A2A JSON-RPC message/send execution is supported for HTTP(S) endpoints".into()],
+        )
+    } else {
+        (
+            AdapterCapabilitySupport::Executable,
+            vec!["HTTP JSON prompt relay is supported for Hermes external-agent endpoints".into()],
+        )
+    }
+}
+
+fn external_agent_adapter_supported(package: &NormalizedPackage) -> bool {
+    matches!(
+        package.adapter,
+        AdapterKind::A2a | AdapterKind::HermesPlugin | AdapterKind::HermesExternalAgent
+    )
+}
+
+fn external_agent_runtime_supported(runtime: &NormalizedRuntime) -> bool {
+    let transport = runtime.transport.to_ascii_lowercase();
+    let has_http_endpoint = runtime.endpoint.as_deref().is_some_and(|endpoint| {
+        endpoint.starts_with("http://") || endpoint.starts_with("https://")
+    });
+    if external_agent_transport_is_a2a(&transport) {
+        return has_http_endpoint;
+    }
+    has_http_endpoint
+        && transport
+            .split(|ch: char| !ch.is_ascii_alphanumeric())
+            .any(|part| {
+                matches!(
+                    part,
+                    "http" | "https" | "json" | "rest" | "webhook" | "unknown"
+                )
+            })
+}
+
+fn external_agent_transport_is_a2a(transport: &str) -> bool {
+    transport
+        .to_ascii_lowercase()
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .any(|part| part == "a2a")
+}
+
+fn high_risk_finding_count(package: &NormalizedPackage) -> usize {
+    package
+        .findings
+        .iter()
+        .filter(|finding| finding.severity == FindingSeverity::High)
+        .count()
 }
 
 fn quarantine_package(package: &mut NormalizedPackage) {
@@ -2291,6 +2690,113 @@ description: trailing metadata is not an env secret
         }));
         assert!(!package.findings.is_empty());
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn adapter_doctor_reports_quarantine_and_ready_runtime_counts() {
+        let dir = std::env::temp_dir().join(format!(
+            "adapter-doctor-ready-test-{}-{}",
+            std::process::id(),
+            uuid_like()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("mcp.json");
+        std::fs::write(
+            &source,
+            r#"{
+              "mcpServers": {
+                "search": { "url": "https://example.invalid/mcp" }
+              }
+            }"#,
+        )
+        .unwrap();
+        let registry = AdapterRegistry::new(StoragePaths::new(dir.join("home")));
+        let package = registry.import(&source).unwrap();
+
+        let quarantined = registry.doctor_report().unwrap();
+        assert_eq!(quarantined.status, AdapterDoctorStatus::Warning);
+        assert_eq!(quarantined.package_count, 1);
+        assert_eq!(quarantined.quarantined_package_count, 1);
+        assert_eq!(quarantined.executable_capability_count, 1);
+        assert_eq!(quarantined.ready_capability_count, 0);
+        assert_eq!(
+            quarantined.packages[0].capabilities[0].support,
+            AdapterCapabilitySupport::Executable
+        );
+
+        registry.allow(&package.id).unwrap();
+        let allowed = registry.doctor_report().unwrap();
+        assert_eq!(allowed.allowed_package_count, 1);
+        assert_eq!(allowed.ready_capability_count, 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn adapter_doctor_flags_unsupported_runtime_and_high_risk_findings() {
+        let report = adapter_doctor_report_from_packages(vec![
+            NormalizedPackage {
+                id: "hermes-tool".into(),
+                source: PathBuf::from("plugin.yaml"),
+                adapter: AdapterKind::HermesPlugin,
+                digest: "digest".into(),
+                quarantined: false,
+                capabilities: vec![NormalizedCapability {
+                    id: "web-search".into(),
+                    kind: CapabilityKind::Tool,
+                    name: "web search".into(),
+                    description: String::new(),
+                    quarantined: false,
+                    runtime: None,
+                    hook_triggers: Vec::new(),
+                    hook_handler: None,
+                }],
+                permissions: PermissionManifest::default(),
+                secret_requirements: Vec::new(),
+                findings: Vec::new(),
+                provenance: None,
+            },
+            NormalizedPackage {
+                id: "risky-skill".into(),
+                source: PathBuf::from("SKILL.md"),
+                adapter: AdapterKind::OpenClawAgentSkills,
+                digest: "digest".into(),
+                quarantined: true,
+                capabilities: vec![NormalizedCapability {
+                    id: "risky-skill".into(),
+                    kind: CapabilityKind::Skill,
+                    name: "Risky skill".into(),
+                    description: String::new(),
+                    quarantined: true,
+                    runtime: None,
+                    hook_triggers: Vec::new(),
+                    hook_handler: None,
+                }],
+                permissions: PermissionManifest::default(),
+                secret_requirements: Vec::new(),
+                findings: vec![StaticScanFinding {
+                    severity: FindingSeverity::High,
+                    message: "reads private keys".into(),
+                }],
+                provenance: None,
+            },
+        ]);
+
+        assert_eq!(report.status, AdapterDoctorStatus::Error);
+        assert_eq!(report.unsupported_capability_count, 1);
+        assert_eq!(report.metadata_only_capability_count, 1);
+        assert_eq!(report.high_risk_finding_count, 1);
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("web-search"))
+        );
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|error| error.contains("high-risk static scan finding"))
+        );
     }
 
     #[test]

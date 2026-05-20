@@ -8,7 +8,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use agent_adapters::{
-    AdapterRegistry, ClawHubProvider, NormalizedPackage, NormalizedRuntime, inspect_source,
+    AdapterDoctorReport, AdapterRegistry, ClawHubProvider, NormalizedPackage, NormalizedRuntime,
+    inspect_source,
 };
 use agent_api_client::DaemonHttpClient;
 use agent_batch::{BatchItemState, BatchPlan};
@@ -4501,6 +4502,63 @@ pub async fn adapter_list(json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn adapter_doctor(json: bool) -> anyhow::Result<()> {
+    let report = AdapterRegistry::from_env().doctor_report()?;
+    print_adapter_doctor_report(report, json)
+}
+
+fn print_adapter_doctor_report(report: AdapterDoctorReport, json: bool) -> anyhow::Result<()> {
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
+    println!(
+        "adapter_doctor status={:?} packages={} allowed={} quarantined={} ready_capabilities={} executable={} metadata_only={} unsupported={} secrets={} high_risk={}",
+        report.status,
+        report.package_count,
+        report.allowed_package_count,
+        report.quarantined_package_count,
+        report.ready_capability_count,
+        report.executable_capability_count,
+        report.metadata_only_capability_count,
+        report.unsupported_capability_count,
+        report.secret_requirement_count,
+        report.high_risk_finding_count
+    );
+    for error in &report.errors {
+        println!("error: {error}");
+    }
+    for warning in &report.warnings {
+        println!("warning: {warning}");
+    }
+    for package in &report.packages {
+        println!(
+            "- {} adapter={:?} status={:?} quarantined={} ready={} capabilities={} executable={} metadata_only={} unsupported={}",
+            package.id,
+            package.adapter,
+            package.status,
+            package.quarantined,
+            package.ready_capability_count,
+            package.capability_count,
+            package.executable_capability_count,
+            package.metadata_only_capability_count,
+            package.unsupported_capability_count
+        );
+        for capability in &package.capabilities {
+            let notes = if capability.notes.is_empty() {
+                String::new()
+            } else {
+                format!(" notes={}", capability.notes.join("; "))
+            };
+            println!(
+                "  - {} kind={:?} support={:?} quarantined={}{}",
+                capability.id, capability.kind, capability.support, capability.quarantined, notes
+            );
+        }
+    }
+    Ok(())
+}
+
 pub async fn adapter_show(id: String, json: bool) -> anyhow::Result<()> {
     let package = AdapterRegistry::from_env().show(&id)?;
     print_adapter_package(package, json)?;
@@ -5994,6 +6052,10 @@ pub async fn remote_artifact_delete(url: String, id: String) -> anyhow::Result<(
 
 pub async fn remote_adapter_list(url: String) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).get_json("/adapters")?)
+}
+
+pub async fn remote_adapter_doctor(url: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).get_json("/adapters/doctor")?)
 }
 
 pub async fn remote_adapter_import(url: String, path: String) -> anyhow::Result<()> {

@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-use agent_adapters::{AdapterRegistry, NormalizedPackage, inspect_source};
+use agent_adapters::{AdapterDoctorReport, AdapterRegistry, NormalizedPackage, inspect_source};
 use agent_batch::{BatchItemState, BatchPlan};
 use agent_bundles::{BundleManifest, export_bundle, import_bundle};
 use agent_capabilities::{
@@ -3544,6 +3544,13 @@ async fn adapter_list() -> Result<Vec<NormalizedPackage>, String> {
 }
 
 #[tauri::command]
+async fn adapter_doctor() -> Result<AdapterDoctorReport, String> {
+    AdapterRegistry::from_env()
+        .doctor_report()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn adapter_show(id: String) -> Result<NormalizedPackage, String> {
     AdapterRegistry::from_env()
         .show(&id)
@@ -3812,6 +3819,7 @@ pub fn run() {
             adapter_import,
             adapter_import_manifest,
             adapter_list,
+            adapter_doctor,
             adapter_show,
             adapter_export,
             adapter_allow,

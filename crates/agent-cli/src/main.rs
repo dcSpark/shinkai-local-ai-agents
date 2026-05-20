@@ -1432,6 +1432,12 @@ enum AdapterCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Report adapter review and runtime operability status.
+    Doctor {
+        /// Emit JSON instead of a human-readable summary.
+        #[arg(long)]
+        json: bool,
+    },
     /// Inspect a local adapter source and print its normalized manifest.
     Inspect {
         path: String,
@@ -3093,6 +3099,7 @@ enum RemoteArtifactCommand {
 #[derive(Subcommand)]
 enum RemoteAdapterCommand {
     List,
+    Doctor,
     Import {
         path: String,
     },
@@ -5198,6 +5205,23 @@ mod cli_parse_tests {
         assert_eq!(path, "./adapter.json");
         assert!(json);
 
+        let cli = parse_cli(["agent", "adapter", "doctor", "--json"]).unwrap();
+        let Command::Adapter {
+            command: AdapterCommand::Doctor { json },
+        } = into_command(cli)
+        else {
+            panic!("expected adapter doctor command");
+        };
+        assert!(json);
+
+        let cli = parse_cli(["agent", "remote", "adapter", "doctor"]).unwrap();
+        let RemoteCommand::Adapter {
+            command: RemoteAdapterCommand::Doctor,
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote adapter doctor command");
+        };
+
         let cli = parse_cli([
             "agent",
             "remote",
@@ -6058,6 +6082,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             },
             AdapterCommand::List { json } => headless::adapter_list(json).await,
+            AdapterCommand::Doctor { json } => headless::adapter_doctor(json).await,
             AdapterCommand::Inspect { path, json } => headless::adapter_inspect(path, json).await,
             AdapterCommand::Show { id, json } => headless::adapter_show(id, json).await,
             AdapterCommand::Export { id, path, json } => {
@@ -6821,6 +6846,7 @@ async fn main() -> anyhow::Result<()> {
             },
             RemoteCommand::Adapter { command } => match command {
                 RemoteAdapterCommand::List => headless::remote_adapter_list(url).await,
+                RemoteAdapterCommand::Doctor => headless::remote_adapter_doctor(url).await,
                 RemoteAdapterCommand::Import { path } => {
                     headless::remote_adapter_import(url, path).await
                 }

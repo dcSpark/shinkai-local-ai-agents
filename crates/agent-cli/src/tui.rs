@@ -35,7 +35,9 @@ use agent_conversations::{
     render_message_range,
 };
 use agent_core::{AgentConfig, ContextSnapshot, HarnessApi, UserInput};
-use agent_memory::{MemoryStore, MemoryTarget};
+use agent_memory::{
+    MemoryRecord, MemoryStore, MemoryTarget, supported_backends as supported_memory_backends,
+};
 use agent_prompts::{PromptStore, is_valid_prompt_name};
 use agent_storage::StoragePaths;
 use agent_tools::{ToolId, ToolRegistry};
@@ -420,6 +422,10 @@ fn handle_slash_command(
     }
     if let Some(rest) = conversation_slash_rest(trimmed) {
         handle_conversation_slash(app, rest);
+        return true;
+    }
+    if let Some(rest) = memory_slash_rest(trimmed) {
+        handle_memory_slash(app, rest);
         return true;
     }
     if let Some(rest) = models_slash_rest(trimmed) {
@@ -1596,6 +1602,14 @@ fn hooks_slash_rest(trimmed: &str) -> Option<&str> {
     }
 }
 
+fn memory_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/memory" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/memory ").map(str::trim)
+    }
+}
+
 fn models_slash_rest(trimmed: &str) -> Option<&str> {
     if trimmed == "/models" {
         Some("")
@@ -1610,6 +1624,183 @@ fn adapters_slash_rest(trimmed: &str) -> Option<&str> {
     } else {
         trimmed.strip_prefix("/adapters ").map(str::trim)
     }
+}
+
+fn handle_memory_slash(app: &mut App, rest: &str) {
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "help" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: [
+                "/memory list",
+                "/memory show <id>",
+                "/memory backends",
+                "/memory export <path> [--user]",
+                "/memory import <path> [--user]",
+            ]
+            .join("\n"),
+        });
+        return;
+    }
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "list" => match MemoryStore::from_env().list() {
+            Ok(records) => {
+                push_event(app, format!("Loaded {} memory record(s).", records.len()));
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(
+                        &records
+                            .iter()
+                            .map(memory_record_summary)
+                            .collect::<Vec<_>>(),
+                    )
+                    .unwrap_or_else(|_| "<unserializable memory list>".into()),
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Memory list failed: {err}"),
+            }),
+        },
+        "show" => match first_memory_arg(args, "show") {
+            Ok(id) => match MemoryStore::from_env().get(id) {
+                Ok(record) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&record)
+                        .unwrap_or_else(|_| "<unserializable memory record>".into()),
+                }),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Memory show failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "backends" => {
+            let backends = supported_memory_backends();
+            push_event(app, format!("Loaded {} memory backend(s).", backends.len()));
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: serde_json::to_string_pretty(&backends)
+                    .unwrap_or_else(|_| "<unserializable memory backends>".into()),
+            });
+        }
+        "export" => match memory_path_args(args, "export") {
+            Ok((path, user)) => {
+                let target = if user {
+                    MemoryTarget::User
+                } else {
+                    MemoryTarget::Agent
+                };
+                match MemoryStore::from_env().export_target(target, path) {
+                    Ok(records) => push_event(
+                        app,
+                        format!("Exported {} memory record(s) to {path}", records.len()),
+                    ),
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Memory export failed: {err}"),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "import" => match memory_path_args(args, "import") {
+            Ok((path, user)) => {
+                let target = if user {
+                    MemoryTarget::User
+                } else {
+                    MemoryTarget::Agent
+                };
+                match MemoryStore::from_env().import_file(path, Some(target)) {
+                    Ok(records) => {
+                        for record in &records {
+                            if let Err(err) =
+                                crate::headless::record_memory_written(record, "imported")
+                            {
+                                app.transcript.push(TranscriptLine {
+                                    kind: LineKind::Error,
+                                    text: format!("Memory import trace write failed: {err}"),
+                                });
+                                return;
+                            }
+                        }
+                        push_event(app, format!("Imported {} memory record(s).", records.len()));
+                        app.transcript.push(TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(
+                                &records
+                                    .iter()
+                                    .map(memory_record_summary)
+                                    .collect::<Vec<_>>(),
+                            )
+                            .unwrap_or_else(|_| "<unserializable imported memory>".into()),
+                        });
+                    }
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Memory import failed: {err}"),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Memory command needs list, show, backends, export, import, or help.".into(),
+        }),
+    }
+}
+
+fn first_memory_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    args.split_whitespace()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("memory {command} needs an argument"))
+}
+
+fn memory_path_args<'a>(args: &'a str, command: &str) -> anyhow::Result<(&'a str, bool)> {
+    let mut path = None;
+    let mut user = false;
+    for part in args.split_whitespace() {
+        if part == "--user" {
+            user = true;
+        } else if path.is_none() {
+            path = Some(part);
+        } else {
+            anyhow::bail!("memory {command} accepts exactly one path and optional --user");
+        }
+    }
+    let path = path.ok_or_else(|| anyhow::anyhow!("memory {command} needs a path"))?;
+    Ok((path, user))
+}
+
+fn memory_record_summary(record: &MemoryRecord) -> serde_json::Value {
+    serde_json::json!({
+        "id": record.id,
+        "target": record.target,
+        "author": record.author,
+        "owning_profile": record.owning_profile,
+        "owning_agent": record.owning_agent,
+        "source_range": record.source_range,
+        "source_conversation_id": record.source_conversation_id,
+        "topics": record.topics,
+        "classification": record.classification,
+        "updated_at": record.updated_at,
+        "content_preview": compact_preview(&record.content, 240),
+    })
 }
 
 fn handle_models_slash(app: &mut App, rest: &str) {
@@ -3488,6 +3679,9 @@ mod tests {
         );
         assert_eq!(conversation_slash_rest("/conversation"), Some(""));
         assert_eq!(conversation_slash_rest("/conversations"), None);
+        assert_eq!(memory_slash_rest("/memory list"), Some("list"));
+        assert_eq!(memory_slash_rest("/memory"), Some(""));
+        assert_eq!(memory_slash_rest("/memories"), None);
         assert_eq!(
             hooks_slash_rest("/hooks review run-1"),
             Some("review run-1")
@@ -3576,6 +3770,24 @@ mod tests {
         assert!(compact_export_args("compact-1 ./compact.json extra").is_err());
         assert!(compact_path_arg("", "import").is_err());
         assert!(compact_path_arg("./compact.json extra", "import").is_err());
+    }
+
+    #[test]
+    fn memory_path_args_accept_optional_user_flag() {
+        assert_eq!(
+            memory_path_args("./memory.md", "export").unwrap(),
+            ("./memory.md", false)
+        );
+        assert_eq!(
+            memory_path_args("./user.md --user", "import").unwrap(),
+            ("./user.md", true)
+        );
+        assert_eq!(
+            memory_path_args("--user ./user.md", "import").unwrap(),
+            ("./user.md", true)
+        );
+        assert!(memory_path_args("", "export").is_err());
+        assert!(memory_path_args("./memory.md extra", "export").is_err());
     }
 
     #[test]

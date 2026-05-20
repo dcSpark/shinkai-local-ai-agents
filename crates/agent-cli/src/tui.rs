@@ -28,6 +28,7 @@ use tokio::task::AbortHandle;
 use tokio::time::MissedTickBehavior;
 
 use agent_adapters::{AdapterRegistry, NormalizedPackage};
+use agent_bundles::{export_bundle, import_bundle};
 use agent_capabilities::{CapabilityDraft, CapabilityDraftStatus, CapabilityDraftStore};
 use agent_compaction::{CompactionRecord, CompactionStore};
 use agent_config::{
@@ -492,6 +493,10 @@ fn handle_slash_command(
     }
     if let Some(rest) = storage_slash_rest(trimmed) {
         handle_storage_slash(app, rest);
+        return true;
+    }
+    if let Some(rest) = bundles_slash_rest(trimmed) {
+        handle_bundles_slash(app, rest);
         return true;
     }
     if let Some(rest) = adapters_slash_rest(trimmed) {
@@ -1755,6 +1760,14 @@ fn storage_slash_rest(trimmed: &str) -> Option<&str> {
         Some("")
     } else {
         trimmed.strip_prefix("/storage ").map(str::trim)
+    }
+}
+
+fn bundles_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/bundles" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/bundles ").map(str::trim)
     }
 }
 
@@ -4630,6 +4643,114 @@ fn storage_prune_cache_args(args: &str) -> anyhow::Result<(u64, bool)> {
     Ok((days, apply))
 }
 
+fn handle_bundles_slash(app: &mut App, rest: &str) {
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "help" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: ["/bundles export <path>", "/bundles import <path> --confirm"].join("\n"),
+        });
+        return;
+    }
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "export" => match bundle_path_arg(args, "export") {
+            Ok(path) => match export_bundle(path) {
+                Ok(manifest) => {
+                    push_event(
+                        app,
+                        format!("Exported bundle for profile {} to {path}", manifest.profile),
+                    );
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&manifest)
+                            .unwrap_or_else(|_| "<unserializable bundle manifest>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Bundle export failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "import" => match bundle_import_args(args) {
+            Ok((path, confirmed)) => {
+                if !confirmed {
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&serde_json::json!({
+                            "pending_action": "import_bundle",
+                            "path": path,
+                            "confirm_command": format!("/bundles import {path} --confirm"),
+                        }))
+                        .unwrap_or_else(|_| "<unserializable bundle confirmation>".into()),
+                    });
+                    return;
+                }
+                match import_bundle(path) {
+                    Ok(manifest) => {
+                        push_event(
+                            app,
+                            format!("Imported bundle for profile {}.", manifest.profile),
+                        );
+                        app.transcript.push(TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&manifest)
+                                .unwrap_or_else(|_| "<unserializable bundle manifest>".into()),
+                        });
+                    }
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Bundle import failed: {err}"),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Bundles command needs export, import, or help.".into(),
+        }),
+    }
+}
+
+fn bundle_path_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    let mut parts = args.split_whitespace();
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("bundles {command} needs a path"))?;
+    if parts.next().is_some() {
+        anyhow::bail!("bundles {command} accepts exactly one path");
+    }
+    Ok(path)
+}
+
+fn bundle_import_args(args: &str) -> anyhow::Result<(&str, bool)> {
+    let mut path = None;
+    let mut confirmed = false;
+    for part in args.split_whitespace() {
+        if part == "--confirm" {
+            confirmed = true;
+        } else if path.is_none() {
+            path = Some(part);
+        } else {
+            anyhow::bail!("bundles import accepts exactly one path and optional --confirm");
+        }
+    }
+    let path = path.ok_or_else(|| anyhow::anyhow!("bundles import needs a path"))?;
+    Ok((path, confirmed))
+}
+
 fn handle_adapters_slash(app: &mut App, rest: &str) {
     let rest = rest.trim();
     if rest.is_empty() || rest == "help" {
@@ -6557,6 +6678,12 @@ mod tests {
         assert_eq!(storage_slash_rest("/storage"), Some(""));
         assert_eq!(storage_slash_rest("/storages"), None);
         assert_eq!(
+            bundles_slash_rest("/bundles export ./bundle.tar"),
+            Some("export ./bundle.tar")
+        );
+        assert_eq!(bundles_slash_rest("/bundles"), Some(""));
+        assert_eq!(bundles_slash_rest("/bundle"), None);
+        assert_eq!(
             adapters_slash_rest("/adapters show adapter-1"),
             Some("show adapter-1")
         );
@@ -6803,6 +6930,26 @@ mod tests {
         assert!(storage_prune_cache_args("").is_err());
         assert!(storage_prune_cache_args("abc").is_err());
         assert!(storage_prune_cache_args("7 8").is_err());
+    }
+
+    #[test]
+    fn bundle_args_require_paths_and_import_confirmation() {
+        assert_eq!(
+            bundle_path_arg("./bundle.tar", "export").unwrap(),
+            "./bundle.tar"
+        );
+        assert!(bundle_path_arg("", "export").is_err());
+        assert!(bundle_path_arg("./bundle.tar extra", "export").is_err());
+        assert_eq!(
+            bundle_import_args("./bundle.tar").unwrap(),
+            ("./bundle.tar", false)
+        );
+        assert_eq!(
+            bundle_import_args("./bundle.tar --confirm").unwrap(),
+            ("./bundle.tar", true)
+        );
+        assert!(bundle_import_args("").is_err());
+        assert!(bundle_import_args("./bundle.tar extra --confirm").is_err());
     }
 
     #[test]

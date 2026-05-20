@@ -8,6 +8,7 @@ authors.workspace = true
 description = "File-backed memory v0 for Shinkai."
 
 [dependencies]
+agent-config = { path = "../agent-config" }
 agent-core = { path = "../agent-core" }
 agent-storage = { path = "../agent-storage" }
 chrono.workspace = true

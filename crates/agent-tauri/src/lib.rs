@@ -48,10 +48,10 @@ use agent_llm::{
     ModelRef, NativeProviderConfig, RigProvider, RigProviderConfig,
 };
 use agent_memory::{
-    MemoryAuthor, MemoryBackendDescriptor, MemoryRecord, MemoryStore, MemoryTarget,
-    list_records_for_supported_backends, load_fragments_for_backend,
+    MemoryAccessReport, MemoryAuthor, MemoryBackendDescriptor, MemoryRecord, MemoryStore,
+    MemoryTarget, list_records_for_supported_backends, load_fragments_for_backend,
     memory_classification_from_model_output, memory_record_matches_topics,
-    supported_backends as supported_memory_backends,
+    profile_memory_access_report, supported_backends as supported_memory_backends,
 };
 use agent_prompts::{PromptDoc, PromptStore};
 use agent_skills::{SkillDoc, SkillRegistry};
@@ -2670,6 +2670,11 @@ async fn memory_list() -> Result<Vec<MemoryRecord>, String> {
 }
 
 #[tauri::command]
+async fn memory_access(topics: Vec<String>) -> Result<MemoryAccessReport, String> {
+    profile_memory_access_report(StoragePaths::from_env(), topics).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn memory_backends() -> Result<Vec<MemoryBackendDescriptor>, String> {
     Ok(supported_memory_backends())
 }
@@ -3738,6 +3743,7 @@ pub fn run() {
             memory_generate_conversation,
             memory_classify,
             memory_list,
+            memory_access,
             memory_backends,
             memory_edit,
             memory_delete,

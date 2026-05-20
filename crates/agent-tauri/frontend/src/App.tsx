@@ -27,6 +27,7 @@ import type {
   IngestionBackendDescriptor,
   IngestionFindingReviewDecision,
   IngestionResult,
+  MemoryAccessReport,
   MemoryBackendDescriptor,
   MemoryClassifyResult,
   MemoryRecord,
@@ -3762,6 +3763,24 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Memory review failed: ${msg}`);
+    }
+  }
+
+  async function reviewMemoryAccess() {
+    const topics = parsedMemoryTopics();
+    try {
+      const report =
+        transport === "daemon"
+          ? await daemonJson<MemoryAccessReport>("/memory/access", { topics })
+          : await invoke<MemoryAccessReport>("memory_access", { topics });
+      setMemoryRecords(report.records.map((entry) => entry.record));
+      appendEvent(
+        `Memory access: ${report.local_records} local, ${report.granted_records} granted`,
+      );
+      appendJson("Memory access", report);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Memory access failed: ${msg}`);
     }
   }
 
@@ -8797,6 +8816,14 @@ export default function App() {
                   disabled={running}
                 >
                   List Memory
+                </button>
+                <button
+                  type="button"
+                  title="Show local and profile-granted memory matching Topics."
+                  onClick={() => void reviewMemoryAccess()}
+                  disabled={running}
+                >
+                  Access
                 </button>
                 <button
                   type="button"

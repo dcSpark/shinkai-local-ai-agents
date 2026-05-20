@@ -224,6 +224,7 @@ dependencies = [
 name = "agent-memory"
 version = "0.1.0"
 dependencies = [
+ "agent-config",
  "agent-core",
  "agent-storage",
  "chrono",

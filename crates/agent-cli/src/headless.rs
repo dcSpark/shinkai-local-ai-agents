@@ -43,9 +43,8 @@ use agent_llm::{
     NativeProviderConfig, RigProvider,
 };
 use agent_memory::{
-    MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget, list_records_with_supported_backend_ids,
-    memory_classification_from_model_output, memory_record_matches_topics,
-    supported_backends as supported_memory_backends,
+    MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget, memory_classification_from_model_output,
+    profile_memory_access_report, supported_backends as supported_memory_backends,
 };
 use agent_prompts::{PromptStore, is_valid_prompt_name};
 use agent_secrets::{
@@ -2805,107 +2804,10 @@ fn memory_access_result_for_paths(
     active_paths: StoragePaths,
     topics: Vec<String>,
 ) -> anyhow::Result<serde_json::Value> {
-    let active_profile = active_paths.active_profile_id().to_string();
-    let mut records = Vec::new();
-    let mut local_records = 0usize;
-    let mut granted_records = 0usize;
-
-    for (backend, record) in list_records_with_supported_backend_ids(active_paths.clone())? {
-        if !memory_record_matches_topics(&record, &topics) {
-            continue;
-        }
-        local_records += 1;
-        records.push(memory_access_entry_value(
-            "local",
-            &active_profile,
-            &backend,
-            None,
-            record,
-        ));
-    }
-
-    let resolver = ConfigResolver::new(active_paths.clone());
-    let mut grants = Vec::new();
-    for grant in resolver.list_profile_grants()?.into_iter().filter(|grant| {
-        grant.kind == ProfileGrantKind::Memory && grant.to_profile == active_profile
-    }) {
-        let source_paths =
-            StoragePaths::new_with_profile(active_paths.root().to_path_buf(), &grant.from_profile);
-        let mut matched_records = 0usize;
-        for (backend, record) in list_records_with_supported_backend_ids(source_paths.clone())? {
-            if !memory_record_matches_profile_grant(&record, &grant.resource)
-                || !memory_record_matches_topics(&record, &topics)
-            {
-                continue;
-            }
-            matched_records += 1;
-            granted_records += 1;
-            records.push(memory_access_entry_value(
-                "profile_grant",
-                &grant.from_profile,
-                &backend,
-                Some(&grant),
-                record,
-            ));
-        }
-        grants.push(serde_json::json!({
-            "id": grant.id,
-            "from_profile": grant.from_profile,
-            "to_profile": grant.to_profile,
-            "resource": grant.resource,
-            "matched_records": matched_records,
-        }));
-    }
-
-    records.sort_by(|left, right| memory_access_sort_key(left).cmp(&memory_access_sort_key(right)));
-
-    Ok(serde_json::json!({
-        "active_profile": active_profile,
-        "topics": topics,
-        "local_records": local_records,
-        "granted_records": granted_records,
-        "grants": grants,
-        "records": records,
-    }))
-}
-
-fn memory_access_entry_value(
-    access: &str,
-    source_profile: &str,
-    source_backend: &str,
-    grant: Option<&ProfileGrant>,
-    record: MemoryRecord,
-) -> serde_json::Value {
-    let grant = grant.map(|grant| {
-        serde_json::json!({
-            "id": grant.id,
-            "resource": grant.resource,
-            "from_profile": grant.from_profile,
-            "to_profile": grant.to_profile,
-        })
-    });
-    serde_json::json!({
-        "access": access,
-        "source_profile": source_profile,
-        "source_backend": source_backend,
-        "grant": grant,
-        "record": record,
-    })
-}
-
-fn memory_access_sort_key(entry: &serde_json::Value) -> String {
-    let record = &entry["record"];
-    format!(
-        "{}:{}:{}:{}",
-        entry["access"].as_str().unwrap_or_default(),
-        entry["source_profile"].as_str().unwrap_or_default(),
-        entry["source_backend"].as_str().unwrap_or_default(),
-        record["id"].as_str().unwrap_or_default()
-    )
-}
-
-fn memory_record_matches_profile_grant(record: &MemoryRecord, resource: &str) -> bool {
-    resource == "*" || record.id == resource || record.owning_agent.as_deref() == Some(resource)
+    Ok(serde_json::to_value(profile_memory_access_report(
+        active_paths,
+        topics,
+    )?)?)
 }
 
 fn print_memory_access_report(report: &serde_json::Value) {
@@ -5320,6 +5222,13 @@ pub async fn remote_conversation_delete_range(
 
 pub async fn remote_memory_list(url: String) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).get_json("/memory")?)
+}
+
+pub async fn remote_memory_access(url: String, topics: Vec<String>) -> anyhow::Result<()> {
+    print_remote(
+        DaemonHttpClient::new(url)
+            .post_json("/memory/access", serde_json::json!({ "topics": topics }))?,
+    )
 }
 
 pub async fn remote_memory_backends(url: String) -> anyhow::Result<()> {

@@ -41,7 +41,8 @@ use agent_llm::{
 use agent_memory::{
     MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget, list_records_for_supported_backends,
     load_fragments_for_backend, memory_classification_from_model_output,
-    memory_record_matches_topics, supported_backends as supported_memory_backends,
+    memory_record_matches_topics, profile_memory_access_report,
+    supported_backends as supported_memory_backends,
 };
 use agent_prompts::{PromptStore, is_valid_prompt_name};
 use agent_skills::{SkillDoc, SkillRegistry};
@@ -260,6 +261,7 @@ async fn route(
         ("GET", "/memory/backends") => daemon_memory_backends().map(|value| (200, value)),
         ("GET", "/memory") => daemon_memory_list().map(|value| (200, value)),
         ("POST", "/memory") => daemon_memory_create(&request.body).map(|value| (200, value)),
+        ("POST", "/memory/access") => daemon_memory_access(&request.body).map(|value| (200, value)),
         ("POST", "/memory/generate") => {
             daemon_memory_generate(&request.body).map(|value| (200, value))
         }
@@ -3749,6 +3751,18 @@ fn daemon_memory_list() -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(MemoryStore::from_env().list()?)?)
 }
 
+fn daemon_memory_access(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: MemoryAccessInput = if body.trim().is_empty() {
+        MemoryAccessInput::default()
+    } else {
+        serde_json::from_str(body)?
+    };
+    Ok(serde_json::to_value(profile_memory_access_report(
+        StoragePaths::from_env(),
+        input.topics,
+    )?)?)
+}
+
 fn daemon_memory_backends() -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(supported_memory_backends())?)
 }
@@ -5283,6 +5297,12 @@ struct MemoryCreateInput {
     user: bool,
     #[serde(default)]
     agent_id: Option<String>,
+    #[serde(default)]
+    topics: Vec<String>,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct MemoryAccessInput {
     #[serde(default)]
     topics: Vec<String>,
 }
@@ -7125,6 +7145,81 @@ mod tests {
         assert_eq!(record["owning_agent"], serde_json::json!("critic"));
 
         restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn memory_access_reports_local_and_profile_granted_records() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("memory-access");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        let previous_profile = std::env::var_os("AGENT_HARNESS_PROFILE");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+            std::env::set_var("AGENT_HARNESS_PROFILE", "research");
+        }
+
+        let resolver = ConfigResolver::new(StoragePaths::new(&dir));
+        resolver
+            .create_profile("research", Some("Research".into()))
+            .unwrap();
+        resolver
+            .grant_profile_access("main", "research", ProfileGrantKind::Memory, "critic")
+            .unwrap();
+        MemoryStore::new(StoragePaths::new(&dir))
+            .create_for_conversation_with_topics_for_agent(
+                MemoryTarget::Agent,
+                "Shared daemon fact.",
+                MemoryAuthor::Human,
+                None,
+                None,
+                vec!["team".into()],
+                Some("critic".into()),
+            )
+            .unwrap();
+        MemoryStore::new(StoragePaths::new(&dir))
+            .create_for_conversation_with_topics_for_agent(
+                MemoryTarget::Agent,
+                "Private daemon fact.",
+                MemoryAuthor::Human,
+                None,
+                None,
+                vec!["team".into()],
+                Some("writer".into()),
+            )
+            .unwrap();
+        MemoryStore::new(StoragePaths::new_with_profile(&dir, "research"))
+            .create_with_topics(
+                MemoryTarget::Agent,
+                "Local daemon fact.",
+                MemoryAuthor::Human,
+                None,
+                vec!["team".into()],
+            )
+            .unwrap();
+
+        let report = daemon_memory_access(r#"{"topics":["team"]}"#).unwrap();
+        let records = report["records"].as_array().unwrap();
+        assert_eq!(report["active_profile"], "research");
+        assert_eq!(report["local_records"], 1);
+        assert_eq!(report["granted_records"], 1);
+        assert_eq!(records.len(), 2);
+        assert!(records.iter().any(|entry| {
+            entry["access"] == "local" && entry["record"]["content"] == "Local daemon fact."
+        }));
+        assert!(records.iter().any(|entry| {
+            entry["access"] == "profile_grant"
+                && entry["record"]["content"] == "Shared daemon fact."
+                && entry["grant"]["resource"] == "critic"
+        }));
+        assert!(
+            !records
+                .iter()
+                .any(|entry| entry["record"]["content"] == "Private daemon fact.")
+        );
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        restore_env("AGENT_HARNESS_PROFILE", previous_profile);
         let _ = std::fs::remove_dir_all(dir);
     }
 

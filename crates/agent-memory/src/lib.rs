@@ -5,6 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
+use agent_config::{ConfigResolver, ProfileGrantKind};
 use agent_core::{
     DEFAULT_MEMORY_BACKEND_ID, LOCAL_JSONL_MEMORY_BACKEND_ID, MemoryFragment,
     SUPPORTED_MEMORY_BACKEND_IDS,
@@ -20,6 +21,8 @@ pub enum MemoryError {
     Io(#[from] std::io::Error),
     #[error("storage error: {0}")]
     Storage(#[from] StorageError),
+    #[error("config error: {0}")]
+    Config(#[from] agent_config::ConfigError),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
     #[error("memory rejected by injection scan: {0}")]
@@ -82,6 +85,35 @@ pub struct MemoryBackendDescriptor {
     pub supports_generation: bool,
     #[serde(default)]
     pub supports_rollback: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryAccessGrant {
+    pub id: String,
+    pub resource: String,
+    pub from_profile: String,
+    pub to_profile: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub matched_records: Option<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryAccessEntry {
+    pub access: String,
+    pub source_profile: String,
+    pub source_backend: String,
+    pub grant: Option<MemoryAccessGrant>,
+    pub record: MemoryRecord,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryAccessReport {
+    pub active_profile: String,
+    pub topics: Vec<String>,
+    pub local_records: usize,
+    pub granted_records: usize,
+    pub grants: Vec<MemoryAccessGrant>,
+    pub records: Vec<MemoryAccessEntry>,
 }
 
 pub trait MemoryBackend: Send + Sync {
@@ -772,6 +804,107 @@ pub fn list_records_with_supported_backend_ids(
     Ok(records)
 }
 
+pub fn profile_memory_access_report(
+    active_paths: StoragePaths,
+    topics: Vec<String>,
+) -> Result<MemoryAccessReport, MemoryError> {
+    let active_profile = active_paths.active_profile_id().to_string();
+    let mut records = Vec::new();
+    let mut local_records = 0usize;
+    let mut granted_records = 0usize;
+
+    for (backend, record) in list_records_with_supported_backend_ids(active_paths.clone())? {
+        if !memory_record_matches_topics(&record, &topics) {
+            continue;
+        }
+        local_records += 1;
+        records.push(memory_access_entry(
+            "local",
+            &active_profile,
+            &backend,
+            None,
+            record,
+        ));
+    }
+
+    let resolver = ConfigResolver::new(active_paths.clone());
+    let mut grants = Vec::new();
+    for grant in resolver.list_profile_grants()?.into_iter().filter(|grant| {
+        grant.kind == ProfileGrantKind::Memory && grant.to_profile == active_profile
+    }) {
+        let source_paths =
+            StoragePaths::new_with_profile(active_paths.root().to_path_buf(), &grant.from_profile);
+        let mut matched_records = 0usize;
+        for (backend, record) in list_records_with_supported_backend_ids(source_paths.clone())? {
+            if !memory_record_matches_grant_resource(&record, &grant.resource)
+                || !memory_record_matches_topics(&record, &topics)
+            {
+                continue;
+            }
+            matched_records += 1;
+            granted_records += 1;
+            records.push(memory_access_entry(
+                "profile_grant",
+                &grant.from_profile,
+                &backend,
+                Some(MemoryAccessGrant {
+                    id: grant.id.clone(),
+                    resource: grant.resource.clone(),
+                    from_profile: grant.from_profile.clone(),
+                    to_profile: grant.to_profile.clone(),
+                    matched_records: None,
+                }),
+                record,
+            ));
+        }
+        grants.push(MemoryAccessGrant {
+            id: grant.id,
+            resource: grant.resource,
+            from_profile: grant.from_profile,
+            to_profile: grant.to_profile,
+            matched_records: Some(matched_records),
+        });
+    }
+
+    records.sort_by(|left, right| memory_access_sort_key(left).cmp(&memory_access_sort_key(right)));
+
+    Ok(MemoryAccessReport {
+        active_profile,
+        topics,
+        local_records,
+        granted_records,
+        grants,
+        records,
+    })
+}
+
+fn memory_access_entry(
+    access: &str,
+    source_profile: &str,
+    source_backend: &str,
+    grant: Option<MemoryAccessGrant>,
+    record: MemoryRecord,
+) -> MemoryAccessEntry {
+    MemoryAccessEntry {
+        access: access.into(),
+        source_profile: source_profile.into(),
+        source_backend: source_backend.into(),
+        grant,
+        record,
+    }
+}
+
+fn memory_access_sort_key(entry: &MemoryAccessEntry) -> String {
+    format!(
+        "{}:{}:{}:{}",
+        entry.access, entry.source_profile, entry.source_backend, entry.record.id
+    )
+}
+
+fn memory_record_matches_grant_resource(record: &MemoryRecord, resource: &str) -> bool {
+    resource == "*" || record.id == resource || record.owning_agent.as_deref() == Some(resource)
+}
+
 fn render_records(records: &[MemoryRecord]) -> Result<String, MemoryError> {
     let mut out = String::new();
     for record in records {
@@ -1427,6 +1560,76 @@ mod tests {
         assert!(records.iter().any(|(backend, record)| {
             backend == LOCAL_JSONL_MEMORY_BACKEND_ID && record.content == "Remember jsonl memory."
         }));
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn profile_memory_access_report_includes_granted_records() {
+        let dir = std::env::temp_dir().join(format!("memory-access-test-{}", std::process::id()));
+        let resolver = ConfigResolver::new(StoragePaths::new(&dir));
+        resolver
+            .create_profile("research", Some("Research".into()))
+            .unwrap();
+        resolver
+            .grant_profile_access("main", "research", ProfileGrantKind::Memory, "critic")
+            .unwrap();
+
+        MemoryStore::new(StoragePaths::new(&dir))
+            .create_for_conversation_with_topics_for_agent(
+                MemoryTarget::Agent,
+                "Shared memory fact.",
+                MemoryAuthor::Human,
+                None,
+                None,
+                vec!["team".into()],
+                Some("critic".into()),
+            )
+            .unwrap();
+        MemoryStore::new(StoragePaths::new(&dir))
+            .create_for_conversation_with_topics_for_agent(
+                MemoryTarget::Agent,
+                "Private memory fact.",
+                MemoryAuthor::Human,
+                None,
+                None,
+                vec!["team".into()],
+                Some("writer".into()),
+            )
+            .unwrap();
+        MemoryStore::new(StoragePaths::new_with_profile(&dir, "research"))
+            .create_with_topics(
+                MemoryTarget::Agent,
+                "Local memory fact.",
+                MemoryAuthor::Human,
+                None,
+                vec!["team".into()],
+            )
+            .unwrap();
+
+        let report = profile_memory_access_report(
+            StoragePaths::new_with_profile(&dir, "research"),
+            vec!["team".into()],
+        )
+        .unwrap();
+        assert_eq!(report.active_profile, "research");
+        assert_eq!(report.local_records, 1);
+        assert_eq!(report.granted_records, 1);
+        assert_eq!(report.records.len(), 2);
+        assert!(report.records.iter().any(|entry| {
+            entry.access == "local" && entry.record.content == "Local memory fact."
+        }));
+        assert!(report.records.iter().any(|entry| {
+            entry.access == "profile_grant"
+                && entry.record.content == "Shared memory fact."
+                && entry.grant.as_ref().map(|grant| grant.resource.as_str()) == Some("critic")
+        }));
+        assert!(
+            !report
+                .records
+                .iter()
+                .any(|entry| entry.record.content == "Private memory fact.")
+        );
 
         let _ = std::fs::remove_dir_all(dir);
     }

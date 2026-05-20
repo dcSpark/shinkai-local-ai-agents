@@ -2653,6 +2653,10 @@ enum RemoteConversationCommand {
 #[derive(Subcommand)]
 enum RemoteMemoryCommand {
     List,
+    Access {
+        #[arg(long = "topic")]
+        topics: Vec<String>,
+    },
     Backends,
     Create {
         content: String,
@@ -4883,6 +4887,18 @@ mod cli_parse_tests {
         };
 
         let cli = parse_cli([
+            "agent", "remote", "memory", "access", "--topic", "finance", "--topic", "ops",
+        ])
+        .unwrap();
+        let RemoteCommand::Memory {
+            command: RemoteMemoryCommand::Access { topics },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote memory access command");
+        };
+        assert_eq!(topics, vec!["finance", "ops"]);
+
+        let cli = parse_cli([
             "agent",
             "remote",
             "memory",
@@ -6438,6 +6454,9 @@ async fn main() -> anyhow::Result<()> {
             },
             RemoteCommand::Memory { command } => match command {
                 RemoteMemoryCommand::List => headless::remote_memory_list(url).await,
+                RemoteMemoryCommand::Access { topics } => {
+                    headless::remote_memory_access(url, topics).await
+                }
                 RemoteMemoryCommand::Backends => headless::remote_memory_backends(url).await,
                 RemoteMemoryCommand::Create {
                     content,

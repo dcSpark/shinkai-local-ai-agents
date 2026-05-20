@@ -493,6 +493,31 @@ export type MemoryRecord = {
   classification?: MemoryClassification;
 };
 
+export type MemoryAccessGrant = {
+  id: string;
+  resource: string;
+  from_profile: string;
+  to_profile: string;
+  matched_records?: number;
+};
+
+export type MemoryAccessEntry = {
+  access: "local" | "profile_grant";
+  source_profile: string;
+  source_backend: string;
+  grant: MemoryAccessGrant | null;
+  record: MemoryRecord;
+};
+
+export type MemoryAccessReport = {
+  active_profile: string;
+  topics: string[];
+  local_records: number;
+  granted_records: number;
+  grants: MemoryAccessGrant[];
+  records: MemoryAccessEntry[];
+};
+
 export type MemoryClassifyResult = {
   id: string;
   model: string;

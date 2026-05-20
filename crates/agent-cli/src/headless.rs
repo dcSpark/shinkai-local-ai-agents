@@ -5,7 +5,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{self, Read};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use agent_adapters::{AdapterRegistry, ClawHubProvider, NormalizedPackage, inspect_source};
 use agent_api_client::DaemonHttpClient;
@@ -3997,11 +3997,68 @@ pub async fn remote_run_events(
     run_id: String,
     after: Option<u64>,
 ) -> anyhow::Result<()> {
-    let path = match after {
-        Some(after) => format!("/run/events/{run_id}?after={after}"),
-        None => format!("/run/events/{run_id}"),
-    };
+    let path = remote_run_events_path(&run_id, after);
     print_remote(DaemonHttpClient::new(url).get_json(&path)?)
+}
+
+pub async fn remote_run_wait(
+    url: String,
+    run_id: String,
+    poll_ms: u64,
+    timeout_ms: Option<u64>,
+    events: bool,
+) -> anyhow::Result<()> {
+    validate_remote_wait_options(poll_ms, timeout_ms)?;
+    let client = DaemonHttpClient::new(url);
+    let started = Instant::now();
+    let mut last_event_id = 0;
+    let mut collected_events = Vec::new();
+
+    loop {
+        if events {
+            let page = client.get_json(&remote_run_events_path(&run_id, Some(last_event_id)))?;
+            if let Some(last) = page.get("last_event_id").and_then(|value| value.as_u64()) {
+                last_event_id = last;
+            }
+            if let Some(items) = page.get("events").and_then(|value| value.as_array()) {
+                collected_events.extend(items.iter().cloned());
+            }
+        }
+
+        let status = client.get_json(&format!("/run/status/{run_id}"))?;
+        let status_name = remote_run_status_name(&status).to_string();
+        if is_terminal_remote_run_status(&status_name) {
+            print_remote(remote_run_wait_report(
+                run_id,
+                status_name,
+                true,
+                false,
+                started.elapsed(),
+                last_event_id,
+                status,
+                collected_events,
+                events,
+            ))?;
+            return Ok(());
+        }
+
+        if timeout_reached(started, timeout_ms) {
+            print_remote(remote_run_wait_report(
+                run_id.clone(),
+                status_name,
+                false,
+                true,
+                started.elapsed(),
+                last_event_id,
+                status,
+                collected_events,
+                events,
+            ))?;
+            anyhow::bail!("timed out waiting for daemon run {run_id}");
+        }
+
+        std::thread::sleep(Duration::from_millis(poll_ms));
+    }
 }
 
 pub async fn remote_preview_context(
@@ -4996,6 +5053,68 @@ fn print_remote(value: serde_json::Value) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn remote_run_events_path(run_id: &str, after: Option<u64>) -> String {
+    match after {
+        Some(after) => format!("/run/events/{run_id}?after={after}"),
+        None => format!("/run/events/{run_id}"),
+    }
+}
+
+fn validate_remote_wait_options(poll_ms: u64, timeout_ms: Option<u64>) -> anyhow::Result<()> {
+    if poll_ms == 0 {
+        anyhow::bail!("--poll-ms must be greater than 0");
+    }
+    if timeout_ms == Some(0) {
+        anyhow::bail!("--timeout-ms must be greater than 0 when provided");
+    }
+    Ok(())
+}
+
+fn remote_run_status_name(status: &serde_json::Value) -> &str {
+    status
+        .get("status")
+        .and_then(|value| value.as_str())
+        .unwrap_or("unknown")
+}
+
+fn is_terminal_remote_run_status(status: &str) -> bool {
+    matches!(status, "completed" | "failed" | "cancelled" | "paused")
+}
+
+fn timeout_reached(started: Instant, timeout_ms: Option<u64>) -> bool {
+    timeout_ms
+        .map(|timeout_ms| started.elapsed() >= Duration::from_millis(timeout_ms))
+        .unwrap_or(false)
+}
+
+fn remote_run_wait_report(
+    run_id: String,
+    status_name: String,
+    terminal: bool,
+    timed_out: bool,
+    elapsed: Duration,
+    last_event_id: u64,
+    status: serde_json::Value,
+    events: Vec<serde_json::Value>,
+    include_events: bool,
+) -> serde_json::Value {
+    let elapsed_ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX);
+    let mut report = serde_json::json!({
+        "run_id": run_id,
+        "status": status_name,
+        "terminal": terminal,
+        "timed_out": timed_out,
+        "elapsed_ms": elapsed_ms,
+        "last_event_id": last_event_id,
+        "collected_event_count": events.len(),
+        "status_payload": status,
+    });
+    if include_events {
+        report["events"] = serde_json::Value::Array(events);
+    }
+    report
+}
+
 fn provider_name(provider: Provider) -> &'static str {
     match provider {
         Provider::Fake => "fake",
@@ -5666,6 +5785,28 @@ mod slash_tests {
             ..ModelRuntimeConfig::default()
         };
         assert!(guardrail_provider_for_model("gemini-2.5-flash", &gemini).is_ok());
+    }
+
+    #[test]
+    fn remote_wait_helpers_classify_terminal_statuses() {
+        for status in ["completed", "failed", "cancelled", "paused"] {
+            assert!(is_terminal_remote_run_status(status));
+        }
+        for status in ["running", "unknown", "queued"] {
+            assert!(!is_terminal_remote_run_status(status));
+        }
+
+        let status = serde_json::json!({ "status": "running" });
+        assert_eq!(remote_run_status_name(&status), "running");
+        assert_eq!(remote_run_status_name(&serde_json::json!({})), "unknown");
+    }
+
+    #[test]
+    fn remote_wait_options_require_positive_values() {
+        assert!(validate_remote_wait_options(1, None).is_ok());
+        assert!(validate_remote_wait_options(1, Some(1)).is_ok());
+        assert!(validate_remote_wait_options(0, None).is_err());
+        assert!(validate_remote_wait_options(1, Some(0)).is_err());
     }
 
     #[test]

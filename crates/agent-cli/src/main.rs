@@ -2055,6 +2055,22 @@ enum RemoteCommand {
         #[arg(long)]
         after: Option<u64>,
     },
+    /// Poll a daemon async run until it reaches a terminal status.
+    RunWait {
+        run_id: String,
+
+        /// Poll interval in milliseconds.
+        #[arg(long, default_value_t = 1000)]
+        poll_ms: u64,
+
+        /// Maximum wait in milliseconds. Defaults to no timeout.
+        #[arg(long)]
+        timeout_ms: Option<u64>,
+
+        /// Include newly observed run events in the final JSON report.
+        #[arg(long)]
+        events: bool,
+    },
     /// Show the exact context snapshot the daemon would build.
     PreviewContext {
         #[arg(short, long)]
@@ -2865,12 +2881,33 @@ impl From<IngestionGuardrailArg> for IngestionGuardrailMode {
 mod cli_parse_tests {
     use super::*;
 
+    fn parse_cli<const N: usize>(args: [&'static str; N]) -> clap::error::Result<Cli> {
+        std::thread::Builder::new()
+            .name("cli-parse".into())
+            .stack_size(8 * 1024 * 1024)
+            .spawn(move || Cli::try_parse_from(args))
+            .expect("spawn parser thread")
+            .join()
+            .expect("parser thread")
+    }
+
+    fn into_command(cli: Cli) -> Command {
+        cli.command
+    }
+
+    fn into_remote_command(cli: Cli) -> RemoteCommand {
+        let Command::Remote { command, .. } = into_command(cli) else {
+            panic!("expected remote command");
+        };
+        command
+    }
+
     #[test]
     fn skill_install_alias_matches_first_commands_spec() {
-        let cli = Cli::try_parse_from(["agent", "skill", "install", "./SKILL.md"]).unwrap();
+        let cli = parse_cli(["agent", "skill", "install", "./SKILL.md"]).unwrap();
         let Command::Skill {
             command: SkillCommand::Install { source },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected skill install command");
         };
@@ -2879,12 +2916,10 @@ mod cli_parse_tests {
 
     #[test]
     fn skill_allow_accepts_agent_scoped_spec_shape() {
-        let cli =
-            Cli::try_parse_from(["agent", "skill", "allow", "research-agent", "skill-readme"])
-                .unwrap();
+        let cli = parse_cli(["agent", "skill", "allow", "research-agent", "skill-readme"]).unwrap();
         let Command::Skill {
             command: SkillCommand::Allow { agent_or_id, skill },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected skill allow command");
         };
@@ -2894,7 +2929,7 @@ mod cli_parse_tests {
 
     #[test]
     fn trace_hooks_command_parses() {
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "trace",
             "hooks",
@@ -2904,7 +2939,7 @@ mod cli_parse_tests {
         .unwrap();
         let Command::Trace {
             command: TraceCommand::Hooks { run_id, json },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected trace hooks command");
         };
@@ -2914,7 +2949,7 @@ mod cli_parse_tests {
 
     #[test]
     fn hooks_disable_command_requires_confirm_flag() {
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "hooks",
             "disable",
@@ -2931,7 +2966,7 @@ mod cli_parse_tests {
                     confirm,
                     json,
                 },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected hook disable command");
         };
@@ -2943,7 +2978,7 @@ mod cli_parse_tests {
 
     #[test]
     fn hooks_disable_command_accepts_agent_scope() {
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "hooks",
             "disable",
@@ -2961,7 +2996,7 @@ mod cli_parse_tests {
                     confirm,
                     ..
                 },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected hook disable command");
         };
@@ -2973,11 +3008,10 @@ mod cli_parse_tests {
     #[test]
     fn hooks_available_command_accepts_agent_scope() {
         let cli =
-            Cli::try_parse_from(["agent", "hooks", "available", "--agent", "critic", "--json"])
-                .unwrap();
+            parse_cli(["agent", "hooks", "available", "--agent", "critic", "--json"]).unwrap();
         let Command::Hooks {
             command: HookCommand::Available { agent, json },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected hook available command");
         };
@@ -2987,7 +3021,7 @@ mod cli_parse_tests {
 
     #[test]
     fn agent_save_accepts_portable_agent_config_shape() {
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "agent",
             "save",
@@ -3075,7 +3109,7 @@ mod cli_parse_tests {
                     refinement_aware,
                     ..
                 },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected agent save command");
         };
@@ -3131,7 +3165,7 @@ mod cli_parse_tests {
 
     #[test]
     fn remote_agent_save_matches_local_agent_config_shape() {
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "remote",
             "agent",
@@ -3169,33 +3203,29 @@ mod cli_parse_tests {
             "--refinement-aware",
         ])
         .unwrap();
-        let Command::Remote {
+        let RemoteCommand::Agent {
             command:
-                RemoteCommand::Agent {
-                    command:
-                        RemoteAgentCommand::Save {
-                            id,
-                            system_prompt,
-                            max_tokens_before_compaction,
-                            max_compaction_output_tokens,
-                            compaction_guidance,
-                            max_subagent_depth,
-                            max_recursion_depth,
-                            allowed_tools,
-                            approval_controller_agent,
-                            approval_controller_allowed_tools,
-                            tool_output_overrides,
-                            tool_interpretation_model_overrides,
-                            load_memory,
-                            ingestion_guardrail,
-                            ingestion_guardrail_model,
-                            refinement_instructions,
-                            refinement_aware,
-                            ..
-                        },
+                RemoteAgentCommand::Save {
+                    id,
+                    system_prompt,
+                    max_tokens_before_compaction,
+                    max_compaction_output_tokens,
+                    compaction_guidance,
+                    max_subagent_depth,
+                    max_recursion_depth,
+                    allowed_tools,
+                    approval_controller_agent,
+                    approval_controller_allowed_tools,
+                    tool_output_overrides,
+                    tool_interpretation_model_overrides,
+                    load_memory,
+                    ingestion_guardrail,
+                    ingestion_guardrail_model,
+                    refinement_instructions,
+                    refinement_aware,
+                    ..
                 },
-            ..
-        } = cli.command
+        } = into_remote_command(cli)
         else {
             panic!("expected remote agent save command");
         };
@@ -3232,7 +3262,7 @@ mod cli_parse_tests {
 
     #[test]
     fn remote_run_accepts_prompt_refinement_flags() {
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "remote",
             "run",
@@ -3257,22 +3287,18 @@ mod cli_parse_tests {
             "fake-refiner",
         ])
         .unwrap();
-        let Command::Remote {
-            command:
-                RemoteCommand::Run {
-                    allowed_tool_categories,
-                    allowed_skill_categories,
-                    max_tokens_before_compaction,
-                    max_compaction_output_tokens,
-                    compaction_guidance,
-                    conversation,
-                    refine_prompt,
-                    refinement_instructions,
-                    refinement_model,
-                    ..
-                },
+        let RemoteCommand::Run {
+            allowed_tool_categories,
+            allowed_skill_categories,
+            max_tokens_before_compaction,
+            max_compaction_output_tokens,
+            compaction_guidance,
+            conversation,
+            refine_prompt,
+            refinement_instructions,
+            refinement_model,
             ..
-        } = cli.command
+        } = into_remote_command(cli)
         else {
             panic!("expected remote run command");
         };
@@ -3289,7 +3315,7 @@ mod cli_parse_tests {
 
     #[test]
     fn compact_keep_command_preserves_compacted_artifact_shape() {
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "compact",
             "keep",
@@ -3316,7 +3342,7 @@ mod cli_parse_tests {
                     max_output_tokens,
                     json,
                 },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected compact keep command");
         };
@@ -3333,7 +3359,7 @@ mod cli_parse_tests {
 
     #[test]
     fn compact_keep_run_command_parses() {
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "compact",
             "keep-run",
@@ -3353,7 +3379,7 @@ mod cli_parse_tests {
                     guidance,
                     json,
                 },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected compact keep-run command");
         };
@@ -3365,7 +3391,7 @@ mod cli_parse_tests {
 
     #[test]
     fn remote_compact_keep_run_command_parses() {
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "remote",
             "--url",
@@ -3379,18 +3405,14 @@ mod cli_parse_tests {
             "Keep decisions.",
         ])
         .unwrap();
-        let Command::Remote {
+        let RemoteCommand::Compact {
             command:
-                RemoteCommand::Compact {
-                    command:
-                        RemoteCompactCommand::KeepRun {
-                            run_id,
-                            conversation,
-                            guidance,
-                        },
+                RemoteCompactCommand::KeepRun {
+                    run_id,
+                    conversation,
+                    guidance,
                 },
-            ..
-        } = cli.command
+        } = into_remote_command(cli)
         else {
             panic!("expected remote compact keep-run command");
         };
@@ -3401,7 +3423,7 @@ mod cli_parse_tests {
 
     #[test]
     fn compact_export_import_commands_parse() {
-        let export_cli = Cli::try_parse_from([
+        let export_cli = parse_cli([
             "agent",
             "compact",
             "export",
@@ -3413,7 +3435,7 @@ mod cli_parse_tests {
         .unwrap();
         let Command::Compact {
             command: CompactCommand::Export { id, path, json },
-        } = export_cli.command
+        } = into_command(export_cli)
         else {
             panic!("expected compact export command");
         };
@@ -3421,7 +3443,7 @@ mod cli_parse_tests {
         assert_eq!(path, "/tmp/compact-1.json");
         assert!(json);
 
-        let import_cli = Cli::try_parse_from([
+        let import_cli = parse_cli([
             "agent",
             "compact",
             "import",
@@ -3431,7 +3453,7 @@ mod cli_parse_tests {
         .unwrap();
         let Command::Compact {
             command: CompactCommand::Import { path, json },
-        } = import_cli.command
+        } = into_command(import_cli)
         else {
             panic!("expected compact import command");
         };
@@ -3441,7 +3463,7 @@ mod cli_parse_tests {
 
     #[test]
     fn local_provider_aliases_parse() {
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "run",
             "--provider",
@@ -3454,14 +3476,14 @@ mod cli_parse_tests {
         .unwrap();
         let Command::Run {
             provider, model, ..
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected run command");
         };
         assert!(matches!(provider, Provider::Ollama));
         assert_eq!(model.as_deref(), Some("llama3.1"));
 
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "run",
             "--provider",
@@ -3470,12 +3492,12 @@ mod cli_parse_tests {
             "hello",
         ])
         .unwrap();
-        let Command::Run { provider, .. } = cli.command else {
+        let Command::Run { provider, .. } = into_command(cli) else {
             panic!("expected run command");
         };
         assert!(matches!(provider, Provider::LlamaCpp));
 
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "run",
             "--provider",
@@ -3484,14 +3506,13 @@ mod cli_parse_tests {
             "hello",
         ])
         .unwrap();
-        let Command::Run { provider, .. } = cli.command else {
+        let Command::Run { provider, .. } = into_command(cli) else {
             panic!("expected run command");
         };
         assert!(matches!(provider, Provider::Anthropic));
 
-        let cli = Cli::try_parse_from(["agent", "run", "--provider", "gemini", "--input", "hello"])
-            .unwrap();
-        let Command::Run { provider, .. } = cli.command else {
+        let cli = parse_cli(["agent", "run", "--provider", "gemini", "--input", "hello"]).unwrap();
+        let Command::Run { provider, .. } = into_command(cli) else {
             panic!("expected run command");
         };
         assert!(matches!(provider, Provider::Gemini));
@@ -3499,7 +3520,7 @@ mod cli_parse_tests {
 
     #[test]
     fn remote_run_events_accepts_after_cursor() {
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "remote",
             "run-events",
@@ -3508,11 +3529,7 @@ mod cli_parse_tests {
             "4",
         ])
         .unwrap();
-        let Command::Remote {
-            command: RemoteCommand::RunEvents { run_id, after },
-            ..
-        } = cli.command
-        else {
+        let RemoteCommand::RunEvents { run_id, after } = into_remote_command(cli) else {
             panic!("expected remote run-events command");
         };
         assert_eq!(run_id, "00000000-0000-0000-0000-000000000000");
@@ -3520,8 +3537,37 @@ mod cli_parse_tests {
     }
 
     #[test]
+    fn remote_run_wait_command_parses() {
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "run-wait",
+            "00000000-0000-0000-0000-000000000000",
+            "--poll-ms",
+            "250",
+            "--timeout-ms",
+            "1000",
+            "--events",
+        ])
+        .unwrap();
+        let RemoteCommand::RunWait {
+            run_id,
+            poll_ms,
+            timeout_ms,
+            events,
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote run-wait command");
+        };
+        assert_eq!(run_id, "00000000-0000-0000-0000-000000000000");
+        assert_eq!(poll_ms, 250);
+        assert_eq!(timeout_ms, Some(1000));
+        assert!(events);
+    }
+
+    #[test]
     fn conversation_recover_command_parses() {
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "conversation",
             "recover",
@@ -3531,7 +3577,7 @@ mod cli_parse_tests {
         .unwrap();
         let Command::Conversation {
             command: ConversationCommand::Recover { id, json },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected conversation recover command");
         };
@@ -3541,7 +3587,7 @@ mod cli_parse_tests {
 
     #[test]
     fn conversation_policy_command_parses() {
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "conversation",
             "policy",
@@ -3579,7 +3625,7 @@ mod cli_parse_tests {
                     json,
                     ..
                 },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected conversation policy command");
         };
@@ -3593,7 +3639,7 @@ mod cli_parse_tests {
         assert_eq!(compaction_guidance.as_deref(), Some("keep decisions"));
         assert!(json);
 
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "remote",
             "conversation",
@@ -3606,20 +3652,16 @@ mod cli_parse_tests {
             "--clear-compaction-guidance",
         ])
         .unwrap();
-        let Command::Remote {
+        let RemoteCommand::Conversation {
             command:
-                RemoteCommand::Conversation {
-                    command:
-                        RemoteConversationCommand::Policy {
-                            id,
-                            generate_memory,
-                            allowed_tool_categories,
-                            clear_compaction_guidance,
-                            ..
-                        },
+                RemoteConversationCommand::Policy {
+                    id,
+                    generate_memory,
+                    allowed_tool_categories,
+                    clear_compaction_guidance,
+                    ..
                 },
-            ..
-        } = cli.command
+        } = into_remote_command(cli)
         else {
             panic!("expected remote conversation policy command");
         };
@@ -3628,7 +3670,7 @@ mod cli_parse_tests {
         assert_eq!(allowed_tool_categories, vec!["shell"]);
         assert!(clear_compaction_guidance);
 
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "remote",
             "conversation",
@@ -3640,13 +3682,9 @@ mod cli_parse_tests {
             "4",
         ])
         .unwrap();
-        let Command::Remote {
-            command:
-                RemoteCommand::Conversation {
-                    command: RemoteConversationCommand::DeleteRange { id, from, to },
-                },
-            ..
-        } = cli.command
+        let RemoteCommand::Conversation {
+            command: RemoteConversationCommand::DeleteRange { id, from, to },
+        } = into_remote_command(cli)
         else {
             panic!("expected remote conversation delete-range command");
         };
@@ -3657,7 +3695,7 @@ mod cli_parse_tests {
 
     #[test]
     fn model_export_import_commands_parse() {
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "model",
             "save",
@@ -3690,7 +3728,7 @@ mod cli_parse_tests {
                     reasoning_effort,
                     ..
                 },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected model save command");
         };
@@ -3703,7 +3741,7 @@ mod cli_parse_tests {
         assert_eq!(top_k, Some(40));
         assert_eq!(reasoning_effort.as_deref(), Some("medium"));
 
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "remote",
             "model",
@@ -3716,20 +3754,16 @@ mod cli_parse_tests {
             "0.8",
         ])
         .unwrap();
-        let Command::Remote {
+        let RemoteCommand::Model {
             command:
-                RemoteCommand::Model {
-                    command:
-                        RemoteModelCommand::Save {
-                            id,
-                            provider,
-                            allow_missing_api_key,
-                            top_p,
-                            ..
-                        },
+                RemoteModelCommand::Save {
+                    id,
+                    provider,
+                    allow_missing_api_key,
+                    top_p,
+                    ..
                 },
-            ..
-        } = cli.command
+        } = into_remote_command(cli)
         else {
             panic!("expected remote model save command");
         };
@@ -3738,56 +3772,46 @@ mod cli_parse_tests {
         assert!(allow_missing_api_key);
         assert_eq!(top_p, Some(0.8));
 
-        let cli = Cli::try_parse_from(["agent", "model", "providers", "--json"]).unwrap();
+        let cli = parse_cli(["agent", "model", "providers", "--json"]).unwrap();
         let Command::Model {
             command: ModelCommand::Providers { json },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected model providers command");
         };
         assert!(json);
 
-        let cli = Cli::try_parse_from(["agent", "remote", "model", "providers"]).unwrap();
-        let Command::Remote {
-            command:
-                RemoteCommand::Model {
-                    command: RemoteModelCommand::Providers,
-                },
-            ..
-        } = cli.command
+        let cli = parse_cli(["agent", "remote", "model", "providers"]).unwrap();
+        let RemoteCommand::Model {
+            command: RemoteModelCommand::Providers,
+        } = into_remote_command(cli)
         else {
             panic!("expected remote model providers command");
         };
 
-        let cli = Cli::try_parse_from(["agent", "model", "probe", "gpt-test", "--json"]).unwrap();
+        let cli = parse_cli(["agent", "model", "probe", "gpt-test", "--json"]).unwrap();
         let Command::Model {
             command: ModelCommand::Probe { id, json },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected model probe command");
         };
         assert_eq!(id, "gpt-test");
         assert!(json);
 
-        let cli =
-            Cli::try_parse_from(["agent", "remote", "model", "probe", "remote-guard"]).unwrap();
-        let Command::Remote {
-            command:
-                RemoteCommand::Model {
-                    command: RemoteModelCommand::Probe { id },
-                },
-            ..
-        } = cli.command
+        let cli = parse_cli(["agent", "remote", "model", "probe", "remote-guard"]).unwrap();
+        let RemoteCommand::Model {
+            command: RemoteModelCommand::Probe { id },
+        } = into_remote_command(cli)
         else {
             panic!("expected remote model probe command");
         };
         assert_eq!(id, "remote-guard");
 
-        let cli = Cli::try_parse_from(["agent", "model", "export", "gpt-test", "./gpt-test.toml"])
-            .unwrap();
+        let cli = parse_cli(["agent", "model", "export", "gpt-test", "./gpt-test.toml"]).unwrap();
         let Command::Model {
             command: ModelCommand::Export { id, path, json },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected model export command");
         };
@@ -3795,15 +3819,10 @@ mod cli_parse_tests {
         assert_eq!(path, "./gpt-test.toml");
         assert!(!json);
 
-        let cli =
-            Cli::try_parse_from(["agent", "remote", "model", "import", "./gpt-test.toml"]).unwrap();
-        let Command::Remote {
-            command:
-                RemoteCommand::Model {
-                    command: RemoteModelCommand::Import { path },
-                },
-            ..
-        } = cli.command
+        let cli = parse_cli(["agent", "remote", "model", "import", "./gpt-test.toml"]).unwrap();
+        let RemoteCommand::Model {
+            command: RemoteModelCommand::Import { path },
+        } = into_remote_command(cli)
         else {
             panic!("expected remote model import command");
         };
@@ -3812,16 +3831,16 @@ mod cli_parse_tests {
 
     #[test]
     fn secret_commands_parse() {
-        let cli = Cli::try_parse_from(["agent", "secrets", "backends", "--json"]).unwrap();
+        let cli = parse_cli(["agent", "secrets", "backends", "--json"]).unwrap();
         let Command::Secrets {
             command: SecretsCommand::Backends { json },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected secrets backends command");
         };
         assert!(json);
 
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "secrets",
             "set",
@@ -3841,7 +3860,7 @@ mod cli_parse_tests {
                     label,
                     json,
                 },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected secrets set command");
         };
@@ -3853,7 +3872,7 @@ mod cli_parse_tests {
 
     #[test]
     fn capability_commands_parse() {
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "capability",
             "propose",
@@ -3878,7 +3897,7 @@ mod cli_parse_tests {
                     json,
                     ..
                 },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected capability propose command");
         };
@@ -3888,7 +3907,7 @@ mod cli_parse_tests {
         assert_eq!(created_by, "agent");
         assert!(json);
 
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "remote",
             "--url",
@@ -3898,13 +3917,9 @@ mod cli_parse_tests {
             "draft-review",
         ])
         .unwrap();
-        let Command::Remote {
-            command:
-                RemoteCommand::Capability {
-                    command: RemoteCapabilityCommand::Allow { id },
-                },
-            ..
-        } = cli.command
+        let RemoteCommand::Capability {
+            command: RemoteCapabilityCommand::Allow { id },
+        } = into_remote_command(cli)
         else {
             panic!("expected remote capability allow command");
         };
@@ -3914,14 +3929,13 @@ mod cli_parse_tests {
     #[test]
     fn resume_commands_parse() {
         let run_id = "00000000-0000-0000-0000-000000000000";
-        let cli = Cli::try_parse_from(["agent", "resume", run_id, "--from-event", "7", "--json"])
-            .unwrap();
+        let cli = parse_cli(["agent", "resume", run_id, "--from-event", "7", "--json"]).unwrap();
         let Command::Resume {
             run_id: parsed_id,
             from_event,
             json,
             ..
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected resume command");
         };
@@ -3929,7 +3943,7 @@ mod cli_parse_tests {
         assert_eq!(from_event, Some(7));
         assert!(json);
 
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "remote",
             "--url",
@@ -3940,15 +3954,11 @@ mod cli_parse_tests {
             "3",
         ])
         .unwrap();
-        let Command::Remote {
-            command:
-                RemoteCommand::Resume {
-                    run_id: parsed_id,
-                    from_event,
-                    ..
-                },
+        let RemoteCommand::Resume {
+            run_id: parsed_id,
+            from_event,
             ..
-        } = cli.command
+        } = into_remote_command(cli)
         else {
             panic!("expected remote resume command");
         };
@@ -3958,12 +3968,10 @@ mod cli_parse_tests {
 
     #[test]
     fn skill_export_import_commands_parse() {
-        let cli =
-            Cli::try_parse_from(["agent", "skill", "export", "review", "./review.skill.json"])
-                .unwrap();
+        let cli = parse_cli(["agent", "skill", "export", "review", "./review.skill.json"]).unwrap();
         let Command::Skill {
             command: SkillCommand::Export { id, path, json },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected skill export command");
         };
@@ -3971,16 +3979,10 @@ mod cli_parse_tests {
         assert_eq!(path, "./review.skill.json");
         assert!(!json);
 
-        let cli =
-            Cli::try_parse_from(["agent", "remote", "skill", "import", "./review.skill.json"])
-                .unwrap();
-        let Command::Remote {
-            command:
-                RemoteCommand::Skill {
-                    command: RemoteSkillCommand::Import { path },
-                },
-            ..
-        } = cli.command
+        let cli = parse_cli(["agent", "remote", "skill", "import", "./review.skill.json"]).unwrap();
+        let RemoteCommand::Skill {
+            command: RemoteSkillCommand::Import { path },
+        } = into_remote_command(cli)
         else {
             panic!("expected remote skill import command");
         };
@@ -3989,7 +3991,7 @@ mod cli_parse_tests {
 
     #[test]
     fn prompt_commands_accept_agent_scope() {
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "prompt",
             "save",
@@ -4001,7 +4003,7 @@ mod cli_parse_tests {
         .unwrap();
         let Command::Prompt {
             command: PromptCommand::Save { name, text, agent },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected prompt save command");
         };
@@ -4009,15 +4011,10 @@ mod cli_parse_tests {
         assert_eq!(text, "Review carefully.");
         assert_eq!(agent.as_deref(), Some("critic"));
 
-        let cli = Cli::try_parse_from(["agent", "remote", "prompt", "list", "--agent", "critic"])
-            .unwrap();
-        let Command::Remote {
-            command:
-                RemoteCommand::Prompt {
-                    command: RemotePromptCommand::List { agent },
-                },
-            ..
-        } = cli.command
+        let cli = parse_cli(["agent", "remote", "prompt", "list", "--agent", "critic"]).unwrap();
+        let RemoteCommand::Prompt {
+            command: RemotePromptCommand::List { agent },
+        } = into_remote_command(cli)
         else {
             panic!("expected remote prompt list command");
         };
@@ -4026,16 +4023,16 @@ mod cli_parse_tests {
 
     #[test]
     fn memory_export_import_commands_parse() {
-        let cli = Cli::try_parse_from(["agent", "memory", "backends", "--json"]).unwrap();
+        let cli = parse_cli(["agent", "memory", "backends", "--json"]).unwrap();
         let Command::Memory {
             command: MemoryCommand::Backends { json },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected memory backends command");
         };
         assert!(json);
 
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "memory",
             "export",
@@ -4046,7 +4043,7 @@ mod cli_parse_tests {
         .unwrap();
         let Command::Memory {
             command: MemoryCommand::Export { path, user, json },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected memory export command");
         };
@@ -4054,7 +4051,7 @@ mod cli_parse_tests {
         assert!(user);
         assert!(json);
 
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "memory",
             "generate-conversation",
@@ -4076,7 +4073,7 @@ mod cli_parse_tests {
                     topics,
                     ..
                 },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected memory generate-conversation command");
         };
@@ -4085,7 +4082,7 @@ mod cli_parse_tests {
         assert_eq!(to, Some(4));
         assert_eq!(topics, vec!["finance"]);
 
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "remote",
             "memory",
@@ -4094,32 +4091,24 @@ mod cli_parse_tests {
             "--user",
         ])
         .unwrap();
-        let Command::Remote {
-            command:
-                RemoteCommand::Memory {
-                    command: RemoteMemoryCommand::Import { path, user },
-                },
-            ..
-        } = cli.command
+        let RemoteCommand::Memory {
+            command: RemoteMemoryCommand::Import { path, user },
+        } = into_remote_command(cli)
         else {
             panic!("expected remote memory import command");
         };
         assert_eq!(path, "./memory.md");
         assert!(user);
 
-        let cli = Cli::try_parse_from(["agent", "remote", "memory", "backends"]).unwrap();
-        let Command::Remote {
-            command:
-                RemoteCommand::Memory {
-                    command: RemoteMemoryCommand::Backends,
-                },
-            ..
-        } = cli.command
+        let cli = parse_cli(["agent", "remote", "memory", "backends"]).unwrap();
+        let RemoteCommand::Memory {
+            command: RemoteMemoryCommand::Backends,
+        } = into_remote_command(cli)
         else {
             panic!("expected remote memory backends command");
         };
 
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "remote",
             "memory",
@@ -4133,18 +4122,14 @@ mod cli_parse_tests {
             "ops",
         ])
         .unwrap();
-        let Command::Remote {
+        let RemoteCommand::Memory {
             command:
-                RemoteCommand::Memory {
-                    command:
-                        RemoteMemoryCommand::GeneratePending {
-                            user,
-                            limit,
-                            topics,
-                        },
+                RemoteMemoryCommand::GeneratePending {
+                    user,
+                    limit,
+                    topics,
                 },
-            ..
-        } = cli.command
+        } = into_remote_command(cli)
         else {
             panic!("expected remote memory generate-pending command");
         };
@@ -4152,7 +4137,7 @@ mod cli_parse_tests {
         assert_eq!(limit, Some(3));
         assert_eq!(topics, vec!["finance", "ops"]);
 
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "remote",
             "memory",
@@ -4165,16 +4150,12 @@ mod cli_parse_tests {
             "--user",
         ])
         .unwrap();
-        let Command::Remote {
+        let RemoteCommand::Memory {
             command:
-                RemoteCommand::Memory {
-                    command:
-                        RemoteMemoryCommand::GenerateConversation {
-                            id, from, to, user, ..
-                        },
+                RemoteMemoryCommand::GenerateConversation {
+                    id, from, to, user, ..
                 },
-            ..
-        } = cli.command
+        } = into_remote_command(cli)
         else {
             panic!("expected remote memory generate-conversation command");
         };
@@ -4186,16 +4167,16 @@ mod cli_parse_tests {
 
     #[test]
     fn ingest_backends_commands_parse() {
-        let cli = Cli::try_parse_from(["agent", "ingest", "backends", "--json"]).unwrap();
+        let cli = parse_cli(["agent", "ingest", "backends", "--json"]).unwrap();
         let Command::Ingest {
             command: IngestCommand::Backends { json },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected ingest backends command");
         };
         assert!(json);
 
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "ingest",
             "add",
@@ -4216,7 +4197,7 @@ mod cli_parse_tests {
                     vision_model,
                     guardrail_model,
                 },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected ingest add command");
         };
@@ -4225,7 +4206,7 @@ mod cli_parse_tests {
         assert_eq!(vision_model.as_deref(), Some("gpt-4o"));
         assert_eq!(guardrail_model.as_deref(), Some("gpt-4o-mini"));
 
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "remote",
             "ingest",
@@ -4237,19 +4218,15 @@ mod cli_parse_tests {
             "gpt-4o-mini",
         ])
         .unwrap();
-        let Command::Remote {
+        let RemoteCommand::Ingest {
             command:
-                RemoteCommand::Ingest {
-                    command:
-                        RemoteIngestCommand::Add {
-                            path,
-                            vision_model,
-                            guardrail_model,
-                            ..
-                        },
+                RemoteIngestCommand::Add {
+                    path,
+                    vision_model,
+                    guardrail_model,
+                    ..
                 },
-            ..
-        } = cli.command
+        } = into_remote_command(cli)
         else {
             panic!("expected remote ingest add command");
         };
@@ -4257,7 +4234,7 @@ mod cli_parse_tests {
         assert_eq!(vision_model.as_deref(), Some("gpt-4o"));
         assert_eq!(guardrail_model.as_deref(), Some("gpt-4o-mini"));
 
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "ingest",
             "review",
@@ -4278,7 +4255,7 @@ mod cli_parse_tests {
                     decision,
                     note,
                 },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected ingest review command");
         };
@@ -4287,14 +4264,10 @@ mod cli_parse_tests {
         assert_eq!(decision, "approve");
         assert_eq!(note.as_deref(), Some("looks intentional"));
 
-        let cli = Cli::try_parse_from(["agent", "remote", "ingest", "backends"]).unwrap();
-        let Command::Remote {
-            command:
-                RemoteCommand::Ingest {
-                    command: RemoteIngestCommand::Backends,
-                },
-            ..
-        } = cli.command
+        let cli = parse_cli(["agent", "remote", "ingest", "backends"]).unwrap();
+        let RemoteCommand::Ingest {
+            command: RemoteIngestCommand::Backends,
+        } = into_remote_command(cli)
         else {
             panic!("expected remote ingest backends command");
         };
@@ -4302,26 +4275,20 @@ mod cli_parse_tests {
 
     #[test]
     fn artifact_commands_parse() {
-        let cli =
-            Cli::try_parse_from(["agent", "artifact", "open", "report.pdf", "--json"]).unwrap();
+        let cli = parse_cli(["agent", "artifact", "open", "report.pdf", "--json"]).unwrap();
         let Command::Artifact {
             command: ArtifactCommand::Open { id, json },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected artifact open command");
         };
         assert_eq!(id, "report.pdf");
         assert!(json);
 
-        let cli =
-            Cli::try_parse_from(["agent", "remote", "artifact", "show", "report.pdf"]).unwrap();
-        let Command::Remote {
-            command:
-                RemoteCommand::Artifact {
-                    command: RemoteArtifactCommand::Show { id },
-                },
-            ..
-        } = cli.command
+        let cli = parse_cli(["agent", "remote", "artifact", "show", "report.pdf"]).unwrap();
+        let RemoteCommand::Artifact {
+            command: RemoteArtifactCommand::Show { id },
+        } = into_remote_command(cli)
         else {
             panic!("expected remote artifact show command");
         };
@@ -4330,7 +4297,7 @@ mod cli_parse_tests {
 
     #[test]
     fn adapter_clawhub_install_matches_source_provider_spec() {
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "adapter",
             "clawhub",
@@ -4344,7 +4311,7 @@ mod cli_parse_tests {
                 AdapterCommand::Clawhub {
                     command: ClawHubCommand::Install { catalog, id },
                 },
-        } = cli.command
+        } = into_command(cli)
         else {
             panic!("expected adapter clawhub install command");
         };
@@ -4354,7 +4321,7 @@ mod cli_parse_tests {
 
     #[test]
     fn remote_adapter_clawhub_search_uses_same_command_shape() {
-        let cli = Cli::try_parse_from([
+        let cli = parse_cli([
             "agent",
             "remote",
             "adapter",
@@ -4364,16 +4331,12 @@ mod cli_parse_tests {
             "docs",
         ])
         .unwrap();
-        let Command::Remote {
+        let RemoteCommand::Adapter {
             command:
-                RemoteCommand::Adapter {
-                    command:
-                        RemoteAdapterCommand::Clawhub {
-                            command: ClawHubCommand::Search { catalog, query, .. },
-                        },
+                RemoteAdapterCommand::Clawhub {
+                    command: ClawHubCommand::Search { catalog, query, .. },
                 },
-            ..
-        } = cli.command
+        } = into_remote_command(cli)
         else {
             panic!("expected remote adapter clawhub search command");
         };
@@ -5260,6 +5223,12 @@ async fn main() -> anyhow::Result<()> {
             RemoteCommand::RunEvents { run_id, after } => {
                 headless::remote_run_events(url, run_id, after).await
             }
+            RemoteCommand::RunWait {
+                run_id,
+                poll_ms,
+                timeout_ms,
+                events,
+            } => headless::remote_run_wait(url, run_id, poll_ms, timeout_ms, events).await,
             RemoteCommand::PreviewContext {
                 input,
                 agent,

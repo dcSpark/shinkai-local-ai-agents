@@ -518,6 +518,15 @@ enum TraceCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Show a nested child-run tree for a persisted run id.
+    Tree {
+        /// Run UUID printed by `agent run`.
+        run_id: String,
+
+        /// Emit a JSON tree object.
+        #[arg(long)]
+        json: bool,
+    },
     /// Review hook failures and suggested retry/override actions.
     Hooks {
         /// Run UUID printed by `agent run`.
@@ -2234,6 +2243,12 @@ enum RemoteCommand {
     Trace { run_id: String },
     /// Show daemon trace summary counters.
     TraceSummary { run_id: String },
+    /// Show daemon child-run trace tree.
+    TraceTree {
+        run_id: String,
+        #[arg(long)]
+        json: bool,
+    },
     /// Show daemon hook remediation plan.
     TraceHooks { run_id: String },
     /// Remote approval operations.
@@ -2971,6 +2986,40 @@ mod cli_parse_tests {
         } = into_command(cli)
         else {
             panic!("expected trace hooks command");
+        };
+        assert_eq!(run_id, "00000000-0000-0000-0000-000000000000");
+        assert!(json);
+    }
+
+    #[test]
+    fn trace_tree_commands_parse() {
+        let cli = parse_cli([
+            "agent",
+            "trace",
+            "tree",
+            "00000000-0000-0000-0000-000000000000",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Trace {
+            command: TraceCommand::Tree { run_id, json },
+        } = into_command(cli)
+        else {
+            panic!("expected trace tree command");
+        };
+        assert_eq!(run_id, "00000000-0000-0000-0000-000000000000");
+        assert!(json);
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "trace-tree",
+            "00000000-0000-0000-0000-000000000000",
+            "--json",
+        ])
+        .unwrap();
+        let RemoteCommand::TraceTree { run_id, json } = into_remote_command(cli) else {
+            panic!("expected remote trace-tree command");
         };
         assert_eq!(run_id, "00000000-0000-0000-0000-000000000000");
         assert!(json);
@@ -4601,6 +4650,9 @@ async fn main() -> anyhow::Result<()> {
             command: TraceCommand::Summary { run_id, json },
         } => headless::trace_summary(run_id, json).await,
         Command::Trace {
+            command: TraceCommand::Tree { run_id, json },
+        } => headless::trace_tree(run_id, json).await,
+        Command::Trace {
             command: TraceCommand::Hooks { run_id, json },
         } => headless::trace_hooks(run_id, json).await,
         Command::Hooks { command } => match command {
@@ -5408,6 +5460,9 @@ async fn main() -> anyhow::Result<()> {
             RemoteCommand::Trace { run_id } => headless::remote_trace(url, run_id).await,
             RemoteCommand::TraceSummary { run_id } => {
                 headless::remote_trace_summary(url, run_id).await
+            }
+            RemoteCommand::TraceTree { run_id, json } => {
+                headless::remote_trace_tree(url, run_id, json).await
             }
             RemoteCommand::TraceHooks { run_id } => headless::remote_trace_hooks(url, run_id).await,
             RemoteCommand::Approval { command } => match command {

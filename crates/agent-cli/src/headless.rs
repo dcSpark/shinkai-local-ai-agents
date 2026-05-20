@@ -54,8 +54,9 @@ use agent_tools::{
 };
 use agent_tracing::{
     EventId, EventStore, RunEvent, RunEventKind, RunId, SqliteEventStore, TraceSummary,
-    build_resume_plan, hook_remediation_plan, is_terminal_run_event, latest_event_id,
-    summarize_trace, validate_guidance_content, validate_quality_score,
+    TraceTreeNode, build_resume_plan, build_trace_tree, hook_remediation_plan,
+    is_terminal_run_event, latest_event_id, summarize_trace, validate_guidance_content,
+    validate_quality_score,
 };
 
 use crate::{Demo, Provider, setup};
@@ -860,6 +861,22 @@ pub async fn trace_summary(run_id: String, json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn trace_tree(run_id: String, json: bool) -> anyhow::Result<()> {
+    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
+    let store = open_event_store()?;
+    let tree = build_trace_tree(run_id, |id| store.try_events(id))?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&tree)?);
+    } else if !tree.trace_available {
+        println!("No events found for run {}", run_id.0);
+    } else {
+        println!("trace tree {}", run_id.0);
+        print_trace_tree_node(&tree, 0);
+    }
+    Ok(())
+}
+
 pub async fn trace_hooks(run_id: String, json: bool) -> anyhow::Result<()> {
     let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
@@ -1097,6 +1114,28 @@ fn print_trace_summary(summary: &TraceSummary) {
     println!("artifact refs: {}", summary.artifact_refs);
     println!("hooks: {}", summary.hooks);
     println!("hook failures: {}", summary.hook_failures);
+}
+
+fn print_trace_tree_node(node: &TraceTreeNode, depth: usize) {
+    let indent = "  ".repeat(depth);
+    let agent = node.agent_id.as_deref().unwrap_or("unknown");
+    let trace = if node.trace_available {
+        format!("events={}", node.event_count)
+    } else {
+        "trace=missing".into()
+    };
+    let link = node
+        .link_status
+        .as_deref()
+        .map(|status| format!(" link_status={status}"))
+        .unwrap_or_default();
+    println!(
+        "{indent}- {} agent={} status={} {}{}",
+        node.run_id.0, agent, node.status, trace, link
+    );
+    for child in &node.children {
+        print_trace_tree_node(child, depth + 1);
+    }
 }
 
 pub async fn approval_list(run_id: String, json: bool) -> anyhow::Result<()> {
@@ -4238,6 +4277,23 @@ pub async fn remote_trace(url: String, run_id: String) -> anyhow::Result<()> {
 pub async fn remote_trace_summary(url: String, run_id: String) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
     print_remote(client.get_json(&format!("/trace/{run_id}/summary"))?)
+}
+
+pub async fn remote_trace_tree(url: String, run_id: String, json: bool) -> anyhow::Result<()> {
+    let client = DaemonHttpClient::new(url);
+    let value = client.get_json(&format!("/trace/{run_id}/tree"))?;
+    if json {
+        print_remote(value)?;
+        return Ok(());
+    }
+    let tree: TraceTreeNode = serde_json::from_value(value.clone())?;
+    if tree.trace_available {
+        println!("trace tree {run_id}");
+        print_trace_tree_node(&tree, 0);
+    } else {
+        print_remote(value)?;
+    }
+    Ok(())
 }
 
 pub async fn remote_trace_hooks(url: String, run_id: String) -> anyhow::Result<()> {

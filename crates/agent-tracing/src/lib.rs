@@ -5,7 +5,7 @@
 //! forwards every appended event over a `tokio` channel for live UIs.
 //! SQLite-backed durability is available for the CLI, daemon, and Tauri app.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -674,6 +674,179 @@ impl TraceSummary {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TraceTreeNode {
+    pub run_id: RunId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    pub status: String,
+    pub event_count: usize,
+    pub trace_available: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_event_id: Option<EventId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completion_event_id: Option<EventId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub link_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub children: Vec<TraceTreeNode>,
+}
+
+struct ChildRunLink {
+    run_id: RunId,
+    agent_id: Option<String>,
+    link_event_id: EventId,
+    completion_event_id: Option<EventId>,
+    link_status: Option<String>,
+}
+
+pub fn build_trace_tree<F, E>(root_run_id: RunId, mut load_events: F) -> Result<TraceTreeNode, E>
+where
+    F: FnMut(RunId) -> Result<Vec<RunEvent>, E>,
+{
+    let mut visited = HashSet::new();
+    build_trace_tree_node(root_run_id, None, None, &mut load_events, &mut visited)
+}
+
+fn build_trace_tree_node<F, E>(
+    run_id: RunId,
+    fallback_agent_id: Option<String>,
+    link: Option<(EventId, Option<EventId>, Option<String>)>,
+    load_events: &mut F,
+    visited: &mut HashSet<RunId>,
+) -> Result<TraceTreeNode, E>
+where
+    F: FnMut(RunId) -> Result<Vec<RunEvent>, E>,
+{
+    if !visited.insert(run_id) {
+        return Ok(TraceTreeNode {
+            run_id,
+            agent_id: fallback_agent_id,
+            status: "cycle".into(),
+            event_count: 0,
+            trace_available: false,
+            link_event_id: link.as_ref().map(|(event_id, _, _)| *event_id),
+            completion_event_id: link
+                .as_ref()
+                .and_then(|(_, event_id, _)| event_id.as_ref().copied()),
+            link_status: link.and_then(|(_, _, status)| status),
+            children: Vec::new(),
+        });
+    }
+
+    let events = load_events(run_id)?;
+    let agent_id = run_agent_id(&events).or(fallback_agent_id);
+    let trace_available = !events.is_empty();
+    let link_event_id = link.as_ref().map(|(event_id, _, _)| *event_id);
+    let completion_event_id = link
+        .as_ref()
+        .and_then(|(_, event_id, _)| event_id.as_ref().copied());
+    let link_status = link.and_then(|(_, _, status)| status);
+    let status = if trace_available {
+        trace_status(&events)
+    } else {
+        link_status.clone().unwrap_or_else(|| "unknown".into())
+    };
+    let mut node = TraceTreeNode {
+        run_id,
+        agent_id,
+        status,
+        event_count: events.len(),
+        trace_available,
+        link_event_id,
+        completion_event_id,
+        link_status,
+        children: Vec::new(),
+    };
+
+    for child in child_run_links(&events) {
+        node.children.push(build_trace_tree_node(
+            child.run_id,
+            child.agent_id,
+            Some((
+                child.link_event_id,
+                child.completion_event_id,
+                child.link_status,
+            )),
+            load_events,
+            visited,
+        )?);
+    }
+
+    visited.remove(&run_id);
+    Ok(node)
+}
+
+fn run_agent_id(events: &[RunEvent]) -> Option<String> {
+    events.iter().find_map(|event| {
+        let RunEventKind::RunStarted { agent_id, .. } = &event.kind else {
+            return None;
+        };
+        Some(agent_id.clone())
+    })
+}
+
+fn trace_status(events: &[RunEvent]) -> String {
+    for event in events.iter().rev() {
+        match &event.kind {
+            RunEventKind::RunCompleted { .. } => return "completed".into(),
+            RunEventKind::RunFailed { .. } => return "failed".into(),
+            RunEventKind::RunCancelled { .. } => return "cancelled".into(),
+            RunEventKind::RunPaused { .. } => return "paused".into(),
+            _ => {}
+        }
+    }
+    if events
+        .iter()
+        .any(|event| matches!(event.kind, RunEventKind::RunStarted { .. }))
+    {
+        "running".into()
+    } else {
+        "unknown".into()
+    }
+}
+
+fn child_run_links(events: &[RunEvent]) -> Vec<ChildRunLink> {
+    let mut links = Vec::<ChildRunLink>::new();
+    for event in events {
+        match &event.kind {
+            RunEventKind::ChildRunStarted {
+                child_run_id,
+                agent_id,
+            } => links.push(ChildRunLink {
+                run_id: *child_run_id,
+                agent_id: Some(agent_id.clone()),
+                link_event_id: event.id,
+                completion_event_id: None,
+                link_status: None,
+            }),
+            RunEventKind::ChildRunCompleted {
+                child_run_id,
+                status,
+            } => {
+                if let Some(link) = links
+                    .iter_mut()
+                    .rev()
+                    .find(|link| link.run_id == *child_run_id && link.completion_event_id.is_none())
+                {
+                    link.completion_event_id = Some(event.id);
+                    link.link_status = Some(status.clone());
+                } else {
+                    links.push(ChildRunLink {
+                        run_id: *child_run_id,
+                        agent_id: None,
+                        link_event_id: event.id,
+                        completion_event_id: Some(event.id),
+                        link_status: Some(status.clone()),
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    links
+}
+
 pub fn hook_remediation_plan(events: &[RunEvent]) -> Vec<HookRemediation> {
     let mut denials_by_parent = BTreeMap::<EventId, Vec<String>>::new();
     for event in events {
@@ -1134,6 +1307,93 @@ mod tests {
 
         assert_eq!(store.events(r1).len(), 1);
         assert_eq!(store.events(r2).len(), 1);
+    }
+
+    #[test]
+    fn trace_tree_recurses_through_child_run_links() {
+        let store = InMemoryEventStore::new();
+        let root = RunId::new();
+        let child = RunId::new();
+        let grandchild = RunId::new();
+
+        let root_started = store.append(
+            root,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "root".into(),
+                input: "start".into(),
+            },
+        );
+        let child_started = store.append(
+            root,
+            Some(root_started.id),
+            RunEventKind::ChildRunStarted {
+                child_run_id: child,
+                agent_id: "worker".into(),
+            },
+        );
+        store.append(
+            child,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "worker".into(),
+                input: "child".into(),
+            },
+        );
+        let grandchild_started = store.append(
+            child,
+            None,
+            RunEventKind::ChildRunStarted {
+                child_run_id: grandchild,
+                agent_id: "reviewer".into(),
+            },
+        );
+        store.append(
+            child,
+            Some(grandchild_started.id),
+            RunEventKind::ChildRunCompleted {
+                child_run_id: grandchild,
+                status: "succeeded".into(),
+            },
+        );
+        store.append(
+            child,
+            None,
+            RunEventKind::RunCompleted {
+                final_output: "child done".into(),
+                total_cost_usd: None,
+                total_duration_ms: 1,
+            },
+        );
+        store.append(
+            root,
+            Some(child_started.id),
+            RunEventKind::ChildRunCompleted {
+                child_run_id: child,
+                status: "succeeded".into(),
+            },
+        );
+
+        let tree = build_trace_tree(root, |run_id| {
+            Ok::<_, TraceStoreError>(store.events(run_id))
+        })
+        .unwrap();
+
+        assert_eq!(tree.run_id, root);
+        assert_eq!(tree.agent_id.as_deref(), Some("root"));
+        assert_eq!(tree.status, "running");
+        assert_eq!(tree.children.len(), 1);
+        assert_eq!(tree.children[0].run_id, child);
+        assert_eq!(tree.children[0].status, "completed");
+        assert_eq!(tree.children[0].link_status.as_deref(), Some("succeeded"));
+        assert_eq!(tree.children[0].children.len(), 1);
+        assert_eq!(tree.children[0].children[0].run_id, grandchild);
+        assert_eq!(
+            tree.children[0].children[0].agent_id.as_deref(),
+            Some("reviewer")
+        );
+        assert_eq!(tree.children[0].children[0].status, "succeeded");
+        assert!(!tree.children[0].children[0].trace_available);
     }
 
     #[test]

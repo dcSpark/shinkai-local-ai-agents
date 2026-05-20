@@ -53,8 +53,8 @@ use agent_tools::{
 };
 use agent_tracing::{
     EventId, EventStore, RunEvent, RunEventKind, RunId, SqliteEventStore, build_resume_plan,
-    hook_remediation_plan, is_terminal_run_event, latest_event_id, summarize_trace,
-    validate_guidance_content, validate_quality_score,
+    build_trace_tree, hook_remediation_plan, is_terminal_run_event, latest_event_id,
+    summarize_trace, validate_guidance_content, validate_quality_score,
 };
 use base64::{Engine, engine::general_purpose};
 use hmac::{Hmac, Mac};
@@ -413,6 +413,16 @@ async fn route(
                 .trim_end_matches("/hooks");
             trace_hooks(id).map(|value| (200, value))
         }
+        _ if request.method == "GET"
+            && request.path.starts_with("/trace/")
+            && request.path.ends_with("/tree") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/trace/")
+                .trim_end_matches("/tree");
+            trace_tree(id).map(|value| (200, value))
+        }
         _ if request.method == "GET" && request.path.starts_with("/trace/") => {
             let id = request.path.trim_start_matches("/trace/");
             trace_show(id).map(|value| (200, value))
@@ -623,6 +633,7 @@ async fn route(
                     "GET /storage",
                     "GET /trace/<run_id>",
                     "GET /trace/<run_id>/summary",
+                    "GET /trace/<run_id>/tree",
                     "GET /trace/<run_id>/hooks",
                     "POST /run",
                     "POST /run/start",
@@ -3043,6 +3054,14 @@ fn trace_summary(id: &str) -> anyhow::Result<serde_json::Value> {
     let run_id = RunId(uuid::Uuid::parse_str(id)?);
     let events = open_event_store()?.try_events(run_id)?;
     Ok(serde_json::to_value(summarize_trace(&events, run_id))?)
+}
+
+fn trace_tree(id: &str) -> anyhow::Result<serde_json::Value> {
+    let run_id = RunId(uuid::Uuid::parse_str(id)?);
+    let store = open_event_store()?;
+    Ok(serde_json::to_value(build_trace_tree(run_id, |id| {
+        store.try_events(id)
+    })?)?)
 }
 
 fn trace_hooks(id: &str) -> anyhow::Result<serde_json::Value> {

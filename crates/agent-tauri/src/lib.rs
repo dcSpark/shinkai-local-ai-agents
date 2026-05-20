@@ -22,8 +22,8 @@ use agent_capabilities::{
 };
 use agent_compaction::{CompactionRecord, CompactionStore};
 use agent_config::{
-    AgentConfigFile, ConfigResolver, IngestionGuardrailMode, ModelConfig, ModelProviderDescriptor,
-    ModelRuntimeConfig, ProfileGrantKind, supported_model_providers,
+    AgentConfigFile, AgentSummary, ConfigResolver, IngestionGuardrailMode, ModelConfig,
+    ModelProviderDescriptor, ModelRuntimeConfig, ProfileGrantKind, supported_model_providers,
 };
 use agent_conversations::{
     ConversationDoc, ConversationPolicy, ConversationRole, ConversationStore, ConversationTreeNode,
@@ -2840,6 +2840,46 @@ fn quarantine_capability_tool(
 }
 
 #[tauri::command]
+async fn agent_list() -> Result<Vec<AgentSummary>, String> {
+    ConfigResolver::from_env()
+        .list_agent_configs()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn agent_show(id: String) -> Result<AgentConfigFile, String> {
+    ConfigResolver::from_env()
+        .show_agent_config(&id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("agent {id:?} not found"))
+}
+
+#[tauri::command]
+async fn agent_export(id: String, path: String) -> Result<AgentConfigFile, String> {
+    ConfigResolver::from_env()
+        .export_agent_config(&id, &path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn agent_import(path: String) -> Result<AgentConfigFile, String> {
+    ConfigResolver::from_env()
+        .import_agent_config(&path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn agent_delete(id: String) -> Result<serde_json::Value, String> {
+    let deleted = ConfigResolver::from_env()
+        .delete_agent_config(&id)
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "id": id,
+        "deleted": deleted
+    }))
+}
+
+#[tauri::command]
 async fn prompt_save(
     name: String,
     body: String,
@@ -3392,6 +3432,11 @@ pub fn run() {
             capability_allow,
             capability_reject,
             capability_delete,
+            agent_list,
+            agent_show,
+            agent_export,
+            agent_import,
+            agent_delete,
             prompt_save,
             prompt_list,
             prompt_show,

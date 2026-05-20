@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
   AdapterPackage,
+  AgentConfigFile,
+  AgentSummary,
   BundleManifest,
   CapabilityDraft,
   CapabilityKind,
@@ -53,6 +55,7 @@ type ActiveSection =
   | "approvals";
 type AgentMode = "answer" | "action" | "workflow" | "custom";
 type StopRetentionMode = "discard" | "summarise";
+type AgentConfigEntry = AgentConfigFile | AgentSummary;
 
 interface TranscriptLine {
   kind: LineKind;
@@ -419,6 +422,7 @@ export default function App() {
     [],
   );
   const [skillDocs, setSkillDocs] = useState<SkillDoc[]>([]);
+  const [agentConfigs, setAgentConfigs] = useState<AgentConfigEntry[]>([]);
   const [capabilityDrafts, setCapabilityDrafts] = useState<CapabilityDraft[]>([]);
   const [adapterPackages, setAdapterPackages] = useState<AdapterPackage[]>([]);
   const [activeSection, setActiveSection] = useState<ActiveSection>("chat");
@@ -3779,6 +3783,98 @@ export default function App() {
     }
   }
 
+  async function reviewAgents() {
+    try {
+      const docs =
+        transport === "daemon"
+          ? await daemonJson<AgentSummary[]>("/agents")
+          : await invoke<AgentSummary[]>("agent_list");
+      setAgentConfigs(docs);
+      appendEvent(`Agents: ${docs.length}`);
+      appendJson("Agents", docs);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Agent review failed: ${msg}`);
+    }
+  }
+
+  async function showAgentFromOps() {
+    const id = requireOpsId("Agent show");
+    if (!id) return;
+    await showAgent(id);
+  }
+
+  async function showAgent(id: string) {
+    try {
+      const doc =
+        transport === "daemon"
+          ? await daemonJson<AgentConfigFile>(`/agents/${encodeURIComponent(id)}`)
+          : await invoke<AgentConfigFile>("agent_show", { id });
+      setAgentConfigs((docs) => upsertAgentConfig(docs, doc));
+      appendJson("Agent", doc);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Agent show failed: ${msg}`);
+    }
+  }
+
+  async function exportAgentFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Agent export");
+    const path = requireOpsValue("Agent export");
+    if (!id || !path) return;
+    try {
+      const doc =
+        transport === "daemon"
+          ? await daemonJson<AgentConfigFile>(
+              `/agents/${encodeURIComponent(id)}/export`,
+              { path },
+            )
+          : await invoke<AgentConfigFile>("agent_export", { id, path });
+      setAgentConfigs((docs) => upsertAgentConfig(docs, doc));
+      appendJson("Agent exported", { path, agent: doc });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Agent export failed: ${msg}`);
+    }
+  }
+
+  async function importAgentFromOps() {
+    const path = requireOpsValue("Agent import");
+    if (!path) return;
+    try {
+      const doc =
+        transport === "daemon"
+          ? await daemonJson<AgentConfigFile>("/agents/import", { path })
+          : await invoke<AgentConfigFile>("agent_import", { path });
+      setAgentConfigs((docs) => upsertAgentConfig(docs, doc));
+      setAgentId(doc.id);
+      appendJson("Agent imported", doc);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Agent import failed: ${msg}`);
+    }
+  }
+
+  async function deleteAgentFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Agent delete");
+    if (!id) return;
+    if (!confirmLocalChange(`Delete agent ${id}`)) return;
+    try {
+      const result =
+        transport === "daemon"
+          ? await daemonJson<unknown>(`/agents/${encodeURIComponent(id)}/delete`, {})
+          : await invoke<unknown>("agent_delete", { id });
+      setAgentConfigs((docs) => docs.filter((doc) => doc.id !== id));
+      if (agentId.trim() === id) {
+        setAgentId("");
+      }
+      appendJson("Agent deleted", result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Agent delete failed: ${msg}`);
+    }
+  }
+
   async function reviewCapabilities() {
     try {
       const drafts =
@@ -6325,6 +6421,11 @@ export default function App() {
   function upsertSkillDoc(docs: SkillDoc[], doc: SkillDoc) {
     const rest = docs.filter((item) => item.id !== doc.id);
     return [doc, ...rest];
+  }
+
+  function upsertAgentConfig(docs: AgentConfigEntry[], doc: AgentConfigEntry) {
+    const rest = docs.filter((item) => item.id !== doc.id);
+    return [doc, ...rest].sort((a, b) => a.id.localeCompare(b.id));
   }
 
   function upsertCapabilityDraft(
@@ -9716,6 +9817,133 @@ export default function App() {
                   No compacted-context artifacts loaded. List saved artifacts or keep one from preview.
                 </div>
               )}
+            </div>
+            ) : null}
+
+            {activeSection === "chat" ? (
+            <div className="operation-group">
+              <div className="operation-title">Agents</div>
+              <div className="button-grid">
+                <button
+                  type="button"
+                  title="List saved agent configurations."
+                  onClick={() => void reviewAgents()}
+                  disabled={running}
+                >
+                  List Agents
+                </button>
+                <button
+                  type="button"
+                  title="Show saved agent Id."
+                  onClick={() => void showAgentFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Show Agent
+                </button>
+                <button
+                  type="button"
+                  title="Use agent Id for future runs."
+                  onClick={() => setAgentId(opsId.trim())}
+                  disabled={running || !opsId.trim()}
+                >
+                  Use Agent
+                </button>
+                <button
+                  type="button"
+                  title="Export saved agent Id to Value path."
+                  onClick={() => void exportAgentFromOps()}
+                  disabled={running || !opsId.trim() || !opsValue.trim()}
+                >
+                  Export Agent
+                </button>
+                <button
+                  type="button"
+                  title="Import saved agent config from Value path."
+                  onClick={() => void importAgentFromOps()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Import Agent
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  title="Delete saved agent Id."
+                  onClick={() => void deleteAgentFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Delete Agent
+                </button>
+              </div>
+              {agentConfigs.length ? (
+                <div className="ingestion-review">
+                  {agentConfigs.map((doc) => (
+                    <div className="ingestion-card" key={doc.id}>
+                      <div className="ingestion-card-head">
+                        <strong>{doc.name || doc.id}</strong>
+                        <span>{doc.id}</span>
+                      </div>
+                      {"system_prompt" in doc ? (
+                        <>
+                          <span>
+                            {doc.model ? `model ${doc.model}` : "default model"}
+                          </span>
+                          <span>
+                            {doc.max_tool_calls == null
+                              ? "default tool budget"
+                              : `${doc.max_tool_calls} tool calls`}
+                          </span>
+                          <p>{previewText(doc.system_prompt, 220)}</p>
+                        </>
+                      ) : (
+                        <span title={doc.path}>{fileName(doc.path)}</span>
+                      )}
+                      <div className="mini-actions">
+                        <button
+                          type="button"
+                          title="Move this agent id into the Id field."
+                          onClick={() => setOpsId(doc.id)}
+                          disabled={running}
+                        >
+                          Set Id
+                        </button>
+                        <button
+                          type="button"
+                          title="Use this saved agent for future runs."
+                          onClick={() => setAgentId(doc.id)}
+                          disabled={running}
+                        >
+                          Use
+                        </button>
+                        <button
+                          type="button"
+                          title="Show this saved agent config."
+                          onClick={() => void showAgent(doc.id)}
+                          disabled={running}
+                        >
+                          Show
+                        </button>
+                        <button
+                          type="button"
+                          title="Export this saved agent to the Value path."
+                          onClick={() => void exportAgentFromOps(doc.id)}
+                          disabled={running || !opsValue.trim()}
+                        >
+                          Export
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          title="Delete this saved agent config."
+                          onClick={() => void deleteAgentFromOps(doc.id)}
+                          disabled={running}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
             ) : null}
 

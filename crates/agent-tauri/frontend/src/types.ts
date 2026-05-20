@@ -198,6 +198,27 @@ export type ModelProviderDescriptor = {
 export type ToolVisibility = "full_schema" | "name_and_description" | "name_only";
 export type ToolOutputMode = "interpreted" | "raw";
 
+export type AgentConfigFile = {
+  id: string;
+  name: string;
+  system_prompt: string;
+  model?: string | null;
+  max_tool_calls?: number | null;
+  prompt_refinement?: unknown | null;
+  prompt_refinements?: unknown[];
+  load_memory?: boolean | null;
+  load_skills?: boolean | null;
+  allowed_tools?: string[] | null;
+  allowed_tool_categories?: string[] | null;
+  allowed_skill_categories?: string[] | null;
+};
+
+export type AgentSummary = {
+  id: string;
+  name: string;
+  path: string;
+};
+
 export type PromptDoc = {
   name: string;
   body: string;

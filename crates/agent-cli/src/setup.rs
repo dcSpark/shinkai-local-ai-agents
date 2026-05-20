@@ -1066,6 +1066,66 @@ mod tests {
     }
 
     #[test]
+    fn category_grants_load_external_agents_as_subagents_from_source_profile() {
+        let dir = std::env::temp_dir().join(format!(
+            "a2a-subagent-category-grant-setup-test-{}",
+            std::process::id()
+        ));
+        let source = dir.join("agent-card.json");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            &source,
+            r#"{
+              "name": "Remote Reviewer",
+              "description": "Reviews documents.",
+              "url": "https://agents.example.test/a2a",
+              "preferredTransport": "JSONRPC",
+              "defaultInputModes": ["text/plain"],
+              "defaultOutputModes": ["text/plain"],
+              "skills": [
+                { "id": "review", "name": "Review", "description": "Review text." }
+              ]
+            }"#,
+        )
+        .unwrap();
+        let root = dir.join("home");
+        let main_paths = StoragePaths::new(root.clone());
+        let research_paths = StoragePaths::new_with_profile(root, "research");
+        let resolver = ConfigResolver::new(main_paths.clone());
+        resolver.create_profile("research", None).unwrap();
+        let registry = AdapterRegistry::new(main_paths);
+        let package = registry.import(&source).unwrap();
+        resolver
+            .grant_profile_access("main", "research", ProfileGrantKind::Category, "subagent")
+            .unwrap();
+
+        let mut hidden = ToolRegistry::new();
+        assert_eq!(
+            register_profile_scoped_adapter_tools_from_paths(&mut hidden, research_paths.clone()),
+            0
+        );
+
+        registry.allow(&package.id).unwrap();
+        let mut visible = ToolRegistry::new();
+        assert_eq!(
+            register_profile_scoped_adapter_tools_from_paths(&mut visible, research_paths),
+            1
+        );
+        let review = visible.descriptor(&ToolId::from("a2a-review")).unwrap();
+        assert!(
+            review
+                .categories
+                .iter()
+                .any(|category| category == "subagent")
+        );
+        assert!(review.provenance.as_deref().is_some_and(|provenance| {
+            provenance
+                .contains("shared_from_profile=main; grant=grant-main-research-category-subagent")
+        }));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn category_grants_load_mcp_tools_from_source_profile() {
         let dir = std::env::temp_dir().join(format!(
             "tool-category-grant-setup-test-{}",

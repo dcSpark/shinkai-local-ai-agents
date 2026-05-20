@@ -3874,7 +3874,7 @@ impl ExternalAgentTool {
             description.push('\n');
             description.push_str(&hints.join("; "));
         }
-        let mut categories = vec!["external-agent".into()];
+        let mut categories = vec!["agent".into(), "subagent".into(), "external-agent".into()];
         if a2a {
             categories.push("a2a".into());
         } else {
@@ -4636,6 +4636,8 @@ fn external_agent_resource_matches(
 
 fn external_agent_category_matches(package: &NormalizedPackage, category: &str) -> bool {
     category == "*"
+        || category == "agent"
+        || category == "subagent"
         || category == "a2a"
         || category == "http-json"
         || category == "external-agent"
@@ -5901,20 +5903,44 @@ done
         assert!(review.permissions.secrets);
         assert_eq!(
             review.categories,
-            vec!["external-agent".to_string(), "a2a".to_string()]
+            vec![
+                "agent".to_string(),
+                "subagent".to_string(),
+                "external-agent".to_string(),
+                "a2a".to_string()
+            ]
         );
 
         let mut granted = ToolRegistry::new();
         assert_eq!(
             register_allowed_external_agent_tools_for_resource_with_provenance(
                 &mut granted,
-                [allowed_package],
+                [allowed_package.clone()],
                 "review",
                 Some("profile=research"),
             ),
             1
         );
         assert!(granted.descriptor(&ToolId::from("a2a-review")).is_some());
+        let mut granted_by_category = ToolRegistry::new();
+        assert_eq!(
+            register_allowed_external_agent_tools_for_category_with_provenance(
+                &mut granted_by_category,
+                [allowed_package],
+                "subagent",
+                Some("profile=research"),
+            ),
+            1
+        );
+        let review_by_category = granted_by_category
+            .descriptor(&ToolId::from("a2a-review"))
+            .unwrap();
+        assert!(
+            review_by_category
+                .provenance
+                .as_deref()
+                .is_some_and(|provenance| provenance.contains("profile=research"))
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -6003,7 +6029,12 @@ external_agents:
         assert!(reviewer.permissions.secrets);
         assert_eq!(
             reviewer.categories,
-            vec!["external-agent".to_string(), "http-json".to_string()]
+            vec![
+                "agent".to_string(),
+                "subagent".to_string(),
+                "external-agent".to_string(),
+                "http-json".to_string()
+            ]
         );
         assert!(
             reviewer

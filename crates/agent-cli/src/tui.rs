@@ -186,13 +186,14 @@ async fn main_loop(
     demo: Demo,
     options: setup::RuntimeOptions,
 ) -> anyhow::Result<()> {
-    let registry = setup::build_registry(
+    let mut options = options;
+    let mut registry = setup::build_registry(
         options.enable_shell,
         options.enable_subagent,
         options.enable_capability_drafts,
         options.agent_id.as_deref(),
     );
-    let agent = setup::build_agent(&options);
+    let mut agent = setup::build_agent(&options);
     let calls_max = agent.tool_policy.max_calls;
 
     let mut app = App {
@@ -224,8 +225,8 @@ async fn main_loop(
         tokio::select! {
             term = term_events.next() => match term {
                 Some(Ok(evt)) => handle_terminal_event(
-                    &mut app, evt, demo, &registry, &agent, &publish_tx,
-                    &line_tx, &options,
+                    &mut app, evt, demo, &mut registry, &mut agent, &publish_tx,
+                    &line_tx, &mut options,
                 ),
                 Some(Err(_)) | None => app.quit = true,
             },
@@ -250,11 +251,11 @@ fn handle_terminal_event(
     app: &mut App,
     evt: CtEvent,
     demo: Demo,
-    registry: &Arc<ToolRegistry>,
-    agent: &AgentConfig,
+    registry: &mut Arc<ToolRegistry>,
+    agent: &mut AgentConfig,
     publish_tx: &UnboundedSender<RunEvent>,
     line_tx: &UnboundedSender<TranscriptLine>,
-    options: &setup::RuntimeOptions,
+    options: &mut setup::RuntimeOptions,
 ) {
     let key = match evt {
         CtEvent::Key(k) if k.kind == KeyEventKind::Press => k,
@@ -585,33 +586,99 @@ fn stopped_run_compaction_for_tui(run_id: RunId) -> anyhow::Result<Option<String
         .map(|record| record.id))
 }
 
+fn show_active_agent(app: &mut App, agent: &AgentConfig) {
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::Assistant,
+        text: format!(
+            "Agent: {} ({})\nmodel: {}\ntool calls: {}\ntool visibility: {:?}\nraw output: {}",
+            agent.name,
+            agent.id,
+            agent.model.0,
+            agent.tool_policy.max_calls,
+            agent.tool_policy.visibility,
+            matches!(
+                agent.tool_policy.output_mode,
+                agent_core::ToolOutputMode::Raw
+            )
+        ),
+    });
+}
+
+fn switch_active_agent(
+    app: &mut App,
+    rest: &str,
+    registry: &mut Arc<ToolRegistry>,
+    agent: &mut AgentConfig,
+    options: &mut setup::RuntimeOptions,
+) {
+    let id = match agent_switch_arg(rest) {
+        Ok(id) => id,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            });
+            return;
+        }
+    };
+    if let Err(err) = ConfigResolver::from_env().resolve_agent(id) {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: format!("Agent switch failed: {err}"),
+        });
+        return;
+    }
+
+    let mut next_options = options.clone();
+    next_options.agent_id = Some(id.to_string());
+    let next_agent = setup::build_agent(&next_options);
+    let next_registry = setup::build_registry(
+        next_options.enable_shell,
+        next_options.enable_subagent,
+        next_options.enable_capability_drafts,
+        next_options.agent_id.as_deref(),
+    );
+    *options = next_options;
+    *registry = next_registry;
+    *agent = next_agent;
+    app.calls_used = 0;
+    app.calls_max = agent.tool_policy.max_calls;
+    app.calls_remaining = agent.tool_policy.max_calls;
+    push_event(
+        app,
+        format!("Switched active agent to {} ({})", agent.name, agent.id),
+    );
+    show_active_agent(app, agent);
+}
+
+fn agent_switch_arg(rest: &str) -> anyhow::Result<&str> {
+    let mut parts = rest.split_whitespace();
+    let id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("/agent needs an agent id"))?;
+    if parts.next().is_some() {
+        anyhow::bail!("/agent accepts exactly one agent id");
+    }
+    Ok(id)
+}
+
 fn handle_slash_command(
     app: &mut App,
     prompt: &str,
     demo: Demo,
-    registry: &Arc<ToolRegistry>,
-    agent: &AgentConfig,
+    registry: &mut Arc<ToolRegistry>,
+    agent: &mut AgentConfig,
     publish_tx: &UnboundedSender<RunEvent>,
     line_tx: &UnboundedSender<TranscriptLine>,
-    options: &setup::RuntimeOptions,
+    options: &mut setup::RuntimeOptions,
 ) -> bool {
     let trimmed = prompt.trim();
-    if trimmed == "/agent" {
-        app.transcript.push(TranscriptLine {
-            kind: LineKind::Assistant,
-            text: format!(
-                "Agent: {} ({})\nmodel: {}\ntool calls: {}\ntool visibility: {:?}\nraw output: {}",
-                agent.name,
-                agent.id,
-                agent.model.0,
-                agent.tool_policy.max_calls,
-                agent.tool_policy.visibility,
-                matches!(
-                    agent.tool_policy.output_mode,
-                    agent_core::ToolOutputMode::Raw
-                )
-            ),
-        });
+    if let Some(rest) = agent_slash_rest(trimmed) {
+        if rest.is_empty() {
+            show_active_agent(app, agent);
+        } else {
+            switch_active_agent(app, rest, registry, agent, options);
+        }
         return true;
     }
     if let Some(rest) = trimmed.strip_prefix("/tool!").map(str::trim) {
@@ -5701,6 +5768,14 @@ fn is_mid_run_control_command(trimmed: &str) -> bool {
     guide_slash_rest(trimmed).is_some() || stop_slash_rest(trimmed).is_some()
 }
 
+fn agent_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/agent" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/agent ").map(str::trim)
+    }
+}
+
 fn resume_slash_rest(trimmed: &str) -> Option<&str> {
     if trimmed == "/resume" {
         Some("")
@@ -6786,6 +6861,9 @@ mod tests {
         assert_eq!(score_slash_rest("/score 7"), Some("7"));
         assert_eq!(score_slash_rest("/score"), Some(""));
         assert_eq!(score_slash_rest("/scoreboard 7"), None);
+        assert_eq!(agent_slash_rest("/agent"), Some(""));
+        assert_eq!(agent_slash_rest("/agent research"), Some("research"));
+        assert_eq!(agent_slash_rest("/agents"), None);
         assert_eq!(
             stop_slash_rest("/stop changed my mind"),
             Some("changed my mind")
@@ -6906,6 +6984,13 @@ mod tests {
         assert!(parse_resume_slash_args("--from-event", Some(last_run)).is_err());
         assert!(parse_resume_slash_args("", None).is_err());
         assert!(parse_resume_slash_args("last extra", Some(last_run)).is_err());
+    }
+
+    #[test]
+    fn agent_switch_arg_requires_exactly_one_id() {
+        assert_eq!(agent_switch_arg("research").unwrap(), "research");
+        assert!(agent_switch_arg("").is_err());
+        assert!(agent_switch_arg("research extra").is_err());
     }
 
     #[test]

@@ -1476,6 +1476,16 @@ async fn storage_report() -> Result<Value, String> {
 }
 
 #[tauri::command]
+async fn storage_prune_cache(retention_days: u64, apply: bool) -> Result<Value, String> {
+    serde_json::to_value(
+        StoragePaths::from_env()
+            .prune_cache_retention(retention_days, !apply)
+            .map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn conversation_list() -> Result<Vec<ConversationDoc>, String> {
     ConversationStore::from_env()
         .list()
@@ -3381,6 +3391,7 @@ pub fn run() {
             explain_config,
             explain_tools,
             storage_report,
+            storage_prune_cache,
             conversation_list,
             conversation_tree,
             conversation_show,

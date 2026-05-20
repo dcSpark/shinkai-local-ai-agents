@@ -58,6 +58,7 @@ use agent_tracing::{
 };
 use base64::{Engine, engine::general_purpose};
 use hmac::{Hmac, Mac};
+use serde::Deserialize;
 use sha2::Sha256;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -168,6 +169,9 @@ async fn route(
             }),
         )),
         ("GET", "/storage") => daemon_storage_report().map(|value| (200, value)),
+        ("POST", "/storage/prune-cache") => {
+            daemon_storage_prune_cache(&request.body).map(|value| (200, value))
+        }
         ("POST", "/run") => daemon_run(&request.body).await.map(|value| (200, value)),
         ("POST", "/run/start") => daemon_run_start(&request.body, state)
             .await
@@ -647,6 +651,7 @@ async fn route(
                     "GET /health",
                     "GET /version",
                     "GET /storage",
+                    "POST /storage/prune-cache",
                     "GET /trace/<run_id>",
                     "GET /trace/<run_id>/summary",
                     "GET /trace/<run_id>/tree",
@@ -1286,6 +1291,20 @@ fn daemon_explain_config(body: &str) -> anyhow::Result<serde_json::Value> {
 fn daemon_storage_report() -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(
         StoragePaths::from_env().storage_report()?,
+    )?)
+}
+
+#[derive(Debug, Deserialize)]
+struct StoragePruneInput {
+    retention_days: u64,
+    #[serde(default)]
+    apply: bool,
+}
+
+fn daemon_storage_prune_cache(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: StoragePruneInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        StoragePaths::from_env().prune_cache_retention(input.retention_days, !input.apply)?,
     )?)
 }
 

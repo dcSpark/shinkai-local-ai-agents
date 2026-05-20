@@ -222,7 +222,21 @@ pub async fn explain_config(agent_id: Option<String>, json: bool) -> anyhow::Res
     Ok(())
 }
 
-pub async fn storage_report(json: bool) -> anyhow::Result<()> {
+pub async fn storage_report(
+    json: bool,
+    prune_cache_days: Option<u64>,
+    apply: bool,
+) -> anyhow::Result<()> {
+    if let Some(retention_days) = prune_cache_days {
+        let result = StoragePaths::from_env().prune_cache_retention(retention_days, !apply)?;
+        if json {
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        } else {
+            print_storage_retention_result(&result);
+        }
+        return Ok(());
+    }
+
     let report = StoragePaths::from_env().storage_report()?;
 
     if json {
@@ -275,6 +289,37 @@ pub async fn storage_report(json: bool) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn print_storage_retention_result(result: &agent_storage::StorageRetentionResult) {
+    let mode = if result.dry_run { "plan" } else { "applied" };
+    println!(
+        "cache retention {mode}: {} file(s), {} bytes, older than {} day(s)",
+        result.plan.total_files, result.plan.total_bytes, result.plan.retention_days
+    );
+    if !result.dry_run {
+        println!(
+            "deleted: {} file(s), {} bytes",
+            result.deleted_files, result.deleted_bytes
+        );
+    }
+    for candidate in result.plan.candidates.iter().take(20) {
+        println!(
+            "  {} {} bytes {}",
+            candidate.bucket,
+            candidate.bytes,
+            candidate.path.display()
+        );
+    }
+    if result.plan.candidates.len() > 20 {
+        println!(
+            "  ... {} more candidate(s)",
+            result.plan.candidates.len().saturating_sub(20)
+        );
+    }
+    for error in &result.errors {
+        eprintln!("  error: {error}");
+    }
 }
 
 pub async fn secrets_set(
@@ -4399,8 +4444,19 @@ pub async fn remote_approval_execute(
     print_remote(client.post_json(&format!("/approvals/{run_id}/{approval_id}/execute"), body)?)
 }
 
-pub async fn remote_storage_report(url: String) -> anyhow::Result<()> {
-    print_remote(DaemonHttpClient::new(url).get_json("/storage")?)
+pub async fn remote_storage_report(
+    url: String,
+    prune_cache_days: Option<u64>,
+    apply: bool,
+) -> anyhow::Result<()> {
+    let client = DaemonHttpClient::new(url);
+    if let Some(retention_days) = prune_cache_days {
+        return print_remote(client.post_json(
+            "/storage/prune-cache",
+            serde_json::json!({ "retention_days": retention_days, "apply": apply }),
+        )?);
+    }
+    print_remote(client.get_json("/storage")?)
 }
 
 pub async fn remote_conversation_list(url: String) -> anyhow::Result<()> {

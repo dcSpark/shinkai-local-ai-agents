@@ -241,6 +241,30 @@ interface StorageReport {
   buckets: StorageBucket[];
 }
 
+interface StorageRetentionCandidate {
+  bucket: string;
+  path: string;
+  bytes: number;
+  modified_unix_seconds?: number | null;
+}
+
+interface StorageRetentionPlan {
+  root: string;
+  retention_days: number;
+  cutoff_unix_seconds: number;
+  total_bytes: number;
+  total_files: number;
+  candidates: StorageRetentionCandidate[];
+}
+
+interface StorageRetentionResult {
+  dry_run: boolean;
+  plan: StorageRetentionPlan;
+  deleted_files: number;
+  deleted_bytes: number;
+  errors: string[];
+}
+
 interface BundleStatus {
   operation: "exported" | "imported";
   path: string;
@@ -380,6 +404,8 @@ export default function App() {
   const [hookPolicy, setHookPolicy] = useState<HookPolicyRecord | null>(null);
   const [hookCatalog, setHookCatalog] = useState<HookCatalogRecord[]>([]);
   const [storageReport, setStorageReport] = useState<StorageReport | null>(null);
+  const [storagePruneResult, setStoragePruneResult] =
+    useState<StorageRetentionResult | null>(null);
   const [bundleStatus, setBundleStatus] = useState<BundleStatus | null>(null);
   const [compactionRecords, setCompactionRecords] = useState<CompactionRecord[]>(
     [],
@@ -1014,6 +1040,17 @@ export default function App() {
       return null;
     }
     return id;
+  }
+
+  function retentionDaysFromOps(label: string) {
+    const raw = requireOpsValue(label);
+    if (!raw) return null;
+    const days = Number(raw);
+    if (!Number.isInteger(days) || days <= 0) {
+      appendLine("error", `${label} needs Value to be a positive whole number of days.`);
+      return null;
+    }
+    return days;
   }
 
   function qualityScoreFromOps() {
@@ -5797,6 +5834,34 @@ export default function App() {
     }
   }
 
+  async function storagePruneCacheFromOps(apply: boolean) {
+    const retentionDays = retentionDaysFromOps("Storage cache retention");
+    if (retentionDays == null) return;
+    if (apply && !confirmLocalChange(`Delete cache files older than ${retentionDays} day(s)`)) {
+      return;
+    }
+    try {
+      const result =
+        transport === "daemon"
+          ? await daemonJson<StorageRetentionResult>("/storage/prune-cache", {
+              retention_days: retentionDays,
+              apply,
+            })
+          : await invoke<StorageRetentionResult>("storage_prune_cache", {
+              retentionDays,
+              apply,
+            });
+      setStoragePruneResult(result);
+      appendJson(apply ? "Storage cache pruned" : "Storage cache prune plan", result);
+      if (apply) {
+        await storageReportFromOps();
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Storage cache prune failed: ${msg}`);
+    }
+  }
+
   function applySlashCommand(command: string) {
     setInput(command);
     setSlashCommandIndex(0);
@@ -10194,6 +10259,23 @@ export default function App() {
                 >
                   Report
                 </button>
+                <button
+                  type="button"
+                  title="Plan cache-file pruning using Value as retention days."
+                  onClick={() => void storagePruneCacheFromOps(false)}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Prune Plan
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  title="Delete cache files older than the Value retention days."
+                  onClick={() => void storagePruneCacheFromOps(true)}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Prune Apply
+                </button>
               </div>
               {storageReport ? (
                 <div className="storage-report">
@@ -10252,6 +10334,46 @@ export default function App() {
                         ) : (
                           <span>{bucket.exists ? "empty" : "missing"}</span>
                         )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {storagePruneResult ? (
+                <div className="storage-report">
+                  <div className="storage-total">
+                    <strong>
+                      {storagePruneResult.dry_run ? "plan" : "applied"}
+                    </strong>
+                    <span>
+                      {storagePruneResult.plan.total_files} files /{" "}
+                      {formatBytes(storagePruneResult.plan.total_bytes)}
+                    </span>
+                  </div>
+                  {!storagePruneResult.dry_run ? (
+                    <div className="storage-largest">
+                      <span>deleted</span>
+                      <strong>{storagePruneResult.deleted_files} files</strong>
+                      <span>{formatBytes(storagePruneResult.deleted_bytes)}</span>
+                    </div>
+                  ) : null}
+                  {storagePruneResult.errors.length ? (
+                    <div className="storage-largest warning">
+                      <span>errors</span>
+                      <strong>{storagePruneResult.errors.length}</strong>
+                      <span>{previewText(storagePruneResult.errors.join("; "), 160)}</span>
+                    </div>
+                  ) : null}
+                  <div className="storage-buckets">
+                    {storagePruneResult.plan.candidates.slice(0, 8).map((candidate) => (
+                      <div
+                        className="storage-bucket"
+                        key={candidate.path}
+                        title={candidate.path}
+                      >
+                        <strong>{candidate.bucket}</strong>
+                        <span>{formatBytes(candidate.bytes)}</span>
+                        <span>{fileName(candidate.path)}</span>
                       </div>
                     ))}
                   </div>

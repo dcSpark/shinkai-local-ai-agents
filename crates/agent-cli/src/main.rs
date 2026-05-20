@@ -381,6 +381,12 @@ enum Command {
         /// Emit JSON instead of a human-readable summary.
         #[arg(long)]
         json: bool,
+        /// Plan or apply cache-file pruning for files older than this many days.
+        #[arg(long = "prune-cache-days")]
+        prune_cache_days: Option<u64>,
+        /// Apply the cache prune plan. Without this flag, pruning is a dry run.
+        #[arg(long)]
+        apply: bool,
     },
     /// Secret handle operations.
     Secrets {
@@ -2224,7 +2230,14 @@ enum RemoteCommand {
         target: String,
     },
     /// Show daemon host storage footprint.
-    Storage,
+    Storage {
+        /// Plan or apply daemon cache-file pruning for files older than this many days.
+        #[arg(long = "prune-cache-days")]
+        prune_cache_days: Option<u64>,
+        /// Apply the daemon cache prune plan. Without this flag, pruning is a dry run.
+        #[arg(long)]
+        apply: bool,
+    },
     /// Remote deterministic batch operations.
     Batch {
         #[command(subcommand)]
@@ -2961,6 +2974,49 @@ mod cli_parse_tests {
             panic!("expected remote command");
         };
         command
+    }
+
+    #[test]
+    fn storage_prune_commands_parse() {
+        let cli = parse_cli([
+            "agent",
+            "storage",
+            "--prune-cache-days",
+            "30",
+            "--apply",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Storage {
+            json,
+            prune_cache_days,
+            apply,
+        } = into_command(cli)
+        else {
+            panic!("expected storage command");
+        };
+        assert!(json);
+        assert_eq!(prune_cache_days, Some(30));
+        assert!(apply);
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "storage",
+            "--prune-cache-days",
+            "14",
+            "--apply",
+        ])
+        .unwrap();
+        let RemoteCommand::Storage {
+            prune_cache_days,
+            apply,
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote storage command");
+        };
+        assert_eq!(prune_cache_days, Some(14));
+        assert!(apply);
     }
 
     #[test]
@@ -4753,7 +4809,11 @@ async fn main() -> anyhow::Result<()> {
             score,
             target,
         } => headless::score(run_id, target, score).await,
-        Command::Storage { json } => headless::storage_report(json).await,
+        Command::Storage {
+            json,
+            prune_cache_days,
+            apply,
+        } => headless::storage_report(json, prune_cache_days, apply).await,
         Command::Secrets { command } => match command {
             SecretsCommand::Backends { json } => headless::secrets_backends(json).await,
             SecretsCommand::Set {
@@ -5460,7 +5520,10 @@ async fn main() -> anyhow::Result<()> {
                 score,
                 target,
             } => headless::remote_score(url, run_id, target, score).await,
-            RemoteCommand::Storage => headless::remote_storage_report(url).await,
+            RemoteCommand::Storage {
+                prune_cache_days,
+                apply,
+            } => headless::remote_storage_report(url, prune_cache_days, apply).await,
             RemoteCommand::Batch { command } => match command {
                 RemoteBatchCommand::Run { items, demo } => {
                     headless::remote_batch_run(url, items, demo).await

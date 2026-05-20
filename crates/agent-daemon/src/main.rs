@@ -31,7 +31,8 @@ use agent_core::{
 };
 use agent_ingest::{
     IngestionArtifact, IngestionFindingReviewDecision, IngestionModelCall, IngestionStore,
-    model_vision_source_requirement, supported_backends as supported_ingestion_backends,
+    model_vision_source_requirement, probe_model_vision_source,
+    supported_backends as supported_ingestion_backends,
 };
 use agent_llm::{
     AnthropicProvider, FakeProvider, FakeStep, GeminiProvider, LlmProvider, LlmRequest, Message,
@@ -404,6 +405,9 @@ async fn route(
         }
         ("GET", "/ingest/backends") => daemon_ingest_backends().map(|value| (200, value)),
         ("GET", "/ingest") => daemon_ingest_list().map(|value| (200, value)),
+        ("POST", "/ingest/probe-vision") => daemon_ingest_probe_vision(&request.body)
+            .await
+            .map(|value| (200, value)),
         ("POST", "/ingest") => daemon_ingest_add(&request.body)
             .await
             .map(|value| (200, value)),
@@ -4667,6 +4671,16 @@ async fn daemon_ingest_rerun(id: &str, body: &str) -> anyhow::Result<serde_json:
     .await
 }
 
+async fn daemon_ingest_probe_vision(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: IngestProbeVisionInput = serde_json::from_str(body)?;
+    ensure_model_supports_vision(&input.model, &input.path)?;
+    let provider = ingestion_provider_for_model(&input.model, Some(128), Some(0.0))?;
+    let probe =
+        probe_model_vision_source(provider.as_ref(), ModelRef::from(input.model), input.path)
+            .await?;
+    Ok(serde_json::to_value(probe)?)
+}
+
 async fn ingest_path_with_trace(
     path: String,
     backend: String,
@@ -5377,6 +5391,12 @@ struct PathInput {
     vision_model: Option<String>,
     #[serde(default)]
     guardrail_model: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct IngestProbeVisionInput {
+    path: String,
+    model: String,
 }
 
 #[derive(serde::Deserialize)]

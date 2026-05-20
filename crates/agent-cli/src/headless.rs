@@ -5708,6 +5708,20 @@ pub async fn remote_ingest_backends(url: String) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).get_json("/ingest/backends")?)
 }
 
+pub async fn remote_ingest_probe_vision(
+    url: String,
+    path: String,
+    model: String,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/ingest/probe-vision",
+        serde_json::json!({
+            "path": path,
+            "model": model
+        }),
+    )?)
+}
+
 pub async fn remote_ingest_rerun(
     url: String,
     id: String,

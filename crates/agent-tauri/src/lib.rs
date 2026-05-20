@@ -40,7 +40,7 @@ use agent_core::{
 };
 use agent_ingest::{
     IngestionArtifact, IngestionBackendDescriptor, IngestionFindingReviewDecision,
-    IngestionModelCall, IngestionStore, model_vision_source_requirement,
+    IngestionModelCall, IngestionStore, model_vision_source_requirement, probe_model_vision_source,
     supported_backends as supported_ingestion_backends,
 };
 use agent_llm::{
@@ -3411,6 +3411,17 @@ async fn ingest_backends() -> Result<Vec<IngestionBackendDescriptor>, String> {
 }
 
 #[tauri::command]
+async fn ingest_probe_vision(path: String, model: String) -> Result<Value, String> {
+    ensure_model_supports_vision(&model, &path).map_err(|e| e.to_string())?;
+    let provider =
+        ingestion_provider_for_model(&model, Some(128), Some(0.0)).map_err(|e| e.to_string())?;
+    let probe = probe_model_vision_source(provider.as_ref(), ModelRef::from(model), path)
+        .await
+        .map_err(|e| e.to_string())?;
+    serde_json::to_value(probe).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn ingest_show(id: String) -> Result<IngestionArtifact, String> {
     IngestionStore::from_env()
         .show(&id)
@@ -3771,6 +3782,7 @@ pub fn run() {
             ingest_rerun,
             ingest_list,
             ingest_backends,
+            ingest_probe_vision,
             ingest_show,
             ingest_review,
             ingest_rm,

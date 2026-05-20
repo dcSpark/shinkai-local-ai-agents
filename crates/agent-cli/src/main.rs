@@ -3003,6 +3003,13 @@ enum RemoteModelMetadataCatalogCommand {
 enum RemoteIngestCommand {
     Backends,
     List,
+    ProbeVision {
+        path: String,
+
+        /// Saved model id to probe on the daemon host.
+        #[arg(long)]
+        model: String,
+    },
     Add {
         path: String,
 
@@ -5031,6 +5038,25 @@ mod cli_parse_tests {
 
         let cli = parse_cli([
             "agent",
+            "remote",
+            "ingest",
+            "probe-vision",
+            "scan.pdf",
+            "--model",
+            "gpt-4o",
+        ])
+        .unwrap();
+        let RemoteCommand::Ingest {
+            command: RemoteIngestCommand::ProbeVision { path, model },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote ingest probe-vision command");
+        };
+        assert_eq!(path, "scan.pdf");
+        assert_eq!(model, "gpt-4o");
+
+        let cli = parse_cli([
+            "agent",
             "ingest",
             "review",
             "ingest-local-v0-abc",
@@ -6688,6 +6714,9 @@ async fn main() -> anyhow::Result<()> {
             RemoteCommand::Ingest { command } => match command {
                 RemoteIngestCommand::Backends => headless::remote_ingest_backends(url).await,
                 RemoteIngestCommand::List => headless::remote_ingest_list(url).await,
+                RemoteIngestCommand::ProbeVision { path, model } => {
+                    headless::remote_ingest_probe_vision(url, path, model).await
+                }
                 RemoteIngestCommand::Add {
                     path,
                     backend,

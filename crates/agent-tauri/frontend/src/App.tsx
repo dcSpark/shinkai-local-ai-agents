@@ -2012,7 +2012,26 @@ export default function App() {
         <div className="trace-tree-node-meta">
           <span>{traceTreeNodeKind(node)}</span>
           <span>{traceTreeNodeAvailability(node)}</span>
+          {node.link_event_id != null ? <span>link event {node.link_event_id}</span> : null}
           {children.length ? <span>{children.length} child run(s)</span> : null}
+        </div>
+        <div className="mini-actions trace-tree-actions">
+          <button
+            type="button"
+            title="Move this run id into the Id field."
+            onClick={() => setOpsId(node.run_id)}
+            disabled={running}
+          >
+            Set Id
+          </button>
+          <button
+            type="button"
+            title="Load this run's trace and subtree."
+            onClick={() => void loadTraceTreeNode(node.run_id)}
+            disabled={running || !node.trace_available}
+          >
+            Load
+          </button>
         </div>
         {children.length ? (
           <div className="trace-tree-children">
@@ -2272,6 +2291,16 @@ export default function App() {
       `Trace tree: ${traceTreeNodeCount(tree)} run(s), ${traceTreeChildCount(tree)} child link(s)`,
     );
     return applyTraceEvents(events);
+  }
+
+  async function loadTraceTreeNode(runId: string) {
+    setOpsId(runId);
+    try {
+      await loadTraceFor(runId);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Trace load failed: ${msg}`);
+    }
   }
 
   async function submit() {

@@ -464,6 +464,10 @@ fn handle_slash_command(
         handle_models_slash(app, rest);
         return true;
     }
+    if let Some(rest) = storage_slash_rest(trimmed) {
+        handle_storage_slash(app, rest);
+        return true;
+    }
     if let Some(rest) = adapters_slash_rest(trimmed) {
         handle_adapters_slash(app, rest);
         return true;
@@ -1693,6 +1697,14 @@ fn models_slash_rest(trimmed: &str) -> Option<&str> {
         Some("")
     } else {
         trimmed.strip_prefix("/models ").map(str::trim)
+    }
+}
+
+fn storage_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/storage" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/storage ").map(str::trim)
     }
 }
 
@@ -3165,6 +3177,92 @@ fn model_provider_summary(provider: &agent_config::ModelProviderDescriptor) -> s
         "native": provider.native,
         "option_schema_count": provider.option_schema.len(),
     })
+}
+
+fn handle_storage_slash(app: &mut App, rest: &str) {
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "help" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: ["/storage report", "/storage prune-cache <days> [--apply]"].join("\n"),
+        });
+        return;
+    }
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "report" => match StoragePaths::from_env().storage_report() {
+            Ok(report) => {
+                push_event(
+                    app,
+                    format!(
+                        "Storage: {} bytes across {} file(s).",
+                        report.total_bytes, report.total_files
+                    ),
+                );
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&report)
+                        .unwrap_or_else(|_| "<unserializable storage report>".into()),
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Storage report failed: {err}"),
+            }),
+        },
+        "prune-cache" => match storage_prune_cache_args(args) {
+            Ok((days, apply)) => {
+                match StoragePaths::from_env().prune_cache_retention(days, !apply) {
+                    Ok(result) => {
+                        let mode = if apply { "applied" } else { "planned" };
+                        push_event(
+                            app,
+                            format!(
+                                "Cache retention {mode}: {} file(s), {} bytes.",
+                                result.plan.total_files, result.plan.total_bytes
+                            ),
+                        );
+                        app.transcript.push(TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&result)
+                                .unwrap_or_else(|_| "<unserializable storage prune result>".into()),
+                        });
+                    }
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Storage prune failed: {err}"),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Storage command needs report, prune-cache, or help.".into(),
+        }),
+    }
+}
+
+fn storage_prune_cache_args(args: &str) -> anyhow::Result<(u64, bool)> {
+    let mut days = None;
+    let mut apply = false;
+    for part in args.split_whitespace() {
+        if part == "--apply" {
+            apply = true;
+        } else if days.is_none() {
+            days = Some(part.parse::<u64>()?);
+        } else {
+            anyhow::bail!("storage prune-cache accepts exactly days and optional --apply");
+        }
+    }
+    let days = days.ok_or_else(|| anyhow::anyhow!("storage prune-cache needs days"))?;
+    Ok((days, apply))
 }
 
 fn handle_adapters_slash(app: &mut App, rest: &str) {
@@ -5073,6 +5171,12 @@ mod tests {
         assert_eq!(models_slash_rest("/models"), Some(""));
         assert_eq!(models_slash_rest("/model"), None);
         assert_eq!(
+            storage_slash_rest("/storage prune-cache 30"),
+            Some("prune-cache 30")
+        );
+        assert_eq!(storage_slash_rest("/storage"), Some(""));
+        assert_eq!(storage_slash_rest("/storages"), None);
+        assert_eq!(
             adapters_slash_rest("/adapters show adapter-1"),
             Some("show adapter-1")
         );
@@ -5141,6 +5245,16 @@ mod tests {
         );
         assert!(model_metadata_catalog_path_arg("", "export").is_err());
         assert!(model_metadata_catalog_path_arg("./metadata.json extra", "import").is_err());
+    }
+
+    #[test]
+    fn storage_prune_cache_args_accept_days_and_apply_flag() {
+        assert_eq!(storage_prune_cache_args("30").unwrap(), (30, false));
+        assert_eq!(storage_prune_cache_args("14 --apply").unwrap(), (14, true));
+        assert_eq!(storage_prune_cache_args("--apply 7").unwrap(), (7, true));
+        assert!(storage_prune_cache_args("").is_err());
+        assert!(storage_prune_cache_args("abc").is_err());
+        assert!(storage_prune_cache_args("7 8").is_err());
     }
 
     #[test]

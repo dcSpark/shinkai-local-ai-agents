@@ -967,6 +967,9 @@ enum AgentCommand {
         /// Load this agent's memory into context by default.
         #[arg(long = "load-memory")]
         load_memory: bool,
+        /// Memory backend id for this agent. Defaults to the built-in local markdown backend.
+        #[arg(long = "memory-backend")]
+        memory_backend: Option<String>,
         /// Load allowed skills into context for this agent by default.
         #[arg(long = "load-skills")]
         load_skills: bool,
@@ -2792,6 +2795,8 @@ enum RemoteAgentCommand {
         tool_visibility: Option<ToolVisibility>,
         #[arg(long = "load-memory")]
         load_memory: bool,
+        #[arg(long = "memory-backend")]
+        memory_backend: Option<String>,
         #[arg(long = "load-skills")]
         load_skills: bool,
         #[arg(long = "ingest-guardrail", value_enum)]
@@ -3399,6 +3404,8 @@ mod cli_parse_tests {
             "--tool-visibility",
             "name-only",
             "--load-memory",
+            "--memory-backend",
+            "local-markdown-v0",
             "--load-skills",
             "--ingest-guardrail",
             "warn",
@@ -3439,6 +3446,7 @@ mod cli_parse_tests {
                     tool_visibility_overrides,
                     tool_visibility,
                     load_memory,
+                    memory_backend,
                     load_skills,
                     ingestion_guardrail,
                     ingestion_guardrail_model,
@@ -3494,6 +3502,7 @@ mod cli_parse_tests {
         assert_eq!(tool_visibility_overrides, vec!["echo=full-schema"]);
         assert!(matches!(tool_visibility, Some(ToolVisibility::NameOnly)));
         assert!(load_memory);
+        assert_eq!(memory_backend.as_deref(), Some("local-markdown-v0"));
         assert!(load_skills);
         assert!(matches!(
             ingestion_guardrail,
@@ -3547,6 +3556,8 @@ mod cli_parse_tests {
             "--tool-visibility-override",
             "echo=name-only",
             "--load-memory",
+            "--memory-backend",
+            "local-markdown-v0",
             "--ingest-guardrail",
             "allow",
             "--ingest-guardrail-model",
@@ -3576,6 +3587,7 @@ mod cli_parse_tests {
                     tool_interpretation_model_overrides,
                     tool_visibility_overrides,
                     load_memory,
+                    memory_backend,
                     ingestion_guardrail,
                     ingestion_guardrail_model,
                     refinement_instructions,
@@ -3609,6 +3621,7 @@ mod cli_parse_tests {
         );
         assert_eq!(tool_visibility_overrides, vec!["echo=name-only"]);
         assert!(load_memory);
+        assert_eq!(memory_backend.as_deref(), Some("local-markdown-v0"));
         assert!(matches!(
             ingestion_guardrail,
             Some(IngestionGuardrailArg::Allow)
@@ -5506,6 +5519,7 @@ async fn main() -> anyhow::Result<()> {
                 tool_visibility_overrides,
                 tool_visibility,
                 load_memory,
+                memory_backend,
                 load_skills,
                 ingestion_guardrail,
                 ingestion_guardrail_model,
@@ -5542,6 +5556,7 @@ async fn main() -> anyhow::Result<()> {
                     tool_visibility_overrides,
                     tool_visibility.map(VisibilityLevel::from),
                     load_memory,
+                    memory_backend,
                     load_skills,
                     ingestion_guardrail.map(IngestionGuardrailMode::from),
                     ingestion_guardrail_model,
@@ -6255,6 +6270,7 @@ async fn main() -> anyhow::Result<()> {
                     tool_visibility_overrides,
                     tool_visibility,
                     load_memory,
+                    memory_backend,
                     load_skills,
                     ingestion_guardrail,
                     ingestion_guardrail_model,
@@ -6292,6 +6308,7 @@ async fn main() -> anyhow::Result<()> {
                         tool_visibility_overrides,
                         tool_visibility.map(VisibilityLevel::from),
                         load_memory,
+                        memory_backend,
                         load_skills,
                         ingestion_guardrail.map(IngestionGuardrailMode::from),
                         ingestion_guardrail_model,

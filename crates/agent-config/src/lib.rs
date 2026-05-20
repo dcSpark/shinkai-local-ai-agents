@@ -9,8 +9,8 @@ use std::path::{Path, PathBuf};
 
 use agent_core::{
     AgentConfig, ApprovalControllerPolicy, ConfigValueExplanation, ContextCompactionPolicy,
-    ContextPolicy, CostPolicy, ExecutionPolicy, PromptRefinement, ToolOutputMode, ToolPolicy,
-    VisibilityLevel, VoiceConfig,
+    ContextPolicy, CostPolicy, DEFAULT_MEMORY_BACKEND_ID, ExecutionPolicy, PromptRefinement,
+    ToolOutputMode, ToolPolicy, VisibilityLevel, VoiceConfig,
 };
 use agent_llm::{ModelRef, NativeProviderConfig, RigProviderConfig};
 use agent_storage::StoragePaths;
@@ -87,6 +87,8 @@ struct PolicyLayerToml {
     skill_visibility: Option<VisibilityLevel>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     load_memory: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    memory_backend: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     load_skills: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -255,6 +257,8 @@ pub struct AgentConfigFile {
     pub skill_visibility: Option<VisibilityLevel>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub load_memory: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_backend: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub load_skills: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1098,6 +1102,7 @@ impl Default for AgentToml {
                 tool_visibility: Some(default_tool_visibility()),
                 skill_visibility: Some(default_skill_visibility()),
                 load_memory: None,
+                memory_backend: None,
                 load_skills: None,
                 max_tokens_before_compaction: None,
                 max_compaction_output_tokens: None,
@@ -1140,6 +1145,7 @@ impl From<AgentToml> for AgentConfigFile {
             tool_visibility: value.policy.tool_visibility,
             skill_visibility: value.policy.skill_visibility,
             load_memory: value.policy.load_memory,
+            memory_backend: value.policy.memory_backend,
             load_skills: value.policy.load_skills,
             max_tokens_before_compaction: value.policy.max_tokens_before_compaction,
             max_compaction_output_tokens: value.policy.max_compaction_output_tokens,
@@ -1181,6 +1187,7 @@ impl From<AgentConfigFile> for AgentToml {
                 tool_visibility: value.tool_visibility,
                 skill_visibility: value.skill_visibility,
                 load_memory: value.load_memory,
+                memory_backend: value.memory_backend,
                 load_skills: value.load_skills,
                 max_tokens_before_compaction: value.max_tokens_before_compaction,
                 max_compaction_output_tokens: value.max_compaction_output_tokens,
@@ -3644,6 +3651,15 @@ fn resolve_agent(
             (parsed.policy.load_memory, source.clone()),
         ],
     );
+    let memory_backend = resolve_layered(
+        DEFAULT_MEMORY_BACKEND_ID.to_string(),
+        "default:built-in local markdown memory backend".into(),
+        vec![
+            (global.policy.memory_backend, global_source.clone()),
+            (profile.policy.memory_backend, profile_source.clone()),
+            (parsed.policy.memory_backend, source.clone()),
+        ],
+    );
     let load_skills = resolve_layered(
         false,
         "default:skill loading off".into(),
@@ -4058,6 +4074,7 @@ fn resolve_agent(
         },
         conversation_history: Vec::new(),
         compacted_context: None,
+        memory_backend: memory_backend.value.clone(),
         memory_fragments: Vec::new(),
         ingestion_artifacts: Vec::new(),
         allowed_skill_categories: allowed_skill_categories.value.clone(),
@@ -4255,6 +4272,11 @@ fn resolve_agent(
             "agent.memory_policy.load",
             load_memory.value,
             &load_memory.source,
+        ),
+        config_value(
+            "agent.memory_policy.backend",
+            memory_backend.value,
+            &memory_backend.source,
         ),
         config_value(
             "agent.skill_policy.load",
@@ -4705,6 +4727,18 @@ fn validate_agent_config(agent: &AgentConfigFile) -> Result<(), ConfigError> {
     if let Some(model) = &agent.tool_output_interpretation_model {
         validate_model_id(model)?;
     }
+    if let Some(memory_backend) = &agent.memory_backend {
+        if memory_backend.trim().is_empty() {
+            return Err(ConfigError::InvalidInput(
+                "memory_backend cannot be empty".into(),
+            ));
+        }
+        if memory_backend != DEFAULT_MEMORY_BACKEND_ID {
+            return Err(ConfigError::InvalidInput(format!(
+                "unsupported memory_backend {memory_backend}; supported: {DEFAULT_MEMORY_BACKEND_ID}"
+            )));
+        }
+    }
     if agent.max_tokens_before_compaction == Some(0) {
         return Err(ConfigError::InvalidInput(
             "max_tokens_before_compaction must be greater than zero".into(),
@@ -5043,6 +5077,7 @@ system_prompt = "Review carefully."
             tool_visibility: Some(VisibilityLevel::NameOnly),
             skill_visibility: Some(VisibilityLevel::NameAndDescription),
             load_memory: Some(true),
+            memory_backend: Some("local-markdown-v0".into()),
             load_skills: Some(true),
             max_tokens_before_compaction: Some(256),
             max_compaction_output_tokens: Some(96),
@@ -5090,6 +5125,11 @@ system_prompt = "Review carefully."
             resolved.agent.skill_visibility_overrides.get("review"),
             Some(&VisibilityLevel::NameOnly)
         );
+        assert_eq!(resolved.agent.memory_backend, "local-markdown-v0");
+        assert!(resolved.values.iter().any(|value| {
+            value.key == "agent.memory_policy.backend"
+                && value.value == serde_json::json!("local-markdown-v0")
+        }));
         assert!(resolved.values.iter().any(|value| {
             value.key == "agent.hook_policy.disabled_lifecycle_hooks"
                 && value.value == serde_json::json!(["adapter:demo:audit"])
@@ -6506,6 +6546,24 @@ voice = "nova"
         assert!(
             err.to_string()
                 .contains("voice.output_backend must be local or cloud")
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn agent_config_rejects_unsupported_memory_backend() {
+        let dir = std::env::temp_dir().join(format!("agent-memory-invalid-test-{}", uuid_like()));
+        let resolver = ConfigResolver::new(StoragePaths::new(&dir));
+        let agent = AgentConfigFile {
+            memory_backend: Some("external-memory-v0".into()),
+            ..AgentConfigFile::default()
+        };
+
+        let err = resolver.save_agent_config(&agent).unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("unsupported memory_backend external-memory-v0")
         );
         let _ = std::fs::remove_dir_all(dir);
     }

@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use agent_core::MemoryFragment;
+use agent_core::{DEFAULT_MEMORY_BACKEND_ID, MemoryFragment};
 use agent_storage::{StorageError, StoragePaths};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -559,7 +559,7 @@ impl MemoryStore {
 impl MemoryBackend for MemoryStore {
     fn descriptor(&self) -> MemoryBackendDescriptor {
         MemoryBackendDescriptor {
-            id: "local-markdown-v0".into(),
+            id: DEFAULT_MEMORY_BACKEND_ID.into(),
             name: "Local Markdown".into(),
             description:
                 "Human-readable memory.md/user.md storage with injection scanning and rollback."

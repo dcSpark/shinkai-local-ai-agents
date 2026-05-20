@@ -5618,6 +5618,7 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
             cost_policy: CostPolicy::default(),
             conversation_history: Vec::new(),
             compacted_context: None,
+            memory_backend: agent_core::DEFAULT_MEMORY_BACKEND_ID.into(),
             memory_fragments: Vec::new(),
             ingestion_artifacts: Vec::new(),
             allowed_skill_categories: Vec::new(),

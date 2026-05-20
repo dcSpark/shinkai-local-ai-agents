@@ -2940,6 +2940,7 @@ pub async fn agent_save(
     tool_visibility_overrides: Vec<String>,
     tool_visibility: Option<VisibilityLevel>,
     load_memory: bool,
+    memory_backend: Option<String>,
     load_skills: bool,
     ingestion_guardrail: Option<IngestionGuardrailMode>,
     ingestion_guardrail_model: Option<String>,
@@ -2976,6 +2977,7 @@ pub async fn agent_save(
         tool_visibility_overrides,
         tool_visibility,
         load_memory,
+        memory_backend,
         load_skills,
         ingestion_guardrail,
         ingestion_guardrail_model,
@@ -3055,6 +3057,7 @@ fn agent_config_from_parts(
     tool_visibility_overrides: Vec<String>,
     tool_visibility: Option<VisibilityLevel>,
     load_memory: bool,
+    memory_backend: Option<String>,
     load_skills: bool,
     ingestion_guardrail: Option<IngestionGuardrailMode>,
     ingestion_guardrail_model: Option<String>,
@@ -3104,6 +3107,7 @@ fn agent_config_from_parts(
         tool_visibility,
         skill_visibility,
         load_memory: load_memory.then_some(true),
+        memory_backend: clean_optional_string(memory_backend),
         load_skills: load_skills.then_some(true),
         max_tokens_before_compaction,
         max_compaction_output_tokens,
@@ -5192,6 +5196,7 @@ pub async fn remote_agent_save(
     tool_visibility_overrides: Vec<String>,
     tool_visibility: Option<VisibilityLevel>,
     load_memory: bool,
+    memory_backend: Option<String>,
     load_skills: bool,
     ingestion_guardrail: Option<IngestionGuardrailMode>,
     ingestion_guardrail_model: Option<String>,
@@ -5228,6 +5233,7 @@ pub async fn remote_agent_save(
         tool_visibility_overrides,
         tool_visibility,
         load_memory,
+        memory_backend,
         load_skills,
         ingestion_guardrail,
         ingestion_guardrail_model,
@@ -6459,6 +6465,7 @@ mod slash_tests {
             Vec::new(),
             None,
             false,
+            Some("local-markdown-v0".into()),
             false,
             None,
             None,
@@ -6473,6 +6480,7 @@ mod slash_tests {
         assert_eq!(agent.max_tokens_before_compaction, Some(128));
         assert_eq!(agent.max_compaction_output_tokens, Some(48));
         assert_eq!(agent.compaction_guidance.as_deref(), Some("keep decisions"));
+        assert_eq!(agent.memory_backend.as_deref(), Some("local-markdown-v0"));
     }
 
     #[test]
@@ -6504,6 +6512,7 @@ mod slash_tests {
             vec!["echo=name_and_description".into()],
             None,
             false,
+            None,
             false,
             None,
             None,
@@ -6552,6 +6561,7 @@ mod slash_tests {
             Vec::new(),
             None,
             false,
+            None,
             false,
             None,
             None,

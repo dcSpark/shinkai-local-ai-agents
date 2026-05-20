@@ -35,7 +35,7 @@ use agent_tools::{ToolId, ToolRegistry};
 use agent_tracing::{EventId, EventStore, RunEvent, RunEventKind, RunId};
 
 const MID_RUN_GUIDANCE_PREFIX: &str = "Mid-run user guidance:\n";
-const MEMORY_BACKEND_ID: &str = "local-v0";
+pub const DEFAULT_MEMORY_BACKEND_ID: &str = "local-markdown-v0";
 const TOOL_OUTPUT_INTERPRETATION_SUMMARY_LIMIT: usize = 240;
 const DEFAULT_HOOK_TIMEOUT_MS: u64 = 1_000;
 const MAX_HOOK_TIMEOUT_MS: u64 = 5_000;
@@ -529,6 +529,7 @@ pub struct AgentConfig {
     pub cost_policy: CostPolicy,
     pub conversation_history: Vec<Message>,
     pub compacted_context: Option<String>,
+    pub memory_backend: String,
     pub memory_fragments: Vec<MemoryFragment>,
     pub ingestion_artifacts: Vec<IngestedArtifactView>,
     pub allowed_skill_categories: Vec<String>,
@@ -1950,6 +1951,7 @@ impl Harness {
 
     fn record_context_references(
         &self,
+        agent: &AgentConfig,
         run_id: RunId,
         parent: EventId,
         snapshot: &ContextSnapshot,
@@ -1959,7 +1961,7 @@ impl Harness {
                 run_id,
                 Some(parent),
                 RunEventKind::MemoryRead {
-                    backend: MEMORY_BACKEND_ID.to_string(),
+                    backend: agent.memory_backend.clone(),
                     fragment_ids: snapshot
                         .loaded_memory
                         .iter()
@@ -3301,7 +3303,7 @@ impl Harness {
                     hook_context_fragments,
                 );
                 let context_built = self.record_context_built(run_id, run_started.id, &snapshot);
-                self.record_context_references(run_id, context_built.id, &snapshot);
+                self.record_context_references(agent, run_id, context_built.id, &snapshot);
                 let mut req = self.llm_request_from_snapshot(agent, &snapshot);
                 if let Some(model) = pending_interpretation_model.take() {
                     req.model = model;
@@ -3730,7 +3732,7 @@ impl HarnessApi for Harness {
                 hook_context_fragments,
             );
             let context_built = self.record_context_built(run_id, run_started.id, &snapshot);
-            self.record_context_references(run_id, context_built.id, &snapshot);
+            self.record_context_references(agent, run_id, context_built.id, &snapshot);
             let mut req = self.llm_request_from_snapshot(agent, &snapshot);
             if let Some(model) = pending_interpretation_model.take() {
                 req.model = model;
@@ -4509,6 +4511,7 @@ mod tests {
             cost_policy: CostPolicy::default(),
             conversation_history: Vec::new(),
             compacted_context: None,
+            memory_backend: DEFAULT_MEMORY_BACKEND_ID.into(),
             memory_fragments: Vec::new(),
             ingestion_artifacts: Vec::new(),
             allowed_skill_categories: Vec::new(),
@@ -6374,6 +6377,7 @@ JSON
     #[tokio::test]
     async fn loaded_memory_and_ingestion_are_traced_after_context_build() {
         let mut agent = agent_with_tools(vec![], 5);
+        agent.memory_backend = "test-memory-v1".into();
         agent.memory_fragments = vec![MemoryFragment {
             id: "mem-1".into(),
             content: "remember this".into(),
@@ -6420,7 +6424,7 @@ JSON
             RunEventKind::MemoryRead {
                 backend,
                 fragment_ids,
-            } if backend == "local-v0" && fragment_ids == &vec!["mem-1".to_string()]
+            } if backend == "test-memory-v1" && fragment_ids == &vec!["mem-1".to_string()]
         )));
         assert!(events.iter().any(|event| matches!(
             &event.kind,

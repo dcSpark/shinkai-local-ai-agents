@@ -248,6 +248,7 @@ export type AgentConfigFile = {
   tool_visibility?: ToolVisibility | null;
   skill_visibility?: ToolVisibility | null;
   load_memory?: boolean | null;
+  memory_backend?: string | null;
   load_skills?: boolean | null;
   allowed_tools?: string[] | null;
   allowed_tool_categories?: string[] | null;

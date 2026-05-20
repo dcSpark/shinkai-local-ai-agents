@@ -67,6 +67,7 @@ use tokio::time::{Duration, sleep, timeout};
 
 static BRIDGE_DELIVERY_WORKER_STARTED: OnceLock<()> = OnceLock::new();
 static MEMORY_GENERATION_WORKER_STARTED: OnceLock<()> = OnceLock::new();
+static STORAGE_RETENTION_WORKER_STARTED: OnceLock<()> = OnceLock::new();
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -82,6 +83,7 @@ async fn run_server(addr: &str) -> std::io::Result<()> {
     let state = Arc::new(DaemonState::default());
     maybe_start_bridge_delivery_worker();
     maybe_start_memory_generation_worker();
+    maybe_start_storage_retention_worker();
     println!("Shinkai daemon listening on http://{addr}");
     loop {
         let (mut socket, _) = listener.accept().await?;
@@ -2704,6 +2706,57 @@ fn memory_generation_worker_batch_limit() -> usize {
         .and_then(|value| value.parse::<usize>().ok())
         .filter(|value| *value > 0)
         .unwrap_or(10)
+}
+
+fn maybe_start_storage_retention_worker() {
+    let Some(interval) = storage_retention_worker_interval() else {
+        return;
+    };
+    let Some(retention_days) = storage_retention_worker_days() else {
+        return;
+    };
+    if STORAGE_RETENTION_WORKER_STARTED.set(()).is_err() {
+        return;
+    }
+    tokio::spawn(async move {
+        loop {
+            sleep(interval).await;
+            match StoragePaths::from_env().prune_cache_retention(retention_days, false) {
+                Ok(result) if result.errors.is_empty() => {
+                    if result.deleted_files > 0 {
+                        eprintln!(
+                            "storage retention worker deleted {} cache file(s), {} bytes",
+                            result.deleted_files, result.deleted_bytes
+                        );
+                    }
+                }
+                Ok(result) => {
+                    eprintln!(
+                        "storage retention worker deleted {} cache file(s), {} bytes, errors={}",
+                        result.deleted_files,
+                        result.deleted_bytes,
+                        result.errors.join("; ")
+                    );
+                }
+                Err(err) => eprintln!("storage retention worker failed: {err}"),
+            }
+        }
+    });
+}
+
+fn storage_retention_worker_interval() -> Option<Duration> {
+    std::env::var("AGENT_STORAGE_RETENTION_WORKER_INTERVAL_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .map(Duration::from_millis)
+}
+
+fn storage_retention_worker_days() -> Option<u64> {
+    std::env::var("AGENT_STORAGE_CACHE_RETENTION_DAYS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
 }
 
 fn memory_generation_worker_target() -> MemoryTarget {
@@ -6613,6 +6666,42 @@ mod tests {
         restore_env("AGENT_MEMORY_GENERATION_WORKER_BATCH", previous_batch);
         restore_env("AGENT_MEMORY_GENERATION_WORKER_TARGET", previous_target);
         restore_env("AGENT_MEMORY_GENERATION_WORKER_TOPICS", previous_topics);
+    }
+
+    #[test]
+    fn storage_retention_worker_env_is_opt_in_and_bounded() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let previous_interval = std::env::var_os("AGENT_STORAGE_RETENTION_WORKER_INTERVAL_MS");
+        let previous_days = std::env::var_os("AGENT_STORAGE_CACHE_RETENTION_DAYS");
+        unsafe {
+            std::env::remove_var("AGENT_STORAGE_RETENTION_WORKER_INTERVAL_MS");
+            std::env::remove_var("AGENT_STORAGE_CACHE_RETENTION_DAYS");
+        }
+        assert!(storage_retention_worker_interval().is_none());
+        assert!(storage_retention_worker_days().is_none());
+
+        unsafe {
+            std::env::set_var("AGENT_STORAGE_RETENTION_WORKER_INTERVAL_MS", "1000");
+            std::env::set_var("AGENT_STORAGE_CACHE_RETENTION_DAYS", "30");
+        }
+        assert_eq!(
+            storage_retention_worker_interval(),
+            Some(Duration::from_millis(1000))
+        );
+        assert_eq!(storage_retention_worker_days(), Some(30));
+
+        unsafe {
+            std::env::set_var("AGENT_STORAGE_RETENTION_WORKER_INTERVAL_MS", "0");
+            std::env::set_var("AGENT_STORAGE_CACHE_RETENTION_DAYS", "0");
+        }
+        assert!(storage_retention_worker_interval().is_none());
+        assert!(storage_retention_worker_days().is_none());
+
+        restore_env(
+            "AGENT_STORAGE_RETENTION_WORKER_INTERVAL_MS",
+            previous_interval,
+        );
+        restore_env("AGENT_STORAGE_CACHE_RETENTION_DAYS", previous_days);
     }
 
     #[test]

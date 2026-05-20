@@ -62,6 +62,19 @@ pub struct IngestionBackendDescriptor {
     pub description: String,
     #[serde(default)]
     pub modalities: Vec<String>,
+    #[serde(default)]
+    pub compatibility: Vec<IngestionCompatibility>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IngestionCompatibility {
+    pub source_kind: String,
+    pub extraction: String,
+    #[serde(default)]
+    pub optional_tools: Vec<String>,
+    #[serde(default)]
+    pub model_requirements: Vec<String>,
+    pub notes: String,
 }
 
 pub struct IngestionBackendOutput {
@@ -523,6 +536,25 @@ fn builtin_backend(id: &str) -> Option<Box<dyn IngestionBackend>> {
     }
 }
 
+fn compatibility(
+    source_kind: &str,
+    extraction: &str,
+    optional_tools: &[&str],
+    model_requirements: &[&str],
+    notes: &str,
+) -> IngestionCompatibility {
+    IngestionCompatibility {
+        source_kind: source_kind.into(),
+        extraction: extraction.into(),
+        optional_tools: optional_tools.iter().map(|tool| (*tool).into()).collect(),
+        model_requirements: model_requirements
+            .iter()
+            .map(|requirement| (*requirement).into())
+            .collect(),
+        notes: notes.into(),
+    }
+}
+
 struct LocalParagraphBackend;
 
 impl IngestionBackend for LocalParagraphBackend {
@@ -536,6 +568,22 @@ impl IngestionBackend for LocalParagraphBackend {
                 "markdown".into(),
                 "code".into(),
                 "pdf-text".into(),
+            ],
+            compatibility: vec![
+                compatibility(
+                    "text/markdown/code",
+                    "utf8 text split into paragraph sections",
+                    &[],
+                    &[],
+                    "Best for simple text-like files.",
+                ),
+                compatibility(
+                    "pdf",
+                    "lightweight byte-level text fallback",
+                    &[],
+                    &[],
+                    "Use local-layout-v0 when layout, tables, or scanned pages matter.",
+                ),
             ],
         }
     }
@@ -561,6 +609,13 @@ impl IngestionBackend for LocalLineBackend {
             name: "Local Lines".into(),
             description: "Local text extraction with one non-empty line per section.".into(),
             modalities: vec!["text".into(), "markdown".into(), "code".into()],
+            compatibility: vec![compatibility(
+                "text/markdown/code",
+                "utf8 text split into non-empty line sections",
+                &[],
+                &[],
+                "Best for logs, transcripts, and line-oriented source files.",
+            )],
         }
     }
 
@@ -592,6 +647,22 @@ impl IngestionBackend for LocalStructuredBackend {
                 "csv".into(),
                 "tables".into(),
                 "images".into(),
+            ],
+            compatibility: vec![
+                compatibility(
+                    "markdown/text",
+                    "heading-aware sections with image-reference preservation",
+                    &[],
+                    &[],
+                    "Preserves document outline and local image references.",
+                ),
+                compatibility(
+                    "csv/table-like text",
+                    "table rows grouped into structured sections",
+                    &[],
+                    &[],
+                    "Best for deterministic table extraction without model calls.",
+                ),
             ],
         }
     }
@@ -627,6 +698,29 @@ impl IngestionBackend for LocalLayoutBackend {
                 "svg".into(),
                 "charts".into(),
                 "tables".into(),
+            ],
+            compatibility: vec![
+                compatibility(
+                    "pdf",
+                    "layout-aware text extraction with safe fallback",
+                    &["pdftotext"],
+                    &["document/pdf", "image", "pdf"],
+                    "Optional model vision enrichment can augment local PDF extraction.",
+                ),
+                compatibility(
+                    "png/jpeg/gif/webp",
+                    "image metadata plus optional OCR",
+                    &["tesseract"],
+                    &["image"],
+                    "Optional model vision enrichment can read charts, screenshots, and scanned images.",
+                ),
+                compatibility(
+                    "svg",
+                    "built-in title, description, and text-label extraction",
+                    &[],
+                    &["image"],
+                    "Useful for charts and diagrams even when OCR is unavailable.",
+                ),
             ],
         }
     }
@@ -1765,5 +1859,34 @@ mod tests {
         assert!(backends[3].modalities.iter().any(|item| item == "ocr"));
         assert!(backends[3].modalities.iter().any(|item| item == "vision"));
         assert!(backends[3].modalities.iter().any(|item| item == "svg"));
+        assert!(
+            backends[0]
+                .compatibility
+                .iter()
+                .any(|item| item.source_kind == "pdf" && item.extraction.contains("text fallback"))
+        );
+        let layout_pdf = backends[3]
+            .compatibility
+            .iter()
+            .find(|item| item.source_kind == "pdf")
+            .expect("layout PDF compatibility");
+        assert!(
+            layout_pdf
+                .optional_tools
+                .iter()
+                .any(|tool| tool == "pdftotext")
+        );
+        assert!(
+            layout_pdf
+                .model_requirements
+                .iter()
+                .any(|requirement| requirement == "document/pdf")
+        );
+        assert!(
+            backends[3]
+                .compatibility
+                .iter()
+                .any(|item| item.source_kind == "svg" && item.extraction.contains("text-label"))
+        );
     }
 }

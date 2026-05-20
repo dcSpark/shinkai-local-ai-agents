@@ -1277,6 +1277,145 @@ textarea:disabled {
   gap: 0.45rem;
 }
 
+.conversation-tree-panel {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.conversation-tree-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(5.6rem, 1fr));
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.conversation-tree-summary span {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+  min-height: 3rem;
+  align-content: center;
+  padding: 0.45rem;
+  border: 1px solid #2a2d34;
+  border-radius: 8px;
+  background: #15171b;
+  color: #8e949f;
+  font-size: 0.72rem;
+}
+
+.conversation-tree-summary strong {
+  color: #f1f2f4;
+  font-size: 0.95rem;
+}
+
+.conversation-tree-list {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.conversation-tree-row {
+  display: grid;
+  grid-template-columns: 1.85rem minmax(0, 1fr);
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.conversation-tree-rail {
+  position: relative;
+  display: grid;
+  justify-items: center;
+}
+
+.conversation-tree-rail::before {
+  content: "";
+  position: absolute;
+  top: -0.5rem;
+  bottom: -0.5rem;
+  width: 1px;
+  background: #2a2d34;
+}
+
+.conversation-tree-rail span {
+  z-index: 1;
+  display: grid;
+  width: 1.55rem;
+  height: 1.55rem;
+  place-items: center;
+  border: 1px solid #333844;
+  border-radius: 8px;
+  background: #1b2028;
+  color: #c3c8d0;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.conversation-tree-card {
+  display: grid;
+  gap: 0.42rem;
+  min-width: 0;
+  padding: 0.6rem;
+  border: 1px solid #2a2d34;
+  border-radius: 8px;
+  background: #111215;
+}
+
+.conversation-tree-row.selected .conversation-tree-card {
+  border-color: #3b6d92;
+  background: #101923;
+}
+
+.conversation-tree-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.conversation-tree-head strong {
+  min-width: 0;
+  color: #f1f2f4;
+  overflow-wrap: anywhere;
+}
+
+.conversation-tree-head span,
+.conversation-tree-parent {
+  min-width: 0;
+  color: #9da3ad;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.conversation-tree-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.conversation-tree-meta span {
+  min-width: 0;
+  padding: 0.25rem 0.35rem;
+  border: 1px solid #252830;
+  border-radius: 6px;
+  background: #15171b;
+  color: #9da3ad;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+  overflow-wrap: anywhere;
+}
+
+.conversation-tree-card p {
+  margin: 0;
+  color: #c3c8d0;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .context-preview pre {
   margin: 0;
   padding: 0.55rem;

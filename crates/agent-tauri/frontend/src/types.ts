@@ -201,6 +201,24 @@ export type ModelProviderCatalog = {
   providers: ModelProviderDescriptor[];
 };
 
+export type ModelMetadataCatalogEntry = {
+  provider: string;
+  model_id: string;
+  modalities?: string[];
+  capabilities?: string[];
+  tool_support?: boolean | null;
+  limits?: Record<string, number>;
+  pricing?: Record<string, string>;
+  source?: string | null;
+};
+
+export type ModelMetadataCatalog = {
+  schema_version: number;
+  source?: string | null;
+  updated_at?: string | null;
+  models: ModelMetadataCatalogEntry[];
+};
+
 export type ToolVisibility = "full_schema" | "name_and_description" | "name_only";
 export type ToolOutputMode = "interpreted" | "raw";
 

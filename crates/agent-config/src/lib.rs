@@ -1845,6 +1845,47 @@ impl ConfigResolver {
         Ok(catalog)
     }
 
+    pub fn show_model_metadata_catalog(&self) -> Result<Option<ModelMetadataCatalog>, ConfigError> {
+        Ok(self
+            .load_model_metadata_catalog()?
+            .map(|loaded| loaded.catalog))
+    }
+
+    pub fn export_model_metadata_catalog(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> Result<ModelMetadataCatalog, ConfigError> {
+        let Some(catalog) = self.show_model_metadata_catalog()? else {
+            return Err(ConfigError::InvalidInput(
+                "model metadata catalog not configured".into(),
+            ));
+        };
+        if let Some(parent) = path.as_ref().parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, serde_json::to_string_pretty(&catalog)?)?;
+        Ok(catalog)
+    }
+
+    pub fn import_model_metadata_catalog(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> Result<ModelMetadataCatalog, ConfigError> {
+        let loaded = read_model_metadata_catalog(
+            path.as_ref(),
+            format!("profile:{}", self.paths.models_dir().display()),
+        )?;
+        self.paths.ensure_base_dirs()?;
+        write_storage_text(
+            &self.paths,
+            self.paths.models_dir().join(MODEL_METADATA_CATALOG_FILE),
+            serde_json::to_string_pretty(&loaded.catalog)?,
+        )?;
+        Ok(loaded.catalog)
+    }
+
     pub fn resolve_model_runtime(
         &self,
         model_id: &str,
@@ -5899,6 +5940,69 @@ system_prompt = "Review carefully."
                 .iter()
                 .any(|provider| provider.id == "custom-openai")
         );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn model_metadata_catalog_import_export_round_trips_profile_catalog() {
+        let dir = std::env::temp_dir().join(format!(
+            "agent-metadata-catalog-roundtrip-test-{}",
+            uuid_like()
+        ));
+        let import_path = dir.join("incoming-metadata-catalog.json");
+        let export_path = dir.join("exported-metadata-catalog.json");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            &import_path,
+            r#"{
+              "schema_version": 1,
+              "source": "portable-metadata-catalog-test",
+              "updated_at": "2026-05-20",
+              "models": [
+                {
+                  "provider": "custom-openai",
+                  "model_id": "custom-vision",
+                  "modalities": ["text", "image"],
+                  "capabilities": ["function_calling"],
+                  "tool_support": true,
+                  "limits": { "context_tokens": 32000 },
+                  "pricing": { "input_per_million": "0.10" }
+                }
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        let resolver = ConfigResolver::new(StoragePaths::new(&dir));
+        let imported = resolver
+            .import_model_metadata_catalog(&import_path)
+            .unwrap();
+        assert_eq!(imported.models[0].model_id, "custom-vision");
+        assert_eq!(
+            resolver
+                .show_model_metadata_catalog()
+                .unwrap()
+                .expect("metadata catalog"),
+            imported
+        );
+
+        let exported = resolver
+            .export_model_metadata_catalog(&export_path)
+            .unwrap();
+        assert_eq!(exported, imported);
+        let exported_json: ModelMetadataCatalog =
+            serde_json::from_str(&std::fs::read_to_string(export_path).unwrap()).unwrap();
+        assert_eq!(exported_json, imported);
+
+        let mut model = ModelConfig::for_id("custom-vision");
+        model.provider = Some("custom-openai".into());
+        resolver.save_model(&model).unwrap();
+        let support = resolver
+            .model_modality_support("custom-vision", "image")
+            .unwrap();
+        assert!(support.supported);
+        assert!(support.source.starts_with("model_metadata_catalog:"));
 
         let _ = std::fs::remove_dir_all(dir);
     }

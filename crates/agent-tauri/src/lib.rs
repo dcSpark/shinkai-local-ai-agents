@@ -23,8 +23,8 @@ use agent_capabilities::{
 use agent_compaction::{CompactionRecord, CompactionStore};
 use agent_config::{
     AgentConfigFile, AgentSummary, ConfigResolver, IngestionGuardrailMode, ModelConfig,
-    ModelProviderCatalog, ModelProviderDescriptor, ModelRuntimeConfig, ProfileGrantKind,
-    configured_model_providers,
+    ModelMetadataCatalog, ModelProviderCatalog, ModelProviderDescriptor, ModelRuntimeConfig,
+    ProfileGrantKind, configured_model_providers,
 };
 use agent_conversations::{
     ConversationDoc, ConversationPolicy, ConversationRole, ConversationStore, ConversationTreeNode,
@@ -2982,6 +2982,13 @@ async fn model_provider_catalog_show() -> Result<Option<ModelProviderCatalog>, S
 }
 
 #[tauri::command]
+async fn model_metadata_catalog_show() -> Result<Option<ModelMetadataCatalog>, String> {
+    ConfigResolver::from_env()
+        .show_model_metadata_catalog()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn model_show(id: String) -> Result<ModelConfig, String> {
     ConfigResolver::from_env()
         .show_model(&id)
@@ -3029,6 +3036,20 @@ async fn model_provider_catalog_export(path: String) -> Result<ModelProviderCata
 async fn model_provider_catalog_import(path: String) -> Result<ModelProviderCatalog, String> {
     ConfigResolver::from_env()
         .import_model_provider_catalog(path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn model_metadata_catalog_export(path: String) -> Result<ModelMetadataCatalog, String> {
+    ConfigResolver::from_env()
+        .export_model_metadata_catalog(path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn model_metadata_catalog_import(path: String) -> Result<ModelMetadataCatalog, String> {
+    ConfigResolver::from_env()
+        .import_model_metadata_catalog(path)
         .map_err(|e| e.to_string())
 }
 
@@ -3572,6 +3593,7 @@ pub fn run() {
             model_list,
             model_provider_list,
             model_provider_catalog_show,
+            model_metadata_catalog_show,
             model_show,
             model_probe,
             model_save,
@@ -3579,6 +3601,8 @@ pub fn run() {
             model_import,
             model_provider_catalog_export,
             model_provider_catalog_import,
+            model_metadata_catalog_export,
+            model_metadata_catalog_import,
             model_delete,
             ingest_add,
             ingest_rerun,

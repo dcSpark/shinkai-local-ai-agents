@@ -3600,6 +3600,51 @@ pub async fn model_provider_catalog_import(path: String, json: bool) -> anyhow::
     Ok(())
 }
 
+pub async fn model_metadata_catalog_show(json: bool) -> anyhow::Result<()> {
+    let catalog = ConfigResolver::from_env().show_model_metadata_catalog()?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&catalog)?);
+    } else if let Some(catalog) = catalog {
+        println!("{}", serde_json::to_string_pretty(&catalog)?);
+    } else {
+        println!("No model metadata catalog configured.");
+    }
+    Ok(())
+}
+
+pub async fn model_metadata_catalog_export(path: String, json: bool) -> anyhow::Result<()> {
+    let catalog = ConfigResolver::from_env().export_model_metadata_catalog(&path)?;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "path": path,
+                "catalog": catalog
+            }))?
+        );
+    } else {
+        println!(
+            "exported model metadata catalog with {} model(s) to {}",
+            catalog.models.len(),
+            path
+        );
+    }
+    Ok(())
+}
+
+pub async fn model_metadata_catalog_import(path: String, json: bool) -> anyhow::Result<()> {
+    let catalog = ConfigResolver::from_env().import_model_metadata_catalog(&path)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&catalog)?);
+    } else {
+        println!(
+            "imported model metadata catalog with {} model(s)",
+            catalog.models.len()
+        );
+    }
+    Ok(())
+}
+
 pub async fn ingest_add(
     path: String,
     backend: String,
@@ -5202,6 +5247,24 @@ pub async fn remote_model_provider_catalog_export(url: String, path: String) -> 
 pub async fn remote_model_provider_catalog_import(url: String, path: String) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).post_json(
         "/model-provider-catalog/import",
+        serde_json::json!({ "path": path }),
+    )?)
+}
+
+pub async fn remote_model_metadata_catalog_show(url: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).get_json("/model-metadata-catalog")?)
+}
+
+pub async fn remote_model_metadata_catalog_export(url: String, path: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/model-metadata-catalog/export",
+        serde_json::json!({ "path": path }),
+    )?)
+}
+
+pub async fn remote_model_metadata_catalog_import(url: String, path: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/model-metadata-catalog/import",
         serde_json::json!({ "path": path }),
     )?)
 }

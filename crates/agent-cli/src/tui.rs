@@ -2386,6 +2386,9 @@ fn handle_models_slash(app: &mut App, rest: &str) {
                 "/models provider-catalog show",
                 "/models provider-catalog export <path>",
                 "/models provider-catalog import <path>",
+                "/models metadata-catalog show",
+                "/models metadata-catalog export <path>",
+                "/models metadata-catalog import <path>",
             ]
             .join("\n"),
         });
@@ -2489,9 +2492,10 @@ fn handle_models_slash(app: &mut App, rest: &str) {
             }),
         },
         "provider-catalog" => handle_model_provider_catalog_slash(app, args),
+        "metadata-catalog" => handle_model_metadata_catalog_slash(app, args),
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Models command needs list, show, export, import, providers, provider-catalog, or help.".into(),
+            text: "Models command needs list, show, export, import, providers, provider-catalog, metadata-catalog, or help.".into(),
         }),
     }
 }
@@ -2616,6 +2620,99 @@ fn model_provider_catalog_path_arg<'a>(args: &'a str, command: &str) -> anyhow::
         .ok_or_else(|| anyhow::anyhow!("models provider-catalog {command} needs a path"))?;
     if parts.next().is_some() {
         anyhow::bail!("models provider-catalog {command} accepts exactly one path");
+    }
+    Ok(path)
+}
+
+fn handle_model_metadata_catalog_slash(app: &mut App, rest: &str) {
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "help" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: [
+                "/models metadata-catalog show",
+                "/models metadata-catalog export <path>",
+                "/models metadata-catalog import <path>",
+            ]
+            .join("\n"),
+        });
+        return;
+    }
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "show" => match ConfigResolver::from_env().show_model_metadata_catalog() {
+            Ok(catalog) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: serde_json::to_string_pretty(&catalog)
+                    .unwrap_or_else(|_| "<unserializable model metadata catalog>".into()),
+            }),
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Model metadata catalog show failed: {err}"),
+            }),
+        },
+        "export" => match model_metadata_catalog_path_arg(args, "export") {
+            Ok(path) => match ConfigResolver::from_env().export_model_metadata_catalog(path) {
+                Ok(catalog) => push_event(
+                    app,
+                    format!(
+                        "Exported model metadata catalog with {} model(s) to {path}",
+                        catalog.models.len()
+                    ),
+                ),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Model metadata catalog export failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "import" => match model_metadata_catalog_path_arg(args, "import") {
+            Ok(path) => match ConfigResolver::from_env().import_model_metadata_catalog(path) {
+                Ok(catalog) => {
+                    push_event(
+                        app,
+                        format!(
+                            "Imported model metadata catalog with {} model(s).",
+                            catalog.models.len()
+                        ),
+                    );
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&catalog)
+                            .unwrap_or_else(|_| "<unserializable model metadata catalog>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Model metadata catalog import failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Models metadata-catalog command needs show, export, import, or help.".into(),
+        }),
+    }
+}
+
+fn model_metadata_catalog_path_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    let mut parts = args.split_whitespace();
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("models metadata-catalog {command} needs a path"))?;
+    if parts.next().is_some() {
+        anyhow::bail!("models metadata-catalog {command} accepts exactly one path");
     }
     Ok(path)
 }
@@ -4522,6 +4619,12 @@ mod tests {
         );
         assert!(model_provider_catalog_path_arg("", "export").is_err());
         assert!(model_provider_catalog_path_arg("./catalog.json extra", "import").is_err());
+        assert_eq!(
+            model_metadata_catalog_path_arg("./metadata.json", "export").unwrap(),
+            "./metadata.json"
+        );
+        assert!(model_metadata_catalog_path_arg("", "export").is_err());
+        assert!(model_metadata_catalog_path_arg("./metadata.json extra", "import").is_err());
     }
 
     #[test]

@@ -30,6 +30,7 @@ import type {
   MemoryBackendDescriptor,
   MemoryClassifyResult,
   MemoryRecord,
+  ModelMetadataCatalog,
   ModelProviderCatalog,
   ModelProviderDescriptor,
   ModelProviderOptionDescriptor,
@@ -5281,6 +5282,49 @@ export default function App() {
     }
   }
 
+  async function showModelMetadataCatalogFromOps() {
+    try {
+      const catalog =
+        transport === "daemon"
+          ? await daemonJson<ModelMetadataCatalog | null>("/model-metadata-catalog")
+          : await invoke<ModelMetadataCatalog | null>("model_metadata_catalog_show");
+      appendJson("Model metadata catalog", catalog);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Metadata catalog show failed: ${msg}`);
+    }
+  }
+
+  async function exportModelMetadataCatalogFromOps() {
+    const path = requireOpsValue("Metadata catalog export");
+    if (!path) return;
+    try {
+      const catalog =
+        transport === "daemon"
+          ? await daemonJson<ModelMetadataCatalog>("/model-metadata-catalog/export", { path })
+          : await invoke<ModelMetadataCatalog>("model_metadata_catalog_export", { path });
+      appendJson("Model metadata catalog exported", catalog);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Metadata catalog export failed: ${msg}`);
+    }
+  }
+
+  async function importModelMetadataCatalogFromOps() {
+    const path = requireOpsValue("Metadata catalog import");
+    if (!path) return;
+    try {
+      const catalog =
+        transport === "daemon"
+          ? await daemonJson<ModelMetadataCatalog>("/model-metadata-catalog/import", { path })
+          : await invoke<ModelMetadataCatalog>("model_metadata_catalog_import", { path });
+      appendJson("Model metadata catalog imported", catalog);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Metadata catalog import failed: ${msg}`);
+    }
+  }
+
   async function showModelFromOps() {
     const id = requireOpsId("Model show");
     if (!id) return;
@@ -9087,6 +9131,14 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  title="Show the active profile metadata catalog JSON."
+                  onClick={() => void showModelMetadataCatalogFromOps()}
+                  disabled={running}
+                >
+                  Metadata Catalog
+                </button>
+                <button
+                  type="button"
                   title="Show model Id."
                   onClick={() => void showModelFromOps()}
                   disabled={running || !opsId.trim()}
@@ -9148,6 +9200,22 @@ export default function App() {
                   disabled={running || !opsValue.trim()}
                 >
                   Import Providers
+                </button>
+                <button
+                  type="button"
+                  title="Export metadata catalog JSON to the path in Value."
+                  onClick={() => void exportModelMetadataCatalogFromOps()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Export Metadata
+                </button>
+                <button
+                  type="button"
+                  title="Import metadata catalog JSON from the path in Value."
+                  onClick={() => void importModelMetadataCatalogFromOps()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Import Metadata
                 </button>
                 <button
                   type="button"

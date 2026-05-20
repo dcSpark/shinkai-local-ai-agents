@@ -1178,6 +1178,11 @@ enum ModelCommand {
         #[command(subcommand)]
         command: ModelProviderCatalogCommand,
     },
+    /// Show, export, or import the active profile model metadata catalog JSON.
+    MetadataCatalog {
+        #[command(subcommand)]
+        command: ModelMetadataCatalogCommand,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1194,6 +1199,27 @@ enum ModelProviderCatalogCommand {
         json: bool,
     },
     /// Import portable JSON into the active profile provider catalog.
+    Import {
+        path: String,
+        #[arg(long)]
+        json: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum ModelMetadataCatalogCommand {
+    /// Show the configured metadata catalog, if one exists.
+    Show {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Export the configured metadata catalog as portable JSON.
+    Export {
+        path: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Import portable JSON into the active profile metadata catalog.
     Import {
         path: String,
         #[arg(long)]
@@ -2778,6 +2804,10 @@ enum RemoteModelCommand {
         #[command(subcommand)]
         command: RemoteModelProviderCatalogCommand,
     },
+    MetadataCatalog {
+        #[command(subcommand)]
+        command: RemoteModelMetadataCatalogCommand,
+    },
     Show {
         id: String,
     },
@@ -2841,6 +2871,13 @@ enum RemoteModelCommand {
 
 #[derive(Subcommand)]
 enum RemoteModelProviderCatalogCommand {
+    Show,
+    Export { path: String },
+    Import { path: String },
+}
+
+#[derive(Subcommand)]
+enum RemoteModelMetadataCatalogCommand {
     Show,
     Export { path: String },
     Import { path: String },
@@ -4089,6 +4126,47 @@ mod cli_parse_tests {
             panic!("expected remote model provider catalog import command");
         };
         assert_eq!(path, "./providers.json");
+
+        let cli = parse_cli([
+            "agent",
+            "model",
+            "metadata-catalog",
+            "export",
+            "./metadata.json",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Model {
+            command:
+                ModelCommand::MetadataCatalog {
+                    command: ModelMetadataCatalogCommand::Export { path, json },
+                },
+        } = into_command(cli)
+        else {
+            panic!("expected model metadata catalog export command");
+        };
+        assert_eq!(path, "./metadata.json");
+        assert!(json);
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "model",
+            "metadata-catalog",
+            "import",
+            "./metadata.json",
+        ])
+        .unwrap();
+        let RemoteCommand::Model {
+            command:
+                RemoteModelCommand::MetadataCatalog {
+                    command: RemoteModelMetadataCatalogCommand::Import { path },
+                },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote model metadata catalog import command");
+        };
+        assert_eq!(path, "./metadata.json");
 
         let cli = parse_cli(["agent", "remote", "model", "import", "./gpt-test.toml"]).unwrap();
         let RemoteCommand::Model {
@@ -5460,6 +5538,17 @@ async fn main() -> anyhow::Result<()> {
                     headless::model_provider_catalog_import(path, json).await
                 }
             },
+            ModelCommand::MetadataCatalog { command } => match command {
+                ModelMetadataCatalogCommand::Show { json } => {
+                    headless::model_metadata_catalog_show(json).await
+                }
+                ModelMetadataCatalogCommand::Export { path, json } => {
+                    headless::model_metadata_catalog_export(path, json).await
+                }
+                ModelMetadataCatalogCommand::Import { path, json } => {
+                    headless::model_metadata_catalog_import(path, json).await
+                }
+            },
         },
         Command::Ingest { command } => match command {
             IngestCommand::Backends { json } => headless::ingest_backends(json).await,
@@ -6177,6 +6266,17 @@ async fn main() -> anyhow::Result<()> {
                     }
                     RemoteModelProviderCatalogCommand::Import { path } => {
                         headless::remote_model_provider_catalog_import(url, path).await
+                    }
+                },
+                RemoteModelCommand::MetadataCatalog { command } => match command {
+                    RemoteModelMetadataCatalogCommand::Show => {
+                        headless::remote_model_metadata_catalog_show(url).await
+                    }
+                    RemoteModelMetadataCatalogCommand::Export { path } => {
+                        headless::remote_model_metadata_catalog_export(url, path).await
+                    }
+                    RemoteModelMetadataCatalogCommand::Import { path } => {
+                        headless::remote_model_metadata_catalog_import(url, path).await
                     }
                 },
             },

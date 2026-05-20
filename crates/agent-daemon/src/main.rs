@@ -309,11 +309,20 @@ async fn route(
         ("GET", "/model-provider-catalog") => {
             daemon_model_provider_catalog().map(|value| (200, value))
         }
+        ("GET", "/model-metadata-catalog") => {
+            daemon_model_metadata_catalog().map(|value| (200, value))
+        }
         ("POST", "/model-provider-catalog/export") => {
             daemon_model_provider_catalog_export(&request.body).map(|value| (200, value))
         }
         ("POST", "/model-provider-catalog/import") => {
             daemon_model_provider_catalog_import(&request.body).map(|value| (200, value))
+        }
+        ("POST", "/model-metadata-catalog/export") => {
+            daemon_model_metadata_catalog_export(&request.body).map(|value| (200, value))
+        }
+        ("POST", "/model-metadata-catalog/import") => {
+            daemon_model_metadata_catalog_import(&request.body).map(|value| (200, value))
         }
         ("POST", "/models") => daemon_model_save(&request.body).map(|value| (200, value)),
         ("POST", "/models/import") => daemon_model_import(&request.body).map(|value| (200, value)),
@@ -752,6 +761,9 @@ async fn route(
                     "GET /model-provider-catalog",
                     "POST /model-provider-catalog/export",
                     "POST /model-provider-catalog/import",
+                    "GET /model-metadata-catalog",
+                    "POST /model-metadata-catalog/export",
+                    "POST /model-metadata-catalog/import",
                     "GET /models/<id>",
                     "GET /models/<id>/probe",
                     "POST /models/<id>/delete",
@@ -4297,6 +4309,12 @@ fn daemon_model_provider_catalog() -> anyhow::Result<serde_json::Value> {
     )?)
 }
 
+fn daemon_model_metadata_catalog() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(
+        ConfigResolver::from_env().show_model_metadata_catalog()?,
+    )?)
+}
+
 fn daemon_model_show(id: &str) -> anyhow::Result<serde_json::Value> {
     let Some(model) = ConfigResolver::from_env().show_model(id)? else {
         anyhow::bail!("model {id:?} not found");
@@ -4349,6 +4367,20 @@ fn daemon_model_provider_catalog_import(body: &str) -> anyhow::Result<serde_json
     let input: PathInput = serde_json::from_str(body)?;
     Ok(serde_json::to_value(
         ConfigResolver::from_env().import_model_provider_catalog(input.path)?,
+    )?)
+}
+
+fn daemon_model_metadata_catalog_export(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: PathInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        ConfigResolver::from_env().export_model_metadata_catalog(input.path)?,
+    )?)
+}
+
+fn daemon_model_metadata_catalog_import(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: PathInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        ConfigResolver::from_env().import_model_metadata_catalog(input.path)?,
     )?)
 }
 

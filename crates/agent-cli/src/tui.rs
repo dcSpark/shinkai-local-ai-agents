@@ -30,7 +30,9 @@ use tokio::time::MissedTickBehavior;
 use agent_adapters::{AdapterRegistry, NormalizedPackage};
 use agent_capabilities::{CapabilityDraft, CapabilityDraftStatus, CapabilityDraftStore};
 use agent_compaction::{CompactionRecord, CompactionStore};
-use agent_config::{AgentSummary, ConfigResolver, configured_model_providers};
+use agent_config::{
+    AgentSummary, ConfigResolver, ProfileGrantKind, ProfileSummary, configured_model_providers,
+};
 use agent_conversations::{
     ConversationMessage, ConversationPolicy, ConversationStore, ConversationTreeNode,
     render_message_range,
@@ -467,6 +469,10 @@ fn handle_slash_command(
     }
     if let Some(rest) = agents_slash_rest(trimmed) {
         handle_agents_slash(app, rest);
+        return true;
+    }
+    if let Some(rest) = profiles_slash_rest(trimmed) {
+        handle_profiles_slash(app, rest);
         return true;
     }
     if let Some(rest) = prompts_slash_rest(trimmed) {
@@ -1718,6 +1724,14 @@ fn agents_slash_rest(trimmed: &str) -> Option<&str> {
         Some("")
     } else {
         trimmed.strip_prefix("/agents ").map(str::trim)
+    }
+}
+
+fn profiles_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/profiles" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/profiles ").map(str::trim)
     }
 }
 
@@ -3397,6 +3411,367 @@ fn agent_summary(agent: &AgentSummary) -> serde_json::Value {
         "id": agent.id,
         "name": agent.name,
         "path": agent.path.display().to_string(),
+    })
+}
+
+fn handle_profiles_slash(app: &mut App, rest: &str) {
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "help" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: [
+                "/profiles current",
+                "/profiles list",
+                "/profiles show <id>",
+                "/profiles create <id> [--name <name>]",
+                "/profiles delete <id> --confirm",
+                "/profiles grant [--from <profile>] --to <profile> --kind <agent|memory|tool|skill|category> <resource>",
+                "/profiles grants [--from <profile>]",
+                "/profiles revoke-grant <id> --confirm",
+            ]
+            .join("\n"),
+        });
+        return;
+    }
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "current" => {
+            if !args.is_empty() {
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: "profiles current accepts no arguments".into(),
+                });
+                return;
+            }
+            let profile_id = StoragePaths::from_env().active_profile_id().to_string();
+            match ConfigResolver::from_env().show_profile(&profile_id) {
+                Ok(profile) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&profile_summary(&profile))
+                        .unwrap_or_else(|_| "<unserializable active profile>".into()),
+                }),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Profile current failed: {err}"),
+                }),
+            }
+        }
+        "list" => match ConfigResolver::from_env().list_profiles() {
+            Ok(profiles) => {
+                push_event(app, format!("Loaded {} profile(s).", profiles.len()));
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(
+                        &profiles.iter().map(profile_summary).collect::<Vec<_>>(),
+                    )
+                    .unwrap_or_else(|_| "<unserializable profile list>".into()),
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Profile list failed: {err}"),
+            }),
+        },
+        "show" => match first_profile_arg(args, "show") {
+            Ok(id) => match ConfigResolver::from_env().show_profile(id) {
+                Ok(profile) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&profile_summary(&profile))
+                        .unwrap_or_else(|_| "<unserializable profile>".into()),
+                }),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Profile show failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "create" => match profile_create_args(args) {
+            Ok((id, name)) => match ConfigResolver::from_env().create_profile(id, name) {
+                Ok(profile) => {
+                    push_event(app, format!("Created profile {}.", profile.id));
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&profile_summary(&profile))
+                            .unwrap_or_else(|_| "<unserializable profile>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Profile create failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "delete" | "rm" => match profile_confirm_id_args(args, "delete") {
+            Ok((id, confirmed)) => {
+                if !confirmed {
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&serde_json::json!({
+                            "pending_action": "delete_profile",
+                            "profile_id": id,
+                            "confirm_command": format!("/profiles delete {id} --confirm"),
+                        }))
+                        .unwrap_or_else(|_| "<unserializable profile confirmation>".into()),
+                    });
+                    return;
+                }
+                match ConfigResolver::from_env().delete_profile(id) {
+                    Ok(true) => push_event(app, format!("Deleted profile {id}.")),
+                    Ok(false) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Profile {id} not found."),
+                    }),
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Profile delete failed: {err}"),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "grant" => match profile_grant_args(args) {
+            Ok(parsed) => {
+                let from = parsed
+                    .from
+                    .unwrap_or_else(|| StoragePaths::from_env().active_profile_id().to_string());
+                match ConfigResolver::from_env().grant_profile_access(
+                    &from,
+                    &parsed.to,
+                    parsed.kind,
+                    &parsed.resource,
+                ) {
+                    Ok(grant) => {
+                        push_event(app, format!("Saved profile grant {}.", grant.id));
+                        app.transcript.push(TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&grant)
+                                .unwrap_or_else(|_| "<unserializable profile grant>".into()),
+                        });
+                    }
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Profile grant failed: {err}"),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "grants" => match profile_grants_args(args) {
+            Ok(from) => {
+                let result = if let Some(from) = from {
+                    ConfigResolver::from_env().list_profile_grants_from(&from)
+                } else {
+                    ConfigResolver::from_env().list_profile_grants()
+                };
+                match result {
+                    Ok(grants) => {
+                        push_event(app, format!("Loaded {} profile grant(s).", grants.len()));
+                        app.transcript.push(TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&grants)
+                                .unwrap_or_else(|_| "<unserializable profile grants>".into()),
+                        });
+                    }
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Profile grants failed: {err}"),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "revoke-grant" | "revoke" => match profile_confirm_id_args(args, "revoke-grant") {
+            Ok((id, confirmed)) => {
+                if !confirmed {
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&serde_json::json!({
+                            "pending_action": "revoke_profile_grant",
+                            "grant_id": id,
+                            "confirm_command": format!("/profiles revoke-grant {id} --confirm"),
+                        }))
+                        .unwrap_or_else(|_| "<unserializable grant confirmation>".into()),
+                    });
+                    return;
+                }
+                match ConfigResolver::from_env().revoke_profile_grant(id) {
+                    Ok(grant) => push_event(app, format!("Revoked profile grant {}.", grant.id)),
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Profile grant revoke failed: {err}"),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Profiles command needs current, list, show, create, delete, grant, grants, revoke-grant, or help.".into(),
+        }),
+    }
+}
+
+struct ProfileGrantArgs {
+    from: Option<String>,
+    to: String,
+    kind: ProfileGrantKind,
+    resource: String,
+}
+
+fn first_profile_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    args.split_whitespace()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("profiles {command} needs an argument"))
+}
+
+fn profile_create_args(args: &str) -> anyhow::Result<(&str, Option<String>)> {
+    let mut parts = args.split_whitespace();
+    let id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("profiles create needs a profile id"))?;
+    let mut name = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--name" => {
+                let rest = parts.collect::<Vec<_>>().join(" ");
+                if rest.trim().is_empty() {
+                    anyhow::bail!("--name needs a value");
+                }
+                name = Some(rest);
+                break;
+            }
+            value if value.starts_with("--name=") => {
+                name = Some(value.trim_start_matches("--name=").to_string());
+            }
+            other => anyhow::bail!("profiles create received unexpected argument: {other}"),
+        }
+    }
+    Ok((id, name))
+}
+
+fn profile_confirm_id_args<'a>(args: &'a str, command: &str) -> anyhow::Result<(&'a str, bool)> {
+    let mut id = None;
+    let mut confirmed = false;
+    for part in args.split_whitespace() {
+        if part == "--confirm" {
+            confirmed = true;
+        } else if id.is_none() {
+            id = Some(part);
+        } else {
+            anyhow::bail!("profiles {command} accepts exactly one id and optional --confirm");
+        }
+    }
+    let id = id.ok_or_else(|| anyhow::anyhow!("profiles {command} needs an id"))?;
+    Ok((id, confirmed))
+}
+
+fn profile_grants_args(args: &str) -> anyhow::Result<Option<String>> {
+    let mut parts = args.split_whitespace();
+    let mut from = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--from" => from = Some(next_profile_option_value(&mut parts, "--from")?.to_string()),
+            value if value.starts_with("--from=") => {
+                from = Some(value.trim_start_matches("--from=").to_string());
+            }
+            other => anyhow::bail!("profiles grants received unexpected argument: {other}"),
+        }
+    }
+    Ok(from)
+}
+
+fn profile_grant_args(args: &str) -> anyhow::Result<ProfileGrantArgs> {
+    let mut parts = args.split_whitespace();
+    let mut from = None;
+    let mut to = None;
+    let mut kind = None;
+    let mut resource = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--from" => from = Some(next_profile_option_value(&mut parts, "--from")?.to_string()),
+            "--to" => to = Some(next_profile_option_value(&mut parts, "--to")?.to_string()),
+            "--kind" => {
+                kind = Some(parse_profile_grant_kind(next_profile_option_value(
+                    &mut parts, "--kind",
+                )?)?);
+            }
+            value if value.starts_with("--from=") => {
+                from = Some(value.trim_start_matches("--from=").to_string());
+            }
+            value if value.starts_with("--to=") => {
+                to = Some(value.trim_start_matches("--to=").to_string());
+            }
+            value if value.starts_with("--kind=") => {
+                kind = Some(parse_profile_grant_kind(
+                    value.trim_start_matches("--kind="),
+                )?);
+            }
+            value if value.starts_with("--") => {
+                anyhow::bail!("profiles grant received unexpected argument: {value}");
+            }
+            value if resource.is_none() => resource = Some(value.to_string()),
+            other => anyhow::bail!("profiles grant accepts exactly one resource, got {other}"),
+        }
+    }
+    Ok(ProfileGrantArgs {
+        from,
+        to: to.ok_or_else(|| anyhow::anyhow!("profiles grant needs --to <profile>"))?,
+        kind: kind.ok_or_else(|| anyhow::anyhow!("profiles grant needs --kind <kind>"))?,
+        resource: resource.ok_or_else(|| anyhow::anyhow!("profiles grant needs a resource"))?,
+    })
+}
+
+fn next_profile_option_value<'a>(
+    parts: &mut impl Iterator<Item = &'a str>,
+    flag: &str,
+) -> anyhow::Result<&'a str> {
+    parts
+        .next()
+        .filter(|value| !value.starts_with("--"))
+        .ok_or_else(|| anyhow::anyhow!("{flag} needs a value"))
+}
+
+fn parse_profile_grant_kind(value: &str) -> anyhow::Result<ProfileGrantKind> {
+    match value {
+        "agent" => Ok(ProfileGrantKind::Agent),
+        "memory" => Ok(ProfileGrantKind::Memory),
+        "tool" => Ok(ProfileGrantKind::Tool),
+        "skill" => Ok(ProfileGrantKind::Skill),
+        "category" => Ok(ProfileGrantKind::Category),
+        other => anyhow::bail!(
+            "unsupported profile grant kind {other}; expected agent, memory, tool, skill, or category"
+        ),
+    }
+}
+
+fn profile_summary(profile: &ProfileSummary) -> serde_json::Value {
+    serde_json::json!({
+        "id": profile.id,
+        "name": profile.name,
+        "path": profile.path.display().to_string(),
     })
 }
 
@@ -5858,6 +6233,9 @@ mod tests {
         assert_eq!(agents_slash_rest("/agents list"), Some("list"));
         assert_eq!(agents_slash_rest("/agents"), Some(""));
         assert_eq!(agents_slash_rest("/agentz"), None);
+        assert_eq!(profiles_slash_rest("/profiles list"), Some("list"));
+        assert_eq!(profiles_slash_rest("/profiles"), Some(""));
+        assert_eq!(profiles_slash_rest("/profile"), None);
         assert_eq!(prompts_slash_rest("/prompts list"), Some("list"));
         assert_eq!(prompts_slash_rest("/prompts"), Some(""));
         assert_eq!(prompts_slash_rest("/prompt"), None);
@@ -5962,6 +6340,51 @@ mod tests {
         );
         assert!(agent_delete_args("").is_err());
         assert!(agent_delete_args("research critic --confirm").is_err());
+    }
+
+    #[test]
+    fn profile_args_parse_create_grant_filters_and_confirmations() {
+        assert_eq!(profile_create_args("research").unwrap(), ("research", None));
+        assert_eq!(
+            profile_create_args("research --name Research Team").unwrap(),
+            ("research", Some("Research Team".to_string()))
+        );
+        assert!(profile_create_args("").is_err());
+        assert!(profile_create_args("research --title nope").is_err());
+
+        let grant =
+            profile_grant_args("--from main --to research --kind memory fake-agent").unwrap();
+        assert_eq!(grant.from.as_deref(), Some("main"));
+        assert_eq!(grant.to, "research");
+        assert_eq!(grant.kind, ProfileGrantKind::Memory);
+        assert_eq!(grant.resource, "fake-agent");
+
+        let grant = profile_grant_args("--to=research --kind=category review").unwrap();
+        assert_eq!(grant.from, None);
+        assert_eq!(grant.to, "research");
+        assert_eq!(grant.kind, ProfileGrantKind::Category);
+        assert_eq!(grant.resource, "review");
+        assert!(profile_grant_args("--to research --kind memory").is_err());
+        assert!(profile_grant_args("--to research --kind unknown resource").is_err());
+        assert!(profile_grant_args("--to research --kind memory one two").is_err());
+
+        assert_eq!(
+            profile_grants_args("--from main").unwrap().as_deref(),
+            Some("main")
+        );
+        assert_eq!(profile_grants_args("").unwrap(), None);
+        assert!(profile_grants_args("main").is_err());
+
+        assert_eq!(
+            profile_confirm_id_args("research --confirm", "delete").unwrap(),
+            ("research", true)
+        );
+        assert_eq!(
+            profile_confirm_id_args("grant-1", "revoke-grant").unwrap(),
+            ("grant-1", false)
+        );
+        assert!(profile_confirm_id_args("", "delete").is_err());
+        assert!(profile_confirm_id_args("one two --confirm", "delete").is_err());
     }
 
     #[test]

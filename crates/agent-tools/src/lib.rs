@@ -20,7 +20,7 @@ use std::time::Instant;
 use agent_adapters::{
     AdapterKind, AdapterRegistry, CapabilityKind, NormalizedCapability, NormalizedPackage,
 };
-use agent_secrets::{SecretHandle, SecretStore, default_secret_store};
+use agent_secrets::{SecretHandle, SecretId, SecretStore, SecretStoreError, default_secret_store};
 use agent_storage::StoragePaths;
 use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose};
@@ -3982,12 +3982,48 @@ impl ExternalAgentTool {
         &self,
         headers: Vec<(String, String)>,
     ) -> Result<Vec<(String, String)>, ToolError> {
-        headers
+        let mut resolved = headers
             .into_iter()
             .map(|(key, value)| {
                 resolve_secret_value(self.secret_store.as_ref(), &value).map(|value| (key, value))
             })
-            .collect()
+            .collect::<Result<Vec<_>, _>>()?;
+        for header_key in &self.spec.header_keys {
+            if resolved
+                .iter()
+                .any(|(key, _)| key.eq_ignore_ascii_case(header_key))
+            {
+                continue;
+            }
+            if let Some(value) = self.resolve_declared_header(header_key)? {
+                resolved.push((header_key.clone(), value));
+            }
+        }
+        Ok(resolved)
+    }
+
+    fn resolve_declared_header(&self, header_key: &str) -> Result<Option<String>, ToolError> {
+        let Ok(id) = SecretId::new(header_key) else {
+            return Ok(None);
+        };
+        let record = match self.secret_store.show(&id) {
+            Ok(record) => record,
+            Err(SecretStoreError::NotFound(_)) => return Ok(None),
+            Err(err) => {
+                return Err(ToolError::Execution(format!(
+                    "failed to inspect secret for header `{header_key}`: {err}"
+                )));
+            }
+        };
+        resolve_secret_value(
+            self.secret_store.as_ref(),
+            &SecretHandle {
+                id: record.id,
+                version: record.current_version,
+            }
+            .to_string(),
+        )
+        .map(Some)
     }
 }
 
@@ -5693,9 +5729,9 @@ done
         let dir = temp_dir("a2a-external-secret-header");
         std::fs::create_dir_all(&dir).unwrap();
         let secret_store = Arc::new(FileSecretStore::new(dir.join("secrets.json")));
-        let header_handle = secret_store
+        secret_store
             .set(
-                SecretId::new("a2a.authorization").unwrap(),
+                SecretId::new("Authorization").unwrap(),
                 SecretValue::new("Bearer test-token"),
                 Some("A2A authorization header".into()),
             )
@@ -5743,7 +5779,6 @@ done
                 "prompt": "review this",
                 "context_id": "ctx-1",
                 "metadata": { "priority": "high" },
-                "headers": { "Authorization": header_handle.to_string() },
                 "timeout_ms": 5_000
             }))
             .await
@@ -5757,6 +5792,16 @@ done
 
     #[tokio::test]
     async fn http_json_external_agent_tool_posts_prompt_body() {
+        let dir = temp_dir("http-json-external-secret-header");
+        std::fs::create_dir_all(&dir).unwrap();
+        let secret_store = Arc::new(FileSecretStore::new(dir.join("secrets.json")));
+        let header_handle = secret_store
+            .set(
+                SecretId::new("agent.token").unwrap(),
+                SecretValue::new("test-token"),
+                Some("HTTP external agent token".into()),
+            )
+            .unwrap();
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
@@ -5776,23 +5821,26 @@ done
                 r#"{"id":"job-1","status":"completed","answer":"done"}"#,
             );
         });
-        let tool = ExternalAgentTool::new(ExternalAgentSpec {
-            id: ToolId::from("external-agent-reviewer"),
-            name: "External agent: Reviewer".into(),
-            description: "Remote review agent".into(),
-            transport: "http-json".into(),
-            endpoint: format!("http://{addr}/invoke"),
-            input_modes: vec!["application/json".into()],
-            output_modes: vec!["application/json".into()],
-            auth_schemes: vec!["apiKey".into()],
-            header_keys: Vec::new(),
-        });
+        let tool = ExternalAgentTool::new_with_secret_store(
+            ExternalAgentSpec {
+                id: ToolId::from("external-agent-reviewer"),
+                name: "External agent: Reviewer".into(),
+                description: "Remote review agent".into(),
+                transport: "http-json".into(),
+                endpoint: format!("http://{addr}/invoke"),
+                input_modes: vec!["application/json".into()],
+                output_modes: vec!["application/json".into()],
+                auth_schemes: vec!["apiKey".into()],
+                header_keys: Vec::new(),
+            },
+            secret_store,
+        );
 
         let output = tool
             .execute(json!({
                 "prompt": "review this",
                 "metadata": { "priority": "high" },
-                "headers": { "X-Agent-Token": "test-token" },
+                "headers": { "X-Agent-Token": header_handle.to_string() },
                 "timeout_ms": 5_000
             }))
             .await
@@ -5801,6 +5849,7 @@ done
         assert_eq!(output["id"], "job-1");
         assert_eq!(output["answer"], "done");
         server.join().unwrap();
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

@@ -207,6 +207,9 @@ pub fn inspect_source(source: impl AsRef<Path>) -> Result<NormalizedPackage, Ada
     if adapter == AdapterKind::HermesPlugin {
         permissions.merge(scan_hermes_permissions(&text));
     }
+    if adapter == AdapterKind::A2a {
+        permissions.merge(scan_a2a_permissions(&text));
+    }
     let secret_requirements = secret_requirements_for(adapter, &text);
     if !secret_requirements.is_empty() {
         permissions.secrets = true;
@@ -584,6 +587,8 @@ fn detect_adapter(source: &Path, text: &str) -> AdapterKind {
         AdapterKind::HermesPlugin
     } else if file_name == "mcp.json" || text.contains("\"mcpServers\"") {
         AdapterKind::Mcp
+    } else if looks_like_a2a_agent_card(&lower, text) {
+        AdapterKind::A2a
     } else if file_name == "clawhub.json" || lower.contains("clawhub") {
         AdapterKind::ClawHub
     } else if lower.contains("a2a") {
@@ -661,6 +666,12 @@ fn capabilities_for(adapter: AdapterKind, source: &Path, text: &str) -> Vec<Norm
     }
     if adapter == AdapterKind::HermesPlugin {
         let capabilities = hermes_capabilities(text);
+        if !capabilities.is_empty() {
+            return capabilities;
+        }
+    }
+    if adapter == AdapterKind::A2a {
+        let capabilities = a2a_capabilities(text);
         if !capabilities.is_empty() {
             return capabilities;
         }
@@ -745,10 +756,139 @@ fn mcp_server_description(server: &serde_json::Value) -> String {
     "MCP server.".into()
 }
 
+fn looks_like_a2a_agent_card(lower: &str, text: &str) -> bool {
+    if lower.contains("\"mcpservers\"") || lower.contains("\"clawhub\"") {
+        return false;
+    }
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
+        return false;
+    };
+    let Some(object) = value.as_object() else {
+        return false;
+    };
+    let has_identity = object.contains_key("name")
+        && (object.contains_key("description") || object.contains_key("version"));
+    let has_skills = json_array(&value, &["skills"]).is_some();
+    let has_protocol_marker = object.contains_key("protocolVersion")
+        || object.contains_key("protocol_version")
+        || json_array(&value, &["supportedInterfaces", "supported_interfaces"]).is_some()
+        || json_array(&value, &["additionalInterfaces", "additional_interfaces"]).is_some();
+    has_identity
+        && has_skills
+        && (has_protocol_marker || a2a_agent_endpoint(&value).is_some() || lower.contains("a2a"))
+}
+
+fn a2a_capabilities(text: &str) -> Vec<NormalizedCapability> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Vec::new();
+    };
+    let agent_name = json_string(&value, &["name"]).unwrap_or_else(|| "A2A external agent".into());
+    let agent_description =
+        json_string(&value, &["description"]).unwrap_or_else(|| "A2A external agent.".into());
+    let endpoint = a2a_agent_endpoint(&value);
+    let transport = json_string(&value, &["preferredTransport", "preferred_transport"])
+        .or_else(|| a2a_first_interface_value(&value, &["protocolBinding", "protocol_binding"]))
+        .or_else(|| a2a_first_interface_value(&value, &["transport"]));
+
+    let mut capabilities = Vec::new();
+    if let Some(skills) = json_array(&value, &["skills"]) {
+        for skill in skills {
+            let skill_name = json_string(skill, &["name"])
+                .or_else(|| json_string(skill, &["id"]))
+                .unwrap_or_else(|| agent_name.clone());
+            let skill_id = json_string(skill, &["id"])
+                .or_else(|| json_string(skill, &["name"]))
+                .unwrap_or_else(|| agent_name.clone());
+            let description =
+                json_string(skill, &["description"]).unwrap_or_else(|| agent_description.clone());
+            capabilities.push(NormalizedCapability {
+                id: slugify(&skill_id),
+                kind: CapabilityKind::ExternalAgent,
+                name: skill_name,
+                description: a2a_capability_description(
+                    &description,
+                    endpoint.as_deref(),
+                    transport.as_deref(),
+                    skill,
+                ),
+                quarantined: true,
+                hook_triggers: Vec::new(),
+                hook_handler: None,
+            });
+        }
+    }
+
+    if capabilities.is_empty() {
+        capabilities.push(NormalizedCapability {
+            id: slugify(&agent_name),
+            kind: CapabilityKind::ExternalAgent,
+            name: agent_name,
+            description: a2a_capability_description(
+                &agent_description,
+                endpoint.as_deref(),
+                transport.as_deref(),
+                &value,
+            ),
+            quarantined: true,
+            hook_triggers: Vec::new(),
+            hook_handler: None,
+        });
+    }
+
+    capabilities
+}
+
+fn a2a_capability_description(
+    description: &str,
+    endpoint: Option<&str>,
+    transport: Option<&str>,
+    source: &serde_json::Value,
+) -> String {
+    let mut parts = vec![description.trim().to_string()];
+    if let Some(endpoint) = endpoint.filter(|value| !value.is_empty()) {
+        parts.push(format!("endpoint: {endpoint}"));
+    }
+    if let Some(transport) = transport.filter(|value| !value.is_empty()) {
+        parts.push(format!("transport: {transport}"));
+    }
+    if let Some(tags) = json_string_list(source, &["tags"])
+        .filter(|values| !values.is_empty())
+        .map(|values| values.join(", "))
+    {
+        parts.push(format!("tags: {tags}"));
+    }
+    parts
+        .into_iter()
+        .filter(|part| !part.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+        .chars()
+        .take(500)
+        .collect()
+}
+
+fn a2a_agent_endpoint(value: &serde_json::Value) -> Option<String> {
+    json_string(value, &["url"])
+        .or_else(|| a2a_first_interface_value(value, &["url"]))
+        .or_else(|| json_string(value, &["endpoint"]))
+}
+
+fn a2a_first_interface_value(value: &serde_json::Value, fields: &[&str]) -> Option<String> {
+    json_array(value, &["supportedInterfaces", "supported_interfaces"])
+        .into_iter()
+        .chain(json_array(
+            value,
+            &["additionalInterfaces", "additional_interfaces"],
+        ))
+        .flat_map(|interfaces| interfaces.iter())
+        .find_map(|interface| json_string(interface, fields))
+}
+
 fn secret_requirements_for(adapter: AdapterKind, text: &str) -> Vec<SecretRequirement> {
     let mut requirements = match adapter {
         AdapterKind::Mcp => mcp_secret_requirements(text),
         AdapterKind::HermesPlugin => hermes_secret_requirements(text),
+        AdapterKind::A2a => a2a_secret_requirements(text),
         _ => Vec::new(),
     };
     dedupe_secret_requirements(&mut requirements);
@@ -837,6 +977,137 @@ fn hermes_secret_requirements(text: &str) -> Vec<SecretRequirement> {
     }
 
     requirements
+}
+
+fn a2a_secret_requirements(text: &str) -> Vec<SecretRequirement> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Vec::new();
+    };
+    let Some(schemes) = json_object(
+        &value,
+        &[
+            "securitySchemes",
+            "security_schemes",
+            "authSchemes",
+            "auth_schemes",
+        ],
+    ) else {
+        return Vec::new();
+    };
+    let referenced = a2a_referenced_security_schemes(&value);
+    schemes
+        .iter()
+        .filter_map(|(scheme_id, scheme)| {
+            let (name, description) = a2a_secret_requirement_for_scheme(scheme_id, scheme)?;
+            Some(SecretRequirement {
+                name,
+                source: format!("a2a:{scheme_id}"),
+                description: Some(description),
+                required: referenced.contains(scheme_id).then_some(true),
+            })
+        })
+        .collect()
+}
+
+fn a2a_secret_requirement_for_scheme(
+    scheme_id: &str,
+    scheme: &serde_json::Value,
+) -> Option<(String, String)> {
+    if let Some(api_key) = json_object(scheme, &["apiKeySecurityScheme", "api_key_security_scheme"])
+    {
+        let name =
+            json_string_value(api_key.get("name")).or_else(|| clean_secret_name(scheme_id))?;
+        return Some((name, "A2A API key security scheme".into()));
+    }
+    if json_object(
+        scheme,
+        &["httpAuthSecurityScheme", "http_auth_security_scheme"],
+    )
+    .is_some()
+    {
+        let name = clean_secret_name(scheme_id)?;
+        return Some((name, "A2A HTTP authentication credential".into()));
+    }
+    if json_object(scheme, &["oauth2SecurityScheme", "oauth2_security_scheme"]).is_some() {
+        let name = clean_secret_name(scheme_id)?;
+        return Some((name, "A2A OAuth2 credential".into()));
+    }
+    if json_object(
+        scheme,
+        &[
+            "openIdConnectSecurityScheme",
+            "open_id_connect_security_scheme",
+        ],
+    )
+    .is_some()
+    {
+        let name = clean_secret_name(scheme_id)?;
+        return Some((name, "A2A OpenID Connect credential".into()));
+    }
+
+    let scheme_type = json_string(scheme, &["type"])?.to_ascii_lowercase();
+    match scheme_type.as_str() {
+        "apikey" | "api_key" | "api-key" => {
+            let name = json_string(scheme, &["name"]).or_else(|| clean_secret_name(scheme_id))?;
+            Some((name, "A2A API key security scheme".into()))
+        }
+        "http" => {
+            let auth_scheme = json_string(scheme, &["scheme"]).unwrap_or_else(|| "http".into());
+            let name = clean_secret_name(scheme_id)?;
+            Some((name, format!("A2A HTTP {auth_scheme} credential")))
+        }
+        "oauth2" => {
+            let name = clean_secret_name(scheme_id)?;
+            Some((name, "A2A OAuth2 credential".into()))
+        }
+        "openidconnect" | "open_id_connect" | "open-id-connect" => {
+            let name = clean_secret_name(scheme_id)?;
+            Some((name, "A2A OpenID Connect credential".into()))
+        }
+        "mutualtls" | "mutual_tls" | "mutual-tls" => {
+            let name = clean_secret_name(scheme_id)?;
+            Some((name, "A2A mutual TLS credential".into()))
+        }
+        _ => None,
+    }
+}
+
+fn a2a_referenced_security_schemes(value: &serde_json::Value) -> HashSet<String> {
+    let mut names = HashSet::new();
+    for key in ["security", "securityRequirements", "security_requirements"] {
+        if let Some(requirements) = value.get(key) {
+            collect_security_requirement_names(requirements, &mut names);
+        }
+    }
+    if let Some(skills) = json_array(value, &["skills"]) {
+        for skill in skills {
+            for key in ["security", "securityRequirements", "security_requirements"] {
+                if let Some(requirements) = skill.get(key) {
+                    collect_security_requirement_names(requirements, &mut names);
+                }
+            }
+        }
+    }
+    names
+}
+
+fn collect_security_requirement_names(value: &serde_json::Value, names: &mut HashSet<String>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (name, _) in map {
+                names.insert(name.clone());
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for item in values {
+                collect_security_requirement_names(item, names);
+            }
+        }
+        serde_json::Value::String(name) => {
+            names.insert(name.clone());
+        }
+        _ => {}
+    }
 }
 
 fn hermes_secret_requirement(
@@ -1265,6 +1536,27 @@ fn scan_hermes_permissions(text: &str) -> PermissionManifest {
     }
 }
 
+fn scan_a2a_permissions(text: &str) -> PermissionManifest {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
+        return PermissionManifest::default();
+    };
+    let mut permissions = PermissionManifest::default();
+    permissions.network = a2a_agent_endpoint(&value).is_some()
+        || json_array(&value, &["supportedInterfaces", "supported_interfaces"]).is_some()
+        || json_array(&value, &["additionalInterfaces", "additional_interfaces"]).is_some();
+    permissions.secrets = json_object(
+        &value,
+        &[
+            "securitySchemes",
+            "security_schemes",
+            "authSchemes",
+            "auth_schemes",
+        ],
+    )
+    .is_some();
+    permissions
+}
+
 fn scan_static_findings(text: &str) -> Vec<StaticScanFinding> {
     let lower = text.to_ascii_lowercase();
     let mut findings = Vec::new();
@@ -1346,6 +1638,16 @@ fn read_for_digest(source: &Path) -> Result<Vec<u8>, AdapterError> {
         if mcp.exists() {
             return Ok(std::fs::read(mcp)?);
         }
+        for candidate in ["agent-card.json", "agent.json", "a2a.json"] {
+            let path = source.join(candidate);
+            if path.exists() {
+                return Ok(std::fs::read(path)?);
+            }
+        }
+        let agent_card = source.join(".well-known").join("agent-card.json");
+        if agent_card.exists() {
+            return Ok(std::fs::read(agent_card)?);
+        }
         return Ok(source.display().to_string().into_bytes());
     }
     Ok(std::fs::read(source)?)
@@ -1371,6 +1673,42 @@ fn slugify(s: &str) -> String {
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join("-")
+}
+
+fn json_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    keys.iter()
+        .find_map(|key| json_string_value(value.get(*key)))
+}
+
+fn json_string_value(value: Option<&serde_json::Value>) -> Option<String> {
+    value
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn json_array<'a>(
+    value: &'a serde_json::Value,
+    keys: &[&str],
+) -> Option<&'a Vec<serde_json::Value>> {
+    keys.iter().find_map(|key| value.get(*key)?.as_array())
+}
+
+fn json_object<'a>(
+    value: &'a serde_json::Value,
+    keys: &[&str],
+) -> Option<&'a serde_json::Map<String, serde_json::Value>> {
+    keys.iter().find_map(|key| value.get(*key)?.as_object())
+}
+
+fn json_string_list(value: &serde_json::Value, keys: &[&str]) -> Option<Vec<String>> {
+    json_array(value, keys).map(|values| {
+        values
+            .iter()
+            .filter_map(|value| json_string_value(Some(value)))
+            .collect()
+    })
 }
 
 #[cfg(test)]
@@ -1507,6 +1845,81 @@ description: trailing metadata is not an env secret
         assert!(package.capabilities.iter().any(|cap| {
             cap.kind == CapabilityKind::ExternalAgent && cap.id == "remote-reviewer"
         }));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a2a_agent_card_expands_skills_and_security_requirements() {
+        let dir = std::env::temp_dir().join(format!("adapter-a2a-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("agent-card.json");
+        std::fs::write(
+            &source,
+            r#"{
+              "protocolVersion": "0.3.0",
+              "name": "Planner Agent",
+              "description": "Plans travel and logistics.",
+              "version": "1.0.0",
+              "url": "https://agents.example.test/a2a",
+              "preferredTransport": "JSONRPC",
+              "capabilities": { "streaming": true },
+              "securitySchemes": {
+                "apiKey": { "type": "apiKey", "name": "X-API-Key", "in": "header" },
+                "bearerAuth": { "type": "http", "scheme": "bearer" }
+              },
+              "security": [{ "apiKey": [] }],
+              "defaultInputModes": ["text/plain"],
+              "defaultOutputModes": ["text/plain"],
+              "skills": [
+                {
+                  "id": "plan-trip",
+                  "name": "Plan trip",
+                  "description": "Builds a travel plan.",
+                  "tags": ["travel", "calendar"],
+                  "security": [{ "bearerAuth": [] }]
+                }
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        let package = inspect_source(&source).unwrap();
+
+        assert_eq!(package.adapter, AdapterKind::A2a);
+        assert!(package.quarantined);
+        assert!(package.permissions.network);
+        assert!(package.permissions.secrets);
+        assert_eq!(package.capabilities.len(), 1);
+        assert_eq!(package.capabilities[0].kind, CapabilityKind::ExternalAgent);
+        assert_eq!(package.capabilities[0].id, "plan-trip");
+        assert_eq!(package.capabilities[0].name, "Plan trip");
+        assert!(
+            package.capabilities[0]
+                .description
+                .contains("endpoint: https://")
+        );
+        assert!(
+            package.capabilities[0]
+                .description
+                .contains("transport: JSONRPC")
+        );
+        assert!(
+            package.capabilities[0]
+                .description
+                .contains("tags: travel, calendar")
+        );
+        assert_eq!(package.secret_requirements.len(), 2);
+        assert!(package.secret_requirements.iter().any(|requirement| {
+            requirement.name == "X-API-Key"
+                && requirement.source == "a2a:apiKey"
+                && requirement.required == Some(true)
+        }));
+        assert!(package.secret_requirements.iter().any(|requirement| {
+            requirement.name == "bearerAuth"
+                && requirement.source == "a2a:bearerAuth"
+                && requirement.required == Some(true)
+        }));
+        assert!(!package.findings.is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }
 

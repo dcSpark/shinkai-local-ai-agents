@@ -7042,6 +7042,16 @@ fn parse_score_slash_rest(rest: &str) -> anyhow::Result<(String, f32, String)> {
 mod slash_tests {
     use super::*;
 
+    fn restore_env(name: &str, value: Option<std::ffi::OsString>) {
+        unsafe {
+            if let Some(value) = value {
+                std::env::set_var(name, value);
+            } else {
+                std::env::remove_var(name);
+            }
+        }
+    }
+
     #[test]
     fn guardrail_provider_accepts_native_runtime_configs() {
         let anthropic = ModelRuntimeConfig {
@@ -7079,6 +7089,66 @@ mod slash_tests {
         assert!(validate_remote_wait_options(1, Some(1)).is_ok());
         assert!(validate_remote_wait_options(0, None).is_err());
         assert!(validate_remote_wait_options(1, Some(0)).is_err());
+    }
+
+    #[test]
+    fn capability_review_allow_promotes_tool_into_registry() {
+        let dir = std::env::temp_dir().join(format!(
+            "capability-review-tool-registry-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+        CapabilityDraftStore::from_env()
+            .propose(CapabilityDraftInput {
+                id: Some("draft-weather-tool".into()),
+                kind: CapabilityKind::Tool,
+                name: "Weather Tool".into(),
+                body: r#"{
+                  "mcpServers": {
+                    "weather": {
+                      "command": "fake-weather-mcp",
+                      "args": ["--stdio"]
+                    }
+                  }
+                }"#
+                .into(),
+                guidance: Some("Use for weather lookups.".into()),
+                created_by: "agent".into(),
+                provenance: "test:capability".into(),
+            })
+            .unwrap();
+
+        let outcome =
+            capability_review_outcome("draft-weather-tool", CapabilityDraftStatus::Allowed)
+                .unwrap();
+
+        assert_eq!(outcome.draft.status, CapabilityDraftStatus::Allowed);
+        assert!(outcome.value.get("promoted_tool").is_some());
+        let packages = AdapterRegistry::from_env().list().unwrap();
+        let mut registry = agent_tools::ToolRegistry::new();
+        assert_eq!(
+            agent_tools::register_allowed_adapter_tools_with_provenance(
+                &mut registry,
+                packages,
+                None,
+            ),
+            1
+        );
+        let descriptor = registry
+            .descriptor(&ToolId::from("mcp-weather"))
+            .expect("promoted MCP draft should register a tool");
+        assert!(
+            descriptor
+                .provenance
+                .as_deref()
+                .is_some_and(|value| value.contains("draft_id=draft-weather-tool"))
+        );
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

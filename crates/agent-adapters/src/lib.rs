@@ -1337,6 +1337,7 @@ fn a2a_capabilities(text: &str) -> Vec<NormalizedCapability> {
                 top_level_auth.clone(),
                 a2a_security_requirement_names(skill),
             );
+            let header_keys = a2a_security_header_names(&value, &auth_schemes);
             capabilities.push(NormalizedCapability {
                 id: slugify(&skill_id),
                 kind: CapabilityKind::ExternalAgent,
@@ -1354,6 +1355,7 @@ fn a2a_capabilities(text: &str) -> Vec<NormalizedCapability> {
                     input_modes,
                     output_modes,
                     auth_schemes,
+                    header_keys,
                 ),
                 hook_triggers: Vec::new(),
                 hook_handler: None,
@@ -1362,6 +1364,7 @@ fn a2a_capabilities(text: &str) -> Vec<NormalizedCapability> {
     }
 
     if capabilities.is_empty() {
+        let top_level_header_keys = a2a_security_header_names(&value, &top_level_auth);
         capabilities.push(NormalizedCapability {
             id: slugify(&agent_name),
             kind: CapabilityKind::ExternalAgent,
@@ -1379,6 +1382,7 @@ fn a2a_capabilities(text: &str) -> Vec<NormalizedCapability> {
                 default_input_modes,
                 default_output_modes,
                 top_level_auth,
+                top_level_header_keys,
             ),
             hook_triggers: Vec::new(),
             hook_handler: None,
@@ -1394,12 +1398,14 @@ fn a2a_capability_runtime(
     input_modes: Vec<String>,
     output_modes: Vec<String>,
     auth_schemes: Vec<String>,
+    header_keys: Vec<String>,
 ) -> Option<NormalizedRuntime> {
     if endpoint.is_none()
         && transport.is_none()
         && input_modes.is_empty()
         && output_modes.is_empty()
         && auth_schemes.is_empty()
+        && header_keys.is_empty()
     {
         return None;
     }
@@ -1409,7 +1415,7 @@ fn a2a_capability_runtime(
         command: None,
         args: Vec::new(),
         env_keys: Vec::new(),
-        header_keys: Vec::new(),
+        header_keys,
         input_modes,
         output_modes,
         auth_schemes,
@@ -1688,6 +1694,53 @@ fn a2a_security_requirement_names(value: &serde_json::Value) -> Vec<String> {
     let mut names = names.into_iter().collect::<Vec<_>>();
     names.sort();
     names
+}
+
+fn a2a_security_header_names(value: &serde_json::Value, scheme_names: &[String]) -> Vec<String> {
+    let Some(schemes) = json_object(
+        value,
+        &[
+            "securitySchemes",
+            "security_schemes",
+            "securityDefinitions",
+            "security_definitions",
+        ],
+    ) else {
+        return Vec::new();
+    };
+    let mut headers = scheme_names
+        .iter()
+        .filter_map(|scheme_name| schemes.get(scheme_name))
+        .filter_map(a2a_header_name_for_security_scheme)
+        .collect::<Vec<_>>();
+    headers.sort();
+    headers.dedup();
+    headers
+}
+
+fn a2a_header_name_for_security_scheme(scheme: &serde_json::Value) -> Option<String> {
+    if let Some(api_key) = scheme
+        .get("apiKeySecurityScheme")
+        .or_else(|| scheme.get("api_key_security_scheme"))
+    {
+        return a2a_header_name_for_api_key(api_key);
+    }
+    let scheme_type = json_string(scheme, &["type"])?.to_ascii_lowercase();
+    if matches!(scheme_type.as_str(), "apikey" | "api_key" | "api-key") {
+        return a2a_header_name_for_api_key(scheme);
+    }
+    None
+}
+
+fn a2a_header_name_for_api_key(value: &serde_json::Value) -> Option<String> {
+    let location = json_string(value, &["in"])
+        .or_else(|| json_string(value, &["location"]))
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if location != "header" {
+        return None;
+    }
+    json_string(value, &["name"]).and_then(|name| clean_secret_name(&name))
 }
 
 fn collect_security_requirement_names(value: &serde_json::Value, names: &mut HashSet<String>) {
@@ -2714,6 +2767,7 @@ description: trailing metadata is not an env secret
             runtime.auth_schemes,
             vec!["apiKey".to_string(), "bearerAuth".to_string()]
         );
+        assert_eq!(runtime.header_keys, vec!["X-API-Key".to_string()]);
         assert!(
             package.capabilities[0]
                 .description
@@ -2741,6 +2795,42 @@ description: trailing metadata is not an env secret
                 && requirement.required == Some(true)
         }));
         assert!(!package.findings.is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a2a_agent_card_without_skills_preserves_header_security_hints() {
+        let dir = std::env::temp_dir().join(format!(
+            "adapter-a2a-empty-skills-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("agent-card.json");
+        std::fs::write(
+            &source,
+            r#"{
+              "protocolVersion": "0.3.0",
+              "name": "Router Agent",
+              "description": "Routes requests.",
+              "version": "1.0.0",
+              "url": "https://agents.example.test/router",
+              "securitySchemes": {
+                "apiKey": { "type": "apiKey", "name": "X-Agent-Key", "in": "header" }
+              },
+              "security": [{ "apiKey": [] }],
+              "skills": []
+            }"#,
+        )
+        .unwrap();
+
+        let package = inspect_source(&source).unwrap();
+
+        assert_eq!(package.adapter, AdapterKind::A2a);
+        assert_eq!(package.capabilities.len(), 1);
+        assert_eq!(package.capabilities[0].id, "router-agent");
+        let runtime = package.capabilities[0].runtime.as_ref().unwrap();
+        assert_eq!(runtime.auth_schemes, vec!["apiKey".to_string()]);
+        assert_eq!(runtime.header_keys, vec!["X-Agent-Key".to_string()]);
         let _ = std::fs::remove_dir_all(dir);
     }
 

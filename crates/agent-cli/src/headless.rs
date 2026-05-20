@@ -1231,12 +1231,11 @@ fn print_trace_tree_node(node: &TraceTreeNode, depth: usize) {
 }
 
 pub async fn approval_list(run_id: String, json: bool) -> anyhow::Result<()> {
-    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
-    let approvals = approvals_for_run(run_id)?;
+    let approvals = approval_list_result(&run_id)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&approvals)?);
     } else if approvals.is_empty() {
-        println!("No approvals found for run {}", run_id.0);
+        println!("No approvals found for run {run_id}");
     } else {
         for approval in approvals {
             println!(
@@ -1248,12 +1247,39 @@ pub async fn approval_list(run_id: String, json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub fn approval_list_result(run_id: &str) -> anyhow::Result<Vec<serde_json::Value>> {
+    let run_id = RunId(uuid::Uuid::parse_str(run_id)?);
+    approvals_for_run(run_id)
+}
+
 pub async fn approval_assess(
     run_id: String,
     approval_id: String,
     controller_agent: Option<String>,
     json: bool,
 ) -> anyhow::Result<()> {
+    let result = approval_assess_result(run_id, approval_id.clone(), controller_agent).await?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+    } else {
+        let assessment = &result["assessment"];
+        let controller = assessment["controller_agent"].as_str().unwrap_or("unknown");
+        let recommendation = assessment["recommendation"]
+            .as_str()
+            .unwrap_or("needs_human");
+        let model = assessment["model"].as_str().unwrap_or("unknown");
+        let reason = assessment["reason"].as_str().unwrap_or("");
+        println!("controller {controller} assessed {approval_id} with {model}: {recommendation}");
+        println!("{reason}");
+    }
+    Ok(())
+}
+
+pub async fn approval_assess_result(
+    run_id: String,
+    approval_id: String,
+    controller_agent: Option<String>,
+) -> anyhow::Result<serde_json::Value> {
     let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
     let events = store.try_events(run_id)?;
@@ -1304,28 +1330,11 @@ pub async fn approval_assess(
             duration_ms: assessment.duration_ms,
         },
     );
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "run_id": run_id.0,
-                "event_id": event.id.0,
-                "assessment": assessment
-            }))?
-        );
-    } else {
-        let recommendation = assessment
-            .recommendation
-            .as_deref()
-            .unwrap_or("needs_human");
-        let model = assessment.model.as_deref().unwrap_or("unknown");
-        println!(
-            "controller {} assessed {} with {}: {}",
-            assessment.controller_agent, approval_id, model, recommendation
-        );
-        println!("{}", assessment.reason);
-    }
-    Ok(())
+    Ok(serde_json::json!({
+        "run_id": run_id.0,
+        "event_id": event.id.0,
+        "assessment": assessment
+    }))
 }
 
 pub async fn approval_decide(
@@ -1336,6 +1345,33 @@ pub async fn approval_decide(
     signature_env: Option<String>,
     controller_agent: Option<String>,
 ) -> anyhow::Result<()> {
+    let result = approval_decide_result(
+        run_id,
+        approval_id.clone(),
+        approved,
+        unlock_env,
+        signature_env,
+        controller_agent,
+    )
+    .await?;
+    let run_id = result["run_id"].as_str().unwrap_or("unknown");
+    println!(
+        "{} approval {} for {}",
+        if approved { "approved" } else { "rejected" },
+        approval_id,
+        run_id
+    );
+    Ok(())
+}
+
+pub async fn approval_decide_result(
+    run_id: String,
+    approval_id: String,
+    approved: bool,
+    unlock_env: Option<String>,
+    signature_env: Option<String>,
+    controller_agent: Option<String>,
+) -> anyhow::Result<serde_json::Value> {
     let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
     let events = store.try_events(run_id)?;
@@ -1360,16 +1396,15 @@ pub async fn approval_decide(
         RunEventKind::ApprovalResolved {
             approval_id: approval_id.clone(),
             approved,
-            delegated_controller,
+            delegated_controller: delegated_controller.clone(),
         },
     );
-    println!(
-        "{} approval {} for {}",
-        if approved { "approved" } else { "rejected" },
-        approval_id,
-        run_id.0
-    );
-    Ok(())
+    Ok(serde_json::json!({
+        "run_id": run_id.0,
+        "approval_id": approval_id,
+        "approved": approved,
+        "delegated_controller": delegated_controller
+    }))
 }
 
 pub async fn approval_execute(
@@ -1379,6 +1414,25 @@ pub async fn approval_execute(
     unlock_env: Option<String>,
     signature_env: Option<String>,
 ) -> anyhow::Result<()> {
+    let result = approval_execute_result(run_id, approval_id, unlock_env, signature_env).await?;
+    let output = &result["output"];
+    if json {
+        println!("{}", serde_json::to_string_pretty(output)?);
+    } else {
+        println!("{}", serde_json::to_string_pretty(output)?);
+        let call_id = result["call_id"].as_str().unwrap_or("unknown");
+        let duration_ms = result["duration_ms"].as_u64().unwrap_or_default();
+        eprintln!("executed approved tool call {call_id} in {duration_ms} ms");
+    }
+    Ok(())
+}
+
+pub async fn approval_execute_result(
+    run_id: String,
+    approval_id: String,
+    unlock_env: Option<String>,
+    signature_env: Option<String>,
+) -> anyhow::Result<serde_json::Value> {
     let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let unlock = approval_unlock_from_env(unlock_env)?;
     verify_configured_approval_unlock(unlock.as_deref())?;
@@ -1495,13 +1549,13 @@ pub async fn approval_execute(
         },
     );
 
-    if json {
-        println!("{}", serde_json::to_string_pretty(&output)?);
-    } else {
-        println!("{}", serde_json::to_string_pretty(&output)?);
-        eprintln!("executed approved tool call {call_id} in {duration_ms} ms");
-    }
-    Ok(())
+    Ok(serde_json::json!({
+        "run_id": run_id.0,
+        "approval_id": approval_id,
+        "call_id": call_id,
+        "duration_ms": duration_ms,
+        "output": output
+    }))
 }
 
 fn approval_unlock_from_env(unlock_env: Option<String>) -> anyhow::Result<Option<String>> {

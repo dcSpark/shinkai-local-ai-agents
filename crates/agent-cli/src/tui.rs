@@ -709,6 +709,10 @@ fn handle_slash_command(
         handle_ingest_slash(app, rest, line_tx);
         return true;
     }
+    if let Some(rest) = approval_slash_rest(trimmed) {
+        handle_approval_slash(app, rest, line_tx);
+        return true;
+    }
     if let Some(rest) = models_slash_rest(trimmed) {
         handle_models_slash(app, rest);
         return true;
@@ -1969,6 +1973,14 @@ fn ingest_slash_rest(trimmed: &str) -> Option<&str> {
     }
 }
 
+fn approval_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/approval" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/approval ").map(str::trim)
+    }
+}
+
 fn models_slash_rest(trimmed: &str) -> Option<&str> {
     if trimmed == "/models" {
         Some("")
@@ -3179,6 +3191,278 @@ fn ingestion_artifact_summary(artifact: &IngestionArtifact) -> serde_json::Value
         "unapproved_high_risk_findings": artifact.unapproved_high_risk_finding_count(),
         "created_at": artifact.created_at,
     })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ApprovalActionArgs {
+    run_id: String,
+    approval_id: String,
+    unlock_env: Option<String>,
+    signature_env: Option<String>,
+    controller_agent: Option<String>,
+}
+
+fn handle_approval_slash(app: &mut App, rest: &str, line_tx: &UnboundedSender<TranscriptLine>) {
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "help" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: [
+                "/approval list [run-id|last]",
+                "/approval assess [run-id|last] <approval-id> [--controller-agent <agent>]",
+                "/approval approve [run-id|last] <approval-id> [--unlock-env <env>] [--signature-env <env>] [--controller-agent <agent>]",
+                "/approval reject [run-id|last] <approval-id>",
+                "/approval execute [run-id|last] <approval-id> [--unlock-env <env>] [--signature-env <env>]",
+            ]
+            .join("\n"),
+        });
+        return;
+    }
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "list" => match approval_list_args(args, app.last_run_id) {
+            Ok(run_id) => match crate::headless::approval_list_result(&run_id) {
+                Ok(approvals) => {
+                    push_event(app, format!("Loaded {} approval(s).", approvals.len()));
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&approvals)
+                            .unwrap_or_else(|_| "<unserializable approval list>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Approval list failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "assess" => match approval_action_args(args, app.last_run_id, "assess", true, false) {
+            Ok(parsed) => {
+                push_event(app, format!("Assessing approval {}.", parsed.approval_id));
+                let tx = line_tx.clone();
+                tokio::spawn(async move {
+                    let line = match crate::headless::approval_assess_result(
+                        parsed.run_id,
+                        parsed.approval_id,
+                        parsed.controller_agent,
+                    )
+                    .await
+                    {
+                        Ok(result) => TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&result)
+                                .unwrap_or_else(|_| "<unserializable approval assessment>".into()),
+                        },
+                        Err(err) => TranscriptLine {
+                            kind: LineKind::Error,
+                            text: format!("Approval assess failed: {err}"),
+                        },
+                    };
+                    let _ = tx.send(line);
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "approve" => match approval_action_args(args, app.last_run_id, "approve", true, true) {
+            Ok(parsed) => {
+                push_event(app, format!("Approving {}.", parsed.approval_id));
+                let tx = line_tx.clone();
+                tokio::spawn(async move {
+                    let line = match crate::headless::approval_decide_result(
+                        parsed.run_id,
+                        parsed.approval_id,
+                        true,
+                        parsed.unlock_env,
+                        parsed.signature_env,
+                        parsed.controller_agent,
+                    )
+                    .await
+                    {
+                        Ok(result) => TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&result)
+                                .unwrap_or_else(|_| "<unserializable approval decision>".into()),
+                        },
+                        Err(err) => TranscriptLine {
+                            kind: LineKind::Error,
+                            text: format!("Approval approve failed: {err}"),
+                        },
+                    };
+                    let _ = tx.send(line);
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "reject" => match approval_action_args(args, app.last_run_id, "reject", false, false) {
+            Ok(parsed) => {
+                push_event(app, format!("Rejecting {}.", parsed.approval_id));
+                let tx = line_tx.clone();
+                tokio::spawn(async move {
+                    let line = match crate::headless::approval_decide_result(
+                        parsed.run_id,
+                        parsed.approval_id,
+                        false,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await
+                    {
+                        Ok(result) => TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&result)
+                                .unwrap_or_else(|_| "<unserializable approval decision>".into()),
+                        },
+                        Err(err) => TranscriptLine {
+                            kind: LineKind::Error,
+                            text: format!("Approval reject failed: {err}"),
+                        },
+                    };
+                    let _ = tx.send(line);
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "execute" => match approval_action_args(args, app.last_run_id, "execute", false, true) {
+            Ok(parsed) => {
+                push_event(app, format!("Executing {}.", parsed.approval_id));
+                let tx = line_tx.clone();
+                tokio::spawn(async move {
+                    let line = match crate::headless::approval_execute_result(
+                        parsed.run_id,
+                        parsed.approval_id,
+                        parsed.unlock_env,
+                        parsed.signature_env,
+                    )
+                    .await
+                    {
+                        Ok(result) => TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&result)
+                                .unwrap_or_else(|_| "<unserializable approval execution>".into()),
+                        },
+                        Err(err) => TranscriptLine {
+                            kind: LineKind::Error,
+                            text: format!("Approval execute failed: {err}"),
+                        },
+                    };
+                    let _ = tx.send(line);
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Approval command needs list, assess, approve, reject, execute, or help.".into(),
+        }),
+    }
+}
+
+fn approval_list_args(args: &str, last_run_id: Option<RunId>) -> anyhow::Result<String> {
+    let mut parts = args.split_whitespace();
+    let run_id = match parts.next() {
+        Some(raw) => resolve_approval_run_id(raw, last_run_id),
+        None => last_run_id
+            .map(|run_id| run_id.0.to_string())
+            .ok_or_else(|| anyhow::anyhow!("approval list needs a run id or a previous run")),
+    }?;
+    if parts.next().is_some() {
+        anyhow::bail!("approval list accepts at most one run id");
+    }
+    Ok(run_id)
+}
+
+fn approval_action_args(
+    args: &str,
+    last_run_id: Option<RunId>,
+    command: &str,
+    allow_controller: bool,
+    allow_secrets: bool,
+) -> anyhow::Result<ApprovalActionArgs> {
+    let mut positionals = Vec::new();
+    let mut unlock_env = None;
+    let mut signature_env = None;
+    let mut controller_agent = None;
+    let mut parts = args.split_whitespace();
+    while let Some(part) = parts.next() {
+        if let Some(option) = part.strip_prefix("--") {
+            let (name, inline_value) = option
+                .split_once('=')
+                .map(|(name, value)| (name, Some(value)))
+                .unwrap_or((option, None));
+            let value = match inline_value {
+                Some(value) if value.is_empty() => {
+                    anyhow::bail!("approval {command} --{name} needs a value")
+                }
+                Some(value) => value,
+                None => parts
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("approval {command} --{name} needs a value"))?,
+            };
+            match name {
+                "unlock-env" if allow_secrets => unlock_env = Some(value.to_string()),
+                "signature-env" if allow_secrets => signature_env = Some(value.to_string()),
+                "controller-agent" if allow_controller => {
+                    controller_agent = Some(value.to_string())
+                }
+                _ => anyhow::bail!("unknown approval {command} option: --{name}"),
+            }
+        } else {
+            positionals.push(part);
+        }
+    }
+    let (run_id, approval_id) = match positionals.as_slice() {
+        [approval_id] => (
+            last_run_id
+                .map(|run_id| run_id.0.to_string())
+                .ok_or_else(|| {
+                    anyhow::anyhow!("approval {command} needs a run id or a previous run")
+                })?,
+            (*approval_id).to_string(),
+        ),
+        [run_id, approval_id] => (
+            resolve_approval_run_id(run_id, last_run_id)?,
+            (*approval_id).to_string(),
+        ),
+        [] => anyhow::bail!("approval {command} needs an approval id"),
+        _ => anyhow::bail!("approval {command} accepts a run id and approval id"),
+    };
+    Ok(ApprovalActionArgs {
+        run_id,
+        approval_id,
+        unlock_env,
+        signature_env,
+        controller_agent,
+    })
+}
+
+fn resolve_approval_run_id(raw: &str, last_run_id: Option<RunId>) -> anyhow::Result<String> {
+    if raw == "last" {
+        last_run_id
+            .map(|run_id| run_id.0.to_string())
+            .ok_or_else(|| anyhow::anyhow!("approval command needs a previous run"))
+    } else {
+        Ok(raw.to_string())
+    }
 }
 
 fn handle_artifacts_slash(app: &mut App, rest: &str) {
@@ -5959,7 +6243,9 @@ fn parse_stop_request(rest: &str) -> StopRequest {
 }
 
 fn is_mid_run_control_command(trimmed: &str) -> bool {
-    guide_slash_rest(trimmed).is_some() || stop_slash_rest(trimmed).is_some()
+    guide_slash_rest(trimmed).is_some()
+        || stop_slash_rest(trimmed).is_some()
+        || approval_slash_rest(trimmed).is_some()
 }
 
 fn agent_slash_rest(trimmed: &str) -> Option<&str> {
@@ -7130,6 +7416,9 @@ mod tests {
         assert_eq!(ingest_slash_rest("/ingest list"), Some("list"));
         assert_eq!(ingest_slash_rest("/ingest"), Some(""));
         assert_eq!(ingest_slash_rest("/ingester"), None);
+        assert_eq!(approval_slash_rest("/approval list"), Some("list"));
+        assert_eq!(approval_slash_rest("/approval"), Some(""));
+        assert_eq!(approval_slash_rest("/approvals"), None);
         assert_eq!(
             hooks_slash_rest("/hooks review run-1"),
             Some("review run-1")
@@ -7196,6 +7485,78 @@ mod tests {
         assert!(parse_resume_slash_args("--from-event", Some(last_run)).is_err());
         assert!(parse_resume_slash_args("", None).is_err());
         assert!(parse_resume_slash_args("last extra", Some(last_run)).is_err());
+    }
+
+    #[test]
+    fn approval_args_accept_last_run_and_options() {
+        let last_run =
+            RunId(uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000456").unwrap());
+        let explicit_run = "00000000-0000-0000-0000-000000000123";
+
+        assert_eq!(
+            approval_list_args("", Some(last_run)).unwrap(),
+            last_run.0.to_string()
+        );
+        assert_eq!(
+            approval_list_args("last", Some(last_run)).unwrap(),
+            last_run.0.to_string()
+        );
+        assert_eq!(
+            approval_action_args(
+                "approval-1 --unlock-env APPROVAL_SECRET --signature-env=APPROVAL_SIG --controller-agent gatekeeper",
+                Some(last_run),
+                "approve",
+                true,
+                true,
+            )
+            .unwrap(),
+            ApprovalActionArgs {
+                run_id: last_run.0.to_string(),
+                approval_id: "approval-1".into(),
+                unlock_env: Some("APPROVAL_SECRET".into()),
+                signature_env: Some("APPROVAL_SIG".into()),
+                controller_agent: Some("gatekeeper".into()),
+            }
+        );
+        assert_eq!(
+            approval_action_args(
+                &format!("{explicit_run} approval-2 --controller-agent=gatekeeper"),
+                Some(last_run),
+                "assess",
+                true,
+                false,
+            )
+            .unwrap(),
+            ApprovalActionArgs {
+                run_id: explicit_run.into(),
+                approval_id: "approval-2".into(),
+                unlock_env: None,
+                signature_env: None,
+                controller_agent: Some("gatekeeper".into()),
+            }
+        );
+        assert!(approval_list_args("", None).is_err());
+        assert!(approval_action_args("", Some(last_run), "approve", true, true).is_err());
+        assert!(
+            approval_action_args(
+                "approval-1 --unlock-env",
+                Some(last_run),
+                "approve",
+                true,
+                true
+            )
+            .is_err()
+        );
+        assert!(
+            approval_action_args(
+                "approval-1 --controller-agent gatekeeper",
+                Some(last_run),
+                "execute",
+                false,
+                true,
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -7885,6 +8246,7 @@ mod tests {
         assert!(is_mid_run_control_command("/guide"));
         assert!(is_mid_run_control_command("/stop changed my mind"));
         assert!(is_mid_run_control_command("/stop"));
+        assert!(is_mid_run_control_command("/approval list last"));
         assert!(!is_mid_run_control_command("/score 8"));
         assert!(!is_mid_run_control_command("/tool!echo {}"));
         assert!(!is_mid_run_control_command("/guidance"));

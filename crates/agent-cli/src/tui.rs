@@ -44,6 +44,9 @@ use agent_memory::{
     supported_backends as supported_memory_backends,
 };
 use agent_prompts::{PromptDoc, PromptStore, is_valid_prompt_name};
+use agent_secrets::{
+    SecretId, SecretValue, default_secret_store, supported_backends as supported_secret_backends,
+};
 use agent_skills::{SkillDoc, SkillRegistry};
 use agent_storage::StoragePaths;
 use agent_tools::{
@@ -473,6 +476,10 @@ fn handle_slash_command(
     }
     if let Some(rest) = profiles_slash_rest(trimmed) {
         handle_profiles_slash(app, rest);
+        return true;
+    }
+    if let Some(rest) = secrets_slash_rest(trimmed) {
+        handle_secrets_slash(app, rest);
         return true;
     }
     if let Some(rest) = prompts_slash_rest(trimmed) {
@@ -1732,6 +1739,14 @@ fn profiles_slash_rest(trimmed: &str) -> Option<&str> {
         Some("")
     } else {
         trimmed.strip_prefix("/profiles ").map(str::trim)
+    }
+}
+
+fn secrets_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/secrets" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/secrets ").map(str::trim)
     }
 }
 
@@ -3773,6 +3788,296 @@ fn profile_summary(profile: &ProfileSummary) -> serde_json::Value {
         "name": profile.name,
         "path": profile.path.display().to_string(),
     })
+}
+
+fn handle_secrets_slash(app: &mut App, rest: &str) {
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "help" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: [
+                "/secrets backends",
+                "/secrets list",
+                "/secrets show <id>",
+                "/secrets set <id> [--label <label>] <value>",
+                "/secrets rotate <id> <value>",
+                "/secrets delete <id> --confirm",
+            ]
+            .join("\n"),
+        });
+        return;
+    }
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "backends" => {
+            if !args.is_empty() {
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: "secrets backends accepts no arguments".into(),
+                });
+                return;
+            }
+            let backends = supported_secret_backends();
+            push_event(
+                app,
+                format!("Loaded {} secret backend descriptor(s).", backends.len()),
+            );
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: serde_json::to_string_pretty(&backends)
+                    .unwrap_or_else(|_| "<unserializable secret backends>".into()),
+            });
+        }
+        "list" => {
+            if !args.is_empty() {
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: "secrets list accepts no arguments".into(),
+                });
+                return;
+            }
+            match default_secret_store().list() {
+                Ok(records) => {
+                    push_event(app, format!("Loaded {} secret record(s).", records.len()));
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&records)
+                            .unwrap_or_else(|_| "<unserializable secret list>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Secrets list failed: {err}"),
+                }),
+            }
+        }
+        "show" => match first_secret_arg(args, "show") {
+            Ok(id) => match SecretId::new(id) {
+                Ok(id) => match default_secret_store().show(&id) {
+                    Ok(record) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&record)
+                            .unwrap_or_else(|_| "<unserializable secret record>".into()),
+                    }),
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Secret show failed: {err}"),
+                    }),
+                },
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: err.to_string(),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "set" => match secret_set_args(args) {
+            Ok((id, label, value)) => match SecretId::new(id) {
+                Ok(id) => {
+                    let store = default_secret_store();
+                    match store.set(id.clone(), SecretValue::new(value), label) {
+                        Ok(handle) => match store.show(&id) {
+                            Ok(record) => {
+                                push_event(app, format!("Stored secret {}.", handle.id.0));
+                                app.transcript.push(TranscriptLine {
+                                    kind: LineKind::Assistant,
+                                    text: serde_json::to_string_pretty(&serde_json::json!({
+                                        "handle": handle,
+                                        "record": record,
+                                    }))
+                                    .unwrap_or_else(|_| "<unserializable secret record>".into()),
+                                });
+                            }
+                            Err(err) => app.transcript.push(TranscriptLine {
+                                kind: LineKind::Error,
+                                text: format!("Secret metadata read failed: {err}"),
+                            }),
+                        },
+                        Err(err) => app.transcript.push(TranscriptLine {
+                            kind: LineKind::Error,
+                            text: format!("Secret set failed: {err}"),
+                        }),
+                    }
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: err.to_string(),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "rotate" => match secret_rotate_args(args) {
+            Ok((id, value)) => match SecretId::new(id) {
+                Ok(id) => {
+                    let store = default_secret_store();
+                    match store.rotate(&id, SecretValue::new(value)) {
+                        Ok(handle) => match store.show(&id) {
+                            Ok(record) => {
+                                push_event(
+                                    app,
+                                    format!(
+                                        "Rotated secret {} to version {}.",
+                                        handle.id.0, handle.version
+                                    ),
+                                );
+                                app.transcript.push(TranscriptLine {
+                                    kind: LineKind::Assistant,
+                                    text: serde_json::to_string_pretty(&serde_json::json!({
+                                        "handle": handle,
+                                        "record": record,
+                                    }))
+                                    .unwrap_or_else(|_| "<unserializable secret record>".into()),
+                                });
+                            }
+                            Err(err) => app.transcript.push(TranscriptLine {
+                                kind: LineKind::Error,
+                                text: format!("Secret metadata read failed: {err}"),
+                            }),
+                        },
+                        Err(err) => app.transcript.push(TranscriptLine {
+                            kind: LineKind::Error,
+                            text: format!("Secret rotate failed: {err}"),
+                        }),
+                    }
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: err.to_string(),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "delete" | "rm" => match secret_confirm_id_args(args, "delete") {
+            Ok((id, confirmed)) => {
+                if !confirmed {
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&serde_json::json!({
+                            "pending_action": "delete_secret",
+                            "secret_id": id,
+                            "confirm_command": format!("/secrets delete {id} --confirm"),
+                        }))
+                        .unwrap_or_else(|_| "<unserializable secret confirmation>".into()),
+                    });
+                    return;
+                }
+                match SecretId::new(id) {
+                    Ok(id) => match default_secret_store().delete(&id) {
+                        Ok(true) => push_event(app, format!("Deleted secret {}.", id.0)),
+                        Ok(false) => app.transcript.push(TranscriptLine {
+                            kind: LineKind::Error,
+                            text: format!("Secret {} was not stored.", id.0),
+                        }),
+                        Err(err) => app.transcript.push(TranscriptLine {
+                            kind: LineKind::Error,
+                            text: format!("Secret delete failed: {err}"),
+                        }),
+                    },
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: err.to_string(),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Secrets command needs backends, list, show, set, rotate, delete, or help."
+                .into(),
+        }),
+    }
+}
+
+fn first_secret_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    args.split_whitespace()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("secrets {command} needs an argument"))
+}
+
+fn secret_set_args(args: &str) -> anyhow::Result<(&str, Option<String>, String)> {
+    let mut parts = args.split_whitespace();
+    let id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("secrets set needs a secret id"))?;
+    let mut label = None;
+    let mut value_parts = Vec::new();
+    while let Some(part) = parts.next() {
+        match part {
+            "--label" if value_parts.is_empty() => {
+                label = Some(next_secret_option_value(&mut parts, "--label")?.to_string());
+            }
+            value if value.starts_with("--label=") && value_parts.is_empty() => {
+                label = Some(value.trim_start_matches("--label=").to_string());
+            }
+            value if value.starts_with("--") && value_parts.is_empty() => {
+                anyhow::bail!("secrets set received unexpected argument: {value}");
+            }
+            value => {
+                value_parts.push(value);
+                value_parts.extend(parts);
+                break;
+            }
+        }
+    }
+    let value = value_parts.join(" ");
+    if value.trim().is_empty() {
+        anyhow::bail!("secrets set needs a value");
+    }
+    Ok((id, label, value))
+}
+
+fn secret_rotate_args(args: &str) -> anyhow::Result<(&str, String)> {
+    let (id, value) = args
+        .trim()
+        .split_once(char::is_whitespace)
+        .ok_or_else(|| anyhow::anyhow!("secrets rotate needs an id and value"))?;
+    let value = value.trim();
+    if value.is_empty() {
+        anyhow::bail!("secrets rotate needs a value");
+    }
+    Ok((id, value.to_string()))
+}
+
+fn secret_confirm_id_args<'a>(args: &'a str, command: &str) -> anyhow::Result<(&'a str, bool)> {
+    let mut id = None;
+    let mut confirmed = false;
+    for part in args.split_whitespace() {
+        if part == "--confirm" {
+            confirmed = true;
+        } else if id.is_none() {
+            id = Some(part);
+        } else {
+            anyhow::bail!("secrets {command} accepts exactly one id and optional --confirm");
+        }
+    }
+    let id = id.ok_or_else(|| anyhow::anyhow!("secrets {command} needs an id"))?;
+    Ok((id, confirmed))
+}
+
+fn next_secret_option_value<'a>(
+    parts: &mut impl Iterator<Item = &'a str>,
+    flag: &str,
+) -> anyhow::Result<&'a str> {
+    parts
+        .next()
+        .filter(|value| !value.starts_with("--"))
+        .ok_or_else(|| anyhow::anyhow!("{flag} needs a value"))
 }
 
 fn handle_prompts_slash(app: &mut App, rest: &str) {
@@ -6236,6 +6541,9 @@ mod tests {
         assert_eq!(profiles_slash_rest("/profiles list"), Some("list"));
         assert_eq!(profiles_slash_rest("/profiles"), Some(""));
         assert_eq!(profiles_slash_rest("/profile"), None);
+        assert_eq!(secrets_slash_rest("/secrets list"), Some("list"));
+        assert_eq!(secrets_slash_rest("/secrets"), Some(""));
+        assert_eq!(secrets_slash_rest("/secret"), None);
         assert_eq!(prompts_slash_rest("/prompts list"), Some("list"));
         assert_eq!(prompts_slash_rest("/prompts"), Some(""));
         assert_eq!(prompts_slash_rest("/prompt"), None);
@@ -6385,6 +6693,46 @@ mod tests {
         );
         assert!(profile_confirm_id_args("", "delete").is_err());
         assert!(profile_confirm_id_args("one two --confirm", "delete").is_err());
+    }
+
+    #[test]
+    fn secret_args_parse_values_labels_and_confirmation() {
+        assert_eq!(
+            secret_set_args("api-key --label openai sk-test value").unwrap(),
+            (
+                "api-key",
+                Some("openai".to_string()),
+                "sk-test value".to_string()
+            )
+        );
+        assert_eq!(
+            secret_set_args("api-key --label=openai sk-test").unwrap(),
+            ("api-key", Some("openai".to_string()), "sk-test".to_string())
+        );
+        assert_eq!(
+            secret_set_args("api-key sk-test value").unwrap(),
+            ("api-key", None, "sk-test value".to_string())
+        );
+        assert!(secret_set_args("").is_err());
+        assert!(secret_set_args("api-key --label").is_err());
+        assert!(secret_set_args("api-key").is_err());
+
+        assert_eq!(
+            secret_rotate_args("api-key sk-next value").unwrap(),
+            ("api-key", "sk-next value".to_string())
+        );
+        assert!(secret_rotate_args("api-key").is_err());
+
+        assert_eq!(
+            secret_confirm_id_args("api-key --confirm", "delete").unwrap(),
+            ("api-key", true)
+        );
+        assert_eq!(
+            secret_confirm_id_args("api-key", "delete").unwrap(),
+            ("api-key", false)
+        );
+        assert!(secret_confirm_id_args("", "delete").is_err());
+        assert!(secret_confirm_id_args("api-key other --confirm", "delete").is_err());
     }
 
     #[test]

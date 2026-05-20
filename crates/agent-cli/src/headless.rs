@@ -5420,7 +5420,7 @@ fn ingestion_completed_event(artifact: &IngestionArtifact) -> RunEventKind {
     }
 }
 
-fn record_memory_written(record: &MemoryRecord, operation: &str) -> anyhow::Result<()> {
+pub(crate) fn record_memory_written(record: &MemoryRecord, operation: &str) -> anyhow::Result<()> {
     record_memory_operation(
         &record.id,
         operation,

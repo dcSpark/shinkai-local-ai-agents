@@ -29,8 +29,11 @@ use tokio::time::MissedTickBehavior;
 
 use agent_adapters::AdapterRegistry;
 use agent_config::ConfigResolver;
-use agent_conversations::{ConversationMessage, ConversationStore, ConversationTreeNode};
+use agent_conversations::{
+    ConversationMessage, ConversationStore, ConversationTreeNode, render_message_range,
+};
 use agent_core::{AgentConfig, ContextSnapshot, HarnessApi, UserInput};
+use agent_memory::{MemoryStore, MemoryTarget};
 use agent_prompts::{PromptStore, is_valid_prompt_name};
 use agent_storage::StoragePaths;
 use agent_tools::{ToolId, ToolRegistry};
@@ -119,6 +122,15 @@ enum PendingConversationAction {
         from: usize,
         to: usize,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ConversationMemoryArgs {
+    id: String,
+    from: usize,
+    to: usize,
+    user: bool,
+    topics: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -527,6 +539,7 @@ fn handle_conversation_slash(app: &mut App, rest: &str) {
                 "/conversation delete [<id>] [--recursive]",
                 "/conversation range [<id>] <from> <to>",
                 "/conversation range [<id>] <from>:<to>",
+                "/conversation memory [<id>] <from>:<to> [--user] [--topic <topic>]",
                 "/conversation range-delete [<id>] <from>:<to>",
                 "/conversation confirm",
                 "/conversation cancel",
@@ -653,6 +666,13 @@ fn handle_conversation_slash(app: &mut App, rest: &str) {
                 text: format!("Conversation range delete failed: {err}"),
             }),
         },
+        "memory" | "memory-generate" => match generate_conversation_memory_from_tui(app, args) {
+            Ok(()) => {}
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Conversation memory generation failed: {err}"),
+            }),
+        },
         "confirm" => match confirm_conversation_action(app) {
             Ok(()) => {}
             Err(err) => app.transcript.push(TranscriptLine {
@@ -666,7 +686,7 @@ fn handle_conversation_slash(app: &mut App, rest: &str) {
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Conversation command needs recover, tree, browse, select, delete-plan, delete, range, range-delete, confirm, cancel, or help.".into(),
+            text: "Conversation command needs recover, tree, browse, select, delete-plan, delete, range, memory, range-delete, confirm, cancel, or help.".into(),
         }),
     }
 }
@@ -904,6 +924,43 @@ fn parse_conversation_range_args_explicit(rest: &str) -> anyhow::Result<(String,
     Ok((id.to_string(), from, to))
 }
 
+fn parse_conversation_memory_args_with_selected(
+    rest: &str,
+    selected: Option<&str>,
+) -> anyhow::Result<ConversationMemoryArgs> {
+    let mut positional = Vec::new();
+    let mut topics = Vec::new();
+    let mut user = false;
+    let mut parts = rest.split_whitespace();
+    while let Some(part) = parts.next() {
+        match part {
+            "--user" => user = true,
+            "--topic" => {
+                let topic = parts
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--topic needs a value"))?;
+                topics.push(topic.to_string());
+            }
+            other if other.starts_with("--topic=") => {
+                topics.push(other.trim_start_matches("--topic=").to_string());
+            }
+            other if other.starts_with("--") => {
+                anyhow::bail!("unexpected memory argument: {other}")
+            }
+            other => positional.push(other),
+        }
+    }
+    let range_args = positional.join(" ");
+    let (id, from, to) = parse_conversation_range_args_with_selected(&range_args, selected)?;
+    Ok(ConversationMemoryArgs {
+        id,
+        from,
+        to,
+        user,
+        topics,
+    })
+}
+
 #[allow(dead_code)]
 fn parse_conversation_delete_plan_args(rest: &str) -> anyhow::Result<(String, bool)> {
     parse_conversation_delete_plan_args_with_selected(rest, None)
@@ -1009,6 +1066,45 @@ fn prepare_conversation_range_delete(app: &mut App, args: &str) -> anyhow::Resul
         "Pending conversation range delete. Use /conversation confirm or /conversation cancel."
             .to_string(),
     );
+    Ok(())
+}
+
+fn generate_conversation_memory_from_tui(app: &mut App, args: &str) -> anyhow::Result<()> {
+    let args = parse_conversation_memory_args_with_selected(
+        args,
+        app.selected_conversation_id.as_deref(),
+    )?;
+    let target = if args.user {
+        MemoryTarget::User
+    } else {
+        MemoryTarget::Agent
+    };
+    let expanded = ConversationStore::from_env().expanded(&args.id)?;
+    let rendered = render_message_range(&expanded.messages, Some(args.from), Some(args.to))?;
+    let records = MemoryStore::from_env().generate_from_conversation_text_with_topics(
+        target,
+        &rendered.text,
+        Some(rendered.source_range.clone()),
+        Some(args.id.clone()),
+        args.topics.clone(),
+    )?;
+    for record in &records {
+        crate::headless::record_memory_written(record, "generated")?;
+    }
+    push_event(
+        app,
+        format!(
+            "Generated {} memory record(s) from {} {}.",
+            records.len(),
+            args.id,
+            rendered.source_range
+        ),
+    );
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::Assistant,
+        text: serde_json::to_string_pretty(&records)
+            .unwrap_or_else(|_| "<unserializable memory records>".into()),
+    });
     Ok(())
 }
 
@@ -2629,6 +2725,35 @@ mod tests {
             ("conv-1".into(), 2, 4)
         );
         assert!(parse_conversation_range_args_with_selected("2:4", None).is_err());
+    }
+
+    #[test]
+    fn conversation_memory_args_accept_selected_range_and_topics() {
+        assert_eq!(
+            parse_conversation_memory_args_with_selected(
+                "2:4 --user --topic finance --topic=ops",
+                Some("conv-1")
+            )
+            .unwrap(),
+            ConversationMemoryArgs {
+                id: "conv-1".into(),
+                from: 2,
+                to: 4,
+                user: true,
+                topics: vec!["finance".into(), "ops".into()],
+            }
+        );
+        assert_eq!(
+            parse_conversation_memory_args_with_selected("conv-2 1 3", Some("conv-1")).unwrap(),
+            ConversationMemoryArgs {
+                id: "conv-2".into(),
+                from: 1,
+                to: 3,
+                user: false,
+                topics: Vec::new(),
+            }
+        );
+        assert!(parse_conversation_memory_args_with_selected("--topic", Some("conv-1")).is_err());
     }
 
     #[test]

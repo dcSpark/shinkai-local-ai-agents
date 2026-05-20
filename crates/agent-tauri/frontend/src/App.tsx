@@ -5058,6 +5058,38 @@ export default function App() {
     }
   }
 
+  async function exportModelFromOps() {
+    const id = requireOpsId("Model export");
+    if (!id) return;
+    const path = requireOpsValue("Model export");
+    if (!path) return;
+    try {
+      const doc =
+        transport === "daemon"
+          ? await daemonJson<unknown>(`/models/${encodeURIComponent(id)}/export`, { path })
+          : await invoke<unknown>("model_export", { id, path });
+      appendJson("Model exported", doc);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Model export failed: ${msg}`);
+    }
+  }
+
+  async function importModelFromOps() {
+    const path = requireOpsValue("Model import");
+    if (!path) return;
+    try {
+      const doc =
+        transport === "daemon"
+          ? await daemonJson<unknown>("/models/import", { path })
+          : await invoke<unknown>("model_import", { path });
+      appendJson("Model imported", doc);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Model import failed: ${msg}`);
+    }
+  }
+
   function providerOptionsFromControls(): Record<string, unknown> | false | null {
     const options: Record<string, unknown> = {};
     if (
@@ -8620,6 +8652,22 @@ export default function App() {
                   disabled={running || provider === "fake"}
                 >
                   Save Current
+                </button>
+                <button
+                  type="button"
+                  title="Export model Id to the path in Value."
+                  onClick={() => void exportModelFromOps()}
+                  disabled={running || !opsId.trim() || !opsValue.trim()}
+                >
+                  Export Model
+                </button>
+                <button
+                  type="button"
+                  title="Import model metadata from the path in Value."
+                  onClick={() => void importModelFromOps()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Import Model
                 </button>
                 <button
                   type="button"

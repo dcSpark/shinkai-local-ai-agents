@@ -2850,6 +2850,20 @@ async fn model_save(model: ModelConfig) -> Result<ModelConfig, String> {
 }
 
 #[tauri::command]
+async fn model_export(id: String, path: String) -> Result<ModelConfig, String> {
+    ConfigResolver::from_env()
+        .export_model_config(&id, path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn model_import(path: String) -> Result<ModelConfig, String> {
+    ConfigResolver::from_env()
+        .import_model_config(path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn model_delete(id: String) -> Result<bool, String> {
     ConfigResolver::from_env()
         .delete_model(&id)
@@ -3322,6 +3336,8 @@ pub fn run() {
             model_show,
             model_probe,
             model_save,
+            model_export,
+            model_import,
             model_delete,
             ingest_add,
             ingest_rerun,

@@ -12,6 +12,8 @@ use serde::{Deserialize, Serialize};
 pub enum StorageError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("invalid storage quota in {var}: {value}")]
+    InvalidQuota { var: String, value: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -38,6 +40,12 @@ pub struct StorageReport {
     pub largest_file: Option<PathBuf>,
     #[serde(default)]
     pub largest_file_bytes: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quota_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quota_remaining_bytes: Option<i64>,
+    #[serde(default)]
+    pub quota_exceeded: bool,
     pub buckets: Vec<StorageBucket>,
 }
 
@@ -289,6 +297,13 @@ impl StoragePaths {
     }
 
     pub fn storage_report(&self) -> Result<StorageReport, StorageError> {
+        self.storage_report_with_quota(storage_quota_bytes_from_env()?)
+    }
+
+    pub fn storage_report_with_quota(
+        &self,
+        quota_bytes: Option<u64>,
+    ) -> Result<StorageReport, StorageError> {
         let buckets = vec![
             self.storage_bucket("config", self.global_config())?,
             self.storage_bucket("profiles", self.profiles_dir())?,
@@ -296,6 +311,8 @@ impl StoragePaths {
             self.storage_bucket("state", self.state_db())?,
         ];
         let total = stats_path(&self.root)?;
+        let quota_remaining_bytes =
+            quota_bytes.map(|quota| quota_remaining_bytes(quota, total.bytes));
 
         Ok(StorageReport {
             root: self.root.clone(),
@@ -304,6 +321,9 @@ impl StoragePaths {
             total_directories: total.directories,
             largest_file: total.largest_file,
             largest_file_bytes: total.largest_file_bytes,
+            quota_bytes,
+            quota_remaining_bytes,
+            quota_exceeded: quota_bytes.is_some_and(|quota| total.bytes > quota),
             buckets,
         })
     }
@@ -334,6 +354,34 @@ fn clean_profile_id(id: String) -> Option<String> {
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'));
     valid.then_some(id)
+}
+
+fn storage_quota_bytes_from_env() -> Result<Option<u64>, StorageError> {
+    const VAR: &str = "AGENT_STORAGE_QUOTA_BYTES";
+    let Some(value) = std::env::var_os(VAR) else {
+        return Ok(None);
+    };
+    let value = value.to_string_lossy().trim().to_string();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    value
+        .parse::<u64>()
+        .map(Some)
+        .map_err(|_| StorageError::InvalidQuota {
+            var: VAR.into(),
+            value,
+        })
+}
+
+fn quota_remaining_bytes(quota: u64, used: u64) -> i64 {
+    if quota >= used {
+        let remaining = quota - used;
+        remaining.min(i64::MAX as u64) as i64
+    } else {
+        let over = used - quota;
+        -((over.min(i64::MAX as u64)) as i64)
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -492,6 +540,9 @@ mod tests {
         assert_eq!(report.total_directories, 18);
         assert_eq!(report.largest_file, Some(paths.memory_file()));
         assert_eq!(report.largest_file_bytes, 7);
+        assert_eq!(report.quota_bytes, None);
+        assert_eq!(report.quota_remaining_bytes, None);
+        assert!(!report.quota_exceeded);
         assert_eq!(
             report
                 .buckets
@@ -582,6 +633,16 @@ mod tests {
                 .files,
             1
         );
+
+        let over_quota = paths.storage_report_with_quota(Some(20)).unwrap();
+        assert_eq!(over_quota.quota_bytes, Some(20));
+        assert_eq!(over_quota.quota_remaining_bytes, Some(-2));
+        assert!(over_quota.quota_exceeded);
+
+        let under_quota = paths.storage_report_with_quota(Some(25)).unwrap();
+        assert_eq!(under_quota.quota_bytes, Some(25));
+        assert_eq!(under_quota.quota_remaining_bytes, Some(3));
+        assert!(!under_quota.quota_exceeded);
 
         std::fs::remove_dir_all(report.root).unwrap();
     }

@@ -232,6 +232,9 @@ interface StorageReport {
   total_directories: number;
   largest_file?: string | null;
   largest_file_bytes: number;
+  quota_bytes?: number | null;
+  quota_remaining_bytes?: number | null;
+  quota_exceeded: boolean;
   buckets: StorageBucket[];
 }
 
@@ -9973,6 +9976,25 @@ export default function App() {
                       {storageReport.total_directories} dirs
                     </span>
                   </div>
+                  {storageReport.quota_bytes !== undefined &&
+                  storageReport.quota_bytes !== null ? (
+                    <div
+                      className={
+                        storageReport.quota_exceeded
+                          ? "storage-largest warning"
+                          : "storage-largest"
+                      }
+                    >
+                      <span>quota</span>
+                      <strong>{formatBytes(storageReport.quota_bytes)}</strong>
+                      <span>
+                        {storageReport.quota_exceeded ? "over" : "left"}{" "}
+                        {formatBytes(
+                          Math.abs(storageReport.quota_remaining_bytes ?? 0),
+                        )}
+                      </span>
+                    </div>
+                  ) : null}
                   {storageReport.largest_file ? (
                     <div className="storage-largest">
                       <span>largest</span>

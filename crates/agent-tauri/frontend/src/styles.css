@@ -816,6 +816,11 @@ textarea:disabled {
   background: #121923;
 }
 
+.storage-largest.warning {
+  border-color: #5d3b29;
+  background: #231712;
+}
+
 .storage-buckets {
   display: grid;
   gap: 0.4rem;

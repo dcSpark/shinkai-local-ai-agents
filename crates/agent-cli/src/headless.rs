@@ -233,6 +233,15 @@ pub async fn storage_report(json: bool) -> anyhow::Result<()> {
             "total: {} bytes, {} files, {} directories",
             report.total_bytes, report.total_files, report.total_directories
         );
+        if let Some(quota) = report.quota_bytes {
+            let remaining = report.quota_remaining_bytes.unwrap_or_default();
+            let status = if report.quota_exceeded {
+                "over quota"
+            } else {
+                "within quota"
+            };
+            println!("quota: {quota} bytes, remaining: {remaining} bytes ({status})");
+        }
         if let Some(path) = &report.largest_file {
             println!(
                 "largest: {} ({} bytes)",

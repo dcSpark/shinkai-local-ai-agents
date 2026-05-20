@@ -80,6 +80,34 @@ pub struct IngestionModelCall<'a> {
     pub model: ModelRef,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelVisionSourceRequirement {
+    pub source_kind: String,
+    pub attachment_kind: String,
+    pub required_modalities: Vec<String>,
+}
+
+pub fn model_vision_source_requirement(
+    source: impl AsRef<Path>,
+) -> Option<ModelVisionSourceRequirement> {
+    let source = source.as_ref();
+    match source_extension(source).as_deref() {
+        Some(extension @ ("png" | "jpg" | "jpeg" | "gif" | "webp" | "svg")) => {
+            Some(ModelVisionSourceRequirement {
+                source_kind: "image".into(),
+                attachment_kind: format!("image/{extension}"),
+                required_modalities: vec!["image".into()],
+            })
+        }
+        Some("pdf") => Some(ModelVisionSourceRequirement {
+            source_kind: "pdf".into(),
+            attachment_kind: "document/pdf".into(),
+            required_modalities: vec!["document".into(), "pdf".into(), "image".into()],
+        }),
+        _ => None,
+    }
+}
+
 impl IngestionArtifact {
     pub fn has_high_risk_findings(&self) -> bool {
         self.high_risk_finding_count() > 0
@@ -1577,6 +1605,25 @@ mod tests {
                 && finding.message.contains("install tesseract")
         }));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn model_vision_source_requirements_match_supported_attachment_kinds() {
+        let image = model_vision_source_requirement("chart.png").unwrap();
+        assert_eq!(image.source_kind, "image");
+        assert_eq!(image.attachment_kind, "image/png");
+        assert_eq!(image.required_modalities, vec!["image"]);
+
+        let pdf = model_vision_source_requirement("scan.pdf").unwrap();
+        assert_eq!(pdf.source_kind, "pdf");
+        assert_eq!(pdf.attachment_kind, "document/pdf");
+        assert_eq!(
+            pdf.required_modalities,
+            vec!["document".to_string(), "pdf".into(), "image".into()]
+        );
+
+        assert!(model_vision_source_requirement("notes.txt").is_none());
+        assert!(model_vision_source_requirement("photo.tiff").is_none());
     }
 
     #[tokio::test]

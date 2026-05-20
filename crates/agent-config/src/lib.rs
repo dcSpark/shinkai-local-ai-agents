@@ -1762,6 +1762,26 @@ impl ConfigResolver {
         Ok(provider_modality_support(model_id, &provider, &modality))
     }
 
+    pub fn model_supports_any_modality(
+        &self,
+        model_id: &str,
+        modalities: &[String],
+    ) -> Result<ModelModalitySupport, ConfigError> {
+        let mut first_report = None;
+        for modality in modalities {
+            let report = self.model_modality_support(model_id, modality)?;
+            if report.supported {
+                return Ok(report);
+            }
+            if first_report.is_none() {
+                first_report = Some(report);
+            }
+        }
+        first_report.ok_or_else(|| {
+            ConfigError::InvalidInput("at least one modality must be provided".into())
+        })
+    }
+
     pub fn probe_model_capabilities(
         &self,
         model_id: &str,
@@ -5094,6 +5114,16 @@ system_prompt = "Review carefully."
                 .model_supports_modality("catalog-text-only", "image")
                 .unwrap()
         );
+
+        let mut document_only = ModelConfig::for_id("document-only");
+        document_only.available_modalities = vec!["text".into(), "document".into()];
+        resolver.save_model(&document_only).unwrap();
+        let pdf_modalities = vec!["pdf".into(), "document".into(), "image".into()];
+        let support = resolver
+            .model_supports_any_modality("document-only", &pdf_modalities)
+            .unwrap();
+        assert!(support.supported);
+        assert_eq!(support.modality, "document");
 
         let mut local_vision = ModelConfig::for_id("llava-local");
         local_vision.provider = Some("ollama".into());

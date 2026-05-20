@@ -39,7 +39,8 @@ use agent_core::{
 };
 use agent_ingest::{
     IngestionArtifact, IngestionBackendDescriptor, IngestionFindingReviewDecision,
-    IngestionModelCall, IngestionStore, supported_backends as supported_ingestion_backends,
+    IngestionModelCall, IngestionStore, model_vision_source_requirement,
+    supported_backends as supported_ingestion_backends,
 };
 use agent_llm::{
     AnthropicProvider, FakeProvider, FakeStep, GeminiProvider, LlmProvider, Message, ModelRef,
@@ -2873,7 +2874,7 @@ async fn ingest_with_optional_models(
         clean_optional_string(guardrail_model).or_else(configured_ingestion_guardrail_model);
     let vision_provider = match vision_model.as_deref() {
         Some(model) => {
-            ensure_model_supports_vision(model)?;
+            ensure_model_supports_vision(model, &path)?;
             Some(ingestion_provider_for_model(model, Some(2048), Some(0.0))?)
         }
         None => None,
@@ -2907,8 +2908,13 @@ async fn ingest_with_optional_models(
 
 fn ensure_model_supports_vision(
     model: &str,
+    source: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let support = ConfigResolver::from_env().model_modality_support(model, "image")?;
+    let Some(requirement) = model_vision_source_requirement(source) else {
+        return Ok(());
+    };
+    let support = ConfigResolver::from_env()
+        .model_supports_any_modality(model, &requirement.required_modalities)?;
     if support.supported {
         return Ok(());
     }
@@ -2917,8 +2923,12 @@ fn ensure_model_supports_vision(
     } else {
         support.available_modalities.join(",")
     };
+    let required_modalities = requirement.required_modalities.join(",");
     Err(format!(
-        "vision model {model:?} does not advertise image support (provider={}, source={}, modalities={}); save the model with available_modalities=[\"text\",\"image\"] or choose a vision-capable provider",
+        "vision model {model:?} does not advertise a supported input modality for {} vision source (attachment={}, requires one of {}, provider={}, source={}, modalities={}); save the model with the required available_modalities or choose a compatible provider",
+        requirement.source_kind,
+        requirement.attachment_kind,
+        required_modalities,
         support.provider,
         support.source,
         modalities

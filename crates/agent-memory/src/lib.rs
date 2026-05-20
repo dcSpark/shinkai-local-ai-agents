@@ -5,7 +5,10 @@
 
 use std::path::{Path, PathBuf};
 
-use agent_core::{DEFAULT_MEMORY_BACKEND_ID, MemoryFragment};
+use agent_core::{
+    DEFAULT_MEMORY_BACKEND_ID, LOCAL_JSONL_MEMORY_BACKEND_ID, MemoryFragment,
+    SUPPORTED_MEMORY_BACKEND_IDS,
+};
 use agent_storage::{StorageError, StoragePaths};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -23,6 +26,8 @@ pub enum MemoryError {
     Injection(String),
     #[error("invalid memory classification: {0}")]
     InvalidClassification(String),
+    #[error("unsupported memory backend {0}; supported: local-markdown-v0, local-jsonl-v0")]
+    UnsupportedBackend(String),
     #[error("memory not found: {0}")]
     NotFound(String),
 }
@@ -114,17 +119,46 @@ pub enum MemoryAuthor {
     Model,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MemoryFileFormat {
+    Markdown,
+    Jsonl,
+}
+
 pub struct MemoryStore {
     paths: StoragePaths,
+    format: MemoryFileFormat,
 }
 
 impl MemoryStore {
     pub fn new(paths: StoragePaths) -> Self {
-        Self { paths }
+        Self {
+            paths,
+            format: MemoryFileFormat::Markdown,
+        }
+    }
+
+    pub fn new_jsonl(paths: StoragePaths) -> Self {
+        Self {
+            paths,
+            format: MemoryFileFormat::Jsonl,
+        }
+    }
+
+    pub fn for_backend(paths: StoragePaths, backend: &str) -> Result<Self, MemoryError> {
+        match backend {
+            DEFAULT_MEMORY_BACKEND_ID => Ok(Self::new(paths)),
+            LOCAL_JSONL_MEMORY_BACKEND_ID => Ok(Self::new_jsonl(paths)),
+            other => Err(MemoryError::UnsupportedBackend(other.into())),
+        }
     }
 
     pub fn from_env() -> Self {
-        Self::new(StoragePaths::from_env())
+        let paths = StoragePaths::from_env();
+        std::env::var("AGENT_MEMORY_BACKEND")
+            .ok()
+            .and_then(|backend| Self::for_backend(paths.clone(), backend.trim()).ok())
+            .unwrap_or_else(|| Self::new(paths))
     }
 
     pub fn create(
@@ -580,7 +614,11 @@ impl MemoryStore {
         if !path.exists() {
             return Ok(Vec::new());
         }
-        parse_records(&std::fs::read_to_string(path)?)
+        let text = std::fs::read_to_string(path)?;
+        match self.format {
+            MemoryFileFormat::Markdown => parse_records(&text),
+            MemoryFileFormat::Jsonl => parse_jsonl_records(&text),
+        }
     }
 
     fn write_target(
@@ -590,7 +628,10 @@ impl MemoryStore {
     ) -> Result<(), MemoryError> {
         self.paths.ensure_base_dirs()?;
         let path = self.path_for(target);
-        let body = render_records(records)?;
+        let body = match self.format {
+            MemoryFileFormat::Markdown => render_records(records)?,
+            MemoryFileFormat::Jsonl => render_jsonl_records(records)?,
+        };
         let write_plan = memory_write_quota_plan(
             &path,
             &self.paths.memory_backup_dir(),
@@ -603,24 +644,42 @@ impl MemoryStore {
     }
 
     fn path_for(&self, target: MemoryTarget) -> PathBuf {
-        match target {
-            MemoryTarget::Agent => self.paths.memory_file(),
-            MemoryTarget::User => self.paths.user_memory_file(),
+        match (self.format, target) {
+            (MemoryFileFormat::Markdown, MemoryTarget::Agent) => self.paths.memory_file(),
+            (MemoryFileFormat::Markdown, MemoryTarget::User) => self.paths.user_memory_file(),
+            (MemoryFileFormat::Jsonl, MemoryTarget::Agent) => {
+                self.paths.default_agent_dir().join("memory.jsonl")
+            }
+            (MemoryFileFormat::Jsonl, MemoryTarget::User) => {
+                self.paths.default_agent_dir().join("user.jsonl")
+            }
         }
     }
 }
 
 impl MemoryBackend for MemoryStore {
     fn descriptor(&self) -> MemoryBackendDescriptor {
-        MemoryBackendDescriptor {
-            id: DEFAULT_MEMORY_BACKEND_ID.into(),
-            name: "Local Markdown".into(),
-            description:
-                "Human-readable memory.md/user.md storage with injection scanning and rollback."
-                    .into(),
-            storage: self.paths.default_agent_dir().display().to_string(),
-            supports_generation: true,
-            supports_rollback: true,
+        match self.format {
+            MemoryFileFormat::Markdown => MemoryBackendDescriptor {
+                id: DEFAULT_MEMORY_BACKEND_ID.into(),
+                name: "Local Markdown".into(),
+                description:
+                    "Human-readable memory.md/user.md storage with injection scanning and rollback."
+                        .into(),
+                storage: self.paths.default_agent_dir().display().to_string(),
+                supports_generation: true,
+                supports_rollback: true,
+            },
+            MemoryFileFormat::Jsonl => MemoryBackendDescriptor {
+                id: LOCAL_JSONL_MEMORY_BACKEND_ID.into(),
+                name: "Local JSONL".into(),
+                description:
+                    "Line-delimited JSON memory storage with injection scanning, rollback, and portable markdown import/export."
+                        .into(),
+                storage: self.paths.default_agent_dir().display().to_string(),
+                supports_generation: true,
+                supports_rollback: true,
+            },
         }
     }
 
@@ -661,7 +720,35 @@ impl MemoryBackend for MemoryStore {
 }
 
 pub fn supported_backends() -> Vec<MemoryBackendDescriptor> {
-    vec![MemoryStore::from_env().descriptor()]
+    let paths = StoragePaths::from_env();
+    vec![
+        MemoryStore::new(paths.clone()).descriptor(),
+        MemoryStore::new_jsonl(paths).descriptor(),
+    ]
+}
+
+pub fn supported_backend_ids() -> &'static [&'static str] {
+    SUPPORTED_MEMORY_BACKEND_IDS
+}
+
+pub fn load_fragments_for_backend(
+    paths: StoragePaths,
+    backend: &str,
+    topics: &[String],
+) -> Result<Vec<MemoryFragment>, MemoryError> {
+    MemoryStore::for_backend(paths, backend)?.load_fragments_for_topics(topics)
+}
+
+pub fn list_records_for_supported_backends(
+    paths: StoragePaths,
+) -> Result<Vec<MemoryRecord>, MemoryError> {
+    let mut records = Vec::new();
+    for backend in SUPPORTED_MEMORY_BACKEND_IDS {
+        records.extend(MemoryStore::for_backend(paths.clone(), backend)?.list()?);
+    }
+    records.sort_by(|a, b| a.id.cmp(&b.id).then_with(|| a.content.cmp(&b.content)));
+    records.dedup_by(|a, b| a.id == b.id && a.content == b.content);
+    Ok(records)
 }
 
 fn render_records(records: &[MemoryRecord]) -> Result<String, MemoryError> {
@@ -671,6 +758,15 @@ fn render_records(records: &[MemoryRecord]) -> Result<String, MemoryError> {
         out.push_str(&serde_json::to_string(record)?);
         out.push_str("\n---\n");
         out.push_str(&record.content);
+        out.push('\n');
+    }
+    Ok(out)
+}
+
+fn render_jsonl_records(records: &[MemoryRecord]) -> Result<String, MemoryError> {
+    let mut out = String::new();
+    for record in records {
+        out.push_str(&serde_json::to_string(record)?);
         out.push('\n');
     }
     Ok(out)
@@ -981,6 +1077,15 @@ fn parse_records(text: &str) -> Result<Vec<MemoryRecord>, MemoryError> {
     Ok(records)
 }
 
+fn parse_jsonl_records(text: &str) -> Result<Vec<MemoryRecord>, MemoryError> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(serde_json::from_str::<MemoryRecord>)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(MemoryError::from)
+}
+
 fn backup_existing(path: &Path, backup_dir: &Path) -> Result<(), MemoryError> {
     std::fs::create_dir_all(backup_dir)?;
     let name = path
@@ -1202,6 +1307,70 @@ mod tests {
                 .contains("conversation=conv-1")
         );
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn jsonl_store_is_selectable_and_portable() {
+        let dir =
+            std::env::temp_dir().join(format!("memory-jsonl-backend-test-{}", std::process::id()));
+        let store =
+            MemoryStore::for_backend(StoragePaths::new(&dir), LOCAL_JSONL_MEMORY_BACKEND_ID)
+                .unwrap();
+        let descriptor = store.descriptor();
+
+        assert_eq!(descriptor.id, "local-jsonl-v0");
+        assert!(descriptor.supports_generation);
+        let record = store
+            .create_with_topics(
+                MemoryTarget::Agent,
+                "Remember: invoice payment review is urgent.",
+                MemoryAuthor::Human,
+                None,
+                vec!["finance".into()],
+            )
+            .unwrap();
+        assert!(
+            dir.join("profiles/main/agents/fake-agent/memory.jsonl")
+                .exists()
+        );
+        assert_eq!(store.list().unwrap()[0].id, record.id);
+        assert!(
+            store
+                .load_fragments_for_topics(&["finance".into()])
+                .unwrap()[0]
+                .provenance
+                .contains("topics=finance")
+        );
+
+        let export_path = dir.join("jsonl-memory.md");
+        let exported = store
+            .export_target(MemoryTarget::Agent, &export_path)
+            .unwrap();
+        assert_eq!(exported.len(), 1);
+        assert!(
+            std::fs::read_to_string(export_path)
+                .unwrap()
+                .contains("---")
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn supported_memory_backends_include_markdown_and_jsonl() {
+        let ids = supported_backends()
+            .into_iter()
+            .map(|backend| backend.id)
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids, vec!["local-markdown-v0", "local-jsonl-v0"]);
+        assert_eq!(
+            supported_backend_ids(),
+            &["local-markdown-v0", "local-jsonl-v0"]
+        );
+        assert!(matches!(
+            MemoryStore::for_backend(StoragePaths::new("unused"), "remote-memory-v0"),
+            Err(MemoryError::UnsupportedBackend(_))
+        ));
     }
 
     #[test]

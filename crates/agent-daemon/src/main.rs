@@ -37,7 +37,8 @@ use agent_llm::{
     ModelRef, NativeProviderConfig, RigProvider, RigProviderConfig,
 };
 use agent_memory::{
-    MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget, memory_classification_from_model_output,
+    MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget, list_records_for_supported_backends,
+    load_fragments_for_backend, memory_classification_from_model_output,
     memory_record_matches_topics, supported_backends as supported_memory_backends,
 };
 use agent_prompts::{PromptStore, is_valid_prompt_name};
@@ -5752,7 +5753,8 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
         .map(|policy| policy.effective_load_memory(config_load_memory, options.load_memory))
         .unwrap_or(config_load_memory || options.load_memory);
     if load_memory
-        && let Ok(memory) = load_memory_fragments_with_profile_grants(&options.memory_topics)
+        && let Ok(memory) =
+            load_memory_fragments_with_profile_grants(&agent.memory_backend, &options.memory_topics)
     {
         agent.memory_fragments = memory;
     }
@@ -5873,18 +5875,19 @@ fn config_ingestion_guardrail(values: &[ConfigValueExplanation]) -> IngestionGua
 }
 
 fn load_memory_fragments_with_profile_grants(
+    backend: &str,
     topics: &[String],
 ) -> anyhow::Result<Vec<MemoryFragment>> {
     let active_paths = StoragePaths::from_env();
     let active_profile = active_paths.active_profile_id().to_string();
-    let mut fragments = MemoryStore::new(active_paths.clone()).load_fragments_for_topics(topics)?;
+    let mut fragments = load_fragments_for_backend(active_paths.clone(), backend, topics)?;
     let resolver = ConfigResolver::new(active_paths.clone());
     for grant in resolver.list_profile_grants()?.into_iter().filter(|grant| {
         grant.kind == ProfileGrantKind::Memory && grant.to_profile == active_profile
     }) {
         let source_paths =
             StoragePaths::new_with_profile(active_paths.root().to_path_buf(), &grant.from_profile);
-        let records = MemoryStore::new(source_paths).list()?;
+        let records = list_records_for_supported_backends(source_paths)?;
         for record in records
             .into_iter()
             .filter(|record| memory_record_matches_grant(record, &grant.resource))

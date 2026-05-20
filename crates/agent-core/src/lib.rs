@@ -36,6 +36,9 @@ use agent_tracing::{EventId, EventStore, RunEvent, RunEventKind, RunId};
 
 const MID_RUN_GUIDANCE_PREFIX: &str = "Mid-run user guidance:\n";
 pub const DEFAULT_MEMORY_BACKEND_ID: &str = "local-markdown-v0";
+pub const LOCAL_JSONL_MEMORY_BACKEND_ID: &str = "local-jsonl-v0";
+pub const SUPPORTED_MEMORY_BACKEND_IDS: &[&str] =
+    &[DEFAULT_MEMORY_BACKEND_ID, LOCAL_JSONL_MEMORY_BACKEND_ID];
 const TOOL_OUTPUT_INTERPRETATION_SUMMARY_LIMIT: usize = 240;
 const DEFAULT_HOOK_TIMEOUT_MS: u64 = 1_000;
 const MAX_HOOK_TIMEOUT_MS: u64 = 5_000;

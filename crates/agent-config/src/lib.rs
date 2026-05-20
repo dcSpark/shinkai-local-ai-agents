@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use agent_core::{
     AgentConfig, ApprovalControllerPolicy, ConfigValueExplanation, ContextCompactionPolicy,
     ContextPolicy, CostPolicy, DEFAULT_MEMORY_BACKEND_ID, ExecutionPolicy, PromptRefinement,
-    ToolOutputMode, ToolPolicy, VisibilityLevel, VoiceConfig,
+    SUPPORTED_MEMORY_BACKEND_IDS, ToolOutputMode, ToolPolicy, VisibilityLevel, VoiceConfig,
 };
 use agent_llm::{ModelRef, NativeProviderConfig, RigProviderConfig};
 use agent_storage::StoragePaths;
@@ -4761,9 +4761,10 @@ fn validate_agent_config(agent: &AgentConfigFile) -> Result<(), ConfigError> {
                 "memory_backend cannot be empty".into(),
             ));
         }
-        if memory_backend != DEFAULT_MEMORY_BACKEND_ID {
+        if !SUPPORTED_MEMORY_BACKEND_IDS.contains(&memory_backend.as_str()) {
             return Err(ConfigError::InvalidInput(format!(
-                "unsupported memory_backend {memory_backend}; supported: {DEFAULT_MEMORY_BACKEND_ID}"
+                "unsupported memory_backend {memory_backend}; supported: {}",
+                SUPPORTED_MEMORY_BACKEND_IDS.join(", ")
             )));
         }
     }
@@ -6646,6 +6647,29 @@ voice = "nova"
         assert!(
             err.to_string()
                 .contains("unsupported memory_backend external-memory-v0")
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn agent_config_accepts_jsonl_memory_backend() {
+        let dir = std::env::temp_dir().join(format!("agent-memory-jsonl-test-{}", uuid_like()));
+        let resolver = ConfigResolver::new(StoragePaths::new(&dir));
+        let agent = AgentConfigFile {
+            memory_backend: Some("local-jsonl-v0".into()),
+            ..AgentConfigFile::default()
+        };
+
+        let saved = resolver.save_agent_config(&agent).unwrap();
+
+        assert_eq!(saved.memory_backend.as_deref(), Some("local-jsonl-v0"));
+        assert_eq!(
+            resolver
+                .resolve_agent(&agent.id)
+                .unwrap()
+                .agent
+                .memory_backend,
+            "local-jsonl-v0"
         );
         let _ = std::fs::remove_dir_all(dir);
     }

@@ -2809,12 +2809,15 @@ struct BridgeDeliveryRecord {
 
 struct BridgeDeliveryStore {
     dir: std::path::PathBuf,
+    paths: StoragePaths,
 }
 
 impl BridgeDeliveryStore {
     fn from_env() -> Self {
+        let paths = StoragePaths::from_env();
         Self {
-            dir: StoragePaths::from_env().bridge_deliveries_dir(),
+            dir: paths.bridge_deliveries_dir(),
+            paths,
         }
     }
 
@@ -2869,10 +2872,11 @@ impl BridgeDeliveryStore {
             created_ms: now,
             updated_ms: now,
         };
-        std::fs::write(
-            self.record_path(&record.id)?,
-            serde_json::to_string_pretty(&record)?,
-        )?;
+        let path = self.record_path(&record.id)?;
+        let body = serde_json::to_string_pretty(&record)?;
+        self.paths
+            .ensure_quota_for_path_write(&path, u64::try_from(body.len()).unwrap_or(u64::MAX))?;
+        std::fs::write(path, body)?;
         Ok(record)
     }
 
@@ -2880,10 +2884,11 @@ impl BridgeDeliveryStore {
         let mut record = self.show(id)?;
         record.last_delivery = delivery;
         record.updated_ms = current_time_ms();
-        std::fs::write(
-            self.record_path(id)?,
-            serde_json::to_string_pretty(&record)?,
-        )?;
+        let path = self.record_path(id)?;
+        let body = serde_json::to_string_pretty(&record)?;
+        self.paths
+            .ensure_quota_for_path_write(&path, u64::try_from(body.len()).unwrap_or(u64::MAX))?;
+        std::fs::write(path, body)?;
         Ok(())
     }
 
@@ -3845,10 +3850,10 @@ fn save_memory_generation_checkpoint(
     paths: &StoragePaths,
     checkpoint: &MemoryGenerationCheckpoint,
 ) -> anyhow::Result<()> {
-    std::fs::write(
-        memory_generation_checkpoint_path(paths),
-        serde_json::to_string_pretty(checkpoint)?,
-    )?;
+    let path = memory_generation_checkpoint_path(paths);
+    let body = serde_json::to_string_pretty(checkpoint)?;
+    paths.ensure_quota_for_path_write(&path, u64::try_from(body.len()).unwrap_or(u64::MAX))?;
+    std::fs::write(path, body)?;
     Ok(())
 }
 

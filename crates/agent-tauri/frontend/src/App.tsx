@@ -7343,7 +7343,11 @@ export default function App() {
 
   function defaultBundlePath() {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-    return `/tmp/shinkai-agents-main-${stamp}.tar`;
+    const profile = (currentProfile?.id || "active-profile")
+      .replace(/[^a-z0-9._-]+/gi, "-")
+      .replace(/^-+|-+$/g, "")
+      || "active-profile";
+    return `/tmp/shinkai-agents-${profile}-${stamp}.tar`;
   }
 
   function agentDisplayName(agent: Demo) {
@@ -9790,6 +9794,30 @@ export default function App() {
                 >
                   Revoke Grant
                 </button>
+                <button
+                  type="button"
+                  title="Export the active profile/config/cache bundle to a timestamped path."
+                  onClick={() => void backupBundleNow()}
+                  disabled={running}
+                >
+                  Backup
+                </button>
+                <button
+                  type="button"
+                  title="Export the active profile/config/cache bundle to the path in Value."
+                  onClick={() => void exportBundleFromOps()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Export Bundle
+                </button>
+                <button
+                  type="button"
+                  title="Import a profile/config/cache bundle from the path in Value."
+                  onClick={() => void importBundleFromOps()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Import Bundle
+                </button>
               </div>
               {currentProfile ? (
                 <div className="empty-note">
@@ -9877,6 +9905,17 @@ export default function App() {
                       </div>
                     </div>
                   ))}
+                </div>
+              ) : null}
+              {bundleStatus ? (
+                <div className="bundle-card">
+                  <div className="bundle-card-head">
+                    <strong>Bundle {bundleStatus.operation}</strong>
+                    <span>schema {bundleStatus.manifest.schema_version}</span>
+                  </div>
+                  <span title={bundleStatus.path}>{bundleStatus.path}</span>
+                  <span>profile {bundleStatus.manifest.profile}</span>
+                  <span>{bundleStatus.manifest.exported_at}</span>
                 </div>
               ) : null}
             </div>

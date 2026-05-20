@@ -28,7 +28,7 @@ use tokio::task::AbortHandle;
 use tokio::time::MissedTickBehavior;
 
 use agent_adapters::{AdapterRegistry, NormalizedPackage};
-use agent_config::ConfigResolver;
+use agent_config::{ConfigResolver, configured_model_providers};
 use agent_conversations::{
     ConversationMessage, ConversationPolicy, ConversationStore, ConversationTreeNode,
     render_message_range,
@@ -419,6 +419,10 @@ fn handle_slash_command(
     }
     if let Some(rest) = conversation_slash_rest(trimmed) {
         handle_conversation_slash(app, rest);
+        return true;
+    }
+    if let Some(rest) = models_slash_rest(trimmed) {
+        handle_models_slash(app, rest);
         return true;
     }
     if let Some(rest) = adapters_slash_rest(trimmed) {
@@ -1575,12 +1579,205 @@ fn hooks_slash_rest(trimmed: &str) -> Option<&str> {
     }
 }
 
+fn models_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/models" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/models ").map(str::trim)
+    }
+}
+
 fn adapters_slash_rest(trimmed: &str) -> Option<&str> {
     if trimmed == "/adapters" {
         Some("")
     } else {
         trimmed.strip_prefix("/adapters ").map(str::trim)
     }
+}
+
+fn handle_models_slash(app: &mut App, rest: &str) {
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "help" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: [
+                "/models list",
+                "/models providers",
+                "/models provider-catalog show",
+                "/models provider-catalog export <path>",
+                "/models provider-catalog import <path>",
+            ]
+            .join("\n"),
+        });
+        return;
+    }
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "list" => match ConfigResolver::from_env().list_models() {
+            Ok(models) => {
+                push_event(app, format!("Loaded {} model config(s).", models.len()));
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(
+                        &models.iter().map(model_config_summary).collect::<Vec<_>>(),
+                    )
+                    .unwrap_or_else(|_| "<unserializable model list>".into()),
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Model list failed: {err}"),
+            }),
+        },
+        "providers" => match configured_model_providers() {
+            Ok(providers) => {
+                push_event(
+                    app,
+                    format!("Loaded {} model provider(s).", providers.len()),
+                );
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(
+                        &providers
+                            .iter()
+                            .map(model_provider_summary)
+                            .collect::<Vec<_>>(),
+                    )
+                    .unwrap_or_else(|_| "<unserializable model providers>".into()),
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Model providers failed: {err}"),
+            }),
+        },
+        "provider-catalog" => handle_model_provider_catalog_slash(app, args),
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Models command needs list, providers, provider-catalog, or help.".into(),
+        }),
+    }
+}
+
+fn handle_model_provider_catalog_slash(app: &mut App, rest: &str) {
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "help" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: [
+                "/models provider-catalog show",
+                "/models provider-catalog export <path>",
+                "/models provider-catalog import <path>",
+            ]
+            .join("\n"),
+        });
+        return;
+    }
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "show" => match ConfigResolver::from_env().show_model_provider_catalog() {
+            Ok(catalog) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: serde_json::to_string_pretty(&catalog)
+                    .unwrap_or_else(|_| "<unserializable model provider catalog>".into()),
+            }),
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Model provider catalog show failed: {err}"),
+            }),
+        },
+        "export" => match model_provider_catalog_path_arg(args, "export") {
+            Ok(path) => match ConfigResolver::from_env().export_model_provider_catalog(path) {
+                Ok(catalog) => push_event(
+                    app,
+                    format!(
+                        "Exported model provider catalog with {} provider(s) to {path}",
+                        catalog.providers.len()
+                    ),
+                ),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Model provider catalog export failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "import" => match model_provider_catalog_path_arg(args, "import") {
+            Ok(path) => match ConfigResolver::from_env().import_model_provider_catalog(path) {
+                Ok(catalog) => {
+                    push_event(
+                        app,
+                        format!(
+                            "Imported model provider catalog with {} provider(s).",
+                            catalog.providers.len()
+                        ),
+                    );
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&catalog)
+                            .unwrap_or_else(|_| "<unserializable model provider catalog>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Model provider catalog import failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Models provider-catalog command needs show, export, import, or help.".into(),
+        }),
+    }
+}
+
+fn model_provider_catalog_path_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    let mut parts = args.split_whitespace();
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("models provider-catalog {command} needs a path"))?;
+    if parts.next().is_some() {
+        anyhow::bail!("models provider-catalog {command} accepts exactly one path");
+    }
+    Ok(path)
+}
+
+fn model_config_summary(model: &agent_config::ModelConfig) -> serde_json::Value {
+    serde_json::json!({
+        "id": model.id,
+        "provider": model.provider,
+        "max_context_tokens": model.max_context_tokens,
+        "max_output_tokens": model.max_output_tokens,
+        "default_temperature": model.default_temperature,
+        "available_modalities": model.available_modalities,
+        "tool_support": model.tool_support,
+    })
+}
+
+fn model_provider_summary(provider: &agent_config::ModelProviderDescriptor) -> serde_json::Value {
+    serde_json::json!({
+        "id": provider.id,
+        "name": provider.name,
+        "default_model": provider.default_model,
+        "available_modalities": provider.available_modalities,
+        "tool_support": provider.tool_support,
+        "local": provider.local,
+        "native": provider.native,
+        "option_schema_count": provider.option_schema.len(),
+    })
 }
 
 fn handle_adapters_slash(app: &mut App, rest: &str) {
@@ -3056,6 +3253,9 @@ mod tests {
         );
         assert_eq!(hooks_slash_rest("/hooks"), Some(""));
         assert_eq!(hooks_slash_rest("/hook"), None);
+        assert_eq!(models_slash_rest("/models providers"), Some("providers"));
+        assert_eq!(models_slash_rest("/models"), Some(""));
+        assert_eq!(models_slash_rest("/model"), None);
         assert_eq!(
             adapters_slash_rest("/adapters show adapter-1"),
             Some("show adapter-1")
@@ -3093,6 +3293,16 @@ mod tests {
         );
         assert!(adapter_export_args("adapter-1").is_err());
         assert!(adapter_export_args("adapter-1 ./adapter.json extra").is_err());
+    }
+
+    #[test]
+    fn model_provider_catalog_path_arg_requires_exactly_one_path() {
+        assert_eq!(
+            model_provider_catalog_path_arg("./catalog.json", "export").unwrap(),
+            "./catalog.json"
+        );
+        assert!(model_provider_catalog_path_arg("", "export").is_err());
+        assert!(model_provider_catalog_path_arg("./catalog.json extra", "import").is_err());
     }
 
     #[test]

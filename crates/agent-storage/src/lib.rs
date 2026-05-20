@@ -424,6 +424,36 @@ impl StoragePaths {
         self.ensure_quota_for_projected_write(attempted_bytes, replaced_bytes, quota_bytes)
     }
 
+    pub fn write_quota_checked(
+        &self,
+        path: impl AsRef<Path>,
+        contents: impl AsRef<[u8]>,
+    ) -> Result<(), StorageError> {
+        self.write_quota_checked_with_quota(path, contents, storage_quota_bytes_from_env()?)
+    }
+
+    pub fn write_quota_checked_with_quota(
+        &self,
+        path: impl AsRef<Path>,
+        contents: impl AsRef<[u8]>,
+        quota_bytes: Option<u64>,
+    ) -> Result<(), StorageError> {
+        let path = path.as_ref();
+        let contents = contents.as_ref();
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
+        }
+        self.ensure_quota_for_path_write_with_quota(
+            path,
+            u64::try_from(contents.len()).unwrap_or(u64::MAX),
+            quota_bytes,
+        )?;
+        std::fs::write(path, contents)?;
+        Ok(())
+    }
+
     fn ensure_quota_for_projected_write(
         &self,
         attempted_bytes: u64,
@@ -952,6 +982,36 @@ mod tests {
             )
             .expect_err("multi-file replacement writes above quota must fail");
         assert!(matches!(err, StorageError::QuotaExceeded { .. }));
+
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn quota_checked_write_creates_parent_and_rejects_over_quota() {
+        let root = std::env::temp_dir().join(format!(
+            "agent-storage-quota-write-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let paths = StoragePaths::new(&root);
+        let target = root.join("nested").join("artifact.json");
+
+        paths
+            .write_quota_checked_with_quota(&target, b"1234", Some(4))
+            .unwrap();
+
+        assert_eq!(std::fs::read(&target).unwrap(), b"1234");
+        let err = paths
+            .write_quota_checked_with_quota(root.join("too-large.json"), b"56", Some(4))
+            .expect_err("quota-checked writes should fail before writing");
+        assert!(matches!(err, StorageError::QuotaExceeded { .. }));
+        assert!(!root.join("too-large.json").exists());
+        paths
+            .write_quota_checked_with_quota(&target, b"12345", Some(5))
+            .unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"12345");
 
         std::fs::remove_dir_all(root).unwrap();
     }

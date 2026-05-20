@@ -5,6 +5,7 @@ import react from "@vitejs/plugin-react";
 // the Rust side can rely on devUrl in tauri.conf.json.
 export default defineConfig({
   plugins: [react()],
+  base: "./",
   clearScreen: false,
   server: {
     port: 5173,

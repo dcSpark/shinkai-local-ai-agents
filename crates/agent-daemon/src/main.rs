@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
@@ -14,7 +15,9 @@ use agent_config::{
     AgentConfigFile, ConfigResolver, IngestionGuardrailMode, ModelConfig, ModelRuntimeConfig,
     ProfileGrant, ProfileGrantKind, supported_model_providers,
 };
-use agent_conversations::{ConversationPolicy, ConversationRole, ConversationStore};
+use agent_conversations::{
+    ConversationMessage, ConversationPolicy, ConversationRole, ConversationStore,
+};
 use agent_core::{
     AgentConfig, ApprovalMode, ConfigValueExplanation, CostPolicy, ExecutionPolicy, Harness,
     HarnessApi, HookTrigger, IngestedArtifactView, MemoryFragment, PromptRefinement,
@@ -61,6 +64,7 @@ use tokio::task::AbortHandle;
 use tokio::time::{Duration, sleep, timeout};
 
 static BRIDGE_DELIVERY_WORKER_STARTED: OnceLock<()> = OnceLock::new();
+static MEMORY_GENERATION_WORKER_STARTED: OnceLock<()> = OnceLock::new();
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
@@ -75,6 +79,7 @@ async fn run_server(addr: &str) -> std::io::Result<()> {
     let listener = TcpListener::bind(addr).await?;
     let state = Arc::new(DaemonState::default());
     maybe_start_bridge_delivery_worker();
+    maybe_start_memory_generation_worker();
     println!("Shinkai daemon listening on http://{addr}");
     loop {
         let (mut socket, _) = listener.accept().await?;
@@ -242,6 +247,9 @@ async fn route(
         ("POST", "/memory") => daemon_memory_create(&request.body).map(|value| (200, value)),
         ("POST", "/memory/generate") => {
             daemon_memory_generate(&request.body).map(|value| (200, value))
+        }
+        ("POST", "/memory/generate-pending") => {
+            daemon_memory_generate_pending(&request.body).map(|value| (200, value))
         }
         ("POST", "/memory/rollback") => {
             daemon_memory_rollback(&request.body).map(|value| (200, value))
@@ -638,6 +646,7 @@ async fn route(
                     "POST /approvals/<run_id>/<approval_id>/execute",
                     "GET|POST /memory",
                     "GET /memory/backends",
+                    "POST /memory/generate-pending",
                     "GET /skills",
                     "POST /memory/export",
                     "POST /memory/import",
@@ -2481,6 +2490,80 @@ fn bridge_delivery_worker_batch_limit() -> usize {
         .unwrap_or(10)
 }
 
+fn maybe_start_memory_generation_worker() {
+    let Some(interval) = memory_generation_worker_interval() else {
+        return;
+    };
+    if MEMORY_GENERATION_WORKER_STARTED.set(()).is_err() {
+        return;
+    }
+    tokio::spawn(async move {
+        loop {
+            sleep(interval).await;
+            if let Err(err) = generate_pending_memories_once(
+                memory_generation_worker_target(),
+                memory_generation_worker_topics(),
+                memory_generation_worker_batch_limit(),
+            ) {
+                eprintln!("memory generation worker failed: {err}");
+            }
+        }
+    });
+}
+
+fn memory_generation_worker_interval() -> Option<Duration> {
+    std::env::var("AGENT_MEMORY_GENERATION_WORKER_INTERVAL_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .map(Duration::from_millis)
+}
+
+fn memory_generation_worker_batch_limit() -> usize {
+    std::env::var("AGENT_MEMORY_GENERATION_WORKER_BATCH")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(10)
+}
+
+fn memory_generation_worker_target() -> MemoryTarget {
+    match std::env::var("AGENT_MEMORY_GENERATION_WORKER_TARGET")
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "user" | "user.md" => MemoryTarget::User,
+        _ => MemoryTarget::Agent,
+    }
+}
+
+fn memory_generation_worker_topics() -> Vec<String> {
+    std::env::var("AGENT_MEMORY_GENERATION_WORKER_TOPICS")
+        .ok()
+        .map(|value| {
+            normalize_memory_worker_topics(
+                value
+                    .split(',')
+                    .map(|topic| topic.to_string())
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .unwrap_or_default()
+}
+
+fn normalize_memory_worker_topics(topics: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::new();
+    for topic in topics {
+        let topic = topic.trim().to_ascii_lowercase();
+        if !topic.is_empty() && !normalized.iter().any(|existing| existing == &topic) {
+            normalized.push(topic);
+        }
+    }
+    normalized
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct BridgeDeliveryRecord {
     id: String,
@@ -3246,6 +3329,121 @@ fn daemon_memory_generate(body: &str) -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(records)?)
 }
 
+fn daemon_memory_generate_pending(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: MemoryGeneratePendingInput = if body.trim().is_empty() {
+        MemoryGeneratePendingInput::default()
+    } else {
+        serde_json::from_str(body)?
+    };
+    let target = input
+        .user
+        .map(|user| {
+            if user {
+                MemoryTarget::User
+            } else {
+                MemoryTarget::Agent
+            }
+        })
+        .unwrap_or_else(memory_generation_worker_target);
+    let topics = input
+        .topics
+        .map(normalize_memory_worker_topics)
+        .unwrap_or_else(memory_generation_worker_topics);
+    let limit = input
+        .limit
+        .filter(|limit| *limit > 0)
+        .unwrap_or_else(memory_generation_worker_batch_limit);
+    generate_pending_memories_once(target, topics, limit)
+}
+
+fn generate_pending_memories_once(
+    target: MemoryTarget,
+    topics: Vec<String>,
+    limit: usize,
+) -> anyhow::Result<serde_json::Value> {
+    let paths = StoragePaths::from_env();
+    paths.ensure_base_dirs()?;
+    let conversation_store = ConversationStore::new(paths.clone());
+    let memory_store = MemoryStore::new(paths.clone());
+    let mut checkpoint = load_memory_generation_checkpoint(&paths)?;
+    let existing_records = memory_store.list()?;
+    let mut generated = Vec::new();
+    let mut errors = Vec::new();
+    let mut attempted = 0usize;
+    let mut up_to_date = 0usize;
+    let mut checkpoint_changed = false;
+
+    for conversation in conversation_store.list()? {
+        let expanded = conversation_store.expanded(&conversation.id)?;
+        let message_count = expanded.messages.len();
+        let checkpoint_key = memory_generation_checkpoint_key(target, &conversation.id);
+        let processed = checkpoint
+            .conversations
+            .get(&checkpoint_key)
+            .copied()
+            .unwrap_or_default()
+            .max(max_generated_message_end(
+                &existing_records,
+                &conversation.id,
+                target,
+            ))
+            .min(message_count);
+        if processed >= message_count {
+            up_to_date += 1;
+            continue;
+        }
+        if attempted >= limit {
+            break;
+        }
+        attempted += 1;
+        let text = conversation_memory_text(&expanded.messages[processed..]);
+        let range = format!("messages:{processed}..{message_count}");
+        match memory_store.generate_from_conversation_text_with_topics(
+            target,
+            &text,
+            Some(range.clone()),
+            Some(conversation.id.clone()),
+            topics.clone(),
+        ) {
+            Ok(records) => {
+                for record in &records {
+                    record_memory_written(record, "generated_async")?;
+                }
+                generated.extend(records);
+                if checkpoint
+                    .conversations
+                    .insert(checkpoint_key.clone(), message_count)
+                    != Some(message_count)
+                {
+                    checkpoint_changed = true;
+                }
+            }
+            Err(err) => {
+                errors.push(serde_json::json!({
+                    "conversation_id": conversation.id,
+                    "range": range,
+                    "error": err.to_string()
+                }));
+            }
+        }
+    }
+
+    if checkpoint_changed {
+        save_memory_generation_checkpoint(&paths, &checkpoint)?;
+    }
+
+    let generated_count = generated.len();
+    Ok(serde_json::json!({
+        "attempted": attempted,
+        "generated": generated,
+        "generated_count": generated_count,
+        "up_to_date": up_to_date,
+        "errors": errors,
+        "target": target,
+        "topics": topics
+    }))
+}
+
 fn daemon_memory_rollback(body: &str) -> anyhow::Result<serde_json::Value> {
     let input: MemoryRollbackInput = serde_json::from_str(body)?;
     let target = if input.user {
@@ -3339,6 +3537,92 @@ fn record_memory_operation(
         },
     );
     Ok(())
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+struct MemoryGenerationCheckpoint {
+    #[serde(default)]
+    conversations: HashMap<String, usize>,
+}
+
+fn load_memory_generation_checkpoint(
+    paths: &StoragePaths,
+) -> anyhow::Result<MemoryGenerationCheckpoint> {
+    let path = memory_generation_checkpoint_path(paths);
+    if !path.exists() {
+        return Ok(MemoryGenerationCheckpoint::default());
+    }
+    Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
+}
+
+fn save_memory_generation_checkpoint(
+    paths: &StoragePaths,
+    checkpoint: &MemoryGenerationCheckpoint,
+) -> anyhow::Result<()> {
+    std::fs::write(
+        memory_generation_checkpoint_path(paths),
+        serde_json::to_string_pretty(checkpoint)?,
+    )?;
+    Ok(())
+}
+
+fn memory_generation_checkpoint_path(paths: &StoragePaths) -> PathBuf {
+    paths.cache_dir().join("memory-generation-checkpoints.json")
+}
+
+fn memory_generation_checkpoint_key(target: MemoryTarget, conversation_id: &str) -> String {
+    let target = match target {
+        MemoryTarget::Agent => "agent",
+        MemoryTarget::User => "user",
+    };
+    format!("{target}:{conversation_id}")
+}
+
+fn max_generated_message_end(
+    records: &[MemoryRecord],
+    conversation_id: &str,
+    target: MemoryTarget,
+) -> usize {
+    records
+        .iter()
+        .filter(|record| record.target == target)
+        .filter(|record| record.source_conversation_id.as_deref() == Some(conversation_id))
+        .filter_map(|record| parse_memory_message_range_end(record.source_range.as_deref()?))
+        .max()
+        .unwrap_or_default()
+}
+
+fn parse_memory_message_range_end(source_range: &str) -> Option<usize> {
+    let range = source_range.strip_prefix("messages:")?;
+    let (_, end) = range.split_once("..")?;
+    end.parse::<usize>().ok()
+}
+
+fn conversation_memory_text(messages: &[ConversationMessage]) -> String {
+    messages
+        .iter()
+        .filter_map(|message| {
+            let content = message.content.trim();
+            if content.is_empty() {
+                None
+            } else {
+                Some(format!(
+                    "{}: {content}",
+                    conversation_role_label(message.role)
+                ))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn conversation_role_label(role: ConversationRole) -> &'static str {
+    match role {
+        ConversationRole::System => "system",
+        ConversationRole::User => "user",
+        ConversationRole::Assistant => "assistant",
+        ConversationRole::Tool => "tool",
+    }
 }
 
 fn daemon_skill_list() -> anyhow::Result<serde_json::Value> {
@@ -4334,6 +4618,14 @@ struct MemoryGenerateInput {
     range: Option<String>,
     #[serde(default)]
     topics: Vec<String>,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct MemoryGeneratePendingInput {
+    user: Option<bool>,
+    #[serde(default)]
+    topics: Option<Vec<String>>,
+    limit: Option<usize>,
 }
 
 #[derive(serde::Deserialize)]
@@ -5829,6 +6121,130 @@ mod tests {
         );
         restore_env("AGENT_MESSAGING_DELIVERY_WORKER_BATCH", previous_batch);
         restore_env("AGENT_BRIDGE_DELIVERY_WORKER_BATCH", previous_bridge_batch);
+    }
+
+    #[test]
+    fn memory_generate_pending_processes_new_conversation_ranges_once() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("memory-generate-pending");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+
+        let conversation_store = ConversationStore::from_env();
+        let conversation = conversation_store
+            .create(Some("Memory source".into()), Some("fake-agent".into()))
+            .unwrap();
+        conversation_store
+            .append_message(
+                &conversation.id,
+                ConversationRole::User,
+                "Remember: customer prefers wire transfer",
+            )
+            .unwrap();
+        conversation_store
+            .append_message(
+                &conversation.id,
+                ConversationRole::Assistant,
+                "Noted for next invoice.",
+            )
+            .unwrap();
+
+        let first = daemon_memory_generate_pending(
+            r#"{"limit":5,"topics":["Finance","finance"," Operations "]}"#,
+        )
+        .unwrap();
+        assert_eq!(first["attempted"], 1);
+        assert_eq!(first["generated_count"], 1);
+        assert_eq!(first["topics"][0], "finance");
+        assert_eq!(first["topics"][1], "operations");
+        let records = MemoryStore::from_env().list().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(
+            records[0].source_conversation_id.as_deref(),
+            Some(conversation.id.as_str())
+        );
+        assert_eq!(records[0].source_range.as_deref(), Some("messages:0..2"));
+
+        let second = daemon_memory_generate_pending(r#"{"limit":5}"#).unwrap();
+        assert_eq!(second["generated_count"], 0);
+        assert_eq!(second["up_to_date"], 1);
+
+        conversation_store
+            .append_message(
+                &conversation.id,
+                ConversationRole::User,
+                "Remember: send a payment reminder on Fridays",
+            )
+            .unwrap();
+        let third = daemon_memory_generate_pending(r#"{"limit":5}"#).unwrap();
+        assert_eq!(third["generated_count"], 1);
+        let records = MemoryStore::from_env().list().unwrap();
+        assert_eq!(records.len(), 2);
+        assert!(records.iter().any(|record| {
+            record.source_conversation_id.as_deref() == Some(conversation.id.as_str())
+                && record.source_range.as_deref() == Some("messages:2..3")
+        }));
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn memory_generation_worker_env_is_opt_in_and_bounded() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let previous_interval = std::env::var_os("AGENT_MEMORY_GENERATION_WORKER_INTERVAL_MS");
+        let previous_batch = std::env::var_os("AGENT_MEMORY_GENERATION_WORKER_BATCH");
+        let previous_target = std::env::var_os("AGENT_MEMORY_GENERATION_WORKER_TARGET");
+        let previous_topics = std::env::var_os("AGENT_MEMORY_GENERATION_WORKER_TOPICS");
+        unsafe {
+            std::env::remove_var("AGENT_MEMORY_GENERATION_WORKER_INTERVAL_MS");
+            std::env::remove_var("AGENT_MEMORY_GENERATION_WORKER_BATCH");
+            std::env::remove_var("AGENT_MEMORY_GENERATION_WORKER_TARGET");
+            std::env::remove_var("AGENT_MEMORY_GENERATION_WORKER_TOPICS");
+        }
+        assert!(memory_generation_worker_interval().is_none());
+        assert_eq!(memory_generation_worker_batch_limit(), 10);
+        assert_eq!(memory_generation_worker_target(), MemoryTarget::Agent);
+        assert!(memory_generation_worker_topics().is_empty());
+
+        unsafe {
+            std::env::set_var("AGENT_MEMORY_GENERATION_WORKER_INTERVAL_MS", "500");
+            std::env::set_var("AGENT_MEMORY_GENERATION_WORKER_BATCH", "2");
+            std::env::set_var("AGENT_MEMORY_GENERATION_WORKER_TARGET", "user");
+            std::env::set_var(
+                "AGENT_MEMORY_GENERATION_WORKER_TOPICS",
+                "Finance, finance,Ops",
+            );
+        }
+        assert_eq!(
+            memory_generation_worker_interval(),
+            Some(Duration::from_millis(500))
+        );
+        assert_eq!(memory_generation_worker_batch_limit(), 2);
+        assert_eq!(memory_generation_worker_target(), MemoryTarget::User);
+        assert_eq!(
+            memory_generation_worker_topics(),
+            vec!["finance".to_string(), "ops".into()]
+        );
+
+        unsafe {
+            std::env::set_var("AGENT_MEMORY_GENERATION_WORKER_INTERVAL_MS", "0");
+            std::env::set_var("AGENT_MEMORY_GENERATION_WORKER_BATCH", "0");
+            std::env::set_var("AGENT_MEMORY_GENERATION_WORKER_TARGET", "unknown");
+        }
+        assert!(memory_generation_worker_interval().is_none());
+        assert_eq!(memory_generation_worker_batch_limit(), 10);
+        assert_eq!(memory_generation_worker_target(), MemoryTarget::Agent);
+
+        restore_env(
+            "AGENT_MEMORY_GENERATION_WORKER_INTERVAL_MS",
+            previous_interval,
+        );
+        restore_env("AGENT_MEMORY_GENERATION_WORKER_BATCH", previous_batch);
+        restore_env("AGENT_MEMORY_GENERATION_WORKER_TARGET", previous_target);
+        restore_env("AGENT_MEMORY_GENERATION_WORKER_TOPICS", previous_topics);
     }
 
     #[test]

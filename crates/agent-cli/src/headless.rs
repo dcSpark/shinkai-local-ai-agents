@@ -4823,6 +4823,24 @@ pub async fn remote_storage_report(
     print_remote(client.get_json("/storage")?)
 }
 
+pub async fn remote_bridge_delivery_list(url: String) -> anyhow::Result<()> {
+    let client = DaemonHttpClient::new(url);
+    print_remote(client.get_json("/bridges/deliveries")?)
+}
+
+pub async fn remote_bridge_delivery_retry(url: String, id: String) -> anyhow::Result<()> {
+    let client = DaemonHttpClient::new(url);
+    print_remote(client.post_json(
+        &format!("/bridges/deliveries/{id}/retry"),
+        serde_json::json!({}),
+    )?)
+}
+
+pub async fn remote_bridge_delivery_retry_all(url: String) -> anyhow::Result<()> {
+    let client = DaemonHttpClient::new(url);
+    print_remote(client.post_json("/bridges/deliveries/retry-all", serde_json::json!({}))?)
+}
+
 pub async fn remote_conversation_list(url: String) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).get_json("/conversations")?)
 }

@@ -2362,6 +2362,11 @@ enum RemoteCommand {
         #[arg(long)]
         apply: bool,
     },
+    /// Remote messaging bridge delivery dead-letter operations.
+    BridgeDeliveries {
+        #[command(subcommand)]
+        command: RemoteBridgeDeliveryCommand,
+    },
     /// Remote deterministic batch operations.
     Batch {
         #[command(subcommand)]
@@ -2501,6 +2506,16 @@ enum RemoteApprovalCommand {
         #[arg(long = "signature-env", value_name = "ENV")]
         signature_env: Option<String>,
     },
+}
+
+#[derive(Subcommand)]
+enum RemoteBridgeDeliveryCommand {
+    /// List failed outbound bridge deliveries.
+    List,
+    /// Retry one failed outbound bridge delivery by id.
+    Retry { id: String },
+    /// Retry all failed outbound bridge deliveries up to the daemon batch limit.
+    RetryAll,
 }
 
 #[derive(Subcommand)]
@@ -3201,6 +3216,41 @@ mod cli_parse_tests {
         };
         assert_eq!(prune_cache_days, Some(14));
         assert!(apply);
+    }
+
+    #[test]
+    fn remote_bridge_delivery_commands_parse() {
+        let cli = parse_cli(["agent", "remote", "bridge-deliveries", "list"]).unwrap();
+        let RemoteCommand::BridgeDeliveries {
+            command: RemoteBridgeDeliveryCommand::List,
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote bridge delivery list command");
+        };
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "bridge-deliveries",
+            "retry",
+            "bridge-delivery-1",
+        ])
+        .unwrap();
+        let RemoteCommand::BridgeDeliveries {
+            command: RemoteBridgeDeliveryCommand::Retry { id },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote bridge delivery retry command");
+        };
+        assert_eq!(id, "bridge-delivery-1");
+
+        let cli = parse_cli(["agent", "remote", "bridge-deliveries", "retry-all"]).unwrap();
+        let RemoteCommand::BridgeDeliveries {
+            command: RemoteBridgeDeliveryCommand::RetryAll,
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote bridge delivery retry-all command");
+        };
     }
 
     #[test]
@@ -6029,6 +6079,17 @@ async fn main() -> anyhow::Result<()> {
                 prune_cache_days,
                 apply,
             } => headless::remote_storage_report(url, prune_cache_days, apply).await,
+            RemoteCommand::BridgeDeliveries { command } => match command {
+                RemoteBridgeDeliveryCommand::List => {
+                    headless::remote_bridge_delivery_list(url).await
+                }
+                RemoteBridgeDeliveryCommand::Retry { id } => {
+                    headless::remote_bridge_delivery_retry(url, id).await
+                }
+                RemoteBridgeDeliveryCommand::RetryAll => {
+                    headless::remote_bridge_delivery_retry_all(url).await
+                }
+            },
             RemoteCommand::Batch { command } => match command {
                 RemoteBatchCommand::Run { items, demo } => {
                     headless::remote_batch_run(url, items, demo).await

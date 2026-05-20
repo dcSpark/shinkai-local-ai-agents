@@ -4169,6 +4169,18 @@ pub async fn remote_memory_generate(
     )?)
 }
 
+pub async fn remote_memory_generate_pending(
+    url: String,
+    user: bool,
+    limit: Option<usize>,
+    topics: Vec<String>,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/memory/generate-pending",
+        serde_json::json!({ "user": user, "limit": limit, "topics": topics }),
+    )?)
+}
+
 pub async fn remote_memory_edit(url: String, id: String, content: String) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).post_json(
         &format!("/memory/{id}/edit"),

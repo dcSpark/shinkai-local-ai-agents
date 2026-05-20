@@ -2290,6 +2290,14 @@ enum RemoteMemoryCommand {
         #[arg(long = "topic")]
         topics: Vec<String>,
     },
+    GeneratePending {
+        #[arg(long)]
+        user: bool,
+        #[arg(long)]
+        limit: Option<usize>,
+        #[arg(long = "topic")]
+        topics: Vec<String>,
+    },
     Edit {
         id: String,
         content: String,
@@ -3882,6 +3890,39 @@ mod cli_parse_tests {
         else {
             panic!("expected remote memory backends command");
         };
+
+        let cli = Cli::try_parse_from([
+            "agent",
+            "remote",
+            "memory",
+            "generate-pending",
+            "--user",
+            "--limit",
+            "3",
+            "--topic",
+            "finance",
+            "--topic",
+            "ops",
+        ])
+        .unwrap();
+        let Command::Remote {
+            command:
+                RemoteCommand::Memory {
+                    command:
+                        RemoteMemoryCommand::GeneratePending {
+                            user,
+                            limit,
+                            topics,
+                        },
+                },
+            ..
+        } = cli.command
+        else {
+            panic!("expected remote memory generate-pending command");
+        };
+        assert!(user);
+        assert_eq!(limit, Some(3));
+        assert_eq!(topics, vec!["finance", "ops"]);
     }
 
     #[test]
@@ -5111,6 +5152,11 @@ async fn main() -> anyhow::Result<()> {
                     range,
                     topics,
                 } => headless::remote_memory_generate(url, text, user, range, topics).await,
+                RemoteMemoryCommand::GeneratePending {
+                    user,
+                    limit,
+                    topics,
+                } => headless::remote_memory_generate_pending(url, user, limit, topics).await,
                 RemoteMemoryCommand::Edit { id, content } => {
                     headless::remote_memory_edit(url, id, content).await
                 }

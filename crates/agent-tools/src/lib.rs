@@ -2039,6 +2039,23 @@ pub fn open_generated_artifact(
     Ok(artifact)
 }
 
+pub fn delete_generated_artifact_from_env(
+    id_or_filename: &str,
+) -> Result<GeneratedArtifact, ToolError> {
+    delete_generated_artifact(StoragePaths::from_env().artifacts_dir(), id_or_filename)
+}
+
+pub fn delete_generated_artifact(
+    output_dir: impl AsRef<Path>,
+    id_or_filename: &str,
+) -> Result<GeneratedArtifact, ToolError> {
+    let output_dir = output_dir.as_ref();
+    let artifact = show_generated_artifact(output_dir, id_or_filename)?;
+    ensure_artifact_stays_scoped(output_dir, &artifact.path)?;
+    std::fs::remove_file(&artifact.path).map_err(|e| ToolError::Execution(e.to_string()))?;
+    Ok(artifact)
+}
+
 pub fn generated_artifact_data_url_from_env(
     id_or_filename: &str,
 ) -> Result<GeneratedArtifactDataUrl, ToolError> {
@@ -4227,9 +4244,16 @@ mod tests {
             show_generated_artifact(&dir, &filename).unwrap().id,
             artifact_id
         );
+        let deleted = delete_generated_artifact(&dir, artifact_id).unwrap();
+        assert_eq!(deleted.id, artifact_id);
+        assert!(!deleted.path.exists());
+        assert!(list_generated_artifacts(&dir).unwrap().is_empty());
 
         let err =
             show_generated_artifact(&dir, "../notes").expect_err("path escapes must be rejected");
+        assert!(err.to_string().contains("invalid artifact id"));
+        let err = delete_generated_artifact(&dir, "../notes")
+            .expect_err("delete path escapes must be rejected");
         assert!(err.to_string().contains("invalid artifact id"));
         let _ = std::fs::remove_dir_all(dir);
     }

@@ -55,8 +55,9 @@ use agent_skills::{SkillDoc, SkillRegistry};
 use agent_storage::StoragePaths;
 use agent_tools::{
     ArtifactTool, FakeTool, GeneratedArtifact, ShellTool, ShellToolConfig, SubagentTool, ToolId,
-    ToolRegistry, VoiceRuntimeConfig, generated_artifact_data_url_from_env,
-    is_shell_runtime_tool_id, list_generated_artifacts_from_env, open_generated_artifact_from_env,
+    ToolRegistry, VoiceRuntimeConfig, delete_generated_artifact_from_env,
+    generated_artifact_data_url_from_env, is_shell_runtime_tool_id,
+    list_generated_artifacts_from_env, open_generated_artifact_from_env,
     register_allowed_mcp_tools_for_category_with_provenance,
     register_allowed_mcp_tools_for_resource_with_provenance,
     register_allowed_mcp_tools_with_provenance, register_code_execution_tools,
@@ -3140,6 +3141,11 @@ async fn artifact_open(id: String) -> Result<GeneratedArtifact, String> {
 }
 
 #[tauri::command]
+async fn artifact_delete(id: String) -> Result<GeneratedArtifact, String> {
+    delete_generated_artifact_from_env(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn artifact_data_url(id: String) -> Result<serde_json::Value, String> {
     let preview = generated_artifact_data_url_from_env(&id).map_err(|e| e.to_string())?;
     serde_json::to_value(preview).map_err(|e| e.to_string())
@@ -3355,6 +3361,7 @@ pub fn run() {
             artifact_list,
             artifact_show,
             artifact_open,
+            artifact_delete,
             artifact_data_url,
             voice_capture,
             bundle_export,

@@ -5438,6 +5438,32 @@ export default function App() {
     }
   }
 
+  async function deleteGeneratedArtifactFromOps() {
+    const id = requireOpsId("Artifact delete");
+    if (!id) return;
+    await deleteGeneratedArtifact(id);
+  }
+
+  async function deleteGeneratedArtifact(id: string) {
+    if (!confirmLocalChange(`Delete generated artifact ${id}`)) return;
+    try {
+      const artifact =
+        transport === "daemon"
+          ? await daemonJson<GeneratedArtifact>(
+              `/artifacts/${encodeURIComponent(id)}/delete`,
+              {},
+            )
+          : await invoke<GeneratedArtifact>("artifact_delete", { id });
+      setGeneratedArtifacts((artifacts) =>
+        artifacts.filter((item) => item.id !== artifact.id),
+      );
+      appendEvent(`Deleted artifact: ${artifact.id}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Artifact delete failed: ${msg}`);
+    }
+  }
+
   async function removeIngestFromOps() {
     const id = requireOpsId("Ingest remove");
     if (!id) return;
@@ -9391,6 +9417,14 @@ export default function App() {
                 >
                   Open Artifact
                 </button>
+                <button
+                  type="button"
+                  title="Delete generated artifact Id from the local artifact cache."
+                  onClick={() => void deleteGeneratedArtifactFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Delete Artifact
+                </button>
               </div>
               {generatedArtifacts.length ? (
                 <div className="ingestion-review">
@@ -9443,6 +9477,14 @@ export default function App() {
                             Play
                           </button>
                         ) : null}
+                        <button
+                          type="button"
+                          title="Delete this generated artifact from the local artifact cache."
+                          onClick={() => void deleteGeneratedArtifact(artifact.id)}
+                          disabled={running}
+                        >
+                          Delete
+                        </button>
                       </div>
                     </div>
                   ))}

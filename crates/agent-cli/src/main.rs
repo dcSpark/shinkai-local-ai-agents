@@ -1246,6 +1246,12 @@ enum ArtifactCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Delete a generated artifact from the local artifact cache.
+    Delete {
+        id: String,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2806,6 +2812,7 @@ enum RemoteArtifactCommand {
     List,
     Show { id: String },
     Open { id: String },
+    Delete { id: String },
 }
 
 #[derive(Subcommand)]
@@ -5190,6 +5197,7 @@ async fn main() -> anyhow::Result<()> {
             ArtifactCommand::List { json } => headless::artifact_list(json).await,
             ArtifactCommand::Show { id, json } => headless::artifact_show(id, json).await,
             ArtifactCommand::Open { id, json } => headless::artifact_open(id, json).await,
+            ArtifactCommand::Delete { id, json } => headless::artifact_delete(id, json).await,
         },
         Command::Adapter { command } => match command {
             AdapterCommand::Import { path } => headless::adapter_import(path).await,
@@ -5883,6 +5891,9 @@ async fn main() -> anyhow::Result<()> {
                 RemoteArtifactCommand::List => headless::remote_artifact_list(url).await,
                 RemoteArtifactCommand::Show { id } => headless::remote_artifact_show(url, id).await,
                 RemoteArtifactCommand::Open { id } => headless::remote_artifact_open(url, id).await,
+                RemoteArtifactCommand::Delete { id } => {
+                    headless::remote_artifact_delete(url, id).await
+                }
             },
             RemoteCommand::Adapter { command } => match command {
                 RemoteAdapterCommand::List => headless::remote_adapter_list(url).await,

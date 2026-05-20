@@ -43,8 +43,8 @@ use agent_skills::{SkillDoc, SkillRegistry};
 use agent_storage::StoragePaths;
 use agent_tools::{
     ArtifactTool, FakeTool, ShellTool, ShellToolConfig, SubagentTool, ToolId, ToolRegistry,
-    VoiceRuntimeConfig, generated_artifact_data_url_from_env, is_shell_runtime_tool_id,
-    list_generated_artifacts_from_env, open_generated_artifact_from_env,
+    VoiceRuntimeConfig, delete_generated_artifact_from_env, generated_artifact_data_url_from_env,
+    is_shell_runtime_tool_id, list_generated_artifacts_from_env, open_generated_artifact_from_env,
     register_allowed_mcp_tools_for_category_with_provenance,
     register_allowed_mcp_tools_for_resource_with_provenance,
     register_allowed_mcp_tools_with_provenance, register_code_execution_tools,
@@ -588,6 +588,16 @@ async fn route(
         }
         _ if request.method == "POST"
             && request.path.starts_with("/artifacts/")
+            && request.path.ends_with("/delete") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/artifacts/")
+                .trim_end_matches("/delete");
+            daemon_artifact_delete(id).map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/artifacts/")
             && request.path.ends_with("/open") =>
         {
             let id = request
@@ -726,6 +736,7 @@ async fn route(
                     "GET /artifacts/<id>",
                     "GET /artifacts/<id>/data-url",
                     "POST /artifacts/<id>/open",
+                    "POST /artifacts/<id>/delete",
                     "GET /adapters",
                     "POST /adapters/import",
                     "POST /adapters/clawhub/search",
@@ -4394,6 +4405,12 @@ fn daemon_artifact_show(id: &str) -> anyhow::Result<serde_json::Value> {
 
 fn daemon_artifact_open(id: &str) -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(open_generated_artifact_from_env(id)?)?)
+}
+
+fn daemon_artifact_delete(id: &str) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(delete_generated_artifact_from_env(
+        id,
+    )?)?)
 }
 
 fn daemon_artifact_data_url(id: &str) -> anyhow::Result<serde_json::Value> {

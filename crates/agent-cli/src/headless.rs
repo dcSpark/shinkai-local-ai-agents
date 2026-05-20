@@ -49,8 +49,9 @@ use agent_secrets::{
 use agent_skills::{SkillDoc, SkillRegistry};
 use agent_storage::StoragePaths;
 use agent_tools::{
-    ToolId, is_shell_runtime_tool_id, list_generated_artifacts_from_env,
-    open_generated_artifact_from_env, show_generated_artifact_from_env,
+    ToolId, delete_generated_artifact_from_env, is_shell_runtime_tool_id,
+    list_generated_artifacts_from_env, open_generated_artifact_from_env,
+    show_generated_artifact_from_env,
 };
 use agent_tracing::{
     EventId, EventStore, RunEvent, RunEventKind, RunId, SqliteEventStore, TraceSummary,
@@ -3787,6 +3788,20 @@ pub async fn artifact_open(id: String, json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn artifact_delete(id: String, json: bool) -> anyhow::Result<()> {
+    let artifact = delete_generated_artifact_from_env(&id)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&artifact)?);
+    } else {
+        println!(
+            "deleted artifact {} at {}",
+            artifact.id,
+            artifact.path.display()
+        );
+    }
+    Ok(())
+}
+
 pub async fn adapter_inspect(path: String, json: bool) -> anyhow::Result<()> {
     let package = inspect_source(path)?;
     print_adapter_package(package, json)?;
@@ -5092,6 +5107,13 @@ pub async fn remote_artifact_open(url: String, id: String) -> anyhow::Result<()>
     print_remote(
         DaemonHttpClient::new(url)
             .post_json(&format!("/artifacts/{id}/open"), serde_json::json!({}))?,
+    )
+}
+
+pub async fn remote_artifact_delete(url: String, id: String) -> anyhow::Result<()> {
+    print_remote(
+        DaemonHttpClient::new(url)
+            .post_json(&format!("/artifacts/{id}/delete"), serde_json::json!({}))?,
     )
 }
 

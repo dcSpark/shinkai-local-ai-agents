@@ -17,6 +17,7 @@ use agent_config::{
 };
 use agent_conversations::{
     ConversationMessage, ConversationPolicy, ConversationRole, ConversationStore,
+    render_message_range,
 };
 use agent_core::{
     AgentConfig, ApprovalMode, ConfigValueExplanation, CostPolicy, ExecutionPolicy, Harness,
@@ -247,6 +248,9 @@ async fn route(
         ("POST", "/memory") => daemon_memory_create(&request.body).map(|value| (200, value)),
         ("POST", "/memory/generate") => {
             daemon_memory_generate(&request.body).map(|value| (200, value))
+        }
+        ("POST", "/memory/generate-conversation") => {
+            daemon_memory_generate_conversation(&request.body).map(|value| (200, value))
         }
         ("POST", "/memory/generate-pending") => {
             daemon_memory_generate_pending(&request.body).map(|value| (200, value))
@@ -646,6 +650,8 @@ async fn route(
                     "POST /approvals/<run_id>/<approval_id>/execute",
                     "GET|POST /memory",
                     "GET /memory/backends",
+                    "POST /memory/generate",
+                    "POST /memory/generate-conversation",
                     "POST /memory/generate-pending",
                     "GET /skills",
                     "POST /memory/export",
@@ -3347,6 +3353,28 @@ fn daemon_memory_generate(body: &str) -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(records)?)
 }
 
+fn daemon_memory_generate_conversation(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: MemoryGenerateConversationInput = serde_json::from_str(body)?;
+    let target = if input.user {
+        MemoryTarget::User
+    } else {
+        MemoryTarget::Agent
+    };
+    let expanded = ConversationStore::from_env().expanded(&input.id)?;
+    let rendered = render_message_range(&expanded.messages, input.from, input.to)?;
+    let records = MemoryStore::from_env().generate_from_conversation_text_with_topics(
+        target,
+        &rendered.text,
+        Some(rendered.source_range),
+        Some(input.id),
+        input.topics,
+    )?;
+    for record in &records {
+        record_memory_written(record, "generated")?;
+    }
+    Ok(serde_json::to_value(records)?)
+}
+
 fn daemon_memory_generate_pending(body: &str) -> anyhow::Result<serde_json::Value> {
     let input: MemoryGeneratePendingInput = if body.trim().is_empty() {
         MemoryGeneratePendingInput::default()
@@ -4640,6 +4668,17 @@ struct MemoryGenerateInput {
     #[serde(default)]
     user: bool,
     range: Option<String>,
+    #[serde(default)]
+    topics: Vec<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct MemoryGenerateConversationInput {
+    id: String,
+    from: Option<usize>,
+    to: Option<usize>,
+    #[serde(default)]
+    user: bool,
     #[serde(default)]
     topics: Vec<String>,
 }
@@ -6244,6 +6283,58 @@ mod tests {
             record.source_conversation_id.as_deref() == Some(conversation.id.as_str())
                 && record.source_range.as_deref() == Some("messages:3..4")
         }));
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn memory_generate_conversation_range_links_source() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("memory-generate-conversation");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+
+        let conversation_store = ConversationStore::from_env();
+        let conversation = conversation_store
+            .create(
+                Some("Memory range source".into()),
+                Some("fake-agent".into()),
+            )
+            .unwrap();
+        conversation_store
+            .append_message(&conversation.id, ConversationRole::User, "hello")
+            .unwrap();
+        conversation_store
+            .append_message(
+                &conversation.id,
+                ConversationRole::User,
+                "Remember: send invoices on Wednesdays",
+            )
+            .unwrap();
+        conversation_store
+            .append_message(&conversation.id, ConversationRole::Assistant, "Noted.")
+            .unwrap();
+
+        let body = serde_json::json!({
+            "id": conversation.id,
+            "from": 1,
+            "to": 1,
+            "topics": ["billing"]
+        })
+        .to_string();
+        let records = daemon_memory_generate_conversation(&body).unwrap();
+        assert_eq!(records.as_array().unwrap().len(), 1);
+        let stored = MemoryStore::from_env().list().unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(
+            stored[0].source_conversation_id.as_deref(),
+            Some(conversation.id.as_str())
+        );
+        assert_eq!(stored[0].source_range.as_deref(), Some("messages:1..2"));
+        assert!(stored[0].topics.iter().any(|topic| topic == "billing"));
 
         restore_env("AGENT_HARNESS_HOME", previous_home);
         let _ = std::fs::remove_dir_all(dir);

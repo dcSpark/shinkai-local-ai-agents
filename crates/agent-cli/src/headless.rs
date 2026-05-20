@@ -23,6 +23,7 @@ use agent_config::{
 };
 use agent_conversations::{
     ConversationPolicy, ConversationRole, ConversationStore, ConversationTreeNode,
+    render_message_range,
 };
 use agent_core::{
     ContextSnapshot, Harness, HarnessApi, ToolOutputMode, UserInput, VisibilityLevel,
@@ -2413,6 +2414,34 @@ pub async fn memory_generate(
     Ok(())
 }
 
+pub async fn memory_generate_conversation(
+    id: String,
+    from: Option<usize>,
+    to: Option<usize>,
+    user: bool,
+    topics: Vec<String>,
+) -> anyhow::Result<()> {
+    let target = if user {
+        MemoryTarget::User
+    } else {
+        MemoryTarget::Agent
+    };
+    let expanded = ConversationStore::from_env().expanded(&id)?;
+    let rendered = render_message_range(&expanded.messages, from, to)?;
+    let records = MemoryStore::from_env().generate_from_conversation_text_with_topics(
+        target,
+        &rendered.text,
+        Some(rendered.source_range),
+        Some(id),
+        topics,
+    )?;
+    for record in &records {
+        record_memory_written(record, "generated")?;
+    }
+    println!("{}", serde_json::to_string_pretty(&records)?);
+    Ok(())
+}
+
 pub async fn memory_list(json: bool) -> anyhow::Result<()> {
     let records = MemoryStore::from_env().list()?;
     if json {
@@ -4179,6 +4208,20 @@ pub async fn remote_memory_generate(
     print_remote(DaemonHttpClient::new(url).post_json(
         "/memory/generate",
         serde_json::json!({ "text": text, "user": user, "range": range, "topics": topics }),
+    )?)
+}
+
+pub async fn remote_memory_generate_conversation(
+    url: String,
+    id: String,
+    from: Option<usize>,
+    to: Option<usize>,
+    user: bool,
+    topics: Vec<String>,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/memory/generate-conversation",
+        serde_json::json!({ "id": id, "from": from, "to": to, "user": user, "topics": topics }),
     )?)
 }
 

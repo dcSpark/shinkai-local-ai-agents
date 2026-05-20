@@ -27,7 +27,7 @@ use agent_config::{
 };
 use agent_conversations::{
     ConversationDoc, ConversationPolicy, ConversationRole, ConversationStore, ConversationTreeNode,
-    ExpandedConversation,
+    ExpandedConversation, render_message_range,
 };
 use agent_core::{
     AgentConfig, ApprovalMode, ConfigExplanation, ConfigValueExplanation, ContextSnapshot,
@@ -2440,6 +2440,38 @@ async fn memory_generate(
 }
 
 #[tauri::command]
+async fn memory_generate_conversation(
+    id: String,
+    from: Option<usize>,
+    to: Option<usize>,
+    user: bool,
+    topics: Option<Vec<String>>,
+) -> Result<Vec<MemoryRecord>, String> {
+    let target = if user {
+        MemoryTarget::User
+    } else {
+        MemoryTarget::Agent
+    };
+    let expanded = ConversationStore::from_env()
+        .expanded(&id)
+        .map_err(|e| e.to_string())?;
+    let rendered = render_message_range(&expanded.messages, from, to).map_err(|e| e.to_string())?;
+    let records = MemoryStore::from_env()
+        .generate_from_conversation_text_with_topics(
+            target,
+            &rendered.text,
+            Some(rendered.source_range),
+            Some(id),
+            topics.unwrap_or_default(),
+        )
+        .map_err(|e| e.to_string())?;
+    for record in &records {
+        record_memory_written(record, "generated")?;
+    }
+    Ok(records)
+}
+
+#[tauri::command]
 async fn memory_list() -> Result<Vec<MemoryRecord>, String> {
     MemoryStore::from_env().list().map_err(|e| e.to_string())
 }
@@ -3234,6 +3266,7 @@ pub fn run() {
             batch_resume,
             memory_create,
             memory_generate,
+            memory_generate_conversation,
             memory_list,
             memory_backends,
             memory_edit,

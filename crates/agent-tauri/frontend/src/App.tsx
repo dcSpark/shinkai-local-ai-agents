@@ -1022,10 +1022,10 @@ export default function App() {
     }
   }
 
-  function parseConversationRangeFromOps() {
-    const value = requireOpsValue("Conversation range delete");
+  function parseConversationRangeFromOps(label = "Conversation range delete") {
+    const value = requireOpsValue(label);
     if (!value) return null;
-    const parsed = parseJsonObject("Conversation range delete", value);
+    const parsed = parseJsonObject(label, value);
     if (!parsed) return null;
     const from = Number(parsed.from);
     const to = Number(parsed.to);
@@ -1037,7 +1037,7 @@ export default function App() {
     ) {
       appendLine(
         "error",
-        'Conversation range delete needs Value like { "from": 2, "to": 4 }.',
+        `${label} needs Value like { "from": 2, "to": 4 }.`,
       );
       return null;
     }
@@ -4584,6 +4584,42 @@ export default function App() {
     }
   }
 
+  async function generateConversationMemoryFromOps() {
+    const conversation = expandedConversation?.conversation;
+    if (!conversation) {
+      appendLine("error", "Conversation memory generation needs an expanded conversation.");
+      return;
+    }
+    const range = parseConversationRangeFromOps("Conversation memory generation");
+    if (!range) return;
+    const topics = parsedMemoryTopics();
+    try {
+      const records =
+        transport === "daemon"
+          ? await daemonJson<MemoryRecord[]>("/memory/generate-conversation", {
+              id: conversation.id,
+              from: range.from,
+              to: range.to,
+              user: opsUserMemory,
+              topics,
+            })
+          : await invoke<MemoryRecord[]>("memory_generate_conversation", {
+              id: conversation.id,
+              from: range.from,
+              to: range.to,
+              user: opsUserMemory,
+              topics,
+            });
+      setMemoryRecords((current) =>
+        records.reduce(upsertMemoryRecord, current),
+      );
+      appendJson("Conversation memory generated", records);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Conversation memory generation failed: ${msg}`);
+    }
+  }
+
   async function editMemoryFromOps() {
     const id = requireOpsId("Memory edit");
     const content = requireOpsValue("Memory edit");
@@ -8013,7 +8049,7 @@ export default function App() {
                     <div className="mini-actions">
                       <button
                         type="button"
-                        title="Stage this single message index for range deletion."
+                        title="Stage this single message index for range actions."
                         onClick={() =>
                           setOpsValue(JSON.stringify({ from: index, to: index }))
                         }
@@ -8090,6 +8126,16 @@ export default function App() {
                   disabled={running || !opsValue.trim()}
                 >
                   Generate
+                </button>
+                <button
+                  type="button"
+                  title='Generate memory from the expanded conversation range in Value, like { "from": 2, "to": 4 }.'
+                  onClick={() => void generateConversationMemoryFromOps()}
+                  disabled={
+                    running || !expandedConversation || !opsValue.trim()
+                  }
+                >
+                  Generate Range
                 </button>
                 <button
                   type="button"

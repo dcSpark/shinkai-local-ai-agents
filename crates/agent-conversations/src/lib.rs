@@ -110,6 +110,14 @@ pub struct ExpandedConversation {
     pub messages: Vec<ConversationMessage>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderedMessageRange {
+    pub from: usize,
+    pub to: usize,
+    pub source_range: String,
+    pub text: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationTreeNode {
     pub id: String,
@@ -127,6 +135,40 @@ pub struct ConversationTreeNode {
 
 pub struct ConversationStore {
     paths: StoragePaths,
+}
+
+pub fn render_message_range(
+    messages: &[ConversationMessage],
+    from: Option<usize>,
+    to: Option<usize>,
+) -> Result<RenderedMessageRange, ConversationError> {
+    if messages.is_empty() {
+        return Err(ConversationError::InvalidInput(
+            "conversation has no messages".into(),
+        ));
+    }
+    let start = from.unwrap_or(0);
+    let end = to.unwrap_or(messages.len() - 1);
+    validate_message_range(messages.len(), start, end)?;
+    let text = messages[start..=end]
+        .iter()
+        .enumerate()
+        .map(|(offset, message)| {
+            format!(
+                "{}: {:?}: {}",
+                start + offset,
+                message.role,
+                message.content
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    Ok(RenderedMessageRange {
+        from: start,
+        to: end,
+        source_range: format!("messages:{start}..{}", end + 1),
+        text,
+    })
 }
 
 impl ConversationStore {
@@ -330,23 +372,13 @@ impl ConversationStore {
         to: usize,
     ) -> Result<ConversationDoc, ConversationError> {
         validate_id(id)?;
-        if from > to {
-            return Err(ConversationError::InvalidInput(format!(
-                "range start {from} is after range end {to}"
-            )));
-        }
         let docs = self.list()?;
         if has_children(id, &docs) {
             return Err(ConversationError::HasChildrenForRange { id: id.into() });
         }
         let mut doc = self.show(id)?;
         let expanded_len = self.expand_doc(&doc)?.len();
-        if to >= expanded_len {
-            return Err(ConversationError::InvalidInput(format!(
-                "range end {to} exceeds last expanded message index {}",
-                expanded_len.saturating_sub(1)
-            )));
-        }
+        validate_message_range(expanded_len, from, to)?;
         let own_start = expanded_len.saturating_sub(doc.messages.len());
         if from < own_start {
             return Err(ConversationError::InvalidInput(format!(
@@ -475,6 +507,21 @@ impl ConversationStore {
 
 fn read_doc(path: PathBuf) -> Result<ConversationDoc, ConversationError> {
     Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
+}
+
+fn validate_message_range(len: usize, from: usize, to: usize) -> Result<(), ConversationError> {
+    if from > to {
+        return Err(ConversationError::InvalidInput(format!(
+            "range start {from} is after range end {to}"
+        )));
+    }
+    if len == 0 || from >= len || to >= len {
+        return Err(ConversationError::InvalidInput(format!(
+            "range {from}:{to} exceeds last expanded message index {}",
+            len.saturating_sub(1)
+        )));
+    }
+    Ok(())
 }
 
 fn clean_optional(value: Option<String>) -> Option<String> {
@@ -701,6 +748,32 @@ mod tests {
 
         let stored = store.show(&root.id).unwrap();
         assert_eq!(stored.policy.max_tokens_before_compaction, Some(512));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn render_message_range_returns_text_and_exclusive_source_range() {
+        let dir = std::env::temp_dir().join(format!("conversation-render-test-{}", uuid_like()));
+        let store = ConversationStore::new(StoragePaths::new(&dir));
+        let root = store.create(Some("Root".into()), None).unwrap();
+        store
+            .append_message(&root.id, ConversationRole::User, "first")
+            .unwrap();
+        store
+            .append_message(&root.id, ConversationRole::Assistant, "second")
+            .unwrap();
+        store
+            .append_message(&root.id, ConversationRole::User, "third")
+            .unwrap();
+        let expanded = store.expanded(&root.id).unwrap();
+
+        let rendered = render_message_range(&expanded.messages, Some(1), Some(2)).unwrap();
+        assert_eq!(rendered.from, 1);
+        assert_eq!(rendered.to, 2);
+        assert_eq!(rendered.source_range, "messages:1..3");
+        assert_eq!(rendered.text, "1: Assistant: second\n2: User: third");
+        assert!(render_message_range(&expanded.messages, Some(2), Some(1)).is_err());
+        assert!(render_message_range(&expanded.messages, Some(0), Some(3)).is_err());
         let _ = std::fs::remove_dir_all(dir);
     }
 

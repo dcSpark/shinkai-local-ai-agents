@@ -710,6 +710,26 @@ enum MemoryCommand {
         #[arg(long = "topic")]
         topics: Vec<String>,
     },
+    /// Generate memory records from an expanded conversation message range.
+    GenerateConversation {
+        id: String,
+
+        /// First expanded message index to include. Defaults to 0.
+        #[arg(long)]
+        from: Option<usize>,
+
+        /// Last expanded message index to include. Defaults to the final message.
+        #[arg(long)]
+        to: Option<usize>,
+
+        /// Store in user.md instead of memory.md.
+        #[arg(long)]
+        user: bool,
+
+        /// Topic tag for generated memory. Repeat for multiple topics.
+        #[arg(long = "topic")]
+        topics: Vec<String>,
+    },
     /// List memory records.
     List {
         #[arg(long)]
@@ -2298,6 +2318,17 @@ enum RemoteMemoryCommand {
         #[arg(long = "topic")]
         topics: Vec<String>,
     },
+    GenerateConversation {
+        id: String,
+        #[arg(long)]
+        from: Option<usize>,
+        #[arg(long)]
+        to: Option<usize>,
+        #[arg(long)]
+        user: bool,
+        #[arg(long = "topic")]
+        topics: Vec<String>,
+    },
     GeneratePending {
         #[arg(long)]
         user: bool,
@@ -3871,6 +3902,37 @@ mod cli_parse_tests {
 
         let cli = Cli::try_parse_from([
             "agent",
+            "memory",
+            "generate-conversation",
+            "conv-1",
+            "--from",
+            "2",
+            "--to",
+            "4",
+            "--topic",
+            "finance",
+        ])
+        .unwrap();
+        let Command::Memory {
+            command:
+                MemoryCommand::GenerateConversation {
+                    id,
+                    from,
+                    to,
+                    topics,
+                    ..
+                },
+        } = cli.command
+        else {
+            panic!("expected memory generate-conversation command");
+        };
+        assert_eq!(id, "conv-1");
+        assert_eq!(from, Some(2));
+        assert_eq!(to, Some(4));
+        assert_eq!(topics, vec!["finance"]);
+
+        let cli = Cli::try_parse_from([
+            "agent",
             "remote",
             "memory",
             "import",
@@ -3935,6 +3997,37 @@ mod cli_parse_tests {
         assert!(user);
         assert_eq!(limit, Some(3));
         assert_eq!(topics, vec!["finance", "ops"]);
+
+        let cli = Cli::try_parse_from([
+            "agent",
+            "remote",
+            "memory",
+            "generate-conversation",
+            "conv-remote",
+            "--from",
+            "1",
+            "--to",
+            "1",
+            "--user",
+        ])
+        .unwrap();
+        let Command::Remote {
+            command:
+                RemoteCommand::Memory {
+                    command:
+                        RemoteMemoryCommand::GenerateConversation {
+                            id, from, to, user, ..
+                        },
+                },
+            ..
+        } = cli.command
+        else {
+            panic!("expected remote memory generate-conversation command");
+        };
+        assert_eq!(id, "conv-remote");
+        assert_eq!(from, Some(1));
+        assert_eq!(to, Some(1));
+        assert!(user);
     }
 
     #[test]
@@ -4610,6 +4703,13 @@ async fn main() -> anyhow::Result<()> {
                 conversation,
                 topics,
             } => headless::memory_generate(text, user, range, conversation, topics).await,
+            MemoryCommand::GenerateConversation {
+                id,
+                from,
+                to,
+                user,
+                topics,
+            } => headless::memory_generate_conversation(id, from, to, user, topics).await,
             MemoryCommand::List { json } => headless::memory_list(json).await,
             MemoryCommand::Backends { json } => headless::memory_backends(json).await,
             MemoryCommand::Edit { id, content } => headless::memory_edit(id, content).await,
@@ -5168,6 +5268,16 @@ async fn main() -> anyhow::Result<()> {
                     range,
                     topics,
                 } => headless::remote_memory_generate(url, text, user, range, topics).await,
+                RemoteMemoryCommand::GenerateConversation {
+                    id,
+                    from,
+                    to,
+                    user,
+                    topics,
+                } => {
+                    headless::remote_memory_generate_conversation(url, id, from, to, user, topics)
+                        .await
+                }
                 RemoteMemoryCommand::GeneratePending {
                     user,
                     limit,

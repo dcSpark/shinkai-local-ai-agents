@@ -12,6 +12,11 @@ on:
           - all
           - android
           - ios
+      build:
+        description: "Build signed mobile package artifacts after initialization"
+        required: true
+        default: false
+        type: boolean
 
 concurrency:
   group: mobile-packaging-${{ github.ref }}-${{ github.event.inputs.platform || 'all' }}
@@ -28,6 +33,13 @@ jobs:
     name: android
     if: github.event.inputs.platform == 'all' || github.event.inputs.platform == 'android'
     runs-on: ubuntu-latest
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -86,10 +98,33 @@ jobs:
       - name: Strict Android mobile packaging verification
         run: scripts/verify-mobile-packaging.sh --strict --platform=android
 
+      - name: Build signed Android mobile artifacts
+        if: inputs.build
+        run: scripts/build-release-artifact.sh --platform=android
+
+      - name: Upload Android mobile artifacts
+        if: inputs.build
+        uses: actions/upload-artifact@v4
+        with:
+          name: shinkai-android-mobile
+          if-no-files-found: error
+          path: |
+            crates/agent-tauri/gen/android/app/build/outputs/apk/**/*.apk
+            crates/agent-tauri/gen/android/app/build/outputs/bundle/**/*.aab
+            target/release/bundle/**/latest.json
+            target/release/bundle/**/*.sig
+
   ios:
     name: ios
     if: github.event.inputs.platform == 'all' || github.event.inputs.platform == 'ios'
     runs-on: macos-14
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
     steps:
       - uses: actions/checkout@v4
 
@@ -122,3 +157,19 @@ jobs:
 
       - name: Strict iOS mobile packaging verification
         run: scripts/verify-mobile-packaging.sh --strict --platform=ios
+
+      - name: Build signed iOS mobile artifacts
+        if: inputs.build
+        run: scripts/build-release-artifact.sh --platform=ios
+
+      - name: Upload iOS mobile artifacts
+        if: inputs.build
+        uses: actions/upload-artifact@v4
+        with:
+          name: shinkai-ios-mobile
+          if-no-files-found: error
+          path: |
+            crates/agent-tauri/gen/apple/build/**/*.ipa
+            crates/agent-tauri/gen/apple/build/**/*.xcarchive
+            target/release/bundle/**/latest.json
+            target/release/bundle/**/*.sig

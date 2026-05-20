@@ -86,6 +86,18 @@ assert(
 );
 assert(fs.existsSync("scripts/tauri-local.mjs"), "project-root Tauri wrapper is missing");
 assert(fs.existsSync(".github/workflows/mobile-packaging.yml"), "mobile packaging workflow is missing");
+const workflow = fs.readFileSync(".github/workflows/mobile-packaging.yml", "utf8");
+assert(workflow.includes("Build signed Android mobile artifacts"), "mobile workflow must expose an Android build step");
+assert(workflow.includes("Build signed iOS mobile artifacts"), "mobile workflow must expose an iOS build step");
+assert(workflow.includes("if: inputs.build"), "mobile workflow must gate signed builds behind the build input");
+assert(
+  workflow.includes("scripts/build-release-artifact.sh --platform=android"),
+  "mobile workflow must build Android through the release artifact script",
+);
+assert(
+  workflow.includes("scripts/build-release-artifact.sh --platform=ios"),
+  "mobile workflow must build iOS through the release artifact script",
+);
 
 const tauriConfig = readJson("crates/agent-tauri/tauri.conf.json");
 assert(tauriConfig.identifier === "io.shinkai.agent-app", "Tauri identifier must be stable for mobile packages");

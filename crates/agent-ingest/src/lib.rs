@@ -490,10 +490,11 @@ impl IngestionStore {
     }
 
     fn write(&self, artifact: &IngestionArtifact) -> Result<(), IngestError> {
-        std::fs::write(
-            self.path_for(&artifact.id),
-            serde_json::to_string_pretty(artifact)?,
-        )?;
+        let path = self.path_for(&artifact.id);
+        let body = serde_json::to_string_pretty(artifact)?;
+        self.paths
+            .ensure_quota_for_path_write(&path, u64::try_from(body.len()).unwrap_or(u64::MAX))?;
+        std::fs::write(path, body)?;
         Ok(())
     }
 

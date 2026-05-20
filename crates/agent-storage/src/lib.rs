@@ -4,6 +4,7 @@
 //! cache directory, and `state.sqlite` path. The shape matches
 //! `specs/architecture.md` §14 so later config/storage work has a stable home.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -371,16 +372,71 @@ impl StoragePaths {
         self.ensure_quota_for_write_with_quota(attempted_bytes, storage_quota_bytes_from_env()?)
     }
 
+    pub fn ensure_quota_for_path_write(
+        &self,
+        path: impl AsRef<Path>,
+        attempted_bytes: u64,
+    ) -> Result<(), StorageError> {
+        self.ensure_quota_for_path_writes(&[(path.as_ref().to_path_buf(), attempted_bytes)])
+    }
+
+    pub fn ensure_quota_for_path_writes(
+        &self,
+        writes: &[(PathBuf, u64)],
+    ) -> Result<(), StorageError> {
+        self.ensure_quota_for_path_writes_with_quota(writes, storage_quota_bytes_from_env()?)
+    }
+
     pub fn ensure_quota_for_write_with_quota(
         &self,
         attempted_bytes: u64,
+        quota_bytes: Option<u64>,
+    ) -> Result<(), StorageError> {
+        self.ensure_quota_for_projected_write(attempted_bytes, 0, quota_bytes)
+    }
+
+    pub fn ensure_quota_for_path_write_with_quota(
+        &self,
+        path: impl AsRef<Path>,
+        attempted_bytes: u64,
+        quota_bytes: Option<u64>,
+    ) -> Result<(), StorageError> {
+        self.ensure_quota_for_path_writes_with_quota(
+            &[(path.as_ref().to_path_buf(), attempted_bytes)],
+            quota_bytes,
+        )
+    }
+
+    pub fn ensure_quota_for_path_writes_with_quota(
+        &self,
+        writes: &[(PathBuf, u64)],
+        quota_bytes: Option<u64>,
+    ) -> Result<(), StorageError> {
+        let mut replaced_paths = BTreeSet::new();
+        let mut replaced_bytes = 0u64;
+        let mut attempted_bytes = 0u64;
+        for (path, bytes) in writes {
+            attempted_bytes = attempted_bytes.saturating_add(*bytes);
+            if path.starts_with(&self.root) && replaced_paths.insert(path.clone()) {
+                replaced_bytes = replaced_bytes.saturating_add(existing_file_bytes(path)?);
+            }
+        }
+        self.ensure_quota_for_projected_write(attempted_bytes, replaced_bytes, quota_bytes)
+    }
+
+    fn ensure_quota_for_projected_write(
+        &self,
+        attempted_bytes: u64,
+        replaced_bytes: u64,
         quota_bytes: Option<u64>,
     ) -> Result<(), StorageError> {
         let Some(quota_bytes) = quota_bytes else {
             return Ok(());
         };
         let current_bytes = stats_path(&self.root)?.bytes;
-        let projected_bytes = current_bytes.saturating_add(attempted_bytes);
+        let projected_bytes = current_bytes
+            .saturating_sub(replaced_bytes)
+            .saturating_add(attempted_bytes);
         if projected_bytes > quota_bytes {
             return Err(StorageError::QuotaExceeded {
                 quota_bytes,
@@ -564,6 +620,15 @@ fn retention_bucket(root: &Path, path: &Path) -> String {
         .map(ToOwned::to_owned)
         .filter(|name| !name.is_empty())
         .unwrap_or_else(|| "cache".into())
+}
+
+fn existing_file_bytes(path: &Path) -> Result<u64, StorageError> {
+    let metadata = match std::fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(err) => return Err(err.into()),
+    };
+    Ok(metadata.is_file().then_some(metadata.len()).unwrap_or(0))
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -845,6 +910,9 @@ mod tests {
         paths
             .ensure_quota_for_write_with_quota(5, Some(10))
             .unwrap();
+        paths
+            .ensure_quota_for_path_write_with_quota(root.join("used.bin"), 9, Some(10))
+            .unwrap();
         let err = paths
             .ensure_quota_for_write_with_quota(6, Some(10))
             .expect_err("projected writes above quota must fail");
@@ -865,6 +933,25 @@ mod tests {
         paths
             .ensure_quota_for_write_with_quota(u64::MAX, None)
             .unwrap();
+        let err = paths
+            .ensure_quota_for_path_write_with_quota(root.join("used.bin"), 11, Some(10))
+            .expect_err("replacement writes above quota must fail");
+        assert!(matches!(err, StorageError::QuotaExceeded { .. }));
+        let backup = root.join("backup.bin");
+        std::fs::write(&backup, b"12").unwrap();
+        paths
+            .ensure_quota_for_path_writes_with_quota(
+                &[(root.join("used.bin"), 4), (backup.clone(), 3)],
+                Some(10),
+            )
+            .unwrap();
+        let err = paths
+            .ensure_quota_for_path_writes_with_quota(
+                &[(root.join("used.bin"), 9), (backup, 3)],
+                Some(10),
+            )
+            .expect_err("multi-file replacement writes above quota must fail");
+        assert!(matches!(err, StorageError::QuotaExceeded { .. }));
 
         std::fs::remove_dir_all(root).unwrap();
     }

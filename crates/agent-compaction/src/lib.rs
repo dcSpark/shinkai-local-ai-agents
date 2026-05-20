@@ -272,10 +272,11 @@ impl CompactionStore {
     }
 
     fn write(&self, record: &CompactionRecord) -> Result<(), CompactionError> {
-        std::fs::write(
-            self.path_for(&record.id),
-            serde_json::to_string_pretty(record)?,
-        )?;
+        let path = self.path_for(&record.id);
+        let body = serde_json::to_string_pretty(record)?;
+        self.paths
+            .ensure_quota_for_path_write(&path, u64::try_from(body.len()).unwrap_or(u64::MAX))?;
+        std::fs::write(path, body)?;
         Ok(())
     }
 

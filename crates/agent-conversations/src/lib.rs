@@ -504,7 +504,11 @@ impl ConversationStore {
     }
 
     fn write(&self, doc: &ConversationDoc) -> Result<(), ConversationError> {
-        std::fs::write(self.path_for(&doc.id), serde_json::to_string_pretty(doc)?)?;
+        let path = self.path_for(&doc.id);
+        let body = serde_json::to_string_pretty(doc)?;
+        self.paths
+            .ensure_quota_for_path_write(&path, u64::try_from(body.len()).unwrap_or(u64::MAX))?;
+        std::fs::write(path, body)?;
         Ok(())
     }
 

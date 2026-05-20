@@ -65,7 +65,10 @@ impl PromptStore {
         let agent_id = normalize_agent_id_opt(agent_id)?;
         let dir = self.prompt_dir(agent_id.as_deref());
         std::fs::create_dir_all(&dir)?;
-        std::fs::write(dir.join(format!("{name}.md")), body)?;
+        let path = dir.join(format!("{name}.md"));
+        self.paths
+            .ensure_quota_for_path_write(&path, u64::try_from(body.len()).unwrap_or(u64::MAX))?;
+        std::fs::write(path, body)?;
         Ok(PromptDoc {
             name,
             body: body.to_string(),

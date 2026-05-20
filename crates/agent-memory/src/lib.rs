@@ -494,8 +494,15 @@ impl MemoryStore {
     ) -> Result<(), MemoryError> {
         self.paths.ensure_base_dirs()?;
         let path = self.path_for(target);
+        let body = render_records(records)?;
+        let write_plan = memory_write_quota_plan(
+            &path,
+            &self.paths.memory_backup_dir(),
+            u64::try_from(body.len()).unwrap_or(u64::MAX),
+        )?;
+        self.paths.ensure_quota_for_path_writes(&write_plan)?;
         backup_existing(&path, &self.paths.memory_backup_dir())?;
-        std::fs::write(path, render_records(records)?)?;
+        std::fs::write(path, body)?;
         Ok(())
     }
 
@@ -799,6 +806,37 @@ fn backup_existing(path: &Path, backup_dir: &Path) -> Result<(), MemoryError> {
         std::fs::write(backup, "")?;
     }
     Ok(())
+}
+
+fn memory_write_quota_plan(
+    path: &Path,
+    backup_dir: &Path,
+    body_bytes: u64,
+) -> Result<Vec<(PathBuf, u64)>, MemoryError> {
+    let name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("memory.md");
+    let backup = backup_dir.join(format!("{name}.bak"));
+    let second_backup = backup_dir.join(format!("{name}.bak.2"));
+    let current_bytes = file_bytes(path)?;
+    let backup_exists = backup.exists();
+    let backup_bytes = file_bytes(&backup)?;
+    let mut writes = vec![(path.to_path_buf(), body_bytes)];
+    writes.push((backup, current_bytes));
+    if backup_exists {
+        writes.push((second_backup, backup_bytes));
+    }
+    Ok(writes)
+}
+
+fn file_bytes(path: &Path) -> Result<u64, MemoryError> {
+    let metadata = match std::fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(err) => return Err(err.into()),
+    };
+    Ok(metadata.is_file().then_some(metadata.len()).unwrap_or(0))
 }
 
 fn generated_memory_candidates(text: &str) -> Vec<String> {

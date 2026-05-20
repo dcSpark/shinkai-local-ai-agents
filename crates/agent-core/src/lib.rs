@@ -494,6 +494,7 @@ pub struct AgentConfig {
     pub ingestion_artifacts: Vec<IngestedArtifactView>,
     pub allowed_skill_categories: Vec<String>,
     pub skill_views: Vec<SkillView>,
+    pub subagent_configs: Vec<AgentConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2063,6 +2064,13 @@ impl Harness {
             return Err(HarnessError::PolicyDenied(reason));
         }
 
+        let selected_child_config = agent
+            .subagent_configs
+            .iter()
+            .find(|candidate| candidate.id == child_agent_id)
+            .cloned();
+        let used_saved_agent_config = selected_child_config.is_some();
+
         let child_link = self.events.append(
             scope.run_id,
             Some(parent_event),
@@ -2072,9 +2080,15 @@ impl Harness {
             },
         );
 
-        let mut child_agent = agent.clone();
-        child_agent.id = child_agent_id.clone();
-        child_agent.name = format!("{} Subagent", agent.name);
+        let mut child_agent = selected_child_config.unwrap_or_else(|| {
+            let mut child_agent = agent.clone();
+            child_agent.id = child_agent_id.clone();
+            child_agent.name = format!("{} Subagent", agent.name);
+            child_agent
+        });
+        if child_agent.subagent_configs.is_empty() {
+            child_agent.subagent_configs = agent.subagent_configs.clone();
+        }
 
         let child_scope = scope.child(child_run_id, child_link.id, child_agent_id.clone());
         let execution = match self
@@ -2115,6 +2129,7 @@ impl Harness {
             output: json!({
                 "child_run_id": child_run_id.0,
                 "agent_id": child_agent_id,
+                "used_saved_agent_config": used_saved_agent_config,
                 "final_output": execution.final_output,
                 "total_cost_usd": execution.total_cost_usd
             }),
@@ -4398,6 +4413,7 @@ mod tests {
             ingestion_artifacts: Vec::new(),
             allowed_skill_categories: Vec::new(),
             skill_views: Vec::new(),
+            subagent_configs: Vec::new(),
         }
     }
 
@@ -6631,6 +6647,7 @@ JSON
             RunEventKind::ToolCallCompleted { output, .. }
                 if output["child_run_id"].as_str() == Some(child_run_id_text.as_str())
                     && output["agent_id"].as_str() == Some("worker")
+                    && output["used_saved_agent_config"].as_bool() == Some(false)
                     && output["final_output"].as_str() == Some("child output")
         )));
         assert_eq!(
@@ -6642,6 +6659,69 @@ JSON
                 "LlmRequestCompleted",
                 "RunCompleted",
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn subagent_tool_uses_saved_child_agent_config_when_available() {
+        let provider = FakeProvider::sequence(vec![
+            FakeStep::CallTool {
+                id: "c1".into(),
+                tool: "subagent".into(),
+                input: json!({"prompt": "child task", "agent_id": "worker"}),
+            },
+            FakeStep::Reply("child output".into()),
+            FakeStep::Reply("parent output".into()),
+        ]);
+        let h = Harness::new(
+            Arc::new(provider),
+            Arc::new(InMemoryEventStore::new()),
+            registry_with_subagent(),
+        );
+        let mut agent = agent_with_tools(vec![], 5);
+        let mut worker = agent_with_tools(vec![], 3);
+        worker.id = "worker".into();
+        worker.name = "Worker".into();
+        worker.system_prompt = "Use the worker prompt.".into();
+        agent.subagent_configs = vec![worker];
+
+        let result = h
+            .run(
+                &agent,
+                UserInput {
+                    text: "delegate".into(),
+                },
+            )
+            .await
+            .unwrap();
+
+        let parent_events = h.events(result.run_id);
+        let child_run_id = parent_events
+            .iter()
+            .find_map(|event| match &event.kind {
+                RunEventKind::ChildRunStarted { child_run_id, .. } => Some(*child_run_id),
+                _ => None,
+            })
+            .expect("parent trace should link child run");
+        assert!(parent_events.iter().any(|event| matches!(
+            &event.kind,
+            RunEventKind::ToolCallCompleted { output, .. }
+                if output["used_saved_agent_config"].as_bool() == Some(true)
+                    && output["agent_id"].as_str() == Some("worker")
+        )));
+
+        let child_context = h
+            .events(child_run_id)
+            .into_iter()
+            .find_map(|event| match event.kind {
+                RunEventKind::ContextBuilt { snapshot } => Some(snapshot),
+                _ => None,
+            })
+            .expect("child run should build context");
+        assert!(
+            child_context["system_prompt"]
+                .as_str()
+                .is_some_and(|prompt| prompt.starts_with("Use the worker prompt."))
         );
     }
 

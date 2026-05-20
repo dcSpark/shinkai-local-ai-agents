@@ -1212,6 +1212,37 @@ impl ConfigResolver {
         Ok(agents)
     }
 
+    pub fn resolve_subagent_configs(
+        &self,
+        parent_agent_id: &str,
+    ) -> Result<Vec<AgentConfig>, ConfigError> {
+        let mut agents = Vec::new();
+        for agent_id in self.list_subagent_agent_ids(parent_agent_id)? {
+            let mut agent = self.resolve_agent(&agent_id)?.agent;
+            agent.conversation_history.clear();
+            agent.compacted_context = None;
+            agent.memory_fragments.clear();
+            agent.ingestion_artifacts.clear();
+            agent.skill_views.clear();
+            agent.subagent_configs.clear();
+            agents.push(agent);
+        }
+        Ok(agents)
+    }
+
+    pub fn list_subagent_agent_ids(
+        &self,
+        parent_agent_id: &str,
+    ) -> Result<Vec<String>, ConfigError> {
+        validate_agent_id(parent_agent_id)?;
+        Ok(self
+            .list_agent_configs()?
+            .into_iter()
+            .filter(|summary| summary.id != parent_agent_id)
+            .map(|summary| summary.id)
+            .collect())
+    }
+
     pub fn show_agent_config(&self, id: &str) -> Result<Option<AgentConfigFile>, ConfigError> {
         self.ensure_default_files()?;
         validate_agent_id(id)?;
@@ -3683,6 +3714,7 @@ fn resolve_agent(
         ingestion_artifacts: Vec::new(),
         allowed_skill_categories: allowed_skill_categories.value.clone(),
         skill_views: Vec::new(),
+        subagent_configs: Vec::new(),
     };
 
     let mut values = vec![
@@ -4732,6 +4764,14 @@ system_prompt = "Review carefully."
                 .unwrap()
                 .iter()
                 .any(|entry| entry.id == "critic" && entry.name == "Critic")
+        );
+        let subagents = resolver.resolve_subagent_configs("fake-agent").unwrap();
+        assert!(subagents.iter().any(|entry| entry.id == "critic"));
+        assert!(!subagents.iter().any(|entry| entry.id == "fake-agent"));
+        assert!(
+            subagents
+                .iter()
+                .all(|entry| entry.subagent_configs.is_empty())
         );
 
         let export_path = dir.join("critic.toml");

@@ -3852,6 +3852,32 @@ impl SubagentTool {
             provenance: None,
         }
     }
+
+    pub fn descriptor_with_agent_options(agent_ids: Vec<String>) -> ToolDescriptor {
+        let mut descriptor = Self::descriptor();
+        let mut agent_ids = agent_ids
+            .into_iter()
+            .map(|id| id.trim().to_string())
+            .filter(|id| !id.is_empty())
+            .collect::<Vec<_>>();
+        agent_ids.sort();
+        agent_ids.dedup();
+        if agent_ids.is_empty() {
+            return descriptor;
+        }
+        if let Some(agent_id_schema) = descriptor
+            .input_schema
+            .get_mut("properties")
+            .and_then(serde_json::Value::as_object_mut)
+            .and_then(|properties| properties.get_mut("agent_id"))
+        {
+            agent_id_schema["enum"] = json!(agent_ids);
+            agent_id_schema["description"] =
+                json!("Optional saved child agent id. Omit to use the parent-derived subagent.");
+        }
+        descriptor.provenance = Some("native:agent-core; saved_agent_selection=true".into());
+        descriptor
+    }
 }
 
 #[async_trait]
@@ -4022,6 +4048,32 @@ mod tests {
             "agent-tools-{label}-{}-{nanos}",
             std::process::id()
         ))
+    }
+
+    #[test]
+    fn subagent_descriptor_can_advertise_saved_agent_options() {
+        let descriptor = SubagentTool::descriptor_with_agent_options(vec![
+            "worker".into(),
+            " critic ".into(),
+            "worker".into(),
+        ]);
+        let agent_id_schema = descriptor
+            .input_schema
+            .get("properties")
+            .and_then(serde_json::Value::as_object)
+            .and_then(|properties| properties.get("agent_id"))
+            .expect("agent_id schema");
+
+        assert_eq!(
+            agent_id_schema
+                .get("enum")
+                .and_then(serde_json::Value::as_array),
+            Some(&vec![json!("critic"), json!("worker")])
+        );
+        assert_eq!(
+            descriptor.provenance.as_deref(),
+            Some("native:agent-core; saved_agent_selection=true")
+        );
     }
 
     #[tokio::test]

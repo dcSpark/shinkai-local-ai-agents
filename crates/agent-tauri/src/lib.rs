@@ -391,7 +391,10 @@ fn build_registry(
         register_code_execution_tools(&mut registry, &shell_config);
     }
     if enable_subagent {
-        registry.register(SubagentTool::descriptor(), Arc::new(SubagentTool));
+        registry.register(
+            SubagentTool::descriptor_with_agent_options(selectable_subagent_ids(agent_id)),
+            Arc::new(SubagentTool),
+        );
     }
     if enable_capability_drafts {
         registry.register(
@@ -403,6 +406,12 @@ fn build_registry(
     register_payment_tools_from_env(&mut registry);
     register_profile_scoped_mcp_tools(&mut registry);
     Arc::new(registry)
+}
+
+fn selectable_subagent_ids(agent_id: Option<&str>) -> Vec<String> {
+    ConfigResolver::from_env()
+        .list_subagent_agent_ids(agent_id.unwrap_or("fake-agent"))
+        .unwrap_or_default()
 }
 
 fn voice_runtime_config_for_agent(agent_id: Option<&str>) -> VoiceRuntimeConfig {
@@ -567,6 +576,7 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
             ingestion_artifacts: Vec::new(),
             allowed_skill_categories: Vec::new(),
             skill_views: Vec::new(),
+            subagent_configs: Vec::new(),
         });
     let expanded_conversation = options
         .conversation_id
@@ -714,6 +724,11 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
                 }
             })
             .collect();
+    }
+    if options.enable_subagent {
+        agent.subagent_configs = ConfigResolver::from_env()
+            .resolve_subagent_configs(&agent.id)
+            .unwrap_or_default();
     }
 
     agent

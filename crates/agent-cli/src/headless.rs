@@ -7,7 +7,9 @@ use std::io::{self, Read};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use agent_adapters::{AdapterRegistry, ClawHubProvider, NormalizedPackage, inspect_source};
+use agent_adapters::{
+    AdapterRegistry, ClawHubProvider, NormalizedPackage, NormalizedRuntime, inspect_source,
+};
 use agent_api_client::DaemonHttpClient;
 use agent_batch::{BatchItemState, BatchPlan};
 use agent_bundles::{export_bundle, import_bundle};
@@ -4143,9 +4145,14 @@ fn print_adapter_package(package: NormalizedPackage, json: bool) -> anyhow::Resu
             );
         }
         for capability in package.capabilities {
+            let runtime = capability
+                .runtime
+                .as_ref()
+                .map(adapter_runtime_summary)
+                .unwrap_or_default();
             println!(
-                "capability {:?} {} quarantined={}",
-                capability.kind, capability.id, capability.quarantined
+                "capability {:?} {} quarantined={}{}",
+                capability.kind, capability.id, capability.quarantined, runtime
             );
         }
         for finding in package.findings {
@@ -4153,6 +4160,23 @@ fn print_adapter_package(package: NormalizedPackage, json: bool) -> anyhow::Resu
         }
     }
     Ok(())
+}
+
+fn adapter_runtime_summary(runtime: &NormalizedRuntime) -> String {
+    let mut parts = vec![format!("runtime={}", runtime.transport)];
+    if let Some(command) = &runtime.command {
+        parts.push(format!("command={command}"));
+    }
+    if let Some(endpoint) = &runtime.endpoint {
+        parts.push(format!("endpoint={endpoint}"));
+    }
+    if !runtime.env_keys.is_empty() {
+        parts.push(format!("env_keys={}", runtime.env_keys.join(",")));
+    }
+    if !runtime.auth_schemes.is_empty() {
+        parts.push(format!("auth_schemes={}", runtime.auth_schemes.join(",")));
+    }
+    format!(" {}", parts.join(" "))
 }
 
 pub async fn bundle_export(path: String) -> anyhow::Result<()> {

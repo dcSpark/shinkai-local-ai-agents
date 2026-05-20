@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
+  AdapterCapabilityRuntime,
   AdapterPackage,
   AgentConfigFile,
   AgentSummary,
@@ -6728,6 +6729,18 @@ export default function App() {
       .map(([name]) => name);
   }
 
+  function adapterRuntimeSummary(runtime?: AdapterCapabilityRuntime | null) {
+    if (!runtime) return null;
+    const parts = [runtime.transport];
+    if (runtime.command) parts.push(runtime.command);
+    if (runtime.endpoint) parts.push(compactPreview(runtime.endpoint, 80));
+    if (runtime.env_keys?.length) parts.push(`env ${runtime.env_keys.join(", ")}`);
+    if (runtime.auth_schemes?.length) {
+      parts.push(`auth ${runtime.auth_schemes.join(", ")}`);
+    }
+    return parts.join(" / ");
+  }
+
   function normalizeIngestionResponse(
     value: IngestionArtifact | IngestionResult,
   ) {
@@ -10316,12 +10329,16 @@ export default function App() {
                         )}
                         {adapterPackage.capabilities.length ? (
                           <div className="finding-list">
-                            {adapterPackage.capabilities.map((capability) => (
-                              <span className="finding" key={capability.id}>
-                                {capability.kind}: {capability.name}{" "}
-                                {capability.quarantined ? "(quarantined)" : "(allowed)"}
-                              </span>
-                            ))}
+                            {adapterPackage.capabilities.map((capability) => {
+                              const runtime = adapterRuntimeSummary(capability.runtime);
+                              return (
+                                <span className="finding" key={capability.id}>
+                                  {capability.kind}: {capability.name}{" "}
+                                  {capability.quarantined ? "(quarantined)" : "(allowed)"}
+                                  {runtime ? ` / ${runtime}` : ""}
+                                </span>
+                              );
+                            })}
                           </div>
                         ) : (
                           <span className="finding none">no capabilities</span>

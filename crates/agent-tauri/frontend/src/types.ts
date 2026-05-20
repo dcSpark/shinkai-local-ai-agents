@@ -569,6 +569,18 @@ export type AdapterCapability = {
   name: string;
   description: string;
   quarantined: boolean;
+  runtime?: AdapterCapabilityRuntime | null;
+};
+
+export type AdapterCapabilityRuntime = {
+  transport: string;
+  endpoint?: string | null;
+  command?: string | null;
+  args?: string[];
+  env_keys?: string[];
+  input_modes?: string[];
+  output_modes?: string[];
+  auth_schemes?: string[];
 };
 
 export type AdapterSecretRequirement = {

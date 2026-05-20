@@ -100,10 +100,31 @@ pub struct NormalizedCapability {
     pub name: String,
     pub description: String,
     pub quarantined: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<NormalizedRuntime>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub hook_triggers: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hook_handler: Option<NormalizedHookHandler>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct NormalizedRuntime {
+    pub transport: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub endpoint: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub env_keys: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub input_modes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub output_modes: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub auth_schemes: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -761,6 +782,7 @@ fn capabilities_for(adapter: AdapterKind, source: &Path, text: &str) -> Vec<Norm
         name,
         description,
         quarantined: true,
+        runtime: None,
         hook_triggers: Vec::new(),
         hook_handler: None,
     }]
@@ -785,10 +807,42 @@ fn mcp_capabilities(text: &str) -> Vec<NormalizedCapability> {
             name: name.clone(),
             description: mcp_server_description(server),
             quarantined: true,
+            runtime: mcp_capability_runtime(server),
             hook_triggers: Vec::new(),
             hook_handler: None,
         })
         .collect()
+}
+
+fn mcp_capability_runtime(server: &serde_json::Value) -> Option<NormalizedRuntime> {
+    let command = json_string(server, &["command"]);
+    let endpoint = json_string(server, &["url"]);
+    let transport = match (command.as_ref(), endpoint.as_ref()) {
+        (Some(_), _) => "stdio",
+        (None, Some(_)) => "http",
+        (None, None) => return None,
+    };
+    let mut env_keys = server
+        .get("env")
+        .and_then(serde_json::Value::as_object)
+        .map(|env| {
+            env.keys()
+                .filter_map(|name| clean_secret_name(name))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    env_keys.sort();
+    env_keys.dedup();
+    Some(NormalizedRuntime {
+        transport: transport.into(),
+        endpoint,
+        command,
+        args: json_string_list(server, &["args"]).unwrap_or_default(),
+        env_keys,
+        input_modes: Vec::new(),
+        output_modes: Vec::new(),
+        auth_schemes: Vec::new(),
+    })
 }
 
 fn mcp_server_description(server: &serde_json::Value) -> String {
@@ -849,6 +903,12 @@ fn a2a_capabilities(text: &str) -> Vec<NormalizedCapability> {
     let transport = json_string(&value, &["preferredTransport", "preferred_transport"])
         .or_else(|| a2a_first_interface_value(&value, &["protocolBinding", "protocol_binding"]))
         .or_else(|| a2a_first_interface_value(&value, &["transport"]));
+    let default_input_modes =
+        json_string_list(&value, &["defaultInputModes", "default_input_modes"]).unwrap_or_default();
+    let default_output_modes =
+        json_string_list(&value, &["defaultOutputModes", "default_output_modes"])
+            .unwrap_or_default();
+    let top_level_auth = a2a_security_requirement_names(&value);
 
     let mut capabilities = Vec::new();
     if let Some(skills) = json_array(&value, &["skills"]) {
@@ -861,6 +921,14 @@ fn a2a_capabilities(text: &str) -> Vec<NormalizedCapability> {
                 .unwrap_or_else(|| agent_name.clone());
             let description =
                 json_string(skill, &["description"]).unwrap_or_else(|| agent_description.clone());
+            let input_modes = json_string_list(skill, &["inputModes", "input_modes"])
+                .unwrap_or_else(|| default_input_modes.clone());
+            let output_modes = json_string_list(skill, &["outputModes", "output_modes"])
+                .unwrap_or_else(|| default_output_modes.clone());
+            let auth_schemes = merge_sorted_strings(
+                top_level_auth.clone(),
+                a2a_security_requirement_names(skill),
+            );
             capabilities.push(NormalizedCapability {
                 id: slugify(&skill_id),
                 kind: CapabilityKind::ExternalAgent,
@@ -872,6 +940,13 @@ fn a2a_capabilities(text: &str) -> Vec<NormalizedCapability> {
                     skill,
                 ),
                 quarantined: true,
+                runtime: a2a_capability_runtime(
+                    endpoint.as_deref(),
+                    transport.as_deref(),
+                    input_modes,
+                    output_modes,
+                    auth_schemes,
+                ),
                 hook_triggers: Vec::new(),
                 hook_handler: None,
             });
@@ -890,12 +965,46 @@ fn a2a_capabilities(text: &str) -> Vec<NormalizedCapability> {
                 &value,
             ),
             quarantined: true,
+            runtime: a2a_capability_runtime(
+                endpoint.as_deref(),
+                transport.as_deref(),
+                default_input_modes,
+                default_output_modes,
+                top_level_auth,
+            ),
             hook_triggers: Vec::new(),
             hook_handler: None,
         });
     }
 
     capabilities
+}
+
+fn a2a_capability_runtime(
+    endpoint: Option<&str>,
+    transport: Option<&str>,
+    input_modes: Vec<String>,
+    output_modes: Vec<String>,
+    auth_schemes: Vec<String>,
+) -> Option<NormalizedRuntime> {
+    if endpoint.is_none()
+        && transport.is_none()
+        && input_modes.is_empty()
+        && output_modes.is_empty()
+        && auth_schemes.is_empty()
+    {
+        return None;
+    }
+    Some(NormalizedRuntime {
+        transport: transport.unwrap_or("a2a").to_string(),
+        endpoint: endpoint.map(ToOwned::to_owned),
+        command: None,
+        args: Vec::new(),
+        env_keys: Vec::new(),
+        input_modes,
+        output_modes,
+        auth_schemes,
+    })
 }
 
 fn a2a_capability_description(
@@ -1151,6 +1260,18 @@ fn a2a_referenced_security_schemes(value: &serde_json::Value) -> HashSet<String>
     names
 }
 
+fn a2a_security_requirement_names(value: &serde_json::Value) -> Vec<String> {
+    let mut names = HashSet::new();
+    for key in ["security", "securityRequirements", "security_requirements"] {
+        if let Some(requirements) = value.get(key) {
+            collect_security_requirement_names(requirements, &mut names);
+        }
+    }
+    let mut names = names.into_iter().collect::<Vec<_>>();
+    names.sort();
+    names
+}
+
 fn collect_security_requirement_names(value: &serde_json::Value, names: &mut HashSet<String>) {
     match value {
         serde_json::Value::Object(map) => {
@@ -1168,6 +1289,13 @@ fn collect_security_requirement_names(value: &serde_json::Value, names: &mut Has
         }
         _ => {}
     }
+}
+
+fn merge_sorted_strings(mut left: Vec<String>, right: Vec<String>) -> Vec<String> {
+    left.extend(right);
+    left.sort();
+    left.dedup();
+    left
 }
 
 fn hermes_secret_requirement(
@@ -1455,6 +1583,7 @@ fn normalized_hermes_capability(name: &str, kind: CapabilityKind) -> NormalizedC
         name: name.to_string(),
         description: format!("Hermes {kind:?} declared by plugin manifest."),
         quarantined: true,
+        runtime: None,
         hook_triggers: if kind == CapabilityKind::Hook {
             infer_hook_triggers(name)
         } else {
@@ -1823,6 +1952,39 @@ mod tests {
                 .iter()
                 .any(|cap| cap.id == "mcp-filesystem")
         );
+        let filesystem_runtime = package
+            .capabilities
+            .iter()
+            .find(|cap| cap.id == "mcp-filesystem")
+            .and_then(|cap| cap.runtime.as_ref())
+            .unwrap();
+        assert_eq!(filesystem_runtime.transport, "stdio");
+        assert_eq!(filesystem_runtime.command.as_deref(), Some("npx"));
+        assert_eq!(
+            filesystem_runtime.args,
+            vec![
+                "-y".to_string(),
+                "@modelcontextprotocol/server-filesystem".to_string(),
+                "/tmp".to_string()
+            ]
+        );
+        assert_eq!(filesystem_runtime.env_keys, vec!["API_KEY".to_string()]);
+        assert!(
+            !serde_json::to_string(filesystem_runtime)
+                .unwrap()
+                .contains("from-env")
+        );
+        let search_runtime = package
+            .capabilities
+            .iter()
+            .find(|cap| cap.id == "mcp-search")
+            .and_then(|cap| cap.runtime.as_ref())
+            .unwrap();
+        assert_eq!(search_runtime.transport, "http");
+        assert_eq!(
+            search_runtime.endpoint.as_deref(),
+            Some("https://example.invalid/mcp")
+        );
         assert!(package.permissions.shell);
         assert!(package.permissions.network);
         assert!(package.permissions.secrets);
@@ -1953,6 +2115,18 @@ description: trailing metadata is not an env secret
         assert_eq!(package.capabilities[0].kind, CapabilityKind::ExternalAgent);
         assert_eq!(package.capabilities[0].id, "plan-trip");
         assert_eq!(package.capabilities[0].name, "Plan trip");
+        let runtime = package.capabilities[0].runtime.as_ref().unwrap();
+        assert_eq!(runtime.transport, "JSONRPC");
+        assert_eq!(
+            runtime.endpoint.as_deref(),
+            Some("https://agents.example.test/a2a")
+        );
+        assert_eq!(runtime.input_modes, vec!["text/plain".to_string()]);
+        assert_eq!(runtime.output_modes, vec!["text/plain".to_string()]);
+        assert_eq!(
+            runtime.auth_schemes,
+            vec!["apiKey".to_string(), "bearerAuth".to_string()]
+        );
         assert!(
             package.capabilities[0]
                 .description

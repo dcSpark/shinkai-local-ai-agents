@@ -2822,6 +2822,7 @@ fn adapter_package_summary(package: &NormalizedPackage) -> serde_json::Value {
         "digest": package.digest,
         "source": package.source,
         "capabilities": package.capabilities.len(),
+        "runtime_capabilities": package.capabilities.iter().filter(|capability| capability.runtime.is_some()).count(),
         "findings": package.findings.len(),
         "secret_requirements": package.secret_requirements.len(),
     })

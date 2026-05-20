@@ -163,6 +163,38 @@ impl CapabilityDraftStore {
         }
     }
 
+    pub fn export(
+        &self,
+        id: &str,
+        path: impl AsRef<Path>,
+    ) -> Result<CapabilityDraft, CapabilityError> {
+        let draft = self.show(id)?;
+        if let Some(parent) = path.as_ref().parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, serde_json::to_string_pretty(&draft)?)?;
+        Ok(draft)
+    }
+
+    pub fn import(&self, path: impl AsRef<Path>) -> Result<CapabilityDraft, CapabilityError> {
+        let mut draft = read_draft(path)?;
+        draft.id = validate_id(draft.id)?;
+        draft.name = non_empty(draft.name, "name")?;
+        draft.body = non_empty(draft.body, "body")?;
+        draft.guidance = draft.guidance.and_then(|value| {
+            let value = value.trim().to_string();
+            (!value.is_empty()).then_some(value)
+        });
+        draft.created_by = non_empty(draft.created_by, "created_by")?;
+        draft.provenance = non_empty(draft.provenance, "provenance")?;
+        draft.status = CapabilityDraftStatus::Quarantined;
+        draft.updated_at = Utc::now();
+        self.write(&draft)?;
+        Ok(draft)
+    }
+
     fn write(&self, draft: &CapabilityDraft) -> Result<(), CapabilityError> {
         std::fs::create_dir_all(&self.dir)?;
         let path = self.path_for(&draft.id)?;
@@ -357,6 +389,43 @@ mod tests {
             .unwrap();
         assert_eq!(allowed.status, CapabilityDraftStatus::Allowed);
         assert!(store.delete("review-skill").unwrap());
+    }
+
+    #[test]
+    fn exported_capability_drafts_import_back_as_quarantined() {
+        let source = temp_store("export");
+        let draft = source
+            .propose(CapabilityDraftInput {
+                id: Some("review-tool".into()),
+                kind: CapabilityKind::Tool,
+                name: "Review Tool".into(),
+                body: r#"{"mcpServers":{}}"#.into(),
+                guidance: Some("Review before enabling.".into()),
+                created_by: "agent".into(),
+                provenance: "test".into(),
+            })
+            .unwrap();
+        source
+            .set_status(&draft.id, CapabilityDraftStatus::Allowed)
+            .unwrap();
+        let path = std::env::temp_dir().join(format!(
+            "agent-capabilities-export-{}-{}.json",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+
+        let exported = source.export(&draft.id, &path).unwrap();
+        assert_eq!(exported.status, CapabilityDraftStatus::Allowed);
+
+        let imported = temp_store("import").import(&path).unwrap();
+        assert_eq!(imported.id, "review-tool");
+        assert_eq!(imported.kind, CapabilityKind::Tool);
+        assert_eq!(imported.status, CapabilityDraftStatus::Quarantined);
+        assert_eq!(
+            imported.guidance.as_deref(),
+            Some("Review before enabling.")
+        );
+        let _ = std::fs::remove_file(path);
     }
 
     #[tokio::test]

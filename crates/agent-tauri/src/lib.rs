@@ -2619,6 +2619,20 @@ async fn capability_show(id: String) -> Result<CapabilityDraft, String> {
 }
 
 #[tauri::command]
+async fn capability_export(id: String, path: String) -> Result<CapabilityDraft, String> {
+    CapabilityDraftStore::from_env()
+        .export(&id, path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn capability_import(path: String) -> Result<CapabilityDraft, String> {
+    CapabilityDraftStore::from_env()
+        .import(path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn capability_allow(id: String) -> Result<serde_json::Value, String> {
     review_capability_draft(&id, CapabilityDraftStatus::Allowed).map_err(|e| e.to_string())
 }
@@ -3286,6 +3300,8 @@ pub fn run() {
             capability_propose,
             capability_list,
             capability_show,
+            capability_export,
+            capability_import,
             capability_allow,
             capability_reject,
             capability_delete,

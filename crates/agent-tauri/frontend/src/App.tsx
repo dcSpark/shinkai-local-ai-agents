@@ -3734,6 +3734,41 @@ export default function App() {
     }
   }
 
+  async function exportCapabilityFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Capability export");
+    const path = requireOpsValue("Capability export");
+    if (!id || !path) return;
+    try {
+      const draft =
+        transport === "daemon"
+          ? await daemonJson<CapabilityDraft>(`/capabilities/${id}/export`, {
+              path,
+            })
+          : await invoke<CapabilityDraft>("capability_export", { id, path });
+      setCapabilityDrafts((drafts) => upsertCapabilityDraft(drafts, draft));
+      appendJson("Capability draft exported", draft);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Capability export failed: ${msg}`);
+    }
+  }
+
+  async function importCapabilityFromOps() {
+    const path = requireOpsValue("Capability import");
+    if (!path) return;
+    try {
+      const draft =
+        transport === "daemon"
+          ? await daemonJson<CapabilityDraft>("/capabilities/import", { path })
+          : await invoke<CapabilityDraft>("capability_import", { path });
+      setCapabilityDrafts((drafts) => upsertCapabilityDraft(drafts, draft));
+      appendJson("Capability draft imported", draft);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Capability import failed: ${msg}`);
+    }
+  }
+
   async function reviewCapabilityDraft(allow: boolean, explicitId?: string) {
     const id =
       explicitId ?? requireOpsId(allow ? "Capability allow" : "Capability reject");
@@ -8603,6 +8638,22 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  title="Export capability draft Id to Value path."
+                  onClick={() => void exportCapabilityFromOps()}
+                  disabled={running || !opsId.trim() || !opsValue.trim()}
+                >
+                  Export Draft
+                </button>
+                <button
+                  type="button"
+                  title="Import a capability draft from Value path. Imported drafts stay quarantined."
+                  onClick={() => void importCapabilityFromOps()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Import Draft
+                </button>
+                <button
+                  type="button"
                   title="Allow capability draft Id after review."
                   onClick={() => void reviewCapabilityDraft(true)}
                   disabled={running || !opsId.trim()}
@@ -8682,6 +8733,17 @@ export default function App() {
                           disabled={running || draft.status === "rejected"}
                         >
                           Reject
+                        </button>
+                        <button
+                          type="button"
+                          title="Export this draft to the Value path."
+                          onClick={() => {
+                            setOpsId(draft.id);
+                            void exportCapabilityFromOps(draft.id);
+                          }}
+                          disabled={running || !opsValue.trim()}
+                        >
+                          Export
                         </button>
                         <button
                           type="button"

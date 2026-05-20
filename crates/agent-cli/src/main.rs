@@ -1403,6 +1403,21 @@ enum CapabilityCommand {
     },
     /// Delete a capability draft.
     Delete { id: String },
+    /// Export a capability draft as portable JSON.
+    Export {
+        id: String,
+        path: String,
+        /// Emit JSON metadata.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Import a capability draft from portable JSON. Imported drafts stay quarantined.
+    Import {
+        path: String,
+        /// Emit JSON metadata.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2536,6 +2551,10 @@ enum RemoteCapabilityCommand {
     Reject { id: String },
     /// Delete a daemon capability draft.
     Delete { id: String },
+    /// Export a daemon capability draft as portable JSON on the daemon host.
+    Export { id: String, path: String },
+    /// Import a daemon capability draft from portable JSON on the daemon host.
+    Import { path: String },
 }
 
 #[derive(Subcommand)]
@@ -3934,6 +3953,43 @@ mod cli_parse_tests {
             panic!("expected remote capability allow command");
         };
         assert_eq!(id, "draft-review");
+
+        let cli = parse_cli([
+            "agent",
+            "capability",
+            "export",
+            "draft-review",
+            "./draft-review.json",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Capability {
+            command: CapabilityCommand::Export { id, path, json },
+        } = into_command(cli)
+        else {
+            panic!("expected capability export command");
+        };
+        assert_eq!(id, "draft-review");
+        assert_eq!(path, "./draft-review.json");
+        assert!(json);
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "--url",
+            "http://127.0.0.1:7878",
+            "capability",
+            "import",
+            "./draft-review.json",
+        ])
+        .unwrap();
+        let RemoteCommand::Capability {
+            command: RemoteCapabilityCommand::Import { path },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote capability import command");
+        };
+        assert_eq!(path, "./draft-review.json");
     }
 
     #[test]
@@ -4672,6 +4728,12 @@ async fn main() -> anyhow::Result<()> {
                 .await
             }
             CapabilityCommand::Delete { id } => headless::capability_delete(id).await,
+            CapabilityCommand::Export { id, path, json } => {
+                headless::capability_export(id, path, json).await
+            }
+            CapabilityCommand::Import { path, json } => {
+                headless::capability_import(path, json).await
+            }
         },
         Command::Batch { command } => match command {
             BatchCommand::Run { items, demo, json } => headless::batch_run(items, demo, json).await,
@@ -5572,6 +5634,12 @@ async fn main() -> anyhow::Result<()> {
                 }
                 RemoteCapabilityCommand::Delete { id } => {
                     headless::remote_capability_delete(url, id).await
+                }
+                RemoteCapabilityCommand::Export { id, path } => {
+                    headless::remote_capability_export(url, id, path).await
+                }
+                RemoteCapabilityCommand::Import { path } => {
+                    headless::remote_capability_import(url, path).await
                 }
             },
             RemoteCommand::Prompt { command } => match command {

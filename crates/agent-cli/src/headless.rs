@@ -507,6 +507,29 @@ pub async fn capability_delete(id: String) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn capability_export(id: String, path: String, json: bool) -> anyhow::Result<()> {
+    let draft = CapabilityDraftStore::from_env().export(&id, &path)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&draft)?);
+    } else {
+        println!("exported capability draft {} to {}", draft.id, path);
+    }
+    Ok(())
+}
+
+pub async fn capability_import(path: String, json: bool) -> anyhow::Result<()> {
+    let draft = CapabilityDraftStore::from_env().import(&path)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&draft)?);
+    } else {
+        println!(
+            "imported capability draft {} status={:?}",
+            draft.id, draft.status
+        );
+    }
+    Ok(())
+}
+
 fn print_capability_draft(draft: &CapabilityDraft, json: bool) -> anyhow::Result<()> {
     if json {
         println!("{}", serde_json::to_string_pretty(draft)?);
@@ -4569,6 +4592,20 @@ pub async fn remote_capability_delete(url: String, id: String) -> anyhow::Result
     print_remote(
         DaemonHttpClient::new(url)
             .post_json(&format!("/capabilities/{id}/delete"), serde_json::json!({}))?,
+    )
+}
+
+pub async fn remote_capability_export(url: String, id: String, path: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        &format!("/capabilities/{id}/export"),
+        serde_json::json!({ "path": path }),
+    )?)
+}
+
+pub async fn remote_capability_import(url: String, path: String) -> anyhow::Result<()> {
+    print_remote(
+        DaemonHttpClient::new(url)
+            .post_json("/capabilities/import", serde_json::json!({ "path": path }))?,
     )
 }
 

@@ -272,6 +272,9 @@ async fn route(
         ("POST", "/capabilities/propose") => {
             daemon_capability_propose(&request.body).map(|value| (200, value))
         }
+        ("POST", "/capabilities/import") => {
+            daemon_capability_import(&request.body).map(|value| (200, value))
+        }
         ("POST", "/hooks/policy") => daemon_hook_policy(&request.body).map(|value| (200, value)),
         ("POST", "/hooks/available") => {
             daemon_hook_available(&request.body).map(|value| (200, value))
@@ -454,6 +457,16 @@ async fn route(
         }
         _ if request.method == "POST" && request.path.starts_with("/skills/") => {
             daemon_skill_route(&request.path).map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/capabilities/")
+            && request.path.ends_with("/export") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/capabilities/")
+                .trim_end_matches("/export");
+            daemon_capability_export(id, &request.body).map(|value| (200, value))
         }
         _ if request.method == "POST" && request.path.starts_with("/capabilities/") => {
             daemon_capability_route(&request.path).map(|value| (200, value))
@@ -666,10 +679,12 @@ async fn route(
                     "POST /skills/<id>/export",
                     "GET /capabilities",
                     "POST /capabilities/propose",
+                    "POST /capabilities/import",
                     "GET /capabilities/<id>",
                     "POST /capabilities/<id>/allow",
                     "POST /capabilities/<id>/reject",
                     "POST /capabilities/<id>/delete",
+                    "POST /capabilities/<id>/export",
                     "POST /hooks/policy",
                     "POST /hooks/available",
                     "POST /hooks/policy/set",
@@ -3808,6 +3823,20 @@ fn daemon_capability_show(id: &str) -> anyhow::Result<serde_json::Value> {
     )?)
 }
 
+fn daemon_capability_export(id: &str, body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: CapabilityPathInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        CapabilityDraftStore::from_env().export(id, input.path)?,
+    )?)
+}
+
+fn daemon_capability_import(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: CapabilityPathInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        CapabilityDraftStore::from_env().import(input.path)?,
+    )?)
+}
+
 fn daemon_capability_route(path: &str) -> anyhow::Result<serde_json::Value> {
     let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
     if parts.len() != 3 || parts[0] != "capabilities" {
@@ -4792,6 +4821,11 @@ struct CapabilityProposeInput {
     body: String,
     guidance: Option<String>,
     created_by: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct CapabilityPathInput {
+    path: String,
 }
 
 #[derive(serde::Deserialize)]

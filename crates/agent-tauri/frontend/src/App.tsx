@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
@@ -461,6 +462,9 @@ export default function App() {
   const [traceEvents, setTraceEvents] = useState<RunEvent[]>([]);
   const [traceSummary, setTraceSummary] = useState<TraceSummary | null>(null);
   const [traceTree, setTraceTree] = useState<TraceTreeNode | null>(null);
+  const [collapsedTraceTreeRuns, setCollapsedTraceTreeRuns] = useState<string[]>(
+    [],
+  );
   const [hookPolicy, setHookPolicy] = useState<HookPolicyRecord | null>(null);
   const [hookCatalog, setHookCatalog] = useState<HookCatalogRecord[]>([]);
   const [storageReport, setStorageReport] = useState<StorageReport | null>(null);
@@ -1025,6 +1029,7 @@ export default function App() {
       setTraceEvents([]);
       setTraceSummary(null);
       setTraceTree(null);
+      setCollapsedTraceTreeRuns([]);
     }
     const duration = durationMsFromValue(value);
     if (duration !== null) {
@@ -2023,6 +2028,37 @@ export default function App() {
     );
   }
 
+  function traceTreeLeafCount(node: TraceTreeNode | null): number {
+    if (!node) return 0;
+    const children = node.children ?? [];
+    if (!children.length) return 1;
+    return children.reduce((sum, child) => sum + traceTreeLeafCount(child), 0);
+  }
+
+  function traceTreeMaxDepth(node: TraceTreeNode | null): number {
+    if (!node) return 0;
+    const children = node.children ?? [];
+    if (!children.length) return 1;
+    return 1 + Math.max(...children.map(traceTreeMaxDepth));
+  }
+
+  function expandableTraceTreeRunIds(node: TraceTreeNode | null): string[] {
+    if (!node) return [];
+    const children = node.children ?? [];
+    return [
+      ...(children.length ? [node.run_id] : []),
+      ...children.flatMap(expandableTraceTreeRunIds),
+    ];
+  }
+
+  function toggleTraceTreeNode(runId: string) {
+    setCollapsedTraceTreeRuns((ids) =>
+      ids.includes(runId)
+        ? ids.filter((id) => id !== runId)
+        : [...ids, runId],
+    );
+  }
+
   function traceTreeNodeTone(node: TraceTreeNode) {
     if (!node.trace_available) return "warning";
     if (node.status === "completed" || node.status === "succeeded") return "ok";
@@ -2045,28 +2081,51 @@ export default function App() {
 
   function renderTraceTreeNode(node: TraceTreeNode, depth = 0) {
     const children = node.children ?? [];
+    const hasChildren = children.length > 0;
+    const collapsed = collapsedTraceTreeRuns.includes(node.run_id);
     const agent = node.agent_id || "unknown";
+    const descendantCount = Math.max(traceTreeNodeCount(node) - 1, 0);
+    const leafCount = traceTreeLeafCount(node);
     const link =
       node.link_status && node.link_status !== node.status ? ` / link ${node.link_status}` : "";
+    const depthStyle = {
+      "--tree-depth": String(Math.min(depth, 7)),
+    } as CSSProperties;
     return (
       <div
-        className={`trace-tree-node ${traceTreeNodeTone(node)}`}
+        className={`trace-tree-node ${traceTreeNodeTone(node)} ${
+          depth > 0 ? "nested" : "root"
+        } ${collapsed ? "collapsed" : ""}`}
         key={`${node.run_id}:${node.link_event_id ?? "root"}`}
-        style={{ marginLeft: `${Math.min(depth, 6) * 0.85}rem` }}
+        style={depthStyle}
       >
         <div className="trace-tree-node-main">
-          <strong>{agent}</strong>
+          <button
+            type="button"
+            className="trace-tree-toggle"
+            title={hasChildren ? (collapsed ? "Expand branch" : "Collapse branch") : "Leaf run"}
+            aria-label={hasChildren ? (collapsed ? "Expand branch" : "Collapse branch") : "Leaf run"}
+            aria-expanded={hasChildren ? !collapsed : undefined}
+            onClick={() => toggleTraceTreeNode(node.run_id)}
+            disabled={running || !hasChildren}
+          >
+            {hasChildren ? (collapsed ? "+" : "-") : ""}
+          </button>
+          <div className="trace-tree-title">
+            <strong>{agent}</strong>
+            <code>{node.run_id}</code>
+          </div>
           <span className="trace-tree-status">
             {node.status}
             {link}
           </span>
         </div>
-        <code>{node.run_id}</code>
         <div className="trace-tree-node-meta">
           <span>{traceTreeNodeKind(node)}</span>
           <span>{traceTreeNodeAvailability(node)}</span>
           {node.link_event_id != null ? <span>link event {node.link_event_id}</span> : null}
-          {children.length ? <span>{children.length} child run(s)</span> : null}
+          {descendantCount ? <span>{descendantCount} descendant run(s)</span> : null}
+          {children.length ? <span>{leafCount} leaf run(s)</span> : null}
         </div>
         <div className="mini-actions trace-tree-actions">
           <button
@@ -2086,7 +2145,7 @@ export default function App() {
             Load
           </button>
         </div>
-        {children.length ? (
+        {children.length && !collapsed ? (
           <div className="trace-tree-children">
             {children.map((child) => renderTraceTreeNode(child, depth + 1))}
           </div>
@@ -2340,6 +2399,7 @@ export default function App() {
       fetchTraceTree(runId),
     ]);
     setTraceTree(tree);
+    setCollapsedTraceTreeRuns([]);
     appendEvent(
       `Trace tree: ${traceTreeNodeCount(tree)} run(s), ${traceTreeChildCount(tree)} child link(s)`,
     );
@@ -3208,6 +3268,7 @@ export default function App() {
     setTraceEvents([]);
     setTraceSummary(null);
     setTraceTree(null);
+    setCollapsedTraceTreeRuns([]);
     setApprovals([]);
     setPostRunCompactionPrompt(null);
     terminalEventSeenRef.current = false;
@@ -5001,6 +5062,7 @@ export default function App() {
     setTraceEvents([]);
     setTraceSummary(null);
     setTraceTree(null);
+    setCollapsedTraceTreeRuns([]);
     setApprovals([]);
     terminalEventSeenRef.current = false;
     rootRunIdRef.current = null;
@@ -8733,6 +8795,7 @@ export default function App() {
                 setTraceEvents([]);
                 setTraceSummary(null);
                 setTraceTree(null);
+                setCollapsedTraceTreeRuns([]);
               }}
               disabled={running || !traceEvents.length}
             >
@@ -8794,7 +8857,38 @@ export default function App() {
           )}
           {traceTree ? (
             <section className="trace-tree">
-              <strong>Run Tree</strong>
+              <div className="trace-tree-head">
+                <div>
+                  <strong>Run Tree</strong>
+                  <span>
+                    {traceTreeNodeCount(traceTree)} run(s),{" "}
+                    {traceTreeLeafCount(traceTree)} leaf run(s), depth{" "}
+                    {traceTreeMaxDepth(traceTree)}
+                  </span>
+                </div>
+                <div className="mini-actions">
+                  <button
+                    type="button"
+                    title="Expand every branch in the run tree."
+                    onClick={() => setCollapsedTraceTreeRuns([])}
+                    disabled={running || !collapsedTraceTreeRuns.length}
+                  >
+                    Expand All
+                  </button>
+                  <button
+                    type="button"
+                    title="Collapse every branch in the run tree."
+                    onClick={() =>
+                      setCollapsedTraceTreeRuns(
+                        expandableTraceTreeRunIds(traceTree),
+                      )
+                    }
+                    disabled={running || !expandableTraceTreeRunIds(traceTree).length}
+                  >
+                    Collapse All
+                  </button>
+                </div>
+              </div>
               <div className="trace-tree-list">{renderTraceTreeNode(traceTree)}</div>
             </section>
           ) : null}

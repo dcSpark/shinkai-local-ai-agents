@@ -1539,8 +1539,34 @@ textarea:disabled {
   min-width: 0;
 }
 
-.trace-tree > strong {
+.trace-tree-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: center;
+  min-width: 0;
+}
+
+.trace-tree-head > div:first-child {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.trace-tree-head strong {
   color: #dfe3ea;
+}
+
+.trace-tree-head span {
+  min-width: 0;
+  color: #9da3ad;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.trace-tree-head .mini-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .trace-tree-list,
@@ -1550,21 +1576,75 @@ textarea:disabled {
   min-width: 0;
 }
 
+.trace-tree-children {
+  position: relative;
+  padding-left: 0.55rem;
+}
+
+.trace-tree-children::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0.25rem;
+  left: 0.16rem;
+  width: 1px;
+  background: #30343c;
+}
+
 .trace-tree-node {
+  position: relative;
   display: grid;
   gap: 0.22rem;
   min-width: 0;
+  margin-left: calc(var(--tree-depth, 0) * 0.42rem);
   padding: 0.6rem;
   border: 1px solid #2a2d34;
   border-radius: 8px;
   background: #111215;
 }
 
+.trace-tree-node.nested::before {
+  content: "";
+  position: absolute;
+  top: 1.08rem;
+  left: -0.56rem;
+  width: 0.46rem;
+  height: 1px;
+  background: #30343c;
+}
+
+.trace-tree-node.collapsed {
+  border-style: dashed;
+}
+
 .trace-tree-node-main {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1.65rem minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.7rem;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.trace-tree-toggle {
+  width: 1.65rem;
+  height: 1.65rem;
+  padding: 0;
+  border-radius: 999px;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.88rem;
+  font-weight: 900;
+}
+
+.trace-tree-toggle:disabled {
+  border-color: #24272e;
+  background: transparent;
+  color: transparent;
+  opacity: 1;
+}
+
+.trace-tree-title {
+  display: grid;
+  gap: 0.12rem;
   min-width: 0;
 }
 
@@ -1812,5 +1892,23 @@ textarea:disabled {
 
   .compaction-review-grid {
     grid-template-columns: 1fr;
+  }
+
+  .trace-tree-head,
+  .trace-tree-node-main {
+    grid-template-columns: 1fr;
+  }
+
+  .trace-tree-head .mini-actions,
+  .trace-tree-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .trace-tree-toggle {
+    display: none;
+  }
+
+  .trace-tree-status {
+    text-align: left;
   }
 }

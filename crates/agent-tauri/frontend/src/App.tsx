@@ -222,6 +222,13 @@ interface ResumeResult {
   final_output: string;
 }
 
+interface CancelResult {
+  run_id: string;
+  recorded: string;
+  aborted: boolean;
+  compaction?: CompactionRecord | null;
+}
+
 interface ApprovalRecord {
   approval_id: string;
   action: string | null;
@@ -4820,20 +4827,31 @@ export default function App() {
     if (!lastRunId) return;
     const reason = `user requested stop; mode=${mode}`;
     try {
+      let result: CancelResult;
       if (transport === "daemon") {
-        await daemonJson("/cancel", {
+        result = await daemonJson<CancelResult>("/cancel", {
           run_id: lastRunId,
           reason,
           mode,
         });
       } else {
-        await invoke("cancel", {
+        result = await invoke<CancelResult>("cancel", {
           runId: lastRunId,
           reason,
           mode,
         });
       }
-      appendEvent(`Cancellation recorded for ${lastRunId} (${stopRetentionLabel(mode)}).`);
+      const retainedCompaction = result.compaction;
+      if (retainedCompaction) {
+        setCompactionRecords((records) =>
+          upsertCompactionRecord(records, retainedCompaction),
+        );
+      }
+      appendEvent(
+        result.recorded === "not_active"
+          ? `Run ${lastRunId} was already inactive.`
+          : `Cancellation recorded for ${lastRunId} (${stopRetentionLabel(mode)}${retainedCompaction ? `, retained ${retainedCompaction.id}` : ""}).`,
+      );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Cancel failed: ${msg}`);

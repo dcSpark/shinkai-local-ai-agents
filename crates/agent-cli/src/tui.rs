@@ -300,16 +300,17 @@ fn spawn_run(
     options: &setup::RuntimeOptions,
 ) {
     let original_prompt = prompt;
-    let prompt = match resolve_saved_prompt_or_literal(&original_prompt) {
-        Ok(prompt) => prompt,
-        Err(err) => {
-            app.transcript.push(TranscriptLine {
-                kind: LineKind::Error,
-                text: format!("Prompt lookup failed: {err}"),
-            });
-            return;
-        }
-    };
+    let prompt =
+        match resolve_saved_prompt_or_literal(&original_prompt, options.agent_id.as_deref()) {
+            Ok(prompt) => prompt,
+            Err(err) => {
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Prompt lookup failed: {err}"),
+                });
+                return;
+            }
+        };
     app.transcript.push(TranscriptLine {
         kind: LineKind::User,
         text: if original_prompt == prompt {
@@ -366,7 +367,7 @@ fn spawn_run(
     app.active_run_handle = Some(run_task.abort_handle());
 }
 
-fn resolve_saved_prompt_or_literal(text: &str) -> anyhow::Result<String> {
+fn resolve_saved_prompt_or_literal(text: &str, agent_id: Option<&str>) -> anyhow::Result<String> {
     let trimmed = text.trim();
     let Some(name) = trimmed.strip_prefix("/run ").map(str::trim) else {
         return Ok(text.to_string());
@@ -375,7 +376,7 @@ fn resolve_saved_prompt_or_literal(text: &str) -> anyhow::Result<String> {
         return Ok(name.to_string());
     }
     Ok(PromptStore::from_env()
-        .get(name)?
+        .resolve_for_agent(agent_id, name)?
         .map(|prompt| prompt.body)
         .unwrap_or_else(|| name.to_string()))
 }

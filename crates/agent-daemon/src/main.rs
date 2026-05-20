@@ -19,7 +19,7 @@ use agent_core::{
     AgentConfig, ApprovalMode, ConfigValueExplanation, CostPolicy, ExecutionPolicy, Harness,
     HarnessApi, HookTrigger, IngestedArtifactView, MemoryFragment, PromptRefinement,
     RunHookHandler, RunLifecycleHook, RunResult, SkillView, ToolOutputMode, ToolPolicy, UserInput,
-    VisibilityLevel, VoiceConfig,
+    VisibilityLevel, VoiceConfig, verify_configured_approval_unlock,
 };
 use agent_ingest::{
     IngestionArtifact, IngestionFindingReviewDecision, IngestionModelCall, IngestionStore,
@@ -3031,6 +3031,9 @@ async fn daemon_approval_route(path: &str, body: &str) -> anyhow::Result<serde_j
     match parts[3] {
         "decide" => {
             let input: ApprovalDecisionInput = serde_json::from_str(body)?;
+            if input.approved {
+                verify_configured_approval_unlock(input.unlock.as_deref())?;
+            }
             open_event_store()?.append(
                 run_id,
                 None,
@@ -3045,7 +3048,10 @@ async fn daemon_approval_route(path: &str, body: &str) -> anyhow::Result<serde_j
                 "approved": input.approved
             }))
         }
-        "execute" => execute_approved_tool(run_id, &approval_id).await,
+        "execute" => {
+            let input: ApprovalExecuteInput = serde_json::from_str(body)?;
+            execute_approved_tool(run_id, &approval_id, input.unlock.as_deref()).await
+        }
         _ => anyhow::bail!("unknown approval action"),
     }
 }
@@ -3053,7 +3059,9 @@ async fn daemon_approval_route(path: &str, body: &str) -> anyhow::Result<serde_j
 async fn execute_approved_tool(
     run_id: RunId,
     approval_id: &str,
+    unlock: Option<&str>,
 ) -> anyhow::Result<serde_json::Value> {
+    verify_configured_approval_unlock(unlock)?;
     let store = open_event_store()?;
     let events = store.try_events(run_id)?;
     let approved = events.iter().rev().find_map(|event| match &event.kind {
@@ -4231,6 +4239,13 @@ struct ScoreInput {
 #[derive(serde::Deserialize)]
 struct ApprovalDecisionInput {
     approved: bool,
+    unlock: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct ApprovalExecuteInput {
+    #[serde(default)]
+    unlock: Option<String>,
 }
 
 #[derive(serde::Deserialize)]

@@ -46,7 +46,85 @@ const MAX_HOOK_TOOL_INPUT_CHARS: usize = 16_000;
 const MAX_HOOK_TOOL_OUTPUT_CHARS: usize = 16_000;
 const MAX_HOOK_STDOUT_BYTES: u64 = 64 * 1024;
 const DEFAULT_AUTO_COMPACTION_OUTPUT_TOKENS: u32 = 512;
+pub const APPROVAL_UNLOCK_SHA256_ENV: &str = "AGENT_APPROVAL_UNLOCK_SHA256";
+pub const APPROVAL_UNLOCK_ENV: &str = "AGENT_APPROVAL_UNLOCK";
 static HOOK_STDOUT_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ApprovalUnlockError {
+    #[error(
+        "approval unlock is required; provide it through --unlock-env or AGENT_APPROVAL_UNLOCK"
+    )]
+    Missing,
+    #[error("approval unlock did not match AGENT_APPROVAL_UNLOCK_SHA256")]
+    Invalid,
+    #[error("AGENT_APPROVAL_UNLOCK_SHA256 must be a sha256 hex digest")]
+    InvalidHash,
+}
+
+pub fn approval_unlock_sha256(secret: &str) -> String {
+    let digest = Sha256::digest(secret.as_bytes());
+    hex_digest(&digest)
+}
+
+pub fn verify_configured_approval_unlock(
+    candidate: Option<&str>,
+) -> Result<(), ApprovalUnlockError> {
+    let Ok(expected_hash) = std::env::var(APPROVAL_UNLOCK_SHA256_ENV) else {
+        return Ok(());
+    };
+    let fallback = std::env::var(APPROVAL_UNLOCK_ENV).ok();
+    verify_approval_unlock_hash(&expected_hash, candidate.or(fallback.as_deref()))
+}
+
+fn verify_approval_unlock_hash(
+    expected_hash: &str,
+    candidate: Option<&str>,
+) -> Result<(), ApprovalUnlockError> {
+    let expected_hash = normalize_sha256_hex(expected_hash)?;
+    let Some(candidate) = candidate.filter(|value| !value.is_empty()) else {
+        return Err(ApprovalUnlockError::Missing);
+    };
+    let actual = approval_unlock_sha256(candidate);
+    if constant_time_eq(expected_hash.as_bytes(), actual.as_bytes()) {
+        Ok(())
+    } else {
+        Err(ApprovalUnlockError::Invalid)
+    }
+}
+
+fn normalize_sha256_hex(value: &str) -> Result<String, ApprovalUnlockError> {
+    let normalized = value
+        .trim()
+        .strip_prefix("sha256:")
+        .unwrap_or_else(|| value.trim())
+        .to_ascii_lowercase();
+    if normalized.len() == 64 && normalized.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        Ok(normalized)
+    } else {
+        Err(ApprovalUnlockError::InvalidHash)
+    }
+}
+
+fn hex_digest(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    use std::fmt::Write as _;
+    for byte in bytes {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (a, b) in left.iter().zip(right.iter()) {
+        diff |= a ^ b;
+    }
+    diff == 0
+}
 
 /// Tool-related policy slice. v0 cut of `specs/architecture.md` §4.5
 /// `ToolPolicy`.
@@ -4129,6 +4207,32 @@ mod tests {
             requires_approval: true,
             provenance: None,
         }
+    }
+
+    #[test]
+    fn approval_unlock_hash_accepts_matching_secret_only() {
+        let expected = approval_unlock_sha256("correct horse");
+
+        assert_eq!(
+            verify_approval_unlock_hash(&expected, Some("correct horse")),
+            Ok(())
+        );
+        assert_eq!(
+            verify_approval_unlock_hash(&format!("sha256:{expected}"), Some("correct horse")),
+            Ok(())
+        );
+        assert_eq!(
+            verify_approval_unlock_hash(&expected, Some("wrong horse")),
+            Err(ApprovalUnlockError::Invalid)
+        );
+        assert_eq!(
+            verify_approval_unlock_hash(&expected, None),
+            Err(ApprovalUnlockError::Missing)
+        );
+        assert_eq!(
+            verify_approval_unlock_hash("not-a-sha256", Some("correct horse")),
+            Err(ApprovalUnlockError::InvalidHash)
+        );
     }
 
     struct SecretEchoTool;

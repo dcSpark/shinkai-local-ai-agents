@@ -402,6 +402,7 @@ export default function App() {
   const [adapterPackages, setAdapterPackages] = useState<AdapterPackage[]>([]);
   const [activeSection, setActiveSection] = useState<ActiveSection>("chat");
   const [approvals, setApprovals] = useState<ApprovalRecord[]>([]);
+  const [approvalUnlock, setApprovalUnlock] = useState("");
 
   const transcriptRef = useRef<HTMLElement>(null);
   const terminalEventSeenRef = useRef(false);
@@ -4376,14 +4377,16 @@ export default function App() {
 
   async function decideApproval(approvalId: string, approved: boolean) {
     if (!lastRunId) return;
+    const unlock = approved && approvalUnlock ? approvalUnlock : undefined;
     if (transport === "daemon") {
       await daemonJson(`/approvals/${lastRunId}/${approvalId}/decide`, {
         approved,
+        unlock,
       });
       if (approved) {
         const output = await daemonJson<unknown>(
           `/approvals/${lastRunId}/${approvalId}/execute`,
-          {},
+          { unlock },
         );
         captureDirectToolMetadata(output);
         void refreshVoiceOutputFromToolOutput(output);
@@ -4394,11 +4397,13 @@ export default function App() {
         runId: lastRunId,
         approvalId,
         approved,
+        unlock,
       });
       if (approved) {
         const output = await invoke<unknown>("approval_execute", {
           runId: lastRunId,
           approvalId,
+          unlock,
         });
         captureDirectToolMetadata(output);
         void refreshVoiceOutputFromToolOutput(output);
@@ -9468,6 +9473,20 @@ export default function App() {
         {activeSection === "chat" || activeSection === "approvals" ? (
         <section className="panel">
           <div className="panel-title">Control</div>
+          {activeSection === "approvals" ? (
+            <>
+              <label>
+                Unlock
+                <input
+                  type="password"
+                  value={approvalUnlock}
+                  onChange={(e) => setApprovalUnlock(e.target.value)}
+                  placeholder="optional"
+                  disabled={running}
+                />
+              </label>
+            </>
+          ) : null}
           {activeSection === "approvals" ? (
             approvals.length ? (
               <div className="approval-list">

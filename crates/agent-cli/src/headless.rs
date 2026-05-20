@@ -26,6 +26,7 @@ use agent_conversations::{
 };
 use agent_core::{
     ContextSnapshot, Harness, HarnessApi, ToolOutputMode, UserInput, VisibilityLevel,
+    verify_configured_approval_unlock,
 };
 use agent_ingest::{
     IngestionArtifact, IngestionFindingReviewDecision, IngestionModelCall, IngestionStore,
@@ -1095,7 +1096,12 @@ pub async fn approval_decide(
     run_id: String,
     approval_id: String,
     approved: bool,
+    unlock_env: Option<String>,
 ) -> anyhow::Result<()> {
+    if approved {
+        let unlock = approval_unlock_from_env(unlock_env)?;
+        verify_configured_approval_unlock(unlock.as_deref())?;
+    }
     let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
     store.append(
@@ -1119,7 +1125,10 @@ pub async fn approval_execute(
     run_id: String,
     approval_id: String,
     json: bool,
+    unlock_env: Option<String>,
 ) -> anyhow::Result<()> {
+    let unlock = approval_unlock_from_env(unlock_env)?;
+    verify_configured_approval_unlock(unlock.as_deref())?;
     let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
     let events = store.try_events(run_id)?;
@@ -1234,6 +1243,19 @@ pub async fn approval_execute(
         eprintln!("executed approved tool call {call_id} in {duration_ms} ms");
     }
     Ok(())
+}
+
+fn approval_unlock_from_env(unlock_env: Option<String>) -> anyhow::Result<Option<String>> {
+    let Some(name) = unlock_env
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    else {
+        return Ok(None);
+    };
+    std::env::var(name)
+        .map(Some)
+        .map_err(|_| anyhow::anyhow!("approval unlock env var {name:?} is not set"))
 }
 
 fn run_agent_id(events: &[RunEvent]) -> Option<String> {
@@ -3984,24 +4006,33 @@ pub async fn remote_approval_decide(
     run_id: String,
     approval_id: String,
     approved: bool,
+    unlock_env: Option<String>,
 ) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
-    print_remote(client.post_json(
-        &format!("/approvals/{run_id}/{approval_id}/decide"),
-        serde_json::json!({ "approved": approved }),
-    )?)
+    let unlock = if approved {
+        approval_unlock_from_env(unlock_env)?
+    } else {
+        None
+    };
+    let mut body = serde_json::json!({ "approved": approved });
+    if let Some(unlock) = unlock {
+        body["unlock"] = serde_json::Value::String(unlock);
+    }
+    print_remote(client.post_json(&format!("/approvals/{run_id}/{approval_id}/decide"), body)?)
 }
 
 pub async fn remote_approval_execute(
     url: String,
     run_id: String,
     approval_id: String,
+    unlock_env: Option<String>,
 ) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
-    print_remote(client.post_json(
-        &format!("/approvals/{run_id}/{approval_id}/execute"),
-        serde_json::json!({}),
-    )?)
+    let unlock = approval_unlock_from_env(unlock_env)?;
+    let body = unlock
+        .map(|unlock| serde_json::json!({ "unlock": unlock }))
+        .unwrap_or_else(|| serde_json::json!({}));
+    print_remote(client.post_json(&format!("/approvals/{run_id}/{approval_id}/execute"), body)?)
 }
 
 pub async fn remote_storage_report(url: String) -> anyhow::Result<()> {

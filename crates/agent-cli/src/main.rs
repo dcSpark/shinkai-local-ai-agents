@@ -601,6 +601,10 @@ enum ApprovalCommand {
         /// Approve the request. If omitted, the request is rejected.
         #[arg(long)]
         approve: bool,
+
+        /// Read the approval unlock secret from this environment variable.
+        #[arg(long = "unlock-env", value_name = "ENV")]
+        unlock_env: Option<String>,
     },
     /// Approve an approval request without executing it.
     Approve {
@@ -609,6 +613,10 @@ enum ApprovalCommand {
 
         /// Approval id, for example `approval-manual-1`.
         approval_id: String,
+
+        /// Read the approval unlock secret from this environment variable.
+        #[arg(long = "unlock-env", value_name = "ENV")]
+        unlock_env: Option<String>,
     },
     /// Reject an approval request without executing it.
     Reject {
@@ -629,6 +637,10 @@ enum ApprovalCommand {
         /// Emit JSON instead of a human-readable result.
         #[arg(long)]
         json: bool,
+
+        /// Read the approval unlock secret from this environment variable.
+        #[arg(long = "unlock-env", value_name = "ENV")]
+        unlock_env: Option<String>,
     },
 }
 
@@ -2153,10 +2165,14 @@ enum RemoteApprovalCommand {
         approval_id: String,
         #[arg(long)]
         approve: bool,
+        #[arg(long = "unlock-env", value_name = "ENV")]
+        unlock_env: Option<String>,
     },
     Approve {
         run_id: String,
         approval_id: String,
+        #[arg(long = "unlock-env", value_name = "ENV")]
+        unlock_env: Option<String>,
     },
     Reject {
         run_id: String,
@@ -2165,6 +2181,8 @@ enum RemoteApprovalCommand {
     Execute {
         run_id: String,
         approval_id: String,
+        #[arg(long = "unlock-env", value_name = "ENV")]
+        unlock_env: Option<String>,
     },
 }
 
@@ -4148,20 +4166,23 @@ async fn main() -> anyhow::Result<()> {
                 run_id,
                 approval_id,
                 approve,
-            } => headless::approval_decide(run_id, approval_id, approve).await,
+                unlock_env,
+            } => headless::approval_decide(run_id, approval_id, approve, unlock_env).await,
             ApprovalCommand::Approve {
                 run_id,
                 approval_id,
-            } => headless::approval_decide(run_id, approval_id, true).await,
+                unlock_env,
+            } => headless::approval_decide(run_id, approval_id, true, unlock_env).await,
             ApprovalCommand::Reject {
                 run_id,
                 approval_id,
-            } => headless::approval_decide(run_id, approval_id, false).await,
+            } => headless::approval_decide(run_id, approval_id, false, None).await,
             ApprovalCommand::Execute {
                 run_id,
                 approval_id,
                 json,
-            } => headless::approval_execute(run_id, approval_id, json).await,
+                unlock_env,
+            } => headless::approval_execute(run_id, approval_id, json, unlock_env).await,
         },
         Command::Guide { run_id, text } => headless::guide(run_id, text).await,
         Command::Cancel { run_id, reason } => headless::cancel(run_id, reason).await,
@@ -4860,19 +4881,28 @@ async fn main() -> anyhow::Result<()> {
                     run_id,
                     approval_id,
                     approve,
-                } => headless::remote_approval_decide(url, run_id, approval_id, approve).await,
+                    unlock_env,
+                } => {
+                    headless::remote_approval_decide(url, run_id, approval_id, approve, unlock_env)
+                        .await
+                }
                 RemoteApprovalCommand::Approve {
                     run_id,
                     approval_id,
-                } => headless::remote_approval_decide(url, run_id, approval_id, true).await,
+                    unlock_env,
+                } => {
+                    headless::remote_approval_decide(url, run_id, approval_id, true, unlock_env)
+                        .await
+                }
                 RemoteApprovalCommand::Reject {
                     run_id,
                     approval_id,
-                } => headless::remote_approval_decide(url, run_id, approval_id, false).await,
+                } => headless::remote_approval_decide(url, run_id, approval_id, false, None).await,
                 RemoteApprovalCommand::Execute {
                     run_id,
                     approval_id,
-                } => headless::remote_approval_execute(url, run_id, approval_id).await,
+                    unlock_env,
+                } => headless::remote_approval_execute(url, run_id, approval_id, unlock_env).await,
             },
             RemoteCommand::Memory { command } => match command {
                 RemoteMemoryCommand::List => headless::remote_memory_list(url).await,

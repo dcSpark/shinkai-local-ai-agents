@@ -34,6 +34,7 @@ use agent_core::{
     CostPolicy, ExecutionPolicy, Harness, HarnessApi, HookTrigger, IngestedArtifactView,
     MemoryFragment, PromptRefinement, RunHookHandler, RunLifecycleHook, RunResult, SkillView,
     ToolOutputMode, ToolPolicy, ToolView, UserInput, VisibilityLevel, VoiceConfig,
+    verify_configured_approval_unlock,
 };
 use agent_ingest::{
     IngestionArtifact, IngestionBackendDescriptor, IngestionFindingReviewDecision,
@@ -1797,7 +1798,11 @@ async fn approval_decide(
     run_id: String,
     approval_id: String,
     approved: bool,
+    unlock: Option<String>,
 ) -> Result<(), String> {
+    if approved {
+        verify_configured_approval_unlock(unlock.as_deref()).map_err(|e| e.to_string())?;
+    }
     let run_id = RunId(uuid::Uuid::parse_str(&run_id).map_err(|e| e.to_string())?);
     open_event_store()?.append(
         run_id,
@@ -1811,7 +1816,12 @@ async fn approval_decide(
 }
 
 #[tauri::command]
-async fn approval_execute(approval_id: String, run_id: String) -> Result<Value, String> {
+async fn approval_execute(
+    approval_id: String,
+    run_id: String,
+    unlock: Option<String>,
+) -> Result<Value, String> {
+    verify_configured_approval_unlock(unlock.as_deref()).map_err(|e| e.to_string())?;
     let run_id = RunId(uuid::Uuid::parse_str(&run_id).map_err(|e| e.to_string())?);
     let store = open_event_store()?;
     let events = store.try_events(run_id).map_err(|e| e.to_string())?;

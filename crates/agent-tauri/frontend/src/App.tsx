@@ -7341,6 +7341,22 @@ export default function App() {
     return parts[parts.length - 1] || path;
   }
 
+  function ingestionCompatibilityMeta(item: {
+    optional_tools?: string[];
+    model_requirements?: string[];
+  }) {
+    return [
+      item.optional_tools?.length
+        ? `tools: ${item.optional_tools.join(", ")}`
+        : null,
+      item.model_requirements?.length
+        ? `models: ${item.model_requirements.join(", ")}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" / ");
+  }
+
   function defaultBundlePath() {
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const profile = (currentProfile?.id || "active-profile")
@@ -10933,6 +10949,24 @@ export default function App() {
                           : "no modalities"}
                       </span>
                       <p>{backend.description}</p>
+                      {backend.compatibility?.length ? (
+                        <div className="finding-list">
+                          {backend.compatibility.map((item) => {
+                            const meta = ingestionCompatibilityMeta(item);
+                            return (
+                              <span
+                                className="finding"
+                                key={`${backend.id}:${item.source_kind}:${item.extraction}`}
+                                title={item.notes}
+                              >
+                                {item.source_kind} {"->"} {item.extraction}
+                                {meta ? ` / ${meta}` : ""}
+                                {item.notes ? ` / ${item.notes}` : ""}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      ) : null}
                     </div>
                   ))}
                 </div>

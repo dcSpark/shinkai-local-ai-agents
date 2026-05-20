@@ -619,6 +619,15 @@ export type IngestionBackendDescriptor = {
   name: string;
   description: string;
   modalities: string[];
+  compatibility?: IngestionCompatibility[];
+};
+
+export type IngestionCompatibility = {
+  source_kind: string;
+  extraction: string;
+  optional_tools: string[];
+  model_requirements: string[];
+  notes: string;
 };
 
 export type IngestionFinding = {

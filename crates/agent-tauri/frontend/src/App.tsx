@@ -2261,7 +2261,7 @@ export default function App() {
 
     if (prompt.startsWith("/guide ")) {
       const guidance = prompt.slice("/guide ".length).trim();
-      if (!lastRunId) {
+      if (!activeGuidanceRunId()) {
         appendLine("error", "Guide shortcut needs an active run.");
         return;
       }
@@ -4776,7 +4776,15 @@ export default function App() {
   }
 
   async function guideLastRun(text = input.trim(), clearComposer = true) {
-    if (!lastRunId || !text.trim()) return;
+    const runId = activeGuidanceRunId();
+    if (!runId) {
+      appendLine("error", "Guide needs an active run.");
+      return;
+    }
+    if (!text.trim()) {
+      appendLine("error", "Guide needs guidance text.");
+      return;
+    }
     const guidance = text.trim();
     if (clearComposer) {
       setInput("");
@@ -4784,17 +4792,21 @@ export default function App() {
     try {
       if (transport === "daemon") {
         await daemonJson("/guide", {
-          run_id: lastRunId,
+          run_id: runId,
           text: guidance,
         });
       } else {
-        await invoke("guide", { runId: lastRunId, text: guidance });
+        await invoke("guide", { runId, text: guidance });
       }
-      appendEvent(`Guidance recorded for ${lastRunId}`);
+      appendEvent(`Guidance recorded for ${runId}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Guide failed: ${msg}`);
     }
+  }
+
+  function activeGuidanceRunId() {
+    return running ? rootRunIdRef.current : null;
   }
 
   async function scoreLastRun(scoreOverride?: number, targetOverride?: string) {
@@ -7369,6 +7381,7 @@ export default function App() {
   }
 
   const conversationStats = conversationTreeStats(conversationTree);
+  const canGuideRun = Boolean(activeGuidanceRunId() && input.trim());
 
   return (
     <div className="app-shell">
@@ -7651,7 +7664,8 @@ export default function App() {
             <button
               type="button"
               onClick={() => void guideLastRun()}
-              disabled={!lastRunId || !input.trim()}
+              disabled={!canGuideRun}
+              title="Guide the active run"
             >
               Guide
             </button>

@@ -56,7 +56,7 @@ use agent_tools::{
 use agent_tracing::{
     EventId, EventStore, RunEvent, RunEventKind, RunId, SqliteEventStore, build_resume_plan,
     build_trace_tree, hook_remediation_plan, is_terminal_run_event, latest_event_id,
-    summarize_trace, validate_guidance_content, validate_quality_score,
+    quality_score_records, summarize_trace, validate_guidance_content, validate_quality_score,
 };
 use base64::{Engine, engine::general_purpose};
 use hmac::{Hmac, Mac};
@@ -453,6 +453,16 @@ async fn route(
         }
         _ if request.method == "GET"
             && request.path.starts_with("/trace/")
+            && request.path.ends_with("/scores") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/trace/")
+                .trim_end_matches("/scores");
+            trace_scores(id).map(|value| (200, value))
+        }
+        _ if request.method == "GET"
+            && request.path.starts_with("/trace/")
             && request.path.ends_with("/tree") =>
         {
             let id = request
@@ -684,6 +694,7 @@ async fn route(
                     "GET /trace/<run_id>/summary",
                     "GET /trace/<run_id>/tree",
                     "GET /trace/<run_id>/hooks",
+                    "GET /trace/<run_id>/scores",
                     "POST /run",
                     "POST /run/start",
                     "GET /run/status/<run_id>",
@@ -3250,6 +3261,12 @@ fn trace_hooks(id: &str) -> anyhow::Result<serde_json::Value> {
     let run_id = RunId(uuid::Uuid::parse_str(id)?);
     let events = open_event_store()?.try_events(run_id)?;
     Ok(serde_json::to_value(hook_remediation_plan(&events))?)
+}
+
+fn trace_scores(id: &str) -> anyhow::Result<serde_json::Value> {
+    let run_id = RunId(uuid::Uuid::parse_str(id)?);
+    let events = open_event_store()?.try_events(run_id)?;
+    Ok(serde_json::to_value(quality_score_records(&events))?)
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -6460,6 +6477,45 @@ mod tests {
         assert_eq!(plan[0]["hook_id"], "guard");
         assert_eq!(plan[0]["final_failure"], true);
         assert!(plan[0]["suggested_actions"].as_array().unwrap().len() >= 2);
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn trace_scores_returns_bookmarkable_records() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("trace-scores");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+        let run_id = RunId::new();
+        let store = open_event_store().unwrap();
+        let started = store.append(
+            run_id,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "agent".into(),
+                input: "hello".into(),
+            },
+        );
+        let scored = store.append(
+            run_id,
+            Some(started.id),
+            RunEventKind::QualityScored {
+                target: "last_answer".into(),
+                score: 8.5,
+            },
+        );
+
+        let records = trace_scores(&run_id.0.to_string()).unwrap();
+
+        assert_eq!(records[0]["run_id"], run_id.0.to_string());
+        assert_eq!(records[0]["event_id"], scored.id.0);
+        assert_eq!(records[0]["parent_event"], started.id.0);
+        assert_eq!(records[0]["target"], "last_answer");
+        assert_eq!(records[0]["score"], 8.5);
 
         restore_env("AGENT_HARNESS_HOME", previous_home);
         let _ = std::fs::remove_dir_all(dir);

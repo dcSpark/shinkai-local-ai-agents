@@ -67,6 +67,16 @@ pub struct ResumePlan {
     pub prompt: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct QualityScoreRecord {
+    pub run_id: RunId,
+    pub event_id: EventId,
+    pub parent_event: Option<EventId>,
+    pub at: chrono::DateTime<chrono::Utc>,
+    pub target: String,
+    pub score: f32,
+}
+
 /// Subset of `RunEventKind` from `specs/architecture.md` §4.7. The enum is
 /// append-only; older serialized traces continue to deserialize as variants
 /// gain optional fields or new variants are added.
@@ -283,6 +293,23 @@ pub fn validate_guidance_content(content: &str) -> Result<String, TraceValidatio
 
 pub fn latest_event_id(events: &[RunEvent]) -> Option<EventId> {
     events.last().map(|event| event.id)
+}
+
+pub fn quality_score_records(events: &[RunEvent]) -> Vec<QualityScoreRecord> {
+    events
+        .iter()
+        .filter_map(|event| match &event.kind {
+            RunEventKind::QualityScored { target, score } => Some(QualityScoreRecord {
+                run_id: event.run_id,
+                event_id: event.id,
+                parent_event: event.parent_event,
+                at: event.at,
+                target: target.clone(),
+                score: *score,
+            }),
+            _ => None,
+        })
+        .collect()
 }
 
 pub fn build_resume_plan(
@@ -1776,6 +1803,37 @@ mod tests {
         assert_eq!(summary.quality_score_average, Some(8.0));
         assert_eq!(summary.quality_score_min, Some(8.0));
         assert_eq!(summary.quality_score_max, Some(8.0));
+    }
+
+    #[test]
+    fn quality_score_records_include_bookmarkable_event_ids() {
+        let run = RunId::new();
+        let store = InMemoryEventStore::new();
+        let parent = store.append(
+            run,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "agent".into(),
+                input: "hello".into(),
+            },
+        );
+        let score = store.append(
+            run,
+            Some(parent.id),
+            RunEventKind::QualityScored {
+                target: "range:important".into(),
+                score: 9.0,
+            },
+        );
+
+        let records = quality_score_records(&store.events(run));
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].run_id, run);
+        assert_eq!(records[0].event_id, score.id);
+        assert_eq!(records[0].parent_event, Some(parent.id));
+        assert_eq!(records[0].target, "range:important");
+        assert_eq!(records[0].score, 9.0);
     }
 
     #[test]

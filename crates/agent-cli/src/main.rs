@@ -542,6 +542,15 @@ enum TraceCommand {
         #[arg(long)]
         json: bool,
     },
+    /// List quality score records for a persisted run id.
+    Scores {
+        /// Run UUID printed by `agent run`.
+        run_id: String,
+
+        /// Emit JSON score records with event ids.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2360,6 +2369,8 @@ enum RemoteCommand {
     },
     /// Show daemon hook remediation plan.
     TraceHooks { run_id: String },
+    /// Show daemon quality score records.
+    TraceScores { run_id: String },
     /// Remote approval operations.
     Approval {
         #[command(subcommand)]
@@ -3194,6 +3205,38 @@ mod cli_parse_tests {
         };
         assert_eq!(run_id, "00000000-0000-0000-0000-000000000000");
         assert!(json);
+    }
+
+    #[test]
+    fn trace_scores_command_parses() {
+        let cli = parse_cli([
+            "agent",
+            "trace",
+            "scores",
+            "00000000-0000-0000-0000-000000000000",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Trace {
+            command: TraceCommand::Scores { run_id, json },
+        } = into_command(cli)
+        else {
+            panic!("expected trace scores command");
+        };
+        assert_eq!(run_id, "00000000-0000-0000-0000-000000000000");
+        assert!(json);
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "trace-scores",
+            "00000000-0000-0000-0000-000000000000",
+        ])
+        .unwrap();
+        let RemoteCommand::TraceScores { run_id } = into_remote_command(cli) else {
+            panic!("expected remote trace scores command");
+        };
+        assert_eq!(run_id, "00000000-0000-0000-0000-000000000000");
     }
 
     #[test]
@@ -5062,6 +5105,9 @@ async fn main() -> anyhow::Result<()> {
         Command::Trace {
             command: TraceCommand::Hooks { run_id, json },
         } => headless::trace_hooks(run_id, json).await,
+        Command::Trace {
+            command: TraceCommand::Scores { run_id, json },
+        } => headless::trace_scores(run_id, json).await,
         Command::Hooks { command } => match command {
             HookCommand::List { agent, json } => headless::hooks_list(agent, json).await,
             HookCommand::Available { agent, json } => headless::hooks_available(agent, json).await,
@@ -5919,6 +5965,9 @@ async fn main() -> anyhow::Result<()> {
                 headless::remote_trace_tree(url, run_id, json).await
             }
             RemoteCommand::TraceHooks { run_id } => headless::remote_trace_hooks(url, run_id).await,
+            RemoteCommand::TraceScores { run_id } => {
+                headless::remote_trace_scores(url, run_id).await
+            }
             RemoteCommand::Approval { command } => match command {
                 RemoteApprovalCommand::List { run_id } => {
                     headless::remote_approval_list(url, run_id).await

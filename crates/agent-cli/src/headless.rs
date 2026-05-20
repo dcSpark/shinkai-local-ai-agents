@@ -59,8 +59,8 @@ use agent_tools::{
 use agent_tracing::{
     EventId, EventStore, RunEvent, RunEventKind, RunId, SqliteEventStore, TraceSummary,
     TraceTreeNode, build_resume_plan, build_trace_tree, hook_remediation_plan,
-    is_terminal_run_event, latest_event_id, summarize_trace, validate_guidance_content,
-    validate_quality_score,
+    is_terminal_run_event, latest_event_id, quality_score_records, summarize_trace,
+    validate_guidance_content, validate_quality_score,
 };
 
 use crate::{Demo, Provider, setup};
@@ -1148,6 +1148,22 @@ pub async fn hooks_set_disabled(
     Ok(())
 }
 
+pub async fn trace_scores(run_id: String, json: bool) -> anyhow::Result<()> {
+    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
+    let store = open_event_store()?;
+    let events = store.try_events(run_id)?;
+    let records = quality_score_records(&events);
+    if json {
+        println!("{}", serde_json::to_string_pretty(&records)?);
+    } else if records.is_empty() {
+        println!("No quality scores found for run {}", run_id.0);
+    } else {
+        println!("quality scores for {}", run_id.0);
+        print_quality_scores(&records);
+    }
+    Ok(())
+}
+
 fn print_trace_summary(summary: &TraceSummary) {
     println!("trace {}", summary.run_id.0);
     println!("events: {}", summary.events);
@@ -1175,6 +1191,20 @@ fn print_trace_summary(summary: &TraceSummary) {
     println!("artifact refs: {}", summary.artifact_refs);
     println!("hooks: {}", summary.hooks);
     println!("hook failures: {}", summary.hook_failures);
+}
+
+fn print_quality_scores(records: &[agent_tracing::QualityScoreRecord]) {
+    let average = records.iter().map(|record| record.score).sum::<f32>() / records.len() as f32;
+    println!("count: {} avg: {average:.1}/10", records.len());
+    for record in records {
+        println!(
+            "#{} {}: {:.1}/10 at {}",
+            record.event_id.0,
+            record.target,
+            record.score,
+            record.at.to_rfc3339()
+        );
+    }
 }
 
 fn print_trace_tree_node(node: &TraceTreeNode, depth: usize) {
@@ -4668,6 +4698,11 @@ pub async fn remote_trace_tree(url: String, run_id: String, json: bool) -> anyho
 pub async fn remote_trace_hooks(url: String, run_id: String) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
     print_remote(client.get_json(&format!("/trace/{run_id}/hooks"))?)
+}
+
+pub async fn remote_trace_scores(url: String, run_id: String) -> anyhow::Result<()> {
+    let client = DaemonHttpClient::new(url);
+    print_remote(client.get_json(&format!("/trace/{run_id}/scores"))?)
 }
 
 pub async fn remote_approval_list(url: String, run_id: String) -> anyhow::Result<()> {

@@ -36,6 +36,7 @@ use agent_conversations::{
     render_message_range,
 };
 use agent_core::{AgentConfig, ContextSnapshot, HarnessApi, UserInput};
+use agent_ingest::{IngestionArtifact, IngestionFindingReviewDecision, IngestionStore};
 use agent_memory::{
     MemoryRecord, MemoryStore, MemoryTarget, supported_backends as supported_memory_backends,
 };
@@ -439,6 +440,10 @@ fn handle_slash_command(
     }
     if let Some(rest) = artifacts_slash_rest(trimmed) {
         handle_artifacts_slash(app, rest);
+        return true;
+    }
+    if let Some(rest) = ingest_slash_rest(trimmed) {
+        handle_ingest_slash(app, rest);
         return true;
     }
     if let Some(rest) = models_slash_rest(trimmed) {
@@ -1639,6 +1644,14 @@ fn artifacts_slash_rest(trimmed: &str) -> Option<&str> {
     }
 }
 
+fn ingest_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/ingest" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/ingest ").map(str::trim)
+    }
+}
+
 fn models_slash_rest(trimmed: &str) -> Option<&str> {
     if trimmed == "/models" {
         Some("")
@@ -2042,6 +2055,176 @@ fn capability_draft_summary(draft: &CapabilityDraft) -> serde_json::Value {
         "provenance": draft.provenance,
         "updated_at": draft.updated_at,
         "body_preview": compact_preview(&draft.body, 240),
+    })
+}
+
+fn handle_ingest_slash(app: &mut App, rest: &str) {
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "help" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: [
+                "/ingest list",
+                "/ingest show <id>",
+                "/ingest review <id> <finding-index> <acknowledge|approve|reject> [note]",
+                "/ingest delete <id> --confirm",
+            ]
+            .join("\n"),
+        });
+        return;
+    }
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "list" => match IngestionStore::from_env().list() {
+            Ok(artifacts) => {
+                push_event(
+                    app,
+                    format!("Loaded {} ingestion artifact(s).", artifacts.len()),
+                );
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(
+                        &artifacts
+                            .iter()
+                            .map(ingestion_artifact_summary)
+                            .collect::<Vec<_>>(),
+                    )
+                    .unwrap_or_else(|_| "<unserializable ingestion list>".into()),
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Ingest list failed: {err}"),
+            }),
+        },
+        "show" => match first_ingest_arg(args, "show") {
+            Ok(id) => match IngestionStore::from_env().show(id) {
+                Ok(artifact) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&artifact)
+                        .unwrap_or_else(|_| "<unserializable ingestion artifact>".into()),
+                }),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Ingest show failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "review" => match ingest_review_args(args) {
+            Ok((id, finding, decision, note)) => {
+                match IngestionStore::from_env().review_finding(id, finding, decision, note) {
+                    Ok(artifact) => {
+                        push_event(
+                            app,
+                            format!("Reviewed ingestion finding {finding} on {}", artifact.id),
+                        );
+                        app.transcript.push(TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&artifact)
+                                .unwrap_or_else(|_| "<unserializable ingestion artifact>".into()),
+                        });
+                    }
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Ingest review failed: {err}"),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "delete" | "rm" => match ingest_delete_args(args) {
+            Ok((id, true)) => match IngestionStore::from_env().remove(id) {
+                Ok(()) => push_event(app, format!("Removed ingestion artifact {id}")),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Ingest delete failed: {err}"),
+                }),
+            },
+            Ok((id, false)) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: serde_json::to_string_pretty(&serde_json::json!({
+                    "pending_action": "delete_ingestion_artifact",
+                    "artifact_id": id,
+                    "confirm_command": format!("/ingest delete {id} --confirm"),
+                }))
+                .unwrap_or_else(|_| "<unserializable ingestion confirmation>".into()),
+            }),
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Ingest command needs list, show, review, delete, or help.".into(),
+        }),
+    }
+}
+
+fn first_ingest_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    args.split_whitespace()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("ingest {command} needs an argument"))
+}
+
+fn ingest_delete_args(args: &str) -> anyhow::Result<(&str, bool)> {
+    let mut id = None;
+    let mut confirmed = false;
+    for part in args.split_whitespace() {
+        if part == "--confirm" {
+            confirmed = true;
+        } else if id.is_none() {
+            id = Some(part);
+        } else {
+            anyhow::bail!("ingest delete accepts exactly an artifact id and optional --confirm");
+        }
+    }
+    let id = id.ok_or_else(|| anyhow::anyhow!("ingest delete needs an artifact id"))?;
+    Ok((id, confirmed))
+}
+
+fn ingest_review_args(
+    args: &str,
+) -> anyhow::Result<(&str, u32, IngestionFindingReviewDecision, Option<String>)> {
+    let mut parts = args.split_whitespace();
+    let id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("ingest review needs an artifact id"))?;
+    let finding = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("ingest review needs a finding index"))?
+        .parse::<u32>()?;
+    let decision_raw = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("ingest review needs a decision"))?;
+    let decision = IngestionFindingReviewDecision::parse(decision_raw).ok_or_else(|| {
+        anyhow::anyhow!("decision must be acknowledge, approve/allow, or reject/block")
+    })?;
+    let note = parts.collect::<Vec<_>>().join(" ");
+    let note = (!note.trim().is_empty()).then_some(note);
+    Ok((id, finding, decision, note))
+}
+
+fn ingestion_artifact_summary(artifact: &IngestionArtifact) -> serde_json::Value {
+    serde_json::json!({
+        "id": artifact.id,
+        "source": artifact.source,
+        "backend": artifact.backend,
+        "content_hash": artifact.content_hash,
+        "sections": artifact.sections.len(),
+        "findings": artifact.findings.len(),
+        "unapproved_high_risk_findings": artifact.unapproved_high_risk_finding_count(),
+        "created_at": artifact.created_at,
     })
 }
 
@@ -4077,6 +4260,9 @@ mod tests {
         assert_eq!(artifacts_slash_rest("/artifacts list"), Some("list"));
         assert_eq!(artifacts_slash_rest("/artifacts"), Some(""));
         assert_eq!(artifacts_slash_rest("/artifact"), None);
+        assert_eq!(ingest_slash_rest("/ingest list"), Some("list"));
+        assert_eq!(ingest_slash_rest("/ingest"), Some(""));
+        assert_eq!(ingest_slash_rest("/ingester"), None);
         assert_eq!(
             hooks_slash_rest("/hooks review run-1"),
             Some("review run-1")
@@ -4223,6 +4409,24 @@ mod tests {
         );
         assert!(artifact_delete_args("").is_err());
         assert!(artifact_delete_args("artifact-1 extra").is_err());
+    }
+
+    #[test]
+    fn ingest_args_parse_review_and_confirmed_delete() {
+        assert_eq!(
+            ingest_delete_args("ingest-1 --confirm").unwrap(),
+            ("ingest-1", true)
+        );
+        assert_eq!(ingest_delete_args("ingest-1").unwrap(), ("ingest-1", false));
+        let (id, finding, decision, note) =
+            ingest_review_args("ingest-1 2 approve reviewed by user").unwrap();
+        assert_eq!(id, "ingest-1");
+        assert_eq!(finding, 2);
+        assert_eq!(decision, IngestionFindingReviewDecision::Approve);
+        assert_eq!(note.as_deref(), Some("reviewed by user"));
+        assert!(ingest_delete_args("").is_err());
+        assert!(ingest_delete_args("ingest-1 extra").is_err());
+        assert!(ingest_review_args("ingest-1 0 maybe").is_err());
     }
 
     #[test]

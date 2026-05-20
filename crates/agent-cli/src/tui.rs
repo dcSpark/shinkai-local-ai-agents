@@ -3619,6 +3619,7 @@ fn handle_compact_slash(app: &mut App, rest: &str) {
                 "/compact show <id>",
                 "/compact export <id> <path>",
                 "/compact import <path>",
+                "/compact delete <id> --confirm",
                 "/compact status",
                 "/compact dismiss",
             ]
@@ -3706,6 +3707,33 @@ fn handle_compact_slash(app: &mut App, rest: &str) {
                 text: err.to_string(),
             }),
         },
+        "delete" | "rm" => match compact_delete_args(args) {
+            Ok((id, confirmed)) => {
+                if !confirmed {
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&serde_json::json!({
+                            "pending_action": "delete_compaction",
+                            "compaction_id": id,
+                            "confirm_command": format!("/compact delete {id} --confirm"),
+                        }))
+                        .unwrap_or_else(|_| "<unserializable compaction confirmation>".into()),
+                    });
+                    return;
+                }
+                match CompactionStore::from_env().remove(id) {
+                    Ok(()) => push_event(app, format!("Deleted compaction {id}.")),
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Compact delete failed: {err}"),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
         "status" => {
             let text = app
                 .pending_auto_compaction_run
@@ -3720,8 +3748,7 @@ fn handle_compact_slash(app: &mut App, rest: &str) {
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
             text:
-                "Compact command needs keep, list, show, export, import, status, dismiss, or help."
-                    .into(),
+                "Compact command needs keep, list, show, export, import, delete, status, dismiss, or help.".into(),
         }),
     }
 }
@@ -3755,6 +3782,22 @@ fn compact_export_args(args: &str) -> anyhow::Result<(&str, &str)> {
         anyhow::bail!("compact export accepts exactly a compaction id and path");
     }
     Ok((id, path))
+}
+
+fn compact_delete_args(args: &str) -> anyhow::Result<(&str, bool)> {
+    let mut id = None;
+    let mut confirmed = false;
+    for part in args.split_whitespace() {
+        if part == "--confirm" {
+            confirmed = true;
+        } else if id.is_none() {
+            id = Some(part);
+        } else {
+            anyhow::bail!("compact delete accepts exactly a compaction id and optional --confirm");
+        }
+    }
+    let id = id.ok_or_else(|| anyhow::anyhow!("compact delete needs a compaction id"))?;
+    Ok((id, confirmed))
 }
 
 fn compaction_record_summary(record: &CompactionRecord) -> serde_json::Value {
@@ -5114,6 +5157,16 @@ mod tests {
         assert!(compact_export_args("compact-1 ./compact.json extra").is_err());
         assert!(compact_path_arg("", "import").is_err());
         assert!(compact_path_arg("./compact.json extra", "import").is_err());
+        assert_eq!(
+            compact_delete_args("compact-1 --confirm").unwrap(),
+            ("compact-1", true)
+        );
+        assert_eq!(
+            compact_delete_args("compact-1").unwrap(),
+            ("compact-1", false)
+        );
+        assert!(compact_delete_args("").is_err());
+        assert!(compact_delete_args("compact-1 compact-2").is_err());
     }
 
     #[test]

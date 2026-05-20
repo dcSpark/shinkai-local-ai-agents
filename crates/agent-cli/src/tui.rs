@@ -28,6 +28,7 @@ use tokio::task::AbortHandle;
 use tokio::time::MissedTickBehavior;
 
 use agent_adapters::{AdapterRegistry, NormalizedPackage};
+use agent_capabilities::{CapabilityDraft, CapabilityDraftStore};
 use agent_compaction::{CompactionRecord, CompactionStore};
 use agent_config::{ConfigResolver, configured_model_providers};
 use agent_conversations::{
@@ -426,6 +427,10 @@ fn handle_slash_command(
     }
     if let Some(rest) = memory_slash_rest(trimmed) {
         handle_memory_slash(app, rest);
+        return true;
+    }
+    if let Some(rest) = capabilities_slash_rest(trimmed) {
+        handle_capabilities_slash(app, rest);
         return true;
     }
     if let Some(rest) = models_slash_rest(trimmed) {
@@ -1610,6 +1615,14 @@ fn memory_slash_rest(trimmed: &str) -> Option<&str> {
     }
 }
 
+fn capabilities_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/capabilities" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/capabilities ").map(str::trim)
+    }
+}
+
 fn models_slash_rest(trimmed: &str) -> Option<&str> {
     if trimmed == "/models" {
         Some("")
@@ -1800,6 +1813,152 @@ fn memory_record_summary(record: &MemoryRecord) -> serde_json::Value {
         "classification": record.classification,
         "updated_at": record.updated_at,
         "content_preview": compact_preview(&record.content, 240),
+    })
+}
+
+fn handle_capabilities_slash(app: &mut App, rest: &str) {
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "help" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: [
+                "/capabilities list",
+                "/capabilities show <id>",
+                "/capabilities export <id> <path>",
+                "/capabilities import <path>",
+            ]
+            .join("\n"),
+        });
+        return;
+    }
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "list" => match CapabilityDraftStore::from_env().list() {
+            Ok(drafts) => {
+                push_event(app, format!("Loaded {} capability draft(s).", drafts.len()));
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(
+                        &drafts
+                            .iter()
+                            .map(capability_draft_summary)
+                            .collect::<Vec<_>>(),
+                    )
+                    .unwrap_or_else(|_| "<unserializable capability draft list>".into()),
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Capability list failed: {err}"),
+            }),
+        },
+        "show" => match first_capability_arg(args, "show") {
+            Ok(id) => match CapabilityDraftStore::from_env().show(id) {
+                Ok(draft) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&draft)
+                        .unwrap_or_else(|_| "<unserializable capability draft>".into()),
+                }),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Capability show failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "export" => match capability_export_args(args) {
+            Ok((id, path)) => match CapabilityDraftStore::from_env().export(id, path) {
+                Ok(draft) => push_event(
+                    app,
+                    format!("Exported capability draft {} to {path}", draft.id),
+                ),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Capability export failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "import" => match capability_path_arg(args, "import") {
+            Ok(path) => match CapabilityDraftStore::from_env().import(path) {
+                Ok(draft) => {
+                    push_event(
+                        app,
+                        format!("Imported quarantined capability draft {}", draft.id),
+                    );
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&draft)
+                            .unwrap_or_else(|_| "<unserializable capability draft>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Capability import failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Capabilities command needs list, show, export, import, or help.".into(),
+        }),
+    }
+}
+
+fn first_capability_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    args.split_whitespace()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("capabilities {command} needs an argument"))
+}
+
+fn capability_path_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    let mut parts = args.split_whitespace();
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("capabilities {command} needs a path"))?;
+    if parts.next().is_some() {
+        anyhow::bail!("capabilities {command} accepts exactly one path");
+    }
+    Ok(path)
+}
+
+fn capability_export_args(args: &str) -> anyhow::Result<(&str, &str)> {
+    let mut parts = args.split_whitespace();
+    let id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("capabilities export needs a draft id"))?;
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("capabilities export needs a path"))?;
+    if parts.next().is_some() {
+        anyhow::bail!("capabilities export accepts exactly a draft id and path");
+    }
+    Ok((id, path))
+}
+
+fn capability_draft_summary(draft: &CapabilityDraft) -> serde_json::Value {
+    serde_json::json!({
+        "id": draft.id,
+        "kind": draft.kind,
+        "name": draft.name,
+        "status": draft.status,
+        "created_by": draft.created_by,
+        "provenance": draft.provenance,
+        "updated_at": draft.updated_at,
+        "body_preview": compact_preview(&draft.body, 240),
     })
 }
 
@@ -3682,6 +3841,9 @@ mod tests {
         assert_eq!(memory_slash_rest("/memory list"), Some("list"));
         assert_eq!(memory_slash_rest("/memory"), Some(""));
         assert_eq!(memory_slash_rest("/memories"), None);
+        assert_eq!(capabilities_slash_rest("/capabilities list"), Some("list"));
+        assert_eq!(capabilities_slash_rest("/capabilities"), Some(""));
+        assert_eq!(capabilities_slash_rest("/capability"), None);
         assert_eq!(
             hooks_slash_rest("/hooks review run-1"),
             Some("review run-1")
@@ -3788,6 +3950,22 @@ mod tests {
         );
         assert!(memory_path_args("", "export").is_err());
         assert!(memory_path_args("./memory.md extra", "export").is_err());
+    }
+
+    #[test]
+    fn capability_args_require_expected_id_and_path() {
+        assert_eq!(
+            capability_export_args("draft-1 ./draft.json").unwrap(),
+            ("draft-1", "./draft.json")
+        );
+        assert_eq!(
+            capability_path_arg("./draft.json", "import").unwrap(),
+            "./draft.json"
+        );
+        assert!(capability_export_args("draft-1").is_err());
+        assert!(capability_export_args("draft-1 ./draft.json extra").is_err());
+        assert!(capability_path_arg("", "import").is_err());
+        assert!(capability_path_arg("./draft.json extra", "import").is_err());
     }
 
     #[test]

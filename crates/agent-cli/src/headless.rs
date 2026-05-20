@@ -7165,6 +7165,59 @@ mod slash_tests {
     }
 
     #[test]
+    fn capability_review_allow_promotes_subagent_alias_into_agent_config() {
+        let dir = std::env::temp_dir().join(format!(
+            "capability-review-subagent-config-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+        std::fs::create_dir_all(&dir).unwrap();
+        let import_path = dir.join("draft-subagent.json");
+        std::fs::write(
+            &import_path,
+            serde_json::to_string_pretty(&serde_json::json!({
+                "id": "draft-research-subagent",
+                "kind": "subagent",
+                "name": "Research Subagent",
+                "body": "Research carefully and cite sources.",
+                "guidance": "Promote this as a reusable child agent.",
+                "created_by": "agent",
+                "provenance": "test:capability",
+                "status": "allowed",
+                "created_at": "2026-05-20T00:00:00Z",
+                "updated_at": "2026-05-20T00:00:00Z"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let imported = CapabilityDraftStore::from_env()
+            .import(&import_path)
+            .unwrap();
+        assert_eq!(imported.kind, CapabilityKind::Agent);
+        assert_eq!(imported.status, CapabilityDraftStatus::Quarantined);
+
+        let outcome =
+            capability_review_outcome("draft-research-subagent", CapabilityDraftStatus::Allowed)
+                .unwrap();
+
+        assert_eq!(outcome.draft.status, CapabilityDraftStatus::Allowed);
+        assert!(outcome.value.get("promoted_agent").is_some());
+        let saved = ConfigResolver::from_env()
+            .show_agent_config("capability-draft-research-subagent")
+            .unwrap()
+            .expect("allowed subagent alias draft should save an agent config");
+        assert_eq!(saved.name, "Research Subagent");
+        assert_eq!(saved.system_prompt, "Research carefully and cite sources.");
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn memory_access_report_includes_local_and_profile_granted_records() {
         let dir =
             std::env::temp_dir().join(format!("memory-access-report-test-{}", std::process::id()));

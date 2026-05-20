@@ -272,11 +272,22 @@ impl CompactionStore {
     }
 
     fn write(&self, record: &CompactionRecord) -> Result<(), CompactionError> {
+        self.write_with_quota(record, None)
+    }
+
+    fn write_with_quota(
+        &self,
+        record: &CompactionRecord,
+        quota_bytes: Option<u64>,
+    ) -> Result<(), CompactionError> {
         let path = self.path_for(&record.id);
         let body = serde_json::to_string_pretty(record)?;
-        self.paths
-            .ensure_quota_for_path_write(&path, u64::try_from(body.len()).unwrap_or(u64::MAX))?;
-        std::fs::write(path, body)?;
+        if let Some(quota_bytes) = quota_bytes {
+            self.paths
+                .write_quota_checked_with_quota(path, body.as_bytes(), Some(quota_bytes))?;
+        } else {
+            self.paths.write_quota_checked(path, body.as_bytes())?;
+        }
         Ok(())
     }
 
@@ -525,6 +536,34 @@ mod tests {
                 .to_string()
                 .contains("invalid")
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn compaction_write_rejects_records_over_storage_quota() {
+        let dir = std::env::temp_dir().join(format!("compaction-quota-test-{}", uuid_like()));
+        let store = CompactionStore::new(StoragePaths::new(&dir));
+        let record = CompactionRecord {
+            id: "compact-large".into(),
+            content: "x".repeat(512),
+            guidance: None,
+            conversation_id: None,
+            source: "test".into(),
+            max_output_tokens: 128,
+            original_input_hash: hash_text("large"),
+            original_input_excerpt: "large".into(),
+            created_at: Utc::now(),
+        };
+
+        let err = store
+            .write_with_quota(&record, Some(32))
+            .expect_err("compaction writes should respect storage quota");
+
+        assert!(matches!(
+            err,
+            CompactionError::Storage(StorageError::QuotaExceeded { .. })
+        ));
+        assert!(!store.path_for(&record.id).exists());
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -3539,6 +3539,7 @@ pub struct McpServerSpec {
     pub command: Option<String>,
     pub args: Vec<String>,
     pub env: HashMap<String, String>,
+    pub headers: HashMap<String, String>,
     pub cwd: Option<PathBuf>,
     pub url: Option<String>,
     pub permissions: ToolPermissions,
@@ -3583,7 +3584,12 @@ impl McpServerTool {
                     "timeout_ms": {
                         "type": "integer",
                         "minimum": 1,
-                        "description": "Optional per-call timeout for the stdio MCP exchange."
+                        "description": "Optional per-call timeout for the MCP exchange."
+                    },
+                    "headers": {
+                        "type": "object",
+                        "description": "Optional per-call HTTP headers for HTTP MCP servers. Secret-shaped keys are redacted in traces.",
+                        "additionalProperties": { "type": "string" }
                     }
                 },
                 "additionalProperties": false
@@ -3699,6 +3705,8 @@ impl McpServerTool {
             .as_deref()
             .ok_or_else(|| ToolError::Execution("MCP server has no HTTP URL".into()))?;
         let (tool_name, arguments, timeout_ms) = mcp_call_input(&input)?;
+        let mut headers = self.resolved_headers()?;
+        headers.extend(string_map(&input, "headers")?);
         let client = reqwest::Client::builder()
             .timeout(Duration::from_millis(timeout_ms))
             .build()
@@ -3706,6 +3714,7 @@ impl McpServerTool {
         let _ = post_json_rpc_http(
             &client,
             url,
+            &headers,
             json!({
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -3724,6 +3733,7 @@ impl McpServerTool {
         let response = post_json_rpc_http(
             &client,
             url,
+            &headers,
             json!({
                 "jsonrpc": "2.0",
                 "id": 2,
@@ -3736,6 +3746,14 @@ impl McpServerTool {
         )
         .await?;
         Ok(response.get("result").cloned().unwrap_or(response))
+    }
+
+    fn resolved_headers(&self) -> Result<Vec<(String, String)>, ToolError> {
+        self.spec
+            .headers
+            .iter()
+            .map(|(key, value)| Ok((key.clone(), self.resolve_env_value(value)?)))
+            .collect()
     }
 
     fn resolve_env_value(&self, value: &str) -> Result<String, ToolError> {
@@ -3785,11 +3803,14 @@ fn mcp_call_input(input: &Value) -> Result<(String, Value, u64), ToolError> {
 async fn post_json_rpc_http(
     client: &reqwest::Client,
     url: &str,
+    headers: &[(String, String)],
     body: Value,
 ) -> Result<Value, ToolError> {
-    let response = client
-        .post(url)
-        .json(&body)
+    let mut request = client.post(url).json(&body);
+    for (key, value) in headers {
+        request = request.header(key.as_str(), value.as_str());
+    }
+    let response = request
         .send()
         .await
         .map_err(|e| ToolError::Execution(format!("HTTP MCP request failed: {e}")))?;
@@ -4594,11 +4615,23 @@ fn mcp_specs_from_package(package: &NormalizedPackage) -> Result<Vec<McpServerSp
                     .collect::<HashMap<_, _>>()
             })
             .unwrap_or_default();
+        let headers = server
+            .get("headers")
+            .and_then(Value::as_object)
+            .map(|headers| {
+                headers
+                    .iter()
+                    .filter_map(|(key, value)| {
+                        value.as_str().map(|value| (key.clone(), value.to_string()))
+                    })
+                    .collect::<HashMap<_, _>>()
+            })
+            .unwrap_or_default();
         let cwd = server.get("cwd").and_then(Value::as_str).map(PathBuf::from);
         let permissions = ToolPermissions {
             shell: command.is_some(),
             network: url.is_some(),
-            secrets: !env.is_empty(),
+            secrets: !env.is_empty() || !headers.is_empty(),
             file_read: server_text_has_file_marker(server, "read"),
             file_write: server_text_has_file_marker(server, "write")
                 || server_text_has_file_marker(server, "edit"),
@@ -4622,6 +4655,7 @@ fn mcp_specs_from_package(package: &NormalizedPackage) -> Result<Vec<McpServerSp
             command,
             args,
             env,
+            headers,
             cwd,
             url,
             permissions,
@@ -5413,6 +5447,7 @@ done
             command: Some("/bin/sh".into()),
             args: vec![script.display().to_string()],
             env: HashMap::new(),
+            headers: HashMap::new(),
             cwd: None,
             url: None,
             permissions: ToolPermissions {
@@ -5473,6 +5508,7 @@ done
                 command: Some("/bin/sh".into()),
                 args: vec![script.display().to_string()],
                 env: HashMap::from([("SECRET_VALUE".into(), handle.to_string())]),
+                headers: HashMap::new(),
                 cwd: None,
                 url: None,
                 permissions: ToolPermissions {
@@ -5526,6 +5562,7 @@ done
             command: None,
             args: Vec::new(),
             env: HashMap::new(),
+            headers: HashMap::new(),
             cwd: None,
             url: Some(format!("http://{addr}/mcp")),
             permissions: ToolPermissions {
@@ -5545,6 +5582,77 @@ done
 
         assert_eq!(output["content"][0]["text"], "ok");
         server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn mcp_http_tool_sends_manifest_headers_and_secret_handles() {
+        let dir = temp_dir("mcp-http-headers");
+        let secret_store = Arc::new(FileSecretStore::new(dir.join("secrets.json")));
+        let handle = secret_store
+            .set(
+                SecretId::new("mcp.http_auth").unwrap(),
+                SecretValue::new("Bearer resolved-token"),
+                None,
+            )
+            .unwrap();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            for id in [1, 2] {
+                let (mut stream, _) = listener.accept().unwrap();
+                let request = read_http_request(&mut stream);
+                let lower = request.to_ascii_lowercase();
+                assert!(lower.contains("authorization: bearer resolved-token"));
+                assert!(lower.contains("x-mcp-client: shinkai-test"));
+                let body = request.split_once("\r\n\r\n").unwrap().1;
+                let body: Value = serde_json::from_str(body).unwrap();
+                if id == 1 {
+                    assert_eq!(body["method"], "initialize");
+                    write_http_json(&mut stream, r#"{"jsonrpc":"2.0","id":1,"result":{}}"#);
+                } else {
+                    assert_eq!(body["method"], "tools/call");
+                    write_http_json(
+                        &mut stream,
+                        r#"{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"secret ok"}]}}"#,
+                    );
+                }
+            }
+        });
+        let tool = McpServerTool::new_with_secret_store(
+            McpServerSpec {
+                id: ToolId::from("mcp-http-secret"),
+                name: "MCP: http secret".into(),
+                description: "HTTP MCP server with auth headers".into(),
+                command: None,
+                args: Vec::new(),
+                env: HashMap::new(),
+                headers: HashMap::from([
+                    ("Authorization".into(), handle.to_string()),
+                    ("X-MCP-Client".into(), "shinkai-test".into()),
+                ]),
+                cwd: None,
+                url: Some(format!("http://{addr}/mcp")),
+                permissions: ToolPermissions {
+                    network: true,
+                    secrets: true,
+                    ..ToolPermissions::default()
+                },
+            },
+            secret_store,
+        );
+
+        let output = tool
+            .execute(json!({
+                "tool_name": "search",
+                "arguments": {},
+                "timeout_ms": 5_000
+            }))
+            .await
+            .unwrap();
+
+        assert_eq!(output["content"][0]["text"], "secret ok");
+        server.join().unwrap();
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]

@@ -1224,6 +1224,9 @@ fn mcp_capability_runtime(server: &serde_json::Value) -> Option<NormalizedRuntim
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    if let Some(headers) = server.get("headers").and_then(serde_json::Value::as_object) {
+        env_keys.extend(headers.keys().filter_map(|name| clean_secret_name(name)));
+    }
     env_keys.sort();
     env_keys.dedup();
     Some(NormalizedRuntime {
@@ -1471,16 +1474,25 @@ fn mcp_secret_requirements(text: &str) -> Vec<SecretRequirement> {
 
     let mut requirements = Vec::new();
     for (server_name, server) in servers {
-        let Some(env) = server.get("env").and_then(serde_json::Value::as_object) else {
-            continue;
-        };
-        for name in env.keys().filter_map(|name| clean_secret_name(name)) {
-            requirements.push(SecretRequirement {
-                name,
-                source: format!("mcp:{server_name}"),
-                description: Some("MCP server environment variable".into()),
-                required: None,
-            });
+        if let Some(env) = server.get("env").and_then(serde_json::Value::as_object) {
+            for name in env.keys().filter_map(|name| clean_secret_name(name)) {
+                requirements.push(SecretRequirement {
+                    name,
+                    source: format!("mcp:{server_name}"),
+                    description: Some("MCP server environment variable".into()),
+                    required: None,
+                });
+            }
+        }
+        if let Some(headers) = server.get("headers").and_then(serde_json::Value::as_object) {
+            for name in headers.keys().filter_map(|name| clean_secret_name(name)) {
+                requirements.push(SecretRequirement {
+                    name,
+                    source: format!("mcp:{server_name}"),
+                    description: Some("MCP HTTP header".into()),
+                    required: None,
+                });
+            }
         }
     }
     requirements
@@ -2453,7 +2465,10 @@ mod tests {
                   "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
                   "env": { "API_KEY": "from-env" }
                 },
-                "search": { "url": "https://example.invalid/mcp" }
+                "search": {
+                  "url": "https://example.invalid/mcp",
+                  "headers": { "Authorization": "secret://mcp.search_auth" }
+                }
               }
             }"#,
         )
@@ -2504,18 +2519,26 @@ mod tests {
             search_runtime.endpoint.as_deref(),
             Some("https://example.invalid/mcp")
         );
+        assert_eq!(search_runtime.env_keys, vec!["Authorization".to_string()]);
         assert!(package.permissions.shell);
         assert!(package.permissions.network);
         assert!(package.permissions.secrets);
         assert!(package.permissions.file_read);
-        assert_eq!(package.secret_requirements.len(), 1);
-        assert_eq!(package.secret_requirements[0].name, "API_KEY");
-        assert_eq!(package.secret_requirements[0].source, "mcp:filesystem");
-        assert!(
-            !serde_json::to_string(&package.secret_requirements)
-                .unwrap()
-                .contains("from-env")
-        );
+        assert_eq!(package.secret_requirements.len(), 2);
+        assert!(package.secret_requirements.iter().any(|requirement| {
+            requirement.name == "API_KEY"
+                && requirement.source == "mcp:filesystem"
+                && requirement.description.as_deref() == Some("MCP server environment variable")
+        }));
+        assert!(package.secret_requirements.iter().any(|requirement| {
+            requirement.name == "Authorization"
+                && requirement.source == "mcp:search"
+                && requirement.description.as_deref() == Some("MCP HTTP header")
+        }));
+        let package_json = serde_json::to_string(&package).unwrap();
+        assert!(!package_json.contains("from-env"));
+        assert!(!package_json.contains("mcp.search_auth"));
+        assert!(!package_json.contains("secret://"));
         assert!(!package.findings.is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }

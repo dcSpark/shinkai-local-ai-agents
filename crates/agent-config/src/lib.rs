@@ -2529,7 +2529,7 @@ fn read_model_metadata_catalog(
     source: String,
 ) -> Result<LoadedModelMetadataCatalog, ConfigError> {
     let catalog: ModelMetadataCatalog = serde_json::from_str(&std::fs::read_to_string(path)?)?;
-    validate_model_metadata_catalog(&catalog)?;
+    let catalog = normalize_model_metadata_catalog(catalog)?;
     Ok(LoadedModelMetadataCatalog { source, catalog })
 }
 
@@ -2540,25 +2540,50 @@ fn validate_model_metadata_catalog(catalog: &ModelMetadataCatalog) -> Result<(),
             catalog.schema_version
         )));
     }
+    let mut keys = BTreeSet::new();
     for model in &catalog.models {
-        if model.provider.trim().is_empty() {
+        let Some(provider) = normalized_provider(Some(&model.provider)) else {
             return Err(ConfigError::InvalidInput(
                 "model metadata catalog entries require provider".into(),
             ));
-        }
-        if model.model_id.trim().is_empty() {
+        };
+        let model_id = model.model_id.trim();
+        if model_id.is_empty() {
             return Err(ConfigError::InvalidInput(
                 "model metadata catalog entries require model_id".into(),
             ));
+        }
+        if !keys.insert((provider.clone(), model_id.to_string())) {
+            return Err(ConfigError::InvalidInput(format!(
+                "duplicate model metadata catalog entry: {provider}/{model_id}"
+            )));
         }
     }
     Ok(())
 }
 
+fn normalize_model_metadata_catalog(
+    mut catalog: ModelMetadataCatalog,
+) -> Result<ModelMetadataCatalog, ConfigError> {
+    validate_model_metadata_catalog(&catalog)?;
+    for model in &mut catalog.models {
+        model.provider = normalized_provider(Some(&model.provider)).ok_or_else(|| {
+            ConfigError::InvalidInput("model metadata catalog entries require provider".into())
+        })?;
+        model.model_id = model.model_id.trim().to_string();
+    }
+    catalog.models.sort_by(|a, b| {
+        a.provider
+            .cmp(&b.provider)
+            .then_with(|| a.model_id.cmp(&b.model_id))
+    });
+    Ok(catalog)
+}
+
 fn bundled_model_metadata_catalog() -> Option<LoadedModelMetadataCatalog> {
     let catalog: ModelMetadataCatalog =
         serde_json::from_str(BUNDLED_MODEL_METADATA_CATALOG_JSON).ok()?;
-    validate_model_metadata_catalog(&catalog).ok()?;
+    let catalog = normalize_model_metadata_catalog(catalog).ok()?;
     Some(LoadedModelMetadataCatalog {
         source: "bundled:agent-config/model_metadata_catalog.json".into(),
         catalog,
@@ -6370,6 +6395,62 @@ system_prompt = "Review carefully."
             .unwrap();
         assert!(support.supported);
         assert!(support.source.starts_with("model_metadata_catalog:"));
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn model_metadata_catalog_normalizes_provider_aliases_and_rejects_duplicates() {
+        let dir = std::env::temp_dir().join(format!(
+            "agent-metadata-catalog-normalize-test-{}",
+            uuid_like()
+        ));
+        let import_path = dir.join("incoming-metadata-catalog.json");
+        let duplicate_path = dir.join("duplicate-metadata-catalog.json");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            &import_path,
+            r#"{
+              "schema_version": 1,
+              "source": "portable-metadata-alias-test",
+              "models": [
+                {
+                  "provider": "OpenAI",
+                  "model_id": " gpt-test ",
+                  "modalities": ["text"]
+                }
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        let resolver = ConfigResolver::new(StoragePaths::new(&dir));
+        let imported = resolver
+            .import_model_metadata_catalog(&import_path)
+            .unwrap();
+
+        assert_eq!(imported.models[0].provider, "rig");
+        assert_eq!(imported.models[0].model_id, "gpt-test");
+
+        std::fs::write(
+            &duplicate_path,
+            r#"{
+              "schema_version": 1,
+              "models": [
+                { "provider": "OpenAI", "model_id": "gpt-test" },
+                { "provider": "rig", "model_id": "gpt-test" }
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        let err = resolver
+            .import_model_metadata_catalog(&duplicate_path)
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("duplicate model metadata catalog entry: rig/gpt-test")
+        );
 
         let _ = std::fs::remove_dir_all(dir);
     }

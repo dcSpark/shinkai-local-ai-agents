@@ -230,6 +230,11 @@ export type AgentToolOverrideConfig = {
   visibility?: ToolVisibility | null;
 };
 
+export type AgentSkillOverrideConfig = {
+  id: string;
+  visibility: ToolVisibility;
+};
+
 export type AgentConfigFile = {
   id: string;
   name: string;
@@ -239,7 +244,9 @@ export type AgentConfigFile = {
   prompt_refinement?: unknown | null;
   prompt_refinements?: unknown[];
   tool_overrides?: AgentToolOverrideConfig[];
+  skill_overrides?: AgentSkillOverrideConfig[];
   tool_visibility?: ToolVisibility | null;
+  skill_visibility?: ToolVisibility | null;
   load_memory?: boolean | null;
   load_skills?: boolean | null;
   allowed_tools?: string[] | null;

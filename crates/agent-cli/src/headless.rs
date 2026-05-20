@@ -19,9 +19,10 @@ use agent_capabilities::{
 };
 use agent_compaction::{CompactionRecord, CompactionStore};
 use agent_config::{
-    AgentConfigFile, AgentPromptRefinementConfig, AgentToolOutputOverrideConfig, ConfigResolver,
-    IngestionGuardrailMode, ModelConfig, ModelProviderOptionTarget, ModelRuntimeConfig,
-    ProfileGrant, ProfileGrantKind, configured_model_providers,
+    AgentConfigFile, AgentPromptRefinementConfig, AgentSkillVisibilityOverrideConfig,
+    AgentToolOutputOverrideConfig, ConfigResolver, IngestionGuardrailMode, ModelConfig,
+    ModelProviderOptionTarget, ModelRuntimeConfig, ProfileGrant, ProfileGrantKind,
+    configured_model_providers,
 };
 use agent_conversations::{
     ConversationPolicy, ConversationRole, ConversationStore, ConversationTreeNode,
@@ -2899,6 +2900,8 @@ pub async fn agent_save(
     approval_controller_allowed_tools: Vec<String>,
     approval_controller_allowed_tool_categories: Vec<String>,
     allowed_skill_categories: Vec<String>,
+    skill_visibility_overrides: Vec<String>,
+    skill_visibility: Option<VisibilityLevel>,
     tool_output_mode: Option<ToolOutputMode>,
     tool_output_interpretation_model: Option<String>,
     tool_output_overrides: Vec<String>,
@@ -2933,6 +2936,8 @@ pub async fn agent_save(
         approval_controller_allowed_tools,
         approval_controller_allowed_tool_categories,
         allowed_skill_categories,
+        skill_visibility_overrides,
+        skill_visibility,
         tool_output_mode,
         tool_output_interpretation_model,
         tool_output_overrides,
@@ -3010,6 +3015,8 @@ fn agent_config_from_parts(
     approval_controller_allowed_tools: Vec<String>,
     approval_controller_allowed_tool_categories: Vec<String>,
     allowed_skill_categories: Vec<String>,
+    skill_visibility_overrides: Vec<String>,
+    skill_visibility: Option<VisibilityLevel>,
     tool_output_mode: Option<ToolOutputMode>,
     tool_output_interpretation_model: Option<String>,
     tool_output_overrides: Vec<String>,
@@ -3035,6 +3042,7 @@ fn agent_config_from_parts(
         tool_guidance_overrides,
         tool_visibility_overrides,
     )?;
+    let skill_overrides = parse_skill_visibility_overrides(skill_visibility_overrides)?;
     let approval_controller_allowed_tool_categories =
         (!approval_controller_allowed_tool_categories.is_empty())
             .then_some(approval_controller_allowed_tool_categories);
@@ -3045,6 +3053,7 @@ fn agent_config_from_parts(
         prompt_refinement,
         prompt_refinements: Vec::new(),
         tool_overrides,
+        skill_overrides,
         voice: None,
         model,
         max_tool_calls,
@@ -3063,6 +3072,7 @@ fn agent_config_from_parts(
         tool_output_mode,
         tool_output_interpretation_model,
         tool_visibility,
+        skill_visibility,
         load_memory: load_memory.then_some(true),
         load_skills: load_skills.then_some(true),
         max_tokens_before_compaction,
@@ -3201,6 +3211,33 @@ fn parse_tool_visibility_override(spec: &str) -> anyhow::Result<(String, Visibil
         ),
     };
     Ok((tool_id, visibility))
+}
+
+fn parse_skill_visibility_overrides(
+    specs: Vec<String>,
+) -> anyhow::Result<Vec<AgentSkillVisibilityOverrideConfig>> {
+    let mut overrides = BTreeMap::<String, VisibilityLevel>::new();
+    for spec in specs {
+        let (skill_id, visibility) = parse_skill_visibility_override(&spec)?;
+        overrides.insert(skill_id, visibility);
+    }
+    Ok(overrides
+        .into_iter()
+        .map(|(id, visibility)| AgentSkillVisibilityOverrideConfig { id, visibility })
+        .collect())
+}
+
+fn parse_skill_visibility_override(spec: &str) -> anyhow::Result<(String, VisibilityLevel)> {
+    let (skill_id, value) = parse_tool_override_pair(spec, "--skill-visibility-override")?;
+    let visibility = match value {
+        "full-schema" | "full_schema" => VisibilityLevel::FullSchema,
+        "name-and-description" | "name_and_description" => VisibilityLevel::NameAndDescription,
+        "name-only" | "name_only" => VisibilityLevel::NameOnly,
+        _ => anyhow::bail!(
+            "--skill-visibility-override expects SKILL=full-schema, SKILL=name-and-description, or SKILL=name-only, got {spec:?}"
+        ),
+    };
+    Ok((skill_id, visibility))
 }
 
 fn parse_tool_override_pair<'a>(spec: &'a str, flag: &str) -> anyhow::Result<(String, &'a str)> {
@@ -5110,6 +5147,8 @@ pub async fn remote_agent_save(
     approval_controller_allowed_tools: Vec<String>,
     approval_controller_allowed_tool_categories: Vec<String>,
     allowed_skill_categories: Vec<String>,
+    skill_visibility_overrides: Vec<String>,
+    skill_visibility: Option<VisibilityLevel>,
     tool_output_mode: Option<ToolOutputMode>,
     tool_output_interpretation_model: Option<String>,
     tool_output_overrides: Vec<String>,
@@ -5144,6 +5183,8 @@ pub async fn remote_agent_save(
         approval_controller_allowed_tools,
         approval_controller_allowed_tool_categories,
         allowed_skill_categories,
+        skill_visibility_overrides,
+        skill_visibility,
         tool_output_mode,
         tool_output_interpretation_model,
         tool_output_overrides,
@@ -6373,6 +6414,8 @@ mod slash_tests {
             Vec::new(),
             Vec::new(),
             Vec::new(),
+            Vec::new(),
+            None,
             None,
             None,
             Vec::new(),
@@ -6416,6 +6459,8 @@ mod slash_tests {
             Vec::new(),
             Vec::new(),
             Vec::new(),
+            Vec::new(),
+            None,
             None,
             None,
             Vec::new(),
@@ -6440,6 +6485,58 @@ mod slash_tests {
         assert_eq!(
             agent.tool_overrides[0].visibility,
             Some(VisibilityLevel::NameAndDescription)
+        );
+    }
+
+    #[test]
+    fn agent_config_from_parts_preserves_skill_visibility_policy() {
+        let agent = agent_config_from_parts(
+            "critic".into(),
+            None,
+            "Review carefully.".into(),
+            Some("fake-model".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+            None,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            vec!["review=name_only".into()],
+            Some(VisibilityLevel::NameAndDescription),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            None,
+            false,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(
+            agent.skill_visibility,
+            Some(VisibilityLevel::NameAndDescription)
+        );
+        assert_eq!(agent.skill_overrides.len(), 1);
+        assert_eq!(agent.skill_overrides[0].id, "review");
+        assert_eq!(
+            agent.skill_overrides[0].visibility,
+            VisibilityLevel::NameOnly
         );
     }
 

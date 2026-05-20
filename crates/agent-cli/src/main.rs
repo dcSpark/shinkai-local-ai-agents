@@ -928,6 +928,12 @@ enum AgentCommand {
         /// Restrict loaded skills to one category/pack. Repeat for multiple categories.
         #[arg(long = "allow-skill-category")]
         allowed_skill_categories: Vec<String>,
+        /// Override one skill's visibility, as SKILL=full-schema, SKILL=name-and-description, or SKILL=name-only. Repeat for multiple skills.
+        #[arg(long = "skill-visibility-override")]
+        skill_visibility_overrides: Vec<String>,
+        /// How much skill detail is shown to the model.
+        #[arg(long, value_enum)]
+        skill_visibility: Option<ToolVisibility>,
         /// Whether tool outputs are interpreted by the LLM or returned raw.
         #[arg(long, value_enum)]
         tool_output_mode: Option<ToolOutputModeArg>,
@@ -2755,6 +2761,10 @@ enum RemoteAgentCommand {
         approval_controller_allowed_tool_categories: Vec<String>,
         #[arg(long = "allow-skill-category")]
         allowed_skill_categories: Vec<String>,
+        #[arg(long = "skill-visibility-override")]
+        skill_visibility_overrides: Vec<String>,
+        #[arg(long, value_enum)]
+        skill_visibility: Option<ToolVisibility>,
         #[arg(long, value_enum)]
         tool_output_mode: Option<ToolOutputModeArg>,
         #[arg(long = "tool-output-interpretation-model")]
@@ -3325,6 +3335,12 @@ mod cli_parse_tests {
             "shell",
             "--approval-controller-tool-category",
             "sensitive",
+            "--allow-skill-category",
+            "review",
+            "--skill-visibility-override",
+            "review=name-only",
+            "--skill-visibility",
+            "name-and-description",
             "--tool-output-mode",
             "raw",
             "--tool-output-interpretation-model",
@@ -3366,6 +3382,9 @@ mod cli_parse_tests {
                     max_subagent_depth,
                     max_recursion_depth,
                     allowed_tools,
+                    allowed_skill_categories,
+                    skill_visibility_overrides,
+                    skill_visibility,
                     approval_controller_agent,
                     approval_controller_allowed_tools,
                     approval_controller_allowed_tool_categories,
@@ -3400,6 +3419,12 @@ mod cli_parse_tests {
         assert_eq!(max_subagent_depth, Some(2));
         assert_eq!(max_recursion_depth, Some(1));
         assert_eq!(allowed_tools, vec!["echo"]);
+        assert_eq!(allowed_skill_categories, vec!["review"]);
+        assert_eq!(skill_visibility_overrides, vec!["review=name-only"]);
+        assert!(matches!(
+            skill_visibility,
+            Some(ToolVisibility::NameAndDescription)
+        ));
         assert_eq!(
             approval_controller_agent.as_deref(),
             Some("safety-controller")
@@ -3466,6 +3491,12 @@ mod cli_parse_tests {
             "safety-controller",
             "--approval-controller-tool",
             "shell",
+            "--allow-skill-category",
+            "review",
+            "--skill-visibility-override",
+            "review=full-schema",
+            "--skill-visibility",
+            "name-only",
             "--tool-output-override",
             "echo=interpreted",
             "--tool-interpretation-model",
@@ -3493,6 +3524,9 @@ mod cli_parse_tests {
                     max_subagent_depth,
                     max_recursion_depth,
                     allowed_tools,
+                    allowed_skill_categories,
+                    skill_visibility_overrides,
+                    skill_visibility,
                     approval_controller_agent,
                     approval_controller_allowed_tools,
                     tool_output_overrides,
@@ -3517,6 +3551,9 @@ mod cli_parse_tests {
         assert_eq!(max_subagent_depth, Some(2));
         assert_eq!(max_recursion_depth, Some(1));
         assert_eq!(allowed_tools, vec!["echo"]);
+        assert_eq!(allowed_skill_categories, vec!["review"]);
+        assert_eq!(skill_visibility_overrides, vec!["review=full-schema"]);
+        assert!(matches!(skill_visibility, Some(ToolVisibility::NameOnly)));
         assert_eq!(
             approval_controller_agent.as_deref(),
             Some("safety-controller")
@@ -5413,6 +5450,8 @@ async fn main() -> anyhow::Result<()> {
                 approval_controller_allowed_tools,
                 approval_controller_allowed_tool_categories,
                 allowed_skill_categories,
+                skill_visibility_overrides,
+                skill_visibility,
                 tool_output_mode,
                 tool_output_interpretation_model,
                 tool_output_overrides,
@@ -5447,6 +5486,8 @@ async fn main() -> anyhow::Result<()> {
                     approval_controller_allowed_tools,
                     approval_controller_allowed_tool_categories,
                     allowed_skill_categories,
+                    skill_visibility_overrides,
+                    skill_visibility.map(VisibilityLevel::from),
                     tool_output_mode.map(ToolOutputMode::from),
                     tool_output_interpretation_model,
                     tool_output_overrides,
@@ -6155,6 +6196,8 @@ async fn main() -> anyhow::Result<()> {
                     approval_controller_allowed_tools,
                     approval_controller_allowed_tool_categories,
                     allowed_skill_categories,
+                    skill_visibility_overrides,
+                    skill_visibility,
                     tool_output_mode,
                     tool_output_interpretation_model,
                     tool_output_overrides,
@@ -6190,6 +6233,8 @@ async fn main() -> anyhow::Result<()> {
                         approval_controller_allowed_tools,
                         approval_controller_allowed_tool_categories,
                         allowed_skill_categories,
+                        skill_visibility_overrides,
+                        skill_visibility.map(VisibilityLevel::from),
                         tool_output_mode.map(ToolOutputMode::from),
                         tool_output_interpretation_model,
                         tool_output_overrides,

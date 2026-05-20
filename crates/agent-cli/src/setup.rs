@@ -4,7 +4,10 @@
 //! Real model providers, configurable agents, and a config-file-driven setup
 //! land later.
 
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use agent_adapters::AdapterRegistry;
 use agent_capabilities::CapabilityDraftTool;
@@ -338,6 +341,8 @@ pub fn build_agent(options: &RuntimeOptions) -> AgentConfig {
             memory_fragments: Vec::new(),
             ingestion_artifacts: Vec::new(),
             allowed_skill_categories: Vec::new(),
+            skill_visibility: VisibilityLevel::FullSchema,
+            skill_visibility_overrides: HashMap::new(),
             skill_views: Vec::new(),
             subagent_configs: Vec::new(),
         });
@@ -432,14 +437,12 @@ pub fn build_agent(options: &RuntimeOptions) -> AgentConfig {
     {
         agent.memory_fragments = memory;
     }
+    if let Some(visibility) = options.skill_visibility {
+        agent.skill_visibility = visibility;
+    }
     if (options.load_skills || config_load_skills)
-        && let Ok(mut skills) = load_skill_views_with_profile_grants()
+        && let Ok(skills) = load_skill_views_with_profile_grants()
     {
-        if let Some(visibility) = options.skill_visibility {
-            for skill in &mut skills {
-                apply_skill_visibility(skill, visibility);
-            }
-        }
         agent.skill_views = skills;
     }
     if !options.include_ingest.is_empty() {
@@ -770,22 +773,6 @@ fn skill_view_matches_grant(skill: &SkillView, grant: &agent_config::ProfileGran
                     .any(|category| category == &grant.resource)
         }
         _ => false,
-    }
-}
-
-fn apply_skill_visibility(skill: &mut SkillView, visibility: VisibilityLevel) {
-    skill.visibility = visibility;
-    match visibility {
-        VisibilityLevel::FullSchema => {}
-        VisibilityLevel::NameAndDescription => {
-            skill.body = None;
-            skill.estimated_tokens = 0;
-        }
-        VisibilityLevel::NameOnly => {
-            skill.description = None;
-            skill.body = None;
-            skill.estimated_tokens = 0;
-        }
     }
 }
 
@@ -1256,13 +1243,13 @@ hooks:
             provenance: Some("test".into()),
         };
 
-        apply_skill_visibility(&mut skill, VisibilityLevel::NameAndDescription);
+        agent_core::apply_skill_visibility(&mut skill, VisibilityLevel::NameAndDescription);
         assert_eq!(skill.visibility, VisibilityLevel::NameAndDescription);
         assert!(skill.body.is_none());
         assert_eq!(skill.description.as_deref(), Some("Review description"));
         assert_eq!(skill.estimated_tokens, 0);
 
-        apply_skill_visibility(&mut skill, VisibilityLevel::NameOnly);
+        agent_core::apply_skill_visibility(&mut skill, VisibilityLevel::NameOnly);
         assert_eq!(skill.visibility, VisibilityLevel::NameOnly);
         assert!(skill.body.is_none());
         assert!(skill.description.is_none());

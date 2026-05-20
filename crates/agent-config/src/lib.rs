@@ -84,6 +84,8 @@ struct PolicyLayerToml {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tool_visibility: Option<VisibilityLevel>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    skill_visibility: Option<VisibilityLevel>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     load_memory: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     load_skills: Option<bool>,
@@ -144,6 +146,8 @@ struct AgentToml {
     prompt_refinements: Vec<AgentPromptRefinementConfig>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     tool_overrides: Vec<AgentToolOutputOverrideConfig>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    skill_overrides: Vec<AgentSkillVisibilityOverrideConfig>,
     #[serde(flatten)]
     policy: PolicyLayerToml,
 }
@@ -172,6 +176,12 @@ pub struct AgentToolOutputOverrideConfig {
     pub output_interpretation_guidance: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub visibility: Option<VisibilityLevel>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentSkillVisibilityOverrideConfig {
+    pub id: String,
+    pub visibility: VisibilityLevel,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -209,6 +219,8 @@ pub struct AgentConfigFile {
     pub prompt_refinements: Vec<AgentPromptRefinementConfig>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tool_overrides: Vec<AgentToolOutputOverrideConfig>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skill_overrides: Vec<AgentSkillVisibilityOverrideConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub voice: Option<VoiceConfigFile>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -239,6 +251,8 @@ pub struct AgentConfigFile {
     pub tool_output_interpretation_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_visibility: Option<VisibilityLevel>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_visibility: Option<VisibilityLevel>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub load_memory: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1065,6 +1079,7 @@ impl Default for AgentToml {
             prompt_refinement: None,
             prompt_refinements: Vec::new(),
             tool_overrides: Vec::new(),
+            skill_overrides: Vec::new(),
             policy: PolicyLayerToml {
                 model: Some("fake-model".into()),
                 voice: None,
@@ -1081,6 +1096,7 @@ impl Default for AgentToml {
                 tool_output_mode: Some(default_tool_output_mode()),
                 tool_output_interpretation_model: None,
                 tool_visibility: Some(default_tool_visibility()),
+                skill_visibility: Some(default_skill_visibility()),
                 load_memory: None,
                 load_skills: None,
                 max_tokens_before_compaction: None,
@@ -1104,6 +1120,7 @@ impl From<AgentToml> for AgentConfigFile {
             prompt_refinement: value.prompt_refinement,
             prompt_refinements: value.prompt_refinements,
             tool_overrides: value.tool_overrides,
+            skill_overrides: value.skill_overrides,
             voice: value.policy.voice,
             model: value.policy.model,
             max_tool_calls: value.policy.max_tool_calls,
@@ -1121,6 +1138,7 @@ impl From<AgentToml> for AgentConfigFile {
             tool_output_mode: value.policy.tool_output_mode,
             tool_output_interpretation_model: value.policy.tool_output_interpretation_model,
             tool_visibility: value.policy.tool_visibility,
+            skill_visibility: value.policy.skill_visibility,
             load_memory: value.policy.load_memory,
             load_skills: value.policy.load_skills,
             max_tokens_before_compaction: value.policy.max_tokens_before_compaction,
@@ -1143,6 +1161,7 @@ impl From<AgentConfigFile> for AgentToml {
             prompt_refinement: value.prompt_refinement,
             prompt_refinements: value.prompt_refinements,
             tool_overrides: value.tool_overrides,
+            skill_overrides: value.skill_overrides,
             policy: PolicyLayerToml {
                 model: value.model,
                 voice: value.voice,
@@ -1160,6 +1179,7 @@ impl From<AgentConfigFile> for AgentToml {
                 tool_output_mode: value.tool_output_mode,
                 tool_output_interpretation_model: value.tool_output_interpretation_model,
                 tool_visibility: value.tool_visibility,
+                skill_visibility: value.skill_visibility,
                 load_memory: value.load_memory,
                 load_skills: value.load_skills,
                 max_tokens_before_compaction: value.max_tokens_before_compaction,
@@ -1185,6 +1205,10 @@ fn default_tool_output_mode() -> ToolOutputMode {
 }
 
 fn default_tool_visibility() -> VisibilityLevel {
+    VisibilityLevel::FullSchema
+}
+
+fn default_skill_visibility() -> VisibilityLevel {
     VisibilityLevel::FullSchema
 }
 
@@ -3602,6 +3626,15 @@ fn resolve_agent(
             (parsed.policy.tool_visibility, source.clone()),
         ],
     );
+    let skill_visibility = resolve_layered(
+        default_skill_visibility(),
+        "default:agent-core SkillView::visibility".into(),
+        vec![
+            (global.policy.skill_visibility, global_source.clone()),
+            (profile.policy.skill_visibility, profile_source.clone()),
+            (parsed.policy.skill_visibility, source.clone()),
+        ],
+    );
     let load_memory = resolve_layered(
         false,
         "default:memory loading off".into(),
@@ -3956,6 +3989,7 @@ fn resolve_agent(
         per_tool_output_interpretation_model_overrides(&parsed.tool_overrides);
     let per_tool_output_guidance = per_tool_output_guidance_overrides(&parsed.tool_overrides);
     let per_tool_visibility = per_tool_visibility_overrides(&parsed.tool_overrides);
+    let skill_visibility_overrides = skill_visibility_override_map(&parsed.skill_overrides);
 
     let agent = AgentConfig {
         id: parsed.id.clone(),
@@ -4027,6 +4061,11 @@ fn resolve_agent(
         memory_fragments: Vec::new(),
         ingestion_artifacts: Vec::new(),
         allowed_skill_categories: allowed_skill_categories.value.clone(),
+        skill_visibility: skill_visibility.value,
+        skill_visibility_overrides: skill_visibility_overrides
+            .iter()
+            .map(|(skill_id, visibility)| (skill_id.clone(), *visibility))
+            .collect::<HashMap<_, _>>(),
         skill_views: Vec::new(),
         subagent_configs: Vec::new(),
     };
@@ -4161,6 +4200,16 @@ fn resolve_agent(
             "agent.skill_policy.allowed_categories",
             allowed_skill_categories.value,
             &allowed_skill_categories.source,
+        ),
+        config_value(
+            "agent.skill_policy.visibility",
+            skill_visibility.value,
+            &skill_visibility.source,
+        ),
+        config_value(
+            "agent.skill_policy.visibility_overrides",
+            skill_visibility_overrides,
+            &source,
         ),
         config_value(
             "agent.hook_policy.disabled_lifecycle_hooks",
@@ -4423,6 +4472,21 @@ fn per_tool_visibility_overrides(
             override_config
                 .visibility
                 .map(|visibility| (override_config.id.trim().to_string(), visibility))
+        })
+        .filter(|(id, _)| !id.is_empty())
+        .collect()
+}
+
+fn skill_visibility_override_map(
+    overrides: &[AgentSkillVisibilityOverrideConfig],
+) -> BTreeMap<String, VisibilityLevel> {
+    overrides
+        .iter()
+        .map(|override_config| {
+            (
+                override_config.id.trim().to_string(),
+                override_config.visibility,
+            )
         })
         .filter(|(id, _)| !id.is_empty())
         .collect()
@@ -4748,6 +4812,9 @@ fn validate_agent_config(agent: &AgentConfigFile) -> Result<(), ConfigError> {
             ));
         }
     }
+    for override_config in &agent.skill_overrides {
+        validate_resource_id(&override_config.id)?;
+    }
     Ok(())
 }
 
@@ -4955,6 +5022,10 @@ system_prompt = "Review carefully."
                 output_interpretation_guidance: Some("Return exact echo JSON.".into()),
                 visibility: Some(VisibilityLevel::FullSchema),
             }],
+            skill_overrides: vec![AgentSkillVisibilityOverrideConfig {
+                id: "review".into(),
+                visibility: VisibilityLevel::NameOnly,
+            }],
             voice: None,
             model: Some("fake-model".into()),
             max_tool_calls: Some(1),
@@ -4970,6 +5041,7 @@ system_prompt = "Review carefully."
             tool_output_mode: Some(ToolOutputMode::Raw),
             tool_output_interpretation_model: Some("general-interpreter".into()),
             tool_visibility: Some(VisibilityLevel::NameOnly),
+            skill_visibility: Some(VisibilityLevel::NameAndDescription),
             load_memory: Some(true),
             load_skills: Some(true),
             max_tokens_before_compaction: Some(256),
@@ -5009,6 +5081,14 @@ system_prompt = "Review carefully."
         assert_eq!(
             resolved.agent.allowed_skill_categories,
             vec!["review".to_string()]
+        );
+        assert_eq!(
+            resolved.agent.skill_visibility,
+            VisibilityLevel::NameAndDescription
+        );
+        assert_eq!(
+            resolved.agent.skill_visibility_overrides.get("review"),
+            Some(&VisibilityLevel::NameOnly)
         );
         assert!(resolved.values.iter().any(|value| {
             value.key == "agent.hook_policy.disabled_lifecycle_hooks"
@@ -5065,6 +5145,14 @@ system_prompt = "Review carefully."
                 .iter()
                 .any(|value| value.key == "agent.skill_policy.load" && value.value == true)
         );
+        assert!(resolved.values.iter().any(|value| {
+            value.key == "agent.skill_policy.visibility"
+                && value.value == serde_json::json!("name_and_description")
+        }));
+        assert!(resolved.values.iter().any(|value| {
+            value.key == "agent.skill_policy.visibility_overrides"
+                && value.value == serde_json::json!({"review": "name_only"})
+        }));
         assert!(resolved.values.iter().any(|value| {
             value.key == "agent.ingestion_policy.guardrail_mode" && value.value == "warn"
         }));

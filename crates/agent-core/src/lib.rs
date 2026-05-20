@@ -532,6 +532,8 @@ pub struct AgentConfig {
     pub memory_fragments: Vec<MemoryFragment>,
     pub ingestion_artifacts: Vec<IngestedArtifactView>,
     pub allowed_skill_categories: Vec<String>,
+    pub skill_visibility: VisibilityLevel,
+    pub skill_visibility_overrides: HashMap<String, VisibilityLevel>,
     pub skill_views: Vec<SkillView>,
     pub subagent_configs: Vec<AgentConfig>,
 }
@@ -676,6 +678,31 @@ pub enum VisibilityLevel {
     FullSchema,
     NameAndDescription,
     NameOnly,
+}
+
+impl AgentConfig {
+    pub fn skill_visibility_for(&self, skill: &SkillView) -> VisibilityLevel {
+        self.skill_visibility_overrides
+            .get(&skill.id)
+            .copied()
+            .unwrap_or(self.skill_visibility)
+    }
+}
+
+pub fn apply_skill_visibility(skill: &mut SkillView, visibility: VisibilityLevel) {
+    skill.visibility = visibility;
+    match visibility {
+        VisibilityLevel::FullSchema => {}
+        VisibilityLevel::NameAndDescription => {
+            skill.body = None;
+            skill.estimated_tokens = 0;
+        }
+        VisibilityLevel::NameOnly => {
+            skill.description = None;
+            skill.body = None;
+            skill.estimated_tokens = 0;
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2708,7 +2735,12 @@ impl ContextBuilder<'_> {
                         .iter()
                         .any(|category| self.agent.allowed_skill_categories.contains(category))
             })
-            .cloned()
+            .map(|skill| {
+                let mut skill = skill.clone();
+                let visibility = self.agent.skill_visibility_for(&skill);
+                apply_skill_visibility(&mut skill, visibility);
+                skill
+            })
             .collect();
 
         let mut system_prompt = format!(
@@ -4253,6 +4285,11 @@ impl HarnessApi for Harness {
             .iter()
             .map(|(tool_id, guidance)| (tool_id.0.clone(), guidance.clone()))
             .collect();
+        let skill_visibility_overrides: BTreeMap<String, VisibilityLevel> = agent
+            .skill_visibility_overrides
+            .iter()
+            .map(|(skill_id, visibility)| (skill_id.clone(), *visibility))
+            .collect();
         let approval_controller = agent.tool_policy.approval_controller.as_ref().map(|policy| {
             json!({
                 "agent_id": policy.agent_id.clone(),
@@ -4329,6 +4366,16 @@ impl HarnessApi for Harness {
                     key: "agent.skill_policy.allowed_categories".into(),
                     value: serde_json::to_value(&agent.allowed_skill_categories)
                         .unwrap_or(Value::Null),
+                    source: "agent/default".into(),
+                },
+                ConfigValueExplanation {
+                    key: "agent.skill_policy.visibility".into(),
+                    value: serde_json::to_value(agent.skill_visibility).unwrap_or(Value::Null),
+                    source: "agent/default".into(),
+                },
+                ConfigValueExplanation {
+                    key: "agent.skill_policy.visibility_overrides".into(),
+                    value: serde_json::to_value(skill_visibility_overrides).unwrap_or(Value::Null),
                     source: "agent/default".into(),
                 },
                 ConfigValueExplanation {
@@ -4465,6 +4512,8 @@ mod tests {
             memory_fragments: Vec::new(),
             ingestion_artifacts: Vec::new(),
             allowed_skill_categories: Vec::new(),
+            skill_visibility: VisibilityLevel::FullSchema,
+            skill_visibility_overrides: HashMap::new(),
             skill_views: Vec::new(),
             subagent_configs: Vec::new(),
         }
@@ -5753,6 +5802,62 @@ JSON
                 .collect::<Vec<_>>(),
             vec!["review"]
         );
+        assert!(snapshot.system_prompt.contains("Use the review checklist."));
+        assert!(!snapshot.system_prompt.contains("Write clearly."));
+    }
+
+    #[test]
+    fn per_skill_visibility_overrides_global_skill_visibility() {
+        let mut agent = agent_with_tools(vec![], 5);
+        agent.skill_visibility = VisibilityLevel::NameOnly;
+        agent
+            .skill_visibility_overrides
+            .insert("review".into(), VisibilityLevel::FullSchema);
+        agent.skill_views = vec![
+            SkillView {
+                id: "review".into(),
+                name: "Review".into(),
+                description: Some("Review skill".into()),
+                categories: vec!["review".into()],
+                body: Some("Use the review checklist.".into()),
+                estimated_tokens: 6,
+                visibility: VisibilityLevel::FullSchema,
+                provenance: Some("test".into()),
+            },
+            SkillView {
+                id: "writing".into(),
+                name: "Writing".into(),
+                description: Some("Writing skill".into()),
+                categories: vec!["writing".into()],
+                body: Some("Write clearly.".into()),
+                estimated_tokens: 4,
+                visibility: VisibilityLevel::FullSchema,
+                provenance: Some("test".into()),
+            },
+        ];
+        let h = Harness::new(
+            Arc::new(FakeProvider::echo()),
+            Arc::new(InMemoryEventStore::new()),
+            registry_with_echo(),
+        );
+
+        let snapshot = h.preview_context(&agent, UserInput { text: "go".into() });
+        let review = snapshot
+            .visible_skills
+            .iter()
+            .find(|skill| skill.id == "review")
+            .expect("review skill should be visible");
+        let writing = snapshot
+            .visible_skills
+            .iter()
+            .find(|skill| skill.id == "writing")
+            .expect("writing skill should be visible");
+
+        assert_eq!(review.visibility, VisibilityLevel::FullSchema);
+        assert_eq!(review.body.as_deref(), Some("Use the review checklist."));
+        assert_eq!(writing.visibility, VisibilityLevel::NameOnly);
+        assert!(writing.description.is_none());
+        assert!(writing.body.is_none());
         assert!(snapshot.system_prompt.contains("Use the review checklist."));
         assert!(!snapshot.system_prompt.contains("Write clearly."));
     }

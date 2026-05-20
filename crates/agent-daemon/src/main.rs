@@ -5604,6 +5604,8 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
             memory_fragments: Vec::new(),
             ingestion_artifacts: Vec::new(),
             allowed_skill_categories: Vec::new(),
+            skill_visibility: VisibilityLevel::FullSchema,
+            skill_visibility_overrides: HashMap::new(),
             skill_views: Vec::new(),
             subagent_configs: Vec::new(),
         });
@@ -5703,14 +5705,12 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
     {
         agent.memory_fragments = memory;
     }
+    if let Some(visibility) = options.skill_visibility {
+        agent.skill_visibility = visibility;
+    }
     if (options.load_skills || config_load_skills)
-        && let Ok(mut skills) = load_skill_views_with_profile_grants()
+        && let Ok(skills) = load_skill_views_with_profile_grants()
     {
-        if let Some(visibility) = options.skill_visibility {
-            for skill in &mut skills {
-                apply_skill_visibility(skill, visibility);
-            }
-        }
         agent.skill_views = skills;
     }
     if !options.include_ingest.is_empty() {
@@ -5776,22 +5776,6 @@ fn conversation_message_to_llm(message: agent_conversations::ConversationMessage
         },
         ConversationRole::Tool => {
             Message::system(format!("Persisted tool result: {}", message.content))
-        }
-    }
-}
-
-fn apply_skill_visibility(skill: &mut SkillView, visibility: VisibilityLevel) {
-    skill.visibility = visibility;
-    match visibility {
-        VisibilityLevel::FullSchema => {}
-        VisibilityLevel::NameAndDescription => {
-            skill.body = None;
-            skill.estimated_tokens = 0;
-        }
-        VisibilityLevel::NameOnly => {
-            skill.description = None;
-            skill.body = None;
-            skill.estimated_tokens = 0;
         }
     }
 }

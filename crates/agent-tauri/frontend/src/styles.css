@@ -1416,6 +1416,15 @@ textarea:disabled {
   overflow-wrap: anywhere;
 }
 
+.conversation-tree-note-label {
+  margin-right: 0.35rem;
+  color: #8e949f;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
 .context-preview pre {
   margin: 0;
   padding: 0.55rem;

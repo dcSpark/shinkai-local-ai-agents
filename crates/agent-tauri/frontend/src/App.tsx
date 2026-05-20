@@ -8720,6 +8720,9 @@ export default function App() {
                             <span>agent {node.agent_id}</span>
                             <span>{node.own_message_count} own</span>
                             <span>{node.expanded_message_count} expanded</span>
+                            {node.branch_point !== undefined && node.branch_point !== null ? (
+                              <span>branch point {node.branch_point}</span>
+                            ) : null}
                             <span>
                               {node.children.length
                                 ? `${node.children.length} children`
@@ -8731,8 +8734,17 @@ export default function App() {
                               parent {node.parent_id}
                             </span>
                           ) : null}
+                          {node.topic_preview ? (
+                            <p>
+                              <span className="conversation-tree-note-label">topic:</span>{" "}
+                              {previewText(node.topic_preview, 180)}
+                            </p>
+                          ) : null}
                           {node.branch_reason ? (
-                            <p>{previewText(node.branch_reason, 180)}</p>
+                            <p>
+                              <span className="conversation-tree-note-label">reason:</span>{" "}
+                              {previewText(node.branch_reason, 180)}
+                            </p>
                           ) : null}
                           <div className="mini-actions">
                             <button

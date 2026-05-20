@@ -134,7 +134,11 @@ pub struct ConversationTreeNode {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch_point: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branch_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub topic_preview: Option<String>,
     pub own_message_count: usize,
     pub expanded_message_count: usize,
     #[serde(default)]
@@ -496,7 +500,12 @@ impl ConversationStore {
                 .parent
                 .as_ref()
                 .map(|parent| parent.conversation_id.clone()),
+            branch_point: doc
+                .parent
+                .as_ref()
+                .map(|parent| parent.parent_message_count),
             branch_reason: doc.branch_reason.clone(),
+            topic_preview: conversation_topic_preview(&doc.messages),
             own_message_count: doc.messages.len(),
             expanded_message_count: self.expanded(&doc.id)?.messages.len(),
             children,
@@ -566,6 +575,34 @@ fn clean_string_list(value: Option<Vec<String>>) -> Option<Vec<String>> {
     } else {
         Some(cleaned)
     }
+}
+
+fn conversation_topic_preview(messages: &[ConversationMessage]) -> Option<String> {
+    messages
+        .iter()
+        .find(|message| message.role == ConversationRole::User)
+        .or_else(|| {
+            messages
+                .iter()
+                .find(|message| message.role != ConversationRole::System)
+        })
+        .and_then(|message| compact_topic(&message.content, 160))
+}
+
+fn compact_topic(value: &str, max_chars: usize) -> Option<String> {
+    let compacted = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compacted.is_empty() {
+        return None;
+    }
+    if compacted.chars().count() <= max_chars {
+        return Some(compacted);
+    }
+    let mut out = compacted
+        .chars()
+        .take(max_chars.saturating_sub(3))
+        .collect::<String>();
+    out.push_str("...");
+    Some(out)
 }
 
 fn validate_id(id: &str) -> Result<(), ConversationError> {
@@ -660,13 +697,23 @@ mod tests {
         let branch = store
             .branch(&root.id, 1, Some("Branch".into()), None)
             .unwrap();
+        store
+            .append_message(&branch.id, ConversationRole::User, "try the scenic branch")
+            .unwrap();
         let grandchild = store
             .branch(&branch.id, 1, Some("Nested".into()), None)
             .unwrap();
 
         let tree = store.tree().unwrap();
         assert_eq!(tree.len(), 1);
+        assert_eq!(tree[0].branch_point, None);
+        assert_eq!(tree[0].topic_preview.as_deref(), Some("hello"));
         assert_eq!(tree[0].children.len(), 1);
+        assert_eq!(tree[0].children[0].branch_point, Some(1));
+        assert_eq!(
+            tree[0].children[0].topic_preview.as_deref(),
+            Some("try the scenic branch")
+        );
         assert_eq!(tree[0].children[0].children[0].id, grandchild.id);
 
         assert!(matches!(

@@ -341,7 +341,9 @@ export type ConversationTreeNode = {
   title: string;
   agent_id: string;
   parent_id?: string | null;
+  branch_point?: number | null;
   branch_reason?: string | null;
+  topic_preview?: string | null;
   own_message_count: number;
   expanded_message_count: number;
   children: ConversationTreeNode[];

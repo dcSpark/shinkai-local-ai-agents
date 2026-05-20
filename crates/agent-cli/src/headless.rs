@@ -2510,9 +2510,18 @@ fn print_conversation_tree_node(node: &ConversationTreeNode, depth: usize) {
         .as_ref()
         .map(|reason| format!(" reason={reason:?}"))
         .unwrap_or_default();
+    let topic = node
+        .topic_preview
+        .as_ref()
+        .map(|topic| format!(" topic={topic:?}"))
+        .unwrap_or_default();
+    let branch_point = node
+        .branch_point
+        .map(|point| format!(" branch_point={point}"))
+        .unwrap_or_default();
     println!(
-        "{}{} title={:?} expanded_messages={}{}",
-        indent, node.id, node.title, node.expanded_message_count, reason
+        "{}{} title={:?} expanded_messages={}{}{}{}",
+        indent, node.id, node.title, node.expanded_message_count, branch_point, topic, reason
     );
     for child in &node.children {
         print_conversation_tree_node(child, depth + 1);

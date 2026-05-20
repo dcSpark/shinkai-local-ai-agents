@@ -116,6 +116,8 @@ struct ConversationBrowserRow {
     title: String,
     agent_id: String,
     depth: usize,
+    branch_point: Option<usize>,
+    topic_preview: Option<String>,
     own_message_count: usize,
     expanded_message_count: usize,
     branch_reason: Option<String>,
@@ -1809,6 +1811,8 @@ fn push_conversation_browser_row(
         title: node.title.clone(),
         agent_id: node.agent_id.clone(),
         depth,
+        branch_point: node.branch_point,
+        topic_preview: node.topic_preview.clone(),
         own_message_count: node.own_message_count,
         expanded_message_count: node.expanded_message_count,
         branch_reason: node.branch_reason.clone(),
@@ -1838,13 +1842,24 @@ fn push_conversation_tree_node(
         .as_deref()
         .map(|reason| format!(" reason={}", compact_preview(reason, 80)))
         .unwrap_or_default();
+    let topic = node
+        .topic_preview
+        .as_deref()
+        .map(|topic| format!(" topic={}", compact_preview(topic, 80)))
+        .unwrap_or_default();
+    let branch_point = node
+        .branch_point
+        .map(|point| format!(" branch_point={point}"))
+        .unwrap_or_default();
     lines.push(format!(
-        "{indent}{marker}[{ordinal}] {} ({}) agent={} own={} expanded={}{}",
+        "{indent}{marker}[{ordinal}] {} ({}) agent={} own={} expanded={}{}{}{}",
         node.title,
         node.id,
         node.agent_id,
         node.own_message_count,
         node.expanded_message_count,
+        branch_point,
+        topic,
         reason
     ));
     for child in &node.children {
@@ -7216,6 +7231,15 @@ fn render_conversation_browser(f: &mut ratatui::Frame, area: Rect, app: &App) {
                 .as_deref()
                 .map(|reason| format!(" reason={}", compact_preview(reason, 64)))
                 .unwrap_or_default();
+            let topic = row
+                .topic_preview
+                .as_deref()
+                .map(|topic| format!(" topic={}", compact_preview(topic, 64)))
+                .unwrap_or_default();
+            let branch_point = row
+                .branch_point
+                .map(|point| format!(" branch_point={point}"))
+                .unwrap_or_default();
             let style = if selected {
                 Style::default()
                     .fg(Color::Yellow)
@@ -7225,7 +7249,7 @@ fn render_conversation_browser(f: &mut ratatui::Frame, area: Rect, app: &App) {
             };
             Line::styled(
                 format!(
-                    "{marker} {}{title} ({id}) agent={agent} own={own} expanded={expanded}{reason}",
+                    "{marker} {}{title} ({id}) agent={agent} own={own} expanded={expanded}{branch_point}{topic}{reason}",
                     indent,
                     title = row.title.as_str(),
                     id = row.id.as_str(),
@@ -8285,7 +8309,9 @@ mod tests {
             title: "Root".into(),
             agent_id: "agent-a".into(),
             parent_id: None,
+            branch_point: None,
             branch_reason: None,
+            topic_preview: Some("root topic".into()),
             own_message_count: 2,
             expanded_message_count: 2,
             children: vec![ConversationTreeNode {
@@ -8293,7 +8319,9 @@ mod tests {
                 title: "Child".into(),
                 agent_id: "agent-a".into(),
                 parent_id: Some("conv-root".into()),
+                branch_point: Some(2),
                 branch_reason: Some("try another path".into()),
+                topic_preview: Some("child topic".into()),
                 own_message_count: 1,
                 expanded_message_count: 3,
                 children: Vec::new(),
@@ -8302,7 +8330,12 @@ mod tests {
 
         let formatted = format_conversation_tree(&tree);
         assert!(formatted.contains(" [1] Root (conv-root) agent=agent-a own=2 expanded=2"));
-        assert!(formatted.contains("   [2] Child (conv-child) agent=agent-a own=1 expanded=3"));
+        assert!(
+            formatted.contains(
+                "   [2] Child (conv-child) agent=agent-a own=1 expanded=3 branch_point=2"
+            )
+        );
+        assert!(formatted.contains("topic=child topic"));
         assert!(formatted.contains("reason=try another path"));
         assert_eq!(format_conversation_tree(&[]), "no conversations");
 
@@ -8321,7 +8354,9 @@ mod tests {
             title: "Root".into(),
             agent_id: "agent-a".into(),
             parent_id: None,
+            branch_point: None,
             branch_reason: None,
+            topic_preview: Some("root topic".into()),
             own_message_count: 2,
             expanded_message_count: 2,
             children: vec![ConversationTreeNode {
@@ -8329,7 +8364,9 @@ mod tests {
                 title: "Child".into(),
                 agent_id: "agent-a".into(),
                 parent_id: Some("conv-root".into()),
+                branch_point: Some(2),
                 branch_reason: Some("try another path".into()),
+                topic_preview: Some("child topic".into()),
                 own_message_count: 1,
                 expanded_message_count: 3,
                 children: Vec::new(),
@@ -8340,6 +8377,11 @@ mod tests {
         assert_eq!(browser.selected, 1);
         assert_eq!(browser.rows[1].depth, 1);
         assert_eq!(browser.rows[1].id, "conv-child");
+        assert_eq!(browser.rows[1].branch_point, Some(2));
+        assert_eq!(
+            browser.rows[1].topic_preview.as_deref(),
+            Some("child topic")
+        );
 
         let mut app = App {
             conversation_browser: Some(browser),

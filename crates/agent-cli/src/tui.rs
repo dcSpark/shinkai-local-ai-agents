@@ -814,7 +814,7 @@ fn handle_slash_command(
         }
         return true;
     }
-    if let Some(score) = score_slash_rest(trimmed) {
+    if let Some(rest) = score_slash_rest(trimmed) {
         let Some(run_id) = app.last_run_id else {
             app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
@@ -822,7 +822,7 @@ fn handle_slash_command(
             });
             return true;
         };
-        let score = match parse_score_slash_rest(score) {
+        let score = match parse_score_slash_rest(rest) {
             Ok(score) => score,
             Err(err) => {
                 app.transcript.push(TranscriptLine {
@@ -833,18 +833,23 @@ fn handle_slash_command(
             }
         };
         match open_event_store() {
-            Ok(store) => match append_score_event(&store, run_id, "last_answer".into(), score) {
-                Ok(()) => {
-                    app.transcript.push(TranscriptLine {
-                        kind: LineKind::Event,
-                        text: format!("Score recorded for {run_id}: {score}/10"),
-                    });
+            Ok(store) => {
+                match append_score_event(&store, run_id, score.target.clone(), score.score) {
+                    Ok(()) => {
+                        app.transcript.push(TranscriptLine {
+                            kind: LineKind::Event,
+                            text: format!(
+                                "Score recorded for {run_id}: {}/10 on {}",
+                                score.score, score.target
+                            ),
+                        });
+                    }
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Score failed: {err}"),
+                    }),
                 }
-                Err(err) => app.transcript.push(TranscriptLine {
-                    kind: LineKind::Error,
-                    text: format!("Score failed: {err}"),
-                }),
-            },
+            }
             Err(err) => app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
                 text: format!("Score failed: {err}"),
@@ -6511,14 +6516,39 @@ fn forced_tool_prompt(name: &str, prompt: &str) -> String {
     }
 }
 
-fn parse_score_slash_rest(rest: &str) -> anyhow::Result<f32> {
-    let score = if rest.trim().is_empty() {
-        10.0
+#[derive(Debug, Clone, PartialEq)]
+struct ScoreSlashRequest {
+    target: String,
+    score: f32,
+}
+
+fn parse_score_slash_rest(rest: &str) -> anyhow::Result<ScoreSlashRequest> {
+    let rest = rest.trim();
+    if rest.is_empty() {
+        return Ok(ScoreSlashRequest {
+            target: "last_answer".into(),
+            score: 10.0,
+        });
+    }
+    let parts = rest.split_whitespace().collect::<Vec<_>>();
+    let first_score = parts[0].parse::<f32>().ok();
+    let (target, score) = if let Some(score) = first_score {
+        (parts[1..].join(" "), score)
     } else {
-        rest.trim().parse::<f32>()?
+        let Some((score_part, target_parts)) = parts.split_last() else {
+            anyhow::bail!("score command needs a target and/or score");
+        };
+        (target_parts.join(" "), score_part.parse::<f32>()?)
     };
     validate_quality_score(score)?;
-    Ok(score)
+    Ok(ScoreSlashRequest {
+        target: if target.trim().is_empty() {
+            "last_answer".into()
+        } else {
+            target.trim().to_string()
+        },
+        score,
+    })
 }
 
 fn append_score_event(
@@ -7472,9 +7502,36 @@ mod tests {
 
     #[test]
     fn score_slash_rejects_out_of_range_values() {
-        assert!(parse_score_slash_rest("10").is_ok());
-        assert!(parse_score_slash_rest("").is_ok());
+        assert_eq!(
+            parse_score_slash_rest("10").unwrap(),
+            ScoreSlashRequest {
+                target: "last_answer".into(),
+                score: 10.0
+            }
+        );
+        assert_eq!(
+            parse_score_slash_rest("").unwrap(),
+            ScoreSlashRequest {
+                target: "last_answer".into(),
+                score: 10.0
+            }
+        );
+        assert_eq!(
+            parse_score_slash_rest("conversation 9").unwrap(),
+            ScoreSlashRequest {
+                target: "conversation".into(),
+                score: 9.0
+            }
+        );
+        assert_eq!(
+            parse_score_slash_rest("8 range:messages:1..3").unwrap(),
+            ScoreSlashRequest {
+                target: "range:messages:1..3".into(),
+                score: 8.0
+            }
+        );
         assert!(parse_score_slash_rest("11").is_err());
+        assert!(parse_score_slash_rest("conversation").is_err());
     }
 
     #[test]

@@ -2175,6 +2175,16 @@ enum RemoteCommand {
         #[arg(long, value_enum, default_value_t = Demo::Echo)]
         demo: Demo,
     },
+    /// Start a resumed remote run asynchronously and return its run id immediately.
+    ResumeStart {
+        run_id: String,
+
+        #[arg(long)]
+        from_event: Option<u64>,
+
+        #[arg(long, value_enum, default_value_t = Demo::Echo)]
+        demo: Demo,
+    },
     /// Score a remote run output or step.
     Score {
         run_id: String,
@@ -3964,6 +3974,26 @@ mod cli_parse_tests {
         };
         assert_eq!(parsed_id, run_id);
         assert_eq!(from_event, Some(3));
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "resume-start",
+            run_id,
+            "--from-event",
+            "4",
+        ])
+        .unwrap();
+        let RemoteCommand::ResumeStart {
+            run_id: parsed_id,
+            from_event,
+            ..
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote resume-start command");
+        };
+        assert_eq!(parsed_id, run_id);
+        assert_eq!(from_event, Some(4));
     }
 
     #[test]
@@ -5288,6 +5318,11 @@ async fn main() -> anyhow::Result<()> {
                 from_event,
                 demo,
             } => headless::remote_resume(url, run_id, from_event, demo).await,
+            RemoteCommand::ResumeStart {
+                run_id,
+                from_event,
+                demo,
+            } => headless::remote_resume_start(url, run_id, from_event, demo).await,
             RemoteCommand::Score {
                 run_id,
                 score,

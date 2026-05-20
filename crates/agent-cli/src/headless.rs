@@ -4122,6 +4122,22 @@ pub async fn remote_resume(
     )?)
 }
 
+pub async fn remote_resume_start(
+    url: String,
+    run_id: String,
+    from_event: Option<u64>,
+    demo: Demo,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/resume/start",
+        serde_json::json!({
+            "run_id": run_id,
+            "from_event": from_event,
+            "demo": demo_name(demo)
+        }),
+    )?)
+}
+
 pub async fn remote_score(
     url: String,
     run_id: String,

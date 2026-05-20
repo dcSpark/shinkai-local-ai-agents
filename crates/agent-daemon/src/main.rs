@@ -178,6 +178,9 @@ async fn route(
             daemon_run_events(id, query_param_u64(query, "after")).map(|value| (200, value))
         }
         ("POST", "/resume") => daemon_resume(&request.body).await.map(|value| (200, value)),
+        ("POST", "/resume/start") => daemon_resume_start(&request.body, state)
+            .await
+            .map(|value| (200, value)),
         ("POST", "/preview-context") => {
             daemon_preview_context(&request.body).map(|value| (200, value))
         }
@@ -730,6 +733,13 @@ async fn daemon_run_start(
 ) -> anyhow::Result<serde_json::Value> {
     let input: DaemonRunInput = serde_json::from_str(body)?;
     let prepared = prepare_daemon_run(input)?;
+    start_prepared_daemon_run(prepared, state).await
+}
+
+async fn start_prepared_daemon_run(
+    prepared: PreparedDaemonRun,
+    state: Arc<DaemonState>,
+) -> anyhow::Result<serde_json::Value> {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let (started_tx, started_rx) = tokio::sync::oneshot::channel::<String>();
 
@@ -822,6 +832,54 @@ async fn daemon_resume(body: &str) -> anyhow::Result<serde_json::Value> {
         "retained_compaction": retained_compaction,
         "final_output": result.final_output,
     }))
+}
+
+async fn daemon_resume_start(
+    body: &str,
+    state: Arc<DaemonState>,
+) -> anyhow::Result<serde_json::Value> {
+    let input: DaemonResumeInput = serde_json::from_str(body)?;
+    let source_run_id = RunId(uuid::Uuid::parse_str(&input.run_id)?);
+    let events = open_event_store()?.try_events(source_run_id)?;
+    let plan = build_resume_plan(source_run_id, &events, input.from_event.map(EventId))?;
+    let mut options = input.options;
+    if options.agent_id.is_none() {
+        options.agent_id = Some(plan.agent_id.clone());
+    }
+    let retained_compaction = if options.compacted_context.is_none() {
+        stop_compaction_for_run(source_run_id)?
+    } else {
+        None
+    };
+    if let Some(compaction) = retained_compaction.as_deref() {
+        options.compacted_context = Some(CompactionStore::from_env().show(compaction)?.content);
+    }
+    let mut status = start_prepared_daemon_run(
+        prepare_daemon_run(DaemonRunInput {
+            input: plan.prompt,
+            demo: input.demo,
+            options,
+        })?,
+        state,
+    )
+    .await?;
+    let resumed_run_id = status
+        .get("run_id")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    if let Some(object) = status.as_object_mut() {
+        object.insert("source_run_id".into(), serde_json::json!(source_run_id.0));
+        object.insert("resumed_run_id".into(), resumed_run_id);
+        object.insert(
+            "from_event".into(),
+            serde_json::json!(plan.selected_event_id.0),
+        );
+        object.insert(
+            "retained_compaction".into(),
+            serde_json::json!(retained_compaction),
+        );
+    }
+    Ok(status)
 }
 
 async fn daemon_run_status(id: &str, state: Arc<DaemonState>) -> anyhow::Result<serde_json::Value> {

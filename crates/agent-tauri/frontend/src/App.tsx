@@ -4906,17 +4906,20 @@ export default function App() {
     const content = requireOpsValue("Memory create");
     if (!content) return;
     const topics = parsedMemoryTopics();
+    const ownerAgentId = agentId.trim() || null;
     try {
       const record =
         transport === "daemon"
           ? await daemonJson<MemoryRecord>("/memory", {
               content,
               user: opsUserMemory,
+              agent_id: ownerAgentId,
               topics,
             })
           : await invoke<MemoryRecord>("memory_create", {
               content,
               user: opsUserMemory,
+              agentId: ownerAgentId,
               topics,
             });
       setMemoryRecords((records) => upsertMemoryRecord(records, record));
@@ -4932,6 +4935,7 @@ export default function App() {
     if (!text) return;
     const range = memorySourceRange.trim() || null;
     const topics = parsedMemoryTopics();
+    const ownerAgentId = agentId.trim() || null;
     try {
       const records =
         transport === "daemon"
@@ -4939,12 +4943,14 @@ export default function App() {
               text,
               user: opsUserMemory,
               range,
+              agent_id: ownerAgentId,
               topics,
             })
           : await invoke<MemoryRecord[]>("memory_generate", {
               text,
               user: opsUserMemory,
               range,
+              agentId: ownerAgentId,
               topics,
             });
       setMemoryRecords((current) =>
@@ -4966,6 +4972,7 @@ export default function App() {
     const range = parseConversationRangeFromOps("Conversation memory generation");
     if (!range) return;
     const topics = parsedMemoryTopics();
+    const ownerAgentId = agentId.trim() || null;
     try {
       const records =
         transport === "daemon"
@@ -4974,6 +4981,7 @@ export default function App() {
               from: range.from,
               to: range.to,
               user: opsUserMemory,
+              agent_id: ownerAgentId,
               topics,
             })
           : await invoke<MemoryRecord[]>("memory_generate_conversation", {
@@ -4981,6 +4989,7 @@ export default function App() {
               from: range.from,
               to: range.to,
               user: opsUserMemory,
+              agentId: ownerAgentId,
               topics,
             });
       setMemoryRecords((current) =>

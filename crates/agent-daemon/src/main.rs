@@ -3614,12 +3614,14 @@ fn daemon_memory_create(body: &str) -> anyhow::Result<serde_json::Value> {
     } else {
         MemoryTarget::Agent
     };
-    let record = MemoryStore::from_env().create_with_topics(
+    let record = MemoryStore::from_env().create_for_conversation_with_topics_for_agent(
         target,
         &input.content,
         MemoryAuthor::Human,
         None,
+        None,
         input.topics,
+        input.agent_id,
     )?;
     record_memory_written(&record, "created")?;
     Ok(serde_json::to_value(record)?)
@@ -3632,11 +3634,13 @@ fn daemon_memory_generate(body: &str) -> anyhow::Result<serde_json::Value> {
     } else {
         MemoryTarget::Agent
     };
-    let records = MemoryStore::from_env().generate_from_text_with_topics(
+    let records = MemoryStore::from_env().generate_from_conversation_text_with_topics_for_agent(
         target,
         &input.text,
         input.range,
+        None,
         input.topics,
+        input.agent_id,
     )?;
     for record in &records {
         record_memory_written(record, "generated")?;
@@ -3652,13 +3656,17 @@ fn daemon_memory_generate_conversation(body: &str) -> anyhow::Result<serde_json:
         MemoryTarget::Agent
     };
     let expanded = ConversationStore::from_env().expanded(&input.id)?;
+    let owning_agent = input
+        .agent_id
+        .or_else(|| Some(expanded.conversation.agent_id.clone()));
     let rendered = render_message_range(&expanded.messages, input.from, input.to)?;
-    let records = MemoryStore::from_env().generate_from_conversation_text_with_topics(
+    let records = MemoryStore::from_env().generate_from_conversation_text_with_topics_for_agent(
         target,
         &rendered.text,
         Some(rendered.source_range),
         Some(input.id),
         input.topics,
+        owning_agent,
     )?;
     for record in &records {
         record_memory_written(record, "generated")?;
@@ -3820,12 +3828,13 @@ fn generate_pending_memories_once(
         attempted += 1;
         let text = conversation_memory_text(&expanded.messages[processed..]);
         let range = format!("messages:{processed}..{message_count}");
-        match memory_store.generate_from_conversation_text_with_topics(
+        match memory_store.generate_from_conversation_text_with_topics_for_agent(
             target,
             &text,
             Some(range.clone()),
             Some(conversation.id.clone()),
             topics.clone(),
+            Some(conversation.agent_id.clone()),
         ) {
             Ok(records) => {
                 for record in &records {
@@ -3906,7 +3915,8 @@ fn daemon_memory_import(body: &str) -> anyhow::Result<serde_json::Value> {
     } else {
         MemoryTarget::Agent
     };
-    let records = MemoryStore::from_env().import_file(&input.path, Some(target))?;
+    let records =
+        MemoryStore::from_env().import_file_for_agent(&input.path, Some(target), input.agent_id)?;
     for record in &records {
         record_memory_written(record, "imported")?;
     }
@@ -5110,6 +5120,8 @@ struct MemoryCreateInput {
     #[serde(default)]
     user: bool,
     #[serde(default)]
+    agent_id: Option<String>,
+    #[serde(default)]
     topics: Vec<String>,
 }
 
@@ -5119,6 +5131,8 @@ struct MemoryGenerateInput {
     #[serde(default)]
     user: bool,
     range: Option<String>,
+    #[serde(default)]
+    agent_id: Option<String>,
     #[serde(default)]
     topics: Vec<String>,
 }
@@ -5130,6 +5144,8 @@ struct MemoryGenerateConversationInput {
     to: Option<usize>,
     #[serde(default)]
     user: bool,
+    #[serde(default)]
+    agent_id: Option<String>,
     #[serde(default)]
     topics: Vec<String>,
 }
@@ -5168,6 +5184,8 @@ struct MemoryFileInput {
     path: String,
     #[serde(default)]
     user: bool,
+    #[serde(default)]
+    agent_id: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -6911,7 +6929,30 @@ mod tests {
             Some(conversation.id.as_str())
         );
         assert_eq!(stored[0].source_range.as_deref(), Some("messages:1..2"));
+        assert_eq!(stored[0].owning_agent.as_deref(), Some("fake-agent"));
         assert!(stored[0].topics.iter().any(|topic| topic == "billing"));
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn memory_create_preserves_explicit_owning_agent() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("memory-create-agent-owner");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+
+        let body = serde_json::json!({
+            "content": "Remember: critic uses compact review notes",
+            "agent_id": "critic"
+        })
+        .to_string();
+        let record = daemon_memory_create(&body).unwrap();
+
+        assert_eq!(record["owning_agent"], serde_json::json!("critic"));
 
         restore_env("AGENT_HARNESS_HOME", previous_home);
         let _ = std::fs::remove_dir_all(dir);

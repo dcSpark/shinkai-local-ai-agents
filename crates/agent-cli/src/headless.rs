@@ -2555,6 +2555,7 @@ pub async fn memory_create(
     content: String,
     user: bool,
     conversation: Option<String>,
+    agent: Option<String>,
     topics: Vec<String>,
 ) -> anyhow::Result<()> {
     let target = if user {
@@ -2562,13 +2563,14 @@ pub async fn memory_create(
     } else {
         MemoryTarget::Agent
     };
-    let record = MemoryStore::from_env().create_for_conversation_with_topics(
+    let record = MemoryStore::from_env().create_for_conversation_with_topics_for_agent(
         target,
         &content,
         MemoryAuthor::Human,
         None,
         conversation,
         topics,
+        agent,
     )?;
     record_memory_written(&record, "created")?;
     println!("{}", serde_json::to_string_pretty(&record)?);
@@ -2580,6 +2582,7 @@ pub async fn memory_generate(
     user: bool,
     range: Option<String>,
     conversation: Option<String>,
+    agent: Option<String>,
     topics: Vec<String>,
 ) -> anyhow::Result<()> {
     let target = if user {
@@ -2587,12 +2590,13 @@ pub async fn memory_generate(
     } else {
         MemoryTarget::Agent
     };
-    let records = MemoryStore::from_env().generate_from_conversation_text_with_topics(
+    let records = MemoryStore::from_env().generate_from_conversation_text_with_topics_for_agent(
         target,
         &text,
         range,
         conversation,
         topics,
+        agent,
     )?;
     for record in &records {
         record_memory_written(record, "generated")?;
@@ -2606,6 +2610,7 @@ pub async fn memory_generate_conversation(
     from: Option<usize>,
     to: Option<usize>,
     user: bool,
+    agent: Option<String>,
     topics: Vec<String>,
 ) -> anyhow::Result<()> {
     let target = if user {
@@ -2614,13 +2619,15 @@ pub async fn memory_generate_conversation(
         MemoryTarget::Agent
     };
     let expanded = ConversationStore::from_env().expanded(&id)?;
+    let owning_agent = agent.or_else(|| Some(expanded.conversation.agent_id.clone()));
     let rendered = render_message_range(&expanded.messages, from, to)?;
-    let records = MemoryStore::from_env().generate_from_conversation_text_with_topics(
+    let records = MemoryStore::from_env().generate_from_conversation_text_with_topics_for_agent(
         target,
         &rendered.text,
         Some(rendered.source_range),
         Some(id),
         topics,
+        owning_agent,
     )?;
     for record in &records {
         record_memory_written(record, "generated")?;
@@ -2753,13 +2760,18 @@ pub async fn memory_export(path: String, user: bool, json: bool) -> anyhow::Resu
     Ok(())
 }
 
-pub async fn memory_import(path: String, user: bool, json: bool) -> anyhow::Result<()> {
+pub async fn memory_import(
+    path: String,
+    user: bool,
+    agent: Option<String>,
+    json: bool,
+) -> anyhow::Result<()> {
     let target = if user {
         MemoryTarget::User
     } else {
         MemoryTarget::Agent
     };
-    let records = MemoryStore::from_env().import_file(&path, Some(target))?;
+    let records = MemoryStore::from_env().import_file_for_agent(&path, Some(target), agent)?;
     for record in &records {
         record_memory_written(record, "imported")?;
     }
@@ -4916,11 +4928,12 @@ pub async fn remote_memory_create(
     url: String,
     content: String,
     user: bool,
+    agent: Option<String>,
     topics: Vec<String>,
 ) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).post_json(
         "/memory",
-        serde_json::json!({ "content": content, "user": user, "topics": topics }),
+        serde_json::json!({ "content": content, "user": user, "agent_id": agent, "topics": topics }),
     )?)
 }
 
@@ -4929,11 +4942,12 @@ pub async fn remote_memory_generate(
     text: String,
     user: bool,
     range: Option<String>,
+    agent: Option<String>,
     topics: Vec<String>,
 ) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).post_json(
         "/memory/generate",
-        serde_json::json!({ "text": text, "user": user, "range": range, "topics": topics }),
+        serde_json::json!({ "text": text, "user": user, "range": range, "agent_id": agent, "topics": topics }),
     )?)
 }
 
@@ -4943,11 +4957,12 @@ pub async fn remote_memory_generate_conversation(
     from: Option<usize>,
     to: Option<usize>,
     user: bool,
+    agent: Option<String>,
     topics: Vec<String>,
 ) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).post_json(
         "/memory/generate-conversation",
-        serde_json::json!({ "id": id, "from": from, "to": to, "user": user, "topics": topics }),
+        serde_json::json!({ "id": id, "from": from, "to": to, "user": user, "agent_id": agent, "topics": topics }),
     )?)
 }
 
@@ -5004,10 +5019,15 @@ pub async fn remote_memory_export(url: String, path: String, user: bool) -> anyh
     )?)
 }
 
-pub async fn remote_memory_import(url: String, path: String, user: bool) -> anyhow::Result<()> {
+pub async fn remote_memory_import(
+    url: String,
+    path: String,
+    user: bool,
+    agent: Option<String>,
+) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).post_json(
         "/memory/import",
-        serde_json::json!({ "path": path, "user": user }),
+        serde_json::json!({ "path": path, "user": user, "agent_id": agent }),
     )?)
 }
 

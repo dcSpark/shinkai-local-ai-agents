@@ -2467,6 +2467,7 @@ async fn execute_batch_plan(
 async fn memory_create(
     content: String,
     user: bool,
+    agent_id: Option<String>,
     topics: Option<Vec<String>>,
 ) -> Result<MemoryRecord, String> {
     let target = if user {
@@ -2475,12 +2476,14 @@ async fn memory_create(
         MemoryTarget::Agent
     };
     let record = MemoryStore::from_env()
-        .create_with_topics(
+        .create_for_conversation_with_topics_for_agent(
             target,
             &content,
             MemoryAuthor::Human,
             None,
+            None,
             topics.unwrap_or_default(),
+            agent_id,
         )
         .map_err(|e| e.to_string())?;
     record_memory_written(&record, "created")?;
@@ -2492,6 +2495,7 @@ async fn memory_generate(
     text: String,
     user: bool,
     range: Option<String>,
+    agent_id: Option<String>,
     topics: Option<Vec<String>>,
 ) -> Result<Vec<MemoryRecord>, String> {
     let target = if user {
@@ -2500,7 +2504,14 @@ async fn memory_generate(
         MemoryTarget::Agent
     };
     let records = MemoryStore::from_env()
-        .generate_from_text_with_topics(target, &text, range, topics.unwrap_or_default())
+        .generate_from_conversation_text_with_topics_for_agent(
+            target,
+            &text,
+            range,
+            None,
+            topics.unwrap_or_default(),
+            agent_id,
+        )
         .map_err(|e| e.to_string())?;
     for record in &records {
         record_memory_written(record, "generated")?;
@@ -2514,6 +2525,7 @@ async fn memory_generate_conversation(
     from: Option<usize>,
     to: Option<usize>,
     user: bool,
+    agent_id: Option<String>,
     topics: Option<Vec<String>>,
 ) -> Result<Vec<MemoryRecord>, String> {
     let target = if user {
@@ -2524,14 +2536,16 @@ async fn memory_generate_conversation(
     let expanded = ConversationStore::from_env()
         .expanded(&id)
         .map_err(|e| e.to_string())?;
+    let owning_agent = agent_id.or_else(|| Some(expanded.conversation.agent_id.clone()));
     let rendered = render_message_range(&expanded.messages, from, to).map_err(|e| e.to_string())?;
     let records = MemoryStore::from_env()
-        .generate_from_conversation_text_with_topics(
+        .generate_from_conversation_text_with_topics_for_agent(
             target,
             &rendered.text,
             Some(rendered.source_range),
             Some(id),
             topics.unwrap_or_default(),
+            owning_agent,
         )
         .map_err(|e| e.to_string())?;
     for record in &records {

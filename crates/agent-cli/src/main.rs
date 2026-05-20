@@ -710,6 +710,10 @@ enum MemoryCommand {
         #[arg(long)]
         conversation: Option<String>,
 
+        /// Agent id that should own this memory record.
+        #[arg(long)]
+        agent: Option<String>,
+
         /// Topic tag for this memory. Repeat for multiple topics.
         #[arg(long = "topic")]
         topics: Vec<String>,
@@ -730,6 +734,10 @@ enum MemoryCommand {
         #[arg(long)]
         conversation: Option<String>,
 
+        /// Agent id that should own generated memory records.
+        #[arg(long)]
+        agent: Option<String>,
+
         /// Topic tag for generated memory. Repeat for multiple topics.
         #[arg(long = "topic")]
         topics: Vec<String>,
@@ -749,6 +757,10 @@ enum MemoryCommand {
         /// Store in user.md instead of memory.md.
         #[arg(long)]
         user: bool,
+
+        /// Agent id that should own generated memory records. Defaults to the conversation agent.
+        #[arg(long)]
+        agent: Option<String>,
 
         /// Topic tag for generated memory. Repeat for multiple topics.
         #[arg(long = "topic")]
@@ -805,6 +817,9 @@ enum MemoryCommand {
         /// Import into user.md instead of memory.md.
         #[arg(long)]
         user: bool,
+        /// Agent id that should own imported memory records.
+        #[arg(long)]
+        agent: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -2585,6 +2600,8 @@ enum RemoteMemoryCommand {
         content: String,
         #[arg(long)]
         user: bool,
+        #[arg(long)]
+        agent: Option<String>,
         #[arg(long = "topic")]
         topics: Vec<String>,
     },
@@ -2594,6 +2611,8 @@ enum RemoteMemoryCommand {
         user: bool,
         #[arg(long)]
         range: Option<String>,
+        #[arg(long)]
+        agent: Option<String>,
         #[arg(long = "topic")]
         topics: Vec<String>,
     },
@@ -2605,6 +2624,8 @@ enum RemoteMemoryCommand {
         to: Option<usize>,
         #[arg(long)]
         user: bool,
+        #[arg(long)]
+        agent: Option<String>,
         #[arg(long = "topic")]
         topics: Vec<String>,
     },
@@ -2647,6 +2668,8 @@ enum RemoteMemoryCommand {
         path: String,
         #[arg(long)]
         user: bool,
+        #[arg(long)]
+        agent: Option<String>,
     },
 }
 
@@ -4593,6 +4616,8 @@ mod cli_parse_tests {
             "2",
             "--to",
             "4",
+            "--agent",
+            "critic",
             "--topic",
             "finance",
         ])
@@ -4603,6 +4628,7 @@ mod cli_parse_tests {
                     id,
                     from,
                     to,
+                    agent,
                     topics,
                     ..
                 },
@@ -4613,6 +4639,7 @@ mod cli_parse_tests {
         assert_eq!(id, "conv-1");
         assert_eq!(from, Some(2));
         assert_eq!(to, Some(4));
+        assert_eq!(agent.as_deref(), Some("critic"));
         assert_eq!(topics, vec!["finance"]);
 
         let cli = parse_cli([
@@ -4651,16 +4678,22 @@ mod cli_parse_tests {
             "import",
             "./memory.md",
             "--user",
+            "--agent",
+            "critic",
         ])
         .unwrap();
         let RemoteCommand::Memory {
-            command: RemoteMemoryCommand::Import { path, user },
+            command:
+                RemoteMemoryCommand::Import {
+                    path, user, agent, ..
+                },
         } = into_remote_command(cli)
         else {
             panic!("expected remote memory import command");
         };
         assert_eq!(path, "./memory.md");
         assert!(user);
+        assert_eq!(agent.as_deref(), Some("critic"));
 
         let cli = parse_cli(["agent", "remote", "memory", "backends"]).unwrap();
         let RemoteCommand::Memory {
@@ -5462,22 +5495,25 @@ async fn main() -> anyhow::Result<()> {
                 content,
                 user,
                 conversation,
+                agent,
                 topics,
-            } => headless::memory_create(content, user, conversation, topics).await,
+            } => headless::memory_create(content, user, conversation, agent, topics).await,
             MemoryCommand::Generate {
                 text,
                 user,
                 range,
                 conversation,
+                agent,
                 topics,
-            } => headless::memory_generate(text, user, range, conversation, topics).await,
+            } => headless::memory_generate(text, user, range, conversation, agent, topics).await,
             MemoryCommand::GenerateConversation {
                 id,
                 from,
                 to,
                 user,
+                agent,
                 topics,
-            } => headless::memory_generate_conversation(id, from, to, user, topics).await,
+            } => headless::memory_generate_conversation(id, from, to, user, agent, topics).await,
             MemoryCommand::List { json } => headless::memory_list(json).await,
             MemoryCommand::Backends { json } => headless::memory_backends(json).await,
             MemoryCommand::Classify {
@@ -5492,9 +5528,12 @@ async fn main() -> anyhow::Result<()> {
             MemoryCommand::Export { path, user, json } => {
                 headless::memory_export(path, user, json).await
             }
-            MemoryCommand::Import { path, user, json } => {
-                headless::memory_import(path, user, json).await
-            }
+            MemoryCommand::Import {
+                path,
+                user,
+                agent,
+                json,
+            } => headless::memory_import(path, user, agent, json).await,
         },
         Command::Skill { command } => match command {
             SkillCommand::ImportOpenclaw { path } => headless::skill_import_openclaw(path).await,
@@ -6156,23 +6195,28 @@ async fn main() -> anyhow::Result<()> {
                 RemoteMemoryCommand::Create {
                     content,
                     user,
+                    agent,
                     topics,
-                } => headless::remote_memory_create(url, content, user, topics).await,
+                } => headless::remote_memory_create(url, content, user, agent, topics).await,
                 RemoteMemoryCommand::Generate {
                     text,
                     user,
                     range,
+                    agent,
                     topics,
-                } => headless::remote_memory_generate(url, text, user, range, topics).await,
+                } => headless::remote_memory_generate(url, text, user, range, agent, topics).await,
                 RemoteMemoryCommand::GenerateConversation {
                     id,
                     from,
                     to,
                     user,
+                    agent,
                     topics,
                 } => {
-                    headless::remote_memory_generate_conversation(url, id, from, to, user, topics)
-                        .await
+                    headless::remote_memory_generate_conversation(
+                        url, id, from, to, user, agent, topics,
+                    )
+                    .await
                 }
                 RemoteMemoryCommand::GeneratePending {
                     user,
@@ -6195,8 +6239,8 @@ async fn main() -> anyhow::Result<()> {
                 RemoteMemoryCommand::Export { path, user } => {
                     headless::remote_memory_export(url, path, user).await
                 }
-                RemoteMemoryCommand::Import { path, user } => {
-                    headless::remote_memory_import(url, path, user).await
+                RemoteMemoryCommand::Import { path, user, agent } => {
+                    headless::remote_memory_import(url, path, user, agent).await
                 }
             },
             RemoteCommand::Compact { command } => match command {

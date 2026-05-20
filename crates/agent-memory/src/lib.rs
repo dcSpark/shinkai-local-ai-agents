@@ -182,6 +182,27 @@ impl MemoryStore {
         source_conversation_id: Option<String>,
         topics: Vec<String>,
     ) -> Result<MemoryRecord, MemoryError> {
+        self.create_for_conversation_with_topics_for_agent(
+            target,
+            content,
+            author,
+            source_range,
+            source_conversation_id,
+            topics,
+            None,
+        )
+    }
+
+    pub fn create_for_conversation_with_topics_for_agent(
+        &self,
+        target: MemoryTarget,
+        content: &str,
+        author: MemoryAuthor,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+        topics: Vec<String>,
+        owning_agent: Option<String>,
+    ) -> Result<MemoryRecord, MemoryError> {
         scan(content)?;
         self.paths.ensure_base_dirs()?;
         let now = Utc::now();
@@ -191,7 +212,7 @@ impl MemoryStore {
             content: content.into(),
             target,
             owning_profile: self.paths.active_profile_id().into(),
-            owning_agent: default_agent(),
+            owning_agent: clean_optional(owning_agent).or_else(default_agent),
             created_at: now,
             updated_at: now,
             author,
@@ -251,17 +272,37 @@ impl MemoryStore {
         source_conversation_id: Option<String>,
         topics: Vec<String>,
     ) -> Result<Vec<MemoryRecord>, MemoryError> {
+        self.generate_from_conversation_text_with_topics_for_agent(
+            target,
+            text,
+            source_range,
+            source_conversation_id,
+            topics,
+            None,
+        )
+    }
+
+    pub fn generate_from_conversation_text_with_topics_for_agent(
+        &self,
+        target: MemoryTarget,
+        text: &str,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+        topics: Vec<String>,
+        owning_agent: Option<String>,
+    ) -> Result<Vec<MemoryRecord>, MemoryError> {
         let candidates = generated_memory_candidates(text);
         let topics = normalize_topics(topics);
         let mut records = Vec::new();
         for candidate in candidates {
-            records.push(self.create_for_conversation_with_topics(
+            records.push(self.create_for_conversation_with_topics_for_agent(
                 target,
                 &candidate,
                 MemoryAuthor::Model,
                 source_range.clone(),
                 source_conversation_id.clone(),
                 topics.clone(),
+                owning_agent.clone(),
             )?);
         }
         Ok(records)
@@ -421,18 +462,31 @@ impl MemoryStore {
         path: impl AsRef<Path>,
         target: Option<MemoryTarget>,
     ) -> Result<Vec<MemoryRecord>, MemoryError> {
+        self.import_file_for_agent(path, target, None)
+    }
+
+    pub fn import_file_for_agent(
+        &self,
+        path: impl AsRef<Path>,
+        target: Option<MemoryTarget>,
+        owning_agent: Option<String>,
+    ) -> Result<Vec<MemoryRecord>, MemoryError> {
         let text = std::fs::read_to_string(path)?;
         let mut records = parse_records(&text)?;
         if records.is_empty() && !text.trim().is_empty() {
             return self
-                .create(
+                .create_for_conversation_with_topics_for_agent(
                     target.unwrap_or(MemoryTarget::Agent),
                     text.trim(),
                     MemoryAuthor::Human,
                     None,
+                    None,
+                    Vec::new(),
+                    owning_agent,
                 )
                 .map(|record| vec![record]);
         }
+        let owning_agent = clean_optional(owning_agent);
         self.paths.ensure_base_dirs()?;
         let mut imported = Vec::new();
         for record in &mut records {
@@ -450,7 +504,7 @@ impl MemoryStore {
                 record.classification.topics.clone(),
             );
             record.owning_profile = self.paths.active_profile_id().into();
-            record.owning_agent = default_agent();
+            record.owning_agent = owning_agent.clone().or_else(default_agent);
             record.updated_at = Utc::now();
         }
         for import_target in [MemoryTarget::Agent, MemoryTarget::User] {
@@ -1168,6 +1222,32 @@ mod tests {
             store.load_fragments().unwrap()[0]
                 .provenance
                 .contains("profile=research")
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn memory_writes_can_be_owned_by_specific_agent() {
+        let dir =
+            std::env::temp_dir().join(format!("memory-agent-owner-test-{}", std::process::id()));
+        let store = MemoryStore::new(StoragePaths::new(&dir));
+        let record = store
+            .create_for_conversation_with_topics_for_agent(
+                MemoryTarget::Agent,
+                "Remember: critic prefers terse notes.",
+                MemoryAuthor::Human,
+                None,
+                None,
+                Vec::new(),
+                Some("critic".into()),
+            )
+            .unwrap();
+
+        assert_eq!(record.owning_agent.as_deref(), Some("critic"));
+        assert!(
+            store.load_fragments().unwrap()[0]
+                .provenance
+                .contains("agent=critic")
         );
         let _ = std::fs::remove_dir_all(dir);
     }

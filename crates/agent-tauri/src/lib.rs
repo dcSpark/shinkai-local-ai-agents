@@ -1525,12 +1525,63 @@ async fn conversation_delete(id: String, recursive: bool) -> Result<serde_json::
         .deletion_plan(std::slice::from_ref(&id), recursive)
         .map_err(|e| e.to_string())?;
     let deleted = store.delete(&id, recursive).map_err(|e| e.to_string())?;
+    let cleanup = cleanup_conversation_side_data(&deleted).map_err(|e| e.to_string())?;
     Ok(serde_json::json!({
         "requested": id,
         "recursive": recursive,
         "planned": planned,
-        "deleted": deleted
+        "deleted": deleted,
+        "deleted_compactions": cleanup.compactions,
+        "deleted_memories": cleanup.memories
     }))
+}
+
+#[tauri::command]
+async fn conversation_delete_agent_plan(
+    agent_id: String,
+    recursive: bool,
+) -> Result<Vec<String>, String> {
+    ConversationStore::from_env()
+        .deletion_plan_by_agent(&agent_id, recursive)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn conversation_delete_agent(
+    agent_id: String,
+    recursive: bool,
+) -> Result<serde_json::Value, String> {
+    let store = ConversationStore::from_env();
+    let planned = store
+        .deletion_plan_by_agent(&agent_id, recursive)
+        .map_err(|e| e.to_string())?;
+    let deleted = store
+        .delete_by_agent(&agent_id, recursive)
+        .map_err(|e| e.to_string())?;
+    let cleanup = cleanup_conversation_side_data(&deleted).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "requested": agent_id,
+        "recursive": recursive,
+        "planned": planned,
+        "deleted": deleted,
+        "deleted_compactions": cleanup.compactions,
+        "deleted_memories": cleanup.memories
+    }))
+}
+
+#[derive(Debug, Default)]
+struct ConversationDeletionCleanup {
+    compactions: Vec<String>,
+    memories: Vec<String>,
+}
+
+fn cleanup_conversation_side_data(
+    deleted: &[String],
+) -> anyhow::Result<ConversationDeletionCleanup> {
+    Ok(ConversationDeletionCleanup {
+        compactions: CompactionStore::from_env().remove_by_conversation_ids(deleted)?,
+        memories: MemoryStore::from_env().delete_by_source_conversation_ids(deleted)?,
+    })
 }
 
 #[tauri::command]
@@ -3297,6 +3348,8 @@ pub fn run() {
             conversation_set_policy,
             conversation_delete_plan,
             conversation_delete,
+            conversation_delete_agent_plan,
+            conversation_delete_agent,
             conversation_delete_range,
             compaction_keep,
             compaction_list,

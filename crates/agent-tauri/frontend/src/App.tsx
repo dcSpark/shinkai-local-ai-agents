@@ -4268,6 +4268,21 @@ export default function App() {
     await deleteConversation(id, recursive);
   }
 
+  function applyConversationDeleteResult(result: ConversationDeleteResult) {
+    const deleted = new Set(result.deleted);
+    if (
+      expandedConversation &&
+      deleted.has(expandedConversation.conversation.id)
+    ) {
+      setExpandedConversation(null);
+    }
+    setConversationDocs((docs) =>
+      docs.filter((conversation) => !deleted.has(conversation.id)),
+    );
+    setConversationTree((tree) => filterConversationTree(tree, deleted));
+    setConversationDeletePlan([]);
+  }
+
   async function deleteConversation(id: string, recursive: boolean) {
     if (!confirmLocalChange(`Delete conversation ${id}${recursive ? " recursively" : ""}`)) {
       return;
@@ -4283,22 +4298,64 @@ export default function App() {
               id,
               recursive,
             });
-      const deleted = new Set(result.deleted);
-      if (
-        expandedConversation &&
-        deleted.has(expandedConversation.conversation.id)
-      ) {
-        setExpandedConversation(null);
-      }
-      setConversationDocs((docs) =>
-        docs.filter((conversation) => !deleted.has(conversation.id)),
-      );
-      setConversationTree((tree) => filterConversationTree(tree, deleted));
-      setConversationDeletePlan([]);
+      applyConversationDeleteResult(result);
       appendJson("Conversation deleted", result);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Conversation delete failed: ${msg}`);
+    }
+  }
+
+  async function previewConversationDeleteAgent() {
+    const agent = agentId.trim();
+    if (!agent) {
+      appendLine("error", "Set an Agent id before planning agent conversation deletion.");
+      return;
+    }
+    try {
+      const plan =
+        transport === "daemon"
+          ? await daemonJson<string[]>("/conversations/delete-agent-plan", {
+              agent_id: agent,
+              recursive: false,
+            })
+          : await invoke<string[]>("conversation_delete_agent_plan", {
+              agentId: agent,
+              recursive: false,
+            });
+      setConversationDeletePlan(plan);
+      appendJson("Agent conversation delete plan", { agent_id: agent, plan });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Agent conversation delete preview failed: ${msg}`);
+    }
+  }
+
+  async function deleteConversationsForAgent() {
+    const agent = agentId.trim();
+    if (!agent) {
+      appendLine("error", "Set an Agent id before deleting agent conversations.");
+      return;
+    }
+    if (!confirmLocalChange(`Delete all conversations for agent ${agent}`)) {
+      return;
+    }
+    try {
+      const result =
+        transport === "daemon"
+          ? await daemonJson<ConversationDeleteResult>(
+              "/conversations/delete-agent",
+              { agent_id: agent, recursive: false },
+            )
+          : await invoke<ConversationDeleteResult>("conversation_delete_agent", {
+              agentId: agent,
+              recursive: false,
+            });
+      applyConversationDeleteResult(result);
+      appendJson("Agent conversations deleted", result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Agent conversation delete failed: ${msg}`);
     }
   }
 
@@ -8108,6 +8165,23 @@ export default function App() {
                   disabled={running || !opsId.trim()}
                 >
                   Delete Recursive
+                </button>
+                <button
+                  type="button"
+                  title="Preview deletion of all conversations owned by the active Agent id."
+                  onClick={() => void previewConversationDeleteAgent()}
+                  disabled={running || !agentId.trim()}
+                >
+                  Plan Agent
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  title="Delete all conversations owned by the active Agent id."
+                  onClick={() => void deleteConversationsForAgent()}
+                  disabled={running || !agentId.trim()}
+                >
+                  Delete Agent
                 </button>
               </div>
               {conversationDocs.length ? (

@@ -260,6 +260,8 @@ export type ConversationDeleteResult = {
   recursive: boolean;
   planned: string[];
   deleted: string[];
+  deleted_compactions?: string[];
+  deleted_memories?: string[];
 };
 
 export type ConversationDeleteRangeResult = {

@@ -2434,6 +2434,16 @@ enum RemoteConversationCommand {
         #[arg(long)]
         recursive: bool,
     },
+    DeleteAgentPlan {
+        agent: String,
+        #[arg(long)]
+        recursive: bool,
+    },
+    DeleteAgent {
+        agent: String,
+        #[arg(long)]
+        recursive: bool,
+    },
     DeleteRange {
         id: String,
         #[arg(long)]
@@ -5597,6 +5607,12 @@ async fn main() -> anyhow::Result<()> {
                 }
                 RemoteConversationCommand::Delete { id, recursive } => {
                     headless::remote_conversation_delete(url, id, recursive).await
+                }
+                RemoteConversationCommand::DeleteAgentPlan { agent, recursive } => {
+                    headless::remote_conversation_delete_agent_plan(url, agent, recursive).await
+                }
+                RemoteConversationCommand::DeleteAgent { agent, recursive } => {
+                    headless::remote_conversation_delete_agent(url, agent, recursive).await
                 }
                 RemoteConversationCommand::DeleteRange { id, from, to } => {
                     headless::remote_conversation_delete_range(url, id, from, to).await

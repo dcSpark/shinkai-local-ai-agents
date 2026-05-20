@@ -331,6 +331,12 @@ async fn route(
                 .trim_end_matches('/');
             daemon_conversation_set_policy(id, &request.body).map(|value| (200, value))
         }
+        ("POST", "/conversations/delete-agent-plan") => {
+            daemon_conversation_delete_agent_plan(&request.body).map(|value| (200, value))
+        }
+        ("POST", "/conversations/delete-agent") => {
+            daemon_conversation_delete_agent(&request.body).map(|value| (200, value))
+        }
         _ if request.method == "GET" && request.path.starts_with("/conversations/") => {
             let id = request.path.trim_start_matches("/conversations/");
             daemon_conversation_show(id).map(|value| (200, value))
@@ -682,6 +688,8 @@ async fn route(
                     "POST /conversations/<id>/delete-plan",
                     "POST /conversations/<id>/delete-range",
                     "POST /conversations/<id>/delete",
+                    "POST /conversations/delete-agent-plan",
+                    "POST /conversations/delete-agent",
                     "GET /approvals/<run_id>",
                     "POST /approvals/<run_id>/<approval_id>/decide",
                     "POST /approvals/<run_id>/<approval_id>/execute",
@@ -1325,11 +1333,37 @@ fn daemon_conversation_delete(id: &str, body: &str) -> anyhow::Result<serde_json
     let requested = id.to_string();
     let planned = store.deletion_plan(std::slice::from_ref(&requested), input.recursive)?;
     let deleted = store.delete(id, input.recursive)?;
+    let cleanup = cleanup_conversation_side_data(&deleted)?;
     Ok(serde_json::json!({
         "requested": id,
         "recursive": input.recursive,
         "planned": planned,
-        "deleted": deleted
+        "deleted": deleted,
+        "deleted_compactions": cleanup.compactions,
+        "deleted_memories": cleanup.memories
+    }))
+}
+
+fn daemon_conversation_delete_agent_plan(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input = parse_conversation_agent_delete_input(body)?;
+    Ok(serde_json::to_value(
+        ConversationStore::from_env().deletion_plan_by_agent(&input.agent_id, input.recursive)?,
+    )?)
+}
+
+fn daemon_conversation_delete_agent(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input = parse_conversation_agent_delete_input(body)?;
+    let store = ConversationStore::from_env();
+    let planned = store.deletion_plan_by_agent(&input.agent_id, input.recursive)?;
+    let deleted = store.delete_by_agent(&input.agent_id, input.recursive)?;
+    let cleanup = cleanup_conversation_side_data(&deleted)?;
+    Ok(serde_json::json!({
+        "requested": input.agent_id,
+        "recursive": input.recursive,
+        "planned": planned,
+        "deleted": deleted,
+        "deleted_compactions": cleanup.compactions,
+        "deleted_memories": cleanup.memories
     }))
 }
 
@@ -1470,6 +1504,31 @@ fn parse_recursive_input(body: &str) -> anyhow::Result<RecursiveInput> {
         return Ok(RecursiveInput::default());
     }
     Ok(serde_json::from_str(body)?)
+}
+
+fn parse_conversation_agent_delete_input(
+    body: &str,
+) -> anyhow::Result<ConversationAgentDeleteInput> {
+    let input: ConversationAgentDeleteInput = serde_json::from_str(body)?;
+    if input.agent_id.trim().is_empty() {
+        anyhow::bail!("agent_id must not be empty");
+    }
+    Ok(input)
+}
+
+#[derive(Debug, Default)]
+struct ConversationDeletionCleanup {
+    compactions: Vec<String>,
+    memories: Vec<String>,
+}
+
+fn cleanup_conversation_side_data(
+    deleted: &[String],
+) -> anyhow::Result<ConversationDeletionCleanup> {
+    Ok(ConversationDeletionCleanup {
+        compactions: CompactionStore::from_env().remove_by_conversation_ids(deleted)?,
+        memories: MemoryStore::from_env().delete_by_source_conversation_ids(deleted)?,
+    })
 }
 
 fn daemon_explain_tools(body: &str) -> anyhow::Result<serde_json::Value> {
@@ -4730,6 +4789,13 @@ struct DaemonRuntimeOptions {
 
 #[derive(Default, serde::Deserialize)]
 struct RecursiveInput {
+    #[serde(default)]
+    recursive: bool,
+}
+
+#[derive(serde::Deserialize)]
+struct ConversationAgentDeleteInput {
+    agent_id: String,
     #[serde(default)]
     recursive: bool,
 }

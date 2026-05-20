@@ -4460,6 +4460,28 @@ pub async fn remote_conversation_delete(
     )?)
 }
 
+pub async fn remote_conversation_delete_agent_plan(
+    url: String,
+    agent: String,
+    recursive: bool,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/conversations/delete-agent-plan",
+        serde_json::json!({ "agent_id": agent, "recursive": recursive }),
+    )?)
+}
+
+pub async fn remote_conversation_delete_agent(
+    url: String,
+    agent: String,
+    recursive: bool,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/conversations/delete-agent",
+        serde_json::json!({ "agent_id": agent, "recursive": recursive }),
+    )?)
+}
+
 pub async fn remote_conversation_delete_range(
     url: String,
     id: String,

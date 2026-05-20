@@ -49,8 +49,8 @@ use agent_tools::{
 };
 use agent_tracing::{
     EventStore, PublishingEventStore, RunEvent, RunEventKind, RunId, SqliteEventStore,
-    hook_remediation_plan, is_terminal_run_event, latest_event_id, validate_guidance_content,
-    validate_quality_score,
+    hook_remediation_plan, is_terminal_run_event, latest_event_id, quality_score_records,
+    validate_guidance_content, validate_quality_score,
 };
 
 use crate::{Demo, setup};
@@ -490,6 +490,32 @@ fn handle_slash_command(
             text: serde_json::to_string_pretty(&snapshot)
                 .unwrap_or_else(|_| "<unserializable context>".into()),
         });
+        return true;
+    }
+    if trimmed == "/scores" {
+        let Some(run_id) = app.last_run_id else {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: "No run to score yet.".into(),
+            });
+            return true;
+        };
+        match open_event_store().and_then(|store| {
+            let events = store.try_events(run_id)?;
+            Ok(quality_score_report(
+                run_id,
+                &quality_score_records(&events),
+            ))
+        }) {
+            Ok(report) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: report,
+            }),
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Score review failed: {err}"),
+            }),
+        }
         return true;
     }
     if let Some(score) = score_slash_rest(trimmed) {
@@ -3630,6 +3656,27 @@ fn append_score_event(
     Ok(())
 }
 
+fn quality_score_report(run_id: RunId, records: &[agent_tracing::QualityScoreRecord]) -> String {
+    if records.is_empty() {
+        return format!("No quality scores recorded for {run_id}.");
+    }
+    let average = records.iter().map(|record| record.score).sum::<f32>() / records.len() as f32;
+    let mut lines = vec![format!(
+        "Quality scores for {run_id}: {} score(s), avg {average:.1}/10",
+        records.len()
+    )];
+    lines.extend(records.iter().map(|record| {
+        format!(
+            "#{} {}: {:.1}/10 ({})",
+            record.event_id.0,
+            record.target,
+            record.score,
+            record.at.to_rfc3339()
+        )
+    }));
+    lines.join("\n")
+}
+
 fn append_guidance_event(store: &dyn EventStore, run_id: RunId, text: &str) -> anyhow::Result<()> {
     let content = validate_guidance_content(text)?;
     let events = store.events(run_id);
@@ -4467,6 +4514,33 @@ mod tests {
             RunEventKind::GuidanceInjected { content } if content == "steer this way"
         ));
         assert_eq!(events[2].parent_event, Some(events[1].id));
+    }
+
+    #[test]
+    fn quality_score_report_lists_bookmarkable_events() {
+        let store = agent_tracing::InMemoryEventStore::new();
+        let run_id = RunId::new();
+        store.append(
+            run_id,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "agent".into(),
+                input: "task".into(),
+            },
+        );
+        let scored = store.append(
+            run_id,
+            None,
+            RunEventKind::QualityScored {
+                target: "last_answer".into(),
+                score: 7.5,
+            },
+        );
+        let records = quality_score_records(&store.events(run_id));
+        let report = quality_score_report(run_id, &records);
+
+        assert!(report.contains("1 score(s), avg 7.5/10"));
+        assert!(report.contains(&format!("#{} last_answer: 7.5/10", scored.id.0)));
     }
 
     #[test]

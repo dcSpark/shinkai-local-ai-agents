@@ -28,6 +28,7 @@ use tokio::task::AbortHandle;
 use tokio::time::MissedTickBehavior;
 
 use agent_adapters::{AdapterRegistry, NormalizedPackage};
+use agent_compaction::{CompactionRecord, CompactionStore};
 use agent_config::{ConfigResolver, configured_model_providers};
 use agent_conversations::{
     ConversationMessage, ConversationPolicy, ConversationStore, ConversationTreeNode,
@@ -2331,6 +2332,10 @@ fn handle_compact_slash(app: &mut App, rest: &str) {
             kind: LineKind::Assistant,
             text: [
                 "/compact keep [run-id]",
+                "/compact list",
+                "/compact show <id>",
+                "/compact export <id> <path>",
+                "/compact import <path>",
                 "/compact status",
                 "/compact dismiss",
             ]
@@ -2344,6 +2349,80 @@ fn handle_compact_slash(app: &mut App, rest: &str) {
         .unwrap_or((rest, ""));
     match command {
         "keep" => handle_compact_keep(app, args),
+        "list" => match CompactionStore::from_env().list() {
+            Ok(records) => {
+                push_event(
+                    app,
+                    format!("Loaded {} compaction record(s).", records.len()),
+                );
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(
+                        &records
+                            .iter()
+                            .map(compaction_record_summary)
+                            .collect::<Vec<_>>(),
+                    )
+                    .unwrap_or_else(|_| "<unserializable compaction list>".into()),
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Compact list failed: {err}"),
+            }),
+        },
+        "show" => match first_compact_arg(args, "show") {
+            Ok(id) => match CompactionStore::from_env().show(id) {
+                Ok(record) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&record)
+                        .unwrap_or_else(|_| "<unserializable compaction record>".into()),
+                }),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Compact show failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "export" => match compact_export_args(args) {
+            Ok((id, path)) => match CompactionStore::from_env().export_record(id, path) {
+                Ok(record) => {
+                    push_event(app, format!("Exported compaction {} to {path}", record.id))
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Compact export failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "import" => match compact_path_arg(args, "import") {
+            Ok(path) => match CompactionStore::from_env().import_record(path) {
+                Ok(record) => {
+                    push_event(app, format!("Imported compaction {}", record.id));
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&record)
+                            .unwrap_or_else(|_| "<unserializable compaction record>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Compact import failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
         "status" => {
             let text = app
                 .pending_auto_compaction_run
@@ -2357,9 +2436,53 @@ fn handle_compact_slash(app: &mut App, rest: &str) {
         }
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Compact command needs keep, status, dismiss, or help.".into(),
+            text:
+                "Compact command needs keep, list, show, export, import, status, dismiss, or help."
+                    .into(),
         }),
     }
+}
+
+fn first_compact_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    args.split_whitespace()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("compact {command} needs an argument"))
+}
+
+fn compact_path_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    let mut parts = args.split_whitespace();
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("compact {command} needs a path"))?;
+    if parts.next().is_some() {
+        anyhow::bail!("compact {command} accepts exactly one path");
+    }
+    Ok(path)
+}
+
+fn compact_export_args(args: &str) -> anyhow::Result<(&str, &str)> {
+    let mut parts = args.split_whitespace();
+    let id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("compact export needs a compaction id"))?;
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("compact export needs a path"))?;
+    if parts.next().is_some() {
+        anyhow::bail!("compact export accepts exactly a compaction id and path");
+    }
+    Ok((id, path))
+}
+
+fn compaction_record_summary(record: &CompactionRecord) -> serde_json::Value {
+    serde_json::json!({
+        "id": record.id,
+        "source": record.source,
+        "conversation_id": record.conversation_id,
+        "max_output_tokens": record.max_output_tokens,
+        "created_at": record.created_at,
+        "content_preview": compact_preview(&record.content, 240),
+    })
 }
 
 fn handle_compact_keep(app: &mut App, args: &str) {
@@ -3437,6 +3560,22 @@ mod tests {
         );
         assert!(model_provider_catalog_path_arg("", "export").is_err());
         assert!(model_provider_catalog_path_arg("./catalog.json extra", "import").is_err());
+    }
+
+    #[test]
+    fn compact_args_require_expected_id_and_path() {
+        assert_eq!(
+            compact_export_args("compact-1 ./compact.json").unwrap(),
+            ("compact-1", "./compact.json")
+        );
+        assert_eq!(
+            compact_path_arg("./compact.json", "import").unwrap(),
+            "./compact.json"
+        );
+        assert!(compact_export_args("compact-1").is_err());
+        assert!(compact_export_args("compact-1 ./compact.json extra").is_err());
+        assert!(compact_path_arg("", "import").is_err());
+        assert!(compact_path_arg("./compact.json extra", "import").is_err());
     }
 
     #[test]

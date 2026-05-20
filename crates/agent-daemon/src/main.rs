@@ -2881,7 +2881,10 @@ struct BridgeDeliveryStore {
 
 impl BridgeDeliveryStore {
     fn from_env() -> Self {
-        let paths = StoragePaths::from_env();
+        Self::from_paths(StoragePaths::from_env())
+    }
+
+    fn from_paths(paths: StoragePaths) -> Self {
         Self {
             dir: paths.bridge_deliveries_dir(),
             paths,
@@ -2939,11 +2942,7 @@ impl BridgeDeliveryStore {
             created_ms: now,
             updated_ms: now,
         };
-        let path = self.record_path(&record.id)?;
-        let body = serde_json::to_string_pretty(&record)?;
-        self.paths
-            .ensure_quota_for_path_write(&path, u64::try_from(body.len()).unwrap_or(u64::MAX))?;
-        std::fs::write(path, body)?;
+        self.write_record(&record)?;
         Ok(record)
     }
 
@@ -2951,11 +2950,27 @@ impl BridgeDeliveryStore {
         let mut record = self.show(id)?;
         record.last_delivery = delivery;
         record.updated_ms = current_time_ms();
-        let path = self.record_path(id)?;
+        self.write_record(&record)?;
+        Ok(())
+    }
+
+    fn write_record(&self, record: &BridgeDeliveryRecord) -> anyhow::Result<()> {
+        self.write_record_with_quota(record, None)
+    }
+
+    fn write_record_with_quota(
+        &self,
+        record: &BridgeDeliveryRecord,
+        quota_bytes: Option<u64>,
+    ) -> anyhow::Result<()> {
+        let path = self.record_path(&record.id)?;
         let body = serde_json::to_string_pretty(&record)?;
-        self.paths
-            .ensure_quota_for_path_write(&path, u64::try_from(body.len()).unwrap_or(u64::MAX))?;
-        std::fs::write(path, body)?;
+        if let Some(quota_bytes) = quota_bytes {
+            self.paths
+                .write_quota_checked_with_quota(path, body.as_bytes(), Some(quota_bytes))?;
+        } else {
+            self.paths.write_quota_checked(path, body.as_bytes())?;
+        }
         Ok(())
     }
 
@@ -4157,10 +4172,21 @@ fn save_memory_generation_checkpoint(
     paths: &StoragePaths,
     checkpoint: &MemoryGenerationCheckpoint,
 ) -> anyhow::Result<()> {
+    save_memory_generation_checkpoint_with_quota(paths, checkpoint, None)
+}
+
+fn save_memory_generation_checkpoint_with_quota(
+    paths: &StoragePaths,
+    checkpoint: &MemoryGenerationCheckpoint,
+    quota_bytes: Option<u64>,
+) -> anyhow::Result<()> {
     let path = memory_generation_checkpoint_path(paths);
     let body = serde_json::to_string_pretty(checkpoint)?;
-    paths.ensure_quota_for_path_write(&path, u64::try_from(body.len()).unwrap_or(u64::MAX))?;
-    std::fs::write(path, body)?;
+    if let Some(quota_bytes) = quota_bytes {
+        paths.write_quota_checked_with_quota(path, body.as_bytes(), Some(quota_bytes))?;
+    } else {
+        paths.write_quota_checked(path, body.as_bytes())?;
+    }
     Ok(())
 }
 
@@ -6880,6 +6906,46 @@ mod tests {
     }
 
     #[test]
+    fn bridge_delivery_write_rejects_record_over_storage_quota() {
+        let dir = temp_dir("bridge-delivery-quota");
+        let store = BridgeDeliveryStore::from_paths(StoragePaths::new(&dir));
+        let record = BridgeDeliveryRecord {
+            id: "bridge-delivery-too-large".into(),
+            target: "slack.response_url".into(),
+            url: "https://example.test/hook".into(),
+            payload: serde_json::json!({ "text": "this payload exceeds the test quota" }),
+            last_delivery: serde_json::json!({ "delivered": false, "error": "failed" }),
+            created_ms: 1,
+            updated_ms: 1,
+        };
+
+        let err = store
+            .write_record_with_quota(&record, Some(16))
+            .expect_err("bridge delivery write should fail before exceeding quota");
+
+        assert!(is_storage_quota_error(&err));
+        assert!(store.show(&record.id).is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn memory_generation_checkpoint_write_rejects_over_storage_quota() {
+        let dir = temp_dir("memory-generation-checkpoint-quota");
+        let paths = StoragePaths::new(&dir);
+        let mut checkpoint = MemoryGenerationCheckpoint::default();
+        checkpoint
+            .conversations
+            .insert("agent:conversation-too-large".into(), 42);
+
+        let err = save_memory_generation_checkpoint_with_quota(&paths, &checkpoint, Some(16))
+            .expect_err("checkpoint write should fail before exceeding quota");
+
+        assert!(is_storage_quota_error(&err));
+        assert!(!memory_generation_checkpoint_path(&paths).exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn bridge_delivery_worker_env_is_opt_in_and_bounded() {
         let _guard = ENV_LOCK.lock().unwrap();
         let previous_interval = std::env::var_os("AGENT_MESSAGING_DELIVERY_WORKER_INTERVAL_MS");
@@ -7512,5 +7578,12 @@ mod tests {
             "agent-daemon-{label}-{}-{nanos}",
             std::process::id()
         ))
+    }
+
+    fn is_storage_quota_error(err: &anyhow::Error) -> bool {
+        matches!(
+            err.downcast_ref::<agent_storage::StorageError>(),
+            Some(agent_storage::StorageError::QuotaExceeded { .. })
+        )
     }
 }

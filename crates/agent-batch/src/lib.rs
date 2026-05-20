@@ -105,11 +105,24 @@ impl BatchPlan {
     }
 
     pub fn save(&mut self, paths: &StoragePaths) -> Result<(), BatchError> {
+        self.save_with_quota(paths, None)
+    }
+
+    fn save_with_quota(
+        &mut self,
+        paths: &StoragePaths,
+        quota_bytes: Option<u64>,
+    ) -> Result<(), BatchError> {
         paths.ensure_base_dirs()?;
         fs::create_dir_all(paths.batches_dir())?;
         self.updated_at = chrono::Utc::now();
         let text = serde_json::to_string_pretty(self)?;
-        fs::write(batch_path(paths, &self.batch_id), text)?;
+        let path = batch_path(paths, &self.batch_id);
+        if let Some(quota_bytes) = quota_bytes {
+            paths.write_quota_checked_with_quota(&path, text.as_bytes(), Some(quota_bytes))?;
+        } else {
+            paths.write_quota_checked(&path, text.as_bytes())?;
+        }
         Ok(())
     }
 
@@ -205,6 +218,30 @@ mod tests {
         let loaded = BatchPlan::load(&paths, "batch-x").unwrap();
         assert_eq!(loaded.items[0].status, BatchItemState::Succeeded);
         assert_eq!(loaded.items[0].last_run_id.as_deref(), Some("run-1"));
+
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn plan_save_rejects_batches_over_storage_quota() {
+        let root = std::env::temp_dir().join(format!(
+            "agent-batch-quota-test-{}",
+            chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        let paths = StoragePaths::new(&root);
+        let mut plan = BatchPlan::new(
+            "batch-quota",
+            vec!["this batch input exceeds the tiny test quota".into()],
+        );
+
+        let err = plan
+            .save_with_quota(&paths, Some(16))
+            .expect_err("batch save should fail before exceeding quota");
+        assert!(matches!(
+            err,
+            BatchError::Storage(agent_storage::StorageError::QuotaExceeded { .. })
+        ));
+        assert!(!batch_path(&paths, "batch-quota").exists());
 
         let _ = std::fs::remove_dir_all(root);
     }

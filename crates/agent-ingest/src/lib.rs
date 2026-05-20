@@ -577,11 +577,22 @@ impl IngestionStore {
     }
 
     fn write(&self, artifact: &IngestionArtifact) -> Result<(), IngestError> {
+        self.write_with_quota(artifact, None)
+    }
+
+    fn write_with_quota(
+        &self,
+        artifact: &IngestionArtifact,
+        quota_bytes: Option<u64>,
+    ) -> Result<(), IngestError> {
         let path = self.path_for(&artifact.id);
         let body = serde_json::to_string_pretty(artifact)?;
-        self.paths
-            .ensure_quota_for_path_write(&path, u64::try_from(body.len()).unwrap_or(u64::MAX))?;
-        std::fs::write(path, body)?;
+        if let Some(quota_bytes) = quota_bytes {
+            self.paths
+                .write_quota_checked_with_quota(path, body.as_bytes(), Some(quota_bytes))?;
+        } else {
+            self.paths.write_quota_checked(path, body.as_bytes())?;
+        }
         Ok(())
     }
 
@@ -1807,6 +1818,42 @@ mod tests {
                 .and_then(|review| review.note.as_deref()),
             Some("reviewed source text")
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn write_rejects_artifact_over_storage_quota() {
+        let dir = std::env::temp_dir().join(format!(
+            "ingest-quota-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        let store = IngestionStore::new(StoragePaths::new(dir.join("home")));
+        let artifact = IngestionArtifact {
+            id: "too-large".into(),
+            source: dir.join("source.md"),
+            backend: "local-v0".into(),
+            content_hash: "hash".into(),
+            sections: vec![IngestSection {
+                index: 0,
+                title: Some("Large".into()),
+                text: "this ingestion artifact exceeds the test quota".into(),
+            }],
+            extracted_text: Some("this ingestion artifact exceeds the test quota".into()),
+            findings: Vec::new(),
+            finding_reviews: Vec::new(),
+            created_at: Utc::now(),
+        };
+
+        let err = store
+            .write_with_quota(&artifact, Some(16))
+            .expect_err("ingestion artifact write should fail before exceeding quota");
+
+        assert!(matches!(
+            err,
+            IngestError::Storage(StorageError::QuotaExceeded { .. })
+        ));
+        assert!(store.show("too-large").is_err());
         let _ = std::fs::remove_dir_all(dir);
     }
 

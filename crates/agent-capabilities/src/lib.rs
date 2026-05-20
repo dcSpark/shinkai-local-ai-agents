@@ -98,6 +98,10 @@ impl CapabilityDraftStore {
 
     pub fn from_env() -> Self {
         let paths = StoragePaths::from_env();
+        Self::from_paths(paths)
+    }
+
+    pub fn from_paths(paths: StoragePaths) -> Self {
         Self {
             dir: paths.capability_drafts_dir(),
             quota_paths: Some(paths),
@@ -206,16 +210,26 @@ impl CapabilityDraftStore {
     }
 
     fn write(&self, draft: &CapabilityDraft) -> Result<(), CapabilityError> {
+        self.write_with_quota(draft, None)
+    }
+
+    fn write_with_quota(
+        &self,
+        draft: &CapabilityDraft,
+        quota_bytes: Option<u64>,
+    ) -> Result<(), CapabilityError> {
         std::fs::create_dir_all(&self.dir)?;
         let path = self.path_for(&draft.id)?;
         let body = serde_json::to_string_pretty(draft)?;
         if let Some(paths) = self.quota_paths.as_ref() {
-            paths.ensure_quota_for_path_write(
-                &path,
-                u64::try_from(body.len()).unwrap_or(u64::MAX),
-            )?;
+            if let Some(quota_bytes) = quota_bytes {
+                paths.write_quota_checked_with_quota(&path, body.as_bytes(), Some(quota_bytes))?;
+            } else {
+                paths.write_quota_checked(&path, body.as_bytes())?;
+            }
+        } else {
+            std::fs::write(path, body)?;
         }
-        std::fs::write(path, body)?;
         Ok(())
     }
 
@@ -443,6 +457,40 @@ mod tests {
             Some("Review before enabling.")
         );
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn write_rejects_draft_over_storage_quota() {
+        let dir = std::env::temp_dir().join(format!(
+            "agent-capabilities-quota-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        let store = CapabilityDraftStore::from_paths(StoragePaths::new(&dir));
+        let now = Utc::now();
+        let draft = CapabilityDraft {
+            id: "too-large".into(),
+            kind: CapabilityKind::Tool,
+            name: "Too Large".into(),
+            body: "this draft body exceeds the test quota".into(),
+            guidance: Some("review carefully".into()),
+            created_by: "agent".into(),
+            created_at: now,
+            updated_at: now,
+            status: CapabilityDraftStatus::Quarantined,
+            provenance: "test".into(),
+        };
+
+        let err = store
+            .write_with_quota(&draft, Some(16))
+            .expect_err("capability draft write should fail before exceeding quota");
+
+        assert!(matches!(
+            err,
+            CapabilityError::Storage(StorageError::QuotaExceeded { .. })
+        ));
+        assert!(store.show("too-large").is_err());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]

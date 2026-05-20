@@ -7,10 +7,14 @@
 //! runtime variants such as Wasm continue to land in later slices.
 
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 use std::time::Instant;
 
 use agent_adapters::{AdapterKind, AdapterRegistry, CapabilityKind, NormalizedPackage};
@@ -269,6 +273,41 @@ pub struct CodeExecutionConfig {
     pub default_cwd: Option<PathBuf>,
     pub python_command: String,
     pub typescript_command: String,
+    pub sandbox: Option<CodeSandboxConfig>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeSandboxConfig {
+    pub label: String,
+    pub command: String,
+    pub args: Vec<String>,
+}
+
+impl CodeSandboxConfig {
+    fn from_env() -> Option<Self> {
+        let command = std::env::var("AGENT_CODE_SANDBOX_COMMAND")
+            .ok()
+            .and_then(clean_non_empty)?;
+        let args = std::env::var("AGENT_CODE_SANDBOX_ARGS_JSON")
+            .ok()
+            .and_then(|value| serde_json::from_str::<Vec<String>>(&value).ok())
+            .unwrap_or_default();
+        let label = std::env::var("AGENT_CODE_SANDBOX_LABEL")
+            .ok()
+            .and_then(clean_non_empty)
+            .unwrap_or_else(|| {
+                Path::new(&command)
+                    .file_name()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("configured_sandbox")
+                    .to_string()
+            });
+        Some(Self {
+            label,
+            command,
+            args,
+        })
+    }
 }
 
 impl CodeExecutionConfig {
@@ -287,6 +326,7 @@ impl CodeExecutionConfig {
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty())
                 .unwrap_or_else(|| "deno".into()),
+            sandbox: CodeSandboxConfig::from_env(),
         }
     }
 }
@@ -351,7 +391,7 @@ impl CodeExecutionTool {
             id: ToolId::from(language.id()),
             name: language.name().into(),
             description: format!(
-                "Runs a {code_kind} snippet from a temporary file with timeout, captured stdout/stderr, and a minimal inherited environment."
+                "Runs a {code_kind} snippet from a temporary file with timeout, captured stdout/stderr, a minimal inherited environment, and an optional configured sandbox wrapper."
             ),
             categories: vec!["code".into(), code_kind.into(), "shell".into()],
             input_schema: json!({
@@ -439,10 +479,9 @@ impl Tool for CodeExecutionTool {
             .or_else(|| self.config.default_cwd.clone());
 
         let temp_dir = std::env::temp_dir().join(format!(
-            "agent-code-{}-{}-{}",
+            "agent-code-{}-{}",
             self.language.category(),
-            std::process::id(),
-            chrono_like_timestamp()
+            unique_temp_suffix()
         ));
         std::fs::create_dir_all(&temp_dir).map_err(|e| ToolError::Execution(e.to_string()))?;
         let script_path = temp_dir.join(format!("snippet.{}", self.language.extension()));
@@ -451,19 +490,41 @@ impl Tool for CodeExecutionTool {
             return Err(ToolError::Execution(error.to_string()));
         }
 
-        let mut cmd = Command::new(self.runner_command());
+        let mut runner_args = Vec::<OsString>::new();
         match self.language {
             CodeLanguage::Python => {
-                cmd.arg(&script_path);
+                runner_args.push(script_path.clone().into_os_string());
             }
             CodeLanguage::TypeScript => {
-                cmd.arg("run")
-                    .arg("--quiet")
-                    .arg("--no-prompt")
-                    .arg(&script_path);
+                runner_args.push("run".into());
+                runner_args.push("--quiet".into());
+                runner_args.push("--no-prompt".into());
+                runner_args.push(script_path.clone().into_os_string());
             }
         }
-        cmd.args(args);
+        runner_args.extend(args.into_iter().map(OsString::from));
+        let sandbox_label = self
+            .config
+            .sandbox
+            .as_ref()
+            .map(|sandbox| sandbox.label.clone())
+            .unwrap_or_else(|| "temporary_cwd_minimal_env".into());
+        let sandbox_command = self
+            .config
+            .sandbox
+            .as_ref()
+            .map(|sandbox| sandbox.command.clone());
+        let mut cmd = if let Some(sandbox) = &self.config.sandbox {
+            let mut cmd = Command::new(&sandbox.command);
+            cmd.args(&sandbox.args);
+            cmd.arg(self.runner_command());
+            cmd.args(&runner_args);
+            cmd
+        } else {
+            let mut cmd = Command::new(self.runner_command());
+            cmd.args(&runner_args);
+            cmd
+        };
         apply_minimal_env(&mut cmd);
         cmd.current_dir(cwd.unwrap_or_else(|| temp_dir.clone()));
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -493,7 +554,8 @@ impl Tool for CodeExecutionTool {
                         "timed_out": true,
                         "truncated_stdout": false,
                         "truncated_stderr": false,
-                        "sandbox": "temporary_cwd_minimal_env"
+                        "sandbox": sandbox_label,
+                        "sandbox_command": sandbox_command
                     }));
                 }
             };
@@ -519,7 +581,8 @@ impl Tool for CodeExecutionTool {
             "timed_out": false,
             "truncated_stdout": truncated_stdout,
             "truncated_stderr": truncated_stderr,
-            "sandbox": "temporary_cwd_minimal_env"
+            "sandbox": sandbox_label,
+            "sandbox_command": sandbox_command
         }))
     }
 }
@@ -2628,6 +2691,17 @@ fn chrono_like_timestamp() -> String {
         .map(|duration| duration.as_millis())
         .unwrap_or_default();
     format!("{millis}")
+}
+
+static UNIQUE_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn unique_temp_suffix() -> String {
+    let counter = UNIQUE_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!(
+        "{}-{}-{counter}",
+        std::process::id(),
+        chrono_like_timestamp()
+    )
 }
 
 fn generated_artifact_from_path(path: PathBuf) -> Result<Option<GeneratedArtifact>, ToolError> {
@@ -5023,6 +5097,7 @@ done
             default_cwd: None,
             python_command: python,
             typescript_command: "deno".into(),
+            sandbox: None,
         });
 
         let output = tool
@@ -5045,6 +5120,59 @@ done
     }
 
     #[tokio::test]
+    async fn python_code_tool_can_run_through_configured_sandbox_wrapper() {
+        let python = default_python_command();
+        if !command_available(&python) {
+            return;
+        }
+        let wrapper_dir =
+            std::env::temp_dir().join(format!("agent-code-sandbox-test-{}", unique_temp_suffix()));
+        std::fs::create_dir_all(&wrapper_dir).unwrap();
+        let wrapper_path = wrapper_dir.join("wrapper.py");
+        std::fs::write(
+            &wrapper_path,
+            r#"
+import os
+import subprocess
+import sys
+
+os.environ["AGENT_CODE_SANDBOX_MARKER"] = "wrapped"
+raise SystemExit(subprocess.run(sys.argv[1:]).returncode)
+"#,
+        )
+        .unwrap();
+        let tool = CodeExecutionTool::python(CodeExecutionConfig {
+            default_timeout_ms: 30_000,
+            max_output_bytes: 64 * 1024,
+            default_cwd: None,
+            python_command: python.clone(),
+            typescript_command: "deno".into(),
+            sandbox: Some(CodeSandboxConfig {
+                label: "test_sandbox_wrapper".into(),
+                command: python.clone(),
+                args: vec![wrapper_path.to_string_lossy().to_string()],
+            }),
+        });
+
+        let output = tool
+            .execute(json!({
+                "code": "import os, sys\nprint('marker=' + os.environ.get('AGENT_CODE_SANDBOX_MARKER', ''))\nprint('arg=' + sys.argv[1])",
+                "args": ["ok"]
+            }))
+            .await
+            .unwrap();
+        let _ = std::fs::remove_dir_all(&wrapper_dir);
+
+        assert_eq!(output["language"], "python");
+        assert_eq!(output["status"], "success");
+        assert_eq!(output["sandbox"], "test_sandbox_wrapper");
+        assert_eq!(output["sandbox_command"], python);
+        let stdout = output["stdout"].as_str().unwrap();
+        assert!(stdout.contains("marker=wrapped\n"));
+        assert!(stdout.contains("arg=ok\n"));
+    }
+
+    #[tokio::test]
     async fn typescript_code_tool_runs_with_deno_when_available() {
         if !command_available("deno") {
             return;
@@ -5055,6 +5183,7 @@ done
             default_cwd: None,
             python_command: default_python_command(),
             typescript_command: "deno".into(),
+            sandbox: None,
         });
 
         let output = tool

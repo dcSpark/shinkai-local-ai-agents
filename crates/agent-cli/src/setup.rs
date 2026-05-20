@@ -21,7 +21,7 @@ use agent_llm::{
     AnthropicProvider, FakeProvider, FakeStep, GeminiProvider, LlmProvider, Message, ModelRef,
     NativeProviderConfig, RigProvider, RigProviderConfig,
 };
-use agent_memory::{MemoryRecord, MemoryStore};
+use agent_memory::{MemoryRecord, MemoryStore, memory_record_matches_topics};
 use agent_skills::SkillRegistry;
 use agent_storage::StoragePaths;
 use agent_tools::{
@@ -57,6 +57,7 @@ pub struct RuntimeOptions {
     pub enable_subagent: bool,
     pub enable_capability_drafts: bool,
     pub load_memory: bool,
+    pub memory_topics: Vec<String>,
     pub load_skills: bool,
     pub include_ingest: Vec<String>,
     pub allow_unsafe_ingest: bool,
@@ -94,6 +95,7 @@ impl Default for RuntimeOptions {
             enable_subagent: false,
             enable_capability_drafts: false,
             load_memory: false,
+            memory_topics: Vec::new(),
             load_skills: false,
             include_ingest: Vec::new(),
             allow_unsafe_ingest: false,
@@ -409,7 +411,9 @@ pub fn build_agent(options: &RuntimeOptions) -> AgentConfig {
         .as_ref()
         .map(|policy| policy.effective_load_memory(config_load_memory, options.load_memory))
         .unwrap_or(config_load_memory || options.load_memory);
-    if load_memory && let Ok(memory) = load_memory_fragments_with_profile_grants() {
+    if load_memory
+        && let Ok(memory) = load_memory_fragments_with_profile_grants(&options.memory_topics)
+    {
         agent.memory_fragments = memory;
     }
     if (options.load_skills || config_load_skills)
@@ -652,10 +656,12 @@ fn default_model_for_provider(provider: Provider) -> &'static str {
     }
 }
 
-fn load_memory_fragments_with_profile_grants() -> anyhow::Result<Vec<MemoryFragment>> {
+fn load_memory_fragments_with_profile_grants(
+    topics: &[String],
+) -> anyhow::Result<Vec<MemoryFragment>> {
     let active_paths = StoragePaths::from_env();
     let active_profile = active_paths.active_profile_id().to_string();
-    let mut fragments = MemoryStore::new(active_paths.clone()).load_fragments()?;
+    let mut fragments = MemoryStore::new(active_paths.clone()).load_fragments_for_topics(topics)?;
     let resolver = ConfigResolver::from_env();
     for grant in resolver.list_profile_grants()?.into_iter().filter(|grant| {
         grant.kind == ProfileGrantKind::Memory && grant.to_profile == active_profile
@@ -666,6 +672,7 @@ fn load_memory_fragments_with_profile_grants() -> anyhow::Result<Vec<MemoryFragm
         for record in records
             .into_iter()
             .filter(|record| memory_record_matches_grant(record, &grant.resource))
+            .filter(|record| memory_record_matches_topics(record, topics))
         {
             fragments.push(MemoryStore::fragment_from_record(
                 record,

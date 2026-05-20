@@ -30,7 +30,7 @@ use agent_llm::{
     NativeProviderConfig, RigProvider, RigProviderConfig,
 };
 use agent_memory::{
-    MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget,
+    MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget, memory_record_matches_topics,
     supported_backends as supported_memory_backends,
 };
 use agent_prompts::{PromptStore, is_valid_prompt_name};
@@ -3180,8 +3180,13 @@ fn daemon_memory_create(body: &str) -> anyhow::Result<serde_json::Value> {
     } else {
         MemoryTarget::Agent
     };
-    let record =
-        MemoryStore::from_env().create(target, &input.content, MemoryAuthor::Human, None)?;
+    let record = MemoryStore::from_env().create_with_topics(
+        target,
+        &input.content,
+        MemoryAuthor::Human,
+        None,
+        input.topics,
+    )?;
     record_memory_written(&record, "created")?;
     Ok(serde_json::to_value(record)?)
 }
@@ -3193,7 +3198,12 @@ fn daemon_memory_generate(body: &str) -> anyhow::Result<serde_json::Value> {
     } else {
         MemoryTarget::Agent
     };
-    let records = MemoryStore::from_env().generate_from_text(target, &input.text, input.range)?;
+    let records = MemoryStore::from_env().generate_from_text_with_topics(
+        target,
+        &input.text,
+        input.range,
+        input.topics,
+    )?;
     for record in &records {
         record_memory_written(record, "generated")?;
     }
@@ -4183,6 +4193,8 @@ struct DaemonRuntimeOptions {
     #[serde(default)]
     load_memory: bool,
     #[serde(default)]
+    memory_topics: Vec<String>,
+    #[serde(default)]
     load_skills: bool,
     #[serde(default)]
     include_ingest: Vec<String>,
@@ -4253,6 +4265,8 @@ struct MemoryCreateInput {
     content: String,
     #[serde(default)]
     user: bool,
+    #[serde(default)]
+    topics: Vec<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -4261,6 +4275,8 @@ struct MemoryGenerateInput {
     #[serde(default)]
     user: bool,
     range: Option<String>,
+    #[serde(default)]
+    topics: Vec<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -4815,7 +4831,9 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
         .as_ref()
         .map(|policy| policy.effective_load_memory(config_load_memory, options.load_memory))
         .unwrap_or(config_load_memory || options.load_memory);
-    if load_memory && let Ok(memory) = load_memory_fragments_with_profile_grants() {
+    if load_memory
+        && let Ok(memory) = load_memory_fragments_with_profile_grants(&options.memory_topics)
+    {
         agent.memory_fragments = memory;
     }
     if (options.load_skills || config_load_skills)
@@ -4941,10 +4959,12 @@ fn config_ingestion_guardrail(values: &[ConfigValueExplanation]) -> IngestionGua
         .unwrap_or(IngestionGuardrailMode::Block)
 }
 
-fn load_memory_fragments_with_profile_grants() -> anyhow::Result<Vec<MemoryFragment>> {
+fn load_memory_fragments_with_profile_grants(
+    topics: &[String],
+) -> anyhow::Result<Vec<MemoryFragment>> {
     let active_paths = StoragePaths::from_env();
     let active_profile = active_paths.active_profile_id().to_string();
-    let mut fragments = MemoryStore::new(active_paths.clone()).load_fragments()?;
+    let mut fragments = MemoryStore::new(active_paths.clone()).load_fragments_for_topics(topics)?;
     let resolver = ConfigResolver::new(active_paths.clone());
     for grant in resolver.list_profile_grants()?.into_iter().filter(|grant| {
         grant.kind == ProfileGrantKind::Memory && grant.to_profile == active_profile
@@ -4955,6 +4975,7 @@ fn load_memory_fragments_with_profile_grants() -> anyhow::Result<Vec<MemoryFragm
         for record in records
             .into_iter()
             .filter(|record| memory_record_matches_grant(record, &grant.resource))
+            .filter(|record| memory_record_matches_topics(record, topics))
         {
             fragments.push(MemoryStore::fragment_from_record(
                 record,

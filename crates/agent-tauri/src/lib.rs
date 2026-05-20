@@ -46,7 +46,7 @@ use agent_llm::{
 };
 use agent_memory::{
     MemoryAuthor, MemoryBackendDescriptor, MemoryRecord, MemoryStore, MemoryTarget,
-    supported_backends as supported_memory_backends,
+    memory_record_matches_topics, supported_backends as supported_memory_backends,
 };
 use agent_prompts::{PromptDoc, PromptStore};
 use agent_skills::{SkillDoc, SkillRegistry};
@@ -146,6 +146,7 @@ struct RunOptions {
     enable_subagent: bool,
     enable_capability_drafts: bool,
     load_memory: bool,
+    memory_topics: Vec<String>,
     load_skills: bool,
     include_ingest: Vec<String>,
     allow_unsafe_ingest: bool,
@@ -185,6 +186,7 @@ impl Default for RunOptions {
             enable_subagent: false,
             enable_capability_drafts: false,
             load_memory: false,
+            memory_topics: Vec::new(),
             load_skills: false,
             include_ingest: Vec::new(),
             allow_unsafe_ingest: false,
@@ -653,7 +655,9 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
         .as_ref()
         .map(|policy| policy.effective_load_memory(config_load_memory, options.load_memory))
         .unwrap_or(config_load_memory || options.load_memory);
-    if load_memory && let Ok(memory) = load_memory_fragments_with_profile_grants() {
+    if load_memory
+        && let Ok(memory) = load_memory_fragments_with_profile_grants(&options.memory_topics)
+    {
         agent.memory_fragments = memory;
     }
     if (options.load_skills || config_load_skills)
@@ -779,11 +783,12 @@ fn config_ingestion_guardrail(values: &[ConfigValueExplanation]) -> IngestionGua
         .unwrap_or(IngestionGuardrailMode::Block)
 }
 
-fn load_memory_fragments_with_profile_grants()
--> Result<Vec<MemoryFragment>, Box<dyn std::error::Error>> {
+fn load_memory_fragments_with_profile_grants(
+    topics: &[String],
+) -> Result<Vec<MemoryFragment>, Box<dyn std::error::Error>> {
     let active_paths = StoragePaths::from_env();
     let active_profile = active_paths.active_profile_id().to_string();
-    let mut fragments = MemoryStore::new(active_paths.clone()).load_fragments()?;
+    let mut fragments = MemoryStore::new(active_paths.clone()).load_fragments_for_topics(topics)?;
     let resolver = ConfigResolver::new(active_paths.clone());
     for grant in resolver.list_profile_grants()?.into_iter().filter(|grant| {
         grant.kind == ProfileGrantKind::Memory && grant.to_profile == active_profile
@@ -794,6 +799,7 @@ fn load_memory_fragments_with_profile_grants()
         for record in records
             .into_iter()
             .filter(|record| memory_record_matches_grant(record, &grant.resource))
+            .filter(|record| memory_record_matches_topics(record, topics))
         {
             fragments.push(MemoryStore::fragment_from_record(
                 record,
@@ -2350,14 +2356,24 @@ async fn execute_batch_plan(
 }
 
 #[tauri::command]
-async fn memory_create(content: String, user: bool) -> Result<MemoryRecord, String> {
+async fn memory_create(
+    content: String,
+    user: bool,
+    topics: Option<Vec<String>>,
+) -> Result<MemoryRecord, String> {
     let target = if user {
         MemoryTarget::User
     } else {
         MemoryTarget::Agent
     };
     let record = MemoryStore::from_env()
-        .create(target, &content, MemoryAuthor::Human, None)
+        .create_with_topics(
+            target,
+            &content,
+            MemoryAuthor::Human,
+            None,
+            topics.unwrap_or_default(),
+        )
         .map_err(|e| e.to_string())?;
     record_memory_written(&record, "created")?;
     Ok(record)
@@ -2368,6 +2384,7 @@ async fn memory_generate(
     text: String,
     user: bool,
     range: Option<String>,
+    topics: Option<Vec<String>>,
 ) -> Result<Vec<MemoryRecord>, String> {
     let target = if user {
         MemoryTarget::User
@@ -2375,7 +2392,7 @@ async fn memory_generate(
         MemoryTarget::Agent
     };
     let records = MemoryStore::from_env()
-        .generate_from_text(target, &text, range)
+        .generate_from_text_with_topics(target, &text, range, topics.unwrap_or_default())
         .map_err(|e| e.to_string())?;
     for record in &records {
         record_memory_written(record, "generated")?;

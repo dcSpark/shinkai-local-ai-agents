@@ -41,6 +41,8 @@ pub struct MemoryRecord {
     pub source_conversation_id: Option<String>,
     #[serde(default)]
     pub generating_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub topics: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -122,6 +124,43 @@ impl MemoryStore {
         source_range: Option<String>,
         source_conversation_id: Option<String>,
     ) -> Result<MemoryRecord, MemoryError> {
+        self.create_for_conversation_with_topics(
+            target,
+            content,
+            author,
+            source_range,
+            source_conversation_id,
+            Vec::new(),
+        )
+    }
+
+    pub fn create_with_topics(
+        &self,
+        target: MemoryTarget,
+        content: &str,
+        author: MemoryAuthor,
+        source_range: Option<String>,
+        topics: Vec<String>,
+    ) -> Result<MemoryRecord, MemoryError> {
+        self.create_for_conversation_with_topics(
+            target,
+            content,
+            author,
+            source_range,
+            None,
+            topics,
+        )
+    }
+
+    pub fn create_for_conversation_with_topics(
+        &self,
+        target: MemoryTarget,
+        content: &str,
+        author: MemoryAuthor,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+        topics: Vec<String>,
+    ) -> Result<MemoryRecord, MemoryError> {
         scan(content)?;
         self.paths.ensure_base_dirs()?;
         let now = Utc::now();
@@ -138,6 +177,7 @@ impl MemoryStore {
             source_conversation_id: clean_optional(source_conversation_id),
             generating_model: (author == MemoryAuthor::Model)
                 .then(|| "manual-memory-generator-v0".into()),
+            topics: normalize_topics(topics),
         };
         let mut records = self.list_target(target)?;
         records.push(record.clone());
@@ -161,15 +201,44 @@ impl MemoryStore {
         source_range: Option<String>,
         source_conversation_id: Option<String>,
     ) -> Result<Vec<MemoryRecord>, MemoryError> {
+        self.generate_from_conversation_text_with_topics(
+            target,
+            text,
+            source_range,
+            source_conversation_id,
+            Vec::new(),
+        )
+    }
+
+    pub fn generate_from_text_with_topics(
+        &self,
+        target: MemoryTarget,
+        text: &str,
+        source_range: Option<String>,
+        topics: Vec<String>,
+    ) -> Result<Vec<MemoryRecord>, MemoryError> {
+        self.generate_from_conversation_text_with_topics(target, text, source_range, None, topics)
+    }
+
+    pub fn generate_from_conversation_text_with_topics(
+        &self,
+        target: MemoryTarget,
+        text: &str,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+        topics: Vec<String>,
+    ) -> Result<Vec<MemoryRecord>, MemoryError> {
         let candidates = generated_memory_candidates(text);
+        let topics = normalize_topics(topics);
         let mut records = Vec::new();
         for candidate in candidates {
-            records.push(self.create_for_conversation(
+            records.push(self.create_for_conversation_with_topics(
                 target,
                 &candidate,
                 MemoryAuthor::Model,
                 source_range.clone(),
                 source_conversation_id.clone(),
+                topics.clone(),
             )?);
         }
         Ok(records)
@@ -303,6 +372,7 @@ impl MemoryStore {
             if let Some(target) = target {
                 record.target = target;
             }
+            record.topics = normalize_topics(std::mem::take(&mut record.topics));
             record.owning_profile = self.paths.active_profile_id().into();
             record.owning_agent = default_agent();
             record.updated_at = Utc::now();
@@ -341,6 +411,18 @@ impl MemoryStore {
         Ok(self
             .list()?
             .into_iter()
+            .map(|record| Self::fragment_from_record(record, None))
+            .collect())
+    }
+
+    pub fn load_fragments_for_topics(
+        &self,
+        topics: &[String],
+    ) -> Result<Vec<MemoryFragment>, MemoryError> {
+        Ok(self
+            .list()?
+            .into_iter()
+            .filter(|record| memory_record_matches_topics(record, topics))
             .map(|record| Self::fragment_from_record(record, None))
             .collect())
     }
@@ -483,6 +565,9 @@ fn memory_provenance(record: &MemoryRecord) -> String {
     if let Some(model) = &record.generating_model {
         parts.push(format!("generator={model}"));
     }
+    if !record.topics.is_empty() {
+        parts.push(format!("topics={}", record.topics.join(",")));
+    }
     parts.join("; ")
 }
 
@@ -490,6 +575,34 @@ fn clean_optional(value: Option<String>) -> Option<String> {
     value
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+pub fn memory_record_matches_topics(record: &MemoryRecord, topics: &[String]) -> bool {
+    let topics = normalize_topics(topics.to_vec());
+    if topics.is_empty() {
+        return true;
+    }
+    let record_topics = record
+        .topics
+        .iter()
+        .filter_map(|topic| normalize_topic(topic))
+        .collect::<std::collections::HashSet<_>>();
+    topics.iter().any(|topic| record_topics.contains(topic))
+}
+
+fn normalize_topics(topics: Vec<String>) -> Vec<String> {
+    let mut topics = topics
+        .iter()
+        .filter_map(|topic| normalize_topic(topic))
+        .collect::<Vec<_>>();
+    topics.sort();
+    topics.dedup();
+    topics
+}
+
+fn normalize_topic(topic: &str) -> Option<String> {
+    let topic = topic.trim().to_ascii_lowercase();
+    (!topic.is_empty()).then_some(topic)
 }
 
 fn parse_records(text: &str) -> Result<Vec<MemoryRecord>, MemoryError> {
@@ -736,6 +849,36 @@ mod tests {
             store.load_fragments().unwrap()[0]
                 .provenance
                 .contains("profile=research")
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn memory_topics_are_normalized_and_filterable() {
+        let dir = std::env::temp_dir().join(format!("memory-topic-test-{}", std::process::id()));
+        let store = MemoryStore::new(StoragePaths::new(&dir));
+        let record = store
+            .create_with_topics(
+                MemoryTarget::Agent,
+                "Use ledger vocabulary.",
+                MemoryAuthor::Human,
+                None,
+                vec!["Finance".into(), " finance ".into(), "Ops".into()],
+            )
+            .unwrap();
+
+        assert_eq!(record.topics, vec!["finance", "ops"]);
+        assert!(memory_record_matches_topics(&record, &["finance".into()]));
+        assert!(!memory_record_matches_topics(&record, &["legal".into()]));
+
+        let fragments = store.load_fragments_for_topics(&["ops".into()]).unwrap();
+        assert_eq!(fragments.len(), 1);
+        assert!(fragments[0].provenance.contains("topics=finance,ops"));
+        assert!(
+            store
+                .load_fragments_for_topics(&["legal".into()])
+                .unwrap()
+                .is_empty()
         );
         let _ = std::fs::remove_dir_all(dir);
     }

@@ -297,6 +297,7 @@ export default function App() {
   const [opsId, setOpsId] = useState("");
   const [capabilityKind, setCapabilityKind] = useState<CapabilityKind>("skill");
   const [memorySourceRange, setMemorySourceRange] = useState("");
+  const [memoryTopics, setMemoryTopics] = useState("");
   const [opsUserMemory, setOpsUserMemory] = useState(false);
   const [ingestBackend, setIngestBackend] = useState("local-v0");
   const [ingestVisionModel, setIngestVisionModel] = useState("");
@@ -773,6 +774,14 @@ export default function App() {
     setTranscript((t) => [...t, { kind, text }]);
   }
 
+  function parsedMemoryTopics() {
+    return memoryTopics
+      .split(",")
+      .map((topic) => topic.trim().toLowerCase())
+      .filter(Boolean)
+      .filter((topic, index, topics) => topics.indexOf(topic) === index);
+  }
+
   function runtimeOptions(): RunOptions {
     return {
       provider,
@@ -801,6 +810,7 @@ export default function App() {
       enable_subagent: enableSubagent,
       enable_capability_drafts: enableCapabilityDrafts,
       load_memory: loadMemory,
+      memory_topics: parsedMemoryTopics(),
       load_skills: loadSkills,
       include_ingest: includeIngestIds,
       allow_unsafe_ingest: allowUnsafeIngest,
@@ -4494,16 +4504,19 @@ export default function App() {
   async function createMemoryFromOps() {
     const content = requireOpsValue("Memory create");
     if (!content) return;
+    const topics = parsedMemoryTopics();
     try {
       const record =
         transport === "daemon"
           ? await daemonJson<MemoryRecord>("/memory", {
               content,
               user: opsUserMemory,
+              topics,
             })
           : await invoke<MemoryRecord>("memory_create", {
               content,
               user: opsUserMemory,
+              topics,
             });
       setMemoryRecords((records) => upsertMemoryRecord(records, record));
       appendJson("Memory created", record);
@@ -4517,6 +4530,7 @@ export default function App() {
     const text = requireOpsValue("Memory generate");
     if (!text) return;
     const range = memorySourceRange.trim() || null;
+    const topics = parsedMemoryTopics();
     try {
       const records =
         transport === "daemon"
@@ -4524,11 +4538,13 @@ export default function App() {
               text,
               user: opsUserMemory,
               range,
+              topics,
             })
           : await invoke<MemoryRecord[]>("memory_generate", {
               text,
               user: opsUserMemory,
               range,
+              topics,
             });
       setMemoryRecords((current) =>
         records.reduce(upsertMemoryRecord, current),
@@ -7980,6 +7996,15 @@ export default function App() {
                   disabled={running}
                 />
               </label>
+              <label>
+                Topics
+                <input
+                  value={memoryTopics}
+                  onChange={(e) => setMemoryTopics(e.target.value)}
+                  placeholder="finance, ops"
+                  disabled={running}
+                />
+              </label>
               <div className="button-grid">
                 <button
                   type="button"
@@ -8093,6 +8118,9 @@ export default function App() {
                         ) : null}
                         {record.generating_model ? (
                           <span>model {record.generating_model}</span>
+                        ) : null}
+                        {record.topics?.length ? (
+                          <span>topics {record.topics.join(", ")}</span>
                         ) : null}
                       </div>
                       <p>{previewText(record.content)}</p>

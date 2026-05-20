@@ -2317,18 +2317,20 @@ pub async fn memory_create(
     content: String,
     user: bool,
     conversation: Option<String>,
+    topics: Vec<String>,
 ) -> anyhow::Result<()> {
     let target = if user {
         MemoryTarget::User
     } else {
         MemoryTarget::Agent
     };
-    let record = MemoryStore::from_env().create_for_conversation(
+    let record = MemoryStore::from_env().create_for_conversation_with_topics(
         target,
         &content,
         MemoryAuthor::Human,
         None,
         conversation,
+        topics,
     )?;
     record_memory_written(&record, "created")?;
     println!("{}", serde_json::to_string_pretty(&record)?);
@@ -2340,17 +2342,19 @@ pub async fn memory_generate(
     user: bool,
     range: Option<String>,
     conversation: Option<String>,
+    topics: Vec<String>,
 ) -> anyhow::Result<()> {
     let target = if user {
         MemoryTarget::User
     } else {
         MemoryTarget::Agent
     };
-    let records = MemoryStore::from_env().generate_from_conversation_text(
+    let records = MemoryStore::from_env().generate_from_conversation_text_with_topics(
         target,
         &text,
         range,
         conversation,
+        topics,
     )?;
     for record in &records {
         record_memory_written(record, "generated")?;
@@ -3770,6 +3774,7 @@ pub async fn remote_run(
             "enable_subagent": options.enable_subagent,
             "raw_tool_output": options.raw_tool_output,
             "load_memory": options.load_memory,
+            "memory_topics": options.memory_topics,
             "load_skills": options.load_skills,
             "compacted_context": included_compacted_context(&options)?,
             "conversation_id": options.conversation_id,
@@ -3822,6 +3827,7 @@ pub async fn remote_run_start(
             "enable_subagent": options.enable_subagent,
             "raw_tool_output": options.raw_tool_output,
             "load_memory": options.load_memory,
+            "memory_topics": options.memory_topics,
             "load_skills": options.load_skills,
             "compacted_context": included_compacted_context(&options)?,
             "conversation_id": options.conversation_id,
@@ -3872,6 +3878,7 @@ pub async fn remote_preview_context(
             "skill_visibility": options.skill_visibility,
             "raw_tool_output": options.raw_tool_output,
             "load_memory": options.load_memory,
+            "memory_topics": options.memory_topics,
             "load_skills": options.load_skills,
             "compacted_context": included_compacted_context(&options)?,
             "conversation_id": options.conversation_id,
@@ -4047,10 +4054,15 @@ pub async fn remote_memory_backends(url: String) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).get_json("/memory/backends")?)
 }
 
-pub async fn remote_memory_create(url: String, content: String, user: bool) -> anyhow::Result<()> {
+pub async fn remote_memory_create(
+    url: String,
+    content: String,
+    user: bool,
+    topics: Vec<String>,
+) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).post_json(
         "/memory",
-        serde_json::json!({ "content": content, "user": user }),
+        serde_json::json!({ "content": content, "user": user, "topics": topics }),
     )?)
 }
 
@@ -4059,10 +4071,11 @@ pub async fn remote_memory_generate(
     text: String,
     user: bool,
     range: Option<String>,
+    topics: Vec<String>,
 ) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).post_json(
         "/memory/generate",
-        serde_json::json!({ "text": text, "user": user, "range": range }),
+        serde_json::json!({ "text": text, "user": user, "range": range, "topics": topics }),
     )?)
 }
 

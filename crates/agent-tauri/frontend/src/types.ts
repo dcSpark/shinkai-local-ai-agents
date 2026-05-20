@@ -338,6 +338,7 @@ export type RunOptions = {
   enable_subagent: boolean;
   enable_capability_drafts: boolean;
   load_memory: boolean;
+  memory_topics: string[];
   load_skills: boolean;
   include_ingest: string[];
   allow_unsafe_ingest: boolean;
@@ -400,6 +401,7 @@ export type MemoryRecord = {
   source_range: string | null;
   source_conversation_id?: string | null;
   generating_model?: string | null;
+  topics?: string[];
 };
 
 export type MemoryBackendDescriptor = {

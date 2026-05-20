@@ -136,6 +136,10 @@ enum Command {
         #[arg(long)]
         load_memory: bool,
 
+        /// Restrict loaded memory to one topic. Repeat for multiple topics.
+        #[arg(long = "memory-topic")]
+        memory_topics: Vec<String>,
+
         /// Load allowed file-backed skills into context for this run.
         #[arg(long)]
         load_skills: bool,
@@ -241,6 +245,10 @@ enum Command {
         /// Include loaded memory in the preview.
         #[arg(long)]
         load_memory: bool,
+
+        /// Restrict loaded memory to one topic. Repeat for multiple topics.
+        #[arg(long = "memory-topic")]
+        memory_topics: Vec<String>,
 
         /// Preview the raw tool-output runtime mode.
         #[arg(long)]
@@ -657,6 +665,10 @@ enum MemoryCommand {
         /// Conversation this memory was generated from.
         #[arg(long)]
         conversation: Option<String>,
+
+        /// Topic tag for this memory. Repeat for multiple topics.
+        #[arg(long = "topic")]
+        topics: Vec<String>,
     },
     /// Generate memory records manually from text.
     Generate {
@@ -673,6 +685,10 @@ enum MemoryCommand {
         /// Conversation this memory was generated from.
         #[arg(long)]
         conversation: Option<String>,
+
+        /// Topic tag for generated memory. Repeat for multiple topics.
+        #[arg(long = "topic")]
+        topics: Vec<String>,
     },
     /// List memory records.
     List {
@@ -1777,6 +1793,10 @@ enum RemoteCommand {
         #[arg(long)]
         load_memory: bool,
 
+        /// Restrict loaded daemon memory to one topic. Repeat for multiple topics.
+        #[arg(long = "memory-topic")]
+        memory_topics: Vec<String>,
+
         /// Load allowed skills in daemon context.
         #[arg(long)]
         load_skills: bool,
@@ -1905,6 +1925,10 @@ enum RemoteCommand {
         #[arg(long)]
         load_memory: bool,
 
+        /// Restrict loaded daemon memory to one topic. Repeat for multiple topics.
+        #[arg(long = "memory-topic")]
+        memory_topics: Vec<String>,
+
         /// Load allowed skills in daemon context.
         #[arg(long)]
         load_skills: bool,
@@ -2014,6 +2038,10 @@ enum RemoteCommand {
         /// Include loaded memory in the preview.
         #[arg(long)]
         load_memory: bool,
+
+        /// Restrict loaded memory to one topic. Repeat for multiple topics.
+        #[arg(long = "memory-topic")]
+        memory_topics: Vec<String>,
 
         /// Preview the raw tool-output runtime mode.
         #[arg(long)]
@@ -2211,6 +2239,8 @@ enum RemoteMemoryCommand {
         content: String,
         #[arg(long)]
         user: bool,
+        #[arg(long = "topic")]
+        topics: Vec<String>,
     },
     Generate {
         text: String,
@@ -2218,6 +2248,8 @@ enum RemoteMemoryCommand {
         user: bool,
         #[arg(long)]
         range: Option<String>,
+        #[arg(long = "topic")]
+        topics: Vec<String>,
     },
     Edit {
         id: String,
@@ -4006,6 +4038,7 @@ async fn main() -> anyhow::Result<()> {
             enable_subagent,
             enable_capability_drafts,
             load_memory,
+            memory_topics,
             load_skills,
             conversation,
             include_compact,
@@ -4040,6 +4073,7 @@ async fn main() -> anyhow::Result<()> {
                 enable_subagent,
                 enable_capability_drafts,
                 load_memory,
+                memory_topics,
                 load_skills,
                 conversation_id: conversation,
                 include_compact,
@@ -4075,6 +4109,7 @@ async fn main() -> anyhow::Result<()> {
             tool_visibility,
             skill_visibility,
             load_memory,
+            memory_topics,
             raw_tool_output,
             load_skills,
             conversation,
@@ -4096,6 +4131,7 @@ async fn main() -> anyhow::Result<()> {
                 tool_visibility: tool_visibility.map(VisibilityLevel::from),
                 skill_visibility: skill_visibility.map(VisibilityLevel::from),
                 load_memory,
+                memory_topics,
                 raw_tool_output,
                 load_skills,
                 conversation_id: conversation,
@@ -4406,13 +4442,15 @@ async fn main() -> anyhow::Result<()> {
                 content,
                 user,
                 conversation,
-            } => headless::memory_create(content, user, conversation).await,
+                topics,
+            } => headless::memory_create(content, user, conversation, topics).await,
             MemoryCommand::Generate {
                 text,
                 user,
                 range,
                 conversation,
-            } => headless::memory_generate(text, user, range, conversation).await,
+                topics,
+            } => headless::memory_generate(text, user, range, conversation, topics).await,
             MemoryCommand::List { json } => headless::memory_list(json).await,
             MemoryCommand::Backends { json } => headless::memory_backends(json).await,
             MemoryCommand::Edit { id, content } => headless::memory_edit(id, content).await,
@@ -4669,6 +4707,7 @@ async fn main() -> anyhow::Result<()> {
                 enable_subagent,
                 enable_capability_drafts,
                 load_memory,
+                memory_topics,
                 load_skills,
                 include_compact,
                 conversation,
@@ -4703,6 +4742,7 @@ async fn main() -> anyhow::Result<()> {
                     enable_subagent,
                     enable_capability_drafts,
                     load_memory,
+                    memory_topics,
                     load_skills,
                     include_compact,
                     conversation_id: conversation,
@@ -4739,6 +4779,7 @@ async fn main() -> anyhow::Result<()> {
                 enable_subagent,
                 enable_capability_drafts,
                 load_memory,
+                memory_topics,
                 load_skills,
                 include_compact,
                 conversation,
@@ -4773,6 +4814,7 @@ async fn main() -> anyhow::Result<()> {
                     enable_subagent,
                     enable_capability_drafts,
                     load_memory,
+                    memory_topics,
                     load_skills,
                     include_compact,
                     conversation_id: conversation,
@@ -4806,6 +4848,7 @@ async fn main() -> anyhow::Result<()> {
                 tool_visibility,
                 skill_visibility,
                 load_memory,
+                memory_topics,
                 raw_tool_output,
                 load_skills,
                 include_compact,
@@ -4827,6 +4870,7 @@ async fn main() -> anyhow::Result<()> {
                     tool_visibility: tool_visibility.map(VisibilityLevel::from),
                     skill_visibility: skill_visibility.map(VisibilityLevel::from),
                     load_memory,
+                    memory_topics,
                     raw_tool_output,
                     load_skills,
                     include_compact,
@@ -4907,12 +4951,17 @@ async fn main() -> anyhow::Result<()> {
             RemoteCommand::Memory { command } => match command {
                 RemoteMemoryCommand::List => headless::remote_memory_list(url).await,
                 RemoteMemoryCommand::Backends => headless::remote_memory_backends(url).await,
-                RemoteMemoryCommand::Create { content, user } => {
-                    headless::remote_memory_create(url, content, user).await
-                }
-                RemoteMemoryCommand::Generate { text, user, range } => {
-                    headless::remote_memory_generate(url, text, user, range).await
-                }
+                RemoteMemoryCommand::Create {
+                    content,
+                    user,
+                    topics,
+                } => headless::remote_memory_create(url, content, user, topics).await,
+                RemoteMemoryCommand::Generate {
+                    text,
+                    user,
+                    range,
+                    topics,
+                } => headless::remote_memory_generate(url, text, user, range, topics).await,
                 RemoteMemoryCommand::Edit { id, content } => {
                     headless::remote_memory_edit(url, id, content).await
                 }

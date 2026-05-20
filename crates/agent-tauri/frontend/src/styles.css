@@ -1560,12 +1560,23 @@ textarea:disabled {
   background: #111215;
 }
 
-.trace-tree-node > div:first-child {
+.trace-tree-node-main {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.7rem;
   min-width: 0;
+}
+
+.trace-tree-node-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.7rem;
+  min-width: 0;
+}
+
+.trace-tree-status {
+  text-align: right;
 }
 
 .trace-tree-node strong {

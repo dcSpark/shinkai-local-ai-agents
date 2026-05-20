@@ -1893,25 +1893,42 @@ export default function App() {
     return "neutral";
   }
 
+  function traceTreeNodeKind(node: TraceTreeNode) {
+    if (node.agent_id?.startsWith("external-agent:")) return "external agent";
+    if (node.link_event_id != null) return "child run";
+    return "root run";
+  }
+
+  function traceTreeNodeAvailability(node: TraceTreeNode) {
+    if (node.trace_available) return `${node.event_count} events`;
+    if (node.agent_id?.startsWith("external-agent:")) return "remote trace link";
+    return "linked trace only";
+  }
+
   function renderTraceTreeNode(node: TraceTreeNode, depth = 0) {
     const children = node.children ?? [];
     const agent = node.agent_id || "unknown";
-    const link = node.link_status ? ` / link ${node.link_status}` : "";
+    const link =
+      node.link_status && node.link_status !== node.status ? ` / link ${node.link_status}` : "";
     return (
       <div
         className={`trace-tree-node ${traceTreeNodeTone(node)}`}
         key={`${node.run_id}:${node.link_event_id ?? "root"}`}
         style={{ marginLeft: `${Math.min(depth, 6) * 0.85}rem` }}
       >
-        <div>
+        <div className="trace-tree-node-main">
           <strong>{agent}</strong>
-          <span>{node.status}{link}</span>
+          <span className="trace-tree-status">
+            {node.status}
+            {link}
+          </span>
         </div>
         <code>{node.run_id}</code>
-        <span>
-          {node.trace_available ? `${node.event_count} events` : "trace missing"}
-          {children.length ? ` / ${children.length} child run(s)` : ""}
-        </span>
+        <div className="trace-tree-node-meta">
+          <span>{traceTreeNodeKind(node)}</span>
+          <span>{traceTreeNodeAvailability(node)}</span>
+          {children.length ? <span>{children.length} child run(s)</span> : null}
+        </div>
         {children.length ? (
           <div className="trace-tree-children">
             {children.map((child) => renderTraceTreeNode(child, depth + 1))}

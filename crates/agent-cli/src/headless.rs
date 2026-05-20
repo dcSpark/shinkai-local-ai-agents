@@ -3440,11 +3440,20 @@ async fn ingest_with_optional_models(
 }
 
 fn ensure_model_supports_vision(model: &str) -> anyhow::Result<()> {
-    if ConfigResolver::from_env().model_supports_modality(model, "image")? {
+    let support = ConfigResolver::from_env().model_modality_support(model, "image")?;
+    if support.supported {
         return Ok(());
     }
+    let modalities = if support.available_modalities.is_empty() {
+        "none".into()
+    } else {
+        support.available_modalities.join(",")
+    };
     anyhow::bail!(
-        "vision model {model:?} does not advertise image support; save the model with available_modalities=[\"text\",\"image\"] or choose a vision-capable provider"
+        "vision model {model:?} does not advertise image support (provider={}, source={}, modalities={}); save the model with available_modalities=[\"text\",\"image\"] or choose a vision-capable provider",
+        support.provider,
+        support.source,
+        modalities
     )
 }
 

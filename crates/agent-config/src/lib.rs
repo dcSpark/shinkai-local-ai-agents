@@ -408,6 +408,16 @@ pub struct ModelCapabilityProbe {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelModalitySupport {
+    pub model_id: String,
+    pub provider: String,
+    pub modality: String,
+    pub supported: bool,
+    pub available_modalities: Vec<String>,
+    pub source: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ModelLiveCapabilityProbe {
     pub attempted: bool,
     pub status: String,
@@ -1708,21 +1718,48 @@ impl ConfigResolver {
         model_id: &str,
         modality: &str,
     ) -> Result<bool, ConfigError> {
+        Ok(self.model_modality_support(model_id, modality)?.supported)
+    }
+
+    pub fn model_modality_support(
+        &self,
+        model_id: &str,
+        modality: &str,
+    ) -> Result<ModelModalitySupport, ConfigError> {
         self.ensure_default_files()?;
+        validate_model_id(model_id)?;
         let modality = modality.trim().to_ascii_lowercase();
-        let Some(model) = self.show_model(model_id)? else {
-            return Ok(provider_supports_modality(None, &modality));
-        };
-        if !model.available_modalities.is_empty() {
-            return Ok(model
-                .available_modalities
-                .iter()
-                .any(|item| item.eq_ignore_ascii_case(&modality)));
+        let model = self.show_model(model_id)?;
+        let provider =
+            normalized_provider(model.as_ref().and_then(|model| model.provider.as_deref()))
+                .unwrap_or_else(|| "rig".into());
+        if let Some(model) = model.as_ref()
+            && !model.available_modalities.is_empty()
+        {
+            return Ok(model_modality_support_from_modalities(
+                model_id,
+                &provider,
+                &modality,
+                model.available_modalities.clone(),
+                format!("saved_model:{model_id}"),
+            ));
         }
-        Ok(provider_supports_modality(
-            model.provider.as_deref(),
-            &modality,
-        ))
+
+        let metadata_catalog = self.load_model_metadata_catalog()?;
+        if let Some((source, metadata)) =
+            curated_model_metadata(&provider, model_id, metadata_catalog.as_ref())
+            && !metadata.modalities.is_empty()
+        {
+            return Ok(model_modality_support_from_modalities(
+                model_id,
+                &provider,
+                &modality,
+                metadata.modalities,
+                format!("model_metadata_catalog:{source}"),
+            ));
+        }
+
+        Ok(provider_modality_support(model_id, &provider, &modality))
     }
 
     pub fn probe_model_capabilities(
@@ -1951,18 +1988,51 @@ fn provider_supports_api_base_url(provider: Option<&str>) -> bool {
         .unwrap_or(true)
 }
 
-fn provider_supports_modality(provider: Option<&str>, modality: &str) -> bool {
-    let normalized = normalized_provider(provider).unwrap_or_else(|| "rig".into());
+fn model_modality_support_from_modalities(
+    model_id: &str,
+    provider: &str,
+    modality: &str,
+    available_modalities: Vec<String>,
+    source: String,
+) -> ModelModalitySupport {
+    let supported = available_modalities
+        .iter()
+        .any(|item| item.eq_ignore_ascii_case(modality));
+    ModelModalitySupport {
+        model_id: model_id.into(),
+        provider: provider.into(),
+        modality: modality.into(),
+        supported,
+        available_modalities,
+        source,
+    }
+}
+
+fn provider_modality_support(
+    model_id: &str,
+    provider: &str,
+    modality: &str,
+) -> ModelModalitySupport {
     supported_model_providers()
         .into_iter()
-        .find(|descriptor| descriptor.id == normalized)
+        .find(|descriptor| descriptor.id == provider)
         .map(|descriptor| {
-            descriptor
-                .available_modalities
-                .iter()
-                .any(|item| item.eq_ignore_ascii_case(modality))
+            model_modality_support_from_modalities(
+                model_id,
+                provider,
+                modality,
+                descriptor.available_modalities,
+                format!("provider_descriptor:{provider}"),
+            )
         })
-        .unwrap_or(true)
+        .unwrap_or_else(|| ModelModalitySupport {
+            model_id: model_id.into(),
+            provider: provider.into(),
+            modality: modality.into(),
+            supported: true,
+            available_modalities: vec![modality.into()],
+            source: format!("provider_descriptor:{provider}:unknown"),
+        })
 }
 
 fn declared_model_limits(model: &ModelConfig) -> BTreeMap<String, u64> {
@@ -4971,7 +5041,25 @@ system_prompt = "Review carefully."
     #[test]
     fn model_supports_modality_uses_model_then_provider_capabilities() {
         let dir = std::env::temp_dir().join(format!("agent-modality-test-{}", uuid_like()));
-        let resolver = ConfigResolver::new(StoragePaths::new(&dir));
+        let paths = StoragePaths::new(&dir);
+        std::fs::create_dir_all(paths.models_dir()).unwrap();
+        std::fs::write(
+            paths.models_dir().join(MODEL_METADATA_CATALOG_FILE),
+            r#"{
+              "schema_version": 1,
+              "source": "profile-modality-test",
+              "models": [
+                {
+                  "provider": "openai",
+                  "model_id": "catalog-text-only",
+                  "modalities": ["text"],
+                  "source": "profile-modality-test/catalog-text-only"
+                }
+              ]
+            }"#,
+        )
+        .unwrap();
+        let resolver = ConfigResolver::new(paths);
 
         assert!(
             resolver
@@ -4985,6 +5073,25 @@ system_prompt = "Review carefully."
         assert!(
             !resolver
                 .model_supports_modality("fake-text-only", "image")
+                .unwrap()
+        );
+
+        let mut catalog_text_only = ModelConfig::for_id("catalog-text-only");
+        catalog_text_only.provider = Some("rig".into());
+        resolver.save_model(&catalog_text_only).unwrap();
+        let support = resolver
+            .model_modality_support("catalog-text-only", "image")
+            .unwrap();
+        assert!(!support.supported);
+        assert_eq!(support.provider, "rig");
+        assert_eq!(
+            support.source,
+            "model_metadata_catalog:profile-modality-test/catalog-text-only"
+        );
+        assert_eq!(support.available_modalities, vec!["text"]);
+        assert!(
+            !resolver
+                .model_supports_modality("catalog-text-only", "image")
                 .unwrap()
         );
 

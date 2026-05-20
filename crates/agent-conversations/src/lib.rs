@@ -504,11 +504,22 @@ impl ConversationStore {
     }
 
     fn write(&self, doc: &ConversationDoc) -> Result<(), ConversationError> {
+        self.write_with_quota(doc, None)
+    }
+
+    fn write_with_quota(
+        &self,
+        doc: &ConversationDoc,
+        quota_bytes: Option<u64>,
+    ) -> Result<(), ConversationError> {
         let path = self.path_for(&doc.id);
         let body = serde_json::to_string_pretty(doc)?;
-        self.paths
-            .ensure_quota_for_path_write(&path, u64::try_from(body.len()).unwrap_or(u64::MAX))?;
-        std::fs::write(path, body)?;
+        if let Some(quota_bytes) = quota_bytes {
+            self.paths
+                .write_quota_checked_with_quota(path, body.as_bytes(), Some(quota_bytes))?;
+        } else {
+            self.paths.write_quota_checked(path, body.as_bytes())?;
+        }
         Ok(())
     }
 
@@ -831,6 +842,39 @@ mod tests {
         );
         assert!(store.branch(&root.id, 99, None, None).is_err());
         assert!(store.show("../nope").is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn write_rejects_document_over_storage_quota() {
+        let dir = std::env::temp_dir().join(format!("conversation-quota-test-{}", uuid_like()));
+        let store = ConversationStore::new(StoragePaths::new(&dir));
+        let now = Utc::now();
+        let doc = ConversationDoc {
+            id: "too-large".into(),
+            title: "Too large".into(),
+            agent_id: "fake-agent".into(),
+            parent: None,
+            branch_reason: None,
+            policy: ConversationPolicy::default(),
+            messages: vec![ConversationMessage {
+                role: ConversationRole::User,
+                content: "this conversation document exceeds the test quota".into(),
+                created_at: now,
+            }],
+            created_at: now,
+            updated_at: now,
+        };
+
+        let err = store
+            .write_with_quota(&doc, Some(16))
+            .expect_err("conversation write should fail before exceeding quota");
+
+        assert!(matches!(
+            err,
+            ConversationError::Storage(StorageError::QuotaExceeded { .. })
+        ));
+        assert!(store.show("too-large").is_err());
         let _ = std::fs::remove_dir_all(dir);
     }
 

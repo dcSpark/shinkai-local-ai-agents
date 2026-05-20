@@ -35,7 +35,7 @@ use agent_core::{
 };
 use agent_ingest::{
     IngestionArtifact, IngestionFindingReviewDecision, IngestionModelCall, IngestionStore,
-    model_vision_source_requirement, probe_model_vision_source,
+    ModelVisionProbe, model_vision_source_requirement, probe_model_vision_source,
     supported_backends as supported_ingestion_backends,
 };
 use agent_llm::{
@@ -3914,9 +3914,7 @@ pub async fn ingest_backends(json: bool) -> anyhow::Result<()> {
 }
 
 pub async fn ingest_probe_vision(path: String, model: String, json: bool) -> anyhow::Result<()> {
-    ensure_model_supports_vision(&model, &path)?;
-    let provider = ingestion_provider_for_model(&model, Some(128), Some(0.0))?;
-    let probe = probe_model_vision_source(provider.as_ref(), ModelRef::from(model), &path).await?;
+    let probe = ingest_probe_vision_result(path, model).await?;
     if json {
         println!("{}", serde_json::to_string_pretty(&probe)?);
     } else {
@@ -3934,6 +3932,15 @@ pub async fn ingest_probe_vision(path: String, model: String, json: bool) -> any
         }
     }
     Ok(())
+}
+
+pub async fn ingest_probe_vision_result(
+    path: String,
+    model: String,
+) -> anyhow::Result<ModelVisionProbe> {
+    ensure_model_supports_vision(&model, &path)?;
+    let provider = ingestion_provider_for_model(&model, Some(128), Some(0.0))?;
+    Ok(probe_model_vision_source(provider.as_ref(), ModelRef::from(model), &path).await?)
 }
 
 pub async fn ingest_rerun(

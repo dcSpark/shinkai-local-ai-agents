@@ -706,7 +706,7 @@ fn handle_slash_command(
         return true;
     }
     if let Some(rest) = ingest_slash_rest(trimmed) {
-        handle_ingest_slash(app, rest);
+        handle_ingest_slash(app, rest, line_tx);
         return true;
     }
     if let Some(rest) = models_slash_rest(trimmed) {
@@ -2817,7 +2817,7 @@ fn capability_draft_summary(draft: &CapabilityDraft) -> serde_json::Value {
     })
 }
 
-fn handle_ingest_slash(app: &mut App, rest: &str) {
+fn handle_ingest_slash(app: &mut App, rest: &str, line_tx: &UnboundedSender<TranscriptLine>) {
     let rest = rest.trim();
     if rest.is_empty() || rest == "help" {
         app.transcript.push(TranscriptLine {
@@ -2825,6 +2825,7 @@ fn handle_ingest_slash(app: &mut App, rest: &str) {
             text: [
                 "/ingest list",
                 "/ingest show <id>",
+                "/ingest probe-vision <path> --model <model>",
                 "/ingest review <id> <finding-index> <acknowledge|approve|reject> [note]",
                 "/ingest delete <id> --confirm",
             ]
@@ -2901,6 +2902,34 @@ fn handle_ingest_slash(app: &mut App, rest: &str) {
                 text: err.to_string(),
             }),
         },
+        "probe-vision" | "probe" => match ingest_probe_vision_args(args) {
+            Ok((path, model)) => {
+                push_event(app, format!("Probing vision ingestion for {path}."));
+                let tx = line_tx.clone();
+                let path = path.to_string();
+                let model = model.to_string();
+                tokio::spawn(async move {
+                    let line = match crate::headless::ingest_probe_vision_result(path, model).await
+                    {
+                        Ok(probe) => TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&probe).unwrap_or_else(|_| {
+                                "<unserializable ingestion vision probe>".into()
+                            }),
+                        },
+                        Err(err) => TranscriptLine {
+                            kind: LineKind::Error,
+                            text: format!("Ingest vision probe failed: {err}"),
+                        },
+                    };
+                    let _ = tx.send(line);
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
         "delete" | "rm" => match ingest_delete_args(args) {
             Ok((id, true)) => match IngestionStore::from_env().remove(id) {
                 Ok(()) => push_event(app, format!("Removed ingestion artifact {id}")),
@@ -2925,7 +2954,7 @@ fn handle_ingest_slash(app: &mut App, rest: &str) {
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Ingest command needs list, show, review, delete, or help.".into(),
+            text: "Ingest command needs list, show, probe-vision, review, delete, or help.".into(),
         }),
     }
 }
@@ -2950,6 +2979,38 @@ fn ingest_delete_args(args: &str) -> anyhow::Result<(&str, bool)> {
     }
     let id = id.ok_or_else(|| anyhow::anyhow!("ingest delete needs an artifact id"))?;
     Ok((id, confirmed))
+}
+
+fn ingest_probe_vision_args(args: &str) -> anyhow::Result<(&str, &str)> {
+    let mut parts = args.split_whitespace();
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("ingest probe-vision needs a path"))?;
+    let mut model = None;
+    while let Some(part) = parts.next() {
+        if part == "--model" {
+            if model.is_some() {
+                anyhow::bail!("ingest probe-vision accepts one --model value");
+            }
+            model = Some(
+                parts
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("ingest probe-vision --model needs a value"))?,
+            );
+        } else if let Some(value) = part.strip_prefix("--model=") {
+            if value.is_empty() {
+                anyhow::bail!("ingest probe-vision --model needs a value");
+            }
+            if model.is_some() {
+                anyhow::bail!("ingest probe-vision accepts one --model value");
+            }
+            model = Some(value);
+        } else {
+            anyhow::bail!("unknown ingest probe-vision option: {part}");
+        }
+    }
+    let model = model.ok_or_else(|| anyhow::anyhow!("ingest probe-vision needs --model"))?;
+    Ok((path, model))
 }
 
 fn ingest_review_args(
@@ -7437,6 +7498,14 @@ mod tests {
             ("ingest-1", true)
         );
         assert_eq!(ingest_delete_args("ingest-1").unwrap(), ("ingest-1", false));
+        assert_eq!(
+            ingest_probe_vision_args("doc.pdf --model gpt-4.1").unwrap(),
+            ("doc.pdf", "gpt-4.1")
+        );
+        assert_eq!(
+            ingest_probe_vision_args("chart.png --model=gemini-2.5-pro").unwrap(),
+            ("chart.png", "gemini-2.5-pro")
+        );
         let (id, finding, decision, note) =
             ingest_review_args("ingest-1 2 approve reviewed by user").unwrap();
         assert_eq!(id, "ingest-1");
@@ -7445,6 +7514,9 @@ mod tests {
         assert_eq!(note.as_deref(), Some("reviewed by user"));
         assert!(ingest_delete_args("").is_err());
         assert!(ingest_delete_args("ingest-1 extra").is_err());
+        assert!(ingest_probe_vision_args("doc.pdf").is_err());
+        assert!(ingest_probe_vision_args("doc.pdf --model").is_err());
+        assert!(ingest_probe_vision_args("doc.pdf --model gpt-4.1 extra").is_err());
         assert!(ingest_review_args("ingest-1 0 maybe").is_err());
     }
 

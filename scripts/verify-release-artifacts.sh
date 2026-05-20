@@ -96,6 +96,8 @@ function nonEmptyStrings(values, label) {
 
 const manifestPath = "packaging/release-artifacts.json";
 assert(fs.existsSync(manifestPath), `${manifestPath} is missing`);
+assert(fs.existsSync("scripts/build-release-artifact.sh"), "release artifact build script is missing");
+assert(fs.existsSync(".github/workflows/release-packaging.yml"), "release packaging workflow is missing");
 const manifest = readJson(manifestPath);
 assert(manifest.schema_version === 1, "release artifact manifest schema_version must be 1");
 assert(manifest.product === "Shinkai", "release artifact manifest product must be Shinkai");

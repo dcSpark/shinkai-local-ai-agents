@@ -1,0 +1,126 @@
+name: Release Packaging
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Release target to build"
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - linux
+          - macos
+          - windows
+
+concurrency:
+  group: release-packaging-${{ github.ref }}-${{ github.event.inputs.platform || 'tag' }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  desktop:
+    name: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux
+            runner: ubuntu-latest
+          - platform: macos
+            runner: macos-14
+          - platform: windows
+            runner: windows-2022
+    runs-on: ${{ matrix.runner }}
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      LINUX_GPG_PRIVATE_KEY: ${{ secrets.LINUX_GPG_PRIVATE_KEY }}
+      LINUX_GPG_PASSPHRASE: ${{ secrets.LINUX_GPG_PASSPHRASE }}
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform
+
+      - name: Install Linux system deps for Tauri
+        if: (github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform) && runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            build-essential
+
+      - name: Install Rust toolchain (from rust-toolchain.toml)
+        if: github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: true
+          rustflags: ""
+
+      - name: Setup Node
+        if: github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: crates/agent-tauri/frontend/package-lock.json
+
+      - name: Frontend npm ci
+        if: github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform
+        working-directory: crates/agent-tauri/frontend
+        run: npm ci
+
+      - name: Validate release packaging inputs
+        if: github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform
+        shell: bash
+        run: scripts/build-release-artifact.sh --env-only --platform=${{ matrix.platform }}
+
+      - name: Import Apple signing certificate
+        if: (github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform) && matrix.platform == 'macos'
+        shell: bash
+        run: |
+          CERTIFICATE_PATH="$RUNNER_TEMP/shinkai-signing.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/shinkai-signing.keychain-db"
+          echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+          security create-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$APPLE_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$APPLE_KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH"
+
+      - name: Build signed Tauri release bundle
+        if: github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform
+        shell: bash
+        run: scripts/build-release-artifact.sh --platform=${{ matrix.platform }}
+
+      - name: Upload release bundle artifacts
+        if: github.event_name == 'push' || github.event.inputs.platform == 'all' || github.event.inputs.platform == matrix.platform
+        uses: actions/upload-artifact@v4
+        with:
+          name: shinkai-${{ matrix.platform }}-release
+          if-no-files-found: error
+          path: |
+            target/release/bundle/**

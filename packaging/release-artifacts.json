@@ -48,6 +48,9 @@
       "signing": {
         "required": true,
         "env": [
+          "APPLE_CERTIFICATE_BASE64",
+          "APPLE_CERTIFICATE_PASSWORD",
+          "APPLE_KEYCHAIN_PASSWORD",
           "APPLE_SIGNING_IDENTITY",
           "APPLE_ID",
           "APPLE_PASSWORD",

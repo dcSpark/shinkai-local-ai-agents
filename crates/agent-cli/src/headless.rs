@@ -3550,6 +3550,51 @@ pub async fn model_import(path: String, json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn model_provider_catalog_show(json: bool) -> anyhow::Result<()> {
+    let catalog = ConfigResolver::from_env().show_model_provider_catalog()?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&catalog)?);
+    } else if let Some(catalog) = catalog {
+        println!("{}", serde_json::to_string_pretty(&catalog)?);
+    } else {
+        println!("No model provider catalog configured.");
+    }
+    Ok(())
+}
+
+pub async fn model_provider_catalog_export(path: String, json: bool) -> anyhow::Result<()> {
+    let catalog = ConfigResolver::from_env().export_model_provider_catalog(&path)?;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "path": path,
+                "catalog": catalog
+            }))?
+        );
+    } else {
+        println!(
+            "exported model provider catalog with {} provider(s) to {}",
+            catalog.providers.len(),
+            path
+        );
+    }
+    Ok(())
+}
+
+pub async fn model_provider_catalog_import(path: String, json: bool) -> anyhow::Result<()> {
+    let catalog = ConfigResolver::from_env().import_model_provider_catalog(&path)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&catalog)?);
+    } else {
+        println!(
+            "imported model provider catalog with {} provider(s)",
+            catalog.providers.len()
+        );
+    }
+    Ok(())
+}
+
 pub async fn ingest_add(
     path: String,
     backend: String,
@@ -5088,6 +5133,24 @@ pub async fn remote_model_import(url: String, path: String) -> anyhow::Result<()
         DaemonHttpClient::new(url)
             .post_json("/models/import", serde_json::json!({ "path": path }))?,
     )
+}
+
+pub async fn remote_model_provider_catalog_show(url: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).get_json("/model-provider-catalog")?)
+}
+
+pub async fn remote_model_provider_catalog_export(url: String, path: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/model-provider-catalog/export",
+        serde_json::json!({ "path": path }),
+    )?)
+}
+
+pub async fn remote_model_provider_catalog_import(url: String, path: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/model-provider-catalog/import",
+        serde_json::json!({ "path": path }),
+    )?)
 }
 
 pub async fn remote_ingest_list(url: String) -> anyhow::Result<()> {

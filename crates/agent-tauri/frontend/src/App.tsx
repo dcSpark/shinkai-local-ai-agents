@@ -29,6 +29,7 @@ import type {
   MemoryBackendDescriptor,
   MemoryClassifyResult,
   MemoryRecord,
+  ModelProviderCatalog,
   ModelProviderDescriptor,
   ModelProviderOptionDescriptor,
   PromptDoc,
@@ -5235,6 +5236,50 @@ export default function App() {
     }
   }
 
+  async function showModelProviderCatalogFromOps() {
+    try {
+      const catalog =
+        transport === "daemon"
+          ? await daemonJson<ModelProviderCatalog | null>("/model-provider-catalog")
+          : await invoke<ModelProviderCatalog | null>("model_provider_catalog_show");
+      appendJson("Model provider catalog", catalog);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Provider catalog show failed: ${msg}`);
+    }
+  }
+
+  async function exportModelProviderCatalogFromOps() {
+    const path = requireOpsValue("Provider catalog export");
+    if (!path) return;
+    try {
+      const catalog =
+        transport === "daemon"
+          ? await daemonJson<ModelProviderCatalog>("/model-provider-catalog/export", { path })
+          : await invoke<ModelProviderCatalog>("model_provider_catalog_export", { path });
+      appendJson("Model provider catalog exported", catalog);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Provider catalog export failed: ${msg}`);
+    }
+  }
+
+  async function importModelProviderCatalogFromOps() {
+    const path = requireOpsValue("Provider catalog import");
+    if (!path) return;
+    try {
+      const catalog =
+        transport === "daemon"
+          ? await daemonJson<ModelProviderCatalog>("/model-provider-catalog/import", { path })
+          : await invoke<ModelProviderCatalog>("model_provider_catalog_import", { path });
+      appendJson("Model provider catalog imported", catalog);
+      void refreshModelProviderDescriptors(true);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Provider catalog import failed: ${msg}`);
+    }
+  }
+
   async function showModelFromOps() {
     const id = requireOpsId("Model show");
     if (!id) return;
@@ -8987,6 +9032,14 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  title="Show the active profile provider catalog JSON."
+                  onClick={() => void showModelProviderCatalogFromOps()}
+                  disabled={running}
+                >
+                  Provider Catalog
+                </button>
+                <button
+                  type="button"
                   title="Show model Id."
                   onClick={() => void showModelFromOps()}
                   disabled={running || !opsId.trim()}
@@ -9032,6 +9085,22 @@ export default function App() {
                   disabled={running || !opsValue.trim()}
                 >
                   Import Model
+                </button>
+                <button
+                  type="button"
+                  title="Export provider catalog JSON to the path in Value."
+                  onClick={() => void exportModelProviderCatalogFromOps()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Export Providers
+                </button>
+                <button
+                  type="button"
+                  title="Import provider catalog JSON from the path in Value."
+                  onClick={() => void importModelProviderCatalogFromOps()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Import Providers
                 </button>
                 <button
                   type="button"

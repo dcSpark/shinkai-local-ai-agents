@@ -801,8 +801,7 @@ fn load_model_provider_catalog(
 
 fn read_model_provider_catalog(path: &Path) -> Result<ModelProviderCatalog, ConfigError> {
     let catalog: ModelProviderCatalog = serde_json::from_str(&std::fs::read_to_string(path)?)?;
-    validate_model_provider_catalog(&catalog)?;
-    Ok(catalog)
+    normalize_model_provider_catalog(catalog)
 }
 
 fn validate_model_provider_catalog(catalog: &ModelProviderCatalog) -> Result<(), ConfigError> {
@@ -836,6 +835,19 @@ fn validate_model_provider_catalog(catalog: &ModelProviderCatalog) -> Result<(),
         }
     }
     Ok(())
+}
+
+fn normalize_model_provider_catalog(
+    mut catalog: ModelProviderCatalog,
+) -> Result<ModelProviderCatalog, ConfigError> {
+    validate_model_provider_catalog(&catalog)?;
+    for provider in &mut catalog.providers {
+        provider.id = normalized_provider(Some(&provider.id)).ok_or_else(|| {
+            ConfigError::InvalidInput("model provider catalog entries require provider id".into())
+        })?;
+    }
+    catalog.providers.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(catalog)
 }
 
 fn merge_model_provider_catalog(
@@ -1795,6 +1807,42 @@ impl ConfigResolver {
     pub fn import_model_config(&self, path: impl AsRef<Path>) -> Result<ModelConfig, ConfigError> {
         let model: ModelConfig = toml::from_str(&std::fs::read_to_string(path)?)?;
         self.save_model(&model)
+    }
+
+    pub fn show_model_provider_catalog(&self) -> Result<Option<ModelProviderCatalog>, ConfigError> {
+        load_model_provider_catalog(&self.paths)
+    }
+
+    pub fn export_model_provider_catalog(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> Result<ModelProviderCatalog, ConfigError> {
+        let Some(catalog) = self.show_model_provider_catalog()? else {
+            return Err(ConfigError::InvalidInput(
+                "model provider catalog not configured".into(),
+            ));
+        };
+        if let Some(parent) = path.as_ref().parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, serde_json::to_string_pretty(&catalog)?)?;
+        Ok(catalog)
+    }
+
+    pub fn import_model_provider_catalog(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> Result<ModelProviderCatalog, ConfigError> {
+        let catalog = read_model_provider_catalog(path.as_ref())?;
+        self.paths.ensure_base_dirs()?;
+        write_storage_text(
+            &self.paths,
+            self.paths.models_dir().join(MODEL_PROVIDER_CATALOG_FILE),
+            serde_json::to_string_pretty(&catalog)?,
+        )?;
+        Ok(catalog)
     }
 
     pub fn resolve_model_runtime(
@@ -5786,6 +5834,71 @@ system_prompt = "Review carefully."
             .unwrap();
         assert!(support.supported);
         assert_eq!(support.source, "provider_descriptor:custom-openai");
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn model_provider_catalog_import_export_round_trips_profile_catalog() {
+        let dir = std::env::temp_dir().join(format!(
+            "agent-provider-catalog-roundtrip-test-{}",
+            uuid_like()
+        ));
+        let import_path = dir.join("incoming-provider-catalog.json");
+        let export_path = dir.join("exported-provider-catalog.json");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            &import_path,
+            r#"{
+              "schema_version": 1,
+              "source": "portable-provider-catalog-test",
+              "providers": [
+                {
+                  "id": "CUSTOM-OPENAI",
+                  "name": "Portable OpenAI Compatible",
+                  "default_model": "portable-default",
+                  "api_key_env": "PORTABLE_API_KEY",
+                  "api_base_url": "http://127.0.0.1:9998/v1",
+                  "supports_api_base_url": true,
+                  "local": false,
+                  "native": false,
+                  "available_modalities": ["text", "image"],
+                  "tool_support": true,
+                  "reasoning_modes": ["model-default"],
+                  "settings": ["api_base_url", "api_key_env", "provider_options"]
+                }
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        let resolver = ConfigResolver::new(StoragePaths::new(&dir));
+        let imported = resolver
+            .import_model_provider_catalog(&import_path)
+            .unwrap();
+        assert_eq!(imported.providers[0].id, "custom-openai");
+        assert_eq!(
+            resolver
+                .show_model_provider_catalog()
+                .unwrap()
+                .expect("provider catalog"),
+            imported
+        );
+
+        let exported = resolver
+            .export_model_provider_catalog(&export_path)
+            .unwrap();
+        assert_eq!(exported, imported);
+        let exported_json: ModelProviderCatalog =
+            serde_json::from_str(&std::fs::read_to_string(export_path).unwrap()).unwrap();
+        assert_eq!(exported_json, imported);
+
+        let providers = resolver.model_provider_descriptors().unwrap();
+        assert!(
+            providers
+                .iter()
+                .any(|provider| provider.id == "custom-openai")
+        );
 
         let _ = std::fs::remove_dir_all(dir);
     }

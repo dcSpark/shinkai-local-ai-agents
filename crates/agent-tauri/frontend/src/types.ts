@@ -195,6 +195,12 @@ export type ModelProviderDescriptor = {
   notes?: string | null;
 };
 
+export type ModelProviderCatalog = {
+  schema_version: number;
+  source?: string | null;
+  providers: ModelProviderDescriptor[];
+};
+
 export type ToolVisibility = "full_schema" | "name_and_description" | "name_only";
 export type ToolOutputMode = "interpreted" | "raw";
 

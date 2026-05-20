@@ -1173,6 +1173,32 @@ enum ModelCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Show, export, or import the active profile model provider catalog JSON.
+    ProviderCatalog {
+        #[command(subcommand)]
+        command: ModelProviderCatalogCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum ModelProviderCatalogCommand {
+    /// Show the configured provider catalog, if one exists.
+    Show {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Export the configured provider catalog as portable JSON.
+    Export {
+        path: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Import portable JSON into the active profile provider catalog.
+    Import {
+        path: String,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -2731,6 +2757,10 @@ enum RemoteAgentCommand {
 enum RemoteModelCommand {
     List,
     Providers,
+    ProviderCatalog {
+        #[command(subcommand)]
+        command: RemoteModelProviderCatalogCommand,
+    },
     Show {
         id: String,
     },
@@ -2790,6 +2820,13 @@ enum RemoteModelCommand {
     Import {
         path: String,
     },
+}
+
+#[derive(Subcommand)]
+enum RemoteModelProviderCatalogCommand {
+    Show,
+    Export { path: String },
+    Import { path: String },
 }
 
 #[derive(Subcommand)]
@@ -3988,6 +4025,46 @@ mod cli_parse_tests {
         assert_eq!(id, "gpt-test");
         assert_eq!(path, "./gpt-test.toml");
         assert!(!json);
+
+        let cli = parse_cli([
+            "agent",
+            "model",
+            "provider-catalog",
+            "export",
+            "./providers.json",
+        ])
+        .unwrap();
+        let Command::Model {
+            command:
+                ModelCommand::ProviderCatalog {
+                    command: ModelProviderCatalogCommand::Export { path, json },
+                },
+        } = into_command(cli)
+        else {
+            panic!("expected model provider catalog export command");
+        };
+        assert_eq!(path, "./providers.json");
+        assert!(!json);
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "model",
+            "provider-catalog",
+            "import",
+            "./providers.json",
+        ])
+        .unwrap();
+        let RemoteCommand::Model {
+            command:
+                RemoteModelCommand::ProviderCatalog {
+                    command: RemoteModelProviderCatalogCommand::Import { path },
+                },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote model provider catalog import command");
+        };
+        assert_eq!(path, "./providers.json");
 
         let cli = parse_cli(["agent", "remote", "model", "import", "./gpt-test.toml"]).unwrap();
         let RemoteCommand::Model {
@@ -5313,6 +5390,17 @@ async fn main() -> anyhow::Result<()> {
             ModelCommand::Delete { id } => headless::model_delete(id).await,
             ModelCommand::Export { id, path, json } => headless::model_export(id, path, json).await,
             ModelCommand::Import { path, json } => headless::model_import(path, json).await,
+            ModelCommand::ProviderCatalog { command } => match command {
+                ModelProviderCatalogCommand::Show { json } => {
+                    headless::model_provider_catalog_show(json).await
+                }
+                ModelProviderCatalogCommand::Export { path, json } => {
+                    headless::model_provider_catalog_export(path, json).await
+                }
+                ModelProviderCatalogCommand::Import { path, json } => {
+                    headless::model_provider_catalog_import(path, json).await
+                }
+            },
         },
         Command::Ingest { command } => match command {
             IngestCommand::Backends { json } => headless::ingest_backends(json).await,
@@ -6015,6 +6103,17 @@ async fn main() -> anyhow::Result<()> {
                 RemoteModelCommand::Import { path } => {
                     headless::remote_model_import(url, path).await
                 }
+                RemoteModelCommand::ProviderCatalog { command } => match command {
+                    RemoteModelProviderCatalogCommand::Show => {
+                        headless::remote_model_provider_catalog_show(url).await
+                    }
+                    RemoteModelProviderCatalogCommand::Export { path } => {
+                        headless::remote_model_provider_catalog_export(url, path).await
+                    }
+                    RemoteModelProviderCatalogCommand::Import { path } => {
+                        headless::remote_model_provider_catalog_import(url, path).await
+                    }
+                },
             },
             RemoteCommand::Ingest { command } => match command {
                 RemoteIngestCommand::Backends => headless::remote_ingest_backends(url).await,

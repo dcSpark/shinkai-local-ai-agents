@@ -35,7 +35,8 @@ use agent_core::{
 };
 use agent_ingest::{
     IngestionArtifact, IngestionFindingReviewDecision, IngestionModelCall, IngestionStore,
-    model_vision_source_requirement, supported_backends as supported_ingestion_backends,
+    model_vision_source_requirement, probe_model_vision_source,
+    supported_backends as supported_ingestion_backends,
 };
 use agent_llm::{
     AnthropicProvider, FakeProvider, GeminiProvider, LlmProvider, LlmRequest, Message, ModelRef,
@@ -3907,6 +3908,29 @@ pub async fn ingest_backends(json: bool) -> anyhow::Result<()> {
                 "{} name={:?} modalities={} description={:?}",
                 backend.id, backend.name, modalities, backend.description
             );
+        }
+    }
+    Ok(())
+}
+
+pub async fn ingest_probe_vision(path: String, model: String, json: bool) -> anyhow::Result<()> {
+    ensure_model_supports_vision(&model, &path)?;
+    let provider = ingestion_provider_for_model(&model, Some(128), Some(0.0))?;
+    let probe = probe_model_vision_source(provider.as_ref(), ModelRef::from(model), &path).await?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&probe)?);
+    } else {
+        println!(
+            "vision probe {} model={} source_kind={} attachment={} tokens={}/{}",
+            probe.status,
+            probe.model,
+            probe.source_kind,
+            probe.attachment_kind,
+            probe.tokens_in,
+            probe.tokens_out
+        );
+        if !probe.response.trim().is_empty() {
+            println!("{}", probe.response.trim());
         }
     }
     Ok(())

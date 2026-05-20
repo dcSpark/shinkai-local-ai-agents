@@ -1293,6 +1293,18 @@ enum IngestCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Live-probe whether a saved model accepts a vision/document source attachment.
+    ProbeVision {
+        path: String,
+
+        /// Saved model id to probe.
+        #[arg(long)]
+        model: String,
+
+        /// Emit JSON instead of a human-readable summary.
+        #[arg(long)]
+        json: bool,
+    },
     /// Ingest a local file explicitly.
     Add {
         path: String,
@@ -4942,6 +4954,26 @@ mod cli_parse_tests {
         let cli = parse_cli([
             "agent",
             "ingest",
+            "probe-vision",
+            "scan.pdf",
+            "--model",
+            "gpt-4o",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Ingest {
+            command: IngestCommand::ProbeVision { path, model, json },
+        } = into_command(cli)
+        else {
+            panic!("expected ingest probe-vision command");
+        };
+        assert_eq!(path, "scan.pdf");
+        assert_eq!(model, "gpt-4o");
+        assert!(json);
+
+        let cli = parse_cli([
+            "agent",
+            "ingest",
             "add",
             "doc.md",
             "--backend",
@@ -5884,6 +5916,9 @@ async fn main() -> anyhow::Result<()> {
         },
         Command::Ingest { command } => match command {
             IngestCommand::Backends { json } => headless::ingest_backends(json).await,
+            IngestCommand::ProbeVision { path, model, json } => {
+                headless::ingest_probe_vision(path, model, json).await
+            }
             IngestCommand::Add {
                 path,
                 backend,

@@ -755,6 +755,18 @@ enum MemoryCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Classify an existing memory record with a saved model.
+    Classify {
+        id: String,
+
+        /// Saved model id. Falls back to AGENT_MEMORY_CLASSIFICATION_MODEL.
+        #[arg(long)]
+        model: Option<String>,
+
+        /// Return model classification without updating the memory record.
+        #[arg(long = "no-apply")]
+        no_apply: bool,
+    },
     /// Edit a memory record.
     Edit { id: String, content: String },
     /// Delete a memory record.
@@ -4299,6 +4311,31 @@ mod cli_parse_tests {
 
         let cli = parse_cli([
             "agent",
+            "memory",
+            "classify",
+            "mem-local",
+            "--model",
+            "classifier",
+            "--no-apply",
+        ])
+        .unwrap();
+        let Command::Memory {
+            command:
+                MemoryCommand::Classify {
+                    id,
+                    model,
+                    no_apply,
+                },
+        } = into_command(cli)
+        else {
+            panic!("expected memory classify command");
+        };
+        assert_eq!(id, "mem-local");
+        assert_eq!(model.as_deref(), Some("classifier"));
+        assert!(no_apply);
+
+        let cli = parse_cli([
+            "agent",
             "remote",
             "memory",
             "import",
@@ -5091,6 +5128,11 @@ async fn main() -> anyhow::Result<()> {
             } => headless::memory_generate_conversation(id, from, to, user, topics).await,
             MemoryCommand::List { json } => headless::memory_list(json).await,
             MemoryCommand::Backends { json } => headless::memory_backends(json).await,
+            MemoryCommand::Classify {
+                id,
+                model,
+                no_apply,
+            } => headless::memory_classify(id, model, !no_apply).await,
             MemoryCommand::Edit { id, content } => headless::memory_edit(id, content).await,
             MemoryCommand::Delete { id } => headless::memory_delete(id).await,
             MemoryCommand::Rollback { user } => headless::memory_rollback(user).await,

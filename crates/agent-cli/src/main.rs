@@ -787,6 +787,15 @@ enum MemoryCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Show local and profile-granted memory visible to the active profile.
+    Access {
+        /// Topic tag to filter by. Repeat for multiple topics.
+        #[arg(long = "topic")]
+        topics: Vec<String>,
+
+        #[arg(long)]
+        json: bool,
+    },
     /// List supported memory backends.
     Backends {
         #[arg(long)]
@@ -4800,6 +4809,19 @@ mod cli_parse_tests {
         assert_eq!(topics, vec!["finance"]);
 
         let cli = parse_cli([
+            "agent", "memory", "access", "--topic", "finance", "--topic", "ops", "--json",
+        ])
+        .unwrap();
+        let Command::Memory {
+            command: MemoryCommand::Access { topics, json },
+        } = into_command(cli)
+        else {
+            panic!("expected memory access command");
+        };
+        assert_eq!(topics, vec!["finance", "ops"]);
+        assert!(json);
+
+        let cli = parse_cli([
             "agent",
             "memory",
             "classify",
@@ -5717,6 +5739,7 @@ async fn main() -> anyhow::Result<()> {
                 topics,
             } => headless::memory_generate_conversation(id, from, to, user, agent, topics).await,
             MemoryCommand::List { json } => headless::memory_list(json).await,
+            MemoryCommand::Access { topics, json } => headless::memory_access(topics, json).await,
             MemoryCommand::Backends { json } => headless::memory_backends(json).await,
             MemoryCommand::Classify {
                 id,

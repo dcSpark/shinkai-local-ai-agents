@@ -2067,6 +2067,7 @@ fn handle_memory_slash(
                 "/memory create [--user] [--agent <agent>] [--conversation <id>] [--topic <topic>] <content>",
                 "/memory generate [--user] [--agent <agent>] [--conversation <id>] [--range <range>] [--topic <topic>] <text>",
                 "/memory list",
+                "/memory access [--topic <topic>]",
                 "/memory show <id>",
                 "/memory edit <id> <content>",
                 "/memory delete <id> --confirm",
@@ -2184,6 +2185,27 @@ fn handle_memory_slash(
             Err(err) => app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
                 text: format!("Memory list failed: {err}"),
+            }),
+        },
+        "access" => match memory_access_args(args) {
+            Ok(topics) => match crate::headless::memory_access_result(topics) {
+                Ok(report) => {
+                    let count = report["records"].as_array().map(Vec::len).unwrap_or(0);
+                    push_event(app, format!("Loaded {count} accessible memory record(s)."));
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&report)
+                            .unwrap_or_else(|_| "<unserializable memory access report>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Memory access failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
             }),
         },
         "show" => match first_memory_arg(args, "show") {
@@ -2394,7 +2416,7 @@ fn handle_memory_slash(
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Memory command needs create, generate, list, show, edit, delete, rollback, classify, backends, export, import, or help.".into(),
+            text: "Memory command needs create, generate, list, access, show, edit, delete, rollback, classify, backends, export, import, or help.".into(),
         }),
     }
 }
@@ -2419,6 +2441,21 @@ fn first_memory_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str>
     args.split_whitespace()
         .next()
         .ok_or_else(|| anyhow::anyhow!("memory {command} needs an argument"))
+}
+
+fn memory_access_args(args: &str) -> anyhow::Result<Vec<String>> {
+    let mut parts = args.split_whitespace();
+    let mut topics = Vec::new();
+    while let Some(part) = parts.next() {
+        match part {
+            "--topic" => topics.push(next_memory_option_value(&mut parts, "--topic")?.to_string()),
+            value if value.starts_with("--topic=") => {
+                topics.push(value.trim_start_matches("--topic=").to_string());
+            }
+            other => anyhow::bail!("unexpected memory access argument: {other}"),
+        }
+    }
+    Ok(topics)
 }
 
 fn parse_memory_write_args(
@@ -7866,6 +7903,16 @@ mod tests {
         );
         assert!(memory_path_args("", "export").is_err());
         assert!(memory_path_args("./memory.md extra", "export").is_err());
+    }
+
+    #[test]
+    fn memory_access_args_parse_topic_filters() {
+        assert_eq!(
+            memory_access_args("--topic finance --topic=ops").unwrap(),
+            vec!["finance".to_string(), "ops".to_string()]
+        );
+        assert!(memory_access_args("--topic").is_err());
+        assert!(memory_access_args("extra").is_err());
     }
 
     #[test]

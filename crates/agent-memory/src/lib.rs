@@ -742,12 +742,33 @@ pub fn load_fragments_for_backend(
 pub fn list_records_for_supported_backends(
     paths: StoragePaths,
 ) -> Result<Vec<MemoryRecord>, MemoryError> {
-    let mut records = Vec::new();
-    for backend in SUPPORTED_MEMORY_BACKEND_IDS {
-        records.extend(MemoryStore::for_backend(paths.clone(), backend)?.list()?);
-    }
+    let mut records = list_records_with_supported_backend_ids(paths)?
+        .into_iter()
+        .map(|(_, record)| record)
+        .collect::<Vec<_>>();
     records.sort_by(|a, b| a.id.cmp(&b.id).then_with(|| a.content.cmp(&b.content)));
     records.dedup_by(|a, b| a.id == b.id && a.content == b.content);
+    Ok(records)
+}
+
+pub fn list_records_with_supported_backend_ids(
+    paths: StoragePaths,
+) -> Result<Vec<(String, MemoryRecord)>, MemoryError> {
+    let mut records = Vec::new();
+    for backend in SUPPORTED_MEMORY_BACKEND_IDS {
+        for record in MemoryStore::for_backend(paths.clone(), backend)?.list()? {
+            records.push(((*backend).to_string(), record));
+        }
+    }
+    records.sort_by(
+        |(left_backend, left_record), (right_backend, right_record)| {
+            left_record
+                .id
+                .cmp(&right_record.id)
+                .then_with(|| left_record.content.cmp(&right_record.content))
+                .then_with(|| left_backend.cmp(right_backend))
+        },
+    );
     Ok(records)
 }
 
@@ -1371,6 +1392,43 @@ mod tests {
             MemoryStore::for_backend(StoragePaths::new("unused"), "remote-memory-v0"),
             Err(MemoryError::UnsupportedBackend(_))
         ));
+    }
+
+    #[test]
+    fn supported_backend_record_listing_preserves_backend_ids() {
+        let dir =
+            std::env::temp_dir().join(format!("memory-backend-source-test-{}", std::process::id()));
+        let markdown_store = MemoryStore::new(StoragePaths::new(&dir));
+        let jsonl_store =
+            MemoryStore::for_backend(StoragePaths::new(&dir), LOCAL_JSONL_MEMORY_BACKEND_ID)
+                .unwrap();
+
+        markdown_store
+            .create(
+                MemoryTarget::Agent,
+                "Remember markdown memory.",
+                MemoryAuthor::Human,
+                None,
+            )
+            .unwrap();
+        jsonl_store
+            .create(
+                MemoryTarget::Agent,
+                "Remember jsonl memory.",
+                MemoryAuthor::Human,
+                None,
+            )
+            .unwrap();
+
+        let records = list_records_with_supported_backend_ids(StoragePaths::new(&dir)).unwrap();
+        assert!(records.iter().any(|(backend, record)| {
+            backend == DEFAULT_MEMORY_BACKEND_ID && record.content == "Remember markdown memory."
+        }));
+        assert!(records.iter().any(|(backend, record)| {
+            backend == LOCAL_JSONL_MEMORY_BACKEND_ID && record.content == "Remember jsonl memory."
+        }));
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

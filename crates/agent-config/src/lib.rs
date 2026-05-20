@@ -4712,11 +4712,20 @@ fn write_storage_text(
     path: impl AsRef<Path>,
     text: String,
 ) -> Result<(), ConfigError> {
-    paths.ensure_quota_for_path_write(
-        path.as_ref(),
-        u64::try_from(text.len()).unwrap_or(u64::MAX),
-    )?;
-    std::fs::write(path, text)?;
+    write_storage_text_with_quota(paths, path, text, None)
+}
+
+fn write_storage_text_with_quota(
+    paths: &StoragePaths,
+    path: impl AsRef<Path>,
+    text: String,
+    quota_bytes: Option<u64>,
+) -> Result<(), ConfigError> {
+    if let Some(quota_bytes) = quota_bytes {
+        paths.write_quota_checked_with_quota(path, text.as_bytes(), Some(quota_bytes))?;
+    } else {
+        paths.write_quota_checked(path, text.as_bytes())?;
+    }
     Ok(())
 }
 
@@ -5120,6 +5129,28 @@ mod tests {
         assert_eq!(resolved.agent.id, "fake-agent");
         assert_eq!(resolved.agent.model.0, "fake-model");
         assert!(resolver.paths.default_agent_config().exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn write_storage_text_rejects_over_storage_quota() {
+        let dir = std::env::temp_dir().join(format!("agent-config-quota-test-{}", uuid_like()));
+        let paths = StoragePaths::new(&dir);
+        let path = paths.active_profile_dir().join("too-large.toml");
+
+        let err = write_storage_text_with_quota(
+            &paths,
+            &path,
+            "this config document exceeds the test quota".into(),
+            Some(16),
+        )
+        .expect_err("config write should fail before exceeding quota");
+
+        assert!(matches!(
+            err,
+            ConfigError::Storage(agent_storage::StorageError::QuotaExceeded { .. })
+        ));
+        assert!(!path.exists());
         let _ = std::fs::remove_dir_all(dir);
     }
 

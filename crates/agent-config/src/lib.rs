@@ -6217,6 +6217,47 @@ system_prompt = "Review carefully."
     }
 
     #[test]
+    fn bundled_model_metadata_catalog_covers_common_non_default_models() {
+        let catalog = bundled_model_metadata_catalog().expect("bundled catalog");
+        let models = &catalog.catalog.models;
+        let gpt41 = models
+            .iter()
+            .find(|model| model.provider == "rig" && model.model_id == "gpt-4.1")
+            .expect("gpt-4.1 metadata");
+        assert_eq!(gpt41.limits.get("context_tokens"), Some(&1_047_576));
+        assert_eq!(gpt41.limits.get("output_tokens"), Some(&32_768));
+        assert_eq!(
+            gpt41.pricing.get("input_per_million").map(String::as_str),
+            Some("2.00")
+        );
+        assert!(gpt41.tool_support == Some(true));
+
+        let gpt41_nano = models
+            .iter()
+            .find(|model| model.provider == "rig" && model.model_id == "gpt-4.1-nano")
+            .expect("gpt-4.1-nano metadata");
+        assert_eq!(
+            gpt41_nano
+                .pricing
+                .get("cached_input_per_million")
+                .map(String::as_str),
+            Some("0.025")
+        );
+
+        let gemini_pro = models
+            .iter()
+            .find(|model| model.provider == "gemini" && model.model_id == "gemini-2.5-pro")
+            .expect("gemini-2.5-pro metadata");
+        assert!(
+            gemini_pro
+                .modalities
+                .iter()
+                .any(|modality| modality == "audio")
+        );
+        assert_eq!(gemini_pro.limits.get("input_tokens"), Some(&1_048_576));
+    }
+
+    #[test]
     fn profile_registry_creates_lists_shows_and_deletes_non_main_profiles() {
         let dir = std::env::temp_dir().join(format!("agent-profile-test-{}", uuid_like()));
         let resolver = ConfigResolver::new(StoragePaths::new(&dir));

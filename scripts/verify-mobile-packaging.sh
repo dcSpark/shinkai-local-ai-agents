@@ -10,6 +10,17 @@ const { spawnSync } = require("child_process");
 
 const args = new Set(process.argv.slice(2));
 const strict = args.has("--strict");
+const platformArg = process.argv
+  .slice(2)
+  .find((arg) => arg.startsWith("--platform="))
+  ?.slice("--platform=".length);
+const checkAndroid = !platformArg || platformArg === "android";
+const checkIos = !platformArg || platformArg === "ios";
+
+assert(
+  !platformArg || ["android", "ios"].includes(platformArg),
+  "--platform must be android or ios",
+);
 
 function fail(message) {
   console.error(`mobile packaging check failed: ${message}`);
@@ -58,6 +69,7 @@ assert(
   "frontend Tauri script must use the project-root wrapper",
 );
 assert(fs.existsSync("scripts/tauri-local.mjs"), "project-root Tauri wrapper is missing");
+assert(fs.existsSync(".github/workflows/mobile-packaging.yml"), "mobile packaging workflow is missing");
 
 const tauriConfig = readJson("crates/agent-tauri/tauri.conf.json");
 assert(tauriConfig.identifier === "io.shinkai.agent-app", "Tauri identifier must be stable for mobile packages");
@@ -97,24 +109,34 @@ for (const glob of [
 }
 
 if (strict) {
-  requireStrict(fs.existsSync("crates/agent-tauri/gen/android"), "generated Android Tauri project is missing");
-  requireStrict(fs.existsSync("crates/agent-tauri/gen/apple"), "generated iOS Tauri project is missing");
-  requireStrict(process.env.ANDROID_HOME && fs.existsSync(process.env.ANDROID_HOME), "ANDROID_HOME must point at the Android SDK");
-  requireStrict(process.env.NDK_HOME && fs.existsSync(process.env.NDK_HOME), "NDK_HOME must point at the Android NDK");
-  requireStrict(commandExists("java"), "Java must be installed for Android packaging");
-  requireStrict(commandExists("pod"), "CocoaPods must be installed for iOS packaging");
-  requireStrict(commandExists("xcodebuild", ["-version"]), "Xcode must be installed for iOS packaging");
+  if (checkAndroid) {
+    requireStrict(fs.existsSync("crates/agent-tauri/gen/android"), "generated Android Tauri project is missing");
+    requireStrict(process.env.ANDROID_HOME && fs.existsSync(process.env.ANDROID_HOME), "ANDROID_HOME must point at the Android SDK");
+    requireStrict(process.env.NDK_HOME && fs.existsSync(process.env.NDK_HOME), "NDK_HOME must point at the Android NDK");
+    requireStrict(commandExists("java"), "Java must be installed for Android packaging");
+  }
+  if (checkIos) {
+    requireStrict(fs.existsSync("crates/agent-tauri/gen/apple"), "generated iOS Tauri project is missing");
+    requireStrict(commandExists("pod"), "CocoaPods must be installed for iOS packaging");
+    requireStrict(commandExists("xcodebuild", ["-version"]), "Xcode must be installed for iOS packaging");
+  }
 
   const targets = installedRustTargets();
-  for (const target of [
+  const androidTargets = [
     "aarch64-linux-android",
     "armv7-linux-androideabi",
     "i686-linux-android",
     "x86_64-linux-android",
+  ];
+  const iosTargets = [
     "aarch64-apple-ios",
     "aarch64-apple-ios-sim",
     "x86_64-apple-ios",
-  ]) {
+  ];
+  for (const target of checkAndroid ? androidTargets : []) {
+    requireStrict(targets.has(target), `Rust mobile target is missing: ${target}`);
+  }
+  for (const target of checkIos ? iosTargets : []) {
     requireStrict(targets.has(target), `Rust mobile target is missing: ${target}`);
   }
 

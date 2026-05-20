@@ -1,0 +1,124 @@
+name: Mobile Packaging
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Mobile target to initialize and verify"
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - android
+          - ios
+
+concurrency:
+  group: mobile-packaging-${{ github.ref }}-${{ github.event.inputs.platform || 'all' }}
+  cancel-in-progress: false
+
+env:
+  CI: "true"
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  android:
+    name: android
+    if: github.event.inputs.platform == 'all' || github.event.inputs.platform == 'android'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux system deps for Tauri
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libsoup-3.0-dev \
+            build-essential
+
+      - name: Install Rust toolchain and Android targets
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: true
+          rustflags: ""
+
+      - name: Install Android Rust targets
+        run: rustup target add aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: crates/agent-tauri/frontend/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK and NDK packages
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;27.0.12077973"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/27.0.12077973" >> "$GITHUB_ENV"
+
+      - name: Frontend npm ci
+        working-directory: crates/agent-tauri/frontend
+        run: npm ci
+
+      - name: Initialize Android Tauri project
+        working-directory: crates/agent-tauri/frontend
+        run: npm run tauri -- android init
+
+      - name: Strict Android mobile packaging verification
+        run: scripts/verify-mobile-packaging.sh --strict --platform=android
+
+  ios:
+    name: ios
+    if: github.event.inputs.platform == 'all' || github.event.inputs.platform == 'ios'
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain and iOS targets
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          cache: true
+          rustflags: ""
+
+      - name: Install iOS Rust targets
+        run: rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: crates/agent-tauri/frontend/package-lock.json
+
+      - name: Install CocoaPods
+        run: sudo gem install cocoapods
+
+      - name: Frontend npm ci
+        working-directory: crates/agent-tauri/frontend
+        run: npm ci
+
+      - name: Initialize iOS Tauri project
+        working-directory: crates/agent-tauri/frontend
+        run: npm run tauri -- ios init
+
+      - name: Strict iOS mobile packaging verification
+        run: scripts/verify-mobile-packaging.sh --strict --platform=ios

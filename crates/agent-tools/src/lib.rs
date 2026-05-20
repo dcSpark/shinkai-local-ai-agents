@@ -550,6 +550,7 @@ pub struct PaymentX402Config {
     pub max_response_bytes: usize,
     pub max_amount: Option<f64>,
     pub signature_env: String,
+    pub facilitator_url: Option<String>,
 }
 
 impl PaymentX402Config {
@@ -565,6 +566,9 @@ impl PaymentX402Config {
                 .ok()
                 .and_then(clean_non_empty)
                 .unwrap_or_else(|| "AGENT_X402_PAYMENT_SIGNATURE".into()),
+            facilitator_url: std::env::var("AGENT_X402_FACILITATOR_URL")
+                .ok()
+                .and_then(clean_non_empty),
         }
     }
 }
@@ -765,6 +769,291 @@ impl Tool for PaymentX402Tool {
     }
 }
 
+pub struct PaymentX402RequiredTool;
+
+impl PaymentX402RequiredTool {
+    pub fn descriptor() -> ToolDescriptor {
+        ToolDescriptor {
+            id: ToolId::from("payment_x402_required"),
+            name: "x402 Payment Required Response".into(),
+            description: "Builds a 402 PAYMENT-REQUIRED header/body payload for a protected x402 resource.".into(),
+            categories: vec!["payment".into(), "wallet".into(), "x402".into()],
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "payment_required": {
+                        "type": "object",
+                        "description": "Complete x402 PAYMENT-REQUIRED object. If supplied, accepts/x402_version/error are ignored."
+                    },
+                    "accepts": {
+                        "type": "array",
+                        "items": { "type": "object" },
+                        "description": "Accepted payment requirements for this protected resource."
+                    },
+                    "x402_version": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "x402 protocol version. Defaults to 1."
+                    },
+                    "error": {
+                        "type": "string",
+                        "description": "Optional error text to include in the x402 challenge."
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "Optional HTTP response body text. Defaults to Payment Required."
+                    }
+                },
+                "additionalProperties": false
+            }),
+            output_interpretation_guidance: Some(
+                "Return the status code, PAYMENT-REQUIRED header value, decoded payment_required object, and body text exactly."
+                    .into(),
+            ),
+            permissions: ToolPermissions {
+                wallet: true,
+                payment: true,
+                ..ToolPermissions::default()
+            },
+            requires_approval: true,
+            provenance: Some("native:payment_x402_required".into()),
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for PaymentX402RequiredTool {
+    async fn execute(&self, input: Value) -> Result<Value, ToolError> {
+        let payment_required = payment_required_from_input(&input)?;
+        let body = input
+            .get("body")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .unwrap_or_else(|| "Payment Required".into());
+        let header = encode_payment_header_value(&payment_required)?;
+        Ok(json!({
+            "status": "payment_required",
+            "status_code": 402,
+            "headers": {
+                "PAYMENT-REQUIRED": header
+            },
+            "payment_required": payment_required,
+            "body": body
+        }))
+    }
+}
+
+pub struct PaymentX402SettleTool {
+    config: PaymentX402Config,
+}
+
+impl PaymentX402SettleTool {
+    pub fn new(config: PaymentX402Config) -> Self {
+        Self { config }
+    }
+
+    pub fn from_env() -> Self {
+        Self::new(PaymentX402Config::from_env())
+    }
+
+    pub fn descriptor() -> ToolDescriptor {
+        ToolDescriptor {
+            id: ToolId::from("payment_x402_settle"),
+            name: "x402 Verify and Settle".into(),
+            description: "Verifies and optionally settles an incoming x402 PAYMENT-SIGNATURE payload through a configured facilitator.".into(),
+            categories: vec!["payment".into(), "wallet".into(), "network".into(), "x402".into()],
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "facilitator_url": {
+                        "type": "string",
+                        "description": "HTTP or HTTPS facilitator base URL. Defaults to AGENT_X402_FACILITATOR_URL."
+                    },
+                    "payment_signature": {
+                        "type": "string",
+                        "description": "Incoming x402 PAYMENT-SIGNATURE header value."
+                    },
+                    "payment_payload": {
+                        "type": "object",
+                        "description": "Decoded incoming x402 payment payload. Used when payment_signature is omitted."
+                    },
+                    "payment_required": {
+                        "type": "object",
+                        "description": "Full PAYMENT-REQUIRED object previously sent by payment_x402_required."
+                    },
+                    "payment_requirements": {
+                        "type": "object",
+                        "description": "Selected payment requirements object. Overrides payment_required.accepts[accept_index]."
+                    },
+                    "accept_index": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Index into payment_required.accepts when payment_requirements is omitted. Defaults to 0."
+                    },
+                    "mode": {
+                        "type": "string",
+                        "enum": ["verify", "settle", "verify_and_settle"],
+                        "description": "Facilitator action. Defaults to verify_and_settle."
+                    },
+                    "timeout_ms": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "max_response_bytes": {
+                        "type": "integer",
+                        "minimum": 1
+                    }
+                },
+                "additionalProperties": false
+            }),
+            output_interpretation_guidance: Some(
+                "Report facilitator verify/settle status, HTTP status codes, parsed response bodies, and PAYMENT-RESPONSE header value without exposing the incoming payment signature."
+                    .into(),
+            ),
+            permissions: ToolPermissions {
+                network: true,
+                wallet: true,
+                payment: true,
+                secrets: true,
+                ..ToolPermissions::default()
+            },
+            requires_approval: true,
+            provenance: Some("native:payment_x402_settle".into()),
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for PaymentX402SettleTool {
+    async fn execute(&self, input: Value) -> Result<Value, ToolError> {
+        let facilitator_url = input
+            .get("facilitator_url")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .or_else(|| self.config.facilitator_url.clone())
+            .ok_or_else(|| {
+                ToolError::InvalidInput(
+                    "x402 settlement requires facilitator_url or AGENT_X402_FACILITATOR_URL".into(),
+                )
+            })?;
+        if !(facilitator_url.starts_with("http://") || facilitator_url.starts_with("https://")) {
+            return Err(ToolError::InvalidInput(
+                "x402 facilitator_url must start with http:// or https://".into(),
+            ));
+        }
+        let mode = input
+            .get("mode")
+            .and_then(Value::as_str)
+            .unwrap_or("verify_and_settle");
+        if !matches!(mode, "verify" | "settle" | "verify_and_settle") {
+            return Err(ToolError::InvalidInput(
+                "x402 settlement mode must be verify, settle, or verify_and_settle".into(),
+            ));
+        }
+        let timeout_ms = input
+            .get("timeout_ms")
+            .and_then(Value::as_u64)
+            .unwrap_or(self.config.default_timeout_ms);
+        let max_response_bytes = input
+            .get("max_response_bytes")
+            .and_then(Value::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or(self.config.max_response_bytes);
+        let payment_payload = payment_payload_from_input(&input)?;
+        let payment_requirements = payment_requirements_from_input(&input)?;
+        let x402_version = payment_x402_version(&input, &payment_payload);
+        let request_body = json!({
+            "x402Version": x402_version,
+            "paymentPayload": payment_payload,
+            "paymentRequirements": payment_requirements
+        });
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(timeout_ms))
+            .build()
+            .map_err(|e| ToolError::Execution(e.to_string()))?;
+
+        match mode {
+            "verify" => {
+                let verify = post_x402_facilitator(
+                    &client,
+                    &facilitator_url,
+                    "verify",
+                    &request_body,
+                    max_response_bytes,
+                )
+                .await?;
+                Ok(json!({
+                    "status": if verify.is_valid() { "verified" } else { "verification_failed" },
+                    "x402_version": x402_version,
+                    "verify": verify.into_json()
+                }))
+            }
+            "settle" => {
+                let settle = post_x402_facilitator(
+                    &client,
+                    &facilitator_url,
+                    "settle",
+                    &request_body,
+                    max_response_bytes,
+                )
+                .await?;
+                let settled = settle.is_http_success();
+                let payment_response = settled
+                    .then(|| encode_payment_header_value(&settle.body))
+                    .transpose()?;
+                Ok(json!({
+                    "status": if settled { "settled" } else { "settlement_failed" },
+                    "x402_version": x402_version,
+                    "settle": settle.into_json(),
+                    "headers": {
+                        "PAYMENT-RESPONSE": payment_response
+                    }
+                }))
+            }
+            _ => {
+                let verify = post_x402_facilitator(
+                    &client,
+                    &facilitator_url,
+                    "verify",
+                    &request_body,
+                    max_response_bytes,
+                )
+                .await?;
+                if !verify.is_valid() {
+                    return Ok(json!({
+                        "status": "verification_failed",
+                        "x402_version": x402_version,
+                        "verify": verify.into_json()
+                    }));
+                }
+                let settle = post_x402_facilitator(
+                    &client,
+                    &facilitator_url,
+                    "settle",
+                    &request_body,
+                    max_response_bytes,
+                )
+                .await?;
+                let settled = settle.is_http_success();
+                let payment_response = settled
+                    .then(|| encode_payment_header_value(&settle.body))
+                    .transpose()?;
+                Ok(json!({
+                    "status": if settled { "settled" } else { "settlement_failed" },
+                    "x402_version": x402_version,
+                    "verify": verify.into_json(),
+                    "settle": settle.into_json(),
+                    "headers": {
+                        "PAYMENT-RESPONSE": payment_response
+                    }
+                }))
+            }
+        }
+    }
+}
+
 pub fn register_payment_tools_from_env(registry: &mut ToolRegistry) -> usize {
     if !env_flag("AGENT_PAYMENT_TOOLS") {
         return 0;
@@ -773,7 +1062,15 @@ pub fn register_payment_tools_from_env(registry: &mut ToolRegistry) -> usize {
         PaymentX402Tool::descriptor(),
         Arc::new(PaymentX402Tool::from_env()),
     );
-    1
+    registry.register(
+        PaymentX402RequiredTool::descriptor(),
+        Arc::new(PaymentX402RequiredTool),
+    );
+    registry.register(
+        PaymentX402SettleTool::descriptor(),
+        Arc::new(PaymentX402SettleTool::from_env()),
+    );
+    3
 }
 
 pub struct ArtifactTool {
@@ -1894,6 +2191,189 @@ fn optional_header_map(value: Option<&Value>) -> Result<Vec<(String, String)>, T
     Ok(headers)
 }
 
+fn payment_required_from_input(input: &Value) -> Result<Value, ToolError> {
+    if let Some(payment_required) = input.get("payment_required") {
+        let object = payment_required.as_object().ok_or_else(|| {
+            ToolError::InvalidInput("field `payment_required` must be an object".into())
+        })?;
+        let accepts = object
+            .get("accepts")
+            .and_then(Value::as_array)
+            .filter(|accepts| !accepts.is_empty())
+            .ok_or_else(|| {
+                ToolError::InvalidInput("field `payment_required.accepts` must be non-empty".into())
+            })?;
+        if accepts.iter().any(|value| !value.is_object()) {
+            return Err(ToolError::InvalidInput(
+                "field `payment_required.accepts` must contain only objects".into(),
+            ));
+        }
+        return Ok(payment_required.clone());
+    }
+
+    let accepts = input
+        .get("accepts")
+        .and_then(Value::as_array)
+        .filter(|accepts| !accepts.is_empty())
+        .ok_or_else(|| ToolError::InvalidInput("field `accepts` must be non-empty".into()))?;
+    if accepts.iter().any(|value| !value.is_object()) {
+        return Err(ToolError::InvalidInput(
+            "field `accepts` must contain only objects".into(),
+        ));
+    }
+    let x402_version = input
+        .get("x402_version")
+        .and_then(Value::as_u64)
+        .unwrap_or(1);
+    let mut payment_required = json!({
+        "x402Version": x402_version,
+        "accepts": accepts
+    });
+    if let Some(error) = input.get("error").and_then(Value::as_str) {
+        payment_required["error"] = Value::String(error.to_string());
+    }
+    Ok(payment_required)
+}
+
+fn payment_payload_from_input(input: &Value) -> Result<Value, ToolError> {
+    if let Some(payment_payload) = input.get("payment_payload") {
+        if !payment_payload.is_object() {
+            return Err(ToolError::InvalidInput(
+                "field `payment_payload` must be an object".into(),
+            ));
+        }
+        return Ok(payment_payload.clone());
+    }
+    let signature = input
+        .get("payment_signature")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            ToolError::InvalidInput(
+                "x402 settlement requires `payment_signature` or `payment_payload`".into(),
+            )
+        })?;
+    decode_payment_header_value(signature)
+}
+
+fn payment_requirements_from_input(input: &Value) -> Result<Value, ToolError> {
+    if let Some(payment_requirements) = input.get("payment_requirements") {
+        if !payment_requirements.is_object() {
+            return Err(ToolError::InvalidInput(
+                "field `payment_requirements` must be an object".into(),
+            ));
+        }
+        return Ok(payment_requirements.clone());
+    }
+    let payment_required = input.get("payment_required").ok_or_else(|| {
+        ToolError::InvalidInput(
+            "x402 settlement requires `payment_requirements` or `payment_required`".into(),
+        )
+    })?;
+    let accepts = payment_required
+        .get("accepts")
+        .and_then(Value::as_array)
+        .filter(|accepts| !accepts.is_empty())
+        .ok_or_else(|| {
+            ToolError::InvalidInput("field `payment_required.accepts` must be non-empty".into())
+        })?;
+    let accept_index = input
+        .get("accept_index")
+        .and_then(Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+        .unwrap_or(0);
+    let Some(payment_requirements) = accepts.get(accept_index) else {
+        return Err(ToolError::InvalidInput(format!(
+            "accept_index {accept_index} is out of range"
+        )));
+    };
+    if !payment_requirements.is_object() {
+        return Err(ToolError::InvalidInput(
+            "selected payment requirements must be an object".into(),
+        ));
+    }
+    Ok(payment_requirements.clone())
+}
+
+fn payment_x402_version(input: &Value, payment_payload: &Value) -> u64 {
+    input
+        .get("x402_version")
+        .and_then(Value::as_u64)
+        .or_else(|| payment_payload.get("x402Version").and_then(Value::as_u64))
+        .or_else(|| {
+            input
+                .get("payment_required")
+                .and_then(|value| value.get("x402Version"))
+                .and_then(Value::as_u64)
+        })
+        .unwrap_or(1)
+}
+
+#[derive(Debug, Clone)]
+struct PaymentFacilitatorResult {
+    status_code: u16,
+    body: Value,
+    body_text: String,
+    truncated_body: bool,
+}
+
+impl PaymentFacilitatorResult {
+    fn is_http_success(&self) -> bool {
+        (200..300).contains(&self.status_code)
+    }
+
+    fn is_valid(&self) -> bool {
+        self.is_http_success()
+            && self
+                .body
+                .get("isValid")
+                .or_else(|| self.body.get("valid"))
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+    }
+
+    fn into_json(self) -> Value {
+        json!({
+            "status_code": self.status_code,
+            "body": self.body,
+            "body_text": self.body_text,
+            "truncated_body": self.truncated_body
+        })
+    }
+}
+
+async fn post_x402_facilitator(
+    client: &reqwest::Client,
+    facilitator_url: &str,
+    endpoint: &str,
+    body: &Value,
+    max_response_bytes: usize,
+) -> Result<PaymentFacilitatorResult, ToolError> {
+    let url = x402_facilitator_endpoint(facilitator_url, endpoint);
+    let response = client
+        .post(url)
+        .json(body)
+        .send()
+        .await
+        .map_err(|e| ToolError::Execution(e.to_string()))?;
+    let status_code = response.status().as_u16();
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| ToolError::Execution(e.to_string()))?;
+    let (body_text, truncated_body) = decode_and_truncate(&bytes, max_response_bytes);
+    let body = serde_json::from_slice(&bytes).unwrap_or_else(|_| Value::String(body_text.clone()));
+    Ok(PaymentFacilitatorResult {
+        status_code,
+        body,
+        body_text,
+        truncated_body,
+    })
+}
+
+fn x402_facilitator_endpoint(base_url: &str, endpoint: &str) -> String {
+    format!("{}/{}", base_url.trim_end_matches('/'), endpoint)
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct SpendAssessment {
     max_amount: f64,
@@ -2047,8 +2527,28 @@ fn decode_payment_header(headers: &reqwest::header::HeaderMap, name: &str) -> Op
     if value.is_empty() {
         return None;
     }
-    let decoded = general_purpose::STANDARD.decode(value).ok()?;
-    serde_json::from_slice(&decoded).ok()
+    decode_payment_header_value(value).ok()
+}
+
+fn decode_payment_header_value(value: &str) -> Result<Value, ToolError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(ToolError::InvalidInput(
+            "x402 payment header value must not be empty".into(),
+        ));
+    }
+    let decoded = general_purpose::STANDARD
+        .decode(value)
+        .or_else(|_| general_purpose::URL_SAFE_NO_PAD.decode(value))
+        .map_err(|e| ToolError::InvalidInput(format!("invalid x402 payment header: {e}")))?;
+    serde_json::from_slice(&decoded)
+        .map_err(|e| ToolError::InvalidInput(format!("invalid x402 payment header JSON: {e}")))
+}
+
+fn encode_payment_header_value(value: &Value) -> Result<String, ToolError> {
+    let bytes = serde_json::to_vec(value)
+        .map_err(|e| ToolError::Execution(format!("failed to encode x402 payment header: {e}")))?;
+    Ok(general_purpose::STANDARD.encode(bytes))
 }
 
 fn artifact_extension(format: &str) -> Result<&'static str, ToolError> {
@@ -4183,6 +4683,179 @@ done
         assert!(descriptor.permissions.wallet);
         assert!(descriptor.permissions.payment);
         assert!(descriptor.permissions.secrets);
+
+        let descriptor = PaymentX402RequiredTool::descriptor();
+        assert_eq!(descriptor.id.0, "payment_x402_required");
+        assert!(descriptor.requires_approval);
+        assert!(descriptor.permissions.wallet);
+        assert!(descriptor.permissions.payment);
+
+        let descriptor = PaymentX402SettleTool::descriptor();
+        assert_eq!(descriptor.id.0, "payment_x402_settle");
+        assert!(descriptor.requires_approval);
+        assert!(descriptor.permissions.network);
+        assert!(descriptor.permissions.wallet);
+        assert!(descriptor.permissions.payment);
+        assert!(descriptor.permissions.secrets);
+    }
+
+    #[tokio::test]
+    async fn x402_payment_required_tool_builds_header_response() {
+        let accepts = json!([{
+            "scheme": "exact",
+            "network": "base-sepolia",
+            "maxAmountRequired": "10",
+            "payTo": "0x0000000000000000000000000000000000000001",
+            "asset": "0x0000000000000000000000000000000000000002",
+            "resource": "https://service.example/paid"
+        }]);
+        let output = PaymentX402RequiredTool
+            .execute(json!({
+                "x402_version": 1,
+                "accepts": accepts,
+                "error": "payment required",
+                "body": "pay first"
+            }))
+            .await
+            .unwrap();
+
+        let header = output["headers"]["PAYMENT-REQUIRED"].as_str().unwrap();
+        let decoded = decode_payment_header_value(header).unwrap();
+        assert_eq!(output["status"], "payment_required");
+        assert_eq!(output["status_code"], 402);
+        assert_eq!(output["body"], "pay first");
+        assert_eq!(decoded, output["payment_required"]);
+        assert_eq!(decoded["accepts"], accepts);
+    }
+
+    #[tokio::test]
+    async fn x402_payment_settle_tool_verifies_and_settles() {
+        let payment_payload = json!({
+            "x402Version": 1,
+            "scheme": "exact",
+            "network": "base-sepolia",
+            "payload": { "authorization": "signed" }
+        });
+        let payment_requirements = json!({
+            "scheme": "exact",
+            "network": "base-sepolia",
+            "maxAmountRequired": "5",
+            "payTo": "0x0000000000000000000000000000000000000001",
+            "asset": "0x0000000000000000000000000000000000000002",
+            "resource": "https://service.example/paid"
+        });
+        let payment_required = json!({
+            "x402Version": 1,
+            "accepts": [payment_requirements.clone()]
+        });
+        let settlement = json!({
+            "success": true,
+            "transaction": "0xtx"
+        });
+        let payment_signature = encoded_payment_header(&payment_payload);
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn({
+            let payment_payload = payment_payload.clone();
+            let payment_requirements = payment_requirements.clone();
+            let settlement = settlement.clone();
+            move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                let request = read_http_request(&mut stream);
+                assert!(request.starts_with("POST /verify HTTP/1.1"));
+                let (_, body) = request.split_once("\r\n\r\n").unwrap();
+                let body: Value = serde_json::from_str(body).unwrap();
+                assert_eq!(body["paymentPayload"], payment_payload);
+                assert_eq!(body["paymentRequirements"], payment_requirements);
+                write_http_payment(&mut stream, 200, &[], r#"{"isValid":true}"#);
+
+                let (mut stream, _) = listener.accept().unwrap();
+                let request = read_http_request(&mut stream);
+                assert!(request.starts_with("POST /settle HTTP/1.1"));
+                let (_, body) = request.split_once("\r\n\r\n").unwrap();
+                let body: Value = serde_json::from_str(body).unwrap();
+                assert_eq!(body["paymentPayload"], payment_payload);
+                assert_eq!(body["paymentRequirements"], payment_requirements);
+                write_http_payment(&mut stream, 200, &[], &settlement.to_string());
+            }
+        });
+        let tool = PaymentX402SettleTool::new(PaymentX402Config {
+            default_timeout_ms: 5_000,
+            max_response_bytes: 64 * 1024,
+            max_amount: None,
+            signature_env: "AGENT_TEST_X402_SIGNATURE".into(),
+            facilitator_url: Some(format!("http://{addr}")),
+        });
+
+        let output = tool
+            .execute(json!({
+                "payment_signature": payment_signature,
+                "payment_required": payment_required
+            }))
+            .await
+            .unwrap();
+
+        server.join().unwrap();
+        assert_eq!(output["status"], "settled");
+        assert_eq!(output["verify"]["body"]["isValid"], true);
+        assert_eq!(output["settle"]["body"], settlement);
+        let response_header = output["headers"]["PAYMENT-RESPONSE"].as_str().unwrap();
+        assert_eq!(
+            decode_payment_header_value(response_header).unwrap(),
+            settlement
+        );
+    }
+
+    #[tokio::test]
+    async fn x402_payment_settle_tool_does_not_settle_failed_verify() {
+        let payment_payload = json!({
+            "x402Version": 1,
+            "scheme": "exact",
+            "network": "base-sepolia",
+            "payload": { "authorization": "signed" }
+        });
+        let payment_required = json!({
+            "x402Version": 1,
+            "accepts": [{
+                "scheme": "exact",
+                "network": "base-sepolia",
+                "maxAmountRequired": "5",
+                "resource": "https://service.example/paid"
+            }]
+        });
+        let payment_signature = encoded_payment_header(&payment_payload);
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request = read_http_request(&mut stream);
+            assert!(request.starts_with("POST /verify HTTP/1.1"));
+            write_http_payment(
+                &mut stream,
+                200,
+                &[],
+                r#"{"isValid":false,"invalidReason":"underpaid"}"#,
+            );
+        });
+        let tool = PaymentX402SettleTool::new(PaymentX402Config {
+            default_timeout_ms: 5_000,
+            max_response_bytes: 64 * 1024,
+            max_amount: None,
+            signature_env: "AGENT_TEST_X402_SIGNATURE".into(),
+            facilitator_url: Some(format!("http://{addr}")),
+        });
+
+        let output = tool
+            .execute(json!({
+                "payment_signature": payment_signature,
+                "payment_required": payment_required
+            }))
+            .await
+            .unwrap();
+
+        server.join().unwrap();
+        assert_eq!(output["status"], "verification_failed");
+        assert_eq!(output["verify"]["body"]["isValid"], false);
     }
 
     #[tokio::test]
@@ -4209,6 +4882,7 @@ done
             max_response_bytes: 64 * 1024,
             max_amount: None,
             signature_env: "AGENT_TEST_X402_SIGNATURE".into(),
+            facilitator_url: None,
         });
 
         let output = tool
@@ -4267,6 +4941,7 @@ done
             max_response_bytes: 64 * 1024,
             max_amount: None,
             signature_env: "AGENT_TEST_X402_SIGNATURE".into(),
+            facilitator_url: None,
         });
 
         let output = tool
@@ -4312,6 +4987,7 @@ done
             max_response_bytes: 64 * 1024,
             max_amount: None,
             signature_env: "AGENT_TEST_X402_SIGNATURE".into(),
+            facilitator_url: None,
         });
 
         let output = tool

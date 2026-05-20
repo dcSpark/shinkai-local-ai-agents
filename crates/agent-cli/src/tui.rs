@@ -56,9 +56,9 @@ use agent_tools::{
     show_generated_artifact_from_env,
 };
 use agent_tracing::{
-    EventStore, PublishingEventStore, RunEvent, RunEventKind, RunId, SqliteEventStore,
-    hook_remediation_plan, is_terminal_run_event, latest_event_id, quality_score_records,
-    validate_guidance_content, validate_quality_score,
+    EventId, EventStore, PublishingEventStore, RunEvent, RunEventKind, RunId, SqliteEventStore,
+    build_resume_plan, hook_remediation_plan, is_terminal_run_event, latest_event_id,
+    quality_score_records, validate_guidance_content, validate_quality_score,
 };
 
 use crate::{Demo, setup};
@@ -410,6 +410,181 @@ fn resolve_saved_prompt_or_literal(text: &str, agent_id: Option<&str>) -> anyhow
         .unwrap_or_else(|| name.to_string()))
 }
 
+struct ResumeSlashArgs {
+    run_id: RunId,
+    from_event: Option<u64>,
+}
+
+fn start_resume_run(
+    app: &mut App,
+    rest: &str,
+    demo: Demo,
+    publish_tx: &UnboundedSender<RunEvent>,
+    options: &setup::RuntimeOptions,
+) {
+    let args = match parse_resume_slash_args(rest, app.last_run_id) {
+        Ok(args) => args,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Resume failed: {err}"),
+            });
+            return;
+        }
+    };
+    let store = match open_event_store() {
+        Ok(store) => store,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Resume trace lookup failed: {err}"),
+            });
+            return;
+        }
+    };
+    let source_events = match store.try_events(args.run_id) {
+        Ok(events) => events,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Resume trace lookup failed: {err}"),
+            });
+            return;
+        }
+    };
+    let plan = match build_resume_plan(args.run_id, &source_events, args.from_event.map(EventId)) {
+        Ok(plan) => plan,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Resume plan failed: {err}"),
+            });
+            return;
+        }
+    };
+    let retained_compaction = match stopped_run_compaction_for_tui(args.run_id) {
+        Ok(record) => record,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Resume compact lookup failed: {err}"),
+            });
+            return;
+        }
+    };
+    let mut resume_options = options.clone();
+    resume_options.agent_id = Some(plan.agent_id.clone());
+    resume_options.include_compact = retained_compaction.clone();
+    let resume_agent = setup::build_agent(&resume_options);
+    let provider = match setup::build_provider(demo, &plan.prompt, &resume_options) {
+        Ok(provider) => provider,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Resume provider setup failed: {err}"),
+            });
+            return;
+        }
+    };
+    let publishing_store = PublishingEventStore::new(store, publish_tx.clone());
+    let registry = setup::build_registry(
+        resume_options.enable_shell,
+        resume_options.enable_subagent,
+        resume_options.enable_capability_drafts,
+        resume_options.agent_id.as_deref(),
+    );
+    let harness = setup::build_harness_for_agent(
+        provider,
+        Arc::new(publishing_store),
+        registry,
+        resume_options.agent_id.as_deref(),
+    );
+    let prompt = plan.prompt.clone();
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::User,
+        text: format!(
+            "/resume {} --from-event {}",
+            args.run_id.0, plan.selected_event_id.0
+        ),
+    });
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::Event,
+        text: format!(
+            "Resuming {} from event {} as agent {}{}",
+            args.run_id.0,
+            plan.selected_event_id.0,
+            plan.agent_id,
+            retained_compaction
+                .as_deref()
+                .map(|id| format!(" with compact {id}"))
+                .unwrap_or_default()
+        ),
+    });
+    app.state = AppState::Running;
+    app.tokens_in = 0;
+    app.tokens_out = 0;
+    app.cost_usd = 0.0;
+    app.calls_used = 0;
+    app.calls_max = resume_agent.tool_policy.max_calls;
+    app.calls_remaining = resume_agent.tool_policy.max_calls;
+    app.elapsed_ms = 0;
+    app.run_started_at = Some(Instant::now());
+    let run_task = tokio::spawn(async move {
+        let _ = harness.run(&resume_agent, UserInput { text: prompt }).await;
+    });
+    app.active_run_handle = Some(run_task.abort_handle());
+}
+
+fn parse_resume_slash_args(
+    rest: &str,
+    last_run_id: Option<RunId>,
+) -> anyhow::Result<ResumeSlashArgs> {
+    let mut run_id = None;
+    let mut from_event = None;
+    let mut parts = rest.split_whitespace();
+    while let Some(part) = parts.next() {
+        if let Some(value) = part.strip_prefix("--from-event=") {
+            from_event = Some(parse_event_id(value)?);
+            continue;
+        }
+        match part {
+            "--from-event" => {
+                let Some(value) = parts.next() else {
+                    anyhow::bail!("--from-event needs an event id");
+                };
+                from_event = Some(parse_event_id(value)?);
+            }
+            "last" if run_id.is_none() => {
+                run_id = last_run_id;
+            }
+            value if run_id.is_none() => {
+                run_id = Some(RunId(uuid::Uuid::parse_str(value)?));
+            }
+            other => anyhow::bail!("unexpected resume argument {other:?}"),
+        }
+    }
+    let run_id = run_id
+        .or(last_run_id)
+        .ok_or_else(|| anyhow::anyhow!("resume needs a run id or a previous run"))?;
+    Ok(ResumeSlashArgs { run_id, from_event })
+}
+
+fn parse_event_id(value: &str) -> anyhow::Result<u64> {
+    value
+        .parse::<u64>()
+        .map_err(|err| anyhow::anyhow!("invalid event id {value:?}: {err}"))
+}
+
+fn stopped_run_compaction_for_tui(run_id: RunId) -> anyhow::Result<Option<String>> {
+    let source = format!("stopped-run:{}", run_id.0);
+    Ok(CompactionStore::from_env()
+        .list()?
+        .into_iter()
+        .filter(|record| record.source == source)
+        .max_by_key(|record| record.created_at)
+        .map(|record| record.id))
+}
+
 fn handle_slash_command(
     app: &mut App,
     prompt: &str,
@@ -602,6 +777,10 @@ fn handle_slash_command(
                 text: format!("Score failed: {err}"),
             }),
         }
+        return true;
+    }
+    if let Some(rest) = resume_slash_rest(trimmed) {
+        start_resume_run(app, rest, demo, publish_tx, options);
         return true;
     }
     if let Some(text) = guide_slash_rest(trimmed) {
@@ -5522,6 +5701,14 @@ fn is_mid_run_control_command(trimmed: &str) -> bool {
     guide_slash_rest(trimmed).is_some() || stop_slash_rest(trimmed).is_some()
 }
 
+fn resume_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/resume" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/resume ").map(str::trim)
+    }
+}
+
 fn start_manual_tool_call(
     app: &mut App,
     rest: &str,
@@ -6605,6 +6792,12 @@ mod tests {
         );
         assert_eq!(stop_slash_rest("/stop"), Some(""));
         assert_eq!(stop_slash_rest("/stopped"), None);
+        assert_eq!(resume_slash_rest("/resume"), Some(""));
+        assert_eq!(
+            resume_slash_rest("/resume last --from-event 7"),
+            Some("last --from-event 7")
+        );
+        assert_eq!(resume_slash_rest("/resumed"), None);
         assert_eq!(
             parse_stop_request("--summarise changed my mind"),
             StopRequest {
@@ -6692,6 +6885,27 @@ mod tests {
         assert_eq!(compact_slash_rest("/compact keep"), Some("keep"));
         assert_eq!(compact_slash_rest("/compact"), Some(""));
         assert_eq!(compact_slash_rest("/compactness"), None);
+    }
+
+    #[test]
+    fn resume_slash_args_parse_run_last_and_event() {
+        let explicit_run =
+            RunId(uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000123").unwrap());
+        let last_run =
+            RunId(uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000456").unwrap());
+
+        let explicit =
+            parse_resume_slash_args(&format!("{} --from-event 7", explicit_run.0), None).unwrap();
+        assert_eq!(explicit.run_id, explicit_run);
+        assert_eq!(explicit.from_event, Some(7));
+
+        let last = parse_resume_slash_args("last --from-event=9", Some(last_run)).unwrap();
+        assert_eq!(last.run_id, last_run);
+        assert_eq!(last.from_event, Some(9));
+
+        assert!(parse_resume_slash_args("--from-event", Some(last_run)).is_err());
+        assert!(parse_resume_slash_args("", None).is_err());
+        assert!(parse_resume_slash_args("last extra", Some(last_run)).is_err());
     }
 
     #[test]

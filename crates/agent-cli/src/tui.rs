@@ -248,7 +248,7 @@ fn handle_terminal_event(
 
     if key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('c') {
         if app.state == AppState::Running {
-            stop_active_run(app, "user requested stop");
+            stop_active_run(app, "user requested stop", false);
         } else {
             app.quit = true;
         }
@@ -261,7 +261,7 @@ fn handle_terminal_event(
     match (key.modifiers, key.code) {
         (_, KeyCode::Esc) => {
             if app.state == AppState::Running {
-                stop_active_run(app, "user requested stop");
+                stop_active_run(app, "user requested stop", false);
             } else {
                 app.quit = true;
             }
@@ -278,7 +278,8 @@ fn handle_terminal_event(
                 } else {
                     app.transcript.push(TranscriptLine {
                         kind: LineKind::Error,
-                        text: "Run in progress. Use /guide <text> or /stop [reason].".into(),
+                        text: "Run in progress. Use /guide <text> or /stop [--summarise] [reason]."
+                            .into(),
                     });
                 }
                 return;
@@ -565,12 +566,8 @@ fn handle_slash_command(
             });
             return true;
         }
-        let reason = if reason.trim().is_empty() {
-            "user requested stop"
-        } else {
-            reason.trim()
-        };
-        stop_active_run(app, reason);
+        let request = parse_stop_request(reason);
+        stop_active_run(app, &request.reason, request.summarise);
         return true;
     }
     false
@@ -3330,6 +3327,48 @@ fn stop_slash_rest(trimmed: &str) -> Option<&str> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StopRequest {
+    reason: String,
+    summarise: bool,
+}
+
+fn parse_stop_request(rest: &str) -> StopRequest {
+    let rest = rest.trim();
+    let (summarise, reason) = if rest == "--summarise"
+        || rest == "--summarize"
+        || rest == "summarise"
+        || rest == "summarize"
+    {
+        (true, "")
+    } else if let Some(reason) = rest.strip_prefix("--summarise ") {
+        (true, reason)
+    } else if let Some(reason) = rest.strip_prefix("--summarize ") {
+        (true, reason)
+    } else if let Some(reason) = rest.strip_prefix("summarise ") {
+        (true, reason)
+    } else if let Some(reason) = rest.strip_prefix("summarize ") {
+        (true, reason)
+    } else if let Some(reason) = rest.strip_prefix("--discard ") {
+        (false, reason)
+    } else if rest == "--discard" || rest == "discard" {
+        (false, "")
+    } else if let Some(reason) = rest.strip_prefix("discard ") {
+        (false, reason)
+    } else {
+        (false, rest)
+    };
+    let reason = if reason.trim().is_empty() {
+        "user requested stop"
+    } else {
+        reason.trim()
+    };
+    StopRequest {
+        reason: reason.to_string(),
+        summarise,
+    }
+}
+
 fn is_mid_run_control_command(trimmed: &str) -> bool {
     guide_slash_rest(trimmed).is_some() || stop_slash_rest(trimmed).is_some()
 }
@@ -3883,20 +3922,32 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
     }
 }
 
-fn stop_active_run(app: &mut App, reason: &str) {
+fn stop_active_run(app: &mut App, reason: &str, summarise: bool) {
     if let Some(handle) = app.active_run_handle.take() {
         handle.abort();
     }
     if let Some(run_id) = app.last_run_id {
         match open_event_store() {
-            Ok(store) => {
-                if let Err(err) = record_stop_event(&store, run_id, reason.to_string()) {
-                    app.transcript.push(TranscriptLine {
-                        kind: LineKind::Error,
-                        text: format!("Stop trace write failed: {err}"),
-                    });
+            Ok(store) => match record_stop_event(&store, run_id, reason.to_string()) {
+                Ok(events) => {
+                    if summarise {
+                        match create_tui_stop_compaction(run_id, reason, &events) {
+                            Ok(record) => push_event(
+                                app,
+                                format!("Stopped-run summary retained as {}", record.id),
+                            ),
+                            Err(err) => app.transcript.push(TranscriptLine {
+                                kind: LineKind::Error,
+                                text: format!("Stop summary retention failed: {err}"),
+                            }),
+                        }
+                    }
                 }
-            }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Stop trace write failed: {err}"),
+                }),
+            },
             Err(err) => app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
                 text: format!("Stop trace write failed: {err}"),
@@ -3912,11 +3963,125 @@ fn stop_active_run(app: &mut App, reason: &str) {
     });
 }
 
-fn record_stop_event(store: &dyn EventStore, run_id: RunId, reason: String) -> anyhow::Result<()> {
-    let parent = latest_event_id(&store.events(run_id))
+fn record_stop_event(
+    store: &dyn EventStore,
+    run_id: RunId,
+    reason: String,
+) -> anyhow::Result<Vec<RunEvent>> {
+    let mut events = store.events(run_id);
+    let parent = latest_event_id(&events)
         .ok_or_else(|| anyhow::anyhow!("run {run_id} has no trace events"))?;
-    store.append(run_id, Some(parent), RunEventKind::RunCancelled { reason });
-    Ok(())
+    let stopped = store.append(run_id, Some(parent), RunEventKind::RunCancelled { reason });
+    events.push(stopped);
+    Ok(events)
+}
+
+fn create_tui_stop_compaction(
+    run_id: RunId,
+    reason: &str,
+    events: &[RunEvent],
+) -> anyhow::Result<CompactionRecord> {
+    Ok(CompactionStore::from_env().keep_compacted_context(
+        &stopped_run_summary_text(run_id, reason, events),
+        Some("Retained summary of a TUI run stopped by the user.".into()),
+        Some(512),
+        Some(format!("stopped-run:{}", run_id.0)),
+        None,
+    )?)
+}
+
+fn stopped_run_summary_text(run_id: RunId, reason: &str, events: &[RunEvent]) -> String {
+    let llm_calls = events
+        .iter()
+        .filter(|event| matches!(event.kind, RunEventKind::LlmRequestCompleted { .. }))
+        .count();
+    let tool_calls = events
+        .iter()
+        .filter(|event| matches!(event.kind, RunEventKind::ToolCallCompleted { .. }))
+        .count();
+    let approvals = events
+        .iter()
+        .filter(|event| matches!(event.kind, RunEventKind::ApprovalRequested { .. }))
+        .count();
+    let guidance = events
+        .iter()
+        .filter(|event| matches!(event.kind, RunEventKind::GuidanceInjected { .. }))
+        .count();
+    let mut lines = vec![
+        format!("Stopped TUI run {}", run_id.0),
+        format!("Reason: {reason}"),
+        format!(
+            "Observed before stop: {} events, {llm_calls} LLM calls, {tool_calls} tool calls, {approvals} approvals, {guidance} guidance injections.",
+            events.len()
+        ),
+    ];
+    for event in events
+        .iter()
+        .rev()
+        .take(12)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+    {
+        lines.push(format!(
+            "- {} {}",
+            event.id.0,
+            stopped_run_event_label(event)
+        ));
+    }
+    lines.join("\n")
+}
+
+fn stopped_run_event_label(event: &RunEvent) -> String {
+    match &event.kind {
+        RunEventKind::RunStarted { agent_id, input } => {
+            format!(
+                "run started agent={agent_id} input={}",
+                compact_preview(input, 120)
+            )
+        }
+        RunEventKind::ContextBuilt { snapshot } => {
+            let model = snapshot
+                .get("model")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown");
+            let visible_tools = json_array_len(snapshot, "visible_tools");
+            let visible_skills = json_array_len(snapshot, "visible_skills");
+            let memory = json_array_len(snapshot, "memory");
+            format!(
+                "context built model={model} tools={visible_tools} skills={visible_skills} memories={memory}"
+            )
+        }
+        RunEventKind::LlmRequestStarted { model, .. } => {
+            format!("llm request started model={model}")
+        }
+        RunEventKind::LlmRequestCompleted {
+            tokens_in,
+            tokens_out,
+            ..
+        } => format!("llm request completed tokens_in={tokens_in} tokens_out={tokens_out}"),
+        RunEventKind::ToolCallProposed { tool_id, .. } => {
+            format!("tool proposed {tool_id}")
+        }
+        RunEventKind::ToolCallCompleted { call_id, .. } => {
+            format!("tool completed {call_id}")
+        }
+        RunEventKind::GuidanceInjected { content } => {
+            format!("guidance injected {}", compact_preview(content, 120))
+        }
+        RunEventKind::RunCancelled { reason } => format!("run cancelled: {reason}"),
+        RunEventKind::RunFailed { reason } => format!("run failed: {reason}"),
+        RunEventKind::RunCompleted { .. } => "run completed".into(),
+        _ => "trace event".into(),
+    }
+}
+
+fn json_array_len(value: &serde_json::Value, key: &str) -> usize {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_array)
+        .map(Vec::len)
+        .unwrap_or_default()
 }
 
 fn update_elapsed_time(app: &mut App) {
@@ -4243,6 +4408,27 @@ mod tests {
         );
         assert_eq!(stop_slash_rest("/stop"), Some(""));
         assert_eq!(stop_slash_rest("/stopped"), None);
+        assert_eq!(
+            parse_stop_request("--summarise changed my mind"),
+            StopRequest {
+                reason: "changed my mind".into(),
+                summarise: true,
+            }
+        );
+        assert_eq!(
+            parse_stop_request("discard no longer needed"),
+            StopRequest {
+                reason: "no longer needed".into(),
+                summarise: false,
+            }
+        );
+        assert_eq!(
+            parse_stop_request(""),
+            StopRequest {
+                reason: "user requested stop".into(),
+                summarise: false,
+            }
+        );
         assert_eq!(preview_slash_rest("/preview hello"), Some("hello"));
         assert_eq!(preview_slash_rest("/preview"), Some(""));
         assert_eq!(preview_slash_rest("/previewer hello"), None);
@@ -4746,14 +4932,19 @@ mod tests {
                 input: "task".into(),
             },
         );
-        record_stop_event(&store, run_id, "user requested stop".into()).unwrap();
+        let recorded_events =
+            record_stop_event(&store, run_id, "user requested stop".into()).unwrap();
 
         let events = store.events(run_id);
         assert_eq!(events.len(), 2);
+        assert_eq!(recorded_events.len(), 2);
         assert!(matches!(
             &events[1].kind,
             RunEventKind::RunCancelled { reason } if reason == "user requested stop"
         ));
         assert_eq!(events[1].parent_event, Some(started.id));
+        let summary = stopped_run_summary_text(run_id, "user requested stop", &recorded_events);
+        assert!(summary.contains("Stopped TUI run"));
+        assert!(summary.contains("Observed before stop: 2 events"));
     }
 }

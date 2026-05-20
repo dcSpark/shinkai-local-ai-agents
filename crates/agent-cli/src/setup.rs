@@ -784,6 +784,12 @@ fn apply_skill_visibility(skill: &mut SkillView, visibility: VisibilityLevel) {
 }
 
 fn apply_conversation_policy(agent: &mut AgentConfig, policy: &ConversationPolicy) {
+    if let Some(categories) = &policy.allowed_tool_categories {
+        agent.tool_policy.allowed_categories = categories.clone();
+    }
+    if let Some(categories) = &policy.allowed_skill_categories {
+        agent.allowed_skill_categories = categories.clone();
+    }
     if let Some(max_tokens_before_compaction) = policy.max_tokens_before_compaction {
         agent.context_policy.compaction.max_tokens_before_compaction =
             Some(max_tokens_before_compaction);
@@ -1159,6 +1165,8 @@ hooks:
             &ConversationPolicy {
                 load_memory: Some(false),
                 generate_memory: None,
+                allowed_tool_categories: Some(vec!["shell".into()]),
+                allowed_skill_categories: Some(vec!["review".into()]),
                 max_tokens_before_compaction: Some(768),
                 max_compaction_output_tokens: Some(144),
                 compaction_guidance: Some("keep branch decisions".into()),
@@ -1169,6 +1177,8 @@ hooks:
             agent.context_policy.compaction.max_tokens_before_compaction,
             Some(768)
         );
+        assert_eq!(agent.tool_policy.allowed_categories, vec!["shell"]);
+        assert_eq!(agent.allowed_skill_categories, vec!["review"]);
         assert_eq!(agent.context_policy.compaction.max_output_tokens, Some(144));
         assert_eq!(
             agent.context_policy.compaction.guidance.as_deref(),

@@ -5352,6 +5352,12 @@ fn apply_skill_visibility(skill: &mut SkillView, visibility: VisibilityLevel) {
 }
 
 fn apply_conversation_policy(agent: &mut AgentConfig, policy: &ConversationPolicy) {
+    if let Some(categories) = &policy.allowed_tool_categories {
+        agent.tool_policy.allowed_categories = categories.clone();
+    }
+    if let Some(categories) = &policy.allowed_skill_categories {
+        agent.allowed_skill_categories = categories.clone();
+    }
     if let Some(max_tokens_before_compaction) = policy.max_tokens_before_compaction {
         agent.context_policy.compaction.max_tokens_before_compaction =
             Some(max_tokens_before_compaction);

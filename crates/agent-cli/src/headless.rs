@@ -1737,6 +1737,10 @@ pub struct ConversationPolicyOptions {
     pub clear_load_memory: bool,
     pub generate_memory: Option<bool>,
     pub clear_generate_memory: bool,
+    pub allowed_tool_categories: Vec<String>,
+    pub clear_allowed_tool_categories: bool,
+    pub allowed_skill_categories: Vec<String>,
+    pub clear_allowed_skill_categories: bool,
     pub max_tokens_before_compaction: Option<u32>,
     pub clear_max_tokens_before_compaction: bool,
     pub max_compaction_output_tokens: Option<u32>,
@@ -1754,6 +1758,10 @@ impl ConversationPolicyOptions {
             || self.clear_load_memory
             || self.generate_memory.is_some()
             || self.clear_generate_memory
+            || !self.allowed_tool_categories.is_empty()
+            || self.clear_allowed_tool_categories
+            || !self.allowed_skill_categories.is_empty()
+            || self.clear_allowed_skill_categories
             || self.max_tokens_before_compaction.is_some()
             || self.clear_max_tokens_before_compaction
             || self.max_compaction_output_tokens.is_some()
@@ -1786,6 +1794,18 @@ pub async fn conversation_policy(
         }
         if let Some(generate_memory) = options.generate_memory {
             policy.generate_memory = Some(generate_memory);
+        }
+        if options.clear_allowed_tool_categories {
+            policy.allowed_tool_categories = None;
+        }
+        if !options.allowed_tool_categories.is_empty() {
+            policy.allowed_tool_categories = Some(options.allowed_tool_categories);
+        }
+        if options.clear_allowed_skill_categories {
+            policy.allowed_skill_categories = None;
+        }
+        if !options.allowed_skill_categories.is_empty() {
+            policy.allowed_skill_categories = Some(options.allowed_skill_categories);
         }
         if options.clear_max_tokens_before_compaction {
             policy.max_tokens_before_compaction = None;
@@ -2139,6 +2159,12 @@ fn conversation_policy_summary(policy: &ConversationPolicy) -> String {
     }
     if let Some(generate_memory) = policy.generate_memory {
         parts.push(format!("generate_memory={generate_memory}"));
+    }
+    if let Some(categories) = &policy.allowed_tool_categories {
+        parts.push(format!("allowed_tool_categories={categories:?}"));
+    }
+    if let Some(categories) = &policy.allowed_skill_categories {
+        parts.push(format!("allowed_skill_categories={categories:?}"));
     }
     if let Some(max_tokens_before_compaction) = policy.max_tokens_before_compaction {
         parts.push(format!(

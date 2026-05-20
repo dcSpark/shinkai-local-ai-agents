@@ -330,6 +330,8 @@ export default function App() {
   const [maxCompactionOutputTokens, setMaxCompactionOutputTokens] =
     useState("");
   const [compactionGuidance, setCompactionGuidance] = useState("");
+  const [allowedToolCategories, setAllowedToolCategories] = useState("");
+  const [allowedSkillCategories, setAllowedSkillCategories] = useState("");
   const [toolVisibility, setToolVisibility] = useState<ToolVisibility | "">("");
   const [enableShell, setEnableShell] = useState(false);
   const [enableSubagent, setEnableSubagent] = useState(false);
@@ -790,6 +792,16 @@ export default function App() {
       .filter((topic, index, topics) => topics.indexOf(topic) === index);
   }
 
+  function parsedCategoryList(value: string) {
+    return value
+      .split(",")
+      .map((category) => category.trim())
+      .filter(Boolean)
+      .filter(
+        (category, index, categories) => categories.indexOf(category) === index,
+      );
+  }
+
   function runtimeOptions(): RunOptions {
     return {
       provider,
@@ -810,8 +822,8 @@ export default function App() {
         maxCompactionOutputTokens,
       ),
       compaction_guidance: compactionGuidance.trim() || null,
-      allowed_tool_categories: [],
-      allowed_skill_categories: [],
+      allowed_tool_categories: parsedCategoryList(allowedToolCategories),
+      allowed_skill_categories: parsedCategoryList(allowedSkillCategories),
       tool_visibility: toolVisibility || null,
       skill_visibility: null,
       enable_shell: enableShell,
@@ -4003,10 +4015,14 @@ export default function App() {
 
   async function saveSelectedConversationPolicy() {
     if (!expandedConversation) return;
+    const toolCategories = parsedCategoryList(allowedToolCategories);
+    const skillCategories = parsedCategoryList(allowedSkillCategories);
     const policy: ConversationPolicy = {
       load_memory: loadMemory,
       generate_memory:
         generateMemoryPolicy === "" ? null : generateMemoryPolicy === "on",
+      allowed_tool_categories: toolCategories.length ? toolCategories : null,
+      allowed_skill_categories: skillCategories.length ? skillCategories : null,
       max_tokens_before_compaction: parseOptionalPositiveInt(
         maxTokensBeforeCompaction,
       ),
@@ -4056,6 +4072,16 @@ export default function App() {
         ? policy.generate_memory
           ? "on"
           : "off"
+        : "",
+    );
+    setAllowedToolCategories(
+      Array.isArray(policy.allowed_tool_categories)
+        ? policy.allowed_tool_categories.join(", ")
+        : "",
+    );
+    setAllowedSkillCategories(
+      Array.isArray(policy.allowed_skill_categories)
+        ? policy.allowed_skill_categories.join(", ")
         : "",
     );
     setMaxTokensBeforeCompaction(
@@ -5532,6 +5558,12 @@ export default function App() {
     if (typeof policy?.generate_memory === "boolean") {
       parts.push(`memory generation ${policy.generate_memory ? "on" : "off"}`);
     }
+    if (policy?.allowed_tool_categories?.length) {
+      parts.push(`tools ${policy.allowed_tool_categories.join(", ")}`);
+    }
+    if (policy?.allowed_skill_categories?.length) {
+      parts.push(`skills ${policy.allowed_skill_categories.join(", ")}`);
+    }
     if (policy?.max_tokens_before_compaction) {
       parts.push(`compact at ${policy.max_tokens_before_compaction}`);
     }
@@ -6998,6 +7030,24 @@ export default function App() {
               <option value="name_and_description">name and description</option>
               <option value="name_only">name only</option>
             </select>
+          </label>
+          <label>
+            Tool categories
+            <input
+              value={allowedToolCategories}
+              onChange={(e) => setAllowedToolCategories(e.target.value)}
+              placeholder="all categories"
+              disabled={running}
+            />
+          </label>
+          <label>
+            Skill categories
+            <input
+              value={allowedSkillCategories}
+              onChange={(e) => setAllowedSkillCategories(e.target.value)}
+              placeholder="all categories"
+              disabled={running}
+            />
           </label>
           <label className="switch">
             <input

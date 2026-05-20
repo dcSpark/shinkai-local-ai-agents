@@ -1648,6 +1648,22 @@ enum ConversationCommand {
         #[arg(long)]
         clear_generate_memory: bool,
 
+        /// Restrict tools for this conversation to one category/pack. Repeat for multiple categories.
+        #[arg(long = "allow-tool-category")]
+        allowed_tool_categories: Vec<String>,
+
+        /// Clear the conversation tool-category override.
+        #[arg(long)]
+        clear_allowed_tool_categories: bool,
+
+        /// Restrict loaded skills for this conversation to one category/pack. Repeat for multiple categories.
+        #[arg(long = "allow-skill-category")]
+        allowed_skill_categories: Vec<String>,
+
+        /// Clear the conversation skill-category override.
+        #[arg(long)]
+        clear_allowed_skill_categories: bool,
+
         /// Conversation default auto-compaction threshold.
         #[arg(long)]
         max_tokens_before_compaction: Option<u32>,
@@ -3467,6 +3483,12 @@ mod cli_parse_tests {
             "false",
             "--generate-memory",
             "false",
+            "--allow-tool-category",
+            "shell",
+            "--allow-tool-category",
+            "mcp",
+            "--allow-skill-category",
+            "review",
             "--max-tokens-before-compaction",
             "512",
             "--max-compaction-output-tokens",
@@ -3482,6 +3504,8 @@ mod cli_parse_tests {
                     id,
                     load_memory,
                     generate_memory,
+                    allowed_tool_categories,
+                    allowed_skill_categories,
                     max_tokens_before_compaction,
                     max_compaction_output_tokens,
                     compaction_guidance,
@@ -3495,6 +3519,8 @@ mod cli_parse_tests {
         assert_eq!(id, "conversation-1");
         assert_eq!(load_memory, Some(false));
         assert_eq!(generate_memory, Some(false));
+        assert_eq!(allowed_tool_categories, vec!["shell", "mcp"]);
+        assert_eq!(allowed_skill_categories, vec!["review"]);
         assert_eq!(max_tokens_before_compaction, Some(512));
         assert_eq!(max_compaction_output_tokens, Some(128));
         assert_eq!(compaction_guidance.as_deref(), Some("keep decisions"));
@@ -4618,6 +4644,10 @@ async fn main() -> anyhow::Result<()> {
                 clear_load_memory,
                 generate_memory,
                 clear_generate_memory,
+                allowed_tool_categories,
+                clear_allowed_tool_categories,
+                allowed_skill_categories,
+                clear_allowed_skill_categories,
                 max_tokens_before_compaction,
                 clear_max_tokens_before_compaction,
                 max_compaction_output_tokens,
@@ -4632,6 +4662,10 @@ async fn main() -> anyhow::Result<()> {
                     clear_load_memory,
                     generate_memory,
                     clear_generate_memory,
+                    allowed_tool_categories,
+                    clear_allowed_tool_categories,
+                    allowed_skill_categories,
+                    clear_allowed_skill_categories,
                     max_tokens_before_compaction,
                     clear_max_tokens_before_compaction,
                     max_compaction_output_tokens,

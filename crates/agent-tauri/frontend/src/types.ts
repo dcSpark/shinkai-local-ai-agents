@@ -207,6 +207,8 @@ export type ConversationMessage = {
 export type ConversationPolicy = {
   load_memory?: boolean | null;
   generate_memory?: boolean | null;
+  allowed_tool_categories?: string[] | null;
+  allowed_skill_categories?: string[] | null;
   max_tokens_before_compaction?: number | null;
   max_compaction_output_tokens?: number | null;
   compaction_guidance?: string | null;

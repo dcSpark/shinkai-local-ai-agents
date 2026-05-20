@@ -52,6 +52,10 @@ pub struct ConversationPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generate_memory: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_tool_categories: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_skill_categories: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tokens_before_compaction: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_compaction_output_tokens: Option<u32>,
@@ -63,6 +67,8 @@ impl ConversationPolicy {
     pub fn is_empty(&self) -> bool {
         self.load_memory.is_none()
             && self.generate_memory.is_none()
+            && self.allowed_tool_categories.is_none()
+            && self.allowed_skill_categories.is_none()
             && self.max_tokens_before_compaction.is_none()
             && self.max_compaction_output_tokens.is_none()
             && self.compaction_guidance.is_none()
@@ -70,6 +76,8 @@ impl ConversationPolicy {
 
     pub fn sanitized(mut self) -> Self {
         self.compaction_guidance = clean_optional(self.compaction_guidance);
+        self.allowed_tool_categories = clean_string_list(self.allowed_tool_categories);
+        self.allowed_skill_categories = clean_string_list(self.allowed_skill_categories);
         self
     }
 
@@ -530,6 +538,21 @@ fn clean_optional(value: Option<String>) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
+fn clean_string_list(value: Option<Vec<String>>) -> Option<Vec<String>> {
+    let mut cleaned = Vec::new();
+    for item in value.unwrap_or_default() {
+        let item = item.trim().to_string();
+        if !item.is_empty() && !cleaned.contains(&item) {
+            cleaned.push(item);
+        }
+    }
+    if cleaned.is_empty() {
+        None
+    } else {
+        Some(cleaned)
+    }
+}
+
 fn validate_id(id: &str) -> Result<(), ConversationError> {
     let valid = !id.trim().is_empty()
         && id
@@ -725,6 +748,12 @@ mod tests {
                 ConversationPolicy {
                     load_memory: Some(false),
                     generate_memory: Some(false),
+                    allowed_tool_categories: Some(vec![
+                        "  shell  ".into(),
+                        "mcp".into(),
+                        "shell".into(),
+                    ]),
+                    allowed_skill_categories: Some(vec![" review ".into(), "".into()]),
                     max_tokens_before_compaction: Some(512),
                     max_compaction_output_tokens: Some(128),
                     compaction_guidance: Some("  keep decisions  ".into()),
@@ -733,6 +762,14 @@ mod tests {
             .unwrap();
         assert_eq!(updated.policy.load_memory, Some(false));
         assert_eq!(updated.policy.generate_memory, Some(false));
+        assert_eq!(
+            updated.policy.allowed_tool_categories.as_deref(),
+            Some(&["shell".to_string(), "mcp".to_string()][..])
+        );
+        assert_eq!(
+            updated.policy.allowed_skill_categories.as_deref(),
+            Some(&["review".to_string()][..])
+        );
         assert_eq!(
             updated.policy.compaction_guidance.as_deref(),
             Some("keep decisions")

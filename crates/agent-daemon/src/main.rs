@@ -51,6 +51,7 @@ use agent_tracing::{
     hook_remediation_plan, is_terminal_run_event, latest_event_id, summarize_trace,
     validate_guidance_content, validate_quality_score,
 };
+use base64::{Engine, engine::general_purpose};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -204,7 +205,7 @@ async fn route(
         }
         ("POST", "/bridges/webhook") => daemon_webhook_bridge(&request.body, &request.headers)
             .await
-            .map(|value| (200, value)),
+            .map(|value| (webhook_bridge_status(&value), value)),
         ("GET", "/bridges/deliveries") => daemon_bridge_delivery_list().map(|value| (200, value)),
         ("POST", "/bridges/deliveries/retry-all") => daemon_bridge_delivery_retry_all()
             .await
@@ -2020,6 +2021,11 @@ async fn daemon_webhook_bridge(
     headers: &HashMap<String, String>,
 ) -> anyhow::Result<serde_json::Value> {
     verify_webhook_bridge(headers)?;
+    let payment = match enforce_webhook_x402(headers).await? {
+        WebhookX402Decision::Open => None,
+        WebhookX402Decision::Challenge(challenge) => return Ok(challenge),
+        WebhookX402Decision::Paid(payment) => Some(payment),
+    };
     let input: WebhookBridgeRequest = serde_json::from_str(body)?;
     let text = input.text.trim().to_string();
     if text.is_empty() {
@@ -2039,7 +2045,7 @@ async fn daemon_webhook_bridge(
             "reason": "missing response_url"
         }),
     };
-    Ok(serde_json::json!({
+    let mut output = serde_json::json!({
         "text": response["text"],
         "bridge": {
             "platform": "webhook",
@@ -2050,7 +2056,224 @@ async fn daemon_webhook_bridge(
         "metadata": input.metadata,
         "response": response,
         "delivery": delivery
+    });
+    if let Some(payment) = payment {
+        output["payment"] = payment.body;
+        output["headers"] = serde_json::json!({
+            "PAYMENT-RESPONSE": payment.payment_response
+        });
+    }
+    Ok(output)
+}
+
+fn webhook_bridge_status(value: &serde_json::Value) -> u16 {
+    if value.get("status").and_then(serde_json::Value::as_str) == Some("payment_required") {
+        402
+    } else {
+        200
+    }
+}
+
+enum WebhookX402Decision {
+    Open,
+    Challenge(serde_json::Value),
+    Paid(WebhookX402Payment),
+}
+
+struct WebhookX402Payment {
+    payment_response: String,
+    body: serde_json::Value,
+}
+
+async fn enforce_webhook_x402(
+    headers: &HashMap<String, String>,
+) -> anyhow::Result<WebhookX402Decision> {
+    let Some(payment_required) = webhook_x402_payment_required()? else {
+        return Ok(WebhookX402Decision::Open);
+    };
+    let challenge = webhook_x402_challenge(&payment_required, None)?;
+    let Some(payment_signature) = header_value(headers, "payment-signature") else {
+        return Ok(WebhookX402Decision::Challenge(challenge));
+    };
+    let Some(facilitator_url) = bridge_env("webhook", "X402_FACILITATOR_URL")
+        .or_else(|| bridge_env("x402", "FACILITATOR_URL"))
+    else {
+        anyhow::bail!("webhook x402 payment was provided but no facilitator URL is configured");
+    };
+    let payment_payload = decode_x402_header(payment_signature)?;
+    let payment_requirements = selected_x402_payment_requirements(&payment_required)?;
+    let x402_version = payment_required
+        .get("x402Version")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(1);
+    let request_body = serde_json::json!({
+        "x402Version": x402_version,
+        "paymentPayload": payment_payload,
+        "paymentRequirements": payment_requirements
+    });
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_millis(
+            bridge_env("webhook", "X402_TIMEOUT_MS")
+                .or_else(|| bridge_env("x402", "TIMEOUT_MS"))
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(30_000),
+        ))
+        .build()?;
+    let verify = post_x402_facilitator(&client, &facilitator_url, "verify", &request_body).await?;
+    if !verify.is_valid() {
+        let challenge = webhook_x402_challenge(
+            &payment_required,
+            Some(serde_json::json!({
+                "status": "verification_failed",
+                "verify": verify.to_json()
+            })),
+        )?;
+        return Ok(WebhookX402Decision::Challenge(challenge));
+    }
+    let settle = post_x402_facilitator(&client, &facilitator_url, "settle", &request_body).await?;
+    if !settle.is_http_success() {
+        anyhow::bail!(
+            "webhook x402 settlement failed with status {}",
+            settle.status_code
+        );
+    }
+    let payment_response = encode_x402_header(&settle.body)?;
+    Ok(WebhookX402Decision::Paid(WebhookX402Payment {
+        payment_response,
+        body: serde_json::json!({
+            "status": "settled",
+            "verify": verify.to_json(),
+            "settle": settle.to_json()
+        }),
     }))
+}
+
+fn webhook_x402_payment_required() -> anyhow::Result<Option<serde_json::Value>> {
+    let Some(accepts_text) = bridge_env("webhook", "X402_ACCEPTS") else {
+        return Ok(None);
+    };
+    let value: serde_json::Value = serde_json::from_str(&accepts_text)?;
+    if value
+        .get("accepts")
+        .and_then(serde_json::Value::as_array)
+        .is_some()
+    {
+        return Ok(Some(value));
+    }
+    let accepts = value
+        .as_array()
+        .filter(|items| !items.is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!("AGENT_WEBHOOK_X402_ACCEPTS must be a non-empty JSON array or object")
+        })?;
+    if accepts.iter().any(|value| !value.is_object()) {
+        anyhow::bail!("AGENT_WEBHOOK_X402_ACCEPTS must contain only objects");
+    }
+    let x402_version = bridge_env("webhook", "X402_VERSION")
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(1);
+    let mut payment_required = serde_json::json!({
+        "x402Version": x402_version,
+        "accepts": accepts
+    });
+    if let Some(error) = bridge_env("webhook", "X402_ERROR") {
+        payment_required["error"] = serde_json::Value::String(error);
+    }
+    Ok(Some(payment_required))
+}
+
+fn selected_x402_payment_requirements(
+    payment_required: &serde_json::Value,
+) -> anyhow::Result<serde_json::Value> {
+    let accepts = payment_required
+        .get("accepts")
+        .and_then(serde_json::Value::as_array)
+        .filter(|items| !items.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("webhook x402 payment_required.accepts is empty"))?;
+    let index = bridge_env("webhook", "X402_ACCEPT_INDEX")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0);
+    let Some(requirements) = accepts.get(index) else {
+        anyhow::bail!("webhook x402 accept index {index} is out of range");
+    };
+    if !requirements.is_object() {
+        anyhow::bail!("webhook x402 selected payment requirements must be an object");
+    }
+    Ok(requirements.clone())
+}
+
+fn webhook_x402_challenge(
+    payment_required: &serde_json::Value,
+    payment: Option<serde_json::Value>,
+) -> anyhow::Result<serde_json::Value> {
+    let header = encode_x402_header(payment_required)?;
+    Ok(serde_json::json!({
+        "status": "payment_required",
+        "status_code": 402,
+        "headers": {
+            "PAYMENT-REQUIRED": header
+        },
+        "payment_required": payment_required,
+        "payment": payment.unwrap_or_else(|| serde_json::json!({
+            "status": "missing_payment_signature"
+        }))
+    }))
+}
+
+#[derive(Clone)]
+struct X402FacilitatorResult {
+    status_code: u16,
+    body: serde_json::Value,
+}
+
+impl X402FacilitatorResult {
+    fn is_http_success(&self) -> bool {
+        (200..300).contains(&self.status_code)
+    }
+
+    fn is_valid(&self) -> bool {
+        self.is_http_success()
+            && self
+                .body
+                .get("isValid")
+                .or_else(|| self.body.get("valid"))
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false)
+    }
+
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "status_code": self.status_code,
+            "body": self.body
+        })
+    }
+}
+
+async fn post_x402_facilitator(
+    client: &reqwest::Client,
+    base_url: &str,
+    endpoint: &str,
+    body: &serde_json::Value,
+) -> anyhow::Result<X402FacilitatorResult> {
+    let url = format!("{}/{}", base_url.trim_end_matches('/'), endpoint);
+    let response = client.post(url).json(body).send().await?;
+    let status_code = response.status().as_u16();
+    let body = response
+        .json::<serde_json::Value>()
+        .await
+        .unwrap_or(serde_json::Value::Null);
+    Ok(X402FacilitatorResult { status_code, body })
+}
+
+fn encode_x402_header(value: &serde_json::Value) -> anyhow::Result<String> {
+    Ok(general_purpose::STANDARD.encode(serde_json::to_vec(value)?))
+}
+
+fn decode_x402_header(value: &str) -> anyhow::Result<serde_json::Value> {
+    let decoded = general_purpose::STANDARD
+        .decode(value.trim())
+        .or_else(|_| general_purpose::URL_SAFE_NO_PAD.decode(value.trim()))?;
+    Ok(serde_json::from_slice(&decoded)?)
 }
 
 async fn maybe_deliver_telegram_reply(reply: &serde_json::Value) -> serde_json::Value {
@@ -4800,14 +5023,38 @@ fn http_json(status: u16, body: serde_json::Value) -> String {
     let status_text = match status {
         200 => "200 OK",
         400 => "400 Bad Request",
+        402 => "402 Payment Required",
         404 => "404 Not Found",
         _ => "500 Internal Server Error",
     };
+    let extra_headers = response_extra_headers(&body)
+        .into_iter()
+        .map(|(name, value)| format!("{name}: {value}\r\n"))
+        .collect::<String>();
     let body = body.to_string();
     format!(
-        "HTTP/1.1 {status_text}\r\ncontent-type: application/json\r\naccess-control-allow-origin: *\r\naccess-control-allow-methods: GET, POST, OPTIONS\r\naccess-control-allow-headers: content-type, x-agent-bridge-token, authorization\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+        "HTTP/1.1 {status_text}\r\ncontent-type: application/json\r\naccess-control-allow-origin: *\r\naccess-control-allow-methods: GET, POST, OPTIONS\r\naccess-control-allow-headers: content-type, x-agent-bridge-token, authorization, payment-signature, payment-required, payment-response\r\n{extra_headers}content-length: {}\r\nconnection: close\r\n\r\n{body}",
         body.len()
     )
+}
+
+fn response_extra_headers(body: &serde_json::Value) -> Vec<(String, String)> {
+    body.get("headers")
+        .and_then(serde_json::Value::as_object)
+        .into_iter()
+        .flat_map(|headers| headers.iter())
+        .filter_map(|(name, value)| {
+            let allowed = matches!(
+                name.to_ascii_lowercase().as_str(),
+                "payment-required" | "payment-response"
+            );
+            allowed.then(|| {
+                value.as_str().and_then(|value| {
+                    (!value.contains(['\r', '\n'])).then(|| (name.clone(), value.to_string()))
+                })
+            })?
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -5112,6 +5359,100 @@ mod tests {
         restore_env("AGENT_TEAMS_SECRET_TOKEN", previous_teams);
         restore_env("AGENT_WHATSAPP_SECRET_TOKEN", previous_whatsapp);
         restore_env("AGENT_WEBHOOK_SECRET_TOKEN", previous_webhook);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn webhook_bridge_x402_challenges_and_settles_before_running_agent() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("webhook-x402");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        let previous_accepts = std::env::var_os("AGENT_WEBHOOK_X402_ACCEPTS");
+        let previous_facilitator = std::env::var_os("AGENT_WEBHOOK_X402_FACILITATOR_URL");
+        let previous_secret = std::env::var_os("AGENT_WEBHOOK_SECRET_TOKEN");
+        let accepts = serde_json::json!([{
+            "scheme": "exact",
+            "network": "base-sepolia",
+            "maxAmountRequired": "5",
+            "payTo": "0x0000000000000000000000000000000000000001",
+            "asset": "0x0000000000000000000000000000000000000002",
+            "resource": "http://localhost/bridges/webhook"
+        }]);
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+            std::env::set_var("AGENT_WEBHOOK_X402_ACCEPTS", accepts.to_string());
+            std::env::remove_var("AGENT_WEBHOOK_X402_FACILITATOR_URL");
+            std::env::remove_var("AGENT_WEBHOOK_SECRET_TOKEN");
+        }
+
+        let (status, challenge) = route(
+            HttpRequest {
+                method: "POST".into(),
+                path: "/bridges/webhook".into(),
+                headers: HashMap::new(),
+                body: r#"{"text":"paid webhook"}"#.into(),
+            },
+            Arc::new(DaemonState::default()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(status, 402);
+        assert_eq!(challenge["status"], "payment_required");
+        let payment_required_header = challenge["headers"]["PAYMENT-REQUIRED"].as_str().unwrap();
+        let decoded_challenge = decode_x402_header(payment_required_header).unwrap();
+        assert_eq!(decoded_challenge["accepts"], accepts);
+        assert!(http_json(status, challenge).contains("PAYMENT-REQUIRED: "));
+
+        let settlement = serde_json::json!({
+            "success": true,
+            "transaction": "0xpaid"
+        });
+        let (facilitator_url, facilitator) = spawn_json_body_server(vec![
+            (200, r#"{"isValid":true}"#.into()),
+            (200, settlement.to_string()),
+        ]);
+        unsafe {
+            std::env::set_var("AGENT_WEBHOOK_X402_FACILITATOR_URL", &facilitator_url);
+        }
+        let payment_signature = encode_x402_header(&serde_json::json!({
+            "x402Version": 1,
+            "scheme": "exact",
+            "network": "base-sepolia",
+            "payload": { "authorization": "signed" }
+        }))
+        .unwrap();
+        let mut headers = HashMap::new();
+        headers.insert("payment-signature".into(), payment_signature);
+
+        let (status, paid) = route(
+            HttpRequest {
+                method: "POST".into(),
+                path: "/bridges/webhook".into(),
+                headers,
+                body: r#"{"text":"paid webhook"}"#.into(),
+            },
+            Arc::new(DaemonState::default()),
+        )
+        .await
+        .unwrap();
+
+        let facilitator_requests = facilitator.join().unwrap();
+        assert_eq!(status, 200);
+        assert_eq!(paid["text"], "[fake] paid webhook");
+        assert_eq!(paid["payment"]["status"], "settled");
+        assert_eq!(paid["payment"]["verify"]["body"]["isValid"], true);
+        assert_eq!(paid["payment"]["settle"]["body"], settlement);
+        let payment_response = paid["headers"]["PAYMENT-RESPONSE"].as_str().unwrap();
+        assert_eq!(decode_x402_header(payment_response).unwrap(), settlement);
+        assert!(facilitator_requests[0].0.starts_with("POST /verify "));
+        assert!(facilitator_requests[1].0.starts_with("POST /settle "));
+        assert!(facilitator_requests[0].1.contains("paymentPayload"));
+        assert!(facilitator_requests[1].1.contains("paymentRequirements"));
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        restore_env("AGENT_WEBHOOK_X402_ACCEPTS", previous_accepts);
+        restore_env("AGENT_WEBHOOK_X402_FACILITATOR_URL", previous_facilitator);
+        restore_env("AGENT_WEBHOOK_SECRET_TOKEN", previous_secret);
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -5459,15 +5800,26 @@ mod tests {
     fn spawn_json_server(
         statuses: Vec<u16>,
     ) -> (String, std::thread::JoinHandle<Vec<(String, String)>>) {
+        spawn_json_body_server(
+            statuses
+                .into_iter()
+                .map(|status| (status, "ok".to_string()))
+                .collect(),
+        )
+    }
+
+    fn spawn_json_body_server(
+        responses: Vec<(u16, String)>,
+    ) -> (String, std::thread::JoinHandle<Vec<(String, String)>>) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let handle = std::thread::spawn(move || {
             let mut requests = Vec::new();
-            for status in statuses {
+            for (status, response_body) in responses {
                 let (mut stream, _) = listener.accept().unwrap();
-                let (request_line, body) = read_http_request(&mut stream);
-                requests.push((request_line, body));
-                write_http_response(&mut stream, status);
+                let (request_line, request_body) = read_http_request(&mut stream);
+                requests.push((request_line, request_body));
+                write_http_response(&mut stream, status, &response_body);
             }
             requests
         });
@@ -5513,13 +5865,15 @@ mod tests {
         )
     }
 
-    fn write_http_response(stream: &mut std::net::TcpStream, status: u16) {
+    fn write_http_response(stream: &mut std::net::TcpStream, status: u16, body: &str) {
         use std::io::Write;
 
         let status_text = if status == 200 { "OK" } else { "ERROR" };
         write!(
             stream,
-            "HTTP/1.1 {status} {status_text}\r\ncontent-type: application/json\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok"
+            "HTTP/1.1 {status} {status_text}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+            body.len(),
+            body
         )
         .unwrap();
     }

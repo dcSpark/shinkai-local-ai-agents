@@ -30,6 +30,7 @@ agent-storage = { path = "../agent-storage" }
 agent-tools = { path = "../agent-tools" }
 agent-tracing = { path = "../agent-tracing" }
 anyhow.workspace = true
+base64.workspace = true
 hmac = "0.12"
 reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 serde.workspace = true

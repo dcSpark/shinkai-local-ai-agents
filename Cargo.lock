@@ -181,6 +181,7 @@ dependencies = [
  "agent-tools",
  "agent-tracing",
  "anyhow",
+ "base64 0.22.1",
  "hmac",
  "reqwest",
  "serde",

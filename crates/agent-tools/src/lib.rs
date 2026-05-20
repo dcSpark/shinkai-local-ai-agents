@@ -4306,12 +4306,15 @@ fn register_allowed_external_agent_tools_impl(
 ) -> usize {
     let mut registered = 0;
     for package in packages {
-        if package.quarantined || package.adapter != AdapterKind::A2a {
+        if package.quarantined || !external_agent_adapter_supported(&package) {
             continue;
         }
         for capability in package.capabilities.iter().filter(|capability| {
             capability.kind == CapabilityKind::ExternalAgent && !capability.quarantined
         }) {
+            if !external_agent_capability_supported(&package, capability) {
+                continue;
+            }
             let Some(spec) = external_agent_spec_from_capability(capability) else {
                 continue;
             };
@@ -4332,6 +4335,29 @@ fn register_allowed_external_agent_tools_impl(
         }
     }
     registered
+}
+
+fn external_agent_adapter_supported(package: &NormalizedPackage) -> bool {
+    matches!(
+        package.adapter,
+        AdapterKind::A2a | AdapterKind::HermesPlugin | AdapterKind::HermesExternalAgent
+    )
+}
+
+fn external_agent_capability_supported(
+    package: &NormalizedPackage,
+    capability: &NormalizedCapability,
+) -> bool {
+    if package.adapter == AdapterKind::A2a {
+        return true;
+    }
+    capability.runtime.as_ref().is_some_and(|runtime| {
+        runtime
+            .transport
+            .to_ascii_lowercase()
+            .split(|ch: char| !ch.is_ascii_alphanumeric())
+            .any(|part| part == "a2a")
+    })
 }
 
 fn external_agent_spec_from_capability(
@@ -5502,6 +5528,52 @@ done
             1
         );
         assert!(granted.descriptor(&ToolId::from("a2a-review")).is_some());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn allowed_hermes_a2a_external_agents_register_external_agent_tools() {
+        let dir = temp_dir("hermes-a2a-register");
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("plugin.yaml");
+        std::fs::write(
+            &source,
+            r#"
+name: hermes-review-pack
+external_agents:
+  - name: remote_reviewer
+    endpoint: https://agents.example.test/a2a
+    transport: a2a
+    input_modes: [text/plain]
+    output_modes: [text/plain]
+    auth: [bearerAuth]
+"#,
+        )
+        .unwrap();
+        let mut package = agent_adapters::inspect_source(&source).unwrap();
+        package.quarantined = false;
+        for capability in &mut package.capabilities {
+            capability.quarantined = false;
+        }
+
+        let mut registry = ToolRegistry::new();
+        assert_eq!(
+            register_allowed_external_agent_tools(&mut registry, [package]),
+            1
+        );
+        let reviewer = registry
+            .descriptor(&ToolId::from("a2a-remote-reviewer"))
+            .unwrap();
+        assert!(reviewer.requires_approval);
+        assert!(reviewer.permissions.network);
+        assert!(reviewer.permissions.secrets);
+        assert!(
+            reviewer
+                .provenance
+                .as_deref()
+                .unwrap()
+                .contains("adapter_package=")
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 

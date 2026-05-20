@@ -1322,12 +1322,138 @@ fn hermes_capabilities(text: &str) -> Vec<NormalizedCapability> {
         CapabilityKind::Skill,
     ));
     capabilities.extend(hermes_hook_capabilities(text));
-    capabilities.extend(hermes_section_capabilities(
-        text,
-        &["external_agents", "subagents", "agents"],
-        CapabilityKind::ExternalAgent,
-    ));
+    capabilities.extend(hermes_external_agent_capabilities(text));
     capabilities
+}
+
+fn hermes_external_agent_capabilities(text: &str) -> Vec<NormalizedCapability> {
+    let mut capabilities = Vec::new();
+    let mut active = false;
+    let mut active_indent = 0usize;
+    let mut current: Option<NormalizedCapability> = None;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = line.chars().take_while(|ch| ch.is_whitespace()).count();
+        if active && indent <= active_indent && trimmed.ends_with(':') && !trimmed.starts_with('-')
+        {
+            if let Some(capability) = current.take() {
+                capabilities.push(capability);
+            }
+            active = false;
+        }
+        let key = trimmed.trim_end_matches(':');
+        if ["external_agents", "subagents", "agents"].contains(&key) && trimmed.ends_with(':') {
+            if let Some(capability) = current.take() {
+                capabilities.push(capability);
+            }
+            active = true;
+            active_indent = indent;
+            continue;
+        }
+        if !active {
+            continue;
+        }
+        if let Some(item) = trimmed.strip_prefix("- ") {
+            if let Some(capability) = current.take() {
+                capabilities.push(capability);
+            }
+            current = Some(
+                yaml_named_value(item)
+                    .or_else(|| (!item.contains(':')).then_some(yaml_clean_value(item)))
+                    .map(normalized_hermes_external_agent)
+                    .unwrap_or_else(|| normalized_hermes_external_agent("hermes-external-agent")),
+            );
+            if let Some((field, value)) = yaml_key_value(item)
+                && let Some(capability) = current.as_mut()
+            {
+                apply_hermes_external_agent_field(capability, field, value);
+            }
+            continue;
+        }
+        let Some((field, value)) = yaml_key_value(trimmed) else {
+            continue;
+        };
+        if matches!(field, "name" | "id" | "agent" | "agent_id") {
+            if let Some(capability) = current.take() {
+                capabilities.push(capability);
+            }
+            current = Some(normalized_hermes_external_agent(value));
+            continue;
+        }
+        let Some(capability) = current.as_mut() else {
+            continue;
+        };
+        apply_hermes_external_agent_field(capability, field, value);
+    }
+    if let Some(capability) = current {
+        capabilities.push(capability);
+    }
+    capabilities
+}
+
+fn normalized_hermes_external_agent(name: &str) -> NormalizedCapability {
+    let mut capability = normalized_hermes_capability(name, CapabilityKind::ExternalAgent);
+    capability.description = "Hermes external agent declared by plugin manifest.".into();
+    capability
+}
+
+fn apply_hermes_external_agent_field(
+    capability: &mut NormalizedCapability,
+    field: &str,
+    value: &str,
+) {
+    match field {
+        "endpoint" | "url" | "a2a_url" => {
+            let runtime = capability
+                .runtime
+                .get_or_insert_with(default_hermes_external_agent_runtime);
+            runtime.endpoint = Some(value.to_string());
+            if field == "a2a_url" && runtime.transport == "unknown" {
+                runtime.transport = "a2a".into();
+            }
+        }
+        "transport" | "protocol" | "protocol_binding" | "protocolBinding" => {
+            let runtime = capability
+                .runtime
+                .get_or_insert_with(default_hermes_external_agent_runtime);
+            runtime.transport = value.to_string();
+        }
+        "input_modes" | "inputModes" => {
+            let runtime = capability
+                .runtime
+                .get_or_insert_with(default_hermes_external_agent_runtime);
+            runtime.input_modes = yaml_list_values(value);
+        }
+        "output_modes" | "outputModes" => {
+            let runtime = capability
+                .runtime
+                .get_or_insert_with(default_hermes_external_agent_runtime);
+            runtime.output_modes = yaml_list_values(value);
+        }
+        "auth" | "auth_schemes" | "authSchemes" | "security" => {
+            let runtime = capability
+                .runtime
+                .get_or_insert_with(default_hermes_external_agent_runtime);
+            runtime.auth_schemes = yaml_list_values(value);
+        }
+        _ => {}
+    }
+}
+
+fn default_hermes_external_agent_runtime() -> NormalizedRuntime {
+    NormalizedRuntime {
+        transport: "unknown".into(),
+        endpoint: None,
+        command: None,
+        args: Vec::new(),
+        env_keys: Vec::new(),
+        input_modes: Vec::new(),
+        output_modes: Vec::new(),
+        auth_schemes: Vec::new(),
+    }
 }
 
 fn hermes_section_capabilities(
@@ -2013,6 +2139,11 @@ hooks:
   - name: on_run_event
 external_agents:
   - name: remote_reviewer
+    endpoint: https://agents.example.test/a2a
+    transport: a2a
+    input_modes: [text/plain]
+    output_modes: [text/plain]
+    auth: [bearerAuth]
 env:
   API_KEY: required
 description: trailing metadata is not an env secret
@@ -2058,9 +2189,20 @@ description: trailing metadata is not an env secret
                 .iter()
                 .any(|trigger| trigger == "run_started")
         );
-        assert!(package.capabilities.iter().any(|cap| {
-            cap.kind == CapabilityKind::ExternalAgent && cap.id == "remote-reviewer"
-        }));
+        let external_agent = package
+            .capabilities
+            .iter()
+            .find(|cap| cap.kind == CapabilityKind::ExternalAgent && cap.id == "remote-reviewer")
+            .unwrap();
+        let runtime = external_agent.runtime.as_ref().unwrap();
+        assert_eq!(runtime.transport, "a2a");
+        assert_eq!(
+            runtime.endpoint.as_deref(),
+            Some("https://agents.example.test/a2a")
+        );
+        assert_eq!(runtime.input_modes, vec!["text/plain".to_string()]);
+        assert_eq!(runtime.output_modes, vec!["text/plain".to_string()]);
+        assert_eq!(runtime.auth_schemes, vec!["bearerAuth".to_string()]);
         let _ = std::fs::remove_dir_all(dir);
     }
 

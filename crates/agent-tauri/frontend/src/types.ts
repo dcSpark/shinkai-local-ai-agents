@@ -787,6 +787,7 @@ export type SkillDoc = {
   provenance?: string | null;
   digest: string;
   estimated_tokens: number;
+  findings?: AdapterFinding[];
   quarantined: boolean;
 };
 

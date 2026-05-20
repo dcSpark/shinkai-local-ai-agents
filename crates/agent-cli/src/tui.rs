@@ -5344,6 +5344,11 @@ fn skill_review_args<'a>(args: &'a str, action: &str) -> anyhow::Result<(&'a str
 }
 
 fn skill_summary(doc: &SkillDoc) -> serde_json::Value {
+    let high_risk_findings = doc
+        .findings
+        .iter()
+        .filter(|finding| finding.severity == agent_adapters::FindingSeverity::High)
+        .count();
     serde_json::json!({
         "id": doc.id,
         "name": doc.name,
@@ -5351,6 +5356,8 @@ fn skill_summary(doc: &SkillDoc) -> serde_json::Value {
         "categories": doc.categories,
         "quarantined": doc.quarantined,
         "estimated_tokens": doc.estimated_tokens,
+        "findings": doc.findings.len(),
+        "high_risk_findings": high_risk_findings,
         "digest": doc.digest,
         "provenance": doc.provenance,
     })

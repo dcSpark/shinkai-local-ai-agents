@@ -8,8 +8,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use agent_adapters::{
-    AdapterDoctorReport, AdapterRegistry, ClawHubProvider, NormalizedPackage, NormalizedRuntime,
-    inspect_source,
+    AdapterDoctorReport, AdapterRegistry, ClawHubProvider, FindingSeverity, NormalizedPackage,
+    NormalizedRuntime, inspect_source,
 };
 use agent_api_client::DaemonHttpClient;
 use agent_batch::{BatchItemState, BatchPlan};
@@ -3071,7 +3071,20 @@ pub async fn skill_list(json: bool) -> anyhow::Result<()> {
             } else {
                 "allowed"
             };
-            println!("{} {} {}", doc.id, state, doc.name);
+            let high_risk_findings = doc
+                .findings
+                .iter()
+                .filter(|finding| finding.severity == FindingSeverity::High)
+                .count();
+            let finding_summary = if doc.findings.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    " findings={} high_risk={high_risk_findings}",
+                    doc.findings.len()
+                )
+            };
+            println!("{} {} {}{}", doc.id, state, doc.name, finding_summary);
         }
     }
     Ok(())

@@ -6960,6 +6960,10 @@ export default function App() {
     return adapterPackage.findings.some((finding) => finding.severity === "high");
   }
 
+  function hasHighRiskSkillFindings(skill: SkillDoc) {
+    return (skill.findings ?? []).some((finding) => finding.severity === "high");
+  }
+
   function enabledPermissions(adapterPackage: AdapterPackage) {
     return Object.entries(adapterPackage.permissions)
       .filter(([, enabled]) => enabled)
@@ -9714,68 +9718,98 @@ export default function App() {
               ) : null}
               {skillDocs.length ? (
                 <div className="ingestion-review">
-                  {skillDocs.map((skill) => (
-                    <div className="ingestion-card" key={skill.id}>
-                      <div className="ingestion-card-head">
-                        <strong>{skill.name}</strong>
-                        <span>
-                          {skill.quarantined ? "quarantined" : "allowed"}
-                        </span>
+                  {skillDocs.map((skill) => {
+                    const findings = skill.findings ?? [];
+                    const highRisk = hasHighRiskSkillFindings(skill);
+                    return (
+                      <div
+                        className={`ingestion-card ${highRisk ? "high-risk" : ""}`}
+                        key={skill.id}
+                      >
+                        <div className="ingestion-card-head">
+                          <strong>{skill.name}</strong>
+                          <span>
+                            {skill.quarantined ? "quarantined" : "allowed"}
+                          </span>
+                        </div>
+                        <span>{skill.id}</span>
+                        {skill.source_path ? (
+                          <span title={skill.source_path}>
+                            source {fileName(skill.source_path)}
+                          </span>
+                        ) : (
+                          <span className="finding none">no source path</span>
+                        )}
+                        {skill.digest ? (
+                          <span title={skill.digest}>
+                            digest {skill.digest.slice(0, 16)}
+                          </span>
+                        ) : (
+                          <span className="finding warning">
+                            legacy skill without digest pin
+                          </span>
+                        )}
+                        <span>~{skill.estimated_tokens} tokens</span>
+                        {highRisk ? (
+                          <span className="finding high">
+                            activation blocked by high-risk prompt-injection findings
+                          </span>
+                        ) : null}
+                        {findings.length ? (
+                          <div className="finding-list">
+                            {findings.map((finding) => (
+                              <span
+                                className={`finding ${finding.severity}`}
+                                key={`${skill.id}:${finding.severity}:${finding.message}`}
+                              >
+                                {finding.severity}: {finding.message}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <span className="finding none">no scan findings</span>
+                        )}
+                        <p>{skill.description}</p>
+                        <p>{previewText(skill.body)}</p>
+                        <div className="mini-actions">
+                          <button
+                            type="button"
+                            title="Move this skill id into the Id field."
+                            onClick={() => setOpsId(skill.id)}
+                            disabled={running}
+                          >
+                            Set Id
+                          </button>
+                          <button
+                            type="button"
+                            title={
+                              highRisk
+                                ? "High-risk prompt-injection findings block activation."
+                                : "Allow this skill if its source digest and prompt-injection checks pass."
+                            }
+                            onClick={() => {
+                              setOpsId(skill.id);
+                              void setSkillQuarantine(true, skill.id);
+                            }}
+                            disabled={running || !skill.quarantined || highRisk}
+                          >
+                            Allow
+                          </button>
+                          <button
+                            type="button"
+                            title="Keep this skill out of context."
+                            onClick={() => {
+                              setOpsId(skill.id);
+                              void setSkillQuarantine(false, skill.id);
+                            }}
+                            disabled={running || skill.quarantined}
+                          >
+                            Quarantine
+                          </button>
+                        </div>
                       </div>
-                      <span>{skill.id}</span>
-                      {skill.source_path ? (
-                        <span title={skill.source_path}>
-                          source {fileName(skill.source_path)}
-                        </span>
-                      ) : (
-                        <span className="finding none">no source path</span>
-                      )}
-                      {skill.digest ? (
-                        <span title={skill.digest}>
-                          digest {skill.digest.slice(0, 16)}
-                        </span>
-                      ) : (
-                        <span className="finding warning">
-                          legacy skill without digest pin
-                        </span>
-                      )}
-                      <span>~{skill.estimated_tokens} tokens</span>
-                      <p>{skill.description}</p>
-                      <p>{previewText(skill.body)}</p>
-                      <div className="mini-actions">
-                        <button
-                          type="button"
-                          title="Move this skill id into the Id field."
-                          onClick={() => setOpsId(skill.id)}
-                          disabled={running}
-                        >
-                          Set Id
-                        </button>
-                        <button
-                          type="button"
-                          title="Allow this skill if its source digest and prompt-injection checks pass."
-                          onClick={() => {
-                            setOpsId(skill.id);
-                            void setSkillQuarantine(true, skill.id);
-                          }}
-                          disabled={running || !skill.quarantined}
-                        >
-                          Allow
-                        </button>
-                        <button
-                          type="button"
-                          title="Keep this skill out of context."
-                          onClick={() => {
-                            setOpsId(skill.id);
-                            void setSkillQuarantine(false, skill.id);
-                          }}
-                          disabled={running || skill.quarantined}
-                        >
-                          Quarantine
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : null}
             </div>

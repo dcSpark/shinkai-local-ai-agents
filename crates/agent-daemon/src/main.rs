@@ -212,22 +212,22 @@ async fn route(
         ("POST", "/bridges/telegram/webhook") => {
             { daemon_telegram_bridge(&request.body, &request.headers) }
                 .await
-                .map(|value| (200, value))
+                .map(|value| (bridge_response_status(&value), value))
         }
         ("POST", "/bridges/slack/slash") => daemon_slack_bridge(&request.body, &request.headers)
             .await
-            .map(|value| (200, value)),
+            .map(|value| (bridge_response_status(&value), value)),
         ("POST", "/bridges/teams/activity") => daemon_teams_bridge(&request.body, &request.headers)
             .await
-            .map(|value| (200, value)),
+            .map(|value| (bridge_response_status(&value), value)),
         ("POST", "/bridges/whatsapp/webhook") => {
             daemon_whatsapp_bridge(&request.body, &request.headers)
                 .await
-                .map(|value| (200, value))
+                .map(|value| (bridge_response_status(&value), value))
         }
         ("POST", "/bridges/webhook") => daemon_webhook_bridge(&request.body, &request.headers)
             .await
-            .map(|value| (webhook_bridge_status(&value), value)),
+            .map(|value| (bridge_response_status(&value), value)),
         ("GET", "/bridges/deliveries") => daemon_bridge_delivery_list().map(|value| (200, value)),
         ("POST", "/bridges/deliveries/retry-all") => daemon_bridge_delivery_retry_all()
             .await
@@ -2116,6 +2116,11 @@ async fn daemon_telegram_bridge(
     headers: &HashMap<String, String>,
 ) -> anyhow::Result<serde_json::Value> {
     verify_telegram_bridge(headers)?;
+    let payment = match enforce_bridge_x402("telegram", headers).await? {
+        BridgeX402Decision::Open => None,
+        BridgeX402Decision::Challenge(challenge) => return Ok(challenge),
+        BridgeX402Decision::Paid(payment) => Some(payment),
+    };
     let update: TelegramUpdate = serde_json::from_str(body)?;
     let message = update
         .message
@@ -2135,7 +2140,7 @@ async fn daemon_telegram_bridge(
         "reply_to_message_id": message.message_id
     });
     let delivery = maybe_deliver_telegram_reply(&reply).await;
-    Ok(serde_json::json!({
+    let mut output = serde_json::json!({
         "bridge": "telegram",
         "update_id": update.update_id,
         "chat_id": message.chat.id,
@@ -2145,7 +2150,11 @@ async fn daemon_telegram_bridge(
         "text": reply["text"],
         "telegram_response": reply,
         "delivery": delivery
-    }))
+    });
+    if let Some(payment) = payment {
+        attach_bridge_x402_payment(&mut output, payment);
+    }
+    Ok(output)
 }
 
 async fn daemon_slack_bridge(
@@ -2153,6 +2162,11 @@ async fn daemon_slack_bridge(
     headers: &HashMap<String, String>,
 ) -> anyhow::Result<serde_json::Value> {
     verify_slack_bridge(body, headers)?;
+    let payment = match enforce_bridge_x402("slack", headers).await? {
+        BridgeX402Decision::Open => None,
+        BridgeX402Decision::Challenge(challenge) => return Ok(challenge),
+        BridgeX402Decision::Paid(payment) => Some(payment),
+    };
     let form = parse_form_body(body);
     let text = form
         .get("text")
@@ -2174,7 +2188,7 @@ async fn daemon_slack_bridge(
             "reason": "missing response_url"
         }),
     };
-    Ok(serde_json::json!({
+    let mut output = serde_json::json!({
         "response_type": response["response_type"],
         "text": response["text"],
         "bridge": {
@@ -2186,7 +2200,11 @@ async fn daemon_slack_bridge(
             "run_id": result.run_id.0
         },
         "delivery": delivery
-    }))
+    });
+    if let Some(payment) = payment {
+        attach_bridge_x402_payment(&mut output, payment);
+    }
+    Ok(output)
 }
 
 async fn daemon_teams_bridge(
@@ -2194,6 +2212,11 @@ async fn daemon_teams_bridge(
     headers: &HashMap<String, String>,
 ) -> anyhow::Result<serde_json::Value> {
     verify_token_bridge("teams", headers, "teams")?;
+    let payment = match enforce_bridge_x402("teams", headers).await? {
+        BridgeX402Decision::Open => None,
+        BridgeX402Decision::Challenge(challenge) => return Ok(challenge),
+        BridgeX402Decision::Paid(payment) => Some(payment),
+    };
     let activity: TeamsActivity = serde_json::from_str(body)?;
     if activity.activity_type.as_deref() != Some("message") {
         anyhow::bail!("teams activity was not a message");
@@ -2226,7 +2249,7 @@ async fn daemon_teams_bridge(
             "reason": "missing response_url"
         }),
     };
-    Ok(serde_json::json!({
+    let mut output = serde_json::json!({
         "text": response["text"],
         "bridge": {
             "platform": "teams",
@@ -2238,7 +2261,11 @@ async fn daemon_teams_bridge(
         },
         "teams_response": response,
         "delivery": delivery
-    }))
+    });
+    if let Some(payment) = payment {
+        attach_bridge_x402_payment(&mut output, payment);
+    }
+    Ok(output)
 }
 
 async fn daemon_whatsapp_bridge(
@@ -2246,6 +2273,11 @@ async fn daemon_whatsapp_bridge(
     headers: &HashMap<String, String>,
 ) -> anyhow::Result<serde_json::Value> {
     verify_token_bridge("whatsapp", headers, "whatsapp")?;
+    let payment = match enforce_bridge_x402("whatsapp", headers).await? {
+        BridgeX402Decision::Open => None,
+        BridgeX402Decision::Challenge(challenge) => return Ok(challenge),
+        BridgeX402Decision::Paid(payment) => Some(payment),
+    };
     let webhook: WhatsAppWebhook = serde_json::from_str(body)?;
     let message = first_whatsapp_text_message(&webhook)
         .ok_or_else(|| anyhow::anyhow!("whatsapp webhook did not include a text message"))?;
@@ -2268,7 +2300,7 @@ async fn daemon_whatsapp_bridge(
             "reason": "missing response_url"
         }),
     };
-    Ok(serde_json::json!({
+    let mut output = serde_json::json!({
         "text": response["text"]["body"],
         "bridge": {
             "platform": "whatsapp",
@@ -2279,7 +2311,11 @@ async fn daemon_whatsapp_bridge(
         },
         "whatsapp_response": response,
         "delivery": delivery
-    }))
+    });
+    if let Some(payment) = payment {
+        attach_bridge_x402_payment(&mut output, payment);
+    }
+    Ok(output)
 }
 
 async fn daemon_webhook_bridge(
@@ -2287,10 +2323,10 @@ async fn daemon_webhook_bridge(
     headers: &HashMap<String, String>,
 ) -> anyhow::Result<serde_json::Value> {
     verify_webhook_bridge(headers)?;
-    let payment = match enforce_webhook_x402(headers).await? {
-        WebhookX402Decision::Open => None,
-        WebhookX402Decision::Challenge(challenge) => return Ok(challenge),
-        WebhookX402Decision::Paid(payment) => Some(payment),
+    let payment = match enforce_bridge_x402("webhook", headers).await? {
+        BridgeX402Decision::Open => None,
+        BridgeX402Decision::Challenge(challenge) => return Ok(challenge),
+        BridgeX402Decision::Paid(payment) => Some(payment),
     };
     let input: WebhookBridgeRequest = serde_json::from_str(body)?;
     let text = input.text.trim().to_string();
@@ -2324,15 +2360,12 @@ async fn daemon_webhook_bridge(
         "delivery": delivery
     });
     if let Some(payment) = payment {
-        output["payment"] = payment.body;
-        output["headers"] = serde_json::json!({
-            "PAYMENT-RESPONSE": payment.payment_response
-        });
+        attach_bridge_x402_payment(&mut output, payment);
     }
     Ok(output)
 }
 
-fn webhook_bridge_status(value: &serde_json::Value) -> u16 {
+fn bridge_response_status(value: &serde_json::Value) -> u16 {
     if value.get("status").and_then(serde_json::Value::as_str) == Some("payment_required") {
         402
     } else {
@@ -2340,34 +2373,44 @@ fn webhook_bridge_status(value: &serde_json::Value) -> u16 {
     }
 }
 
-enum WebhookX402Decision {
+enum BridgeX402Decision {
     Open,
     Challenge(serde_json::Value),
-    Paid(WebhookX402Payment),
+    Paid(BridgeX402Payment),
 }
 
-struct WebhookX402Payment {
+struct BridgeX402Payment {
     payment_response: String,
     body: serde_json::Value,
 }
 
-async fn enforce_webhook_x402(
+fn attach_bridge_x402_payment(output: &mut serde_json::Value, payment: BridgeX402Payment) {
+    output["payment"] = payment.body;
+    output["headers"] = serde_json::json!({
+        "PAYMENT-RESPONSE": payment.payment_response
+    });
+}
+
+async fn enforce_bridge_x402(
+    platform: &str,
     headers: &HashMap<String, String>,
-) -> anyhow::Result<WebhookX402Decision> {
-    let Some(payment_required) = webhook_x402_payment_required()? else {
-        return Ok(WebhookX402Decision::Open);
+) -> anyhow::Result<BridgeX402Decision> {
+    let Some(payment_required) = bridge_x402_payment_required(platform)? else {
+        return Ok(BridgeX402Decision::Open);
     };
-    let challenge = webhook_x402_challenge(&payment_required, None)?;
+    let challenge = bridge_x402_challenge(&payment_required, None)?;
     let Some(payment_signature) = header_value(headers, "payment-signature") else {
-        return Ok(WebhookX402Decision::Challenge(challenge));
+        return Ok(BridgeX402Decision::Challenge(challenge));
     };
-    let Some(facilitator_url) = bridge_env("webhook", "X402_FACILITATOR_URL")
+    let Some(facilitator_url) = bridge_env(platform, "X402_FACILITATOR_URL")
         .or_else(|| bridge_env("x402", "FACILITATOR_URL"))
     else {
-        anyhow::bail!("webhook x402 payment was provided but no facilitator URL is configured");
+        anyhow::bail!(
+            "{platform} bridge x402 payment was provided but no facilitator URL is configured"
+        );
     };
     let payment_payload = decode_x402_header(payment_signature)?;
-    let payment_requirements = selected_x402_payment_requirements(&payment_required)?;
+    let payment_requirements = selected_x402_payment_requirements(platform, &payment_required)?;
     let x402_version = payment_required
         .get("x402Version")
         .and_then(serde_json::Value::as_u64)
@@ -2379,7 +2422,7 @@ async fn enforce_webhook_x402(
     });
     let client = reqwest::Client::builder()
         .timeout(Duration::from_millis(
-            bridge_env("webhook", "X402_TIMEOUT_MS")
+            bridge_env(platform, "X402_TIMEOUT_MS")
                 .or_else(|| bridge_env("x402", "TIMEOUT_MS"))
                 .and_then(|value| value.parse().ok())
                 .unwrap_or(30_000),
@@ -2387,24 +2430,24 @@ async fn enforce_webhook_x402(
         .build()?;
     let verify = post_x402_facilitator(&client, &facilitator_url, "verify", &request_body).await?;
     if !verify.is_valid() {
-        let challenge = webhook_x402_challenge(
+        let challenge = bridge_x402_challenge(
             &payment_required,
             Some(serde_json::json!({
                 "status": "verification_failed",
                 "verify": verify.to_json()
             })),
         )?;
-        return Ok(WebhookX402Decision::Challenge(challenge));
+        return Ok(BridgeX402Decision::Challenge(challenge));
     }
     let settle = post_x402_facilitator(&client, &facilitator_url, "settle", &request_body).await?;
     if !settle.is_http_success() {
         anyhow::bail!(
-            "webhook x402 settlement failed with status {}",
+            "{platform} bridge x402 settlement failed with status {}",
             settle.status_code
         );
     }
     let payment_response = encode_x402_header(&settle.body)?;
-    Ok(WebhookX402Decision::Paid(WebhookX402Payment {
+    Ok(BridgeX402Decision::Paid(BridgeX402Payment {
         payment_response,
         body: serde_json::json!({
             "status": "settled",
@@ -2414,8 +2457,8 @@ async fn enforce_webhook_x402(
     }))
 }
 
-fn webhook_x402_payment_required() -> anyhow::Result<Option<serde_json::Value>> {
-    let Some(accepts_text) = bridge_env("webhook", "X402_ACCEPTS") else {
+fn bridge_x402_payment_required(platform: &str) -> anyhow::Result<Option<serde_json::Value>> {
+    let Some(accepts_text) = bridge_env(platform, "X402_ACCEPTS") else {
         return Ok(None);
     };
     let value: serde_json::Value = serde_json::from_str(&accepts_text)?;
@@ -2430,45 +2473,48 @@ fn webhook_x402_payment_required() -> anyhow::Result<Option<serde_json::Value>> 
         .as_array()
         .filter(|items| !items.is_empty())
         .ok_or_else(|| {
-            anyhow::anyhow!("AGENT_WEBHOOK_X402_ACCEPTS must be a non-empty JSON array or object")
+            anyhow::anyhow!(
+                "{platform} bridge X402_ACCEPTS must be a non-empty JSON array or object"
+            )
         })?;
     if accepts.iter().any(|value| !value.is_object()) {
-        anyhow::bail!("AGENT_WEBHOOK_X402_ACCEPTS must contain only objects");
+        anyhow::bail!("{platform} bridge X402_ACCEPTS must contain only objects");
     }
-    let x402_version = bridge_env("webhook", "X402_VERSION")
+    let x402_version = bridge_env(platform, "X402_VERSION")
         .and_then(|value| value.parse::<u64>().ok())
         .unwrap_or(1);
     let mut payment_required = serde_json::json!({
         "x402Version": x402_version,
         "accepts": accepts
     });
-    if let Some(error) = bridge_env("webhook", "X402_ERROR") {
+    if let Some(error) = bridge_env(platform, "X402_ERROR") {
         payment_required["error"] = serde_json::Value::String(error);
     }
     Ok(Some(payment_required))
 }
 
 fn selected_x402_payment_requirements(
+    platform: &str,
     payment_required: &serde_json::Value,
 ) -> anyhow::Result<serde_json::Value> {
     let accepts = payment_required
         .get("accepts")
         .and_then(serde_json::Value::as_array)
         .filter(|items| !items.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("webhook x402 payment_required.accepts is empty"))?;
-    let index = bridge_env("webhook", "X402_ACCEPT_INDEX")
+        .ok_or_else(|| anyhow::anyhow!("{platform} x402 payment_required.accepts is empty"))?;
+    let index = bridge_env(platform, "X402_ACCEPT_INDEX")
         .and_then(|value| value.parse::<usize>().ok())
         .unwrap_or(0);
     let Some(requirements) = accepts.get(index) else {
-        anyhow::bail!("webhook x402 accept index {index} is out of range");
+        anyhow::bail!("{platform} x402 accept index {index} is out of range");
     };
     if !requirements.is_object() {
-        anyhow::bail!("webhook x402 selected payment requirements must be an object");
+        anyhow::bail!("{platform} x402 selected payment requirements must be an object");
     }
     Ok(requirements.clone())
 }
 
-fn webhook_x402_challenge(
+fn bridge_x402_challenge(
     payment_required: &serde_json::Value,
     payment: Option<serde_json::Value>,
 ) -> anyhow::Result<serde_json::Value> {
@@ -6698,6 +6744,100 @@ mod tests {
         restore_env("AGENT_WEBHOOK_X402_ACCEPTS", previous_accepts);
         restore_env("AGENT_WEBHOOK_X402_FACILITATOR_URL", previous_facilitator);
         restore_env("AGENT_WEBHOOK_SECRET_TOKEN", previous_secret);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn messaging_bridge_x402_applies_to_non_webhook_platforms() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("slack-x402");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        let previous_accepts = std::env::var_os("AGENT_SLACK_X402_ACCEPTS");
+        let previous_facilitator = std::env::var_os("AGENT_SLACK_X402_FACILITATOR_URL");
+        let previous_secret = std::env::var_os("AGENT_SLACK_SIGNING_SECRET");
+        let accepts = serde_json::json!([{
+            "scheme": "exact",
+            "network": "base-sepolia",
+            "maxAmountRequired": "7",
+            "payTo": "0x0000000000000000000000000000000000000003",
+            "asset": "0x0000000000000000000000000000000000000004",
+            "resource": "http://localhost/bridges/slack/slash"
+        }]);
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+            std::env::set_var("AGENT_SLACK_X402_ACCEPTS", accepts.to_string());
+            std::env::remove_var("AGENT_SLACK_X402_FACILITATOR_URL");
+            std::env::remove_var("AGENT_SLACK_SIGNING_SECRET");
+        }
+
+        let slack_body = "team_id=T1&channel_id=C1&user_id=U1&command=%2Fagent&text=paid+slack";
+        let (status, challenge) = route(
+            HttpRequest {
+                method: "POST".into(),
+                path: "/bridges/slack/slash".into(),
+                headers: HashMap::new(),
+                body: slack_body.into(),
+            },
+            Arc::new(DaemonState::default()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(status, 402);
+        assert_eq!(challenge["status"], "payment_required");
+        let payment_required_header = challenge["headers"]["PAYMENT-REQUIRED"].as_str().unwrap();
+        let decoded_challenge = decode_x402_header(payment_required_header).unwrap();
+        assert_eq!(decoded_challenge["accepts"], accepts);
+        assert!(http_json(status, challenge).contains("PAYMENT-REQUIRED: "));
+
+        let settlement = serde_json::json!({
+            "success": true,
+            "transaction": "0xslackpaid"
+        });
+        let (facilitator_url, facilitator) = spawn_json_body_server(vec![
+            (200, r#"{"isValid":true}"#.into()),
+            (200, settlement.to_string()),
+        ]);
+        unsafe {
+            std::env::set_var("AGENT_SLACK_X402_FACILITATOR_URL", &facilitator_url);
+        }
+        let payment_signature = encode_x402_header(&serde_json::json!({
+            "x402Version": 1,
+            "scheme": "exact",
+            "network": "base-sepolia",
+            "payload": { "authorization": "signed-slack" }
+        }))
+        .unwrap();
+        let mut headers = HashMap::new();
+        headers.insert("payment-signature".into(), payment_signature);
+
+        let (status, paid) = route(
+            HttpRequest {
+                method: "POST".into(),
+                path: "/bridges/slack/slash".into(),
+                headers,
+                body: slack_body.into(),
+            },
+            Arc::new(DaemonState::default()),
+        )
+        .await
+        .unwrap();
+
+        let facilitator_requests = facilitator.join().unwrap();
+        assert_eq!(status, 200);
+        assert_eq!(paid["text"], "[fake] paid slack");
+        assert_eq!(paid["bridge"]["platform"], "slack");
+        assert_eq!(paid["payment"]["status"], "settled");
+        assert_eq!(paid["payment"]["verify"]["body"]["isValid"], true);
+        assert_eq!(paid["payment"]["settle"]["body"], settlement);
+        let payment_response = paid["headers"]["PAYMENT-RESPONSE"].as_str().unwrap();
+        assert_eq!(decode_x402_header(payment_response).unwrap(), settlement);
+        assert!(facilitator_requests[0].0.starts_with("POST /verify "));
+        assert!(facilitator_requests[1].0.starts_with("POST /settle "));
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        restore_env("AGENT_SLACK_X402_ACCEPTS", previous_accepts);
+        restore_env("AGENT_SLACK_X402_FACILITATOR_URL", previous_facilitator);
+        restore_env("AGENT_SLACK_SIGNING_SECRET", previous_secret);
         let _ = std::fs::remove_dir_all(dir);
     }
 

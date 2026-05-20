@@ -105,6 +105,18 @@ Use a non-default daemon URL:
 cargo run -p agent-cli -- remote --url http://127.0.0.1:7879 health
 ```
 
+Paid bridge endpoints can be protected with x402 by setting per-platform
+requirements, for example:
+
+```bash
+export AGENT_SLACK_X402_ACCEPTS='[{"scheme":"exact","network":"base-sepolia","maxAmountRequired":"5","payTo":"0x...","asset":"0x...","resource":"http://localhost:7878/bridges/slack/slash"}]'
+export AGENT_SLACK_X402_FACILITATOR_URL=http://127.0.0.1:8787
+```
+
+The same `X402_*` suffixes work for `TELEGRAM`, `TEAMS`, `WHATSAPP`, and
+`WEBHOOK`, with `AGENT_BRIDGE_X402_ACCEPTS` and `AGENT_X402_FACILITATOR_URL`
+available as shared fallbacks.
+
 ## Verification
 
 Core test suite:

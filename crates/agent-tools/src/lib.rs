@@ -3814,6 +3814,7 @@ pub struct ExternalAgentSpec {
     pub id: ToolId,
     pub name: String,
     pub description: String,
+    pub transport: String,
     pub endpoint: String,
     pub input_modes: Vec<String>,
     pub output_modes: Vec<String>,
@@ -3832,6 +3833,10 @@ impl ExternalAgentTool {
     pub fn descriptor(spec: &ExternalAgentSpec) -> ToolDescriptor {
         let mut description = spec.description.clone();
         let mut hints = Vec::new();
+        let a2a = external_agent_transport_is_a2a(&spec.transport);
+        if !spec.transport.trim().is_empty() {
+            hints.push(format!("transport: {}", spec.transport));
+        }
         if !spec.input_modes.is_empty() {
             hints.push(format!("input modes: {}", spec.input_modes.join(",")));
         }
@@ -3842,12 +3847,14 @@ impl ExternalAgentTool {
             description.push('\n');
             description.push_str(&hints.join("; "));
         }
-        ToolDescriptor {
-            id: spec.id.clone(),
-            name: spec.name.clone(),
-            description,
-            categories: vec!["external-agent".into(), "a2a".into()],
-            input_schema: json!({
+        let mut categories = vec!["external-agent".into()];
+        if a2a {
+            categories.push("a2a".into());
+        } else {
+            categories.push("http-json".into());
+        }
+        let input_schema = if a2a {
+            json!({
                 "type": "object",
                 "required": ["prompt"],
                 "properties": {
@@ -3888,10 +3895,52 @@ impl ExternalAgentTool {
                     }
                 },
                 "additionalProperties": false
-            }),
-            output_interpretation_guidance: Some(
-                "Preserve the external agent JSON-RPC result, task/message ids, status, and returned artifacts exactly when interpreting A2A results.".into(),
-            ),
+            })
+        } else {
+            json!({
+                "type": "object",
+                "required": ["prompt"],
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Task prompt to send to the external agent."
+                    },
+                    "body": {
+                        "type": "object",
+                        "description": "Optional JSON request body override. The prompt is inserted when the body omits it.",
+                        "additionalProperties": true
+                    },
+                    "metadata": {
+                        "type": "object",
+                        "description": "Optional metadata object forwarded in the JSON body.",
+                        "additionalProperties": true
+                    },
+                    "headers": {
+                        "type": "object",
+                        "description": "Optional per-call HTTP headers such as Authorization. Secret-shaped keys are redacted in traces.",
+                        "additionalProperties": { "type": "string" }
+                    },
+                    "timeout_ms": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Optional request timeout in milliseconds."
+                    }
+                },
+                "additionalProperties": false
+            })
+        };
+        let output_guidance = if a2a {
+            "Preserve the external agent JSON-RPC result, task/message ids, status, and returned artifacts exactly when interpreting A2A results."
+        } else {
+            "Preserve the external agent HTTP JSON response exactly, including ids, status fields, artifacts, citations, and provider metadata."
+        };
+        ToolDescriptor {
+            id: spec.id.clone(),
+            name: spec.name.clone(),
+            description,
+            categories,
+            input_schema,
+            output_interpretation_guidance: Some(output_guidance.into()),
             permissions: ToolPermissions {
                 network: true,
                 secrets: !spec.auth_schemes.is_empty(),
@@ -3906,7 +3955,12 @@ impl ExternalAgentTool {
 #[async_trait]
 impl Tool for ExternalAgentTool {
     async fn execute(&self, input: Value) -> Result<Value, ToolError> {
-        let (body, headers, timeout_ms) = external_agent_call_input(&input)?;
+        let a2a = external_agent_transport_is_a2a(&self.spec.transport);
+        let (body, headers, timeout_ms) = if a2a {
+            external_agent_a2a_call_input(&input)?
+        } else {
+            external_agent_http_json_call_input(&input)?
+        };
         let client = reqwest::Client::builder()
             .timeout(Duration::from_millis(timeout_ms))
             .build()
@@ -3915,28 +3969,51 @@ impl Tool for ExternalAgentTool {
         for (key, value) in headers {
             request = request.header(key, value);
         }
-        let response = request
-            .send()
-            .await
-            .map_err(|e| ToolError::Execution(format!("A2A request failed: {e}")))?;
+        let response = request.send().await.map_err(|e| {
+            ToolError::Execution(format!(
+                "{} request failed: {e}",
+                external_agent_transport_label(a2a)
+            ))
+        })?;
         let status = response.status();
-        let value = response
-            .json::<Value>()
-            .await
-            .map_err(|e| ToolError::Execution(format!("invalid A2A JSON response: {e}")))?;
+        let value = response.json::<Value>().await.map_err(|e| {
+            ToolError::Execution(format!(
+                "invalid {} JSON response: {e}",
+                external_agent_transport_label(a2a)
+            ))
+        })?;
         if !status.is_success() {
             return Err(ToolError::Execution(format!(
-                "A2A endpoint returned {status}: {value}"
+                "{} endpoint returned {status}: {value}",
+                external_agent_transport_label(a2a)
             )));
         }
         if let Some(error) = value.get("error") {
-            return Err(ToolError::Execution(format!("A2A error: {error}")));
+            return Err(ToolError::Execution(format!(
+                "{} error: {error}",
+                external_agent_transport_label(a2a)
+            )));
         }
-        Ok(value.get("result").cloned().unwrap_or(value))
+        if a2a {
+            Ok(value.get("result").cloned().unwrap_or(value))
+        } else {
+            Ok(value)
+        }
     }
 }
 
-fn external_agent_call_input(
+fn external_agent_transport_is_a2a(transport: &str) -> bool {
+    transport
+        .to_ascii_lowercase()
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .any(|part| part == "a2a")
+}
+
+fn external_agent_transport_label(a2a: bool) -> &'static str {
+    if a2a { "A2A" } else { "external agent" }
+}
+
+fn external_agent_a2a_call_input(
     input: &Value,
 ) -> Result<(Value, Vec<(String, String)>, u64), ToolError> {
     let prompt = input
@@ -3980,6 +4057,30 @@ fn external_agent_call_input(
         "method": method,
         "params": params
     });
+    let headers = string_map(input, "headers")?;
+    let timeout_ms = input
+        .get("timeout_ms")
+        .and_then(Value::as_u64)
+        .unwrap_or(30_000);
+    Ok((body, headers, timeout_ms))
+}
+
+fn external_agent_http_json_call_input(
+    input: &Value,
+) -> Result<(Value, Vec<(String, String)>, u64), ToolError> {
+    let prompt = input
+        .get("prompt")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|prompt| !prompt.is_empty())
+        .ok_or_else(|| ToolError::InvalidInput("missing string field `prompt`".into()))?;
+    let mut body = optional_object(input, "body")?.unwrap_or_else(|| json!({}));
+    if body.get("prompt").is_none() {
+        body["prompt"] = json!(prompt);
+    }
+    if let Some(metadata) = optional_object(input, "metadata")? {
+        body["metadata"] = metadata;
+    }
     let headers = string_map(input, "headers")?;
     let timeout_ms = input
         .get("timeout_ms")
@@ -4315,7 +4416,7 @@ fn register_allowed_external_agent_tools_impl(
             if !external_agent_capability_supported(&package, capability) {
                 continue;
             }
-            let Some(spec) = external_agent_spec_from_capability(capability) else {
+            let Some(spec) = external_agent_spec_from_capability(&package, capability) else {
                 continue;
             };
             if !include(&package, capability, &spec) {
@@ -4351,16 +4452,33 @@ fn external_agent_capability_supported(
     if package.adapter == AdapterKind::A2a {
         return true;
     }
-    capability.runtime.as_ref().is_some_and(|runtime| {
-        runtime
-            .transport
-            .to_ascii_lowercase()
+    capability
+        .runtime
+        .as_ref()
+        .is_some_and(|runtime| external_agent_runtime_supported(runtime))
+}
+
+fn external_agent_runtime_supported(runtime: &agent_adapters::NormalizedRuntime) -> bool {
+    let transport = runtime.transport.to_ascii_lowercase();
+    let has_http_endpoint = runtime.endpoint.as_deref().is_some_and(|endpoint| {
+        endpoint.starts_with("http://") || endpoint.starts_with("https://")
+    });
+    if external_agent_transport_is_a2a(&transport) {
+        return has_http_endpoint;
+    }
+    has_http_endpoint
+        && transport
             .split(|ch: char| !ch.is_ascii_alphanumeric())
-            .any(|part| part == "a2a")
-    })
+            .any(|part| {
+                matches!(
+                    part,
+                    "http" | "https" | "json" | "rest" | "webhook" | "unknown"
+                )
+            })
 }
 
 fn external_agent_spec_from_capability(
+    package: &NormalizedPackage,
     capability: &NormalizedCapability,
 ) -> Option<ExternalAgentSpec> {
     let runtime = capability.runtime.as_ref()?;
@@ -4368,10 +4486,21 @@ fn external_agent_spec_from_capability(
     if !(endpoint.starts_with("http://") || endpoint.starts_with("https://")) {
         return None;
     }
+    let a2a =
+        package.adapter == AdapterKind::A2a || external_agent_transport_is_a2a(&runtime.transport);
     Some(ExternalAgentSpec {
-        id: ToolId::from(format!("a2a-{}", slugify(&capability.id))),
+        id: ToolId::from(format!(
+            "{}-{}",
+            if a2a { "a2a" } else { "external-agent" },
+            slugify(&capability.id)
+        )),
         name: format!("External agent: {}", capability.name),
         description: capability.description.clone(),
+        transport: if a2a {
+            "a2a".into()
+        } else {
+            runtime.transport.clone()
+        },
         endpoint: endpoint.to_string(),
         input_modes: runtime.input_modes.clone(),
         output_modes: runtime.output_modes.clone(),
@@ -4416,7 +4545,11 @@ fn external_agent_resource_matches(
 }
 
 fn external_agent_category_matches(package: &NormalizedPackage, category: &str) -> bool {
-    category == "*" || category == "a2a" || category == "external-agent" || package.id == category
+    category == "*"
+        || category == "a2a"
+        || category == "http-json"
+        || category == "external-agent"
+        || package.id == category
 }
 
 fn mcp_specs_from_package(package: &NormalizedPackage) -> Result<Vec<McpServerSpec>, ToolError> {
@@ -5443,6 +5576,7 @@ done
             id: ToolId::from("a2a-reviewer"),
             name: "External agent: Reviewer".into(),
             description: "Remote review agent".into(),
+            transport: "a2a".into(),
             endpoint: format!("http://{addr}/a2a"),
             input_modes: vec!["text/plain".into()],
             output_modes: vec!["text/plain".into()],
@@ -5462,6 +5596,53 @@ done
 
         assert_eq!(output["taskId"], "task-1");
         assert_eq!(output["status"]["state"], "completed");
+        server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn http_json_external_agent_tool_posts_prompt_body() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request = read_http_request(&mut stream);
+            assert!(
+                request
+                    .to_ascii_lowercase()
+                    .contains("x-agent-token: test-token")
+            );
+            let body = request.split_once("\r\n\r\n").unwrap().1;
+            let body: Value = serde_json::from_str(body).unwrap();
+            assert_eq!(body["prompt"], "review this");
+            assert_eq!(body["metadata"]["priority"], "high");
+            write_http_json(
+                &mut stream,
+                r#"{"id":"job-1","status":"completed","answer":"done"}"#,
+            );
+        });
+        let tool = ExternalAgentTool::new(ExternalAgentSpec {
+            id: ToolId::from("external-agent-reviewer"),
+            name: "External agent: Reviewer".into(),
+            description: "Remote review agent".into(),
+            transport: "http-json".into(),
+            endpoint: format!("http://{addr}/invoke"),
+            input_modes: vec!["application/json".into()],
+            output_modes: vec!["application/json".into()],
+            auth_schemes: vec!["apiKey".into()],
+        });
+
+        let output = tool
+            .execute(json!({
+                "prompt": "review this",
+                "metadata": { "priority": "high" },
+                "headers": { "X-Agent-Token": "test-token" },
+                "timeout_ms": 5_000
+            }))
+            .await
+            .unwrap();
+
+        assert_eq!(output["id"], "job-1");
+        assert_eq!(output["answer"], "done");
         server.join().unwrap();
     }
 
@@ -5573,6 +5754,49 @@ external_agents:
                 .as_deref()
                 .unwrap()
                 .contains("adapter_package=")
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn allowed_hermes_http_external_agents_register_external_agent_tools() {
+        let dir = temp_dir("hermes-http-register");
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("plugin.yaml");
+        std::fs::write(
+            &source,
+            r#"
+name: hermes-review-pack
+external_agents:
+  - name: remote_reviewer
+    endpoint: https://agents.example.test/invoke
+    transport: http-json
+    input_modes: [application/json]
+    output_modes: [application/json]
+    auth: [apiKey]
+"#,
+        )
+        .unwrap();
+        let mut package = agent_adapters::inspect_source(&source).unwrap();
+        package.quarantined = false;
+        for capability in &mut package.capabilities {
+            capability.quarantined = false;
+        }
+
+        let mut registry = ToolRegistry::new();
+        assert_eq!(
+            register_allowed_external_agent_tools(&mut registry, [package]),
+            1
+        );
+        let reviewer = registry
+            .descriptor(&ToolId::from("external-agent-remote-reviewer"))
+            .unwrap();
+        assert!(reviewer.requires_approval);
+        assert!(reviewer.permissions.network);
+        assert!(reviewer.permissions.secrets);
+        assert_eq!(
+            reviewer.categories,
+            vec!["external-agent".to_string(), "http-json".to_string()]
         );
         let _ = std::fs::remove_dir_all(dir);
     }

@@ -3865,6 +3865,17 @@ pub async fn ingest_add(
     vision_model: Option<String>,
     guardrail_model: Option<String>,
 ) -> anyhow::Result<()> {
+    let result = ingest_add_result(path, backend, vision_model, guardrail_model).await?;
+    println!("{}", serde_json::to_string_pretty(&result)?);
+    Ok(())
+}
+
+pub async fn ingest_add_result(
+    path: String,
+    backend: String,
+    vision_model: Option<String>,
+    guardrail_model: Option<String>,
+) -> anyhow::Result<serde_json::Value> {
     let trace_run_id = RunId::new();
     let store = open_event_store()?;
     let source = path.clone();
@@ -3883,14 +3894,10 @@ pub async fn ingest_add(
         Some(started.id),
         ingestion_completed_event(&artifact),
     );
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&serde_json::json!({
-            "trace_run_id": trace_run_id.0,
-            "artifact": artifact
-        }))?
-    );
-    Ok(())
+    Ok(serde_json::json!({
+        "trace_run_id": trace_run_id.0,
+        "artifact": artifact
+    }))
 }
 
 pub async fn ingest_backends(json: bool) -> anyhow::Result<()> {
@@ -3949,8 +3956,19 @@ pub async fn ingest_rerun(
     vision_model: Option<String>,
     guardrail_model: Option<String>,
 ) -> anyhow::Result<()> {
+    let result = ingest_rerun_result(id, backend, vision_model, guardrail_model).await?;
+    println!("{}", serde_json::to_string_pretty(&result)?);
+    Ok(())
+}
+
+pub async fn ingest_rerun_result(
+    id: String,
+    backend: String,
+    vision_model: Option<String>,
+    guardrail_model: Option<String>,
+) -> anyhow::Result<serde_json::Value> {
     let source = IngestionStore::from_env().show(&id)?.source;
-    ingest_add(
+    ingest_add_result(
         source.display().to_string(),
         backend,
         vision_model,

@@ -2825,6 +2825,8 @@ fn handle_ingest_slash(app: &mut App, rest: &str, line_tx: &UnboundedSender<Tran
             text: [
                 "/ingest list",
                 "/ingest show <id>",
+                "/ingest add <path> [--backend <backend>] [--vision-model <model>] [--guardrail-model <model>]",
+                "/ingest rerun <id> [--backend <backend>] [--vision-model <model>] [--guardrail-model <model>]",
                 "/ingest probe-vision <path> --model <model>",
                 "/ingest review <id> <finding-index> <acknowledge|approve|reject> [note]",
                 "/ingest delete <id> --confirm",
@@ -2902,6 +2904,70 @@ fn handle_ingest_slash(app: &mut App, rest: &str, line_tx: &UnboundedSender<Tran
                 text: err.to_string(),
             }),
         },
+        "add" => match ingest_run_args(args, "add") {
+            Ok((path, backend, vision_model, guardrail_model)) => {
+                push_event(app, format!("Ingesting {path} with {backend}."));
+                let tx = line_tx.clone();
+                let path = path.to_string();
+                tokio::spawn(async move {
+                    let line = match crate::headless::ingest_add_result(
+                        path,
+                        backend,
+                        vision_model,
+                        guardrail_model,
+                    )
+                    .await
+                    {
+                        Ok(result) => TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&result)
+                                .unwrap_or_else(|_| "<unserializable ingestion result>".into()),
+                        },
+                        Err(err) => TranscriptLine {
+                            kind: LineKind::Error,
+                            text: format!("Ingest add failed: {err}"),
+                        },
+                    };
+                    let _ = tx.send(line);
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "rerun" => match ingest_run_args(args, "rerun") {
+            Ok((id, backend, vision_model, guardrail_model)) => {
+                push_event(app, format!("Re-running ingestion {id} with {backend}."));
+                let tx = line_tx.clone();
+                let id = id.to_string();
+                tokio::spawn(async move {
+                    let line = match crate::headless::ingest_rerun_result(
+                        id,
+                        backend,
+                        vision_model,
+                        guardrail_model,
+                    )
+                    .await
+                    {
+                        Ok(result) => TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&result)
+                                .unwrap_or_else(|_| "<unserializable ingestion result>".into()),
+                        },
+                        Err(err) => TranscriptLine {
+                            kind: LineKind::Error,
+                            text: format!("Ingest rerun failed: {err}"),
+                        },
+                    };
+                    let _ = tx.send(line);
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
         "probe-vision" | "probe" => match ingest_probe_vision_args(args) {
             Ok((path, model)) => {
                 push_event(app, format!("Probing vision ingestion for {path}."));
@@ -2954,7 +3020,7 @@ fn handle_ingest_slash(app: &mut App, rest: &str, line_tx: &UnboundedSender<Tran
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Ingest command needs list, show, probe-vision, review, delete, or help.".into(),
+            text: "Ingest command needs list, show, add, rerun, probe-vision, review, delete, or help.".into(),
         }),
     }
 }
@@ -2979,6 +3045,73 @@ fn ingest_delete_args(args: &str) -> anyhow::Result<(&str, bool)> {
     }
     let id = id.ok_or_else(|| anyhow::anyhow!("ingest delete needs an artifact id"))?;
     Ok((id, confirmed))
+}
+
+fn ingest_run_args<'a>(
+    args: &'a str,
+    command: &str,
+) -> anyhow::Result<(&'a str, String, Option<String>, Option<String>)> {
+    let mut parts = args.split_whitespace();
+    let target = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("ingest {command} needs an argument"))?;
+    let mut backend = "local-v0".to_string();
+    let mut vision_model = None;
+    let mut guardrail_model = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--backend" => {
+                backend = ingest_option_value(&mut parts, command, "--backend")?.to_string();
+            }
+            "--vision-model" => {
+                vision_model =
+                    Some(ingest_option_value(&mut parts, command, "--vision-model")?.to_string());
+            }
+            "--guardrail-model" => {
+                guardrail_model = Some(
+                    ingest_option_value(&mut parts, command, "--guardrail-model")?.to_string(),
+                );
+            }
+            _ => {
+                if let Some(value) = part.strip_prefix("--backend=") {
+                    backend = non_empty_ingest_option(value, command, "--backend")?.to_string();
+                } else if let Some(value) = part.strip_prefix("--vision-model=") {
+                    vision_model = Some(
+                        non_empty_ingest_option(value, command, "--vision-model")?.to_string(),
+                    );
+                } else if let Some(value) = part.strip_prefix("--guardrail-model=") {
+                    guardrail_model = Some(
+                        non_empty_ingest_option(value, command, "--guardrail-model")?.to_string(),
+                    );
+                } else {
+                    anyhow::bail!("unknown ingest {command} option: {part}");
+                }
+            }
+        }
+    }
+    Ok((target, backend, vision_model, guardrail_model))
+}
+
+fn ingest_option_value<'a>(
+    parts: &mut std::str::SplitWhitespace<'a>,
+    command: &str,
+    option: &str,
+) -> anyhow::Result<&'a str> {
+    let value = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("ingest {command} {option} needs a value"))?;
+    non_empty_ingest_option(value, command, option)
+}
+
+fn non_empty_ingest_option<'a>(
+    value: &'a str,
+    command: &str,
+    option: &str,
+) -> anyhow::Result<&'a str> {
+    if value.is_empty() {
+        anyhow::bail!("ingest {command} {option} needs a value");
+    }
+    Ok(value)
 }
 
 fn ingest_probe_vision_args(args: &str) -> anyhow::Result<(&str, &str)> {
@@ -7506,6 +7639,23 @@ mod tests {
             ingest_probe_vision_args("chart.png --model=gemini-2.5-pro").unwrap(),
             ("chart.png", "gemini-2.5-pro")
         );
+        assert_eq!(
+            ingest_run_args(
+                "doc.md --backend local-lines-v0 --vision-model gpt-4o --guardrail-model gpt-4o-mini",
+                "add"
+            )
+            .unwrap(),
+            (
+                "doc.md",
+                "local-lines-v0".to_string(),
+                Some("gpt-4o".to_string()),
+                Some("gpt-4o-mini".to_string())
+            )
+        );
+        assert_eq!(
+            ingest_run_args("ingest-1 --backend=local-layout-v0", "rerun").unwrap(),
+            ("ingest-1", "local-layout-v0".to_string(), None, None)
+        );
         let (id, finding, decision, note) =
             ingest_review_args("ingest-1 2 approve reviewed by user").unwrap();
         assert_eq!(id, "ingest-1");
@@ -7517,6 +7667,9 @@ mod tests {
         assert!(ingest_probe_vision_args("doc.pdf").is_err());
         assert!(ingest_probe_vision_args("doc.pdf --model").is_err());
         assert!(ingest_probe_vision_args("doc.pdf --model gpt-4.1 extra").is_err());
+        assert!(ingest_run_args("", "add").is_err());
+        assert!(ingest_run_args("doc.md --backend", "add").is_err());
+        assert!(ingest_run_args("doc.md extra", "add").is_err());
         assert!(ingest_review_args("ingest-1 0 maybe").is_err());
     }
 

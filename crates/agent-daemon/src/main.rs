@@ -3389,9 +3389,14 @@ fn generate_pending_memories_once(
     let mut errors = Vec::new();
     let mut attempted = 0usize;
     let mut up_to_date = 0usize;
+    let mut policy_skipped = 0usize;
     let mut checkpoint_changed = false;
 
     for conversation in conversation_store.list()? {
+        if !conversation.policy.allows_memory_generation() {
+            policy_skipped += 1;
+            continue;
+        }
         let expanded = conversation_store.expanded(&conversation.id)?;
         let message_count = expanded.messages.len();
         let checkpoint_key = memory_generation_checkpoint_key(target, &conversation.id);
@@ -3456,6 +3461,7 @@ fn generate_pending_memories_once(
         "generated": generated,
         "generated_count": generated_count,
         "up_to_date": up_to_date,
+        "policy_skipped": policy_skipped,
         "errors": errors,
         "target": target,
         "topics": topics
@@ -6175,6 +6181,7 @@ mod tests {
         .unwrap();
         assert_eq!(first["attempted"], 1);
         assert_eq!(first["generated_count"], 1);
+        assert_eq!(first["policy_skipped"], 0);
         assert_eq!(first["topics"][0], "finance");
         assert_eq!(first["topics"][1], "operations");
         let records = MemoryStore::from_env().list().unwrap();
@@ -6203,6 +6210,39 @@ mod tests {
         assert!(records.iter().any(|record| {
             record.source_conversation_id.as_deref() == Some(conversation.id.as_str())
                 && record.source_range.as_deref() == Some("messages:2..3")
+        }));
+
+        let mut policy = conversation_store.show(&conversation.id).unwrap().policy;
+        policy.generate_memory = Some(false);
+        conversation_store
+            .set_policy(&conversation.id, policy)
+            .unwrap();
+        conversation_store
+            .append_message(
+                &conversation.id,
+                ConversationRole::User,
+                "Remember: waive late fees for this account",
+            )
+            .unwrap();
+        let fourth = daemon_memory_generate_pending(r#"{"limit":5}"#).unwrap();
+        assert_eq!(fourth["attempted"], 0);
+        assert_eq!(fourth["generated_count"], 0);
+        assert_eq!(fourth["policy_skipped"], 1);
+        assert_eq!(MemoryStore::from_env().list().unwrap().len(), 2);
+
+        let mut policy = conversation_store.show(&conversation.id).unwrap().policy;
+        policy.generate_memory = Some(true);
+        conversation_store
+            .set_policy(&conversation.id, policy)
+            .unwrap();
+        let fifth = daemon_memory_generate_pending(r#"{"limit":5}"#).unwrap();
+        assert_eq!(fifth["attempted"], 1);
+        assert_eq!(fifth["generated_count"], 1);
+        let records = MemoryStore::from_env().list().unwrap();
+        assert_eq!(records.len(), 3);
+        assert!(records.iter().any(|record| {
+            record.source_conversation_id.as_deref() == Some(conversation.id.as_str())
+                && record.source_range.as_deref() == Some("messages:3..4")
         }));
 
         restore_env("AGENT_HARNESS_HOME", previous_home);

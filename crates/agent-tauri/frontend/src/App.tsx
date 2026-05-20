@@ -335,6 +335,9 @@ export default function App() {
   const [enableSubagent, setEnableSubagent] = useState(false);
   const [enableCapabilityDrafts, setEnableCapabilityDrafts] = useState(false);
   const [loadMemory, setLoadMemory] = useState(false);
+  const [generateMemoryPolicy, setGenerateMemoryPolicy] = useState<
+    "" | "on" | "off"
+  >("");
   const [loadSkills, setLoadSkills] = useState(false);
   const [includeIngestIds, setIncludeIngestIds] = useState<string[]>([]);
   const [allowUnsafeIngest, setAllowUnsafeIngest] = useState(false);
@@ -4002,6 +4005,8 @@ export default function App() {
     if (!expandedConversation) return;
     const policy: ConversationPolicy = {
       load_memory: loadMemory,
+      generate_memory:
+        generateMemoryPolicy === "" ? null : generateMemoryPolicy === "on",
       max_tokens_before_compaction: parseOptionalPositiveInt(
         maxTokensBeforeCompaction,
       ),
@@ -4046,6 +4051,13 @@ export default function App() {
     if (typeof policy.load_memory === "boolean") {
       setLoadMemory(policy.load_memory);
     }
+    setGenerateMemoryPolicy(
+      typeof policy.generate_memory === "boolean"
+        ? policy.generate_memory
+          ? "on"
+          : "off"
+        : "",
+    );
     setMaxTokensBeforeCompaction(
       policy.max_tokens_before_compaction
         ? String(policy.max_tokens_before_compaction)
@@ -5480,6 +5492,9 @@ export default function App() {
     const parts: string[] = [];
     if (typeof policy?.load_memory === "boolean") {
       parts.push(`memory ${policy.load_memory ? "on" : "off"}`);
+    }
+    if (typeof policy?.generate_memory === "boolean") {
+      parts.push(`memory generation ${policy.generate_memory ? "on" : "off"}`);
     }
     if (policy?.max_tokens_before_compaction) {
       parts.push(`compact at ${policy.max_tokens_before_compaction}`);
@@ -6974,6 +6989,20 @@ export default function App() {
               disabled={running}
             />
             <span>Memory</span>
+          </label>
+          <label>
+            Memory generation
+            <select
+              value={generateMemoryPolicy}
+              onChange={(e) =>
+                setGenerateMemoryPolicy(e.target.value as "" | "on" | "off")
+              }
+              disabled={running}
+            >
+              <option value="">default</option>
+              <option value="on">on</option>
+              <option value="off">off</option>
+            </select>
           </label>
           <label className="switch">
             <input

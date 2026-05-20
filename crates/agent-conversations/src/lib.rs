@@ -50,6 +50,8 @@ pub struct ConversationPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub load_memory: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generate_memory: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tokens_before_compaction: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_compaction_output_tokens: Option<u32>,
@@ -60,6 +62,7 @@ pub struct ConversationPolicy {
 impl ConversationPolicy {
     pub fn is_empty(&self) -> bool {
         self.load_memory.is_none()
+            && self.generate_memory.is_none()
             && self.max_tokens_before_compaction.is_none()
             && self.max_compaction_output_tokens.is_none()
             && self.compaction_guidance.is_none()
@@ -72,6 +75,10 @@ impl ConversationPolicy {
 
     pub fn effective_load_memory(&self, inherited: bool, run_load_memory: bool) -> bool {
         run_load_memory || self.load_memory.unwrap_or(inherited)
+    }
+
+    pub fn allows_memory_generation(&self) -> bool {
+        self.generate_memory.unwrap_or(true)
     }
 }
 
@@ -670,6 +677,7 @@ mod tests {
                 &root.id,
                 ConversationPolicy {
                     load_memory: Some(false),
+                    generate_memory: Some(false),
                     max_tokens_before_compaction: Some(512),
                     max_compaction_output_tokens: Some(128),
                     compaction_guidance: Some("  keep decisions  ".into()),
@@ -677,12 +685,14 @@ mod tests {
             )
             .unwrap();
         assert_eq!(updated.policy.load_memory, Some(false));
+        assert_eq!(updated.policy.generate_memory, Some(false));
         assert_eq!(
             updated.policy.compaction_guidance.as_deref(),
             Some("keep decisions")
         );
         assert!(!updated.policy.effective_load_memory(true, false));
         assert!(updated.policy.effective_load_memory(false, true));
+        assert!(!updated.policy.allows_memory_generation());
 
         let branch = store
             .branch(&root.id, 0, Some("Branch".into()), None)

@@ -206,6 +206,7 @@ export type ConversationMessage = {
 
 export type ConversationPolicy = {
   load_memory?: boolean | null;
+  generate_memory?: boolean | null;
   max_tokens_before_compaction?: number | null;
   max_compaction_output_tokens?: number | null;
   compaction_guidance?: string | null;

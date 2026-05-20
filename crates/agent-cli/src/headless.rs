@@ -1734,6 +1734,8 @@ pub async fn conversation_show(id: String, json: bool) -> anyhow::Result<()> {
 pub struct ConversationPolicyOptions {
     pub load_memory: Option<bool>,
     pub clear_load_memory: bool,
+    pub generate_memory: Option<bool>,
+    pub clear_generate_memory: bool,
     pub max_tokens_before_compaction: Option<u32>,
     pub clear_max_tokens_before_compaction: bool,
     pub max_compaction_output_tokens: Option<u32>,
@@ -1749,6 +1751,8 @@ impl ConversationPolicyOptions {
         self.clear
             || self.load_memory.is_some()
             || self.clear_load_memory
+            || self.generate_memory.is_some()
+            || self.clear_generate_memory
             || self.max_tokens_before_compaction.is_some()
             || self.clear_max_tokens_before_compaction
             || self.max_compaction_output_tokens.is_some()
@@ -1775,6 +1779,12 @@ pub async fn conversation_policy(
         }
         if let Some(load_memory) = options.load_memory {
             policy.load_memory = Some(load_memory);
+        }
+        if options.clear_generate_memory {
+            policy.generate_memory = None;
+        }
+        if let Some(generate_memory) = options.generate_memory {
+            policy.generate_memory = Some(generate_memory);
         }
         if options.clear_max_tokens_before_compaction {
             policy.max_tokens_before_compaction = None;
@@ -2125,6 +2135,9 @@ fn conversation_policy_summary(policy: &ConversationPolicy) -> String {
     let mut parts = Vec::new();
     if let Some(load_memory) = policy.load_memory {
         parts.push(format!("load_memory={load_memory}"));
+    }
+    if let Some(generate_memory) = policy.generate_memory {
+        parts.push(format!("generate_memory={generate_memory}"));
     }
     if let Some(max_tokens_before_compaction) = policy.max_tokens_before_compaction {
         parts.push(format!(

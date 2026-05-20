@@ -1620,6 +1620,14 @@ enum ConversationCommand {
         #[arg(long)]
         clear_load_memory: bool,
 
+        /// Conversation default for async/manual pending memory generation.
+        #[arg(long)]
+        generate_memory: Option<bool>,
+
+        /// Clear the conversation memory-generation override.
+        #[arg(long)]
+        clear_generate_memory: bool,
+
         /// Conversation default auto-compaction threshold.
         #[arg(long)]
         max_tokens_before_compaction: Option<u32>,
@@ -3426,6 +3434,8 @@ mod cli_parse_tests {
             "conversation-1",
             "--load-memory",
             "false",
+            "--generate-memory",
+            "false",
             "--max-tokens-before-compaction",
             "512",
             "--max-compaction-output-tokens",
@@ -3440,6 +3450,7 @@ mod cli_parse_tests {
                 ConversationCommand::Policy {
                     id,
                     load_memory,
+                    generate_memory,
                     max_tokens_before_compaction,
                     max_compaction_output_tokens,
                     compaction_guidance,
@@ -3452,6 +3463,7 @@ mod cli_parse_tests {
         };
         assert_eq!(id, "conversation-1");
         assert_eq!(load_memory, Some(false));
+        assert_eq!(generate_memory, Some(false));
         assert_eq!(max_tokens_before_compaction, Some(512));
         assert_eq!(max_compaction_output_tokens, Some(128));
         assert_eq!(compaction_guidance.as_deref(), Some("keep decisions"));
@@ -4511,6 +4523,8 @@ async fn main() -> anyhow::Result<()> {
                 id,
                 load_memory,
                 clear_load_memory,
+                generate_memory,
+                clear_generate_memory,
                 max_tokens_before_compaction,
                 clear_max_tokens_before_compaction,
                 max_compaction_output_tokens,
@@ -4523,6 +4537,8 @@ async fn main() -> anyhow::Result<()> {
                 let options = headless::ConversationPolicyOptions {
                     load_memory,
                     clear_load_memory,
+                    generate_memory,
+                    clear_generate_memory,
                     max_tokens_before_compaction,
                     clear_max_tokens_before_compaction,
                     max_compaction_output_tokens,

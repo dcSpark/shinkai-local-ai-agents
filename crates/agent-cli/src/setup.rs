@@ -1158,6 +1158,7 @@ hooks:
             &mut agent,
             &ConversationPolicy {
                 load_memory: Some(false),
+                generate_memory: None,
                 max_tokens_before_compaction: Some(768),
                 max_compaction_output_tokens: Some(144),
                 compaction_guidance: Some("keep branch decisions".into()),

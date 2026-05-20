@@ -48,6 +48,7 @@ import type {
 } from "./types";
 
 type LineKind = "user" | "assistant" | "event" | "error";
+type ArtifactPreview = GeneratedArtifactDataUrl;
 type Transport = "in-process" | "daemon";
 type ActiveSection =
   | "chat"
@@ -439,6 +440,8 @@ export default function App() {
   const [generatedArtifacts, setGeneratedArtifacts] = useState<
     GeneratedArtifact[]
   >([]);
+  const [artifactPreview, setArtifactPreview] =
+    useState<ArtifactPreview | null>(null);
   const [recordingVoice, setRecordingVoice] = useState(false);
   const [voicePreviewUrl, setVoicePreviewUrl] = useState<string | null>(null);
   const [voiceCaptureArtifact, setVoiceCaptureArtifact] =
@@ -3291,20 +3294,31 @@ export default function App() {
     };
   }
 
-  async function previewGeneratedAudioArtifact(artifact: GeneratedArtifact) {
-    if (!isAudioFormat(artifact.format)) return;
+  async function previewGeneratedArtifact(artifact: GeneratedArtifact) {
+    if (!isInlineArtifactFormat(artifact.format)) return;
     try {
       const preview = await loadGeneratedArtifactDataUrl(artifact.id);
-      setVoiceOutputArtifact(preview.artifact);
-      setVoiceOutputPreviewUrl(preview.data_url);
+      setArtifactPreview(preview);
+      if (isAudioFormat(preview.artifact.format)) {
+        setVoiceOutputArtifact(preview.artifact);
+        setVoiceOutputPreviewUrl(preview.data_url);
+      }
       setGeneratedArtifacts((artifacts) =>
         upsertGeneratedArtifact(artifacts, preview.artifact),
       );
-      appendEvent(`Voice output ready: ${fileName(preview.artifact.path)}`);
+      const previewLabel = isAudioFormat(preview.artifact.format)
+        ? "Voice output ready"
+        : "Artifact preview ready";
+      appendEvent(`${previewLabel}: ${fileName(preview.artifact.path)}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      appendLine("error", `Voice output preview failed: ${msg}`);
+      appendLine("error", `Artifact preview failed: ${msg}`);
     }
+  }
+
+  async function previewGeneratedAudioArtifact(artifact: GeneratedArtifact) {
+    if (!isAudioFormat(artifact.format)) return;
+    await previewGeneratedArtifact(artifact);
   }
 
   async function loadGeneratedArtifactDataUrl(id: string) {
@@ -3313,6 +3327,31 @@ export default function App() {
           `/artifacts/${encodeURIComponent(id)}/data-url`,
         )
       : await invoke<GeneratedArtifactDataUrl>("artifact_data_url", { id });
+  }
+
+  function isInlineArtifactFormat(format: string) {
+    return (
+      isAudioFormat(format) ||
+      isTextArtifactFormat(format) ||
+      ["html", "pdf"].includes(format.toLowerCase())
+    );
+  }
+
+  function isTextArtifactFormat(format: string) {
+    return ["txt", "md", "csv", "json"].includes(format.toLowerCase());
+  }
+
+  function textFromDataUrl(dataUrl: string) {
+    const marker = ";base64,";
+    const markerIndex = dataUrl.indexOf(marker);
+    if (markerIndex < 0) return "";
+    try {
+      const base64 = dataUrl.slice(markerIndex + marker.length);
+      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+      return new TextDecoder().decode(bytes);
+    } catch {
+      return "";
+    }
   }
 
   function isAudioFormat(format: string) {
@@ -5863,6 +5902,9 @@ export default function App() {
       setGeneratedArtifacts((artifacts) =>
         artifacts.filter((item) => item.id !== artifact.id),
       );
+      if (artifactPreview?.artifact.id === artifact.id) {
+        setArtifactPreview(null);
+      }
       appendEvent(`Deleted artifact: ${artifact.id}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -10147,14 +10189,14 @@ export default function App() {
                         >
                           Open
                         </button>
-                        {isAudioFormat(artifact.format) ? (
+                        {isInlineArtifactFormat(artifact.format) ? (
                           <button
                             type="button"
-                            title="Play this generated audio artifact inline."
-                            onClick={() => void previewGeneratedAudioArtifact(artifact)}
+                            title="Preview this generated artifact inline."
+                            onClick={() => void previewGeneratedArtifact(artifact)}
                             disabled={running}
                           >
-                            Play
+                            {isAudioFormat(artifact.format) ? "Play" : "Preview"}
                           </button>
                         ) : null}
                         <button
@@ -10168,6 +10210,50 @@ export default function App() {
                       </div>
                     </div>
                   ))}
+                </div>
+              ) : null}
+              {artifactPreview ? (
+                <div className="artifact-preview">
+                  <div className="artifact-preview-head">
+                    <div>
+                      <strong>{artifactPreview.artifact.id}</strong>
+                      <span>
+                        {artifactPreview.artifact.format} /{" "}
+                        {formatBytes(artifactPreview.artifact.bytes)}
+                      </span>
+                    </div>
+                    <div className="mini-actions">
+                      <button
+                        type="button"
+                        title="Open this generated artifact in the OS default app."
+                        onClick={() => void openGeneratedArtifact(artifactPreview.artifact.id)}
+                        disabled={running}
+                      >
+                        Open
+                      </button>
+                      <button
+                        type="button"
+                        title="Close the inline artifact preview."
+                        onClick={() => setArtifactPreview(null)}
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                  {isAudioFormat(artifactPreview.artifact.format) ? (
+                    <audio src={artifactPreview.data_url} controls />
+                  ) : isTextArtifactFormat(artifactPreview.artifact.format) ? (
+                    <pre className="artifact-preview-text">
+                      {textFromDataUrl(artifactPreview.data_url)}
+                    </pre>
+                  ) : (
+                    <iframe
+                      className="artifact-preview-frame"
+                      title={`Artifact preview ${artifactPreview.artifact.id}`}
+                      src={artifactPreview.data_url}
+                      sandbox="allow-same-origin"
+                    />
+                  )}
                 </div>
               ) : null}
             </div>

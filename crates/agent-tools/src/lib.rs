@@ -288,9 +288,14 @@ pub struct CodeSandboxConfig {
 
 impl CodeSandboxConfig {
     fn from_env() -> Option<Self> {
-        let command = std::env::var("AGENT_CODE_SANDBOX_COMMAND")
+        let Some(command) = std::env::var("AGENT_CODE_SANDBOX_COMMAND")
             .ok()
-            .and_then(clean_non_empty)?;
+            .and_then(clean_non_empty)
+        else {
+            return env_flag("AGENT_CODE_SANDBOX_AUTO").then(|| {
+                builtin_code_sandbox_for_platform(std::env::consts::OS, command_in_path)
+            })?;
+        };
         let args = std::env::var("AGENT_CODE_SANDBOX_ARGS_JSON")
             .ok()
             .and_then(|value| serde_json::from_str::<Vec<String>>(&value).ok())
@@ -311,6 +316,108 @@ impl CodeSandboxConfig {
             args,
         })
     }
+
+    fn args_for_context(&self, cwd: &Path, temp_dir: &Path) -> Vec<OsString> {
+        let cwd = cwd.to_string_lossy();
+        let temp_dir = temp_dir.to_string_lossy();
+        let args = self
+            .args
+            .iter()
+            .map(|arg| {
+                OsString::from(
+                    arg.replace("{cwd}", cwd.as_ref())
+                        .replace("{temp_dir}", temp_dir.as_ref()),
+                )
+            })
+            .collect::<Vec<_>>();
+        dedupe_repeated_bind_args(args)
+    }
+}
+
+fn dedupe_repeated_bind_args(args: Vec<OsString>) -> Vec<OsString> {
+    let mut deduped = Vec::with_capacity(args.len());
+    let mut seen_binds = Vec::<(OsString, OsString)>::new();
+    let mut index = 0;
+    while index < args.len() {
+        if args[index].as_os_str() == "--bind" && index + 2 < args.len() {
+            let key = (args[index + 1].clone(), args[index + 2].clone());
+            if seen_binds.contains(&key) {
+                index += 3;
+                continue;
+            }
+            seen_binds.push(key);
+            deduped.extend_from_slice(&args[index..index + 3]);
+            index += 3;
+            continue;
+        }
+        deduped.push(args[index].clone());
+        index += 1;
+    }
+    deduped
+}
+
+fn builtin_code_sandbox_for_platform(
+    platform: &str,
+    command_available: impl Fn(&str) -> bool,
+) -> Option<CodeSandboxConfig> {
+    match platform {
+        "macos" if command_available("sandbox-exec") => Some(CodeSandboxConfig {
+            label: "macos_sandbox_exec_auto".into(),
+            command: "sandbox-exec".into(),
+            args: vec![
+                "-p".into(),
+                [
+                    "(version 1)",
+                    "(deny default)",
+                    "(allow process*)",
+                    "(allow signal*)",
+                    "(allow sysctl-read)",
+                    "(allow file-read*)",
+                    "(allow file-write* (subpath \"{temp_dir}\") (subpath \"{cwd}\"))",
+                    "(allow network*)",
+                ]
+                .join("\n"),
+            ],
+        }),
+        "linux" if command_available("bwrap") => Some(CodeSandboxConfig {
+            label: "linux_bubblewrap_auto".into(),
+            command: "bwrap".into(),
+            args: vec![
+                "--die-with-parent".into(),
+                "--new-session".into(),
+                "--dev".into(),
+                "/dev".into(),
+                "--proc".into(),
+                "/proc".into(),
+                "--ro-bind".into(),
+                "/".into(),
+                "/".into(),
+                "--tmpfs".into(),
+                "/tmp".into(),
+                "--bind".into(),
+                "{temp_dir}".into(),
+                "{temp_dir}".into(),
+                "--bind".into(),
+                "{cwd}".into(),
+                "{cwd}".into(),
+                "--chdir".into(),
+                "{cwd}".into(),
+                "--".into(),
+            ],
+        }),
+        _ => None,
+    }
+}
+
+fn command_in_path(command: &str) -> bool {
+    let path = Path::new(command);
+    if path.components().count() > 1 {
+        return path.is_file();
+    }
+    std::env::var_os("PATH")
+        .into_iter()
+        .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
+        .any(|dir| dir.join(command).is_file())
 }
 
 impl CodeExecutionConfig {
@@ -495,7 +602,7 @@ impl Tool for CodeExecutionTool {
             .or_else(|| self.config.default_cwd.clone());
         if self.config.sandbox_required && self.config.sandbox.is_none() {
             return Err(ToolError::Execution(
-                "code sandbox is required but AGENT_CODE_SANDBOX_COMMAND is not configured".into(),
+                "code sandbox is required but neither AGENT_CODE_SANDBOX_COMMAND nor an available AGENT_CODE_SANDBOX_AUTO wrapper is configured".into(),
             ));
         }
 
@@ -524,6 +631,7 @@ impl Tool for CodeExecutionTool {
             }
         }
         runner_args.extend(args.into_iter().map(OsString::from));
+        let run_cwd = cwd.unwrap_or_else(|| temp_dir.clone());
         let sandbox_label = self
             .config
             .sandbox
@@ -537,7 +645,7 @@ impl Tool for CodeExecutionTool {
             .map(|sandbox| sandbox.command.clone());
         let mut cmd = if let Some(sandbox) = &self.config.sandbox {
             let mut cmd = Command::new(&sandbox.command);
-            cmd.args(&sandbox.args);
+            cmd.args(sandbox.args_for_context(&run_cwd, &temp_dir));
             cmd.arg(self.runner_command());
             cmd.args(&runner_args);
             cmd
@@ -547,7 +655,7 @@ impl Tool for CodeExecutionTool {
             cmd
         };
         apply_minimal_env(&mut cmd);
-        cmd.current_dir(cwd.unwrap_or_else(|| temp_dir.clone()));
+        cmd.current_dir(&run_cwd);
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
         cmd.kill_on_drop(true);
 
@@ -5828,6 +5936,49 @@ done
             .unwrap_err();
 
         assert!(err.to_string().contains("code sandbox is required"));
+    }
+
+    #[test]
+    fn built_in_code_sandbox_configs_are_platform_scoped_and_contextual() {
+        let linux =
+            builtin_code_sandbox_for_platform("linux", |command| command == "bwrap").unwrap();
+        assert_eq!(linux.label, "linux_bubblewrap_auto");
+        assert_eq!(linux.command, "bwrap");
+        let linux_args =
+            linux.args_for_context(Path::new("/work/project"), Path::new("/tmp/agent-code"));
+        assert!(linux_args.iter().any(|arg| arg == "/work/project"));
+        assert!(linux_args.iter().any(|arg| arg == "/tmp/agent-code"));
+        assert!(
+            !linux_args
+                .iter()
+                .any(|arg| arg.to_string_lossy().contains("{cwd}"))
+        );
+        let duplicate_default_cwd_args =
+            linux.args_for_context(Path::new("/tmp/agent-code"), Path::new("/tmp/agent-code"));
+        assert_eq!(
+            duplicate_default_cwd_args
+                .iter()
+                .filter(|arg| arg.as_os_str() == "--bind")
+                .count(),
+            1
+        );
+
+        let macos = builtin_code_sandbox_for_platform("macos", |command| command == "sandbox-exec")
+            .unwrap();
+        assert_eq!(macos.label, "macos_sandbox_exec_auto");
+        assert_eq!(macos.command, "sandbox-exec");
+        let macos_args =
+            macos.args_for_context(Path::new("/work/project"), Path::new("/tmp/agent-code"));
+        let profile = macos_args
+            .iter()
+            .map(|arg| arg.to_string_lossy())
+            .find(|arg| arg.contains("(version 1)"))
+            .unwrap();
+        assert!(profile.contains("/work/project"));
+        assert!(profile.contains("/tmp/agent-code"));
+
+        assert!(builtin_code_sandbox_for_platform("linux", |_| false).is_none());
+        assert!(builtin_code_sandbox_for_platform("windows", |_| true).is_none());
     }
 
     #[tokio::test]

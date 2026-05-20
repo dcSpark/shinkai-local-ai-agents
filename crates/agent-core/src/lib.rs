@@ -376,6 +376,8 @@ pub struct ToolPolicy {
     pub required_tool: Option<ToolId>,
     /// How much detail the model/user context sees for registered tools.
     pub visibility: VisibilityLevel,
+    /// Per-tool overrides for how much detail the model/user context sees.
+    pub per_tool_visibility: HashMap<ToolId, VisibilityLevel>,
     /// How approval-required tools are handled.
     pub approval_mode: ApprovalMode,
     /// Optional delegated controller agent allowed to approve scoped tool calls.
@@ -400,6 +402,7 @@ impl Default for ToolPolicy {
             allowed_categories: Vec::new(),
             required_tool: None,
             visibility: VisibilityLevel::FullSchema,
+            per_tool_visibility: HashMap::new(),
             approval_mode: ApprovalMode::RequireExplicit,
             approval_controller: None,
             output_mode: ToolOutputMode::Interpreted,
@@ -428,6 +431,13 @@ impl ToolPolicy {
             .get(tool_id)
             .copied()
             .unwrap_or(self.output_mode)
+    }
+
+    pub fn visibility_for(&self, tool_id: &ToolId) -> VisibilityLevel {
+        self.per_tool_visibility
+            .get(tool_id)
+            .copied()
+            .unwrap_or(self.visibility)
     }
 
     pub fn output_interpretation_model_for(
@@ -2658,17 +2668,18 @@ impl ContextBuilder<'_> {
             .filter(|d| self.agent.tool_policy.allows_descriptor(d))
             .map(|d| {
                 let output_mode = self.agent.tool_policy.output_mode_for(&d.id);
+                let visibility = self.agent.tool_policy.visibility_for(&d.id);
                 ToolView {
                     id: d.id.0.clone(),
                     name: d.name.clone(),
-                    description: match self.agent.tool_policy.visibility {
+                    description: match visibility {
                         VisibilityLevel::FullSchema | VisibilityLevel::NameAndDescription => {
                             Some(d.description.clone())
                         }
                         VisibilityLevel::NameOnly => None,
                     },
                     categories: d.categories.clone(),
-                    input_schema: match self.agent.tool_policy.visibility {
+                    input_schema: match visibility {
                         VisibilityLevel::FullSchema => Some(d.input_schema.clone()),
                         VisibilityLevel::NameAndDescription | VisibilityLevel::NameOnly => None,
                     },
@@ -2680,7 +2691,7 @@ impl ContextBuilder<'_> {
                             &d.id,
                             d.output_interpretation_guidance.as_deref(),
                         ),
-                    visibility: self.agent.tool_policy.visibility,
+                    visibility,
                     provenance: d.provenance.clone(),
                 }
             })
@@ -4218,6 +4229,12 @@ impl HarnessApi for Harness {
     }
 
     fn explain_config(&self, agent: &AgentConfig) -> ConfigExplanation {
+        let per_tool_visibility: BTreeMap<String, VisibilityLevel> = agent
+            .tool_policy
+            .per_tool_visibility
+            .iter()
+            .map(|(tool_id, visibility)| (tool_id.0.clone(), *visibility))
+            .collect();
         let per_tool_output_modes: BTreeMap<String, ToolOutputMode> = agent
             .tool_policy
             .per_tool_output_modes
@@ -4357,6 +4374,11 @@ impl HarnessApi for Harness {
                     source: "agent/default".into(),
                 },
                 ConfigValueExplanation {
+                    key: "agent.tool_policy.per_tool_visibility".into(),
+                    value: serde_json::to_value(per_tool_visibility).unwrap_or(Value::Null),
+                    source: "agent/default".into(),
+                },
+                ConfigValueExplanation {
                     key: "agent.tool_policy.visibility".into(),
                     value: serde_json::to_value(agent.tool_policy.visibility)
                         .unwrap_or(Value::Null),
@@ -4426,6 +4448,7 @@ mod tests {
                 allowed_categories: Vec::new(),
                 required_tool: None,
                 visibility: VisibilityLevel::FullSchema,
+                per_tool_visibility: HashMap::new(),
                 approval_mode: ApprovalMode::AutoApprove,
                 approval_controller: None,
                 output_mode: ToolOutputMode::Interpreted,
@@ -6213,6 +6236,34 @@ JSON
                 .description
                 .contains("Output interpretation guidance: Summarize echoed text compactly.")
         );
+    }
+
+    #[test]
+    fn per_tool_visibility_overrides_global_tool_visibility() {
+        let h = Harness::new(
+            Arc::new(FakeProvider::echo()),
+            Arc::new(InMemoryEventStore::new()),
+            registry_with_echo(),
+        );
+        let mut agent = agent_with_tools(vec![], 5);
+        agent.tool_policy.visibility = VisibilityLevel::NameOnly;
+        agent
+            .tool_policy
+            .per_tool_visibility
+            .insert(ToolId::from("echo"), VisibilityLevel::FullSchema);
+
+        let snapshot = h.preview_context(&agent, UserInput { text: "go".into() });
+        let echo_tool = snapshot
+            .visible_tools
+            .iter()
+            .find(|tool| tool.id == "echo")
+            .expect("echo tool should be visible");
+        assert_eq!(echo_tool.visibility, VisibilityLevel::FullSchema);
+        assert!(echo_tool.description.is_some());
+        assert!(echo_tool.input_schema.is_some());
+
+        let request = h.llm_request_from_snapshot(&agent, &snapshot);
+        assert!(request.tools.iter().any(|tool| tool.name == "echo"));
     }
 
     #[tokio::test]

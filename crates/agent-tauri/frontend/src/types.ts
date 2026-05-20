@@ -222,6 +222,14 @@ export type ModelMetadataCatalog = {
 export type ToolVisibility = "full_schema" | "name_and_description" | "name_only";
 export type ToolOutputMode = "interpreted" | "raw";
 
+export type AgentToolOverrideConfig = {
+  id: string;
+  output_mode?: ToolOutputMode | null;
+  output_interpretation_model?: string | null;
+  output_interpretation_guidance?: string | null;
+  visibility?: ToolVisibility | null;
+};
+
 export type AgentConfigFile = {
   id: string;
   name: string;
@@ -230,6 +238,8 @@ export type AgentConfigFile = {
   max_tool_calls?: number | null;
   prompt_refinement?: unknown | null;
   prompt_refinements?: unknown[];
+  tool_overrides?: AgentToolOverrideConfig[];
+  tool_visibility?: ToolVisibility | null;
   load_memory?: boolean | null;
   load_skills?: boolean | null;
   allowed_tools?: string[] | null;

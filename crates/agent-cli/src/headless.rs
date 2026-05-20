@@ -2904,6 +2904,7 @@ pub async fn agent_save(
     tool_output_overrides: Vec<String>,
     tool_interpretation_model_overrides: Vec<String>,
     tool_guidance_overrides: Vec<String>,
+    tool_visibility_overrides: Vec<String>,
     tool_visibility: Option<VisibilityLevel>,
     load_memory: bool,
     load_skills: bool,
@@ -2937,6 +2938,7 @@ pub async fn agent_save(
         tool_output_overrides,
         tool_interpretation_model_overrides,
         tool_guidance_overrides,
+        tool_visibility_overrides,
         tool_visibility,
         load_memory,
         load_skills,
@@ -3013,6 +3015,7 @@ fn agent_config_from_parts(
     tool_output_overrides: Vec<String>,
     tool_interpretation_model_overrides: Vec<String>,
     tool_guidance_overrides: Vec<String>,
+    tool_visibility_overrides: Vec<String>,
     tool_visibility: Option<VisibilityLevel>,
     load_memory: bool,
     load_skills: bool,
@@ -3030,6 +3033,7 @@ fn agent_config_from_parts(
         tool_output_overrides,
         tool_interpretation_model_overrides,
         tool_guidance_overrides,
+        tool_visibility_overrides,
     )?;
     let approval_controller_allowed_tool_categories =
         (!approval_controller_allowed_tool_categories.is_empty())
@@ -3100,6 +3104,7 @@ fn parse_tool_output_overrides(
     mode_specs: Vec<String>,
     model_specs: Vec<String>,
     guidance_specs: Vec<String>,
+    visibility_specs: Vec<String>,
 ) -> anyhow::Result<Vec<AgentToolOutputOverrideConfig>> {
     let mut overrides = BTreeMap::<String, AgentToolOutputOverrideConfig>::new();
     for spec in mode_specs {
@@ -3111,6 +3116,7 @@ fn parse_tool_output_overrides(
                 output_mode: None,
                 output_interpretation_model: None,
                 output_interpretation_guidance: None,
+                visibility: None,
             })
             .output_mode = Some(mode);
     }
@@ -3123,6 +3129,7 @@ fn parse_tool_output_overrides(
                 output_mode: None,
                 output_interpretation_model: None,
                 output_interpretation_guidance: None,
+                visibility: None,
             })
             .output_interpretation_model = Some(model);
     }
@@ -3135,8 +3142,22 @@ fn parse_tool_output_overrides(
                 output_mode: None,
                 output_interpretation_model: None,
                 output_interpretation_guidance: None,
+                visibility: None,
             })
             .output_interpretation_guidance = Some(guidance);
+    }
+    for spec in visibility_specs {
+        let (tool_id, visibility) = parse_tool_visibility_override(&spec)?;
+        overrides
+            .entry(tool_id.clone())
+            .or_insert_with(|| AgentToolOutputOverrideConfig {
+                id: tool_id,
+                output_mode: None,
+                output_interpretation_model: None,
+                output_interpretation_guidance: None,
+                visibility: None,
+            })
+            .visibility = Some(visibility);
     }
     Ok(overrides.into_values().collect())
 }
@@ -3167,6 +3188,19 @@ fn parse_tool_guidance_override(spec: &str) -> anyhow::Result<(String, String)> 
         anyhow::bail!("--tool-guidance-override guidance cannot be empty");
     }
     Ok((tool_id, guidance.to_string()))
+}
+
+fn parse_tool_visibility_override(spec: &str) -> anyhow::Result<(String, VisibilityLevel)> {
+    let (tool_id, value) = parse_tool_override_pair(spec, "--tool-visibility-override")?;
+    let visibility = match value {
+        "full-schema" | "full_schema" => VisibilityLevel::FullSchema,
+        "name-and-description" | "name_and_description" => VisibilityLevel::NameAndDescription,
+        "name-only" | "name_only" => VisibilityLevel::NameOnly,
+        _ => anyhow::bail!(
+            "--tool-visibility-override expects TOOL=full-schema, TOOL=name-and-description, or TOOL=name-only, got {spec:?}"
+        ),
+    };
+    Ok((tool_id, visibility))
 }
 
 fn parse_tool_override_pair<'a>(spec: &'a str, flag: &str) -> anyhow::Result<(String, &'a str)> {
@@ -5081,6 +5115,7 @@ pub async fn remote_agent_save(
     tool_output_overrides: Vec<String>,
     tool_interpretation_model_overrides: Vec<String>,
     tool_guidance_overrides: Vec<String>,
+    tool_visibility_overrides: Vec<String>,
     tool_visibility: Option<VisibilityLevel>,
     load_memory: bool,
     load_skills: bool,
@@ -5114,6 +5149,7 @@ pub async fn remote_agent_save(
         tool_output_overrides,
         tool_interpretation_model_overrides,
         tool_guidance_overrides,
+        tool_visibility_overrides,
         tool_visibility,
         load_memory,
         load_skills,
@@ -6342,6 +6378,7 @@ mod slash_tests {
             Vec::new(),
             Vec::new(),
             Vec::new(),
+            Vec::new(),
             None,
             false,
             false,
@@ -6358,6 +6395,52 @@ mod slash_tests {
         assert_eq!(agent.max_tokens_before_compaction, Some(128));
         assert_eq!(agent.max_compaction_output_tokens, Some(48));
         assert_eq!(agent.compaction_guidance.as_deref(), Some("keep decisions"));
+    }
+
+    #[test]
+    fn agent_config_from_parts_preserves_tool_visibility_overrides() {
+        let agent = agent_config_from_parts(
+            "critic".into(),
+            None,
+            "Review carefully.".into(),
+            Some("fake-model".into()),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+            None,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            None,
+            None,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            vec!["echo=name_and_description".into()],
+            None,
+            false,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(agent.tool_overrides.len(), 1);
+        assert_eq!(agent.tool_overrides[0].id, "echo");
+        assert_eq!(
+            agent.tool_overrides[0].visibility,
+            Some(VisibilityLevel::NameAndDescription)
+        );
     }
 
     #[test]

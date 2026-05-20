@@ -170,6 +170,8 @@ pub struct AgentToolOutputOverrideConfig {
     pub output_interpretation_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub output_interpretation_guidance: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visibility: Option<VisibilityLevel>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -3953,6 +3955,7 @@ fn resolve_agent(
     let per_tool_output_interpretation_models =
         per_tool_output_interpretation_model_overrides(&parsed.tool_overrides);
     let per_tool_output_guidance = per_tool_output_guidance_overrides(&parsed.tool_overrides);
+    let per_tool_visibility = per_tool_visibility_overrides(&parsed.tool_overrides);
 
     let agent = AgentConfig {
         id: parsed.id.clone(),
@@ -3978,6 +3981,10 @@ fn resolve_agent(
             allowed_categories: allowed_tool_categories.value.clone(),
             required_tool: None,
             visibility: tool_visibility.value,
+            per_tool_visibility: per_tool_visibility
+                .iter()
+                .map(|(tool_id, visibility)| (ToolId::from(tool_id.clone()), *visibility))
+                .collect::<HashMap<_, _>>(),
             approval_mode: ToolPolicy::default().approval_mode,
             approval_controller,
             output_mode: tool_output_mode.value,
@@ -4183,6 +4190,11 @@ fn resolve_agent(
         config_value(
             "agent.tool_policy.per_tool_output_guidance",
             per_tool_output_guidance,
+            &source,
+        ),
+        config_value(
+            "agent.tool_policy.per_tool_visibility",
+            per_tool_visibility,
             &source,
         ),
         config_value(
@@ -4397,6 +4409,20 @@ fn per_tool_output_guidance_overrides(
                 .map(str::trim)
                 .filter(|guidance| !guidance.is_empty())
                 .map(|guidance| (override_config.id.trim().to_string(), guidance.to_string()))
+        })
+        .filter(|(id, _)| !id.is_empty())
+        .collect()
+}
+
+fn per_tool_visibility_overrides(
+    overrides: &[AgentToolOutputOverrideConfig],
+) -> BTreeMap<String, VisibilityLevel> {
+    overrides
+        .iter()
+        .filter_map(|override_config| {
+            override_config
+                .visibility
+                .map(|visibility| (override_config.id.trim().to_string(), visibility))
         })
         .filter(|(id, _)| !id.is_empty())
         .collect()
@@ -4705,9 +4731,10 @@ fn validate_agent_config(agent: &AgentConfigFile) -> Result<(), ConfigError> {
                 .map(str::trim)
                 .filter(|guidance| !guidance.is_empty())
                 .is_none()
+            && override_config.visibility.is_none()
         {
             return Err(ConfigError::InvalidInput(
-                "tool override must set output_mode, output_interpretation_model, or output_interpretation_guidance".into(),
+                "tool override must set output_mode, output_interpretation_model, output_interpretation_guidance, or visibility".into(),
             ));
         }
         if let Some(model) = &override_config.output_interpretation_model {
@@ -4926,6 +4953,7 @@ system_prompt = "Review carefully."
                 output_mode: Some(ToolOutputMode::Raw),
                 output_interpretation_model: Some("echo-interpreter".into()),
                 output_interpretation_guidance: Some("Return exact echo JSON.".into()),
+                visibility: Some(VisibilityLevel::FullSchema),
             }],
             voice: None,
             model: Some("fake-model".into()),
@@ -5079,6 +5107,18 @@ system_prompt = "Review carefully."
                 .map(|model| model.0.as_str()),
             Some("echo-interpreter")
         );
+        assert_eq!(
+            resolved
+                .agent
+                .tool_policy
+                .per_tool_visibility
+                .get(&ToolId::from("echo")),
+            Some(&VisibilityLevel::FullSchema)
+        );
+        assert!(resolved.values.iter().any(|value| {
+            value.key == "agent.tool_policy.per_tool_visibility"
+                && value.value == serde_json::json!({"echo": "full_schema"})
+        }));
         assert!(
             resolver
                 .list_agent_configs()

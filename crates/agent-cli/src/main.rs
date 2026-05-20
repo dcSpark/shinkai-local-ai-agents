@@ -943,6 +943,9 @@ enum AgentCommand {
         /// Override one tool's output interpretation guidance, as TOOL=TEXT. Repeat for multiple tools.
         #[arg(long = "tool-guidance-override")]
         tool_guidance_overrides: Vec<String>,
+        /// Override one tool's visibility, as TOOL=full-schema, TOOL=name-and-description, or TOOL=name-only. Repeat for multiple tools.
+        #[arg(long = "tool-visibility-override")]
+        tool_visibility_overrides: Vec<String>,
         /// How much tool detail is shown to the model.
         #[arg(long, value_enum)]
         tool_visibility: Option<ToolVisibility>,
@@ -2762,6 +2765,8 @@ enum RemoteAgentCommand {
         tool_interpretation_model_overrides: Vec<String>,
         #[arg(long = "tool-guidance-override")]
         tool_guidance_overrides: Vec<String>,
+        #[arg(long = "tool-visibility-override")]
+        tool_visibility_overrides: Vec<String>,
         #[arg(long, value_enum)]
         tool_visibility: Option<ToolVisibility>,
         #[arg(long = "load-memory")]
@@ -3330,6 +3335,8 @@ mod cli_parse_tests {
             "echo=echo-interpreter",
             "--tool-guidance-override",
             "echo=Return exact echo JSON.",
+            "--tool-visibility-override",
+            "echo=full-schema",
             "--tool-visibility",
             "name-only",
             "--load-memory",
@@ -3367,6 +3374,7 @@ mod cli_parse_tests {
                     tool_output_overrides,
                     tool_interpretation_model_overrides,
                     tool_guidance_overrides,
+                    tool_visibility_overrides,
                     tool_visibility,
                     load_memory,
                     load_skills,
@@ -3415,6 +3423,7 @@ mod cli_parse_tests {
             tool_guidance_overrides,
             vec!["echo=Return exact echo JSON."]
         );
+        assert_eq!(tool_visibility_overrides, vec!["echo=full-schema"]);
         assert!(matches!(tool_visibility, Some(ToolVisibility::NameOnly)));
         assert!(load_memory);
         assert!(load_skills);
@@ -3461,6 +3470,8 @@ mod cli_parse_tests {
             "echo=interpreted",
             "--tool-interpretation-model",
             "echo=echo-interpreter",
+            "--tool-visibility-override",
+            "echo=name-only",
             "--load-memory",
             "--ingest-guardrail",
             "allow",
@@ -3486,6 +3497,7 @@ mod cli_parse_tests {
                     approval_controller_allowed_tools,
                     tool_output_overrides,
                     tool_interpretation_model_overrides,
+                    tool_visibility_overrides,
                     load_memory,
                     ingestion_guardrail,
                     ingestion_guardrail_model,
@@ -3515,6 +3527,7 @@ mod cli_parse_tests {
             tool_interpretation_model_overrides,
             vec!["echo=echo-interpreter"]
         );
+        assert_eq!(tool_visibility_overrides, vec!["echo=name-only"]);
         assert!(load_memory);
         assert!(matches!(
             ingestion_guardrail,
@@ -5405,6 +5418,7 @@ async fn main() -> anyhow::Result<()> {
                 tool_output_overrides,
                 tool_interpretation_model_overrides,
                 tool_guidance_overrides,
+                tool_visibility_overrides,
                 tool_visibility,
                 load_memory,
                 load_skills,
@@ -5438,6 +5452,7 @@ async fn main() -> anyhow::Result<()> {
                     tool_output_overrides,
                     tool_interpretation_model_overrides,
                     tool_guidance_overrides,
+                    tool_visibility_overrides,
                     tool_visibility.map(VisibilityLevel::from),
                     load_memory,
                     load_skills,
@@ -6145,6 +6160,7 @@ async fn main() -> anyhow::Result<()> {
                     tool_output_overrides,
                     tool_interpretation_model_overrides,
                     tool_guidance_overrides,
+                    tool_visibility_overrides,
                     tool_visibility,
                     load_memory,
                     load_skills,
@@ -6179,6 +6195,7 @@ async fn main() -> anyhow::Result<()> {
                         tool_output_overrides,
                         tool_interpretation_model_overrides,
                         tool_guidance_overrides,
+                        tool_visibility_overrides,
                         tool_visibility.map(VisibilityLevel::from),
                         load_memory,
                         load_skills,

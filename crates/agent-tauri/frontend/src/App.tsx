@@ -31,6 +31,7 @@ import type {
   MemoryBackendDescriptor,
   MemoryClassifyResult,
   MemoryRecord,
+  ModelDoctorReport,
   ModelMetadataCatalog,
   ModelProviderCatalog,
   ModelProviderDescriptor,
@@ -5269,6 +5270,19 @@ export default function App() {
     }
   }
 
+  async function modelDoctorFromOps() {
+    try {
+      const report =
+        transport === "daemon"
+          ? await daemonJson<ModelDoctorReport>("/models/doctor")
+          : await invoke<ModelDoctorReport>("model_doctor");
+      appendJson("Model doctor", report);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Model doctor failed: ${msg}`);
+    }
+  }
+
   async function showModelProviderCatalogFromOps() {
     try {
       const catalog =
@@ -9159,6 +9173,14 @@ export default function App() {
                   disabled={running}
                 >
                   Providers
+                </button>
+                <button
+                  type="button"
+                  title="Check saved models against providers and metadata catalogs."
+                  onClick={() => void modelDoctorFromOps()}
+                  disabled={running}
+                >
+                  Doctor
                 </button>
                 <button
                   type="button"

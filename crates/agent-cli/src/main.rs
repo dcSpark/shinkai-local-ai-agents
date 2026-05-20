@@ -1170,6 +1170,11 @@ enum ModelCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Check saved model configs against provider descriptors and metadata catalogs.
+    Doctor {
+        #[arg(long)]
+        json: bool,
+    },
     /// Show one configured model.
     Show {
         id: String,
@@ -2929,6 +2934,7 @@ enum RemoteAgentCommand {
 enum RemoteModelCommand {
     List,
     Providers,
+    Doctor,
     ProviderCatalog {
         #[command(subcommand)]
         command: RemoteModelProviderCatalogCommand,
@@ -4369,12 +4375,29 @@ mod cli_parse_tests {
         };
         assert!(json);
 
+        let cli = parse_cli(["agent", "model", "doctor", "--json"]).unwrap();
+        let Command::Model {
+            command: ModelCommand::Doctor { json },
+        } = into_command(cli)
+        else {
+            panic!("expected model doctor command");
+        };
+        assert!(json);
+
         let cli = parse_cli(["agent", "remote", "model", "providers"]).unwrap();
         let RemoteCommand::Model {
             command: RemoteModelCommand::Providers,
         } = into_remote_command(cli)
         else {
             panic!("expected remote model providers command");
+        };
+
+        let cli = parse_cli(["agent", "remote", "model", "doctor"]).unwrap();
+        let RemoteCommand::Model {
+            command: RemoteModelCommand::Doctor,
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote model doctor command");
         };
 
         let cli = parse_cli(["agent", "model", "probe", "gpt-test", "--json"]).unwrap();
@@ -5907,6 +5930,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Model { command } => match command {
             ModelCommand::List { json } => headless::model_list(json).await,
             ModelCommand::Providers { json } => headless::model_providers(json).await,
+            ModelCommand::Doctor { json } => headless::model_doctor(json).await,
             ModelCommand::Show { id, json } => headless::model_show(id, json).await,
             ModelCommand::Probe { id, json } => headless::model_probe(id, json).await,
             ModelCommand::Save {
@@ -6676,6 +6700,7 @@ async fn main() -> anyhow::Result<()> {
             RemoteCommand::Model { command } => match command {
                 RemoteModelCommand::List => headless::remote_model_list(url).await,
                 RemoteModelCommand::Providers => headless::remote_model_providers(url).await,
+                RemoteModelCommand::Doctor => headless::remote_model_doctor(url).await,
                 RemoteModelCommand::Show { id } => headless::remote_model_show(url, id).await,
                 RemoteModelCommand::Probe { id } => headless::remote_model_probe(url, id).await,
                 RemoteModelCommand::Save {

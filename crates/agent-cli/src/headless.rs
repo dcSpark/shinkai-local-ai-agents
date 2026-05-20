@@ -3711,6 +3711,41 @@ pub async fn model_providers(json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn model_doctor(json: bool) -> anyhow::Result<()> {
+    let report = ConfigResolver::from_env().model_doctor_report()?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!(
+            "model_doctor status={:?} providers={} saved_models={} provider_catalog={} metadata_catalog={} bundled_metadata_models={}",
+            report.status,
+            report.provider_count,
+            report.saved_model_count,
+            report.provider_catalog_configured,
+            report.metadata_catalog_source.as_deref().unwrap_or("none"),
+            report.bundled_metadata_models
+        );
+        for error in &report.errors {
+            println!("error: {error}");
+        }
+        for warning in &report.warnings {
+            println!("warning: {warning}");
+        }
+        for model in &report.saved_models {
+            println!(
+                "- {} provider={} known={} validation={:?} metadata={} source={}",
+                model.id,
+                model.provider,
+                model.provider_known,
+                model.validation_status,
+                model.metadata_present,
+                model.metadata_source.as_deref().unwrap_or("none")
+            );
+        }
+    }
+    Ok(())
+}
+
 pub async fn model_show(id: String, json: bool) -> anyhow::Result<()> {
     let Some(model) = ConfigResolver::from_env().show_model(&id)? else {
         anyhow::bail!("model {id:?} not found");
@@ -5628,6 +5663,10 @@ pub async fn remote_model_list(url: String) -> anyhow::Result<()> {
 
 pub async fn remote_model_providers(url: String) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).get_json("/model-providers")?)
+}
+
+pub async fn remote_model_doctor(url: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).get_json("/models/doctor")?)
 }
 
 pub async fn remote_model_show(url: String, id: String) -> anyhow::Result<()> {

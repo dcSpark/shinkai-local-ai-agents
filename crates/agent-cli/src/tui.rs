@@ -3660,6 +3660,7 @@ fn handle_models_slash(app: &mut App, rest: &str) {
                 "/models export <id> <path>",
                 "/models import <path>",
                 "/models providers",
+                "/models doctor",
                 "/models provider-catalog show",
                 "/models provider-catalog export <path>",
                 "/models provider-catalog import <path>",
@@ -3768,11 +3769,25 @@ fn handle_models_slash(app: &mut App, rest: &str) {
                 text: format!("Model providers failed: {err}"),
             }),
         },
+        "doctor" => match ConfigResolver::from_env().model_doctor_report() {
+            Ok(report) => {
+                push_event(app, format!("Model doctor status {:?}.", report.status));
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&report)
+                        .unwrap_or_else(|_| "<unserializable model doctor report>".into()),
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Model doctor failed: {err}"),
+            }),
+        },
         "provider-catalog" => handle_model_provider_catalog_slash(app, args),
         "metadata-catalog" => handle_model_metadata_catalog_slash(app, args),
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Models command needs list, show, export, import, providers, provider-catalog, metadata-catalog, or help.".into(),
+            text: "Models command needs list, show, export, import, providers, doctor, provider-catalog, metadata-catalog, or help.".into(),
         }),
     }
 }
@@ -7463,6 +7478,7 @@ mod tests {
         assert_eq!(hooks_slash_rest("/hooks"), Some(""));
         assert_eq!(hooks_slash_rest("/hook"), None);
         assert_eq!(models_slash_rest("/models providers"), Some("providers"));
+        assert_eq!(models_slash_rest("/models doctor"), Some("doctor"));
         assert_eq!(models_slash_rest("/models"), Some(""));
         assert_eq!(models_slash_rest("/model"), None);
         assert_eq!(agents_slash_rest("/agents list"), Some("list"));

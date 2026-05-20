@@ -201,6 +201,34 @@ export type ModelProviderCatalog = {
   providers: ModelProviderDescriptor[];
 };
 
+export type ModelDoctorStatus = "ok" | "warning" | "error";
+
+export type ModelDoctorModelReport = {
+  id: string;
+  provider: string;
+  provider_known: boolean;
+  validation_status: ModelDoctorStatus;
+  validation_error?: string | null;
+  declared_modalities: string[];
+  metadata_present: boolean;
+  metadata_source?: string | null;
+  metadata_modalities: string[];
+};
+
+export type ModelDoctorReport = {
+  active_profile: string;
+  status: ModelDoctorStatus;
+  provider_count: number;
+  provider_catalog_configured: boolean;
+  metadata_catalog_source?: string | null;
+  metadata_catalog_models: number;
+  bundled_metadata_models: number;
+  saved_model_count: number;
+  saved_models: ModelDoctorModelReport[];
+  warnings: string[];
+  errors: string[];
+};
+
 export type ModelMetadataCatalogEntry = {
   provider: string;
   model_id: string;

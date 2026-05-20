@@ -311,6 +311,7 @@ async fn route(
         ("POST", "/agents/import") => daemon_agent_import(&request.body).map(|value| (200, value)),
         ("GET", "/models") => daemon_model_list().map(|value| (200, value)),
         ("GET", "/model-providers") => daemon_model_providers().map(|value| (200, value)),
+        ("GET", "/models/doctor") => daemon_model_doctor().map(|value| (200, value)),
         ("GET", "/model-provider-catalog") => {
             daemon_model_provider_catalog().map(|value| (200, value))
         }
@@ -777,6 +778,7 @@ async fn route(
                     "POST /agents/import",
                     "GET|POST /models",
                     "GET /model-providers",
+                    "GET /models/doctor",
                     "GET /model-provider-catalog",
                     "POST /model-provider-catalog/export",
                     "POST /model-provider-catalog/import",
@@ -4500,6 +4502,12 @@ fn daemon_model_list() -> anyhow::Result<serde_json::Value> {
 
 fn daemon_model_providers() -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(configured_model_providers()?)?)
+}
+
+fn daemon_model_doctor() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(
+        ConfigResolver::from_env().model_doctor_report()?,
+    )?)
 }
 
 fn daemon_model_provider_catalog() -> anyhow::Result<serde_json::Value> {

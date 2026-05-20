@@ -505,6 +505,47 @@ pub struct ModelMetadataCatalogEntry {
     pub source: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelDoctorStatus {
+    Ok,
+    Warning,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelDoctorModelReport {
+    pub id: String,
+    pub provider: String,
+    pub provider_known: bool,
+    pub validation_status: ModelDoctorStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation_error: Option<String>,
+    #[serde(default)]
+    pub declared_modalities: Vec<String>,
+    pub metadata_present: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata_source: Option<String>,
+    #[serde(default)]
+    pub metadata_modalities: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ModelDoctorReport {
+    pub active_profile: String,
+    pub status: ModelDoctorStatus,
+    pub provider_count: usize,
+    pub provider_catalog_configured: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata_catalog_source: Option<String>,
+    pub metadata_catalog_models: usize,
+    pub bundled_metadata_models: usize,
+    pub saved_model_count: usize,
+    pub saved_models: Vec<ModelDoctorModelReport>,
+    pub warnings: Vec<String>,
+    pub errors: Vec<String>,
+}
+
 #[derive(Debug, Clone)]
 struct LoadedModelMetadataCatalog {
     source: String,
@@ -1889,6 +1930,91 @@ impl ConfigResolver {
         Ok(self
             .load_model_metadata_catalog()?
             .map(|loaded| loaded.catalog))
+    }
+
+    pub fn model_doctor_report(&self) -> Result<ModelDoctorReport, ConfigError> {
+        self.ensure_default_files()?;
+        let providers = self.model_provider_descriptors()?;
+        let provider_catalog_configured = load_model_provider_catalog(&self.paths)?.is_some();
+        let metadata_catalog = self.load_model_metadata_catalog()?;
+        let bundled_metadata_models = bundled_model_metadata_catalog()
+            .map(|loaded| loaded.catalog.models.len())
+            .unwrap_or(0);
+        let models = self.list_models()?;
+        let mut saved_models = Vec::new();
+        let mut warnings = Vec::new();
+        let mut errors = Vec::new();
+
+        for model in &models {
+            let provider =
+                normalized_provider(model.provider.as_deref()).unwrap_or_else(|| "rig".to_string());
+            let provider_known = providers.iter().any(|descriptor| descriptor.id == provider);
+            if !provider_known {
+                warnings.push(format!(
+                    "model {} uses provider {} that is not in the configured provider descriptors",
+                    model.id, provider
+                ));
+            }
+            let validation_error = match validate_model_config_with_providers(model, &providers) {
+                Ok(()) => None,
+                Err(err) => {
+                    let message = err.to_string();
+                    errors.push(format!("model {} failed validation: {message}", model.id));
+                    Some(message)
+                }
+            };
+            let metadata = curated_model_metadata(&provider, &model.id, metadata_catalog.as_ref());
+            if model.available_modalities.is_empty() && metadata.is_none() {
+                warnings.push(format!(
+                    "model {} has no saved modalities and no configured or bundled metadata entry",
+                    model.id
+                ));
+            }
+            saved_models.push(ModelDoctorModelReport {
+                id: model.id.clone(),
+                provider,
+                provider_known,
+                validation_status: if validation_error.is_some() {
+                    ModelDoctorStatus::Error
+                } else {
+                    ModelDoctorStatus::Ok
+                },
+                validation_error,
+                declared_modalities: model.available_modalities.clone(),
+                metadata_present: metadata.is_some(),
+                metadata_source: metadata.as_ref().map(|(source, _)| source.clone()),
+                metadata_modalities: metadata
+                    .map(|(_, metadata)| metadata.modalities)
+                    .unwrap_or_default(),
+            });
+        }
+
+        let status = if !errors.is_empty() {
+            ModelDoctorStatus::Error
+        } else if !warnings.is_empty() {
+            ModelDoctorStatus::Warning
+        } else {
+            ModelDoctorStatus::Ok
+        };
+
+        Ok(ModelDoctorReport {
+            active_profile: self.paths.active_profile_id().to_string(),
+            status,
+            provider_count: providers.len(),
+            provider_catalog_configured,
+            metadata_catalog_source: metadata_catalog
+                .as_ref()
+                .map(|loaded| loaded.source.clone()),
+            metadata_catalog_models: metadata_catalog
+                .as_ref()
+                .map(|loaded| loaded.catalog.models.len())
+                .unwrap_or(0),
+            bundled_metadata_models,
+            saved_model_count: models.len(),
+            saved_models,
+            warnings,
+            errors,
+        })
     }
 
     pub fn export_model_metadata_catalog(
@@ -6213,6 +6339,77 @@ system_prompt = "Review carefully."
             .unwrap();
         assert!(support.supported);
         assert!(support.source.starts_with("model_metadata_catalog:"));
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn model_doctor_reports_provider_and_metadata_gaps() {
+        let dir = std::env::temp_dir().join(format!("agent-model-doctor-test-{}", uuid_like()));
+        let import_path = dir.join("incoming-metadata-catalog.json");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            &import_path,
+            r#"{
+              "schema_version": 1,
+              "source": "doctor-metadata-catalog-test",
+              "models": [
+                {
+                  "provider": "ollama",
+                  "model_id": "local-vision",
+                  "modalities": ["text", "image"],
+                  "capabilities": ["tool_calling"]
+                }
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        let resolver = ConfigResolver::new(StoragePaths::new(&dir));
+        resolver
+            .import_model_metadata_catalog(&import_path)
+            .unwrap();
+        let mut local = ModelConfig::for_id("local-vision");
+        local.provider = Some("ollama".into());
+        resolver.save_model(&local).unwrap();
+        let mut mystery = ModelConfig::for_id("mystery-model");
+        mystery.provider = Some("mystery-provider".into());
+        resolver.save_model(&mystery).unwrap();
+
+        let report = resolver.model_doctor_report().unwrap();
+        assert_eq!(report.status, ModelDoctorStatus::Warning);
+        assert!(report.saved_model_count >= 2);
+        assert_eq!(report.metadata_catalog_models, 1);
+        assert!(report.bundled_metadata_models > 0);
+        assert!(report.warnings.iter().any(|warning| {
+            warning.contains("mystery-model") && warning.contains("no saved modalities")
+        }));
+
+        let local_report = report
+            .saved_models
+            .iter()
+            .find(|model| model.id == "local-vision")
+            .expect("local model report");
+        assert!(local_report.provider_known);
+        assert!(local_report.metadata_present);
+        assert_eq!(
+            local_report.metadata_source.as_deref(),
+            Some("doctor-metadata-catalog-test")
+        );
+        assert!(
+            local_report
+                .metadata_modalities
+                .iter()
+                .any(|modality| modality == "image")
+        );
+
+        let mystery_report = report
+            .saved_models
+            .iter()
+            .find(|model| model.id == "mystery-model")
+            .expect("mystery model report");
+        assert!(!mystery_report.provider_known);
+        assert!(!mystery_report.metadata_present);
 
         let _ = std::fs::remove_dir_all(dir);
     }

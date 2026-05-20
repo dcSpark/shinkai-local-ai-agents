@@ -23,8 +23,8 @@ use agent_capabilities::{
 use agent_compaction::{CompactionRecord, CompactionStore};
 use agent_config::{
     AgentConfigFile, AgentSummary, ConfigResolver, IngestionGuardrailMode, ModelConfig,
-    ModelMetadataCatalog, ModelProviderCatalog, ModelProviderDescriptor, ModelRuntimeConfig,
-    ProfileGrantKind, configured_model_providers,
+    ModelDoctorReport, ModelMetadataCatalog, ModelProviderCatalog, ModelProviderDescriptor,
+    ModelRuntimeConfig, ProfileGrantKind, configured_model_providers,
 };
 use agent_conversations::{
     ConversationDoc, ConversationPolicy, ConversationRole, ConversationStore, ConversationTreeNode,
@@ -3058,6 +3058,13 @@ async fn model_provider_list() -> Result<Vec<ModelProviderDescriptor>, String> {
 }
 
 #[tauri::command]
+async fn model_doctor() -> Result<ModelDoctorReport, String> {
+    ConfigResolver::from_env()
+        .model_doctor_report()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn model_provider_catalog_show() -> Result<Option<ModelProviderCatalog>, String> {
     ConfigResolver::from_env()
         .show_model_provider_catalog()
@@ -3772,6 +3779,7 @@ pub fn run() {
             prompt_delete,
             model_list,
             model_provider_list,
+            model_doctor,
             model_provider_catalog_show,
             model_metadata_catalog_show,
             model_show,

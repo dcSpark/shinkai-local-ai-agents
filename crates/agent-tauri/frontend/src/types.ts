@@ -428,6 +428,12 @@ export type MemoryFragment = {
 export type MemoryTarget = "agent" | "user";
 export type MemoryAuthor = "human" | "model";
 
+export type MemoryClassification = {
+  topics?: string[];
+  tasks?: string[];
+  source?: string | null;
+};
+
 export type MemoryRecord = {
   id: string;
   content: string;
@@ -441,6 +447,15 @@ export type MemoryRecord = {
   source_conversation_id?: string | null;
   generating_model?: string | null;
   topics?: string[];
+  classification?: MemoryClassification;
+};
+
+export type MemoryClassifyResult = {
+  id: string;
+  model: string;
+  classification: MemoryClassification;
+  record?: MemoryRecord | null;
+  applied: boolean;
 };
 
 export type MemoryBackendDescriptor = {

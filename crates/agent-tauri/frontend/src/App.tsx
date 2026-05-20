@@ -27,6 +27,7 @@ import type {
   IngestionFindingReviewDecision,
   IngestionResult,
   MemoryBackendDescriptor,
+  MemoryClassifyResult,
   MemoryRecord,
   ModelProviderDescriptor,
   ModelProviderOptionDescriptor,
@@ -339,6 +340,7 @@ export default function App() {
   const [capabilityKind, setCapabilityKind] = useState<CapabilityKind>("skill");
   const [memorySourceRange, setMemorySourceRange] = useState("");
   const [memoryTopics, setMemoryTopics] = useState("");
+  const [memoryClassificationModel, setMemoryClassificationModel] = useState("");
   const [opsUserMemory, setOpsUserMemory] = useState(false);
   const [ingestBackend, setIngestBackend] = useState("local-v0");
   const [ingestVisionModel, setIngestVisionModel] = useState("");
@@ -4988,6 +4990,34 @@ export default function App() {
     }
   }
 
+  async function classifyMemoryFromOps() {
+    const id = requireOpsId("Memory classify");
+    if (!id) return;
+    const model = memoryClassificationModel.trim() || null;
+    try {
+      const result =
+        transport === "daemon"
+          ? await daemonJson<MemoryClassifyResult>("/memory/classify", {
+              id,
+              model,
+              apply: true,
+            })
+          : await invoke<MemoryClassifyResult>("memory_classify", {
+              id,
+              model,
+              apply: true,
+            });
+      const record = result.record;
+      if (record) {
+        setMemoryRecords((records) => upsertMemoryRecord(records, record));
+      }
+      appendJson("Memory classified", result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Memory classify failed: ${msg}`);
+    }
+  }
+
   async function editMemoryFromOps() {
     const id = requireOpsId("Memory edit");
     const content = requireOpsValue("Memory edit");
@@ -8602,6 +8632,15 @@ export default function App() {
                   disabled={running}
                 />
               </label>
+              <label>
+                Classification model
+                <input
+                  value={memoryClassificationModel}
+                  onChange={(e) => setMemoryClassificationModel(e.target.value)}
+                  placeholder="saved model id or env default"
+                  disabled={running}
+                />
+              </label>
               <div className="button-grid">
                 <button
                   type="button"
@@ -8652,6 +8691,14 @@ export default function App() {
                   }
                 >
                   Generate Range
+                </button>
+                <button
+                  type="button"
+                  title="Classify memory Id with the selected model."
+                  onClick={() => void classifyMemoryFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Classify
                 </button>
                 <button
                   type="button"
@@ -8728,6 +8775,12 @@ export default function App() {
                         ) : null}
                         {record.topics?.length ? (
                           <span>topics {record.topics.join(", ")}</span>
+                        ) : null}
+                        {record.classification?.tasks?.length ? (
+                          <span>tasks {record.classification.tasks.join(", ")}</span>
+                        ) : null}
+                        {record.classification?.source ? (
+                          <span>class {record.classification.source}</span>
                         ) : null}
                       </div>
                       <p>{previewText(record.content)}</p>

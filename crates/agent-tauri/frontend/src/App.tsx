@@ -1338,6 +1338,8 @@ export default function App() {
       { command: "/score conversation 10", label: "Score the full conversation" },
       { command: "/score range:important 8", label: "Score a selected range" },
       { command: "/scores", label: "Review quality scores" },
+      { command: "/resume", label: "Resume last or selected run" },
+      { command: "/resume ", label: "Resume a run by id" },
       { command: "/stop", label: "Stop current run with selected mode" },
       { command: "/stop discard", label: "Stop without retaining context" },
       { command: "/stop summarise", label: "Stop and retain a summary" },
@@ -1442,6 +1444,56 @@ export default function App() {
       score,
       target: target.trim() || "last_answer",
     };
+  }
+
+  function parseResumeShortcut(text: string) {
+    const trimmed = text.trim();
+    if (trimmed !== "/resume" && !trimmed.startsWith("/resume ")) {
+      return null;
+    }
+    const parts =
+      trimmed === "/resume" ? [] : trimmed.slice("/resume ".length).trim().split(/\s+/);
+    let runId = "";
+    let fromEvent: number | null = null;
+
+    for (let index = 0; index < parts.length; index += 1) {
+      const part = parts[index];
+      if (!part) continue;
+      if (part === "--from-event") {
+        const raw = parts[index + 1];
+        const parsed = Number(raw);
+        if (!raw || !Number.isInteger(parsed) || parsed < 0) {
+          appendLine("error", "Resume shortcut --from-event needs a non-negative event id.");
+          return null;
+        }
+        fromEvent = parsed;
+        index += 1;
+        continue;
+      }
+      if (part.startsWith("--from-event=")) {
+        const raw = part.slice("--from-event=".length);
+        const parsed = Number(raw);
+        if (!Number.isInteger(parsed) || parsed < 0) {
+          appendLine("error", "Resume shortcut --from-event needs a non-negative event id.");
+          return null;
+        }
+        fromEvent = parsed;
+        continue;
+      }
+      if (!runId) {
+        runId = part === "last" ? "" : part;
+        continue;
+      }
+      appendLine("error", "Resume shortcut accepts one run id plus optional --from-event.");
+      return null;
+    }
+
+    const selectedRunId = runId || opsId.trim() || lastRunId || "";
+    if (!selectedRunId) {
+      appendLine("error", "Resume shortcut needs a completed run or a run id.");
+      return null;
+    }
+    return { runId: selectedRunId, fromEvent };
   }
 
   function appendJson(label: string, value: unknown) {
@@ -2920,6 +2972,14 @@ export default function App() {
     }
     if (prompt === "/score") {
       appendLine("error", "Score shortcut needs a number from 0 to 10.");
+      return;
+    }
+
+    const resumeShortcut = parseResumeShortcut(prompt);
+    if (resumeShortcut) {
+      setInput("");
+      appendLine("user", prompt);
+      await resumeRun(resumeShortcut.runId, resumeShortcut.fromEvent);
       return;
     }
 
@@ -4930,9 +4990,8 @@ export default function App() {
     }
   }
 
-  async function resumeLastRun() {
-    if (!lastRunId || running) return;
-    const sourceRunId = lastRunId;
+  async function resumeRun(sourceRunId: string, fromEvent: number | null = null) {
+    if (!sourceRunId || running) return;
     setRunning(true);
     setTokensIn(0);
     setTokensOut(0);
@@ -4952,7 +5011,7 @@ export default function App() {
       if (transport === "daemon") {
         const started = await daemonJson<RemoteResumeStart>("/resume/start", {
           run_id: sourceRunId,
-          from_event: null,
+          from_event: fromEvent,
           demo,
           ...runtimeOptions(),
         });
@@ -4968,7 +5027,7 @@ export default function App() {
       }
       const result = await invoke<ResumeResult>("resume_run", {
         runId: sourceRunId,
-        fromEvent: null,
+        fromEvent,
         demo,
         options: runtimeOptions(),
       });
@@ -4986,6 +5045,11 @@ export default function App() {
       setRunning(false);
       runStartedAtRef.current = null;
     }
+  }
+
+  async function resumeLastRun() {
+    const sourceRunId = opsId.trim() || lastRunId || "";
+    await resumeRun(sourceRunId);
   }
 
   async function reviewApprovals() {
@@ -7825,8 +7889,9 @@ export default function App() {
             </button>
             <button
               type="button"
+              title="Resume the run id in the Id field, or the last run when Id is blank."
               onClick={() => void resumeLastRun()}
-              disabled={running || !lastRunId}
+              disabled={running || (!opsId.trim() && !lastRunId)}
             >
               Resume Run
             </button>
@@ -11694,8 +11759,9 @@ export default function App() {
             </button>
             <button
               type="button"
+              title="Resume the run id in the Id field, or the last run when Id is blank."
               onClick={() => void resumeLastRun()}
-              disabled={running || !lastRunId}
+              disabled={running || (!opsId.trim() && !lastRunId)}
             >
               Resume
             </button>

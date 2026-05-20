@@ -45,6 +45,22 @@ function commandExists(command, args = ["--version"]) {
   return result.status === 0;
 }
 
+function directoryHasFiles(dir) {
+  if (!fs.existsSync(dir)) return false;
+  const stack = [dir];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    const stat = fs.statSync(current);
+    if (stat.isFile()) return true;
+    if (stat.isDirectory()) {
+      for (const entry of fs.readdirSync(current)) {
+        stack.push(`${current}/${entry}`);
+      }
+    }
+  }
+  return false;
+}
+
 function installedRustTargets() {
   const result = spawnSync("rustup", ["target", "list", "--installed"], {
     encoding: "utf8",
@@ -110,13 +126,17 @@ for (const glob of [
 
 if (strict) {
   if (checkAndroid) {
-    requireStrict(fs.existsSync("crates/agent-tauri/gen/android"), "generated Android Tauri project is missing");
+    const androidProject = "crates/agent-tauri/gen/android";
+    requireStrict(fs.existsSync(androidProject), "generated Android Tauri project is missing");
+    requireStrict(directoryHasFiles(androidProject), "generated Android Tauri project is empty");
     requireStrict(process.env.ANDROID_HOME && fs.existsSync(process.env.ANDROID_HOME), "ANDROID_HOME must point at the Android SDK");
     requireStrict(process.env.NDK_HOME && fs.existsSync(process.env.NDK_HOME), "NDK_HOME must point at the Android NDK");
     requireStrict(commandExists("java"), "Java must be installed for Android packaging");
   }
   if (checkIos) {
-    requireStrict(fs.existsSync("crates/agent-tauri/gen/apple"), "generated iOS Tauri project is missing");
+    const iosProject = "crates/agent-tauri/gen/apple";
+    requireStrict(fs.existsSync(iosProject), "generated iOS Tauri project is missing");
+    requireStrict(directoryHasFiles(iosProject), "generated iOS Tauri project is empty");
     requireStrict(commandExists("pod"), "CocoaPods must be installed for iOS packaging");
     requireStrict(commandExists("xcodebuild", ["-version"]), "Xcode must be installed for iOS packaging");
   }

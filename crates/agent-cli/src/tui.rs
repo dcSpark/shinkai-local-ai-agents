@@ -1602,6 +1602,9 @@ fn handle_models_slash(app: &mut App, rest: &str) {
             kind: LineKind::Assistant,
             text: [
                 "/models list",
+                "/models show <id>",
+                "/models export <id> <path>",
+                "/models import <path>",
                 "/models providers",
                 "/models provider-catalog show",
                 "/models provider-catalog export <path>",
@@ -1632,6 +1635,60 @@ fn handle_models_slash(app: &mut App, rest: &str) {
                 text: format!("Model list failed: {err}"),
             }),
         },
+        "show" => match first_model_arg(args, "show") {
+            Ok(id) => match ConfigResolver::from_env().show_model(id) {
+                Ok(Some(model)) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&model)
+                        .unwrap_or_else(|_| "<unserializable model config>".into()),
+                }),
+                Ok(None) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Model {id} not found."),
+                }),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Model show failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "export" => match model_export_args(args) {
+            Ok((id, path)) => match ConfigResolver::from_env().export_model_config(id, path) {
+                Ok(model) => push_event(app, format!("Exported model {} to {path}", model.id)),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Model export failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "import" => match model_path_arg(args, "import") {
+            Ok(path) => match ConfigResolver::from_env().import_model_config(path) {
+                Ok(model) => {
+                    push_event(app, format!("Imported model {}", model.id));
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&model)
+                            .unwrap_or_else(|_| "<unserializable model config>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Model import failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
         "providers" => match configured_model_providers() {
             Ok(providers) => {
                 push_event(
@@ -1657,9 +1714,40 @@ fn handle_models_slash(app: &mut App, rest: &str) {
         "provider-catalog" => handle_model_provider_catalog_slash(app, args),
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Models command needs list, providers, provider-catalog, or help.".into(),
+            text: "Models command needs list, show, export, import, providers, provider-catalog, or help.".into(),
         }),
     }
+}
+
+fn first_model_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    args.split_whitespace()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("models {command} needs an argument"))
+}
+
+fn model_path_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    let mut parts = args.split_whitespace();
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("models {command} needs a path"))?;
+    if parts.next().is_some() {
+        anyhow::bail!("models {command} accepts exactly one path");
+    }
+    Ok(path)
+}
+
+fn model_export_args(args: &str) -> anyhow::Result<(&str, &str)> {
+    let mut parts = args.split_whitespace();
+    let id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("models export needs a model id"))?;
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("models export needs a path"))?;
+    if parts.next().is_some() {
+        anyhow::bail!("models export accepts exactly a model id and path");
+    }
+    Ok((id, path))
 }
 
 fn handle_model_provider_catalog_slash(app: &mut App, rest: &str) {
@@ -3293,6 +3381,22 @@ mod tests {
         );
         assert!(adapter_export_args("adapter-1").is_err());
         assert!(adapter_export_args("adapter-1 ./adapter.json extra").is_err());
+    }
+
+    #[test]
+    fn model_args_require_expected_id_and_path() {
+        assert_eq!(
+            model_export_args("gpt-test ./model.toml").unwrap(),
+            ("gpt-test", "./model.toml")
+        );
+        assert_eq!(
+            model_path_arg("./model.toml", "import").unwrap(),
+            "./model.toml"
+        );
+        assert!(model_export_args("gpt-test").is_err());
+        assert!(model_export_args("gpt-test ./model.toml extra").is_err());
+        assert!(model_path_arg("", "import").is_err());
+        assert!(model_path_arg("./model.toml extra", "import").is_err());
     }
 
     #[test]

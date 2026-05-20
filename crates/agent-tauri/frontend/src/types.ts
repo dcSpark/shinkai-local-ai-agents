@@ -143,6 +143,18 @@ export type RunSummary = {
   final_output: string;
 };
 
+export type TraceTreeNode = {
+  run_id: Uuid;
+  agent_id?: string | null;
+  status: string;
+  event_count: number;
+  trace_available: boolean;
+  link_event_id?: number | null;
+  completion_event_id?: number | null;
+  link_status?: string | null;
+  children?: TraceTreeNode[];
+};
+
 export type Demo = "echo" | "tool";
 export type Provider =
   | "fake"

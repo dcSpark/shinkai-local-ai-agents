@@ -34,6 +34,7 @@ import type {
   RunOptions,
   RunSummary,
   SkillDoc,
+  TraceTreeNode,
   ToolVisibility,
 } from "./types";
 
@@ -362,6 +363,7 @@ export default function App() {
   const [contextCopyStatus, setContextCopyStatus] = useState("");
   const [traceEvents, setTraceEvents] = useState<RunEvent[]>([]);
   const [traceSummary, setTraceSummary] = useState<TraceSummary | null>(null);
+  const [traceTree, setTraceTree] = useState<TraceTreeNode | null>(null);
   const [hookPolicy, setHookPolicy] = useState<HookPolicyRecord | null>(null);
   const [hookCatalog, setHookCatalog] = useState<HookCatalogRecord[]>([]);
   const [storageReport, setStorageReport] = useState<StorageReport | null>(null);
@@ -888,6 +890,7 @@ export default function App() {
       rootRunIdRef.current = runId;
       setTraceEvents([]);
       setTraceSummary(null);
+      setTraceTree(null);
     }
     const duration = durationMsFromValue(value);
     if (duration !== null) {
@@ -1768,6 +1771,12 @@ export default function App() {
       : await invoke<RunEvent[]>("trace_show", { runId });
   }
 
+  async function fetchTraceTree(runId: string) {
+    return transport === "daemon"
+      ? await daemonJson<TraceTreeNode>(`/trace/${runId}/tree`)
+      : await invoke<TraceTreeNode>("trace_tree", { runId });
+  }
+
   function applyTraceEvents(events: RunEvent[]) {
     const summary = summarizeTrace(events);
     const latestContext = latestContextSnapshot(events);
@@ -1786,6 +1795,55 @@ export default function App() {
     }
     void refreshHookPolicy(false);
     return summary;
+  }
+
+  function traceTreeNodeCount(node: TraceTreeNode | null): number {
+    if (!node) return 0;
+    return 1 + (node.children ?? []).reduce((sum, child) => sum + traceTreeNodeCount(child), 0);
+  }
+
+  function traceTreeChildCount(node: TraceTreeNode | null): number {
+    if (!node) return 0;
+    return (
+      (node.children ?? []).length +
+      (node.children ?? []).reduce((sum, child) => sum + traceTreeChildCount(child), 0)
+    );
+  }
+
+  function traceTreeNodeTone(node: TraceTreeNode) {
+    if (!node.trace_available) return "warning";
+    if (node.status === "completed" || node.status === "succeeded") return "ok";
+    if (node.status === "failed" || node.status === "cancelled") return "danger";
+    if (node.status === "paused" || node.status === "cycle") return "warning";
+    return "neutral";
+  }
+
+  function renderTraceTreeNode(node: TraceTreeNode, depth = 0) {
+    const children = node.children ?? [];
+    const agent = node.agent_id || "unknown";
+    const link = node.link_status ? ` / link ${node.link_status}` : "";
+    return (
+      <div
+        className={`trace-tree-node ${traceTreeNodeTone(node)}`}
+        key={`${node.run_id}:${node.link_event_id ?? "root"}`}
+        style={{ marginLeft: `${Math.min(depth, 6) * 0.85}rem` }}
+      >
+        <div>
+          <strong>{agent}</strong>
+          <span>{node.status}{link}</span>
+        </div>
+        <code>{node.run_id}</code>
+        <span>
+          {node.trace_available ? `${node.event_count} events` : "trace missing"}
+          {children.length ? ` / ${children.length} child run(s)` : ""}
+        </span>
+        {children.length ? (
+          <div className="trace-tree-children">
+            {children.map((child) => renderTraceTreeNode(child, depth + 1))}
+          </div>
+        ) : null}
+      </div>
+    );
   }
 
   function traceOriginalPrompt(events: RunEvent[]) {
@@ -2001,7 +2059,15 @@ export default function App() {
   }
 
   async function loadTraceFor(runId: string) {
-    return applyTraceEvents(await fetchTraceEvents(runId));
+    const [events, tree] = await Promise.all([
+      fetchTraceEvents(runId),
+      fetchTraceTree(runId),
+    ]);
+    setTraceTree(tree);
+    appendEvent(
+      `Trace tree: ${traceTreeNodeCount(tree)} run(s), ${traceTreeChildCount(tree)} child link(s)`,
+    );
+    return applyTraceEvents(events);
   }
 
   async function submit() {
@@ -2816,6 +2882,7 @@ export default function App() {
     setElapsedMs(0);
     setTraceEvents([]);
     setTraceSummary(null);
+    setTraceTree(null);
     setApprovals([]);
     setPostRunCompactionPrompt(null);
     terminalEventSeenRef.current = false;
@@ -4373,6 +4440,7 @@ export default function App() {
     setElapsedMs(0);
     setTraceEvents([]);
     setTraceSummary(null);
+    setTraceTree(null);
     setApprovals([]);
     terminalEventSeenRef.current = false;
     rootRunIdRef.current = null;
@@ -7550,6 +7618,7 @@ export default function App() {
               onClick={() => {
                 setTraceEvents([]);
                 setTraceSummary(null);
+                setTraceTree(null);
               }}
               disabled={running || !traceEvents.length}
             >
@@ -7609,6 +7678,12 @@ export default function App() {
           ) : (
             <div className="empty-note">No trace loaded.</div>
           )}
+          {traceTree ? (
+            <section className="trace-tree">
+              <strong>Run Tree</strong>
+              <div className="trace-tree-list">{renderTraceTreeNode(traceTree)}</div>
+            </section>
+          ) : null}
           <section className="hook-remediation-list">
             <strong>Hook Catalog</strong>
             <div className="mini-actions">

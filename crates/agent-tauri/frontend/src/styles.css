@@ -1313,6 +1313,71 @@ textarea:disabled {
   overflow-wrap: anywhere;
 }
 
+.trace-tree {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.trace-tree > strong {
+  color: #dfe3ea;
+}
+
+.trace-tree-list,
+.trace-tree-children {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.trace-tree-node {
+  display: grid;
+  gap: 0.22rem;
+  min-width: 0;
+  padding: 0.6rem;
+  border: 1px solid #2a2d34;
+  border-radius: 8px;
+  background: #111215;
+}
+
+.trace-tree-node > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.trace-tree-node strong {
+  min-width: 0;
+  color: #f1f2f4;
+  overflow-wrap: anywhere;
+}
+
+.trace-tree-node span,
+.trace-tree-node code {
+  min-width: 0;
+  color: #9da3ad;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.trace-tree-node.ok {
+  border-color: #275c43;
+  background: #13201a;
+}
+
+.trace-tree-node.warning {
+  border-color: #816a2d;
+  background: #251f12;
+}
+
+.trace-tree-node.danger {
+  border-color: #7d3c45;
+  background: #26171c;
+}
+
 .trace-timeline {
   display: grid;
   gap: 0.55rem;

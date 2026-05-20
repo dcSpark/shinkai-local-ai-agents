@@ -65,8 +65,8 @@ use agent_tools::{
 };
 use agent_tracing::{
     EventId, EventStore, PublishingEventStore, RunEvent, RunEventKind, RunId, SqliteEventStore,
-    build_resume_plan, is_terminal_run_event, latest_event_id, validate_guidance_content,
-    validate_quality_score,
+    TraceTreeNode, build_resume_plan, build_trace_tree, is_terminal_run_event, latest_event_id,
+    validate_guidance_content, validate_quality_score,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -1741,6 +1741,13 @@ async fn trace_show(run_id: String) -> Result<Vec<RunEvent>, String> {
 }
 
 #[tauri::command]
+async fn trace_tree(run_id: String) -> Result<TraceTreeNode, String> {
+    let run_id = RunId(uuid::Uuid::parse_str(&run_id).map_err(|e| e.to_string())?);
+    let store = open_event_store()?;
+    build_trace_tree(run_id, |id| store.try_events(id)).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn hook_policy(agent_id: Option<String>) -> Result<Value, String> {
     hook_policy_value(agent_id.as_deref()).map_err(|e| e.to_string())
 }
@@ -3273,6 +3280,7 @@ pub fn run() {
             compaction_import,
             call_tool,
             trace_show,
+            trace_tree,
             hook_policy,
             hook_available,
             set_hook_disabled,

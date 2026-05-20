@@ -69,8 +69,8 @@ function staticPrefix(pattern) {
 function walk(dir, out = []) {
   if (!fs.existsSync(dir)) return out;
   const stat = fs.statSync(dir);
+  out.push(dir);
   if (stat.isFile()) {
-    out.push(dir);
     return out;
   }
   for (const entry of fs.readdirSync(dir)) {
@@ -85,6 +85,25 @@ function matchesGlob(pattern) {
   const candidates = walk(prefix).map((candidate) => candidate.replaceAll("\\", "/"));
   const regex = globToRegExp(normalized);
   return candidates.filter((candidate) => regex.test(candidate));
+}
+
+function artifactHasPayload(match) {
+  const stat = fs.statSync(match);
+  if (stat.isFile()) return stat.size > 0;
+  if (!stat.isDirectory()) return false;
+  return walk(match).some((candidate) => {
+    if (candidate === match) return false;
+    const candidateStat = fs.statSync(candidate);
+    return candidateStat.isFile() && candidateStat.size > 0;
+  });
+}
+
+function assertArtifactMatches(pattern, label) {
+  const matches = matchesGlob(pattern);
+  assert(matches.length > 0, `${label} artifact glob matched no files: ${pattern}`);
+  for (const match of matches) {
+    assert(artifactHasPayload(match), `${label} artifact is empty or unsupported: ${match}`);
+  }
 }
 
 function nonEmptyStrings(values, label) {
@@ -144,12 +163,10 @@ if (!manifestOnly) {
   const selected = platforms.find((platform) => platform.id === selectedId);
   assert(selected, `unknown platform ${selectedId}`);
   for (const pattern of selected.artifact_globs) {
-    const matches = matchesGlob(pattern);
-    assert(matches.length > 0, `${selectedId} artifact glob matched no files: ${pattern}`);
+    assertArtifactMatches(pattern, selectedId);
   }
   for (const pattern of manifest.updater.artifact_globs) {
-    const matches = matchesGlob(pattern);
-    assert(matches.length > 0, `updater artifact glob matched no files: ${pattern}`);
+    assertArtifactMatches(pattern, "updater");
   }
 }
 

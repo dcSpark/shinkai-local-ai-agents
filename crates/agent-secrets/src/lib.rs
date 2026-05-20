@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use agent_storage::StoragePaths;
+use agent_storage::{StorageError, StoragePaths};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -20,6 +20,8 @@ use std::process::Command;
 pub enum SecretStoreError {
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("storage error: {0}")]
+    Storage(#[from] StorageError),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
     #[error("secret not found: {0}")]
@@ -174,11 +176,13 @@ impl std::fmt::Debug for SecretValue {
 
 pub struct FileSecretStore {
     path: PathBuf,
+    paths: Option<StoragePaths>,
 }
 
 pub struct KeychainSecretStore {
     metadata_path: PathBuf,
     service: String,
+    paths: Option<StoragePaths>,
 }
 
 impl KeychainSecretStore {
@@ -186,16 +190,20 @@ impl KeychainSecretStore {
         Self {
             metadata_path: metadata_path.into(),
             service: service.into(),
+            paths: None,
         }
     }
 
     pub fn from_env() -> Self {
-        let metadata_path = StoragePaths::from_env()
-            .secrets_file()
-            .with_file_name("secrets-keychain.json");
+        let paths = StoragePaths::from_env();
+        let metadata_path = paths.secrets_file().with_file_name("secrets-keychain.json");
         let service = std::env::var("AGENT_SECRET_KEYCHAIN_SERVICE")
             .unwrap_or_else(|_| "shinkai-agent-harness".into());
-        Self::new(metadata_path, service)
+        Self {
+            metadata_path,
+            service,
+            paths: Some(paths),
+        }
     }
 
     pub fn metadata_path(&self) -> &PathBuf {
@@ -211,10 +219,27 @@ impl KeychainSecretStore {
     }
 
     fn write_document(&self, document: &SecretDocument) -> Result<(), SecretStoreError> {
-        if let Some(parent) = self.metadata_path.parent() {
-            std::fs::create_dir_all(parent)?;
+        let text = serde_json::to_string_pretty(document)?;
+        if let Some(paths) = &self.paths {
+            paths.write_quota_checked(&self.metadata_path, text.as_bytes())?;
+        } else {
+            if let Some(parent) = self.metadata_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&self.metadata_path, text)?;
         }
-        std::fs::write(&self.metadata_path, serde_json::to_string_pretty(document)?)?;
+        Ok(())
+    }
+
+    fn ensure_document_quota(&self, document: &SecretDocument) -> Result<(), SecretStoreError> {
+        let Some(paths) = &self.paths else {
+            return Ok(());
+        };
+        let text = serde_json::to_string_pretty(document)?;
+        paths.ensure_quota_for_path_write(
+            &self.metadata_path,
+            u64::try_from(text.len()).unwrap_or(u64::MAX),
+        )?;
         Ok(())
     }
 
@@ -225,11 +250,22 @@ impl KeychainSecretStore {
 
 impl FileSecretStore {
     pub fn new(path: impl Into<PathBuf>) -> Self {
-        Self { path: path.into() }
+        Self {
+            path: path.into(),
+            paths: None,
+        }
+    }
+
+    pub fn from_paths(paths: StoragePaths) -> Self {
+        let path = paths.secrets_file();
+        Self {
+            path,
+            paths: Some(paths),
+        }
     }
 
     pub fn from_env() -> Self {
-        Self::new(StoragePaths::from_env().secrets_file())
+        Self::from_paths(StoragePaths::from_env())
     }
 
     pub fn path(&self) -> &PathBuf {
@@ -245,11 +281,31 @@ impl FileSecretStore {
     }
 
     fn write_document(&self, document: &SecretDocument) -> Result<(), SecretStoreError> {
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
+        self.write_document_with_quota(document, None)
+    }
+
+    fn write_document_with_quota(
+        &self,
+        document: &SecretDocument,
+        quota_bytes: Option<u64>,
+    ) -> Result<(), SecretStoreError> {
         let text = serde_json::to_string_pretty(document)?;
-        std::fs::write(&self.path, text)?;
+        if let Some(paths) = &self.paths {
+            if let Some(quota_bytes) = quota_bytes {
+                paths.write_quota_checked_with_quota(
+                    &self.path,
+                    text.as_bytes(),
+                    Some(quota_bytes),
+                )?;
+            } else {
+                paths.write_quota_checked(&self.path, text.as_bytes())?;
+            }
+        } else {
+            if let Some(parent) = self.path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&self.path, text)?;
+        }
         Ok(())
     }
 }
@@ -282,13 +338,15 @@ impl SecretStore for KeychainSecretStore {
         };
         let version = entry.current_version().saturating_add(1).max(1);
         let account = self.account(&id, version);
-        keychain_set(&self.service, &account, value.expose())?;
         entry.versions.push(SecretVersion {
             version,
             value: account,
             created_at: now,
             value_fingerprint: fingerprint(value.expose()),
         });
+        self.ensure_document_quota(&document)?;
+        let account = self.account(&id, version);
+        keychain_set(&self.service, &account, value.expose())?;
         self.write_document(&document)?;
         Ok(SecretHandle { id, version })
     }
@@ -304,13 +362,15 @@ impl SecretStore for KeychainSecretStore {
         entry.updated_at = now;
         let version = entry.current_version().saturating_add(1).max(1);
         let account = self.account(id, version);
-        keychain_set(&self.service, &account, value.expose())?;
         entry.versions.push(SecretVersion {
             version,
             value: account,
             created_at: now,
             value_fingerprint: fingerprint(value.expose()),
         });
+        self.ensure_document_quota(&document)?;
+        let account = self.account(id, version);
+        keychain_set(&self.service, &account, value.expose())?;
         self.write_document(&document)?;
         Ok(SecretHandle {
             id: id.clone(),
@@ -700,6 +760,42 @@ mod tests {
 
         assert_eq!(ids, vec!["file_dev", "os_keychain"]);
         assert!(backends[0].supported);
+    }
+
+    #[test]
+    fn file_store_write_rejects_document_over_storage_quota() {
+        let dir = std::env::temp_dir().join(format!(
+            "agent-secrets-quota-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        let store = FileSecretStore::from_paths(StoragePaths::new(&dir));
+        let now = Utc::now();
+        let document = SecretDocument {
+            entries: vec![StoredSecret {
+                id: SecretId::new("oversized.secret").unwrap(),
+                label: Some("Oversized".into()),
+                created_at: now,
+                updated_at: now,
+                versions: vec![SecretVersion {
+                    version: 1,
+                    value: "secret-value-that-exceeds-the-test-quota".into(),
+                    created_at: now,
+                    value_fingerprint: fingerprint("secret-value-that-exceeds-the-test-quota"),
+                }],
+            }],
+        };
+
+        let err = store
+            .write_document_with_quota(&document, Some(16))
+            .expect_err("secret metadata write should fail before exceeding quota");
+
+        assert!(matches!(
+            err,
+            SecretStoreError::Storage(StorageError::QuotaExceeded { .. })
+        ));
+        assert!(!store.path().exists());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

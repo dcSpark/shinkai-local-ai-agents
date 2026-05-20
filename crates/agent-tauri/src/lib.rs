@@ -2788,29 +2788,35 @@ fn quarantine_capability_tool(
 }
 
 #[tauri::command]
-async fn prompt_save(name: String, body: String) -> Result<PromptDoc, String> {
+async fn prompt_save(
+    name: String,
+    body: String,
+    agent_id: Option<String>,
+) -> Result<PromptDoc, String> {
     PromptStore::from_env()
-        .save(&name, &body)
+        .save_scoped(agent_id.as_deref(), &name, &body)
         .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn prompt_list() -> Result<Vec<PromptDoc>, String> {
-    PromptStore::from_env().list().map_err(|e| e.to_string())
+async fn prompt_list(agent_id: Option<String>) -> Result<Vec<PromptDoc>, String> {
+    PromptStore::from_env()
+        .list_scoped(agent_id.as_deref())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-async fn prompt_show(name: String) -> Result<PromptDoc, String> {
+async fn prompt_show(name: String, agent_id: Option<String>) -> Result<PromptDoc, String> {
     PromptStore::from_env()
-        .get(&name)
+        .get_scoped(agent_id.as_deref(), &name)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("saved prompt {name:?} not found"))
 }
 
 #[tauri::command]
-async fn prompt_delete(name: String) -> Result<bool, String> {
+async fn prompt_delete(name: String, agent_id: Option<String>) -> Result<bool, String> {
     PromptStore::from_env()
-        .delete(&name)
+        .delete_scoped(agent_id.as_deref(), &name)
         .map_err(|e| e.to_string())
 }
 

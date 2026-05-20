@@ -201,6 +201,7 @@ export type ToolOutputMode = "interpreted" | "raw";
 export type PromptDoc = {
   name: string;
   body: string;
+  agent_id?: string | null;
 };
 
 export type ConversationRole = "system" | "user" | "assistant" | "tool";

@@ -2057,11 +2057,38 @@ export default function App() {
     return confirmed;
   }
 
+  function promptScopeAgentId() {
+    return agentId.trim() || null;
+  }
+
+  function promptScopeLabel(agent = promptScopeAgentId()) {
+    return agent ? `agent ${agent}` : "profile";
+  }
+
+  async function fetchPrompt(name: string, agent = promptScopeAgentId()) {
+    if (transport === "daemon") {
+      if (agent) {
+        return await daemonJson<PromptDoc>("/prompts/show", {
+          name,
+          agent_id: agent,
+        });
+      }
+      return await daemonJson<PromptDoc>(`/prompts/${encodeURIComponent(name)}`);
+    }
+    return await invoke<PromptDoc>("prompt_show", { name, agentId: agent });
+  }
+
   async function loadPromptBody(name: string) {
-    const prompt =
-      transport === "daemon"
-        ? await daemonJson<{ body: string }>(`/prompts/${encodeURIComponent(name)}`)
-        : await invoke<{ body: string }>("prompt_show", { name });
+    const agent = promptScopeAgentId();
+    let prompt: PromptDoc;
+    try {
+      prompt = await fetchPrompt(name, agent);
+    } catch (err: unknown) {
+      if (!agent) {
+        throw err;
+      }
+      prompt = await fetchPrompt(name, null);
+    }
     return prompt.body;
   }
 
@@ -3986,13 +4013,16 @@ export default function App() {
   }
 
   async function reviewPrompts() {
+    const agent = promptScopeAgentId();
     try {
       const prompts =
         transport === "daemon"
-          ? await daemonJson<PromptDoc[]>("/prompts")
-          : await invoke<PromptDoc[]>("prompt_list");
+          ? agent
+            ? await daemonJson<PromptDoc[]>("/prompts/list", { agent_id: agent })
+            : await daemonJson<PromptDoc[]>("/prompts")
+          : await invoke<PromptDoc[]>("prompt_list", { agentId: agent });
       setPromptDocs(prompts);
-      appendEvent(`Saved prompts: ${prompts.length}`);
+      appendEvent(`Saved prompts (${promptScopeLabel(agent)}): ${prompts.length}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Prompt review failed: ${msg}`);
@@ -4830,11 +4860,12 @@ export default function App() {
     const name = requireOpsId("Prompt save");
     const body = requireOpsValue("Prompt save");
     if (!name || !body) return;
+    const agent = promptScopeAgentId();
     try {
       const prompt =
         transport === "daemon"
-          ? await daemonJson<PromptDoc>("/prompts", { name, body })
-          : await invoke<PromptDoc>("prompt_save", { name, body });
+          ? await daemonJson<PromptDoc>("/prompts", { name, body, agent_id: agent })
+          : await invoke<PromptDoc>("prompt_save", { name, body, agentId: agent });
       setPromptDocs((docs) => upsertPromptDoc(docs, prompt));
       appendJson("Prompt saved", prompt);
     } catch (err: unknown) {
@@ -4847,10 +4878,7 @@ export default function App() {
     const name = requireOpsId("Prompt show");
     if (!name) return;
     try {
-      const prompt =
-        transport === "daemon"
-          ? await daemonJson<PromptDoc>(`/prompts/${encodeURIComponent(name)}`)
-          : await invoke<PromptDoc>("prompt_show", { name });
+      const prompt = await fetchPrompt(name);
       setPromptDocs((docs) => upsertPromptDoc(docs, prompt));
       appendJson("Prompt", prompt);
     } catch (err: unknown) {
@@ -4920,16 +4948,23 @@ export default function App() {
   }
 
   async function deletePromptByName(name: string) {
-    if (!confirmLocalChange(`Delete prompt ${name}`)) return;
+    const agent = promptScopeAgentId();
+    if (!confirmLocalChange(`Delete prompt ${name} (${promptScopeLabel(agent)})`)) return;
     try {
       const output =
         transport === "daemon"
-          ? await daemonJson<unknown>(
-              `/prompts/${encodeURIComponent(name)}/delete`,
-              {},
-            )
-          : await invoke<unknown>("prompt_delete", { name });
-      setPromptDocs((docs) => docs.filter((prompt) => prompt.name !== name));
+          ? agent
+            ? await daemonJson<unknown>("/prompts/delete", { name, agent_id: agent })
+            : await daemonJson<unknown>(
+                `/prompts/${encodeURIComponent(name)}/delete`,
+                {},
+              )
+          : await invoke<unknown>("prompt_delete", { name, agentId: agent });
+      setPromptDocs((docs) =>
+        docs.filter(
+          (prompt) => prompt.name !== name || (prompt.agent_id ?? null) !== agent,
+        ),
+      );
       appendJson("Prompt deleted", output);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -6193,7 +6228,11 @@ export default function App() {
   }
 
   function upsertPromptDoc(docs: PromptDoc[], doc: PromptDoc) {
-    const rest = docs.filter((item) => item.name !== doc.name);
+    const rest = docs.filter(
+      (item) =>
+        item.name !== doc.name ||
+        (item.agent_id ?? null) !== (doc.agent_id ?? null),
+    );
     return [doc, ...rest].sort((a, b) => a.name.localeCompare(b.name));
   }
 
@@ -8529,7 +8568,10 @@ export default function App() {
                     <div className="ingestion-card" key={prompt.name}>
                       <div className="ingestion-card-head">
                         <strong>{prompt.name}</strong>
-                        <span>{prompt.body.length} chars</span>
+                        <span>
+                          {prompt.agent_id ? `agent ${prompt.agent_id}` : "profile"} /{" "}
+                          {prompt.body.length} chars
+                        </span>
                       </div>
                       <p>{previewText(prompt.body, 220)}</p>
                       <div className="mini-actions">

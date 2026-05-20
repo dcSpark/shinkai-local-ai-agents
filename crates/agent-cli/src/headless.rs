@@ -4834,6 +4834,23 @@ pub async fn remote_approval_list(url: String, run_id: String) -> anyhow::Result
     print_remote(client.get_json(&format!("/approvals/{run_id}"))?)
 }
 
+pub async fn remote_approval_assess(
+    url: String,
+    run_id: String,
+    approval_id: String,
+    controller_agent: Option<String>,
+) -> anyhow::Result<()> {
+    let client = DaemonHttpClient::new(url);
+    let mut body = serde_json::json!({});
+    if let Some(controller_agent) = controller_agent
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        body["controller_agent"] = serde_json::Value::String(controller_agent);
+    }
+    print_remote(client.post_json(&format!("/approvals/{run_id}/{approval_id}/assess"), body)?)
+}
+
 pub async fn remote_approval_decide(
     url: String,
     run_id: String,

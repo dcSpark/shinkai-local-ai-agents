@@ -2488,6 +2488,12 @@ enum RemoteApprovalCommand {
     List {
         run_id: String,
     },
+    Assess {
+        run_id: String,
+        approval_id: String,
+        #[arg(long = "controller-agent")]
+        controller_agent: Option<String>,
+    },
     Decide {
         run_id: String,
         approval_id: String,
@@ -3481,6 +3487,41 @@ mod cli_parse_tests {
         assert_eq!(approval_id, "approval-c1");
         assert_eq!(controller_agent.as_deref(), Some("safety-controller"));
         assert!(json);
+    }
+
+    #[test]
+    fn remote_approval_assess_command_accepts_controller_agent() {
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "--url",
+            "http://localhost:8080",
+            "approval",
+            "assess",
+            "00000000-0000-0000-0000-000000000001",
+            "approval-c1",
+            "--controller-agent",
+            "safety-controller",
+        ])
+        .unwrap();
+        let Command::Remote {
+            command: RemoteCommand::Approval { command },
+            ..
+        } = into_command(cli)
+        else {
+            panic!("expected remote approval command");
+        };
+        let RemoteApprovalCommand::Assess {
+            run_id,
+            approval_id,
+            controller_agent,
+        } = command
+        else {
+            panic!("expected remote approval assess command");
+        };
+        assert_eq!(run_id, "00000000-0000-0000-0000-000000000001");
+        assert_eq!(approval_id, "approval-c1");
+        assert_eq!(controller_agent.as_deref(), Some("safety-controller"));
     }
 
     #[test]
@@ -6171,6 +6212,14 @@ async fn main() -> anyhow::Result<()> {
             RemoteCommand::Approval { command } => match command {
                 RemoteApprovalCommand::List { run_id } => {
                     headless::remote_approval_list(url, run_id).await
+                }
+                RemoteApprovalCommand::Assess {
+                    run_id,
+                    approval_id,
+                    controller_agent,
+                } => {
+                    headless::remote_approval_assess(url, run_id, approval_id, controller_agent)
+                        .await
                 }
                 RemoteApprovalCommand::Decide {
                     run_id,

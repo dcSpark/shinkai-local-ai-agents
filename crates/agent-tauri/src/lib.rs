@@ -35,8 +35,8 @@ use agent_core::{
     CostPolicy, ExecutionPolicy, Harness, HarnessApi, HookTrigger, IngestedArtifactView,
     MemoryFragment, PromptRefinement, RunHookHandler, RunLifecycleHook, RunResult, SkillView,
     ToolOutputMode, ToolPolicy, ToolView, UserInput, VisibilityLevel, VoiceConfig,
-    verify_approval_controller_delegate, verify_configured_approval_signature,
-    verify_configured_approval_unlock,
+    assess_approval_controller_with_model, verify_approval_controller_delegate,
+    verify_configured_approval_signature, verify_configured_approval_unlock,
 };
 use agent_ingest::{
     IngestionArtifact, IngestionBackendDescriptor, IngestionFindingReviewDecision,
@@ -1889,6 +1889,66 @@ async fn approval_list(run_id: String) -> Result<Vec<Value>, String> {
 }
 
 #[tauri::command]
+async fn approval_assess(
+    run_id: String,
+    approval_id: String,
+    controller_agent: Option<String>,
+) -> Result<Value, String> {
+    let run_id = RunId(uuid::Uuid::parse_str(&run_id).map_err(|e| e.to_string())?);
+    let store = open_event_store()?;
+    let events = store.try_events(run_id).map_err(|e| e.to_string())?;
+    let controller_agent = controller_agent
+        .as_deref()
+        .map(str::trim)
+        .filter(|agent| !agent.is_empty())
+        .map(str::to_string)
+        .or_else(|| delegated_controller_for_approval(&events, &approval_id))
+        .ok_or_else(|| {
+            format!("approval {approval_id} does not advertise a delegated controller agent")
+        })?;
+    let controller = ConfigResolver::from_env()
+        .resolve_agent(&controller_agent)
+        .map_err(|e| format!("controller agent {controller_agent} is not available: {e}"))?
+        .agent;
+    let provider = approval_controller_provider(&controller).map_err(|e| e.to_string())?;
+    let assessment = assess_approval_controller_with_model(
+        provider.as_ref(),
+        &controller,
+        &events,
+        &approval_id,
+        Some(&controller_agent),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    let event = store.append(
+        run_id,
+        approval_request_event_id(&events, &approval_id),
+        RunEventKind::ApprovalControllerAssessed {
+            approval_id: assessment.approval_id.clone(),
+            controller_agent: assessment.controller_agent.clone(),
+            scope: assessment.scope.clone(),
+            model: assessment
+                .model
+                .clone()
+                .unwrap_or_else(|| controller.model.0.clone()),
+            recommendation: assessment
+                .recommendation
+                .clone()
+                .unwrap_or_else(|| "needs_human".into()),
+            summary: assessment.reason.clone(),
+            tokens_in: assessment.tokens_in,
+            tokens_out: assessment.tokens_out,
+            duration_ms: assessment.duration_ms,
+        },
+    );
+    Ok(serde_json::json!({
+        "run_id": run_id.0,
+        "event_id": event.id.0,
+        "assessment": assessment
+    }))
+}
+
+#[tauri::command]
 async fn approval_decide(
     run_id: String,
     approval_id: String,
@@ -3494,6 +3554,40 @@ fn open_event_store() -> Result<SqliteEventStore, String> {
     SqliteEventStore::open(paths.state_db()).map_err(|e| e.to_string())
 }
 
+fn approval_controller_provider(
+    controller: &agent_core::AgentConfig,
+) -> Result<Arc<dyn LlmProvider>, Box<dyn std::error::Error + Send + Sync>> {
+    if controller.model.0 == "fake-model" {
+        return Ok(Arc::new(FakeProvider::canned(
+            "NEEDS_HUMAN: fake provider cannot safely assess approvals.",
+        )));
+    }
+    let model_runtime = ConfigResolver::from_env()
+        .resolve_model_runtime(&controller.model.0)?
+        .unwrap_or_default();
+    ingestion_provider_for_runtime(&controller.model.0, &model_runtime, Some(256), Some(0.0))
+}
+
+fn delegated_controller_for_approval(events: &[RunEvent], approval_id: &str) -> Option<String> {
+    events.iter().rev().find_map(|event| match &event.kind {
+        RunEventKind::ApprovalRequested {
+            approval_id: id,
+            controller_agent,
+            ..
+        } if id == approval_id => controller_agent.clone(),
+        _ => None,
+    })
+}
+
+fn approval_request_event_id(events: &[RunEvent], approval_id: &str) -> Option<EventId> {
+    events.iter().rev().find_map(|event| match &event.kind {
+        RunEventKind::ApprovalRequested {
+            approval_id: id, ..
+        } if id == approval_id => Some(event.id),
+        _ => None,
+    })
+}
+
 fn approvals_for_run(run_id: RunId) -> Result<Vec<Value>, String> {
     let mut approvals = Vec::<Value>::new();
     for event in open_event_store()?
@@ -3620,6 +3714,7 @@ pub fn run() {
             hook_available,
             set_hook_disabled,
             approval_list,
+            approval_assess,
             approval_decide,
             approval_execute,
             guide,

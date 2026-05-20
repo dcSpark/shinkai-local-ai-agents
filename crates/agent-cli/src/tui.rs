@@ -42,6 +42,7 @@ use agent_memory::{
     supported_backends as supported_memory_backends,
 };
 use agent_prompts::{PromptStore, is_valid_prompt_name};
+use agent_skills::{SkillDoc, SkillRegistry};
 use agent_storage::StoragePaths;
 use agent_tools::{
     GeneratedArtifact, ToolId, ToolRegistry, delete_generated_artifact_from_env,
@@ -462,6 +463,10 @@ fn handle_slash_command(
     }
     if let Some(rest) = models_slash_rest(trimmed) {
         handle_models_slash(app, rest);
+        return true;
+    }
+    if let Some(rest) = skills_slash_rest(trimmed) {
+        handle_skills_slash(app, rest);
         return true;
     }
     if let Some(rest) = storage_slash_rest(trimmed) {
@@ -1705,6 +1710,14 @@ fn storage_slash_rest(trimmed: &str) -> Option<&str> {
         Some("")
     } else {
         trimmed.strip_prefix("/storage ").map(str::trim)
+    }
+}
+
+fn skills_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/skills" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/skills ").map(str::trim)
     }
 }
 
@@ -3176,6 +3189,227 @@ fn model_provider_summary(provider: &agent_config::ModelProviderDescriptor) -> s
         "local": provider.local,
         "native": provider.native,
         "option_schema_count": provider.option_schema.len(),
+    })
+}
+
+fn handle_skills_slash(app: &mut App, rest: &str) {
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "help" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: [
+                "/skills list",
+                "/skills show <id>",
+                "/skills import-openclaw <path>",
+                "/skills import-doc <path>",
+                "/skills export <id> <path>",
+                "/skills allow <id> --confirm",
+                "/skills quarantine <id> --confirm",
+            ]
+            .join("\n"),
+        });
+        return;
+    }
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "list" => match SkillRegistry::from_env().list() {
+            Ok(docs) => {
+                push_event(app, format!("Loaded {} skill(s).", docs.len()));
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(
+                        &docs.iter().map(skill_summary).collect::<Vec<_>>(),
+                    )
+                    .unwrap_or_else(|_| "<unserializable skill list>".into()),
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Skill list failed: {err}"),
+            }),
+        },
+        "show" | "inspect" => match first_skill_arg(args, "show") {
+            Ok(id) => match SkillRegistry::from_env().inspect(id) {
+                Ok(doc) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&doc)
+                        .unwrap_or_else(|_| "<unserializable skill>".into()),
+                }),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Skill show failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "import-openclaw" | "install" => match skill_path_arg(args, "import-openclaw") {
+            Ok(path) => match SkillRegistry::from_env().import_openclaw(path) {
+                Ok(doc) => {
+                    push_event(app, format!("Imported quarantined skill {}", doc.id));
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&skill_summary(&doc))
+                            .unwrap_or_else(|_| "<unserializable skill>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Skill import failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "import-doc" | "import" => match skill_path_arg(args, "import-doc") {
+            Ok(path) => match SkillRegistry::from_env().import_doc(path) {
+                Ok(doc) => {
+                    push_event(app, format!("Imported quarantined skill {}", doc.id));
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&skill_summary(&doc))
+                            .unwrap_or_else(|_| "<unserializable skill>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Skill doc import failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "export" => match skill_export_args(args) {
+            Ok((id, path)) => match SkillRegistry::from_env().export(id, path) {
+                Ok(doc) => push_event(app, format!("Exported skill {} to {path}", doc.id)),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Skill export failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "allow" | "quarantine" => handle_skill_review_slash(app, command, args),
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Skills command needs list, show, import-openclaw, import-doc, export, allow, quarantine, or help.".into(),
+        }),
+    }
+}
+
+fn handle_skill_review_slash(app: &mut App, action: &str, args: &str) {
+    let (id, confirmed) = match skill_review_args(args, action) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            });
+            return;
+        }
+    };
+    if !confirmed {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: serde_json::to_string_pretty(&serde_json::json!({
+                "pending_action": format!("{action}_skill"),
+                "skill_id": id,
+                "confirm_command": format!("/skills {action} {id} --confirm"),
+            }))
+            .unwrap_or_else(|_| "<unserializable skill confirmation>".into()),
+        });
+        return;
+    }
+    let result = if action == "allow" {
+        SkillRegistry::from_env().allow(id)
+    } else {
+        SkillRegistry::from_env().quarantine(id)
+    };
+    match result {
+        Ok(doc) => {
+            let verb = if action == "allow" {
+                "Allowed"
+            } else {
+                "Quarantined"
+            };
+            push_event(app, format!("{verb} skill {}", doc.id));
+        }
+        Err(err) => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: format!("Skill {action} failed: {err}"),
+        }),
+    }
+}
+
+fn first_skill_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    args.split_whitespace()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("skills {command} needs an argument"))
+}
+
+fn skill_path_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    let mut parts = args.split_whitespace();
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("skills {command} needs a path"))?;
+    if parts.next().is_some() {
+        anyhow::bail!("skills {command} accepts exactly one path");
+    }
+    Ok(path)
+}
+
+fn skill_export_args(args: &str) -> anyhow::Result<(&str, &str)> {
+    let mut parts = args.split_whitespace();
+    let id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("skills export needs a skill id"))?;
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("skills export needs a path"))?;
+    if parts.next().is_some() {
+        anyhow::bail!("skills export accepts exactly a skill id and path");
+    }
+    Ok((id, path))
+}
+
+fn skill_review_args<'a>(args: &'a str, action: &str) -> anyhow::Result<(&'a str, bool)> {
+    let mut id = None;
+    let mut confirmed = false;
+    for part in args.split_whitespace() {
+        if part == "--confirm" {
+            confirmed = true;
+        } else if id.is_none() {
+            id = Some(part);
+        } else {
+            anyhow::bail!("skills {action} accepts exactly a skill id and optional --confirm");
+        }
+    }
+    let id = id.ok_or_else(|| anyhow::anyhow!("skills {action} needs a skill id"))?;
+    Ok((id, confirmed))
+}
+
+fn skill_summary(doc: &SkillDoc) -> serde_json::Value {
+    serde_json::json!({
+        "id": doc.id,
+        "name": doc.name,
+        "description": doc.description,
+        "categories": doc.categories,
+        "quarantined": doc.quarantined,
+        "estimated_tokens": doc.estimated_tokens,
+        "digest": doc.digest,
+        "provenance": doc.provenance,
     })
 }
 
@@ -5170,6 +5404,9 @@ mod tests {
         assert_eq!(models_slash_rest("/models providers"), Some("providers"));
         assert_eq!(models_slash_rest("/models"), Some(""));
         assert_eq!(models_slash_rest("/model"), None);
+        assert_eq!(skills_slash_rest("/skills list"), Some("list"));
+        assert_eq!(skills_slash_rest("/skills"), Some(""));
+        assert_eq!(skills_slash_rest("/skill"), None);
         assert_eq!(
             storage_slash_rest("/storage prune-cache 30"),
             Some("prune-cache 30")
@@ -5245,6 +5482,32 @@ mod tests {
         );
         assert!(model_metadata_catalog_path_arg("", "export").is_err());
         assert!(model_metadata_catalog_path_arg("./metadata.json extra", "import").is_err());
+    }
+
+    #[test]
+    fn skill_args_require_expected_id_path_and_confirmation() {
+        assert_eq!(
+            skill_path_arg("./SKILL.md", "import-openclaw").unwrap(),
+            "./SKILL.md"
+        );
+        assert!(skill_path_arg("", "import-doc").is_err());
+        assert!(skill_path_arg("./skill.json extra", "import-doc").is_err());
+        assert_eq!(
+            skill_export_args("skill-1 ./skill.json").unwrap(),
+            ("skill-1", "./skill.json")
+        );
+        assert!(skill_export_args("skill-1").is_err());
+        assert!(skill_export_args("skill-1 ./skill.json extra").is_err());
+        assert_eq!(
+            skill_review_args("skill-1", "allow").unwrap(),
+            ("skill-1", false)
+        );
+        assert_eq!(
+            skill_review_args("skill-1 --confirm", "allow").unwrap(),
+            ("skill-1", true)
+        );
+        assert!(skill_review_args("", "allow").is_err());
+        assert!(skill_review_args("skill-1 skill-2 --confirm", "allow").is_err());
     }
 
     #[test]

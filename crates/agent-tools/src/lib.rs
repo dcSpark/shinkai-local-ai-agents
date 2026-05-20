@@ -3840,6 +3840,7 @@ pub struct ExternalAgentSpec {
     pub input_modes: Vec<String>,
     pub output_modes: Vec<String>,
     pub auth_schemes: Vec<String>,
+    pub header_keys: Vec<String>,
 }
 
 pub struct ExternalAgentTool {
@@ -3863,6 +3864,9 @@ impl ExternalAgentTool {
         }
         if !spec.output_modes.is_empty() {
             hints.push(format!("output modes: {}", spec.output_modes.join(",")));
+        }
+        if !spec.header_keys.is_empty() {
+            hints.push(format!("header keys: {}", spec.header_keys.join(",")));
         }
         if !hints.is_empty() {
             description.push('\n');
@@ -3964,7 +3968,7 @@ impl ExternalAgentTool {
             output_interpretation_guidance: Some(output_guidance.into()),
             permissions: ToolPermissions {
                 network: true,
-                secrets: !spec.auth_schemes.is_empty(),
+                secrets: !spec.auth_schemes.is_empty() || !spec.header_keys.is_empty(),
                 ..ToolPermissions::default()
             },
             requires_approval: true,
@@ -4526,6 +4530,7 @@ fn external_agent_spec_from_capability(
         input_modes: runtime.input_modes.clone(),
         output_modes: runtime.output_modes.clone(),
         auth_schemes: runtime.auth_schemes.clone(),
+        header_keys: runtime.header_keys.clone(),
     })
 }
 
@@ -5689,6 +5694,7 @@ done
             input_modes: vec!["text/plain".into()],
             output_modes: vec!["text/plain".into()],
             auth_schemes: vec!["bearerAuth".into()],
+            header_keys: Vec::new(),
         });
 
         let output = tool
@@ -5737,6 +5743,7 @@ done
             input_modes: vec!["application/json".into()],
             output_modes: vec!["application/json".into()],
             auth_schemes: vec!["apiKey".into()],
+            header_keys: Vec::new(),
         });
 
         let output = tool
@@ -5882,6 +5889,7 @@ external_agents:
     input_modes: [application/json]
     output_modes: [application/json]
     auth: [apiKey]
+    headers: [Authorization, X-Agent-Trace]
 "#,
         )
         .unwrap();
@@ -5905,6 +5913,11 @@ external_agents:
         assert_eq!(
             reviewer.categories,
             vec!["external-agent".to_string(), "http-json".to_string()]
+        );
+        assert!(
+            reviewer
+                .description
+                .contains("header keys: Authorization,X-Agent-Trace")
         );
         let _ = std::fs::remove_dir_all(dir);
     }

@@ -1863,6 +1863,12 @@ fn apply_hermes_external_agent_field(
                 .get_or_insert_with(default_hermes_external_agent_runtime);
             runtime.auth_schemes = yaml_list_values(value);
         }
+        "headers" | "header_keys" | "headerKeys" => {
+            let runtime = capability
+                .runtime
+                .get_or_insert_with(default_hermes_external_agent_runtime);
+            runtime.header_keys = yaml_list_values(value);
+        }
         _ => {}
     }
 }
@@ -2584,6 +2590,7 @@ external_agents:
     input_modes: [text/plain]
     output_modes: [text/plain]
     auth: [bearerAuth]
+    headers: [Authorization, X-Agent-Trace]
 env:
   API_KEY: required
 description: trailing metadata is not an env secret
@@ -2643,6 +2650,10 @@ description: trailing metadata is not an env secret
         assert_eq!(runtime.input_modes, vec!["text/plain".to_string()]);
         assert_eq!(runtime.output_modes, vec!["text/plain".to_string()]);
         assert_eq!(runtime.auth_schemes, vec!["bearerAuth".to_string()]);
+        assert_eq!(
+            runtime.header_keys,
+            vec!["Authorization".to_string(), "X-Agent-Trace".to_string()]
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -161,6 +161,18 @@ pub enum RunEventKind {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         delegated_controller: Option<String>,
     },
+    ApprovalControllerAssessed {
+        approval_id: String,
+        controller_agent: String,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        scope: Vec<String>,
+        model: String,
+        recommendation: String,
+        summary: String,
+        tokens_in: u32,
+        tokens_out: u32,
+        duration_ms: u64,
+    },
     GuidanceInjected {
         content: String,
     },
@@ -500,6 +512,18 @@ fn resume_event_label(kind: &RunEventKind) -> String {
                 .unwrap_or_default();
             format!("ApprovalResolved id={approval_id} approved={approved}{controller}")
         }
+        RunEventKind::ApprovalControllerAssessed {
+            approval_id,
+            controller_agent,
+            model,
+            recommendation,
+            tokens_in,
+            tokens_out,
+            duration_ms,
+            ..
+        } => format!(
+            "ApprovalControllerAssessed id={approval_id} controller={controller_agent} model={model} recommendation={recommendation} tokens_in={tokens_in} tokens_out={tokens_out} duration_ms={duration_ms}"
+        ),
         RunEventKind::GuidanceInjected { content } => {
             format!("GuidanceInjected content={content:?}")
         }
@@ -985,6 +1009,15 @@ pub fn summarize_trace(events: &[RunEvent], fallback_run_id: RunId) -> TraceSumm
                 }
             }
             RunEventKind::ApprovalRequested { .. } => summary.approvals += 1,
+            RunEventKind::ApprovalControllerAssessed {
+                tokens_in,
+                tokens_out,
+                ..
+            } => {
+                summary.llm_calls += 1;
+                summary.tokens_in = summary.tokens_in.saturating_add(*tokens_in);
+                summary.tokens_out = summary.tokens_out.saturating_add(*tokens_out);
+            }
             RunEventKind::GuidanceInjected { .. } => summary.guidance_injections += 1,
             RunEventKind::QualityScored { score, .. } => {
                 summary.quality_scores += 1;

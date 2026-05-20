@@ -6148,6 +6148,19 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
                 format!("Approval resolved [{approval_id}] approved={approved}"),
             );
         }
+        RunEventKind::ApprovalControllerAssessed {
+            approval_id,
+            controller_agent,
+            recommendation,
+            ..
+        } => {
+            push_event(
+                app,
+                format!(
+                    "Approval controller {controller_agent} assessed [{approval_id}] recommendation={recommendation}"
+                ),
+            );
+        }
         RunEventKind::GuidanceInjected { content } => {
             push_event(app, format!("Guidance injected: {content}"));
         }
@@ -6498,6 +6511,11 @@ fn stopped_run_event_label(event: &RunEvent) -> String {
         RunEventKind::ToolCallCompleted { call_id, .. } => {
             format!("tool completed {call_id}")
         }
+        RunEventKind::ApprovalControllerAssessed {
+            approval_id,
+            recommendation,
+            ..
+        } => format!("approval assessed {approval_id} recommendation={recommendation}"),
         RunEventKind::GuidanceInjected { content } => {
             format!("guidance injected {}", compact_preview(content, 120))
         }

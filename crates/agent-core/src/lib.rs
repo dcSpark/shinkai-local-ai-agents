@@ -91,6 +91,8 @@ pub enum ApprovalControllerError {
         expected: String,
         provided: String,
     },
+    #[error("approval controller model failed: {0}")]
+    Model(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -100,6 +102,18 @@ pub struct ApprovalControllerAssessment {
     pub status: String,
     pub scope: Vec<String>,
     pub reason: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recommendation: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_output: Option<String>,
+    #[serde(default)]
+    pub tokens_in: u32,
+    #[serde(default)]
+    pub tokens_out: u32,
+    #[serde(default)]
+    pub duration_ms: u64,
 }
 
 pub fn approval_unlock_sha256(secret: &str) -> String {
@@ -197,6 +211,12 @@ pub fn assess_approval_controller_delegate(
             reason:
                 "controller matched the approval request delegate and is limited to the advertised scope"
                     .into(),
+            model: None,
+            recommendation: None,
+            model_output: None,
+            tokens_in: 0,
+            tokens_out: 0,
+            duration_ms: 0,
         }))
     } else {
         Err(ApprovalControllerError::WrongController {
@@ -204,6 +224,173 @@ pub fn assess_approval_controller_delegate(
             expected: expected.to_string(),
             provided: provided.to_string(),
         })
+    }
+}
+
+pub async fn assess_approval_controller_with_model(
+    provider: &dyn LlmProvider,
+    controller: &AgentConfig,
+    events: &[RunEvent],
+    approval_id: &str,
+    controller_agent: Option<&str>,
+) -> Result<ApprovalControllerAssessment, ApprovalControllerError> {
+    let provided = controller_agent
+        .map(str::trim)
+        .filter(|agent| !agent.is_empty())
+        .unwrap_or(controller.id.as_str());
+    if controller.id != provided {
+        return Err(ApprovalControllerError::WrongController {
+            approval_id: approval_id.to_string(),
+            expected: provided.to_string(),
+            provided: controller.id.clone(),
+        });
+    }
+    let scope_verified =
+        assess_approval_controller_delegate(events, approval_id, Some(&controller.id))?
+            .ok_or_else(|| ApprovalControllerError::NotDelegated {
+                approval_id: approval_id.to_string(),
+            })?;
+    let context = approval_controller_context(events, approval_id)?;
+    let user_prompt = approval_controller_prompt(approval_id, &scope_verified.scope, &context);
+    let request = LlmRequest {
+        model: controller.model.clone(),
+        messages: vec![
+            Message::System {
+                content: controller.system_prompt.clone(),
+            },
+            Message::User {
+                content: user_prompt,
+            },
+        ],
+        tools: Vec::new(),
+    };
+    let started = Instant::now();
+    let response = provider
+        .complete(request)
+        .await
+        .map_err(|err| ApprovalControllerError::Model(err.to_string()))?;
+    let duration_ms = started.elapsed().as_millis() as u64;
+    let model_output = response.content.unwrap_or_default();
+    let recommendation = approval_recommendation_from_text(&model_output);
+    let summary = approval_controller_summary(&model_output);
+
+    Ok(ApprovalControllerAssessment {
+        approval_id: approval_id.to_string(),
+        controller_agent: controller.id.clone(),
+        status: "model_assessed".into(),
+        scope: scope_verified.scope,
+        reason: format!("controller model recommended {recommendation}: {summary}"),
+        model: Some(controller.model.0.clone()),
+        recommendation: Some(recommendation),
+        model_output: Some(model_output),
+        tokens_in: response.tokens_in,
+        tokens_out: response.tokens_out,
+        duration_ms,
+    })
+}
+
+fn approval_controller_context(
+    events: &[RunEvent],
+    approval_id: &str,
+) -> Result<Value, ApprovalControllerError> {
+    let Some(request_event) = events.iter().rev().find(|event| {
+        matches!(
+            &event.kind,
+            RunEventKind::ApprovalRequested { approval_id: id, .. } if id == approval_id
+        )
+    }) else {
+        return Err(ApprovalControllerError::RequestNotFound {
+            approval_id: approval_id.to_string(),
+        });
+    };
+    let RunEventKind::ApprovalRequested {
+        action,
+        reason,
+        controller_agent,
+        controller_scope,
+        ..
+    } = &request_event.kind
+    else {
+        unreachable!("approval request event was matched above");
+    };
+    let tool_call = request_event.parent_event.and_then(|parent| {
+        events.iter().find_map(|event| {
+            if event.id != parent {
+                return None;
+            }
+            match &event.kind {
+                RunEventKind::ToolCallProposed {
+                    call_id,
+                    tool_id,
+                    input,
+                    model,
+                    permissions,
+                } => Some(json!({
+                    "call_id": call_id,
+                    "tool_id": tool_id,
+                    "input": input,
+                    "model": model,
+                    "permissions": permissions
+                })),
+                _ => None,
+            }
+        })
+    });
+    let run_input = events.iter().find_map(|event| match &event.kind {
+        RunEventKind::RunStarted { input, .. } => Some(input.clone()),
+        _ => None,
+    });
+    Ok(json!({
+        "approval_id": approval_id,
+        "action": action,
+        "reason": reason,
+        "controller_agent": controller_agent,
+        "controller_scope": controller_scope,
+        "run_input": run_input,
+        "tool_call": tool_call
+    }))
+}
+
+fn approval_controller_prompt(approval_id: &str, scope: &[String], context: &Value) -> String {
+    let context = serde_json::to_string_pretty(context).unwrap_or_else(|_| context.to_string());
+    let scope = if scope.is_empty() {
+        "none".into()
+    } else {
+        scope.join(", ")
+    };
+    format!(
+        "Assess delegated approval request {approval_id}.\n\nAllowed controller scope: {scope}\n\nReturn a concise recommendation starting with exactly one of: APPROVE, REJECT, or NEEDS_HUMAN. Do not execute tools or make the final approval decision; only assess whether the request fits the delegated scope and appears safe from the trace context.\n\nTrace context:\n{context}"
+    )
+}
+
+fn approval_recommendation_from_text(text: &str) -> String {
+    let normalized = text.trim().to_ascii_lowercase();
+    let first_word = normalized
+        .split(|ch: char| !ch.is_ascii_alphabetic() && ch != '_')
+        .find(|part| !part.is_empty())
+        .unwrap_or_default();
+    match first_word {
+        "approve" | "approved" => "approve".into(),
+        "reject" | "rejected" | "deny" | "denied" => "reject".into(),
+        "needs_human" | "human" | "escalate" => "needs_human".into(),
+        _ if normalized.contains("do not approve")
+            || normalized.contains("don't approve")
+            || normalized.contains("reject")
+            || normalized.contains("deny") =>
+        {
+            "reject".into()
+        }
+        _ if normalized.contains("approve") => "approve".into(),
+        _ => "needs_human".into(),
+    }
+}
+
+fn approval_controller_summary(text: &str) -> String {
+    let summary = normalize_inline(text);
+    if summary.is_empty() {
+        "model returned no textual rationale".into()
+    } else {
+        truncate_to_token_estimate(&summary, 80)
     }
 }
 
@@ -4875,6 +5062,7 @@ mod tests {
                 RunEventKind::ToolCallFailed { .. } => "ToolCallFailed",
                 RunEventKind::ApprovalRequested { .. } => "ApprovalRequested",
                 RunEventKind::ApprovalResolved { .. } => "ApprovalResolved",
+                RunEventKind::ApprovalControllerAssessed { .. } => "ApprovalControllerAssessed",
                 RunEventKind::GuidanceInjected { .. } => "GuidanceInjected",
                 RunEventKind::QualityScored { .. } => "QualityScored",
                 RunEventKind::MemoryLoaded { .. } => "MemoryLoaded",
@@ -7293,6 +7481,58 @@ JSON
             verify_approval_controller_delegate(&events, "approval-c1", Some("other")),
             Err(ApprovalControllerError::WrongController { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn delegated_approval_controller_runs_model_assessment() {
+        let mut reg = ToolRegistry::new();
+        reg.register(sensitive_descriptor(), Arc::new(FakeTool::echo()));
+        let provider = FakeProvider::sequence(vec![FakeStep::CallTool {
+            id: "c1".into(),
+            tool: "sensitive".into(),
+            input: json!({"value": "inspect"}),
+        }]);
+        let h = Harness::new(
+            Arc::new(provider),
+            Arc::new(InMemoryEventStore::new()),
+            Arc::new(reg),
+        );
+        let mut agent = agent_with_tools(vec![], 5);
+        agent.tool_policy.approval_controller =
+            ApprovalControllerPolicy::new("controller-agent", Vec::new(), vec!["sensitive".into()]);
+        let controller = AgentConfig {
+            id: "controller-agent".into(),
+            name: "Controller".into(),
+            system_prompt: "Assess approvals conservatively.".into(),
+            ..agent_with_tools(vec![], 1)
+        };
+
+        let r = h
+            .run(&agent, UserInput { text: "go".into() })
+            .await
+            .unwrap();
+        let events = h.events(r.run_id);
+        let assessment = assess_approval_controller_with_model(
+            &FakeProvider::canned("APPROVE: scope and tool input match the policy."),
+            &controller,
+            &events,
+            "approval-c1",
+            None,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(assessment.status, "model_assessed");
+        assert_eq!(assessment.controller_agent, "controller-agent");
+        assert_eq!(assessment.recommendation.as_deref(), Some("approve"));
+        assert_eq!(assessment.model.as_deref(), Some("fake-model"));
+        assert_eq!(assessment.scope, vec!["category:sensitive".to_string()]);
+        assert!(
+            assessment
+                .reason
+                .contains("controller model recommended approve")
+        );
+        assert!(assessment.tokens_in > 0);
     }
 
     #[tokio::test]

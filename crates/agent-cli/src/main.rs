@@ -622,6 +622,22 @@ enum ApprovalCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Ask the configured controller agent model for a recommendation.
+    Assess {
+        /// Run UUID printed by `agent run` or an approval-required error.
+        run_id: String,
+
+        /// Approval id, for example `approval-manual-1`.
+        approval_id: String,
+
+        /// Override the delegated controller agent id from the approval trace.
+        #[arg(long = "controller-agent")]
+        controller_agent: Option<String>,
+
+        /// Emit JSON instead of a human-readable summary.
+        #[arg(long)]
+        json: bool,
+    },
     /// Record an approval decision in the run trace.
     Decide {
         /// Run UUID printed by `agent run` or an approval-required error.
@@ -3437,6 +3453,37 @@ mod cli_parse_tests {
     }
 
     #[test]
+    fn approval_assess_command_accepts_controller_agent() {
+        let cli = parse_cli([
+            "agent",
+            "approval",
+            "assess",
+            "00000000-0000-0000-0000-000000000001",
+            "approval-c1",
+            "--controller-agent",
+            "safety-controller",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Approval {
+            command:
+                ApprovalCommand::Assess {
+                    run_id,
+                    approval_id,
+                    controller_agent,
+                    json,
+                },
+        } = into_command(cli)
+        else {
+            panic!("expected approval assess command");
+        };
+        assert_eq!(run_id, "00000000-0000-0000-0000-000000000001");
+        assert_eq!(approval_id, "approval-c1");
+        assert_eq!(controller_agent.as_deref(), Some("safety-controller"));
+        assert!(json);
+    }
+
+    #[test]
     fn agent_save_accepts_portable_agent_config_shape() {
         let cli = parse_cli([
             "agent",
@@ -5251,6 +5298,12 @@ async fn main() -> anyhow::Result<()> {
         },
         Command::Approval { command } => match command {
             ApprovalCommand::List { run_id, json } => headless::approval_list(run_id, json).await,
+            ApprovalCommand::Assess {
+                run_id,
+                approval_id,
+                controller_agent,
+                json,
+            } => headless::approval_assess(run_id, approval_id, controller_agent, json).await,
             ApprovalCommand::Decide {
                 run_id,
                 approval_id,

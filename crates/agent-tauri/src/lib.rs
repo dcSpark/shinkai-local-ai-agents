@@ -2202,6 +2202,14 @@ fn stop_event_label(event: &RunEvent) -> String {
             approved,
             ..
         } => format!("approval resolved {approval_id} approved={approved}"),
+        RunEventKind::ApprovalControllerAssessed {
+            approval_id,
+            controller_agent,
+            recommendation,
+            ..
+        } => format!(
+            "approval controller {controller_agent} assessed {approval_id} recommendation={recommendation}"
+        ),
         RunEventKind::GuidanceInjected { .. } => "guidance injected".into(),
         RunEventKind::QualityScored { target, score } => format!("quality scored {target}={score}"),
         RunEventKind::MemoryLoaded { ids } => format!("memory loaded {} ids", ids.len()),
@@ -3530,6 +3538,44 @@ fn approvals_for_run(run_id: RunId) -> Result<Vec<Value>, String> {
                         "status": if approved { "approved" } else { "rejected" },
                         "approved": approved,
                         "delegated_controller": delegated_controller
+                    }));
+                }
+            }
+            RunEventKind::ApprovalControllerAssessed {
+                approval_id,
+                controller_agent,
+                scope,
+                model,
+                recommendation,
+                summary,
+                tokens_in,
+                tokens_out,
+                duration_ms,
+            } => {
+                let assessment = serde_json::json!({
+                    "approval_id": approval_id,
+                    "controller_agent": controller_agent,
+                    "status": "model_assessed",
+                    "scope": scope,
+                    "model": model,
+                    "recommendation": recommendation,
+                    "reason": summary,
+                    "tokens_in": tokens_in,
+                    "tokens_out": tokens_out,
+                    "duration_ms": duration_ms
+                });
+                if let Some(existing) = approvals
+                    .iter_mut()
+                    .find(|value| value["approval_id"] == assessment["approval_id"])
+                {
+                    existing["controller_assessment"] = assessment;
+                } else {
+                    approvals.push(serde_json::json!({
+                        "approval_id": assessment["approval_id"].clone(),
+                        "action": null,
+                        "reason": null,
+                        "status": "pending",
+                        "controller_assessment": assessment
                     }));
                 }
             }

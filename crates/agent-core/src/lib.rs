@@ -90,6 +90,15 @@ pub enum ApprovalControllerError {
     },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ApprovalControllerAssessment {
+    pub approval_id: String,
+    pub controller_agent: String,
+    pub status: String,
+    pub scope: Vec<String>,
+    pub reason: String,
+}
+
 pub fn approval_unlock_sha256(secret: &str) -> String {
     let digest = Sha256::digest(secret.as_bytes());
     hex_digest(&digest)
@@ -141,18 +150,30 @@ pub fn verify_approval_controller_delegate(
     approval_id: &str,
     controller_agent: Option<&str>,
 ) -> Result<Option<String>, ApprovalControllerError> {
+    Ok(
+        assess_approval_controller_delegate(events, approval_id, controller_agent)?
+            .map(|assessment| assessment.controller_agent),
+    )
+}
+
+pub fn assess_approval_controller_delegate(
+    events: &[RunEvent],
+    approval_id: &str,
+    controller_agent: Option<&str>,
+) -> Result<Option<ApprovalControllerAssessment>, ApprovalControllerError> {
     let Some(provided) = controller_agent
         .map(str::trim)
         .filter(|controller| !controller.is_empty())
     else {
         return Ok(None);
     };
-    let Some(expected) = events.iter().rev().find_map(|event| match &event.kind {
+    let Some((expected, scope)) = events.iter().rev().find_map(|event| match &event.kind {
         RunEventKind::ApprovalRequested {
             approval_id: id,
             controller_agent,
+            controller_scope,
             ..
-        } if id == approval_id => Some(controller_agent.as_deref()),
+        } if id == approval_id => Some((controller_agent.as_deref(), controller_scope.clone())),
         _ => None,
     }) else {
         return Err(ApprovalControllerError::RequestNotFound {
@@ -165,7 +186,15 @@ pub fn verify_approval_controller_delegate(
         });
     };
     if expected == provided {
-        Ok(Some(provided.to_string()))
+        Ok(Some(ApprovalControllerAssessment {
+            approval_id: approval_id.to_string(),
+            controller_agent: provided.to_string(),
+            status: "scope_verified".into(),
+            scope,
+            reason:
+                "controller matched the approval request delegate and is limited to the advertised scope"
+                    .into(),
+        }))
     } else {
         Err(ApprovalControllerError::WrongController {
             approval_id: approval_id.to_string(),
@@ -7068,6 +7097,13 @@ JSON
             verify_approval_controller_delegate(&events, "approval-c1", Some("controller-agent"),),
             Ok(Some("controller-agent".into()))
         );
+        let assessment =
+            assess_approval_controller_delegate(&events, "approval-c1", Some("controller-agent"))
+                .unwrap()
+                .unwrap();
+        assert_eq!(assessment.status, "scope_verified");
+        assert_eq!(assessment.controller_agent, "controller-agent");
+        assert_eq!(assessment.scope, vec!["category:sensitive".to_string()]);
         assert!(matches!(
             verify_approval_controller_delegate(&events, "approval-c1", Some("other")),
             Err(ApprovalControllerError::WrongController { .. })

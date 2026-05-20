@@ -22,7 +22,7 @@ use agent_core::{
     AgentConfig, ApprovalMode, ConfigValueExplanation, CostPolicy, ExecutionPolicy, Harness,
     HarnessApi, HookTrigger, IngestedArtifactView, MemoryFragment, PromptRefinement,
     RunHookHandler, RunLifecycleHook, RunResult, SkillView, ToolOutputMode, ToolPolicy, UserInput,
-    VisibilityLevel, VoiceConfig, verify_approval_controller_delegate,
+    VisibilityLevel, VoiceConfig, assess_approval_controller_delegate,
     verify_configured_approval_signature, verify_configured_approval_unlock,
 };
 use agent_ingest::{
@@ -3066,8 +3066,9 @@ fn hook_policy_value(agent_id: Option<&str>) -> anyhow::Result<serde_json::Value
 fn approvals_for_run(id: &str) -> anyhow::Result<serde_json::Value> {
     let run_id = RunId(uuid::Uuid::parse_str(id)?);
     let mut approvals = Vec::<serde_json::Value>::new();
-    for event in open_event_store()?.try_events(run_id)? {
-        match event.kind {
+    let events = open_event_store()?.try_events(run_id)?;
+    for event in &events {
+        match &event.kind {
             RunEventKind::ApprovalRequested {
                 approval_id,
                 action,
@@ -3087,25 +3088,38 @@ fn approvals_for_run(id: &str) -> anyhow::Result<serde_json::Value> {
                 approved,
                 delegated_controller,
             } => {
+                let controller_assessment = delegated_controller
+                    .as_deref()
+                    .and_then(|controller| {
+                        assess_approval_controller_delegate(&events, approval_id, Some(controller))
+                            .ok()
+                            .flatten()
+                    })
+                    .map(serde_json::to_value)
+                    .transpose()?
+                    .unwrap_or(serde_json::Value::Null);
                 if let Some(existing) = approvals
                     .iter_mut()
-                    .find(|value| value["approval_id"] == approval_id)
+                    .find(|value| value["approval_id"] == approval_id.as_str())
                 {
                     existing["status"] = serde_json::Value::String(
-                        if approved { "approved" } else { "rejected" }.into(),
+                        if *approved { "approved" } else { "rejected" }.into(),
                     );
-                    existing["approved"] = serde_json::Value::Bool(approved);
+                    existing["approved"] = serde_json::Value::Bool(*approved);
                     existing["delegated_controller"] = delegated_controller
-                        .map(serde_json::Value::String)
+                        .as_ref()
+                        .map(|controller| serde_json::Value::String(controller.clone()))
                         .unwrap_or(serde_json::Value::Null);
+                    existing["controller_assessment"] = controller_assessment;
                 } else {
                     approvals.push(serde_json::json!({
                         "approval_id": approval_id,
                         "action": null,
                         "reason": null,
-                        "status": if approved { "approved" } else { "rejected" },
+                        "status": if *approved { "approved" } else { "rejected" },
                         "approved": approved,
-                        "delegated_controller": delegated_controller
+                        "delegated_controller": delegated_controller,
+                        "controller_assessment": controller_assessment
                     }));
                 }
             }
@@ -3126,8 +3140,8 @@ async fn daemon_approval_route(path: &str, body: &str) -> anyhow::Result<serde_j
         "decide" => {
             let input: ApprovalDecisionInput = serde_json::from_str(body)?;
             let events = open_event_store()?.try_events(run_id)?;
-            let delegated_controller = if input.approved {
-                verify_approval_controller_delegate(
+            let controller_assessment = if input.approved {
+                assess_approval_controller_delegate(
                     &events,
                     &approval_id,
                     input.controller_agent.as_deref(),
@@ -3135,6 +3149,9 @@ async fn daemon_approval_route(path: &str, body: &str) -> anyhow::Result<serde_j
             } else {
                 None
             };
+            let delegated_controller = controller_assessment
+                .as_ref()
+                .map(|assessment| assessment.controller_agent.clone());
             if input.approved {
                 verify_configured_approval_unlock(input.unlock.as_deref())?;
                 verify_configured_approval_signature(
@@ -3155,7 +3172,8 @@ async fn daemon_approval_route(path: &str, body: &str) -> anyhow::Result<serde_j
             Ok(serde_json::json!({
                 "run_id": run_id.0,
                 "approval_id": approval_id,
-                "approved": input.approved
+                "approved": input.approved,
+                "controller_assessment": controller_assessment
             }))
         }
         "execute" => {

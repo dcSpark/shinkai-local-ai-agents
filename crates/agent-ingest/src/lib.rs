@@ -709,10 +709,10 @@ impl IngestionBackend for LocalLayoutBackend {
                 ),
                 compatibility(
                     "png/jpeg/gif/webp",
-                    "image metadata plus optional OCR",
+                    "image metadata plus adaptive optional OCR",
                     &["tesseract"],
                     &["image"],
-                    "Optional model vision enrichment can read charts, screenshots, and scanned images.",
+                    "Runs configurable tesseract OCR attempts before optional model vision enrichment for charts, screenshots, and scanned images.",
                 ),
                 compatibility(
                     "svg",
@@ -806,30 +806,183 @@ fn extract_image_text(
         return Ok(extract_svg_text(source, bytes));
     }
     let metadata = image_metadata(&extension, bytes);
-    let source_arg = source.to_string_lossy().to_string();
     let mut findings = Vec::new();
-    let ocr_text = command_stdout("tesseract", &[&source_arg, "stdout"])?;
-    let ocr_text = ocr_text
-        .map(|text| text.trim().to_string())
-        .filter(|text| !text.is_empty());
-    if ocr_text.is_none() {
+    let ocr_result = run_tesseract_ocr(source)?;
+    if ocr_result.is_none() {
         findings.push(IngestionFinding {
             severity: IngestionFindingSeverity::Warning,
-            message: "local-layout-v0 captured image metadata only; install tesseract for OCR text"
-                .into(),
+            message:
+                "local-layout-v0 captured image metadata only; install tesseract or configure AGENT_INGEST_TESSERACT_* for OCR text"
+                    .into(),
         });
     }
-    let text = match ocr_text {
-        Some(ocr_text) => format!(
-            "Image source: {}\nFormat: {extension}\n{metadata}\n\nOCR text:\n{ocr_text}",
-            source.display()
+    let text = match ocr_result {
+        Some(ocr_result) => format!(
+            "Image source: {}\nFormat: {extension}\n{metadata}\n\nOCR mode: {}\nOCR text:\n{}",
+            source.display(),
+            ocr_result.label,
+            ocr_result.text
         ),
         None => format!(
-            "Image source: {}\nFormat: {extension}\n{metadata}\n\nOCR text: [not available locally]",
+            "Image source: {}\nFormat: {extension}\n{metadata}\n\nOCR mode: unavailable\nOCR text: [not available locally]",
             source.display()
         ),
     };
     Ok((text, findings))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TesseractOcrOptions {
+    lang: Option<String>,
+    psm: Option<String>,
+    oem: Option<String>,
+    extra_args: Vec<String>,
+}
+
+impl TesseractOcrOptions {
+    fn from_env() -> Self {
+        Self {
+            lang: clean_env("AGENT_INGEST_TESSERACT_LANG"),
+            psm: clean_env("AGENT_INGEST_TESSERACT_PSM"),
+            oem: clean_env("AGENT_INGEST_TESSERACT_OEM"),
+            extra_args: std::env::var("AGENT_INGEST_TESSERACT_EXTRA_ARGS")
+                .ok()
+                .map(|args| {
+                    args.split_whitespace()
+                        .map(str::trim)
+                        .filter(|arg| !arg.is_empty())
+                        .map(str::to_string)
+                        .collect()
+                })
+                .unwrap_or_default(),
+        }
+    }
+
+    fn is_configured(&self) -> bool {
+        self.lang.is_some()
+            || self.psm.is_some()
+            || self.oem.is_some()
+            || !self.extra_args.is_empty()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TesseractOcrAttempt {
+    label: String,
+    args: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TesseractOcrResult {
+    label: String,
+    text: String,
+    score: usize,
+}
+
+fn run_tesseract_ocr(source: &Path) -> Result<Option<TesseractOcrResult>, IngestError> {
+    let mut best = None;
+    for attempt in tesseract_ocr_attempts(source) {
+        let Some(text) = command_stdout_owned("tesseract", &attempt.args)? else {
+            continue;
+        };
+        let text = text.trim().to_string();
+        if text.is_empty() {
+            continue;
+        }
+        let score = ocr_text_score(&text);
+        let candidate = TesseractOcrResult {
+            label: attempt.label,
+            text,
+            score,
+        };
+        if best
+            .as_ref()
+            .is_none_or(|current: &TesseractOcrResult| candidate.score > current.score)
+        {
+            best = Some(candidate);
+        }
+    }
+    Ok(best)
+}
+
+fn tesseract_ocr_attempts(source: &Path) -> Vec<TesseractOcrAttempt> {
+    tesseract_ocr_attempts_for_options(
+        source.to_string_lossy().to_string(),
+        TesseractOcrOptions::from_env(),
+    )
+}
+
+fn tesseract_ocr_attempts_for_options(
+    source_arg: String,
+    options: TesseractOcrOptions,
+) -> Vec<TesseractOcrAttempt> {
+    if options.is_configured() {
+        return vec![TesseractOcrAttempt {
+            label: "configured".into(),
+            args: tesseract_args(
+                source_arg,
+                options.lang,
+                options.psm,
+                options.oem,
+                options.extra_args,
+            ),
+        }];
+    }
+    vec![
+        TesseractOcrAttempt {
+            label: "default".into(),
+            args: tesseract_args(source_arg.clone(), None, None, None, Vec::new()),
+        },
+        TesseractOcrAttempt {
+            label: "psm-6-block".into(),
+            args: tesseract_args(source_arg.clone(), None, Some("6".into()), None, Vec::new()),
+        },
+        TesseractOcrAttempt {
+            label: "psm-11-sparse".into(),
+            args: tesseract_args(source_arg, None, Some("11".into()), None, Vec::new()),
+        },
+    ]
+}
+
+fn tesseract_args(
+    source_arg: String,
+    lang: Option<String>,
+    psm: Option<String>,
+    oem: Option<String>,
+    extra_args: Vec<String>,
+) -> Vec<String> {
+    let mut args = vec![source_arg, "stdout".into()];
+    if let Some(lang) = lang {
+        args.push("-l".into());
+        args.push(lang);
+    }
+    if let Some(oem) = oem {
+        args.push("--oem".into());
+        args.push(oem);
+    }
+    if let Some(psm) = psm {
+        args.push("--psm".into());
+        args.push(psm);
+    }
+    args.extend(extra_args);
+    args
+}
+
+fn ocr_text_score(text: &str) -> usize {
+    let alnum = text.chars().filter(|ch| ch.is_alphanumeric()).count();
+    let word_count = text
+        .split_whitespace()
+        .filter(|word| word.chars().any(|ch| ch.is_alphanumeric()))
+        .count();
+    let line_count = text.lines().filter(|line| !line.trim().is_empty()).count();
+    alnum + (word_count * 4) + (line_count * 2)
+}
+
+fn clean_env(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 const MODEL_VISION_MAX_BYTES: usize = 8 * 1024 * 1024;
@@ -1124,6 +1277,17 @@ fn push_unique_label(labels: &mut Vec<String>, label: &str) {
 }
 
 fn command_stdout(command: &str, args: &[&str]) -> Result<Option<String>, IngestError> {
+    match Command::new(command).args(args).output() {
+        Ok(output) if output.status.success() => {
+            Ok(Some(String::from_utf8_lossy(&output.stdout).to_string()))
+        }
+        Ok(_) => Ok(None),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(err.into()),
+    }
+}
+
+fn command_stdout_owned(command: &str, args: &[String]) -> Result<Option<String>, IngestError> {
     match Command::new(command).args(args).output() {
         Ok(output) if output.status.success() => {
             Ok(Some(String::from_utf8_lossy(&output.stdout).to_string()))
@@ -1838,6 +2002,72 @@ mod tests {
     }
 
     #[test]
+    fn tesseract_attempts_default_to_multiple_layout_modes() {
+        let attempts = tesseract_ocr_attempts_for_options(
+            "receipt.png".into(),
+            TesseractOcrOptions {
+                lang: None,
+                psm: None,
+                oem: None,
+                extra_args: Vec::new(),
+            },
+        );
+
+        let labels = attempts
+            .iter()
+            .map(|attempt| attempt.label.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(labels, vec!["default", "psm-6-block", "psm-11-sparse"]);
+        assert_eq!(attempts[0].args, vec!["receipt.png", "stdout"]);
+        assert_eq!(
+            attempts[1].args,
+            vec!["receipt.png", "stdout", "--psm", "6"]
+        );
+        assert_eq!(
+            attempts[2].args,
+            vec!["receipt.png", "stdout", "--psm", "11"]
+        );
+    }
+
+    #[test]
+    fn configured_tesseract_attempt_uses_explicit_options() {
+        let attempts = tesseract_ocr_attempts_for_options(
+            "scan.jpg".into(),
+            TesseractOcrOptions {
+                lang: Some("eng+spa".into()),
+                psm: Some("4".into()),
+                oem: Some("1".into()),
+                extra_args: vec!["preserve_interword_spaces=1".into()],
+            },
+        );
+
+        assert_eq!(attempts.len(), 1);
+        assert_eq!(attempts[0].label, "configured");
+        assert_eq!(
+            attempts[0].args,
+            vec![
+                "scan.jpg",
+                "stdout",
+                "-l",
+                "eng+spa",
+                "--oem",
+                "1",
+                "--psm",
+                "4",
+                "preserve_interword_spaces=1"
+            ]
+        );
+    }
+
+    #[test]
+    fn ocr_text_score_prefers_richer_readable_text() {
+        let sparse = "T0ta1\n...";
+        let rich = "Total revenue\nQ1 100\nQ2 125";
+
+        assert!(ocr_text_score(rich) > ocr_text_score(sparse));
+    }
+
+    #[test]
     fn supported_backends_are_described_for_selection() {
         let backends = supported_backends();
         let ids = backends
@@ -1887,6 +2117,13 @@ mod tests {
                 .compatibility
                 .iter()
                 .any(|item| item.source_kind == "svg" && item.extraction.contains("text-label"))
+        );
+        assert!(
+            backends[3]
+                .compatibility
+                .iter()
+                .any(|item| item.source_kind == "png/jpeg/gif/webp"
+                    && item.extraction.contains("adaptive"))
         );
     }
 }

@@ -1363,6 +1363,7 @@ export default function App() {
       { command: "/adapters doctor", label: "Check adapter operability" },
       { command: "/adapters install-skill ", label: "Install adapter as skill" },
       { command: "/trace", label: "Load last run trace" },
+      { command: "/trace ", label: "Load a run trace by id" },
       { command: "/approvals", label: "Review current run approvals" },
       { command: "/batch ", label: "Run lines as deterministic batch" },
       { command: "/resume-batch ", label: "Resume deterministic batch" },
@@ -2293,14 +2294,18 @@ export default function App() {
     return applyTraceEvents(events);
   }
 
-  async function loadTraceTreeNode(runId: string) {
-    setOpsId(runId);
+  async function loadTraceById(runId: string) {
     try {
       await loadTraceFor(runId);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Trace load failed: ${msg}`);
     }
+  }
+
+  async function loadTraceTreeNode(runId: string) {
+    setOpsId(runId);
+    await loadTraceById(runId);
   }
 
   async function submit() {
@@ -3017,10 +3022,16 @@ export default function App() {
       return;
     }
 
-    if (prompt === "/trace") {
+    if (prompt === "/trace" || prompt.startsWith("/trace ")) {
+      const runId = prompt === "/trace" ? "" : prompt.slice("/trace ".length).trim();
       setInput("");
       setActiveSection("trace");
-      appendLine("user", "/trace");
+      appendLine("user", prompt);
+      if (runId) {
+        setOpsId(runId);
+        await loadTraceById(runId);
+        return;
+      }
       if (!lastRunId) {
         appendLine("error", "Trace shortcut needs a completed or active run.");
         return;
@@ -4815,12 +4826,13 @@ export default function App() {
 
   async function loadLastTrace() {
     if (!lastRunId) return;
-    try {
-      await loadTraceFor(lastRunId);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      appendLine("error", `Trace load failed: ${msg}`);
-    }
+    await loadTraceById(lastRunId);
+  }
+
+  async function loadTraceFromOps() {
+    const runId = opsId.trim() || lastRunId;
+    if (!runId) return;
+    await loadTraceById(runId);
   }
 
   async function guideLastRun(text = input.trim(), clearComposer = true) {
@@ -8644,8 +8656,9 @@ export default function App() {
           <div className="context-actions">
             <button
               type="button"
-              onClick={() => void loadLastTrace()}
-              disabled={running || !lastRunId}
+              title="Load the run id in the Id field, or the last run when Id is blank."
+              onClick={() => void loadTraceFromOps()}
+              disabled={running || (!opsId.trim() && !lastRunId)}
             >
               Load Trace
             </button>

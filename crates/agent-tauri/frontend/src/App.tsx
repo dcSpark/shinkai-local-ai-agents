@@ -309,6 +309,20 @@ interface StorageRetentionResult {
   errors: string[];
 }
 
+interface BridgeDeliveryRecord {
+  id: string;
+  target: string;
+  url: string;
+  payload: JsonValue;
+  last_delivery: JsonValue;
+  created_ms: number;
+  updated_ms: number;
+}
+
+interface BridgeDeliveryListResponse {
+  deliveries: BridgeDeliveryRecord[];
+}
+
 interface BundleStatus {
   operation: "exported" | "imported";
   path: string;
@@ -452,6 +466,11 @@ export default function App() {
   const [storageReport, setStorageReport] = useState<StorageReport | null>(null);
   const [storagePruneResult, setStoragePruneResult] =
     useState<StorageRetentionResult | null>(null);
+  const [bridgeDeliveries, setBridgeDeliveries] = useState<BridgeDeliveryRecord[]>(
+    [],
+  );
+  const [bridgeDeliveryResult, setBridgeDeliveryResult] =
+    useState<JsonValue | null>(null);
   const [bundleStatus, setBundleStatus] = useState<BundleStatus | null>(null);
   const [compactionRecords, setCompactionRecords] = useState<CompactionRecord[]>(
     [],
@@ -6310,6 +6329,64 @@ export default function App() {
     }
   }
 
+  async function listBridgeDeliveriesFromOps() {
+    if (transport !== "daemon") {
+      appendLine("error", "Bridge deliveries are available over daemon transport.");
+      return;
+    }
+    try {
+      const result =
+        await daemonJson<BridgeDeliveryListResponse>("/bridges/deliveries");
+      const deliveries = result.deliveries ?? [];
+      setBridgeDeliveries(deliveries);
+      appendEvent(`Bridge deliveries: ${deliveries.length} pending`);
+      appendJson("Bridge deliveries", result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Bridge deliveries failed: ${msg}`);
+    }
+  }
+
+  async function retryBridgeDeliveryFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Bridge delivery retry");
+    if (!id) return;
+    if (transport !== "daemon") {
+      appendLine("error", "Bridge delivery retry is available over daemon transport.");
+      return;
+    }
+    try {
+      const result = await daemonJson<JsonValue>(
+        `/bridges/deliveries/${id}/retry`,
+        {},
+      );
+      setBridgeDeliveryResult(result);
+      appendJson("Bridge delivery retry", result);
+      await listBridgeDeliveriesFromOps();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Bridge delivery retry failed: ${msg}`);
+    }
+  }
+
+  async function retryAllBridgeDeliveriesFromOps() {
+    if (transport !== "daemon") {
+      appendLine("error", "Bridge delivery retry is available over daemon transport.");
+      return;
+    }
+    try {
+      const result = await daemonJson<JsonValue>(
+        "/bridges/deliveries/retry-all",
+        {},
+      );
+      setBridgeDeliveryResult(result);
+      appendJson("Bridge delivery retry all", result);
+      await listBridgeDeliveriesFromOps();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Bridge delivery retry-all failed: ${msg}`);
+    }
+  }
+
   function applySlashCommand(command: string) {
     setInput(command);
     setSlashCommandIndex(0);
@@ -6380,6 +6457,57 @@ export default function App() {
     const minutes = Math.floor(ms / 60_000);
     const seconds = Math.floor((ms % 60_000) / 1000);
     return `${minutes}m ${seconds}s`;
+  }
+
+  function formatUnixMs(ms: number) {
+    if (!Number.isFinite(ms) || ms <= 0) {
+      return "unknown";
+    }
+    return new Date(ms).toLocaleString();
+  }
+
+  function jsonObject(value: JsonValue | undefined) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+    return value as { [key: string]: JsonValue };
+  }
+
+  function deliveryStatusLabel(value: JsonValue) {
+    const record = jsonObject(value);
+    if (!record) {
+      return "unknown";
+    }
+    const delivered = record.delivered;
+    const attempts = record.attempts;
+    const status =
+      delivered === true ? "delivered" : delivered === false ? "failed" : "pending";
+    return typeof attempts === "number" ? `${status}, ${attempts} attempts` : status;
+  }
+
+  function bridgeRetrySummary(value: JsonValue) {
+    const record = jsonObject(value);
+    if (!record) {
+      return "retry result";
+    }
+    if (typeof record.retried === "number") {
+      return `retried ${record.retried}`;
+    }
+    const attempted = record.attempted;
+    const resolved = record.resolved;
+    const remaining = record.remaining;
+    if (
+      typeof attempted === "number" &&
+      typeof resolved === "number" &&
+      typeof remaining === "number"
+    ) {
+      return `attempted ${attempted}, resolved ${resolved}, remaining ${remaining}`;
+    }
+    const delivery = jsonObject(record.delivery);
+    if (delivery) {
+      return deliveryStatusLabel(delivery);
+    }
+    return deliveryStatusLabel(value);
   }
 
   function formatCost(cost: number | null) {
@@ -11045,6 +11173,91 @@ export default function App() {
                       </div>
                     );
                   })}
+                </div>
+              ) : null}
+            </div>
+            ) : null}
+
+            {activeSection === "adapters" ? (
+            <div className="operation-group">
+              <div className="operation-title">Bridge Deliveries</div>
+              <div className="button-grid">
+                <button
+                  type="button"
+                  title="List failed outbound bridge delivery dead letters."
+                  onClick={() => void listBridgeDeliveriesFromOps()}
+                  disabled={running || transport !== "daemon"}
+                >
+                  List Deliveries
+                </button>
+                <button
+                  type="button"
+                  title="Retry bridge delivery Id."
+                  onClick={() => void retryBridgeDeliveryFromOps()}
+                  disabled={running || transport !== "daemon" || !opsId.trim()}
+                >
+                  Retry Id
+                </button>
+                <button
+                  type="button"
+                  title="Retry all failed bridge deliveries up to the daemon batch limit."
+                  onClick={() => void retryAllBridgeDeliveriesFromOps()}
+                  disabled={running || transport !== "daemon"}
+                >
+                  Retry All
+                </button>
+              </div>
+              {bridgeDeliveries.length ? (
+                <div className="storage-buckets">
+                  {bridgeDeliveries.map((delivery) => (
+                    <div
+                      className="storage-bucket"
+                      key={delivery.id}
+                      title={delivery.url}
+                    >
+                      <strong>{delivery.target}</strong>
+                      <span>{delivery.id}</span>
+                      <span>{delivery.url}</span>
+                      <span>
+                        updated {formatUnixMs(delivery.updated_ms)} /{" "}
+                        {deliveryStatusLabel(delivery.last_delivery)}
+                      </span>
+                      <div className="mini-actions">
+                        <button
+                          type="button"
+                          title="Move this delivery id into the Id field."
+                          onClick={() => setOpsId(delivery.id)}
+                          disabled={running}
+                        >
+                          Set Id
+                        </button>
+                        <button
+                          type="button"
+                          title="Retry this failed bridge delivery."
+                          onClick={() => {
+                            setOpsId(delivery.id);
+                            void retryBridgeDeliveryFromOps(delivery.id);
+                          }}
+                          disabled={running || transport !== "daemon"}
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-note">
+                  No bridge delivery dead letters loaded.
+                </div>
+              )}
+              {bridgeDeliveryResult ? (
+                <div className="bundle-card">
+                  <div className="bundle-card-head">
+                    <strong>Last bridge retry</strong>
+                    <span>{bridgeRetrySummary(bridgeDeliveryResult)}</span>
+                  </div>
+                  <span>{previewText(previewJson(bridgeDeliveryResult), 240)}</span>
                 </div>
               ) : null}
             </div>

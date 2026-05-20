@@ -3396,6 +3396,13 @@ async fn adapter_import(path: String) -> Result<NormalizedPackage, String> {
 }
 
 #[tauri::command]
+async fn adapter_import_manifest(path: String) -> Result<NormalizedPackage, String> {
+    AdapterRegistry::from_env()
+        .import_manifest(path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn adapter_list() -> Result<Vec<NormalizedPackage>, String> {
     AdapterRegistry::from_env()
         .list()
@@ -3406,6 +3413,13 @@ async fn adapter_list() -> Result<Vec<NormalizedPackage>, String> {
 async fn adapter_show(id: String) -> Result<NormalizedPackage, String> {
     AdapterRegistry::from_env()
         .show(&id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn adapter_export(id: String, path: String) -> Result<NormalizedPackage, String> {
+    AdapterRegistry::from_env()
+        .export_manifest(&id, path)
         .map_err(|e| e.to_string())
 }
 
@@ -3583,8 +3597,10 @@ pub fn run() {
             bundle_import,
             adapter_inspect,
             adapter_import,
+            adapter_import_manifest,
             adapter_list,
             adapter_show,
+            adapter_export,
             adapter_allow,
             adapter_quarantine
         ])

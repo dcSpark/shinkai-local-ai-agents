@@ -3984,6 +3984,16 @@ pub async fn adapter_import(path: String) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn adapter_import_manifest(path: String, json: bool) -> anyhow::Result<()> {
+    let package = AdapterRegistry::from_env().import_manifest(path)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&package)?);
+    } else {
+        println!("imported quarantined adapter manifest {}", package.id);
+    }
+    Ok(())
+}
+
 pub async fn adapter_list(json: bool) -> anyhow::Result<()> {
     let packages = AdapterRegistry::from_env().list()?;
     if json {
@@ -4002,6 +4012,22 @@ pub async fn adapter_list(json: bool) -> anyhow::Result<()> {
 pub async fn adapter_show(id: String, json: bool) -> anyhow::Result<()> {
     let package = AdapterRegistry::from_env().show(&id)?;
     print_adapter_package(package, json)?;
+    Ok(())
+}
+
+pub async fn adapter_export(id: String, path: String, json: bool) -> anyhow::Result<()> {
+    let package = AdapterRegistry::from_env().export_manifest(&id, &path)?;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "path": path,
+                "package": package
+            }))?
+        );
+    } else {
+        println!("exported adapter manifest {} to {}", package.id, path);
+    }
     Ok(())
 }
 
@@ -5361,8 +5387,22 @@ pub async fn remote_adapter_import(url: String, path: String) -> anyhow::Result<
     )
 }
 
+pub async fn remote_adapter_import_manifest(url: String, path: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/adapters/import-manifest",
+        serde_json::json!({ "path": path }),
+    )?)
+}
+
 pub async fn remote_adapter_show(url: String, id: String) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).get_json(&format!("/adapters/{id}"))?)
+}
+
+pub async fn remote_adapter_export(url: String, id: String, path: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        &format!("/adapters/{id}/export"),
+        serde_json::json!({ "path": path }),
+    )?)
 }
 
 pub async fn remote_adapter_action(url: String, id: String, allow: bool) -> anyhow::Result<()> {

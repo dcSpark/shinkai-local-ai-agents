@@ -1302,6 +1302,14 @@ enum ArtifactCommand {
 enum AdapterCommand {
     /// Import a local adapter source into quarantine.
     Import { path: String },
+    /// Import a portable normalized adapter manifest into quarantine.
+    ImportManifest {
+        path: String,
+
+        /// Emit JSON instead of a human-readable summary.
+        #[arg(long)]
+        json: bool,
+    },
     /// Search, inspect, pin, and install from a local ClawHub catalog.
     Clawhub {
         #[command(subcommand)]
@@ -1324,6 +1332,15 @@ enum AdapterCommand {
     /// Show a persisted adapter manifest.
     Show {
         id: String,
+
+        /// Emit JSON instead of a human-readable summary.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Export a persisted adapter manifest as portable JSON.
+    Export {
+        id: String,
+        path: String,
 
         /// Emit JSON instead of a human-readable summary.
         #[arg(long)]
@@ -2900,12 +2917,19 @@ enum RemoteAdapterCommand {
     Import {
         path: String,
     },
+    ImportManifest {
+        path: String,
+    },
     Clawhub {
         #[command(subcommand)]
         command: ClawHubCommand,
     },
     Show {
         id: String,
+    },
+    Export {
+        id: String,
+        path: String,
     },
     Allow {
         id: String,
@@ -4655,6 +4679,41 @@ mod cli_parse_tests {
         let cli = parse_cli([
             "agent",
             "adapter",
+            "export",
+            "adapter-demo",
+            "./adapter.json",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Adapter {
+            command: AdapterCommand::Export { id, path, json },
+        } = into_command(cli)
+        else {
+            panic!("expected adapter export command");
+        };
+        assert_eq!(id, "adapter-demo");
+        assert_eq!(path, "./adapter.json");
+        assert!(json);
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "adapter",
+            "import-manifest",
+            "./adapter.json",
+        ])
+        .unwrap();
+        let RemoteCommand::Adapter {
+            command: RemoteAdapterCommand::ImportManifest { path },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote adapter import-manifest command");
+        };
+        assert_eq!(path, "./adapter.json");
+
+        let cli = parse_cli([
+            "agent",
+            "adapter",
             "clawhub",
             "install",
             "catalog.json",
@@ -5434,6 +5493,9 @@ async fn main() -> anyhow::Result<()> {
         },
         Command::Adapter { command } => match command {
             AdapterCommand::Import { path } => headless::adapter_import(path).await,
+            AdapterCommand::ImportManifest { path, json } => {
+                headless::adapter_import_manifest(path, json).await
+            }
             AdapterCommand::Clawhub { command } => match command {
                 ClawHubCommand::Search {
                     catalog,
@@ -5453,6 +5515,9 @@ async fn main() -> anyhow::Result<()> {
             AdapterCommand::List { json } => headless::adapter_list(json).await,
             AdapterCommand::Inspect { path, json } => headless::adapter_inspect(path, json).await,
             AdapterCommand::Show { id, json } => headless::adapter_show(id, json).await,
+            AdapterCommand::Export { id, path, json } => {
+                headless::adapter_export(id, path, json).await
+            }
             AdapterCommand::Allow { id } => headless::adapter_allow(id).await,
             AdapterCommand::Quarantine { id } => headless::adapter_quarantine(id).await,
         },
@@ -6158,6 +6223,9 @@ async fn main() -> anyhow::Result<()> {
                 RemoteAdapterCommand::Import { path } => {
                     headless::remote_adapter_import(url, path).await
                 }
+                RemoteAdapterCommand::ImportManifest { path } => {
+                    headless::remote_adapter_import_manifest(url, path).await
+                }
                 RemoteAdapterCommand::Clawhub { command } => match command {
                     ClawHubCommand::Search {
                         catalog,
@@ -6179,6 +6247,9 @@ async fn main() -> anyhow::Result<()> {
                     }
                 },
                 RemoteAdapterCommand::Show { id } => headless::remote_adapter_show(url, id).await,
+                RemoteAdapterCommand::Export { id, path } => {
+                    headless::remote_adapter_export(url, id, path).await
+                }
                 RemoteAdapterCommand::Allow { id } => {
                     headless::remote_adapter_action(url, id, true).await
                 }

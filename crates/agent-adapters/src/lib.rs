@@ -29,6 +29,10 @@ pub enum AdapterError {
     SourceUnavailable(PathBuf),
     #[error("adapter package not found: {0}")]
     NotFound(String),
+    #[error("invalid adapter package id: {0}")]
+    InvalidPackageId(String),
+    #[error("invalid adapter package manifest: {0}")]
+    InvalidPackageManifest(String),
     #[error("invalid agent-created tool draft: {0}")]
     InvalidToolDraft(String),
     #[error("invalid ClawHub catalog: {0}")]
@@ -264,6 +268,32 @@ impl AdapterRegistry {
         Ok(package)
     }
 
+    pub fn import_manifest(
+        &self,
+        path: impl AsRef<Path>,
+    ) -> Result<NormalizedPackage, AdapterError> {
+        let mut package: NormalizedPackage = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+        validate_package_manifest(&package)?;
+        quarantine_package(&mut package);
+        self.write(&package)?;
+        Ok(package)
+    }
+
+    pub fn export_manifest(
+        &self,
+        id: &str,
+        path: impl AsRef<Path>,
+    ) -> Result<NormalizedPackage, AdapterError> {
+        let package = self.show(id)?;
+        if let Some(parent) = path.as_ref().parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, serde_json::to_string_pretty(&package)?)?;
+        Ok(package)
+    }
+
     pub fn list(&self) -> Result<Vec<NormalizedPackage>, AdapterError> {
         self.paths.ensure_base_dirs()?;
         let mut packages = Vec::new();
@@ -278,7 +308,7 @@ impl AdapterRegistry {
     }
 
     pub fn show(&self, id: &str) -> Result<NormalizedPackage, AdapterError> {
-        let path = self.path_for(id);
+        let path = self.path_for(id)?;
         if !path.exists() {
             return Err(AdapterError::NotFound(id.into()));
         }
@@ -299,10 +329,7 @@ impl AdapterRegistry {
 
     pub fn quarantine(&self, id: &str) -> Result<NormalizedPackage, AdapterError> {
         let mut package = self.show(id)?;
-        package.quarantined = true;
-        for capability in &mut package.capabilities {
-            capability.quarantined = true;
-        }
+        quarantine_package(&mut package);
         self.write(&package)?;
         Ok(package)
     }
@@ -389,10 +416,7 @@ impl AdapterRegistry {
         match self.show(&package_id) {
             Ok(package) => {
                 let mut package = package;
-                package.quarantined = true;
-                for capability in &mut package.capabilities {
-                    capability.quarantined = true;
-                }
+                quarantine_package(&mut package);
                 self.write(&package)?;
                 Ok(Some(package))
             }
@@ -402,17 +426,49 @@ impl AdapterRegistry {
     }
 
     fn write(&self, package: &NormalizedPackage) -> Result<(), AdapterError> {
+        validate_package_manifest(package)?;
         self.paths.ensure_base_dirs()?;
-        std::fs::write(
-            self.path_for(&package.id),
-            serde_json::to_string_pretty(package)?,
-        )?;
+        let path = self.path_for(&package.id)?;
+        let text = serde_json::to_string_pretty(package)?;
+        self.paths
+            .ensure_quota_for_path_write(&path, u64::try_from(text.len()).unwrap_or(u64::MAX))?;
+        std::fs::write(path, text)?;
         Ok(())
     }
 
-    fn path_for(&self, id: &str) -> PathBuf {
-        self.paths.adapters_dir().join(format!("{id}.json"))
+    fn path_for(&self, id: &str) -> Result<PathBuf, AdapterError> {
+        validate_package_id(id)?;
+        Ok(self.paths.adapters_dir().join(format!("{id}.json")))
     }
+}
+
+fn quarantine_package(package: &mut NormalizedPackage) {
+    package.quarantined = true;
+    for capability in &mut package.capabilities {
+        capability.quarantined = true;
+    }
+}
+
+fn validate_package_manifest(package: &NormalizedPackage) -> Result<(), AdapterError> {
+    validate_package_id(&package.id)?;
+    if package.digest.trim().is_empty() {
+        return Err(AdapterError::InvalidPackageManifest(
+            "digest is required".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_package_id(id: &str) -> Result<(), AdapterError> {
+    let invalid = id.trim().is_empty()
+        || id.contains('/')
+        || id.contains('\\')
+        || id.contains("..")
+        || id.contains(std::path::MAIN_SEPARATOR);
+    if invalid {
+        return Err(AdapterError::InvalidPackageId(id.into()));
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -2022,7 +2078,21 @@ hooks:
         let package = registry.import(&source).unwrap();
         assert!(package.quarantined);
         assert_eq!(registry.list().unwrap().len(), 1);
-        assert!(!registry.allow(&package.id).unwrap().quarantined);
+        let allowed = registry.allow(&package.id).unwrap();
+        assert!(!allowed.quarantined);
+        let export_path = dir.join("adapter-export.json");
+        let exported = registry.export_manifest(&package.id, &export_path).unwrap();
+        assert!(!exported.quarantined);
+        let portable_registry = AdapterRegistry::new(StoragePaths::new(dir.join("portable-home")));
+        let imported = portable_registry.import_manifest(&export_path).unwrap();
+        assert_eq!(imported.id, package.id);
+        assert!(imported.quarantined);
+        assert!(
+            imported
+                .capabilities
+                .iter()
+                .all(|capability| capability.quarantined)
+        );
         assert!(registry.quarantine(&package.id).unwrap().quarantined);
         let _ = std::fs::remove_dir_all(dir);
     }

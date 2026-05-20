@@ -5811,6 +5811,22 @@ export default function App() {
     }
   }
 
+  async function importAdapterManifestFromOps() {
+    const path = requireOpsValue("Adapter manifest import");
+    if (!path) return;
+    try {
+      const manifest =
+        transport === "daemon"
+          ? await daemonJson<AdapterPackage>("/adapters/import-manifest", { path })
+          : await invoke<AdapterPackage>("adapter_import_manifest", { path });
+      setAdapterPackages((packages) => upsertAdapterPackage(packages, manifest));
+      appendJson("Adapter manifest imported into quarantine", manifest);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Adapter manifest import failed: ${msg}`);
+    }
+  }
+
   async function showAdapterFromOps() {
     const id = requireOpsId("Adapter show");
     if (!id) return;
@@ -5824,6 +5840,24 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Adapter show failed: ${msg}`);
+    }
+  }
+
+  async function exportAdapterFromOps() {
+    const id = requireOpsId("Adapter export");
+    if (!id) return;
+    const path = requireOpsValue("Adapter export");
+    if (!path) return;
+    try {
+      const manifest =
+        transport === "daemon"
+          ? await daemonJson<AdapterPackage>(`/adapters/${id}/export`, { path })
+          : await invoke<AdapterPackage>("adapter_export", { id, path });
+      setAdapterPackages((packages) => upsertAdapterPackage(packages, manifest));
+      appendJson("Adapter manifest exported", manifest);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Adapter export failed: ${msg}`);
     }
   }
 
@@ -10172,11 +10206,27 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  title="Import portable adapter manifest JSON from Value."
+                  onClick={() => void importAdapterManifestFromOps()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Import Manifest
+                </button>
+                <button
+                  type="button"
                   title="Show adapter package Id."
                   onClick={() => void showAdapterFromOps()}
                   disabled={running || !opsId.trim()}
                 >
                   Show Adapter
+                </button>
+                <button
+                  type="button"
+                  title="Export adapter package Id to the path in Value."
+                  onClick={() => void exportAdapterFromOps()}
+                  disabled={running || !opsId.trim() || !opsValue.trim()}
+                >
+                  Export Adapter
                 </button>
                 <button
                   type="button"

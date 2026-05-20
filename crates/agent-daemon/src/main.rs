@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, OnceLock};
@@ -399,6 +401,9 @@ async fn route(
         ("POST", "/adapters/import") => {
             daemon_adapter_import(&request.body).map(|value| (200, value))
         }
+        ("POST", "/adapters/import-manifest") => {
+            daemon_adapter_import_manifest(&request.body).map(|value| (200, value))
+        }
         ("POST", "/adapters/clawhub/search") => {
             daemon_clawhub_search(&request.body).map(|value| (200, value))
         }
@@ -645,7 +650,7 @@ async fn route(
             daemon_artifact_show(id).map(|value| (200, value))
         }
         _ if request.method == "POST" && request.path.starts_with("/adapters/") => {
-            daemon_adapter_route(&request.path).map(|value| (200, value))
+            daemon_adapter_route(&request.path, &request.body).map(|value| (200, value))
         }
         _ if request.method == "GET" && request.path.starts_with("/adapters/") => {
             let id = request.path.trim_start_matches("/adapters/");
@@ -770,11 +775,13 @@ async fn route(
                     "POST /artifacts/<id>/delete",
                     "GET /adapters",
                     "POST /adapters/import",
+                    "POST /adapters/import-manifest",
                     "POST /adapters/clawhub/search",
                     "POST /adapters/clawhub/inspect",
                     "POST /adapters/clawhub/pin",
                     "POST /adapters/clawhub/install",
                     "GET /adapters/<id>",
+                    "POST /adapters/<id>/export",
                     "POST /adapters/<id>/allow",
                     "POST /bundles/export",
                     "POST /bundles/import"
@@ -4681,16 +4688,29 @@ fn daemon_adapter_import(body: &str) -> anyhow::Result<serde_json::Value> {
     )?)
 }
 
+fn daemon_adapter_import_manifest(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: PathInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        AdapterRegistry::from_env().import_manifest(input.path)?,
+    )?)
+}
+
 fn daemon_adapter_show(id: &str) -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(AdapterRegistry::from_env().show(id)?)?)
 }
 
-fn daemon_adapter_route(path: &str) -> anyhow::Result<serde_json::Value> {
+fn daemon_adapter_route(path: &str, body: &str) -> anyhow::Result<serde_json::Value> {
     let parts: Vec<&str> = path.trim_start_matches('/').split('/').collect();
     if parts.len() != 3 || parts[0] != "adapters" {
         anyhow::bail!("invalid adapter route");
     }
     match parts[2] {
+        "export" => {
+            let input: PathInput = serde_json::from_str(body)?;
+            Ok(serde_json::to_value(
+                AdapterRegistry::from_env().export_manifest(parts[1], input.path)?,
+            )?)
+        }
         "allow" => Ok(serde_json::to_value(
             AdapterRegistry::from_env().allow(parts[1])?,
         )?),

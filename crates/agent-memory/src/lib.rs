@@ -43,6 +43,24 @@ pub struct MemoryRecord {
     pub generating_model: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub topics: Vec<String>,
+    #[serde(default, skip_serializing_if = "MemoryClassification::is_empty")]
+    pub classification: MemoryClassification,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MemoryClassification {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub topics: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tasks: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+}
+
+impl MemoryClassification {
+    fn is_empty(&self) -> bool {
+        self.topics.is_empty() && self.tasks.is_empty() && self.source.is_none()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,6 +182,7 @@ impl MemoryStore {
         scan(content)?;
         self.paths.ensure_base_dirs()?;
         let now = Utc::now();
+        let classification = classify_memory_content(content);
         let record = MemoryRecord {
             id: format!("mem-{}", now.timestamp_nanos_opt().unwrap_or_default()),
             content: content.into(),
@@ -177,7 +196,8 @@ impl MemoryStore {
             source_conversation_id: clean_optional(source_conversation_id),
             generating_model: (author == MemoryAuthor::Model)
                 .then(|| "manual-memory-generator-v0".into()),
-            topics: normalize_topics(topics),
+            topics: merge_topics(topics, classification.topics.clone()),
+            classification,
         };
         let mut records = self.list_target(target)?;
         records.push(record.clone());
@@ -256,8 +276,14 @@ impl MemoryStore {
         for target in [MemoryTarget::Agent, MemoryTarget::User] {
             let mut records = self.list_target(target)?;
             if let Some(record) = records.iter_mut().find(|r| r.id == id) {
+                let classification = classify_memory_content(content);
                 record.content = content.into();
                 record.updated_at = Utc::now();
+                record.topics = merge_topics(
+                    std::mem::take(&mut record.topics),
+                    classification.topics.clone(),
+                );
+                record.classification = classification;
                 let updated = record.clone();
                 self.write_target(target, &records)?;
                 return Ok(updated);
@@ -372,7 +398,15 @@ impl MemoryStore {
             if let Some(target) = target {
                 record.target = target;
             }
-            record.topics = normalize_topics(std::mem::take(&mut record.topics));
+            record.classification =
+                normalize_classification(std::mem::take(&mut record.classification));
+            if record.classification.is_empty() {
+                record.classification = classify_memory_content(&record.content);
+            }
+            record.topics = merge_topics(
+                std::mem::take(&mut record.topics),
+                record.classification.topics.clone(),
+            );
             record.owning_profile = self.paths.active_profile_id().into();
             record.owning_agent = default_agent();
             record.updated_at = Utc::now();
@@ -568,6 +602,9 @@ fn memory_provenance(record: &MemoryRecord) -> String {
     if !record.topics.is_empty() {
         parts.push(format!("topics={}", record.topics.join(",")));
     }
+    if !record.classification.tasks.is_empty() {
+        parts.push(format!("tasks={}", record.classification.tasks.join(",")));
+    }
     parts.join("; ")
 }
 
@@ -603,6 +640,112 @@ fn normalize_topics(topics: Vec<String>) -> Vec<String> {
 fn normalize_topic(topic: &str) -> Option<String> {
     let topic = topic.trim().to_ascii_lowercase();
     (!topic.is_empty()).then_some(topic)
+}
+
+fn merge_topics(explicit_topics: Vec<String>, inferred_topics: Vec<String>) -> Vec<String> {
+    let mut topics = explicit_topics;
+    topics.extend(inferred_topics);
+    normalize_topics(topics)
+}
+
+fn normalize_classification(mut classification: MemoryClassification) -> MemoryClassification {
+    classification.topics = normalize_topics(std::mem::take(&mut classification.topics));
+    classification.tasks = normalize_topics(std::mem::take(&mut classification.tasks));
+    if classification.topics.is_empty() && classification.tasks.is_empty() {
+        classification.source = None;
+    } else if classification
+        .source
+        .as_deref()
+        .map(str::trim)
+        .filter(|source| !source.is_empty())
+        .is_none()
+    {
+        classification.source = Some("deterministic-keyword-v0".into());
+    }
+    classification
+}
+
+fn classify_memory_content(content: &str) -> MemoryClassification {
+    let lower = content.to_ascii_lowercase();
+    let mut topics = Vec::new();
+    let mut tasks = Vec::new();
+
+    for (topic, needles) in [
+        (
+            "coding",
+            &[
+                "api",
+                "bug",
+                "code",
+                "deploy",
+                "pull request",
+                "repository",
+                "test",
+            ][..],
+        ),
+        (
+            "communication",
+            &[
+                "call",
+                "email",
+                "meeting",
+                "message",
+                "slack",
+                "status update",
+            ][..],
+        ),
+        (
+            "finance",
+            &[
+                "billing", "budget", "invoice", "ledger", "payment", "wallet",
+            ][..],
+        ),
+        (
+            "planning",
+            &[
+                "deadline",
+                "milestone",
+                "plan",
+                "roadmap",
+                "schedule",
+                "todo",
+            ][..],
+        ),
+        (
+            "preference",
+            &["likes", "preference", "prefers", "style preference"][..],
+        ),
+        (
+            "research",
+            &[
+                "citation", "compare", "paper", "research", "source", "study",
+            ][..],
+        ),
+    ] {
+        if needles.iter().any(|needle| lower.contains(*needle)) {
+            topics.push(topic.to_string());
+        }
+    }
+
+    for (task, needles) in [
+        ("fix", &["bug", "broken", "fix", "regression"][..]),
+        ("follow_up", &["circle back", "follow up", "follow-up"][..]),
+        ("pay", &["invoice", "pay ", "payment"][..]),
+        ("research", &["compare", "investigate", "research"][..]),
+        ("review", &["approve", "feedback", "review"][..]),
+        ("schedule", &["calendar", "meeting", "schedule"][..]),
+        ("write", &["document", "draft", "write"][..]),
+    ] {
+        if needles.iter().any(|needle| lower.contains(*needle)) {
+            tasks.push(task.to_string());
+        }
+    }
+
+    normalize_classification(MemoryClassification {
+        topics,
+        tasks,
+        source: None,
+    })
 }
 
 fn parse_records(text: &str) -> Result<Vec<MemoryRecord>, MemoryError> {
@@ -879,6 +1022,47 @@ mod tests {
                 .load_fragments_for_topics(&["legal".into()])
                 .unwrap()
                 .is_empty()
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn memory_content_is_auto_classified_into_topics_and_tasks() {
+        let dir = std::env::temp_dir().join(format!("memory-classify-test-{}", std::process::id()));
+        let store = MemoryStore::new(StoragePaths::new(&dir));
+        let record = store
+            .create(
+                MemoryTarget::Agent,
+                "Follow up on the API review and schedule a meeting about invoice payment.",
+                MemoryAuthor::Human,
+                None,
+            )
+            .unwrap();
+
+        assert!(record.topics.iter().any(|topic| topic == "coding"));
+        assert!(record.topics.iter().any(|topic| topic == "finance"));
+        assert!(
+            record
+                .classification
+                .tasks
+                .iter()
+                .any(|task| task == "follow_up")
+        );
+        assert!(
+            record
+                .classification
+                .tasks
+                .iter()
+                .any(|task| task == "schedule")
+        );
+        assert_eq!(
+            record.classification.source.as_deref(),
+            Some("deterministic-keyword-v0")
+        );
+        assert!(
+            store.load_fragments().unwrap()[0]
+                .provenance
+                .contains("tasks=")
         );
         let _ = std::fs::remove_dir_all(dir);
     }

@@ -109,6 +109,7 @@ pub async fn run(
         options.enable_subagent,
         options.enable_capability_drafts,
         options.agent_id.as_deref(),
+        options.conversation_id.as_deref(),
     );
     let harness =
         setup::build_harness_for_agent(provider, events, registry, options.agent_id.as_deref());
@@ -772,15 +773,23 @@ pub async fn call_tool(
     let input = read_optional_json(input)?;
     let enable_shell = is_shell_runtime_tool_id(&name);
     let enable_subagent = name == "subagent";
+    let enable_capability_drafts = name == "capability_draft";
     let events = Arc::new(open_event_store()?);
     let harness = setup::build_harness(
         Arc::new(FakeProvider::echo()),
         events,
-        setup::build_registry(enable_shell, enable_subagent, false, None),
+        setup::build_registry(
+            enable_shell,
+            enable_subagent,
+            enable_capability_drafts,
+            None,
+            None,
+        ),
     );
     let options = setup::RuntimeOptions {
         enable_shell,
         enable_subagent,
+        enable_capability_drafts,
         require_approval,
         auto_approve,
         ..setup::RuntimeOptions::default()
@@ -821,6 +830,7 @@ pub async fn force_tool(
         options.enable_subagent,
         options.enable_capability_drafts,
         options.agent_id.as_deref(),
+        options.conversation_id.as_deref(),
     );
     let harness =
         setup::build_harness_for_agent(provider, events, registry, options.agent_id.as_deref());
@@ -872,6 +882,7 @@ fn inspection_harness(
             enable_subagent,
             enable_capability_drafts,
             agent_id,
+            None,
         ),
         agent_id,
     )
@@ -1502,6 +1513,7 @@ pub async fn approval_execute_result(
         tool_id == "subagent",
         tool_id == "capability_draft",
         run_agent_id(&events).as_deref(),
+        None,
     );
     store.append(
         run_id,
@@ -1658,6 +1670,7 @@ pub async fn resume(
         options.enable_subagent,
         options.enable_capability_drafts,
         options.agent_id.as_deref(),
+        options.conversation_id.as_deref(),
     );
     let harness =
         setup::build_harness_for_agent(provider, events, registry, options.agent_id.as_deref());
@@ -2030,6 +2043,10 @@ pub struct ConversationPolicyOptions {
     pub clear_allowed_tool_categories: bool,
     pub allowed_skill_categories: Vec<String>,
     pub clear_allowed_skill_categories: bool,
+    pub capability_drafts_enabled: Option<bool>,
+    pub clear_capability_drafts_enabled: bool,
+    pub capability_draft_guidance: Option<String>,
+    pub clear_capability_draft_guidance: bool,
     pub max_tokens_before_compaction: Option<u32>,
     pub clear_max_tokens_before_compaction: bool,
     pub max_compaction_output_tokens: Option<u32>,
@@ -2051,6 +2068,10 @@ impl ConversationPolicyOptions {
             || self.clear_allowed_tool_categories
             || !self.allowed_skill_categories.is_empty()
             || self.clear_allowed_skill_categories
+            || self.capability_drafts_enabled.is_some()
+            || self.clear_capability_drafts_enabled
+            || self.capability_draft_guidance.is_some()
+            || self.clear_capability_draft_guidance
             || self.max_tokens_before_compaction.is_some()
             || self.clear_max_tokens_before_compaction
             || self.max_compaction_output_tokens.is_some()
@@ -2112,6 +2133,18 @@ pub(crate) fn apply_conversation_policy_options(
     }
     if !options.allowed_skill_categories.is_empty() {
         policy.allowed_skill_categories = Some(options.allowed_skill_categories.clone());
+    }
+    if options.clear_capability_drafts_enabled {
+        policy.capability_drafts_enabled = None;
+    }
+    if let Some(enabled) = options.capability_drafts_enabled {
+        policy.capability_drafts_enabled = Some(enabled);
+    }
+    if options.clear_capability_draft_guidance {
+        policy.capability_draft_guidance = None;
+    }
+    if let Some(guidance) = &options.capability_draft_guidance {
+        policy.capability_draft_guidance = Some(guidance.clone());
     }
     if options.clear_max_tokens_before_compaction {
         policy.max_tokens_before_compaction = None;
@@ -2463,6 +2496,12 @@ pub(crate) fn conversation_policy_summary(policy: &ConversationPolicy) -> String
     if let Some(categories) = &policy.allowed_skill_categories {
         parts.push(format!("allowed_skill_categories={categories:?}"));
     }
+    if let Some(enabled) = policy.capability_drafts_enabled {
+        parts.push(format!("capability_drafts_enabled={enabled}"));
+    }
+    if let Some(guidance) = &policy.capability_draft_guidance {
+        parts.push(format!("capability_draft_guidance={guidance:?}"));
+    }
     if let Some(max_tokens_before_compaction) = policy.max_tokens_before_compaction {
         parts.push(format!(
             "max_tokens_before_compaction={max_tokens_before_compaction}"
@@ -2590,6 +2629,7 @@ async fn execute_batch_plan(
                 options.enable_subagent,
                 options.enable_capability_drafts,
                 options.agent_id.as_deref(),
+                options.conversation_id.as_deref(),
             ),
         );
         let agent = setup::build_agent(&options);
@@ -3350,6 +3390,8 @@ fn agent_config_from_parts(
         approval_controller_allowed_tools: (!approval_controller_allowed_tools.is_empty())
             .then_some(approval_controller_allowed_tools),
         approval_controller_allowed_tool_categories,
+        capability_drafts_enabled: None,
+        capability_draft_guidance: None,
         allowed_skill_categories: (!allowed_skill_categories.is_empty())
             .then_some(allowed_skill_categories),
         disabled_lifecycle_hooks: None,

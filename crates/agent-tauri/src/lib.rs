@@ -380,6 +380,7 @@ fn build_registry(
     enable_subagent: bool,
     enable_capability_drafts: bool,
     agent_id: Option<&str>,
+    conversation_id: Option<&str>,
 ) -> Arc<ToolRegistry> {
     let mut registry = ToolRegistry::new();
     registry.register(FakeTool::echo_descriptor(), Arc::new(FakeTool::echo()));
@@ -401,9 +402,10 @@ fn build_registry(
             Arc::new(SubagentTool),
         );
     }
-    if enable_capability_drafts {
+    let (policy_enabled, guidance) = capability_draft_policy_for(agent_id, conversation_id);
+    if enable_capability_drafts || policy_enabled {
         registry.register(
-            CapabilityDraftTool::descriptor(),
+            CapabilityDraftTool::descriptor_with_guidance(guidance.as_deref()),
             Arc::new(CapabilityDraftTool::from_env()),
         );
     }
@@ -417,6 +419,41 @@ fn selectable_subagent_ids(agent_id: Option<&str>) -> Vec<String> {
     ConfigResolver::from_env()
         .list_subagent_agent_ids(agent_id.unwrap_or("fake-agent"))
         .unwrap_or_default()
+}
+
+fn capability_draft_policy_for(
+    agent_id: Option<&str>,
+    conversation_id: Option<&str>,
+) -> (bool, Option<String>) {
+    let mut enabled = false;
+    let mut guidance = None;
+    if let Ok(resolved) = ConfigResolver::from_env().resolve_agent(agent_id.unwrap_or("fake-agent"))
+    {
+        enabled = resolved.agent.tool_policy.capability_drafts_enabled;
+        guidance = resolved.agent.tool_policy.capability_draft_guidance;
+    }
+    if let Some(policy) = conversation_policy_for(conversation_id) {
+        if let Some(value) = policy.capability_drafts_enabled {
+            enabled = value;
+        }
+        if let Some(value) = policy
+            .capability_draft_guidance
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            guidance = Some(value.to_string());
+        }
+    }
+    (enabled, guidance)
+}
+
+fn conversation_policy_for(conversation_id: Option<&str>) -> Option<ConversationPolicy> {
+    conversation_id
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .and_then(|id| ConversationStore::from_env().expanded(id).ok())
+        .map(|expanded| expanded.conversation.policy)
 }
 
 fn voice_runtime_config_for_agent(agent_id: Option<&str>) -> VoiceRuntimeConfig {
@@ -769,6 +806,17 @@ fn apply_conversation_policy(agent: &mut AgentConfig, policy: &ConversationPolic
     if let Some(categories) = &policy.allowed_skill_categories {
         agent.allowed_skill_categories = categories.clone();
     }
+    if let Some(enabled) = policy.capability_drafts_enabled {
+        agent.tool_policy.capability_drafts_enabled = enabled;
+    }
+    if let Some(guidance) = policy
+        .capability_draft_guidance
+        .as_deref()
+        .map(str::trim)
+        .filter(|guidance| !guidance.is_empty())
+    {
+        agent.tool_policy.capability_draft_guidance = Some(guidance.to_string());
+    }
     if let Some(max_tokens_before_compaction) = policy.max_tokens_before_compaction {
         agent.context_policy.compaction.max_tokens_before_compaction =
             Some(max_tokens_before_compaction);
@@ -929,6 +977,7 @@ fn prepare_tauri_run(
         options.enable_subagent,
         options.enable_capability_drafts,
         options.agent_id.as_deref(),
+        options.conversation_id.as_deref(),
     );
     let agent = build_agent(&options);
     Ok(PreparedTauriRun::Agent {
@@ -1049,6 +1098,7 @@ fn direct_tool_agent_and_registry(
         options.enable_subagent,
         options.enable_capability_drafts,
         options.agent_id.as_deref(),
+        options.conversation_id.as_deref(),
     );
     let agent = build_agent(&options);
     (agent, registry)
@@ -1066,6 +1116,7 @@ fn forced_tool_agent_and_registry(
         options.enable_subagent,
         options.enable_capability_drafts,
         options.agent_id.as_deref(),
+        options.conversation_id.as_deref(),
     );
     let tool_id = ToolId::from(name.to_string());
     let mut agent = build_agent(&options);
@@ -1427,6 +1478,7 @@ async fn preview_context(input: String, options: RunOptions) -> Result<ContextSn
             options.enable_subagent,
             options.enable_capability_drafts,
             options.agent_id.as_deref(),
+            options.conversation_id.as_deref(),
         ),
     );
     Ok(harness.preview_context(&build_agent(&options), UserInput { text: input }))
@@ -1442,6 +1494,7 @@ async fn explain_config(options: RunOptions) -> Result<ConfigExplanation, String
             options.enable_subagent,
             options.enable_capability_drafts,
             options.agent_id.as_deref(),
+            options.conversation_id.as_deref(),
         ),
     );
     Ok(harness.explain_config(&build_agent(&options)))
@@ -1457,6 +1510,7 @@ async fn explain_tools(options: RunOptions) -> Result<Vec<ToolView>, String> {
             options.enable_subagent,
             options.enable_capability_drafts,
             options.agent_id.as_deref(),
+            options.conversation_id.as_deref(),
         ),
     );
     Ok(harness.explain_tools(&build_agent(&options)))
@@ -1768,6 +1822,7 @@ async fn call_tool(name: String, input: Value, options: RunOptions) -> Result<Va
             enable_subagent,
             enable_capability_drafts,
             options.agent_id.as_deref(),
+            options.conversation_id.as_deref(),
         ),
         disable_lifecycle_hooks,
         options.agent_id.as_deref(),
@@ -2057,6 +2112,7 @@ async fn approval_execute(
         tool_id == "subagent",
         tool_id == "capability_draft",
         run_agent_id(&events).as_deref(),
+        None,
     );
     store.append(
         run_id,
@@ -2444,6 +2500,7 @@ async fn execute_batch_plan(
                 options.enable_subagent,
                 options.enable_capability_drafts,
                 options.agent_id.as_deref(),
+                options.conversation_id.as_deref(),
             ),
         );
         let agent = build_agent(&options);

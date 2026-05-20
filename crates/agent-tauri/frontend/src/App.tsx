@@ -391,6 +391,7 @@ export default function App() {
   const [enableShell, setEnableShell] = useState(false);
   const [enableSubagent, setEnableSubagent] = useState(false);
   const [enableCapabilityDrafts, setEnableCapabilityDrafts] = useState(false);
+  const [capabilityDraftGuidance, setCapabilityDraftGuidance] = useState("");
   const [loadMemory, setLoadMemory] = useState(false);
   const [generateMemoryPolicy, setGenerateMemoryPolicy] = useState<
     "" | "on" | "off"
@@ -4396,6 +4397,8 @@ export default function App() {
         generateMemoryPolicy === "" ? null : generateMemoryPolicy === "on",
       allowed_tool_categories: toolCategories.length ? toolCategories : null,
       allowed_skill_categories: skillCategories.length ? skillCategories : null,
+      capability_drafts_enabled: enableCapabilityDrafts,
+      capability_draft_guidance: capabilityDraftGuidance.trim() || null,
       max_tokens_before_compaction: parseOptionalPositiveInt(
         maxTokensBeforeCompaction,
       ),
@@ -4457,6 +4460,10 @@ export default function App() {
         ? policy.allowed_skill_categories.join(", ")
         : "",
     );
+    if (typeof policy.capability_drafts_enabled === "boolean") {
+      setEnableCapabilityDrafts(policy.capability_drafts_enabled);
+    }
+    setCapabilityDraftGuidance(policy.capability_draft_guidance || "");
     setMaxTokensBeforeCompaction(
       policy.max_tokens_before_compaction
         ? String(policy.max_tokens_before_compaction)
@@ -6302,6 +6309,14 @@ export default function App() {
     if (policy?.allowed_skill_categories?.length) {
       parts.push(`skills ${policy.allowed_skill_categories.join(", ")}`);
     }
+    if (typeof policy?.capability_drafts_enabled === "boolean") {
+      parts.push(`draft tool ${policy.capability_drafts_enabled ? "on" : "off"}`);
+    }
+    if (policy?.capability_draft_guidance?.trim()) {
+      parts.push(
+        `draft guidance ${previewText(policy.capability_draft_guidance, 80)}`,
+      );
+    }
     if (policy?.max_tokens_before_compaction) {
       parts.push(`compact at ${policy.max_tokens_before_compaction}`);
     }
@@ -7857,6 +7872,15 @@ export default function App() {
               disabled={running}
             />
             <span>Draft tool</span>
+          </label>
+          <label>
+            Draft guidance
+            <input
+              value={capabilityDraftGuidance}
+              onChange={(e) => setCapabilityDraftGuidance(e.target.value)}
+              placeholder="optional capability drafting instructions"
+              disabled={running}
+            />
           </label>
           <label className="switch">
             <input

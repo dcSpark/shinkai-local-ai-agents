@@ -314,6 +314,8 @@ export type ConversationPolicy = {
   generate_memory?: boolean | null;
   allowed_tool_categories?: string[] | null;
   allowed_skill_categories?: string[] | null;
+  capability_drafts_enabled?: boolean | null;
+  capability_draft_guidance?: string | null;
   max_tokens_before_compaction?: number | null;
   max_compaction_output_tokens?: number | null;
   compaction_guidance?: string | null;

@@ -56,6 +56,10 @@ pub struct ConversationPolicy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allowed_skill_categories: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability_drafts_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability_draft_guidance: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tokens_before_compaction: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_compaction_output_tokens: Option<u32>,
@@ -69,6 +73,8 @@ impl ConversationPolicy {
             && self.generate_memory.is_none()
             && self.allowed_tool_categories.is_none()
             && self.allowed_skill_categories.is_none()
+            && self.capability_drafts_enabled.is_none()
+            && self.capability_draft_guidance.is_none()
             && self.max_tokens_before_compaction.is_none()
             && self.max_compaction_output_tokens.is_none()
             && self.compaction_guidance.is_none()
@@ -76,6 +82,7 @@ impl ConversationPolicy {
 
     pub fn sanitized(mut self) -> Self {
         self.compaction_guidance = clean_optional(self.compaction_guidance);
+        self.capability_draft_guidance = clean_optional(self.capability_draft_guidance);
         self.allowed_tool_categories = clean_string_list(self.allowed_tool_categories);
         self.allowed_skill_categories = clean_string_list(self.allowed_skill_categories);
         self
@@ -816,6 +823,8 @@ mod tests {
                         "shell".into(),
                     ]),
                     allowed_skill_categories: Some(vec![" review ".into(), "".into()]),
+                    capability_drafts_enabled: Some(true),
+                    capability_draft_guidance: Some("  draft reusable pieces  ".into()),
                     max_tokens_before_compaction: Some(512),
                     max_compaction_output_tokens: Some(128),
                     compaction_guidance: Some("  keep decisions  ".into()),
@@ -831,6 +840,11 @@ mod tests {
         assert_eq!(
             updated.policy.allowed_skill_categories.as_deref(),
             Some(&["review".to_string()][..])
+        );
+        assert_eq!(updated.policy.capability_drafts_enabled, Some(true));
+        assert_eq!(
+            updated.policy.capability_draft_guidance.as_deref(),
+            Some("draft reusable pieces")
         );
         assert_eq!(
             updated.policy.compaction_guidance.as_deref(),

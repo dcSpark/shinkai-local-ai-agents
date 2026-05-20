@@ -122,6 +122,7 @@ pub fn build_registry(
     enable_subagent: bool,
     enable_capability_drafts: bool,
     agent_id: Option<&str>,
+    conversation_id: Option<&str>,
 ) -> Arc<ToolRegistry> {
     let mut reg = ToolRegistry::new();
     reg.register(FakeTool::echo_descriptor(), Arc::new(FakeTool::echo()));
@@ -143,9 +144,10 @@ pub fn build_registry(
             Arc::new(SubagentTool),
         );
     }
-    if enable_capability_drafts {
+    let (policy_enabled, guidance) = capability_draft_policy_for(agent_id, conversation_id);
+    if enable_capability_drafts || policy_enabled {
         reg.register(
-            CapabilityDraftTool::descriptor(),
+            CapabilityDraftTool::descriptor_with_guidance(guidance.as_deref()),
             Arc::new(CapabilityDraftTool::from_env()),
         );
     }
@@ -159,6 +161,41 @@ fn selectable_subagent_ids(agent_id: Option<&str>) -> Vec<String> {
     ConfigResolver::from_env()
         .list_subagent_agent_ids(agent_id.unwrap_or("fake-agent"))
         .unwrap_or_default()
+}
+
+fn capability_draft_policy_for(
+    agent_id: Option<&str>,
+    conversation_id: Option<&str>,
+) -> (bool, Option<String>) {
+    let mut enabled = false;
+    let mut guidance = None;
+    if let Ok(resolved) = ConfigResolver::from_env().resolve_agent(agent_id.unwrap_or("fake-agent"))
+    {
+        enabled = resolved.agent.tool_policy.capability_drafts_enabled;
+        guidance = resolved.agent.tool_policy.capability_draft_guidance;
+    }
+    if let Some(policy) = conversation_policy_for(conversation_id) {
+        if let Some(value) = policy.capability_drafts_enabled {
+            enabled = value;
+        }
+        if let Some(value) = policy
+            .capability_draft_guidance
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            guidance = Some(value.to_string());
+        }
+    }
+    (enabled, guidance)
+}
+
+fn conversation_policy_for(conversation_id: Option<&str>) -> Option<ConversationPolicy> {
+    conversation_id
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .and_then(|id| ConversationStore::from_env().expanded(id).ok())
+        .map(|expanded| expanded.conversation.policy)
 }
 
 fn voice_runtime_config_for_agent(agent_id: Option<&str>) -> VoiceRuntimeConfig {
@@ -790,6 +827,17 @@ fn apply_conversation_policy(agent: &mut AgentConfig, policy: &ConversationPolic
     if let Some(categories) = &policy.allowed_skill_categories {
         agent.allowed_skill_categories = categories.clone();
     }
+    if let Some(enabled) = policy.capability_drafts_enabled {
+        agent.tool_policy.capability_drafts_enabled = enabled;
+    }
+    if let Some(guidance) = policy
+        .capability_draft_guidance
+        .as_deref()
+        .map(str::trim)
+        .filter(|guidance| !guidance.is_empty())
+    {
+        agent.tool_policy.capability_draft_guidance = Some(guidance.to_string());
+    }
     if let Some(max_tokens_before_compaction) = policy.max_tokens_before_compaction {
         agent.context_policy.compaction.max_tokens_before_compaction =
             Some(max_tokens_before_compaction);
@@ -826,6 +874,19 @@ mod tests {
     use super::*;
     use agent_config::{AgentConfigFile, AgentPromptRefinementConfig};
     use agent_tools::ToolId;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn restore_env(name: &str, value: Option<std::ffi::OsString>) {
+        unsafe {
+            if let Some(value) = value {
+                std::env::set_var(name, value);
+            } else {
+                std::env::remove_var(name);
+            }
+        }
+    }
 
     #[test]
     fn granted_skills_load_from_source_profile_after_allow() {
@@ -1209,6 +1270,85 @@ hooks:
     }
 
     #[test]
+    fn capability_draft_registry_uses_agent_policy_and_guidance() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "capability-draft-policy-setup-test-{}",
+            std::process::id()
+        ));
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+        ConfigResolver::from_env()
+            .save_agent_config(&AgentConfigFile {
+                id: "critic".into(),
+                name: "Critic".into(),
+                system_prompt: "Review carefully.".into(),
+                capability_drafts_enabled: Some(true),
+                capability_draft_guidance: Some("Prefer narrow reusable pieces.".into()),
+                ..AgentConfigFile::default()
+            })
+            .unwrap();
+
+        let registry = build_registry(false, false, false, Some("critic"), None);
+        let descriptor = registry
+            .descriptor(&ToolId::from("capability_draft"))
+            .expect("agent policy should register capability draft tool");
+
+        assert!(
+            descriptor
+                .description
+                .contains("Prefer narrow reusable pieces.")
+        );
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn conversation_policy_can_disable_capability_draft_registry() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "capability-draft-conversation-policy-test-{}",
+            std::process::id()
+        ));
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+        ConfigResolver::from_env()
+            .save_agent_config(&AgentConfigFile {
+                id: "critic".into(),
+                name: "Critic".into(),
+                system_prompt: "Review carefully.".into(),
+                capability_drafts_enabled: Some(true),
+                ..AgentConfigFile::default()
+            })
+            .unwrap();
+        let store = ConversationStore::from_env();
+        let conversation = store
+            .create(Some("Review".into()), Some("critic".into()))
+            .unwrap();
+        store
+            .set_policy(
+                &conversation.id,
+                ConversationPolicy {
+                    capability_drafts_enabled: Some(false),
+                    ..ConversationPolicy::default()
+                },
+            )
+            .unwrap();
+
+        let registry = build_registry(false, false, false, Some("critic"), Some(&conversation.id));
+        assert!(!registry.contains(&ToolId::from("capability_draft")));
+
+        let forced = build_registry(false, false, true, Some("critic"), Some(&conversation.id));
+        assert!(forced.contains(&ToolId::from("capability_draft")));
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn conversation_policy_applies_to_built_agent_layer() {
         let mut agent = build_agent(&RuntimeOptions::default());
         apply_conversation_policy(
@@ -1218,6 +1358,8 @@ hooks:
                 generate_memory: None,
                 allowed_tool_categories: Some(vec!["shell".into()]),
                 allowed_skill_categories: Some(vec!["review".into()]),
+                capability_drafts_enabled: Some(true),
+                capability_draft_guidance: Some("Draft only reusable capability specs.".into()),
                 max_tokens_before_compaction: Some(768),
                 max_compaction_output_tokens: Some(144),
                 compaction_guidance: Some("keep branch decisions".into()),
@@ -1230,6 +1372,11 @@ hooks:
         );
         assert_eq!(agent.tool_policy.allowed_categories, vec!["shell"]);
         assert_eq!(agent.allowed_skill_categories, vec!["review"]);
+        assert!(agent.tool_policy.capability_drafts_enabled);
+        assert_eq!(
+            agent.tool_policy.capability_draft_guidance.as_deref(),
+            Some("Draft only reusable capability specs.")
+        );
         assert_eq!(agent.context_policy.compaction.max_output_tokens, Some(144));
         assert_eq!(
             agent.context_policy.compaction.guidance.as_deref(),

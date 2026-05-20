@@ -572,6 +572,10 @@ pub struct ToolPolicy {
     pub approval_mode: ApprovalMode,
     /// Optional delegated controller agent allowed to approve scoped tool calls.
     pub approval_controller: Option<ApprovalControllerPolicy>,
+    /// Whether agents may create quarantined tool, skill, or agent drafts.
+    pub capability_drafts_enabled: bool,
+    /// Optional guidance shown to agents when capability drafting is enabled.
+    pub capability_draft_guidance: Option<String>,
     /// Whether tool outputs are returned raw or fed back to the LLM.
     pub output_mode: ToolOutputMode,
     /// Optional model used for interpreted tool outputs instead of the agent model.
@@ -595,6 +599,8 @@ impl Default for ToolPolicy {
             per_tool_visibility: HashMap::new(),
             approval_mode: ApprovalMode::RequireExplicit,
             approval_controller: None,
+            capability_drafts_enabled: false,
+            capability_draft_guidance: None,
             output_mode: ToolOutputMode::Interpreted,
             output_interpretation_model: None,
             per_tool_output_modes: HashMap::new(),
@@ -4691,6 +4697,8 @@ mod tests {
                 per_tool_visibility: HashMap::new(),
                 approval_mode: ApprovalMode::AutoApprove,
                 approval_controller: None,
+                capability_drafts_enabled: false,
+                capability_draft_guidance: None,
                 output_mode: ToolOutputMode::Interpreted,
                 output_interpretation_model: None,
                 per_tool_output_modes: HashMap::new(),

@@ -295,6 +295,24 @@ impl CapabilityDraftTool {
             provenance: Some("native:agent-capabilities".into()),
         }
     }
+
+    pub fn descriptor_with_guidance(guidance: Option<&str>) -> ToolDescriptor {
+        let mut descriptor = Self::descriptor();
+        if let Some(guidance) = guidance
+            .map(str::trim)
+            .filter(|guidance| !guidance.is_empty())
+        {
+            descriptor.description = format!("{} Guidance: {guidance}", descriptor.description);
+            let base_guidance = descriptor
+                .output_interpretation_guidance
+                .take()
+                .unwrap_or_default();
+            descriptor.output_interpretation_guidance = Some(format!(
+                "{base_guidance} Follow this capability-drafting guidance: {guidance}"
+            ));
+        }
+        descriptor
+    }
 }
 
 #[async_trait]

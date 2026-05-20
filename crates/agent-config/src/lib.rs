@@ -74,6 +74,10 @@ struct PolicyLayerToml {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     approval_controller_allowed_tool_categories: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    capability_drafts_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    capability_draft_guidance: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     allowed_skill_categories: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     disabled_lifecycle_hooks: Option<Vec<String>>,
@@ -245,6 +249,10 @@ pub struct AgentConfigFile {
     pub approval_controller_allowed_tools: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub approval_controller_allowed_tool_categories: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability_drafts_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capability_draft_guidance: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allowed_skill_categories: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1140,6 +1148,8 @@ impl Default for AgentToml {
                 approval_controller_agent: None,
                 approval_controller_allowed_tools: None,
                 approval_controller_allowed_tool_categories: None,
+                capability_drafts_enabled: None,
+                capability_draft_guidance: None,
                 allowed_skill_categories: None,
                 disabled_lifecycle_hooks: None,
                 tool_output_mode: Some(default_tool_output_mode()),
@@ -1184,6 +1194,8 @@ impl From<AgentToml> for AgentConfigFile {
             approval_controller_allowed_tool_categories: value
                 .policy
                 .approval_controller_allowed_tool_categories,
+            capability_drafts_enabled: value.policy.capability_drafts_enabled,
+            capability_draft_guidance: value.policy.capability_draft_guidance,
             allowed_skill_categories: value.policy.allowed_skill_categories,
             disabled_lifecycle_hooks: value.policy.disabled_lifecycle_hooks,
             tool_output_mode: value.policy.tool_output_mode,
@@ -1227,6 +1239,8 @@ impl From<AgentConfigFile> for AgentToml {
                 approval_controller_allowed_tools: value.approval_controller_allowed_tools,
                 approval_controller_allowed_tool_categories: value
                     .approval_controller_allowed_tool_categories,
+                capability_drafts_enabled: value.capability_drafts_enabled,
+                capability_draft_guidance: value.capability_draft_guidance,
                 allowed_skill_categories: value.allowed_skill_categories,
                 disabled_lifecycle_hooks: value.disabled_lifecycle_hooks,
                 tool_output_mode: value.tool_output_mode,
@@ -3725,6 +3739,39 @@ fn resolve_agent(
                 approval_controller_allowed_tool_categories.value.clone(),
             )
         });
+    let capability_drafts_enabled = resolve_layered(
+        false,
+        "default:agent capability drafting disabled".into(),
+        vec![
+            (
+                global.policy.capability_drafts_enabled,
+                global_source.clone(),
+            ),
+            (
+                profile.policy.capability_drafts_enabled,
+                profile_source.clone(),
+            ),
+            (parsed.policy.capability_drafts_enabled, source.clone()),
+        ],
+    );
+    let capability_draft_guidance = resolve_layered(
+        None::<String>,
+        "default:no capability draft guidance".into(),
+        vec![
+            (
+                global.policy.capability_draft_guidance.map(Some),
+                global_source.clone(),
+            ),
+            (
+                profile.policy.capability_draft_guidance.map(Some),
+                profile_source.clone(),
+            ),
+            (
+                parsed.policy.capability_draft_guidance.map(Some),
+                source.clone(),
+            ),
+        ],
+    );
     let allowed_skill_categories = resolve_layered(
         Vec::<String>::new(),
         "default:all skill categories".into(),
@@ -4207,6 +4254,8 @@ fn resolve_agent(
                 .collect::<HashMap<_, _>>(),
             approval_mode: ToolPolicy::default().approval_mode,
             approval_controller,
+            capability_drafts_enabled: capability_drafts_enabled.value,
+            capability_draft_guidance: capability_draft_guidance.value.clone(),
             output_mode: tool_output_mode.value,
             output_interpretation_model: tool_output_interpretation_model
                 .value
@@ -4383,6 +4432,16 @@ fn resolve_agent(
             "agent.tool_policy.approval_controller.allowed_categories",
             approval_controller_allowed_tool_categories.value,
             &approval_controller_allowed_tool_categories.source,
+        ),
+        config_value(
+            "agent.tool_policy.capability_drafts_enabled",
+            capability_drafts_enabled.value,
+            &capability_drafts_enabled.source,
+        ),
+        config_value(
+            "agent.tool_policy.capability_draft_guidance",
+            capability_draft_guidance.value,
+            &capability_draft_guidance.source,
         ),
         config_value(
             "agent.skill_policy.allowed_categories",
@@ -4997,6 +5056,13 @@ fn validate_agent_config(agent: &AgentConfigFile) -> Result<(), ConfigError> {
             validate_resource_id(category)?;
         }
     }
+    if let Some(guidance) = &agent.capability_draft_guidance
+        && guidance.trim().is_empty()
+    {
+        return Err(ConfigError::InvalidInput(
+            "capability_draft_guidance cannot be empty".into(),
+        ));
+    }
     if let Some(categories) = &agent.allowed_skill_categories {
         for category in categories {
             validate_resource_id(category)?;
@@ -5281,6 +5347,8 @@ system_prompt = "Review carefully."
             approval_controller_agent: Some("safety-controller".into()),
             approval_controller_allowed_tools: Some(vec!["shell".into()]),
             approval_controller_allowed_tool_categories: Some(vec!["sensitive".into()]),
+            capability_drafts_enabled: Some(true),
+            capability_draft_guidance: Some("Draft narrow reusable capabilities.".into()),
             allowed_skill_categories: Some(vec!["review".into()]),
             disabled_lifecycle_hooks: Some(vec!["adapter:demo:audit".into()]),
             tool_output_mode: Some(ToolOutputMode::Raw),
@@ -6664,6 +6732,7 @@ tool_visibility = "name_only"
 input_cost_per_million = 0.1
 max_tokens_before_compaction = 128
 compaction_guidance = "keep decisions"
+capability_drafts_enabled = false
 "#,
         )
         .unwrap();
@@ -6675,6 +6744,7 @@ name = "Main"
 model = "profile-model"
 tool_output_mode = "raw"
 max_compaction_output_tokens = 64
+capability_draft_guidance = "draft narrow reusable pieces"
 "#,
         )
         .unwrap();
@@ -6686,6 +6756,7 @@ name = "Fake Agent"
 system_prompt = "You echo what the user says."
 max_tool_calls = 4
 allowed_tools = ["echo"]
+capability_drafts_enabled = true
 "#,
         )
         .unwrap();
@@ -6719,6 +6790,15 @@ allowed_tools = ["echo"]
             resolved.agent.context_policy.compaction.guidance.as_deref(),
             Some("keep decisions")
         );
+        assert!(resolved.agent.tool_policy.capability_drafts_enabled);
+        assert_eq!(
+            resolved
+                .agent
+                .tool_policy
+                .capability_draft_guidance
+                .as_deref(),
+            Some("draft narrow reusable pieces")
+        );
 
         assert_source_contains(&resolved.values, "agent.model.default", "profile:");
         assert_source_contains(&resolved.values, "agent.tool_policy.max_calls", "agent:");
@@ -6728,6 +6808,16 @@ allowed_tools = ["echo"]
             "profile:",
         );
         assert_source_contains(&resolved.values, "agent.tool_policy.visibility", "global:");
+        assert_source_contains(
+            &resolved.values,
+            "agent.tool_policy.capability_drafts_enabled",
+            "agent:",
+        );
+        assert_source_contains(
+            &resolved.values,
+            "agent.tool_policy.capability_draft_guidance",
+            "profile:",
+        );
         assert_source_contains(
             &resolved.values,
             "agent.cost_policy.input_cost_per_million",

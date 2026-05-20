@@ -1880,6 +1880,22 @@ enum ConversationCommand {
         #[arg(long)]
         clear_allowed_skill_categories: bool,
 
+        /// Allow or block agent-created capability drafts for this conversation.
+        #[arg(long)]
+        capability_drafts_enabled: Option<bool>,
+
+        /// Clear the conversation capability-drafting enablement override.
+        #[arg(long)]
+        clear_capability_drafts_enabled: bool,
+
+        /// Conversation guidance for agent-created capability drafts.
+        #[arg(long)]
+        capability_draft_guidance: Option<String>,
+
+        /// Clear the conversation capability-drafting guidance override.
+        #[arg(long)]
+        clear_capability_draft_guidance: bool,
+
         /// Conversation default auto-compaction threshold.
         #[arg(long)]
         max_tokens_before_compaction: Option<u32>,
@@ -2625,6 +2641,14 @@ enum RemoteConversationCommand {
         allowed_skill_categories: Vec<String>,
         #[arg(long)]
         clear_allowed_skill_categories: bool,
+        #[arg(long)]
+        capability_drafts_enabled: Option<bool>,
+        #[arg(long)]
+        clear_capability_drafts_enabled: bool,
+        #[arg(long)]
+        capability_draft_guidance: Option<String>,
+        #[arg(long)]
+        clear_capability_draft_guidance: bool,
         #[arg(long)]
         max_tokens_before_compaction: Option<u32>,
         #[arg(long)]
@@ -5739,6 +5763,10 @@ async fn main() -> anyhow::Result<()> {
                 clear_allowed_tool_categories,
                 allowed_skill_categories,
                 clear_allowed_skill_categories,
+                capability_drafts_enabled,
+                clear_capability_drafts_enabled,
+                capability_draft_guidance,
+                clear_capability_draft_guidance,
                 max_tokens_before_compaction,
                 clear_max_tokens_before_compaction,
                 max_compaction_output_tokens,
@@ -5757,6 +5785,10 @@ async fn main() -> anyhow::Result<()> {
                     clear_allowed_tool_categories,
                     allowed_skill_categories,
                     clear_allowed_skill_categories,
+                    capability_drafts_enabled,
+                    clear_capability_drafts_enabled,
+                    capability_draft_guidance,
+                    clear_capability_draft_guidance,
                     max_tokens_before_compaction,
                     clear_max_tokens_before_compaction,
                     max_compaction_output_tokens,
@@ -6497,6 +6529,10 @@ async fn main() -> anyhow::Result<()> {
                     clear_allowed_tool_categories,
                     allowed_skill_categories,
                     clear_allowed_skill_categories,
+                    capability_drafts_enabled,
+                    clear_capability_drafts_enabled,
+                    capability_draft_guidance,
+                    clear_capability_draft_guidance,
                     max_tokens_before_compaction,
                     clear_max_tokens_before_compaction,
                     max_compaction_output_tokens,
@@ -6514,6 +6550,10 @@ async fn main() -> anyhow::Result<()> {
                         clear_allowed_tool_categories,
                         allowed_skill_categories,
                         clear_allowed_skill_categories,
+                        capability_drafts_enabled,
+                        clear_capability_drafts_enabled,
+                        capability_draft_guidance,
+                        clear_capability_draft_guidance,
                         max_tokens_before_compaction,
                         clear_max_tokens_before_compaction,
                         max_compaction_output_tokens,

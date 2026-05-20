@@ -194,6 +194,7 @@ async fn main_loop(
         options.enable_subagent,
         options.enable_capability_drafts,
         options.agent_id.as_deref(),
+        options.conversation_id.as_deref(),
     );
     let mut agent = setup::build_agent(&options);
     let calls_max = agent.tool_policy.max_calls;
@@ -495,6 +496,7 @@ fn start_resume_run(
         resume_options.enable_subagent,
         resume_options.enable_capability_drafts,
         resume_options.agent_id.as_deref(),
+        resume_options.conversation_id.as_deref(),
     );
     let harness = setup::build_harness_for_agent(
         provider,
@@ -639,6 +641,7 @@ fn switch_active_agent(
         next_options.enable_subagent,
         next_options.enable_capability_drafts,
         next_options.agent_id.as_deref(),
+        next_options.conversation_id.as_deref(),
     );
     *options = next_options;
     *registry = next_registry;

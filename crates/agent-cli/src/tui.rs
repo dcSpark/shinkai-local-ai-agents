@@ -30,7 +30,8 @@ use tokio::time::MissedTickBehavior;
 use agent_adapters::AdapterRegistry;
 use agent_config::ConfigResolver;
 use agent_conversations::{
-    ConversationMessage, ConversationStore, ConversationTreeNode, render_message_range,
+    ConversationMessage, ConversationPolicy, ConversationStore, ConversationTreeNode,
+    render_message_range,
 };
 use agent_core::{AgentConfig, ContextSnapshot, HarnessApi, UserInput};
 use agent_memory::{MemoryStore, MemoryTarget};
@@ -535,6 +536,7 @@ fn handle_conversation_slash(app: &mut App, rest: &str) {
                 "/conversation tree",
                 "/conversation browse",
                 "/conversation select <id>",
+                "/conversation policy [<id>] [--load-memory true|false|clear] [--generate-memory true|false|clear]",
                 "/conversation delete-plan [<id>] [--recursive]",
                 "/conversation delete [<id>] [--recursive]",
                 "/conversation range [<id>] <from> <to>",
@@ -628,6 +630,13 @@ fn handle_conversation_slash(app: &mut App, rest: &str) {
                 text: format!("Conversation select failed: {err}"),
             }),
         },
+        "policy" => match show_or_update_conversation_policy(app, args) {
+            Ok(()) => {}
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Conversation policy failed: {err}"),
+            }),
+        },
         "delete-plan" | "delete-preview" => match parse_conversation_delete_plan_args_with_selected(
             args,
             app.selected_conversation_id.as_deref(),
@@ -686,7 +695,7 @@ fn handle_conversation_slash(app: &mut App, rest: &str) {
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Conversation command needs recover, tree, browse, select, delete-plan, delete, range, memory, range-delete, confirm, cancel, or help.".into(),
+            text: "Conversation command needs recover, tree, browse, select, policy, delete-plan, delete, range, memory, range-delete, confirm, cancel, or help.".into(),
         }),
     }
 }
@@ -727,6 +736,34 @@ fn select_conversation_id(app: &mut App, id: &str) -> anyhow::Result<()> {
             expanded.conversation.agent_id,
             expanded.messages.len()
         ),
+    });
+    Ok(())
+}
+
+fn show_or_update_conversation_policy(app: &mut App, args: &str) -> anyhow::Result<()> {
+    let (id, options) = parse_conversation_policy_args_with_selected(
+        args,
+        app.selected_conversation_id.as_deref(),
+    )?;
+    let id = resolve_conversation_selection(app, &id)?;
+    let store = ConversationStore::from_env();
+    let mut doc = store.show(&id)?;
+    if options.changes_policy() {
+        let policy = if options.clear {
+            ConversationPolicy::default()
+        } else {
+            doc.policy.clone()
+        };
+        doc = store.set_policy(
+            &id,
+            crate::headless::apply_conversation_policy_options(policy, &options),
+        )?;
+    }
+    let summary = crate::headless::conversation_policy_summary(&doc.policy);
+    push_event(app, format!("Conversation policy for {id}: {summary}"));
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::Assistant,
+        text: format!("conversation: {}\npolicy: {}", doc.id, summary),
     });
     Ok(())
 }
@@ -855,6 +892,157 @@ fn resolve_conversation_selection(app: &App, input: &str) -> anyhow::Result<Stri
             });
     }
     Ok(input.to_string())
+}
+
+fn parse_conversation_policy_args_with_selected(
+    rest: &str,
+    selected: Option<&str>,
+) -> anyhow::Result<(String, crate::headless::ConversationPolicyOptions)> {
+    let mut id = None::<String>;
+    let mut options = crate::headless::ConversationPolicyOptions::default();
+    let mut parts = rest.split_whitespace();
+    while let Some(part) = parts.next() {
+        match part {
+            "--clear" => options.clear = true,
+            "--load-memory" => {
+                apply_bool_policy_value(
+                    next_policy_value(&mut parts, "--load-memory")?,
+                    &mut options.load_memory,
+                    &mut options.clear_load_memory,
+                )?;
+            }
+            "--clear-load-memory" => options.clear_load_memory = true,
+            "--generate-memory" => {
+                apply_bool_policy_value(
+                    next_policy_value(&mut parts, "--generate-memory")?,
+                    &mut options.generate_memory,
+                    &mut options.clear_generate_memory,
+                )?;
+            }
+            "--clear-generate-memory" => options.clear_generate_memory = true,
+            "--allow-tool-category" => options
+                .allowed_tool_categories
+                .push(next_policy_value(&mut parts, "--allow-tool-category")?.to_string()),
+            "--clear-tool-categories" | "--clear-tool-category" => {
+                options.clear_allowed_tool_categories = true
+            }
+            "--allow-skill-category" => options
+                .allowed_skill_categories
+                .push(next_policy_value(&mut parts, "--allow-skill-category")?.to_string()),
+            "--clear-skill-categories" | "--clear-skill-category" => {
+                options.clear_allowed_skill_categories = true
+            }
+            "--max-tokens-before-compaction" => apply_u32_policy_value(
+                next_policy_value(&mut parts, "--max-tokens-before-compaction")?,
+                &mut options.max_tokens_before_compaction,
+                &mut options.clear_max_tokens_before_compaction,
+            )?,
+            "--clear-max-tokens-before-compaction" => {
+                options.clear_max_tokens_before_compaction = true
+            }
+            "--max-compaction-output-tokens" => apply_u32_policy_value(
+                next_policy_value(&mut parts, "--max-compaction-output-tokens")?,
+                &mut options.max_compaction_output_tokens,
+                &mut options.clear_max_compaction_output_tokens,
+            )?,
+            "--clear-max-compaction-output-tokens" => {
+                options.clear_max_compaction_output_tokens = true
+            }
+            "--compaction-guidance" => {
+                let value = next_policy_value(&mut parts, "--compaction-guidance")?;
+                if value == "clear" {
+                    options.clear_compaction_guidance = true;
+                } else {
+                    options.compaction_guidance = Some(value.to_string());
+                }
+            }
+            "--clear-compaction-guidance" => options.clear_compaction_guidance = true,
+            flag if flag.starts_with("--load-memory=") => apply_bool_policy_value(
+                flag.trim_start_matches("--load-memory="),
+                &mut options.load_memory,
+                &mut options.clear_load_memory,
+            )?,
+            flag if flag.starts_with("--generate-memory=") => apply_bool_policy_value(
+                flag.trim_start_matches("--generate-memory="),
+                &mut options.generate_memory,
+                &mut options.clear_generate_memory,
+            )?,
+            flag if flag.starts_with("--allow-tool-category=") => {
+                options.allowed_tool_categories.push(
+                    flag.trim_start_matches("--allow-tool-category=")
+                        .to_string(),
+                )
+            }
+            flag if flag.starts_with("--allow-skill-category=") => {
+                options.allowed_skill_categories.push(
+                    flag.trim_start_matches("--allow-skill-category=")
+                        .to_string(),
+                )
+            }
+            flag if flag.starts_with("--max-tokens-before-compaction=") => apply_u32_policy_value(
+                flag.trim_start_matches("--max-tokens-before-compaction="),
+                &mut options.max_tokens_before_compaction,
+                &mut options.clear_max_tokens_before_compaction,
+            )?,
+            flag if flag.starts_with("--max-compaction-output-tokens=") => apply_u32_policy_value(
+                flag.trim_start_matches("--max-compaction-output-tokens="),
+                &mut options.max_compaction_output_tokens,
+                &mut options.clear_max_compaction_output_tokens,
+            )?,
+            flag if flag.starts_with("--compaction-guidance=") => {
+                let value = flag.trim_start_matches("--compaction-guidance=");
+                if value == "clear" {
+                    options.clear_compaction_guidance = true;
+                } else {
+                    options.compaction_guidance = Some(value.to_string());
+                }
+            }
+            other if other.starts_with("--") => {
+                anyhow::bail!("unexpected policy argument: {other}")
+            }
+            candidate if id.is_none() => id = Some(candidate.to_string()),
+            other => anyhow::bail!("unexpected policy argument: {other}"),
+        }
+    }
+    let id = id
+        .or_else(|| selected.map(str::to_string))
+        .ok_or_else(|| anyhow::anyhow!("policy command needs a conversation id"))?;
+    Ok((id, options))
+}
+
+fn next_policy_value<'a>(
+    parts: &mut std::str::SplitWhitespace<'a>,
+    flag: &str,
+) -> anyhow::Result<&'a str> {
+    parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("{flag} needs a value"))
+}
+
+fn apply_bool_policy_value(
+    value: &str,
+    target: &mut Option<bool>,
+    clear: &mut bool,
+) -> anyhow::Result<()> {
+    if value == "clear" {
+        *clear = true;
+        return Ok(());
+    }
+    *target = Some(value.parse::<bool>()?);
+    Ok(())
+}
+
+fn apply_u32_policy_value(
+    value: &str,
+    target: &mut Option<u32>,
+    clear: &mut bool,
+) -> anyhow::Result<()> {
+    if value == "clear" {
+        *clear = true;
+        return Ok(());
+    }
+    *target = Some(value.parse::<u32>()?);
+    Ok(())
 }
 
 #[allow(dead_code)]
@@ -2754,6 +2942,46 @@ mod tests {
             }
         );
         assert!(parse_conversation_memory_args_with_selected("--topic", Some("conv-1")).is_err());
+    }
+
+    #[test]
+    fn conversation_policy_args_use_selected_conversation_and_flags() {
+        let (id, options) = parse_conversation_policy_args_with_selected(
+            "--load-memory true --generate-memory=false --allow-tool-category shell --allow-skill-category=review --max-tokens-before-compaction 512 --max-compaction-output-tokens=96 --compaction-guidance Keep",
+            Some("conv-1"),
+        )
+        .unwrap();
+        assert_eq!(id, "conv-1");
+        assert_eq!(options.load_memory, Some(true));
+        assert_eq!(options.generate_memory, Some(false));
+        assert_eq!(options.allowed_tool_categories, vec!["shell"]);
+        assert_eq!(options.allowed_skill_categories, vec!["review"]);
+        assert_eq!(options.max_tokens_before_compaction, Some(512));
+        assert_eq!(options.max_compaction_output_tokens, Some(96));
+        assert_eq!(options.compaction_guidance.as_deref(), Some("Keep"));
+    }
+
+    #[test]
+    fn conversation_policy_args_accept_clear_values_and_explicit_id() {
+        let (id, options) = parse_conversation_policy_args_with_selected(
+            "conv-2 --clear --load-memory clear --clear-generate-memory --clear-tool-categories --clear-skill-categories --max-tokens-before-compaction clear --clear-max-compaction-output-tokens --compaction-guidance=clear",
+            Some("conv-1"),
+        )
+        .unwrap();
+        assert_eq!(id, "conv-2");
+        assert!(options.clear);
+        assert!(options.clear_load_memory);
+        assert!(options.clear_generate_memory);
+        assert!(options.clear_allowed_tool_categories);
+        assert!(options.clear_allowed_skill_categories);
+        assert!(options.clear_max_tokens_before_compaction);
+        assert!(options.clear_max_compaction_output_tokens);
+        assert!(options.clear_compaction_guidance);
+        assert!(parse_conversation_policy_args_with_selected("", None).is_err());
+        assert!(
+            parse_conversation_policy_args_with_selected("conv-2 --load-memory maybe", None)
+                .is_err()
+        );
     }
 
     #[test]

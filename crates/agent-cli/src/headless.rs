@@ -1752,7 +1752,7 @@ pub struct ConversationPolicyOptions {
 }
 
 impl ConversationPolicyOptions {
-    fn changes_policy(&self) -> bool {
+    pub(crate) fn changes_policy(&self) -> bool {
         self.clear
             || self.load_memory.is_some()
             || self.clear_load_memory
@@ -1796,7 +1796,7 @@ pub async fn conversation_policy(
     Ok(())
 }
 
-fn apply_conversation_policy_options(
+pub(crate) fn apply_conversation_policy_options(
     mut policy: ConversationPolicy,
     options: &ConversationPolicyOptions,
 ) -> ConversationPolicy {
@@ -2160,7 +2160,7 @@ fn render_conversation_messages(messages: &[agent_conversations::ConversationMes
         .join("\n")
 }
 
-fn conversation_policy_summary(policy: &ConversationPolicy) -> String {
+pub(crate) fn conversation_policy_summary(policy: &ConversationPolicy) -> String {
     let mut parts = Vec::new();
     if let Some(load_memory) = policy.load_memory {
         parts.push(format!("load_memory={load_memory}"));

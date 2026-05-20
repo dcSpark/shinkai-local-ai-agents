@@ -28,7 +28,7 @@ use tokio::task::AbortHandle;
 use tokio::time::MissedTickBehavior;
 
 use agent_adapters::{AdapterRegistry, NormalizedPackage};
-use agent_capabilities::{CapabilityDraft, CapabilityDraftStore};
+use agent_capabilities::{CapabilityDraft, CapabilityDraftStatus, CapabilityDraftStore};
 use agent_compaction::{CompactionRecord, CompactionStore};
 use agent_config::{ConfigResolver, configured_model_providers};
 use agent_conversations::{
@@ -1826,6 +1826,8 @@ fn handle_capabilities_slash(app: &mut App, rest: &str) {
                 "/capabilities show <id>",
                 "/capabilities export <id> <path>",
                 "/capabilities import <path>",
+                "/capabilities allow <id> --confirm",
+                "/capabilities reject <id> --confirm",
             ]
             .join("\n"),
         });
@@ -1911,9 +1913,56 @@ fn handle_capabilities_slash(app: &mut App, rest: &str) {
                 text: err.to_string(),
             }),
         },
+        "allow" => {
+            handle_capability_review_slash(app, args, CapabilityDraftStatus::Allowed, "allow")
+        }
+        "reject" => {
+            handle_capability_review_slash(app, args, CapabilityDraftStatus::Rejected, "reject")
+        }
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Capabilities command needs list, show, export, import, or help.".into(),
+            text: "Capabilities command needs list, show, export, import, allow, reject, or help."
+                .into(),
+        }),
+    }
+}
+
+fn handle_capability_review_slash(
+    app: &mut App,
+    args: &str,
+    status: CapabilityDraftStatus,
+    action: &str,
+) {
+    match capability_review_args(args, action) {
+        Ok((id, true)) => match crate::headless::capability_review_outcome(id, status) {
+            Ok(outcome) => {
+                let event = outcome.human_line.unwrap_or_else(|| {
+                    format!("Capability draft {} marked {:?}", outcome.draft.id, status)
+                });
+                push_event(app, event);
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&outcome.value)
+                        .unwrap_or_else(|_| "<unserializable capability review>".into()),
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Capability {action} failed: {err}"),
+            }),
+        },
+        Ok((id, false)) => app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: serde_json::to_string_pretty(&serde_json::json!({
+                "pending_action": format!("{action}_capability_draft"),
+                "draft_id": id,
+                "confirm_command": format!("/capabilities {action} {id} --confirm"),
+            }))
+            .unwrap_or_else(|_| "<unserializable capability confirmation>".into()),
+        }),
+        Err(err) => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: err.to_string(),
         }),
     }
 }
@@ -1922,6 +1971,24 @@ fn first_capability_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a 
     args.split_whitespace()
         .next()
         .ok_or_else(|| anyhow::anyhow!("capabilities {command} needs an argument"))
+}
+
+fn capability_review_args<'a>(args: &'a str, command: &str) -> anyhow::Result<(&'a str, bool)> {
+    let mut id = None;
+    let mut confirmed = false;
+    for part in args.split_whitespace() {
+        if part == "--confirm" {
+            confirmed = true;
+        } else if id.is_none() {
+            id = Some(part);
+        } else {
+            anyhow::bail!(
+                "capabilities {command} accepts exactly a draft id and optional --confirm"
+            );
+        }
+    }
+    let id = id.ok_or_else(|| anyhow::anyhow!("capabilities {command} needs a draft id"))?;
+    Ok((id, confirmed))
 }
 
 fn capability_path_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
@@ -3959,11 +4026,21 @@ mod tests {
             ("draft-1", "./draft.json")
         );
         assert_eq!(
+            capability_review_args("draft-1 --confirm", "allow").unwrap(),
+            ("draft-1", true)
+        );
+        assert_eq!(
+            capability_review_args("draft-1", "reject").unwrap(),
+            ("draft-1", false)
+        );
+        assert_eq!(
             capability_path_arg("./draft.json", "import").unwrap(),
             "./draft.json"
         );
         assert!(capability_export_args("draft-1").is_err());
         assert!(capability_export_args("draft-1 ./draft.json extra").is_err());
+        assert!(capability_review_args("", "allow").is_err());
+        assert!(capability_review_args("draft-1 extra", "reject").is_err());
         assert!(capability_path_arg("", "import").is_err());
         assert!(capability_path_arg("./draft.json extra", "import").is_err());
     }

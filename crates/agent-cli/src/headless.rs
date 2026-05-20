@@ -490,67 +490,108 @@ pub async fn capability_review(
     status: CapabilityDraftStatus,
     json: bool,
 ) -> anyhow::Result<()> {
+    let outcome = capability_review_outcome(&id, status)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&outcome.value)?);
+    } else {
+        print_capability_draft_line(&outcome.draft);
+        if let Some(line) = outcome.human_line {
+            println!("{line}");
+        }
+    }
+    Ok(())
+}
+
+pub(crate) struct CapabilityReviewOutcome {
+    pub draft: CapabilityDraft,
+    pub value: serde_json::Value,
+    pub human_line: Option<String>,
+}
+
+pub(crate) fn capability_review_outcome(
+    id: &str,
+    status: CapabilityDraftStatus,
+) -> anyhow::Result<CapabilityReviewOutcome> {
     let store = CapabilityDraftStore::from_env();
     if status == CapabilityDraftStatus::Allowed {
-        let draft = store.show(&id)?;
+        let draft = store.show(id)?;
         if draft.kind == CapabilityKind::Skill {
             let skill = promote_capability_skill(&draft)?;
-            let draft = store.set_status(&id, status)?;
-            return print_capability_review_result(
-                &draft,
-                Some(CapabilityReviewArtifact::PromotedSkill(&skill)),
-                json,
+            let draft = store.set_status(id, status)?;
+            return capability_review_result(
+                draft,
+                Some((
+                    "promoted_skill",
+                    serde_json::to_value(&skill)?,
+                    format!("promoted skill {}", skill.id),
+                )),
             );
         }
         if draft.kind == CapabilityKind::Agent {
             let agent = promote_capability_agent(&draft)?;
-            let draft = store.set_status(&id, status)?;
-            return print_capability_review_result(
-                &draft,
-                Some(CapabilityReviewArtifact::PromotedAgent(&agent)),
-                json,
+            let draft = store.set_status(id, status)?;
+            return capability_review_result(
+                draft,
+                Some((
+                    "promoted_agent",
+                    serde_json::to_value(&agent)?,
+                    format!("promoted agent {}", agent.id),
+                )),
             );
         }
         if draft.kind == CapabilityKind::Tool {
             let tool = promote_capability_tool(&draft)?;
-            let draft = store.set_status(&id, status)?;
-            return print_capability_review_result(
-                &draft,
-                Some(CapabilityReviewArtifact::PromotedTool(&tool)),
-                json,
+            let draft = store.set_status(id, status)?;
+            return capability_review_result(
+                draft,
+                Some((
+                    "promoted_tool",
+                    serde_json::to_value(&tool)?,
+                    format!("promoted tool package {}", tool.id),
+                )),
             );
         }
     } else if status == CapabilityDraftStatus::Rejected {
-        let draft = store.show(&id)?;
+        let draft = store.show(id)?;
         if draft.kind == CapabilityKind::Skill {
             let skill = quarantine_capability_skill(&draft)?;
-            let draft = store.set_status(&id, status)?;
-            return print_capability_review_result(
-                &draft,
-                skill
-                    .as_ref()
-                    .map(CapabilityReviewArtifact::QuarantinedSkill),
-                json,
-            );
+            let draft = store.set_status(id, status)?;
+            if let Some(skill) = skill {
+                return capability_review_result(
+                    draft,
+                    Some((
+                        "quarantined_skill",
+                        serde_json::to_value(&skill)?,
+                        format!("quarantined promoted skill {}", skill.id),
+                    )),
+                );
+            }
+            return capability_review_result(draft, None);
         }
         if draft.kind == CapabilityKind::Agent {
             delete_capability_agent(&draft)?;
-            let draft = store.set_status(&id, status)?;
-            return print_capability_review_result(&draft, None, json);
+            let draft = store.set_status(id, status)?;
+            return capability_review_result(draft, None);
         }
         if draft.kind == CapabilityKind::Tool {
             let tool = quarantine_capability_tool(&draft)?;
-            let draft = store.set_status(&id, status)?;
-            return print_capability_review_result(
-                &draft,
-                tool.as_ref().map(CapabilityReviewArtifact::QuarantinedTool),
-                json,
-            );
+            let draft = store.set_status(id, status)?;
+            if let Some(tool) = tool {
+                return capability_review_result(
+                    draft,
+                    Some((
+                        "quarantined_tool",
+                        serde_json::to_value(&tool)?,
+                        format!("quarantined promoted tool package {}", tool.id),
+                    )),
+                );
+            }
+            return capability_review_result(draft, None);
         }
     }
 
-    let draft = store.set_status(&id, status)?;
-    print_capability_review_result(&draft, None, json)
+    let draft = store.set_status(id, status)?;
+    capability_review_result(draft, None)
 }
 
 pub async fn capability_delete(id: String) -> anyhow::Result<()> {
@@ -595,63 +636,25 @@ fn print_capability_draft(draft: &CapabilityDraft, json: bool) -> anyhow::Result
     Ok(())
 }
 
-fn print_capability_review_result(
-    draft: &CapabilityDraft,
-    artifact: Option<CapabilityReviewArtifact<'_>>,
-    json: bool,
-) -> anyhow::Result<()> {
-    if json {
-        if let Some(artifact) = artifact {
-            let (key, artifact_value) = artifact.json_entry()?;
-            let mut result = serde_json::Map::new();
-            result.insert("draft".into(), serde_json::to_value(draft)?);
-            result.insert(key.into(), artifact_value);
-            println!("{}", serde_json::to_string_pretty(&result)?);
-        } else {
-            println!("{}", serde_json::to_string_pretty(draft)?);
-        }
+fn capability_review_result(
+    draft: CapabilityDraft,
+    artifact: Option<(&'static str, serde_json::Value, String)>,
+) -> anyhow::Result<CapabilityReviewOutcome> {
+    if let Some((key, artifact_value, human_line)) = artifact {
+        let mut result = serde_json::Map::new();
+        result.insert("draft".into(), serde_json::to_value(&draft)?);
+        result.insert(key.into(), artifact_value);
+        Ok(CapabilityReviewOutcome {
+            draft,
+            value: serde_json::Value::Object(result),
+            human_line: Some(human_line),
+        })
     } else {
-        print_capability_draft_line(draft);
-        if let Some(artifact) = artifact {
-            println!("{}", artifact.human_line());
-        }
-    }
-    Ok(())
-}
-
-enum CapabilityReviewArtifact<'a> {
-    PromotedSkill(&'a SkillDoc),
-    QuarantinedSkill(&'a SkillDoc),
-    PromotedAgent(&'a AgentConfigFile),
-    PromotedTool(&'a NormalizedPackage),
-    QuarantinedTool(&'a NormalizedPackage),
-}
-
-impl CapabilityReviewArtifact<'_> {
-    fn json_entry(&self) -> anyhow::Result<(&'static str, serde_json::Value)> {
-        match self {
-            Self::PromotedSkill(skill) => Ok(("promoted_skill", serde_json::to_value(skill)?)),
-            Self::QuarantinedSkill(skill) => {
-                Ok(("quarantined_skill", serde_json::to_value(skill)?))
-            }
-            Self::PromotedAgent(agent) => Ok(("promoted_agent", serde_json::to_value(agent)?)),
-            Self::PromotedTool(package) => Ok(("promoted_tool", serde_json::to_value(package)?)),
-            Self::QuarantinedTool(package) => {
-                Ok(("quarantined_tool", serde_json::to_value(package)?))
-            }
-        }
-    }
-
-    fn human_line(&self) -> String {
-        match self {
-            Self::PromotedSkill(skill) => format!("promoted skill {}", skill.id),
-            Self::QuarantinedSkill(skill) => format!("quarantined promoted skill {}", skill.id),
-            Self::PromotedAgent(agent) => format!("promoted agent {}", agent.id),
-            Self::PromotedTool(package) => format!("promoted tool package {}", package.id),
-            Self::QuarantinedTool(package) => {
-                format!("quarantined promoted tool package {}", package.id)
-            }
-        }
+        Ok(CapabilityReviewOutcome {
+            value: serde_json::to_value(&draft)?,
+            draft,
+            human_line: None,
+        })
     }
 }
 

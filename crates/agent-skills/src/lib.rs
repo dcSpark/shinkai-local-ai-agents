@@ -278,9 +278,20 @@ impl SkillRegistry {
     }
 
     fn write(&self, doc: &SkillDoc) -> Result<(), SkillError> {
+        self.write_with_quota(doc, None)
+    }
+
+    fn write_with_quota(&self, doc: &SkillDoc, quota_bytes: Option<u64>) -> Result<(), SkillError> {
         self.paths.ensure_base_dirs()?;
         validate_skill_id(&doc.id)?;
-        std::fs::write(self.path_for(&doc.id), serde_json::to_string_pretty(doc)?)?;
+        let path = self.path_for(&doc.id);
+        let text = serde_json::to_string_pretty(doc)?;
+        if let Some(quota_bytes) = quota_bytes {
+            self.paths
+                .write_quota_checked_with_quota(path, text.as_bytes(), Some(quota_bytes))?;
+        } else {
+            self.paths.write_quota_checked(path, text.as_bytes())?;
+        }
         Ok(())
     }
 
@@ -657,6 +668,35 @@ mod tests {
 
         let doc = registry.inspect("legacy").unwrap();
         assert!(doc.estimated_tokens > 0);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn registry_write_rejects_skills_over_storage_quota() {
+        let dir = std::env::temp_dir().join(format!("skills-quota-test-{}", std::process::id()));
+        let registry = SkillRegistry::new(StoragePaths::new(dir.join("home")));
+        let doc = SkillDoc {
+            id: "large-skill".into(),
+            name: "Large Skill".into(),
+            description: "large".into(),
+            categories: Vec::new(),
+            body: "x".repeat(512),
+            source_path: None,
+            provenance: None,
+            digest: String::new(),
+            estimated_tokens: 128,
+            quarantined: true,
+        };
+
+        let err = registry
+            .write_with_quota(&doc, Some(32))
+            .expect_err("skill registry writes should respect storage quota");
+
+        assert!(matches!(
+            err,
+            SkillError::Storage(StorageError::QuotaExceeded { .. })
+        ));
+        assert!(!registry.path_for(&doc.id).exists());
         let _ = std::fs::remove_dir_all(dir);
     }
 

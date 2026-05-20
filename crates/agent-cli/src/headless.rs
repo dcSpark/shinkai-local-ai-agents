@@ -3913,6 +3913,21 @@ fn print_adapter_package(package: NormalizedPackage, json: bool) -> anyhow::Resu
             package.permissions.payment,
             package.permissions.browser_profile
         );
+        for secret in &package.secret_requirements {
+            let required = secret
+                .required
+                .map(|value| format!(" required={value}"))
+                .unwrap_or_default();
+            let description = secret
+                .description
+                .as_deref()
+                .map(|value| format!(" description={value:?}"))
+                .unwrap_or_default();
+            println!(
+                "secret {} source={}{}{}",
+                secret.name, secret.source, required, description
+            );
+        }
         for capability in package.capabilities {
             println!(
                 "capability {:?} {} quarantined={}",

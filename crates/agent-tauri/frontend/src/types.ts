@@ -526,6 +526,13 @@ export type AdapterCapability = {
   quarantined: boolean;
 };
 
+export type AdapterSecretRequirement = {
+  name: string;
+  source: string;
+  description?: string | null;
+  required?: boolean | null;
+};
+
 export type AdapterPackage = {
   id: string;
   source: string;
@@ -534,6 +541,7 @@ export type AdapterPackage = {
   quarantined: boolean;
   capabilities: AdapterCapability[];
   permissions: AdapterPermissions;
+  secret_requirements?: AdapterSecretRequirement[];
   findings: AdapterFinding[];
   provenance?: string | null;
 };

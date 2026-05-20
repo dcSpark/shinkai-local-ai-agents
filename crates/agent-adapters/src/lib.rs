@@ -56,6 +56,8 @@ pub struct NormalizedPackage {
     pub quarantined: bool,
     pub capabilities: Vec<NormalizedCapability>,
     pub permissions: PermissionManifest,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub secret_requirements: Vec<SecretRequirement>,
     pub findings: Vec<StaticScanFinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provenance: Option<String>,
@@ -118,6 +120,16 @@ pub struct NormalizedHookHandler {
     pub timeout_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub retry_attempts: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SecretRequirement {
+    pub name: String,
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -195,6 +207,10 @@ pub fn inspect_source(source: impl AsRef<Path>) -> Result<NormalizedPackage, Ada
     if adapter == AdapterKind::HermesPlugin {
         permissions.merge(scan_hermes_permissions(&text));
     }
+    let secret_requirements = secret_requirements_for(adapter, &text);
+    if !secret_requirements.is_empty() {
+        permissions.secrets = true;
+    }
     if permissions.is_sensitive() {
         findings.push(StaticScanFinding {
             severity: FindingSeverity::Warning,
@@ -219,6 +235,7 @@ pub fn inspect_source(source: impl AsRef<Path>) -> Result<NormalizedPackage, Ada
         quarantined: true,
         capabilities: capabilities_for(adapter, source, &text),
         permissions,
+        secret_requirements,
         findings,
         provenance: None,
     })
@@ -728,6 +745,117 @@ fn mcp_server_description(server: &serde_json::Value) -> String {
     "MCP server.".into()
 }
 
+fn secret_requirements_for(adapter: AdapterKind, text: &str) -> Vec<SecretRequirement> {
+    let mut requirements = match adapter {
+        AdapterKind::Mcp => mcp_secret_requirements(text),
+        AdapterKind::HermesPlugin => hermes_secret_requirements(text),
+        _ => Vec::new(),
+    };
+    dedupe_secret_requirements(&mut requirements);
+    requirements
+}
+
+fn mcp_secret_requirements(text: &str) -> Vec<SecretRequirement> {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
+        return Vec::new();
+    };
+    let Some(servers) = value
+        .get("mcpServers")
+        .or_else(|| value.get("servers"))
+        .and_then(serde_json::Value::as_object)
+    else {
+        return Vec::new();
+    };
+
+    let mut requirements = Vec::new();
+    for (server_name, server) in servers {
+        let Some(env) = server.get("env").and_then(serde_json::Value::as_object) else {
+            continue;
+        };
+        for name in env.keys().filter_map(|name| clean_secret_name(name)) {
+            requirements.push(SecretRequirement {
+                name,
+                source: format!("mcp:{server_name}"),
+                description: Some("MCP server environment variable".into()),
+                required: None,
+            });
+        }
+    }
+    requirements
+}
+
+fn hermes_secret_requirements(text: &str) -> Vec<SecretRequirement> {
+    let mut requirements = Vec::new();
+    let mut active_section = None::<&str>;
+    let mut active_indent = 0usize;
+
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = line.chars().take_while(|ch| ch.is_whitespace()).count();
+        let key = trimmed.trim_end_matches(':');
+        if ["env", "secrets"].contains(&key) && trimmed.ends_with(':') {
+            active_section = Some(key);
+            active_indent = indent;
+            continue;
+        }
+        if active_section.is_some() && indent <= active_indent && !trimmed.starts_with('-') {
+            active_section = None;
+        }
+
+        let Some(section) = active_section else {
+            continue;
+        };
+        if let Some(item) = trimmed.strip_prefix("- ") {
+            if let Some((field, value)) = yaml_key_value(item) {
+                let name = if matches!(field, "name" | "id" | "key" | "env" | "env_var") {
+                    clean_secret_name(value)
+                } else {
+                    clean_secret_name(field)
+                };
+                if let Some(name) = name {
+                    requirements.push(hermes_secret_requirement(section, name, Some(value)));
+                }
+            } else if let Some(name) = clean_secret_name(item) {
+                requirements.push(hermes_secret_requirement(section, name, None));
+            }
+            continue;
+        }
+
+        if let Some((field, value)) = yaml_key_value(trimmed) {
+            let name = if matches!(field, "name" | "id" | "key" | "env" | "env_var") {
+                clean_secret_name(value)
+            } else {
+                clean_secret_name(field)
+            };
+            if let Some(name) = name {
+                requirements.push(hermes_secret_requirement(section, name, Some(value)));
+            }
+        }
+    }
+
+    requirements
+}
+
+fn hermes_secret_requirement(
+    section: &str,
+    name: String,
+    value_hint: Option<&str>,
+) -> SecretRequirement {
+    let required = value_hint.map(secret_value_implies_required);
+    let description = value_hint
+        .filter(|value| !secret_value_is_placeholder(value))
+        .map(|_| format!("Hermes {section} declaration"));
+    SecretRequirement {
+        name,
+        source: format!("hermes:{section}"),
+        description,
+        required,
+    }
+}
+
 fn hermes_capabilities(text: &str) -> Vec<NormalizedCapability> {
     let mut capabilities = Vec::new();
     capabilities.extend(hermes_section_capabilities(
@@ -948,6 +1076,44 @@ fn yaml_list_values(value: &str) -> Vec<String> {
         .filter(|item| !item.is_empty())
         .map(ToOwned::to_owned)
         .collect()
+}
+
+fn clean_secret_name(value: &str) -> Option<String> {
+    let value = yaml_clean_value(value)
+        .trim_start_matches('$')
+        .trim_start_matches('{')
+        .trim_end_matches('}');
+    if value.is_empty() || value.len() > 128 {
+        return None;
+    }
+    if value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'))
+    {
+        Some(value.to_string())
+    } else {
+        None
+    }
+}
+
+fn secret_value_implies_required(value: &str) -> bool {
+    let lower = yaml_clean_value(value).to_ascii_lowercase();
+    !matches!(lower.as_str(), "optional" | "false" | "no")
+}
+
+fn secret_value_is_placeholder(value: &str) -> bool {
+    let lower = yaml_clean_value(value).to_ascii_lowercase();
+    matches!(
+        lower.as_str(),
+        "required" | "true" | "false" | "optional" | "yes" | "no"
+    )
+}
+
+fn dedupe_secret_requirements(requirements: &mut Vec<SecretRequirement>) {
+    let mut seen = HashSet::new();
+    requirements
+        .retain(|requirement| seen.insert((requirement.source.clone(), requirement.name.clone())));
+    requirements.sort_by(|a, b| a.source.cmp(&b.source).then_with(|| a.name.cmp(&b.name)));
 }
 
 fn normalized_hermes_capability(name: &str, kind: CapabilityKind) -> NormalizedCapability {
@@ -1263,6 +1429,14 @@ mod tests {
         assert!(package.permissions.network);
         assert!(package.permissions.secrets);
         assert!(package.permissions.file_read);
+        assert_eq!(package.secret_requirements.len(), 1);
+        assert_eq!(package.secret_requirements[0].name, "API_KEY");
+        assert_eq!(package.secret_requirements[0].source, "mcp:filesystem");
+        assert!(
+            !serde_json::to_string(&package.secret_requirements)
+                .unwrap()
+                .contains("from-env")
+        );
         assert!(!package.findings.is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -1287,6 +1461,7 @@ external_agents:
   - name: remote_reviewer
 env:
   API_KEY: required
+description: trailing metadata is not an env secret
 "#,
         )
         .unwrap();
@@ -1297,6 +1472,10 @@ env:
         assert!(package.quarantined);
         assert!(package.permissions.secrets);
         assert!(package.permissions.shell);
+        assert_eq!(package.secret_requirements.len(), 1);
+        assert_eq!(package.secret_requirements[0].name, "API_KEY");
+        assert_eq!(package.secret_requirements[0].source, "hermes:env");
+        assert_eq!(package.secret_requirements[0].required, Some(true));
         assert!(
             package
                 .capabilities

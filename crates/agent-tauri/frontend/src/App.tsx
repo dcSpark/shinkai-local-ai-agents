@@ -9575,6 +9575,7 @@ export default function App() {
                 <div className="ingestion-review">
                   {adapterPackages.map((adapterPackage) => {
                     const permissions = enabledPermissions(adapterPackage);
+                    const secretRequirements = adapterPackage.secret_requirements ?? [];
                     const highRisk = hasHighRiskAdapterFindings(adapterPackage);
                     return (
                       <div
@@ -9611,6 +9612,20 @@ export default function App() {
                             <span className="finding none">no requested permissions</span>
                           )}
                         </div>
+                        {secretRequirements.length ? (
+                          <div className="finding-list">
+                            {secretRequirements.map((secret) => (
+                              <span
+                                className="finding warning"
+                                key={`${adapterPackage.id}:secret:${secret.source}:${secret.name}`}
+                                title={secret.description ?? secret.source}
+                              >
+                                secret: {secret.name} / {secret.source}
+                                {secret.required === false ? " / optional" : ""}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                         {adapterPackage.findings.length ? (
                           <div className="finding-list">
                             {adapterPackage.findings.map((finding) => (

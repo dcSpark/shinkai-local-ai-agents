@@ -2200,6 +2200,11 @@ enum RemoteCommand {
         #[command(subcommand)]
         command: RemoteApprovalCommand,
     },
+    /// Remote conversation branch operations.
+    Conversation {
+        #[command(subcommand)]
+        command: RemoteConversationCommand,
+    },
     /// Remote memory operations.
     Memory {
         #[command(subcommand)]
@@ -2311,6 +2316,68 @@ enum RemoteBatchCommand {
 
         #[arg(long, default_value = "echo")]
         demo: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum RemoteConversationCommand {
+    List,
+    Tree,
+    Show {
+        id: String,
+    },
+    Recover {
+        id: String,
+    },
+    Policy {
+        id: String,
+        #[arg(long)]
+        load_memory: Option<bool>,
+        #[arg(long)]
+        clear_load_memory: bool,
+        #[arg(long)]
+        generate_memory: Option<bool>,
+        #[arg(long)]
+        clear_generate_memory: bool,
+        #[arg(long = "allow-tool-category")]
+        allowed_tool_categories: Vec<String>,
+        #[arg(long)]
+        clear_allowed_tool_categories: bool,
+        #[arg(long = "allow-skill-category")]
+        allowed_skill_categories: Vec<String>,
+        #[arg(long)]
+        clear_allowed_skill_categories: bool,
+        #[arg(long)]
+        max_tokens_before_compaction: Option<u32>,
+        #[arg(long)]
+        clear_max_tokens_before_compaction: bool,
+        #[arg(long)]
+        max_compaction_output_tokens: Option<u32>,
+        #[arg(long)]
+        clear_max_compaction_output_tokens: bool,
+        #[arg(long)]
+        compaction_guidance: Option<String>,
+        #[arg(long)]
+        clear_compaction_guidance: bool,
+        #[arg(long)]
+        clear: bool,
+    },
+    DeletePlan {
+        id: String,
+        #[arg(long)]
+        recursive: bool,
+    },
+    Delete {
+        id: String,
+        #[arg(long)]
+        recursive: bool,
+    },
+    DeleteRange {
+        id: String,
+        #[arg(long)]
+        from: usize,
+        #[arg(long)]
+        to: usize,
     },
 }
 
@@ -3525,6 +3592,67 @@ mod cli_parse_tests {
         assert_eq!(max_compaction_output_tokens, Some(128));
         assert_eq!(compaction_guidance.as_deref(), Some("keep decisions"));
         assert!(json);
+
+        let cli = Cli::try_parse_from([
+            "agent",
+            "remote",
+            "conversation",
+            "policy",
+            "conversation-1",
+            "--generate-memory",
+            "true",
+            "--allow-tool-category",
+            "shell",
+            "--clear-compaction-guidance",
+        ])
+        .unwrap();
+        let Command::Remote {
+            command:
+                RemoteCommand::Conversation {
+                    command:
+                        RemoteConversationCommand::Policy {
+                            id,
+                            generate_memory,
+                            allowed_tool_categories,
+                            clear_compaction_guidance,
+                            ..
+                        },
+                },
+            ..
+        } = cli.command
+        else {
+            panic!("expected remote conversation policy command");
+        };
+        assert_eq!(id, "conversation-1");
+        assert_eq!(generate_memory, Some(true));
+        assert_eq!(allowed_tool_categories, vec!["shell"]);
+        assert!(clear_compaction_guidance);
+
+        let cli = Cli::try_parse_from([
+            "agent",
+            "remote",
+            "conversation",
+            "delete-range",
+            "conversation-1",
+            "--from",
+            "2",
+            "--to",
+            "4",
+        ])
+        .unwrap();
+        let Command::Remote {
+            command:
+                RemoteCommand::Conversation {
+                    command: RemoteConversationCommand::DeleteRange { id, from, to },
+                },
+            ..
+        } = cli.command
+        else {
+            panic!("expected remote conversation delete-range command");
+        };
+        assert_eq!(id, "conversation-1");
+        assert_eq!(from, 2);
+        assert_eq!(to, 4);
     }
 
     #[test]
@@ -5286,6 +5414,63 @@ async fn main() -> anyhow::Result<()> {
                         signature_env,
                     )
                     .await
+                }
+            },
+            RemoteCommand::Conversation { command } => match command {
+                RemoteConversationCommand::List => headless::remote_conversation_list(url).await,
+                RemoteConversationCommand::Tree => headless::remote_conversation_tree(url).await,
+                RemoteConversationCommand::Show { id } => {
+                    headless::remote_conversation_show(url, id).await
+                }
+                RemoteConversationCommand::Recover { id } => {
+                    headless::remote_conversation_recover(url, id).await
+                }
+                RemoteConversationCommand::Policy {
+                    id,
+                    load_memory,
+                    clear_load_memory,
+                    generate_memory,
+                    clear_generate_memory,
+                    allowed_tool_categories,
+                    clear_allowed_tool_categories,
+                    allowed_skill_categories,
+                    clear_allowed_skill_categories,
+                    max_tokens_before_compaction,
+                    clear_max_tokens_before_compaction,
+                    max_compaction_output_tokens,
+                    clear_max_compaction_output_tokens,
+                    compaction_guidance,
+                    clear_compaction_guidance,
+                    clear,
+                } => {
+                    let options = headless::ConversationPolicyOptions {
+                        load_memory,
+                        clear_load_memory,
+                        generate_memory,
+                        clear_generate_memory,
+                        allowed_tool_categories,
+                        clear_allowed_tool_categories,
+                        allowed_skill_categories,
+                        clear_allowed_skill_categories,
+                        max_tokens_before_compaction,
+                        clear_max_tokens_before_compaction,
+                        max_compaction_output_tokens,
+                        clear_max_compaction_output_tokens,
+                        compaction_guidance,
+                        clear_compaction_guidance,
+                        clear,
+                        json: true,
+                    };
+                    headless::remote_conversation_policy(url, id, options).await
+                }
+                RemoteConversationCommand::DeletePlan { id, recursive } => {
+                    headless::remote_conversation_delete_plan(url, id, recursive).await
+                }
+                RemoteConversationCommand::Delete { id, recursive } => {
+                    headless::remote_conversation_delete(url, id, recursive).await
+                }
+                RemoteConversationCommand::DeleteRange { id, from, to } => {
+                    headless::remote_conversation_delete_range(url, id, from, to).await
                 }
             },
             RemoteCommand::Memory { command } => match command {

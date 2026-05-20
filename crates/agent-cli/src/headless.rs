@@ -1778,53 +1778,12 @@ pub async fn conversation_policy(
     let store = ConversationStore::from_env();
     let mut doc = store.show(&id)?;
     if options.changes_policy() {
-        let mut policy = if options.clear {
+        let policy = if options.clear {
             ConversationPolicy::default()
         } else {
             doc.policy.clone()
         };
-        if options.clear_load_memory {
-            policy.load_memory = None;
-        }
-        if let Some(load_memory) = options.load_memory {
-            policy.load_memory = Some(load_memory);
-        }
-        if options.clear_generate_memory {
-            policy.generate_memory = None;
-        }
-        if let Some(generate_memory) = options.generate_memory {
-            policy.generate_memory = Some(generate_memory);
-        }
-        if options.clear_allowed_tool_categories {
-            policy.allowed_tool_categories = None;
-        }
-        if !options.allowed_tool_categories.is_empty() {
-            policy.allowed_tool_categories = Some(options.allowed_tool_categories);
-        }
-        if options.clear_allowed_skill_categories {
-            policy.allowed_skill_categories = None;
-        }
-        if !options.allowed_skill_categories.is_empty() {
-            policy.allowed_skill_categories = Some(options.allowed_skill_categories);
-        }
-        if options.clear_max_tokens_before_compaction {
-            policy.max_tokens_before_compaction = None;
-        }
-        if let Some(max_tokens_before_compaction) = options.max_tokens_before_compaction {
-            policy.max_tokens_before_compaction = Some(max_tokens_before_compaction);
-        }
-        if options.clear_max_compaction_output_tokens {
-            policy.max_compaction_output_tokens = None;
-        }
-        if let Some(max_compaction_output_tokens) = options.max_compaction_output_tokens {
-            policy.max_compaction_output_tokens = Some(max_compaction_output_tokens);
-        }
-        if options.clear_compaction_guidance {
-            policy.compaction_guidance = None;
-        }
-        if let Some(compaction_guidance) = options.compaction_guidance {
-            policy.compaction_guidance = Some(compaction_guidance);
-        }
+        let policy = apply_conversation_policy_options(policy, &options);
         doc = store.set_policy(&id, policy)?;
     }
 
@@ -1835,6 +1794,55 @@ pub async fn conversation_policy(
         println!("policy: {}", conversation_policy_summary(&doc.policy));
     }
     Ok(())
+}
+
+fn apply_conversation_policy_options(
+    mut policy: ConversationPolicy,
+    options: &ConversationPolicyOptions,
+) -> ConversationPolicy {
+    if options.clear_load_memory {
+        policy.load_memory = None;
+    }
+    if let Some(load_memory) = options.load_memory {
+        policy.load_memory = Some(load_memory);
+    }
+    if options.clear_generate_memory {
+        policy.generate_memory = None;
+    }
+    if let Some(generate_memory) = options.generate_memory {
+        policy.generate_memory = Some(generate_memory);
+    }
+    if options.clear_allowed_tool_categories {
+        policy.allowed_tool_categories = None;
+    }
+    if !options.allowed_tool_categories.is_empty() {
+        policy.allowed_tool_categories = Some(options.allowed_tool_categories.clone());
+    }
+    if options.clear_allowed_skill_categories {
+        policy.allowed_skill_categories = None;
+    }
+    if !options.allowed_skill_categories.is_empty() {
+        policy.allowed_skill_categories = Some(options.allowed_skill_categories.clone());
+    }
+    if options.clear_max_tokens_before_compaction {
+        policy.max_tokens_before_compaction = None;
+    }
+    if let Some(max_tokens_before_compaction) = options.max_tokens_before_compaction {
+        policy.max_tokens_before_compaction = Some(max_tokens_before_compaction);
+    }
+    if options.clear_max_compaction_output_tokens {
+        policy.max_compaction_output_tokens = None;
+    }
+    if let Some(max_compaction_output_tokens) = options.max_compaction_output_tokens {
+        policy.max_compaction_output_tokens = Some(max_compaction_output_tokens);
+    }
+    if options.clear_compaction_guidance {
+        policy.compaction_guidance = None;
+    }
+    if let Some(compaction_guidance) = &options.compaction_guidance {
+        policy.compaction_guidance = Some(compaction_guidance.clone());
+    }
+    policy
 }
 
 pub async fn conversation_tree(json: bool) -> anyhow::Result<()> {
@@ -4202,6 +4210,84 @@ pub async fn remote_approval_execute(
 
 pub async fn remote_storage_report(url: String) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).get_json("/storage")?)
+}
+
+pub async fn remote_conversation_list(url: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).get_json("/conversations")?)
+}
+
+pub async fn remote_conversation_tree(url: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).get_json("/conversations/tree")?)
+}
+
+pub async fn remote_conversation_show(url: String, id: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).get_json(&format!("/conversations/{id}"))?)
+}
+
+pub async fn remote_conversation_recover(url: String, id: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).get_json(&format!("/conversations/{id}/recover"))?)
+}
+
+pub async fn remote_conversation_policy(
+    url: String,
+    id: String,
+    options: ConversationPolicyOptions,
+) -> anyhow::Result<()> {
+    let client = DaemonHttpClient::new(url);
+    if !options.changes_policy() {
+        return print_remote(client.get_json(&format!("/conversations/{id}"))?);
+    }
+    let existing = if options.clear {
+        ConversationPolicy::default()
+    } else {
+        let expanded = client.get_json(&format!("/conversations/{id}"))?;
+        serde_json::from_value(
+            expanded
+                .get("conversation")
+                .and_then(|conversation| conversation.get("policy"))
+                .cloned()
+                .unwrap_or_else(|| serde_json::json!({})),
+        )?
+    };
+    let policy = apply_conversation_policy_options(existing, &options);
+    print_remote(client.post_json(
+        &format!("/conversations/{id}/policy"),
+        serde_json::to_value(policy)?,
+    )?)
+}
+
+pub async fn remote_conversation_delete_plan(
+    url: String,
+    id: String,
+    recursive: bool,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        &format!("/conversations/{id}/delete-plan"),
+        serde_json::json!({ "recursive": recursive }),
+    )?)
+}
+
+pub async fn remote_conversation_delete(
+    url: String,
+    id: String,
+    recursive: bool,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        &format!("/conversations/{id}/delete"),
+        serde_json::json!({ "recursive": recursive }),
+    )?)
+}
+
+pub async fn remote_conversation_delete_range(
+    url: String,
+    id: String,
+    from: usize,
+    to: usize,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        &format!("/conversations/{id}/delete-range"),
+        serde_json::json!({ "from": from, "to": to }),
+    )?)
 }
 
 pub async fn remote_memory_list(url: String) -> anyhow::Result<()> {

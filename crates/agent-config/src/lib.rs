@@ -1085,13 +1085,13 @@ impl ConfigResolver {
         let global_path = self.paths.global_config();
         if !global_path.exists() {
             let text = toml::to_string_pretty(&GlobalToml::default())?;
-            std::fs::write(global_path, text)?;
+            write_storage_text(&self.paths, global_path, text)?;
         }
         let main_profile_path = self.paths.main_profile_config();
         if !main_profile_path.exists() {
             self.paths.ensure_profile_dirs("main")?;
             let text = toml::to_string_pretty(&ProfileToml::default())?;
-            std::fs::write(main_profile_path, text)?;
+            write_storage_text(&self.paths, main_profile_path, text)?;
         }
         let profile_path = self.paths.active_profile_config();
         if !profile_path.exists() {
@@ -1103,17 +1103,17 @@ impl ConfigResolver {
             };
             let text =
                 toml::to_string_pretty(&ProfileToml::for_id(active_profile_id, display_name))?;
-            std::fs::write(profile_path, text)?;
+            write_storage_text(&self.paths, profile_path, text)?;
         }
         let agent_path = self.paths.default_agent_config();
         if !agent_path.exists() {
             let text = toml::to_string_pretty(&AgentToml::default())?;
-            std::fs::write(agent_path, text)?;
+            write_storage_text(&self.paths, agent_path, text)?;
         }
         let model_path = self.paths.model_config("fake-model");
         if !model_path.exists() {
             let text = toml::to_string_pretty(&ModelConfig::for_id("fake-model"))?;
-            std::fs::write(model_path, text)?;
+            write_storage_text(&self.paths, model_path, text)?;
         }
         Ok(())
     }
@@ -1273,7 +1273,7 @@ impl ConfigResolver {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(&path, toml::to_string_pretty(agent)?)?;
+        write_storage_text(&self.paths, &path, toml::to_string_pretty(agent)?)?;
         Ok(agent.clone())
     }
 
@@ -1375,7 +1375,7 @@ impl ConfigResolver {
         }
         let hooks = hooks.into_iter().collect::<Vec<_>>();
         profile.policy.disabled_lifecycle_hooks = (!hooks.is_empty()).then_some(hooks.clone());
-        std::fs::write(profile_path, toml::to_string_pretty(&profile)?)?;
+        write_storage_text(&self.paths, profile_path, toml::to_string_pretty(&profile)?)?;
         Ok(hooks)
     }
 
@@ -1411,7 +1411,7 @@ impl ConfigResolver {
         }
         let hooks = hooks.into_iter().collect::<Vec<_>>();
         agent.policy.disabled_lifecycle_hooks = (!hooks.is_empty()).then_some(hooks.clone());
-        std::fs::write(agent_path, toml::to_string_pretty(&agent)?)?;
+        write_storage_text(&self.paths, agent_path, toml::to_string_pretty(&agent)?)?;
         Ok(hooks)
     }
 
@@ -1506,7 +1506,7 @@ impl ConfigResolver {
             name: clean_optional(name).unwrap_or_else(|| id.into()),
             policy: PolicyLayerToml::default(),
         };
-        std::fs::write(&path, toml::to_string_pretty(&profile)?)?;
+        write_storage_text(&self.paths, &path, toml::to_string_pretty(&profile)?)?;
         Ok(profile_summary(profile, path))
     }
 
@@ -1653,7 +1653,7 @@ impl ConfigResolver {
         validate_model_id(&model.id)?;
         validate_model_config(model)?;
         let path = self.paths.model_config(&model.id);
-        std::fs::write(path, toml::to_string_pretty(model)?)?;
+        write_storage_text(&self.paths, path, toml::to_string_pretty(model)?)?;
         Ok(model.clone())
     }
 
@@ -4219,10 +4219,24 @@ fn write_profile_grants(
     grants: &[ProfileGrant],
 ) -> Result<(), ConfigError> {
     paths.ensure_profile_dirs(from_profile)?;
-    std::fs::write(
+    write_storage_text(
+        paths,
         paths.profile_grants_file(from_profile),
         serde_json::to_string_pretty(grants)?,
     )?;
+    Ok(())
+}
+
+fn write_storage_text(
+    paths: &StoragePaths,
+    path: impl AsRef<Path>,
+    text: String,
+) -> Result<(), ConfigError> {
+    paths.ensure_quota_for_path_write(
+        path.as_ref(),
+        u64::try_from(text.len()).unwrap_or(u64::MAX),
+    )?;
+    std::fs::write(path, text)?;
     Ok(())
 }
 

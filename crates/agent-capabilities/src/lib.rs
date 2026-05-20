@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use agent_storage::StoragePaths;
+use agent_storage::{StorageError, StoragePaths};
 use agent_tools::{Tool, ToolDescriptor, ToolError, ToolId, ToolPermissions};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -18,6 +18,8 @@ pub enum CapabilityError {
     Io(#[from] std::io::Error),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("storage error: {0}")]
+    Storage(#[from] StorageError),
     #[error("capability draft not found: {0}")]
     NotFound(String),
     #[error("invalid capability draft id: {0}")]
@@ -83,15 +85,23 @@ pub struct CapabilityDraftInput {
 
 pub struct CapabilityDraftStore {
     dir: PathBuf,
+    quota_paths: Option<StoragePaths>,
 }
 
 impl CapabilityDraftStore {
     pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into() }
+        Self {
+            dir: dir.into(),
+            quota_paths: None,
+        }
     }
 
     pub fn from_env() -> Self {
-        Self::new(StoragePaths::from_env().capability_drafts_dir())
+        let paths = StoragePaths::from_env();
+        Self {
+            dir: paths.capability_drafts_dir(),
+            quota_paths: Some(paths),
+        }
     }
 
     pub fn propose(&self, input: CapabilityDraftInput) -> Result<CapabilityDraft, CapabilityError> {
@@ -198,7 +208,14 @@ impl CapabilityDraftStore {
     fn write(&self, draft: &CapabilityDraft) -> Result<(), CapabilityError> {
         std::fs::create_dir_all(&self.dir)?;
         let path = self.path_for(&draft.id)?;
-        std::fs::write(path, serde_json::to_string_pretty(draft)?)?;
+        let body = serde_json::to_string_pretty(draft)?;
+        if let Some(paths) = self.quota_paths.as_ref() {
+            paths.ensure_quota_for_path_write(
+                &path,
+                u64::try_from(body.len()).unwrap_or(u64::MAX),
+            )?;
+        }
+        std::fs::write(path, body)?;
         Ok(())
     }
 

@@ -111,6 +111,7 @@ pub fn import_bundle_into(
             if let Some(parent) = out.parent() {
                 std::fs::create_dir_all(parent)?;
             }
+            paths.ensure_quota_for_path_write(&out, entry.header().size()?)?;
             entry.unpack(out)?;
         } else {
             return Err(BundleError::UnsafePath(format!(

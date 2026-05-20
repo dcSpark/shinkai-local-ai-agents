@@ -38,8 +38,8 @@ npm --prefix crates/agent-tauri/frontend run tauri -- dev
 ```
 
 This starts Vite and launches the Tauri shell. Running the Rust binary directly
-does not start Vite, so `cargo run --bin shinkai` can open a blank window unless
-the frontend is already available.
+does not start Vite, so debug `cargo run --bin shinkai` now exits with guidance
+unless the Vite server is reachable or `frontend/dist` is fresh and complete.
 
 Manual two-terminal flow:
 

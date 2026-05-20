@@ -2505,6 +2505,13 @@ enum RemoteMemoryCommand {
         #[arg(long = "topic")]
         topics: Vec<String>,
     },
+    Classify {
+        id: String,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long = "no-apply")]
+        no_apply: bool,
+    },
     Edit {
         id: String,
         content: String,
@@ -4349,6 +4356,32 @@ mod cli_parse_tests {
             "agent",
             "remote",
             "memory",
+            "classify",
+            "mem-1",
+            "--model",
+            "classifier",
+            "--no-apply",
+        ])
+        .unwrap();
+        let RemoteCommand::Memory {
+            command:
+                RemoteMemoryCommand::Classify {
+                    id,
+                    model,
+                    no_apply,
+                },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote memory classify command");
+        };
+        assert_eq!(id, "mem-1");
+        assert_eq!(model.as_deref(), Some("classifier"));
+        assert!(no_apply);
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "memory",
             "generate-conversation",
             "conv-remote",
             "--from",
@@ -5710,6 +5743,11 @@ async fn main() -> anyhow::Result<()> {
                     limit,
                     topics,
                 } => headless::remote_memory_generate_pending(url, user, limit, topics).await,
+                RemoteMemoryCommand::Classify {
+                    id,
+                    model,
+                    no_apply,
+                } => headless::remote_memory_classify(url, id, model, !no_apply).await,
                 RemoteMemoryCommand::Edit { id, content } => {
                     headless::remote_memory_edit(url, id, content).await
                 }

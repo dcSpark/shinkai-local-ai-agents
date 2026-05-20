@@ -9,6 +9,7 @@ use agent_core::MemoryFragment;
 use agent_storage::{StorageError, StoragePaths};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MemoryError {
@@ -20,6 +21,8 @@ pub enum MemoryError {
     Json(#[from] serde_json::Error),
     #[error("memory rejected by injection scan: {0}")]
     Injection(String),
+    #[error("invalid memory classification: {0}")]
+    InvalidClassification(String),
     #[error("memory not found: {0}")]
     NotFound(String),
 }
@@ -271,6 +274,13 @@ impl MemoryStore {
         Ok(records)
     }
 
+    pub fn get(&self, id: &str) -> Result<MemoryRecord, MemoryError> {
+        self.list()?
+            .into_iter()
+            .find(|record| record.id == id)
+            .ok_or_else(|| MemoryError::NotFound(id.into()))
+    }
+
     pub fn edit(&self, id: &str, content: &str) -> Result<MemoryRecord, MemoryError> {
         scan(content)?;
         for target in [MemoryTarget::Agent, MemoryTarget::User] {
@@ -290,6 +300,38 @@ impl MemoryStore {
             }
         }
         Err(MemoryError::NotFound(id.into()))
+    }
+
+    pub fn apply_classification(
+        &self,
+        id: &str,
+        classification: MemoryClassification,
+    ) -> Result<MemoryRecord, MemoryError> {
+        let classification = normalize_classification_for_storage(classification)?;
+        for target in [MemoryTarget::Agent, MemoryTarget::User] {
+            let mut records = self.list_target(target)?;
+            if let Some(record) = records.iter_mut().find(|r| r.id == id) {
+                record.updated_at = Utc::now();
+                record.topics = merge_topics(
+                    std::mem::take(&mut record.topics),
+                    classification.topics.clone(),
+                );
+                record.classification = classification;
+                let updated = record.clone();
+                self.write_target(target, &records)?;
+                return Ok(updated);
+            }
+        }
+        Err(MemoryError::NotFound(id.into()))
+    }
+
+    pub fn apply_model_classification_output(
+        &self,
+        id: &str,
+        output: &str,
+        model: &str,
+    ) -> Result<MemoryRecord, MemoryError> {
+        self.apply_classification(id, memory_classification_from_model_output(output, model)?)
     }
 
     pub fn delete_by_source_conversation_ids(
@@ -399,7 +441,7 @@ impl MemoryStore {
                 record.target = target;
             }
             record.classification =
-                normalize_classification(std::mem::take(&mut record.classification));
+                normalize_classification_for_storage(std::mem::take(&mut record.classification))?;
             if record.classification.is_empty() {
                 record.classification = classify_memory_content(&record.content);
             }
@@ -649,6 +691,83 @@ fn normalize_topic(topic: &str) -> Option<String> {
     (!topic.is_empty()).then_some(topic)
 }
 
+pub fn memory_classification_from_model_output(
+    output: &str,
+    model: &str,
+) -> Result<MemoryClassification, MemoryError> {
+    let value = parse_model_classification_value(output)?;
+    let classification_value = value.get("classification").unwrap_or(&value);
+    if !classification_value.is_object() {
+        return Err(MemoryError::InvalidClassification(
+            "expected a JSON object with topics/tasks arrays".into(),
+        ));
+    }
+    let classification = MemoryClassification {
+        topics: string_array_field(classification_value, "topics")?,
+        tasks: string_array_field(classification_value, "tasks")?,
+        source: Some(format!("model:{model}")),
+    };
+    normalize_classification_for_storage(classification)
+}
+
+fn parse_model_classification_value(output: &str) -> Result<Value, MemoryError> {
+    let trimmed = output.trim();
+    if trimmed.is_empty() {
+        return Err(MemoryError::InvalidClassification(
+            "empty model output".into(),
+        ));
+    }
+    if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
+        return Ok(value);
+    }
+    if let Some(fenced) = strip_json_code_fence(trimmed)
+        && let Ok(value) = serde_json::from_str::<Value>(fenced)
+    {
+        return Ok(value);
+    }
+    if let Some(json) = extract_json_object(trimmed) {
+        return serde_json::from_str::<Value>(json)
+            .map_err(|err| MemoryError::InvalidClassification(err.to_string()));
+    }
+    Err(MemoryError::InvalidClassification(
+        "expected a JSON object with topics/tasks arrays".into(),
+    ))
+}
+
+fn strip_json_code_fence(text: &str) -> Option<&str> {
+    let body = text
+        .strip_prefix("```json")
+        .or_else(|| text.strip_prefix("```JSON"))
+        .or_else(|| text.strip_prefix("```"))?
+        .trim();
+    body.strip_suffix("```").map(str::trim)
+}
+
+fn extract_json_object(text: &str) -> Option<&str> {
+    let start = text.find('{')?;
+    let end = text.rfind('}')?;
+    (start <= end).then_some(&text[start..=end])
+}
+
+fn string_array_field(value: &Value, field: &str) -> Result<Vec<String>, MemoryError> {
+    let Some(raw) = value.get(field) else {
+        return Ok(Vec::new());
+    };
+    let Some(items) = raw.as_array() else {
+        return Err(MemoryError::InvalidClassification(format!(
+            "{field} must be an array of strings"
+        )));
+    };
+    items
+        .iter()
+        .map(|item| {
+            item.as_str().map(str::to_string).ok_or_else(|| {
+                MemoryError::InvalidClassification(format!("{field} must contain only strings"))
+            })
+        })
+        .collect()
+}
+
 fn merge_topics(explicit_topics: Vec<String>, inferred_topics: Vec<String>) -> Vec<String> {
     let mut topics = explicit_topics;
     topics.extend(inferred_topics);
@@ -658,18 +777,37 @@ fn merge_topics(explicit_topics: Vec<String>, inferred_topics: Vec<String>) -> V
 fn normalize_classification(mut classification: MemoryClassification) -> MemoryClassification {
     classification.topics = normalize_topics(std::mem::take(&mut classification.topics));
     classification.tasks = normalize_topics(std::mem::take(&mut classification.tasks));
-    if classification.topics.is_empty() && classification.tasks.is_empty() {
-        classification.source = None;
-    } else if classification
+    classification.source = classification
         .source
-        .as_deref()
-        .map(str::trim)
-        .filter(|source| !source.is_empty())
-        .is_none()
+        .take()
+        .map(|source| source.trim().to_string())
+        .filter(|source| !source.is_empty());
+    if classification.source.is_none()
+        && (!classification.topics.is_empty() || !classification.tasks.is_empty())
     {
         classification.source = Some("deterministic-keyword-v0".into());
     }
     classification
+}
+
+fn normalize_classification_for_storage(
+    classification: MemoryClassification,
+) -> Result<MemoryClassification, MemoryError> {
+    let classification = normalize_classification(classification);
+    scan_classification_labels(&classification)?;
+    Ok(classification)
+}
+
+fn scan_classification_labels(classification: &MemoryClassification) -> Result<(), MemoryError> {
+    let mut labels = classification.topics.clone();
+    labels.extend(classification.tasks.clone());
+    if let Some(source) = &classification.source {
+        labels.push(source.clone());
+    }
+    if !labels.is_empty() {
+        scan(&labels.join("\n"))?;
+    }
+    Ok(())
 }
 
 fn classify_memory_content(content: &str) -> MemoryClassification {
@@ -1103,6 +1241,53 @@ mod tests {
                 .contains("tasks=")
         );
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn model_classification_output_is_normalized_and_applied() {
+        let dir =
+            std::env::temp_dir().join(format!("memory-model-classify-test-{}", std::process::id()));
+        let store = MemoryStore::new(StoragePaths::new(&dir));
+        let record = store
+            .create(
+                MemoryTarget::Agent,
+                "Follow up on the API review.",
+                MemoryAuthor::Human,
+                None,
+            )
+            .unwrap();
+
+        let updated = store
+            .apply_model_classification_output(
+                &record.id,
+                "```json\n{\"classification\":{\"topics\":[\" Research \",\"ops\",\"ops\"],\"tasks\":[\"Compare\"]}}\n```",
+                "classify-model",
+            )
+            .unwrap();
+
+        assert_eq!(
+            updated.classification.topics,
+            vec!["ops".to_string(), "research".to_string()]
+        );
+        assert_eq!(updated.classification.tasks, vec!["compare".to_string()]);
+        assert_eq!(
+            updated.classification.source.as_deref(),
+            Some("model:classify-model")
+        );
+        assert!(updated.topics.iter().any(|topic| topic == "coding"));
+        assert!(updated.topics.iter().any(|topic| topic == "research"));
+        assert_eq!(
+            store.get(&record.id).unwrap().classification.tasks,
+            updated.classification.tasks
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn model_classification_rejects_non_json_output() {
+        let err =
+            memory_classification_from_model_output("topics: finance", "classifier").unwrap_err();
+        assert!(matches!(err, MemoryError::InvalidClassification(_)));
     }
 
     #[test]

@@ -4618,6 +4618,18 @@ pub async fn remote_memory_generate_pending(
     )?)
 }
 
+pub async fn remote_memory_classify(
+    url: String,
+    id: String,
+    model: Option<String>,
+    apply: bool,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/memory/classify",
+        serde_json::json!({ "id": id, "model": model, "apply": apply }),
+    )?)
+}
+
 pub async fn remote_memory_edit(url: String, id: String, content: String) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).post_json(
         &format!("/memory/{id}/edit"),

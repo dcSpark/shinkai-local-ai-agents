@@ -6312,7 +6312,7 @@ pub(crate) fn record_memory_written(record: &MemoryRecord, operation: &str) -> a
     )
 }
 
-fn record_memory_operation(
+pub(crate) fn record_memory_operation(
     id: &str,
     operation: &str,
     source_range: Option<String>,

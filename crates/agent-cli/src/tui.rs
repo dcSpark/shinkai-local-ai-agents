@@ -38,7 +38,8 @@ use agent_conversations::{
 use agent_core::{AgentConfig, ContextSnapshot, HarnessApi, UserInput};
 use agent_ingest::{IngestionArtifact, IngestionFindingReviewDecision, IngestionStore};
 use agent_memory::{
-    MemoryRecord, MemoryStore, MemoryTarget, supported_backends as supported_memory_backends,
+    MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget,
+    supported_backends as supported_memory_backends,
 };
 use agent_prompts::{PromptStore, is_valid_prompt_name};
 use agent_storage::StoragePaths;
@@ -1714,8 +1715,13 @@ fn handle_memory_slash(
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
+                "/memory create [--user] [--agent <agent>] [--conversation <id>] [--topic <topic>] <content>",
+                "/memory generate [--user] [--agent <agent>] [--conversation <id>] [--range <range>] [--topic <topic>] <text>",
                 "/memory list",
                 "/memory show <id>",
+                "/memory edit <id> <content>",
+                "/memory delete <id> --confirm",
+                "/memory rollback [--user] --confirm",
                 "/memory backends",
                 "/memory classify <id> [--model <model>] [--agent <agent>] [--no-apply]",
                 "/memory export <path> [--user]",
@@ -1730,6 +1736,88 @@ fn handle_memory_slash(
         .map(|(command, args)| (command, args.trim()))
         .unwrap_or((rest, ""));
     match command {
+        "create" => match parse_memory_write_args(args, "create", false) {
+            Ok(args) => {
+                let target = memory_target(args.user);
+                let owning_agent = args.agent.or_else(|| Some(agent.id.clone()));
+                match MemoryStore::from_env().create_for_conversation_with_topics_for_agent(
+                    target,
+                    &args.text,
+                    MemoryAuthor::Human,
+                    None,
+                    args.conversation,
+                    args.topics,
+                    owning_agent,
+                ) {
+                    Ok(record) => {
+                        if let Err(err) = crate::headless::record_memory_written(&record, "created")
+                        {
+                            app.transcript.push(TranscriptLine {
+                                kind: LineKind::Error,
+                                text: format!("Memory create trace write failed: {err}"),
+                            });
+                            return;
+                        }
+                        push_event(app, format!("Created memory {}.", record.id));
+                        app.transcript.push(TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&record)
+                                .unwrap_or_else(|_| "<unserializable memory record>".into()),
+                        });
+                    }
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Memory create failed: {err}"),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "generate" => match parse_memory_write_args(args, "generate", true) {
+            Ok(args) => {
+                let target = memory_target(args.user);
+                let owning_agent = args.agent.or_else(|| Some(agent.id.clone()));
+                match MemoryStore::from_env().generate_from_conversation_text_with_topics_for_agent(
+                    target,
+                    &args.text,
+                    args.range,
+                    args.conversation,
+                    args.topics,
+                    owning_agent,
+                ) {
+                    Ok(records) => {
+                        for record in &records {
+                            if let Err(err) =
+                                crate::headless::record_memory_written(record, "generated")
+                            {
+                                app.transcript.push(TranscriptLine {
+                                    kind: LineKind::Error,
+                                    text: format!("Memory generate trace write failed: {err}"),
+                                });
+                                return;
+                            }
+                        }
+                        push_event(app, format!("Generated {} memory record(s).", records.len()));
+                        app.transcript.push(TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&records)
+                                .unwrap_or_else(|_| "<unserializable memory records>".into()),
+                        });
+                    }
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Memory generate failed: {err}"),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
         "list" => match MemoryStore::from_env().list() {
             Ok(records) => {
                 push_event(app, format!("Loaded {} memory record(s).", records.len()));
@@ -1761,6 +1849,85 @@ fn handle_memory_slash(
                     text: format!("Memory show failed: {err}"),
                 }),
             },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "edit" => match memory_edit_args(args) {
+            Ok((id, content)) => match MemoryStore::from_env().edit(id, content) {
+                Ok(record) => {
+                    if let Err(err) = crate::headless::record_memory_written(&record, "edited") {
+                        app.transcript.push(TranscriptLine {
+                            kind: LineKind::Error,
+                            text: format!("Memory edit trace write failed: {err}"),
+                        });
+                        return;
+                    }
+                    push_event(app, format!("Edited memory {}.", record.id));
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&record)
+                            .unwrap_or_else(|_| "<unserializable memory record>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Memory edit failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "delete" => match memory_confirm_id_args(args, "delete") {
+            Ok(id) => match MemoryStore::from_env().delete(id) {
+                Ok(()) => {
+                    if let Err(err) =
+                        crate::headless::record_memory_operation(id, "deleted", None, None)
+                    {
+                        app.transcript.push(TranscriptLine {
+                            kind: LineKind::Error,
+                            text: format!("Memory delete trace write failed: {err}"),
+                        });
+                        return;
+                    }
+                    push_event(app, format!("Deleted memory {id}."));
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Memory delete failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "rollback" => match memory_rollback_args(args) {
+            Ok(user) => {
+                let target = memory_target(user);
+                match MemoryStore::from_env().rollback(target) {
+                    Ok(()) => {
+                        let name = if user { "user.md" } else { "memory.md" };
+                        if let Err(err) =
+                            crate::headless::record_memory_operation(name, "rolled_back", None, None)
+                        {
+                            app.transcript.push(TranscriptLine {
+                                kind: LineKind::Error,
+                                text: format!("Memory rollback trace write failed: {err}"),
+                            });
+                            return;
+                        }
+                        push_event(app, format!("Rolled back {name}."));
+                    }
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Memory rollback failed: {err}"),
+                    }),
+                }
+            }
             Err(err) => app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
                 text: err.to_string(),
@@ -1878,10 +2045,18 @@ fn handle_memory_slash(
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Memory command needs list, show, classify, backends, export, import, or help."
-                .into(),
+            text: "Memory command needs create, generate, list, show, edit, delete, rollback, classify, backends, export, import, or help.".into(),
         }),
     }
+}
+
+struct MemoryWriteArgs {
+    text: String,
+    user: bool,
+    range: Option<String>,
+    conversation: Option<String>,
+    agent: Option<String>,
+    topics: Vec<String>,
 }
 
 struct MemoryClassifyArgs {
@@ -1895,6 +2070,124 @@ fn first_memory_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str>
     args.split_whitespace()
         .next()
         .ok_or_else(|| anyhow::anyhow!("memory {command} needs an argument"))
+}
+
+fn parse_memory_write_args(
+    args: &str,
+    command: &str,
+    allow_range: bool,
+) -> anyhow::Result<MemoryWriteArgs> {
+    let mut parts = args.split_whitespace().peekable();
+    let mut user = false;
+    let mut range = None;
+    let mut conversation = None;
+    let mut agent = None;
+    let mut topics = Vec::new();
+    let mut text_parts = Vec::new();
+    while let Some(part) = parts.next() {
+        match part {
+            "--user" if text_parts.is_empty() => user = true,
+            "--range" if allow_range && text_parts.is_empty() => {
+                range = Some(next_memory_option_value(&mut parts, "--range")?.to_string());
+            }
+            "--conversation" if text_parts.is_empty() => {
+                conversation =
+                    Some(next_memory_option_value(&mut parts, "--conversation")?.to_string());
+            }
+            "--agent" if text_parts.is_empty() => {
+                agent = Some(next_memory_option_value(&mut parts, "--agent")?.to_string());
+            }
+            "--topic" if text_parts.is_empty() => {
+                topics.push(next_memory_option_value(&mut parts, "--topic")?.to_string());
+            }
+            value if value.starts_with("--range=") && allow_range && text_parts.is_empty() => {
+                range = Some(value.trim_start_matches("--range=").to_string());
+            }
+            value if value.starts_with("--conversation=") && text_parts.is_empty() => {
+                conversation = Some(value.trim_start_matches("--conversation=").to_string());
+            }
+            value if value.starts_with("--agent=") && text_parts.is_empty() => {
+                agent = Some(value.trim_start_matches("--agent=").to_string());
+            }
+            value if value.starts_with("--topic=") && text_parts.is_empty() => {
+                topics.push(value.trim_start_matches("--topic=").to_string());
+            }
+            value if value.starts_with("--") && text_parts.is_empty() => {
+                anyhow::bail!("unexpected memory {command} argument: {value}");
+            }
+            value => {
+                text_parts.push(value);
+                text_parts.extend(parts);
+                break;
+            }
+        }
+    }
+    let text = text_parts.join(" ");
+    if text.trim().is_empty() {
+        anyhow::bail!("memory {command} needs text");
+    }
+    Ok(MemoryWriteArgs {
+        text,
+        user,
+        range,
+        conversation,
+        agent,
+        topics,
+    })
+}
+
+fn memory_edit_args(args: &str) -> anyhow::Result<(&str, &str)> {
+    let (id, content) = args
+        .trim()
+        .split_once(char::is_whitespace)
+        .ok_or_else(|| anyhow::anyhow!("memory edit needs an id and content"))?;
+    let content = content.trim();
+    if content.is_empty() {
+        anyhow::bail!("memory edit needs content");
+    }
+    Ok((id, content))
+}
+
+fn memory_confirm_id_args<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    let mut id = None;
+    let mut confirmed = false;
+    for part in args.split_whitespace() {
+        if part == "--confirm" {
+            confirmed = true;
+        } else if id.is_none() {
+            id = Some(part);
+        } else {
+            anyhow::bail!("memory {command} accepts exactly one id and --confirm");
+        }
+    }
+    if !confirmed {
+        anyhow::bail!("memory {command} requires --confirm");
+    }
+    id.ok_or_else(|| anyhow::anyhow!("memory {command} needs an id"))
+}
+
+fn memory_rollback_args(args: &str) -> anyhow::Result<bool> {
+    let mut user = false;
+    let mut confirmed = false;
+    for part in args.split_whitespace() {
+        match part {
+            "--user" => user = true,
+            "--confirm" => confirmed = true,
+            other => anyhow::bail!("unexpected memory rollback argument: {other}"),
+        }
+    }
+    if !confirmed {
+        anyhow::bail!("memory rollback requires --confirm");
+    }
+    Ok(user)
+}
+
+fn memory_target(user: bool) -> MemoryTarget {
+    if user {
+        MemoryTarget::User
+    } else {
+        MemoryTarget::Agent
+    }
 }
 
 fn parse_memory_classify_args(args: &str) -> anyhow::Result<MemoryClassifyArgs> {
@@ -4839,6 +5132,61 @@ mod tests {
         );
         assert!(memory_path_args("", "export").is_err());
         assert!(memory_path_args("./memory.md extra", "export").is_err());
+    }
+
+    #[test]
+    fn memory_write_args_parse_flags_before_text() {
+        let args = parse_memory_write_args(
+            "--user --agent research --conversation conv-1 --topic rust remember this fact",
+            "create",
+            false,
+        )
+        .unwrap();
+        assert!(args.user);
+        assert_eq!(args.agent.as_deref(), Some("research"));
+        assert_eq!(args.conversation.as_deref(), Some("conv-1"));
+        assert_eq!(args.topics, vec!["rust".to_string()]);
+        assert_eq!(args.text, "remember this fact");
+        assert!(args.range.is_none());
+
+        let args = parse_memory_write_args(
+            "--range=messages:1..3 --topic ops generated text",
+            "generate",
+            true,
+        )
+        .unwrap();
+        assert_eq!(args.range.as_deref(), Some("messages:1..3"));
+        assert_eq!(args.topics, vec!["ops".to_string()]);
+        assert_eq!(args.text, "generated text");
+
+        assert!(parse_memory_write_args("--range messages:1..3 text", "create", false).is_err());
+        assert!(parse_memory_write_args("--topic", "create", false).is_err());
+        assert!(parse_memory_write_args("", "create", false).is_err());
+    }
+
+    #[test]
+    fn memory_edit_delete_and_rollback_args_require_expected_confirmation() {
+        assert_eq!(
+            memory_edit_args("mem-1 updated content").unwrap(),
+            ("mem-1", "updated content")
+        );
+        assert!(memory_edit_args("mem-1").is_err());
+
+        assert_eq!(
+            memory_confirm_id_args("mem-1 --confirm", "delete").unwrap(),
+            "mem-1"
+        );
+        assert_eq!(
+            memory_confirm_id_args("--confirm mem-1", "delete").unwrap(),
+            "mem-1"
+        );
+        assert!(memory_confirm_id_args("mem-1", "delete").is_err());
+        assert!(memory_confirm_id_args("mem-1 mem-2 --confirm", "delete").is_err());
+
+        assert!(!memory_rollback_args("--confirm").unwrap());
+        assert!(memory_rollback_args("--user --confirm").unwrap());
+        assert!(memory_rollback_args("--user").is_err());
+        assert!(memory_rollback_args("--confirm extra").is_err());
     }
 
     #[test]

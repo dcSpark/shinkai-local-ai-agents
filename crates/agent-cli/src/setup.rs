@@ -26,9 +26,9 @@ use agent_skills::SkillRegistry;
 use agent_storage::StoragePaths;
 use agent_tools::{
     ArtifactTool, FakeTool, ShellTool, ShellToolConfig, SubagentTool, ToolRegistry,
-    VoiceRuntimeConfig, register_allowed_mcp_tools_for_category_with_provenance,
-    register_allowed_mcp_tools_for_resource_with_provenance,
-    register_allowed_mcp_tools_with_provenance, register_code_execution_tools,
+    VoiceRuntimeConfig, register_allowed_adapter_tools_for_category_with_provenance,
+    register_allowed_adapter_tools_for_resource_with_provenance,
+    register_allowed_adapter_tools_with_provenance, register_code_execution_tools,
     register_payment_tools_from_env, register_voice_tools,
 };
 
@@ -145,7 +145,7 @@ pub fn build_registry(
     }
     register_voice_tools(&mut reg, voice_runtime_config_for_agent(agent_id));
     register_payment_tools_from_env(&mut reg);
-    register_profile_scoped_mcp_tools(&mut reg);
+    register_profile_scoped_adapter_tools(&mut reg);
     Arc::new(reg)
 }
 
@@ -231,11 +231,11 @@ fn build_lifecycle_hooks_from_paths(
         .collect()
 }
 
-fn register_profile_scoped_mcp_tools(registry: &mut ToolRegistry) -> usize {
-    register_profile_scoped_mcp_tools_from_paths(registry, StoragePaths::from_env())
+fn register_profile_scoped_adapter_tools(registry: &mut ToolRegistry) -> usize {
+    register_profile_scoped_adapter_tools_from_paths(registry, StoragePaths::from_env())
 }
 
-fn register_profile_scoped_mcp_tools_from_paths(
+fn register_profile_scoped_adapter_tools_from_paths(
     registry: &mut ToolRegistry,
     active_paths: StoragePaths,
 ) -> usize {
@@ -244,14 +244,18 @@ fn register_profile_scoped_mcp_tools_from_paths(
     let mut registered = AdapterRegistry::new(active_paths.clone())
         .list()
         .map(|packages| {
-            register_allowed_mcp_tools_with_provenance(registry, packages, Some(&active_provenance))
+            register_allowed_adapter_tools_with_provenance(
+                registry,
+                packages,
+                Some(&active_provenance),
+            )
         })
         .unwrap_or_default();
-    registered += register_granted_mcp_tools_from_paths(registry, active_paths);
+    registered += register_granted_adapter_tools_from_paths(registry, active_paths);
     registered
 }
 
-fn register_granted_mcp_tools_from_paths(
+fn register_granted_adapter_tools_from_paths(
     registry: &mut ToolRegistry,
     active_paths: StoragePaths,
 ) -> usize {
@@ -276,18 +280,20 @@ fn register_granted_mcp_tools_from_paths(
             grant.from_profile, grant.from_profile, grant.id
         );
         registered += match grant.kind {
-            ProfileGrantKind::Tool => register_allowed_mcp_tools_for_resource_with_provenance(
+            ProfileGrantKind::Tool => register_allowed_adapter_tools_for_resource_with_provenance(
                 registry,
                 packages,
                 &grant.resource,
                 Some(&provenance),
             ),
-            ProfileGrantKind::Category => register_allowed_mcp_tools_for_category_with_provenance(
-                registry,
-                packages,
-                &grant.resource,
-                Some(&provenance),
-            ),
+            ProfileGrantKind::Category => {
+                register_allowed_adapter_tools_for_category_with_provenance(
+                    registry,
+                    packages,
+                    &grant.resource,
+                    Some(&provenance),
+                )
+            }
             _ => 0,
         };
     }
@@ -930,14 +936,14 @@ mod tests {
 
         let mut hidden = ToolRegistry::new();
         assert_eq!(
-            register_profile_scoped_mcp_tools_from_paths(&mut hidden, research_paths.clone()),
+            register_profile_scoped_adapter_tools_from_paths(&mut hidden, research_paths.clone()),
             0
         );
 
         registry.allow(&package.id).unwrap();
         let mut visible = ToolRegistry::new();
         assert_eq!(
-            register_profile_scoped_mcp_tools_from_paths(&mut visible, research_paths),
+            register_profile_scoped_adapter_tools_from_paths(&mut visible, research_paths),
             1
         );
         let search = visible.descriptor(&ToolId::from("mcp-search")).unwrap();
@@ -950,6 +956,57 @@ mod tests {
                 .descriptor(&ToolId::from("mcp-filesystem"))
                 .is_none()
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn granted_a2a_external_agents_load_from_source_profile_after_allow() {
+        let dir = std::env::temp_dir().join(format!("a2a-grant-setup-test-{}", std::process::id()));
+        let source = dir.join("agent-card.json");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            &source,
+            r#"{
+              "name": "Remote Reviewer",
+              "description": "Reviews documents.",
+              "url": "https://agents.example.test/a2a",
+              "preferredTransport": "JSONRPC",
+              "defaultInputModes": ["text/plain"],
+              "defaultOutputModes": ["text/plain"],
+              "skills": [
+                { "id": "review", "name": "Review", "description": "Review text." }
+              ]
+            }"#,
+        )
+        .unwrap();
+        let root = dir.join("home");
+        let main_paths = StoragePaths::new(root.clone());
+        let research_paths = StoragePaths::new_with_profile(root, "research");
+        let resolver = ConfigResolver::new(main_paths.clone());
+        resolver.create_profile("research", None).unwrap();
+        let registry = AdapterRegistry::new(main_paths);
+        let package = registry.import(&source).unwrap();
+        resolver
+            .grant_profile_access("main", "research", ProfileGrantKind::Tool, "review")
+            .unwrap();
+
+        let mut hidden = ToolRegistry::new();
+        assert_eq!(
+            register_profile_scoped_adapter_tools_from_paths(&mut hidden, research_paths.clone()),
+            0
+        );
+
+        registry.allow(&package.id).unwrap();
+        let mut visible = ToolRegistry::new();
+        assert_eq!(
+            register_profile_scoped_adapter_tools_from_paths(&mut visible, research_paths),
+            1
+        );
+        let review = visible.descriptor(&ToolId::from("a2a-review")).unwrap();
+        assert!(review.permissions.network);
+        assert!(review.provenance.as_deref().is_some_and(|provenance| {
+            provenance.contains("shared_from_profile=main; grant=grant-main-research-tool-review")
+        }));
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -984,14 +1041,14 @@ mod tests {
 
         let mut hidden = ToolRegistry::new();
         assert_eq!(
-            register_profile_scoped_mcp_tools_from_paths(&mut hidden, research_paths.clone()),
+            register_profile_scoped_adapter_tools_from_paths(&mut hidden, research_paths.clone()),
             0
         );
 
         registry.allow(&package.id).unwrap();
         let mut visible = ToolRegistry::new();
         assert_eq!(
-            register_profile_scoped_mcp_tools_from_paths(&mut visible, research_paths),
+            register_profile_scoped_adapter_tools_from_paths(&mut visible, research_paths),
             2
         );
         let search = visible.descriptor(&ToolId::from("mcp-search")).unwrap();
@@ -1030,7 +1087,7 @@ mod tests {
 
         let mut visible = ToolRegistry::new();
         assert_eq!(
-            register_profile_scoped_mcp_tools_from_paths(&mut visible, paths),
+            register_profile_scoped_adapter_tools_from_paths(&mut visible, paths),
             1
         );
         let search = visible.descriptor(&ToolId::from("mcp-search")).unwrap();

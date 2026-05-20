@@ -17,7 +17,9 @@ use std::sync::{
 };
 use std::time::Instant;
 
-use agent_adapters::{AdapterKind, AdapterRegistry, CapabilityKind, NormalizedPackage};
+use agent_adapters::{
+    AdapterKind, AdapterRegistry, CapabilityKind, NormalizedCapability, NormalizedPackage,
+};
 use agent_secrets::{SecretHandle, SecretStore, default_secret_store};
 use agent_storage::StoragePaths;
 use async_trait::async_trait;
@@ -3625,6 +3627,223 @@ async fn post_json_rpc_http(
     Ok(value)
 }
 
+#[derive(Debug, Clone)]
+pub struct ExternalAgentSpec {
+    pub id: ToolId,
+    pub name: String,
+    pub description: String,
+    pub endpoint: String,
+    pub input_modes: Vec<String>,
+    pub output_modes: Vec<String>,
+    pub auth_schemes: Vec<String>,
+}
+
+pub struct ExternalAgentTool {
+    spec: ExternalAgentSpec,
+}
+
+impl ExternalAgentTool {
+    pub fn new(spec: ExternalAgentSpec) -> Self {
+        Self { spec }
+    }
+
+    pub fn descriptor(spec: &ExternalAgentSpec) -> ToolDescriptor {
+        let mut description = spec.description.clone();
+        let mut hints = Vec::new();
+        if !spec.input_modes.is_empty() {
+            hints.push(format!("input modes: {}", spec.input_modes.join(",")));
+        }
+        if !spec.output_modes.is_empty() {
+            hints.push(format!("output modes: {}", spec.output_modes.join(",")));
+        }
+        if !hints.is_empty() {
+            description.push('\n');
+            description.push_str(&hints.join("; "));
+        }
+        ToolDescriptor {
+            id: spec.id.clone(),
+            name: spec.name.clone(),
+            description,
+            categories: vec!["external-agent".into(), "a2a".into()],
+            input_schema: json!({
+                "type": "object",
+                "required": ["prompt"],
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "Task prompt to send to the external agent."
+                    },
+                    "message_id": {
+                        "type": "string",
+                        "description": "Optional A2A message id. A new id is generated when omitted."
+                    },
+                    "task_id": {
+                        "type": "string",
+                        "description": "Optional A2A task id for continuation."
+                    },
+                    "context_id": {
+                        "type": "string",
+                        "description": "Optional A2A context id for continuation."
+                    },
+                    "metadata": {
+                        "type": "object",
+                        "description": "Optional metadata object forwarded in the JSON-RPC params.",
+                        "additionalProperties": true
+                    },
+                    "headers": {
+                        "type": "object",
+                        "description": "Optional per-call HTTP headers such as Authorization. Secret-shaped keys are redacted in traces.",
+                        "additionalProperties": { "type": "string" }
+                    },
+                    "method": {
+                        "type": "string",
+                        "description": "Optional JSON-RPC method override. Defaults to message/send."
+                    },
+                    "timeout_ms": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "description": "Optional request timeout in milliseconds."
+                    }
+                },
+                "additionalProperties": false
+            }),
+            output_interpretation_guidance: Some(
+                "Preserve the external agent JSON-RPC result, task/message ids, status, and returned artifacts exactly when interpreting A2A results.".into(),
+            ),
+            permissions: ToolPermissions {
+                network: true,
+                secrets: !spec.auth_schemes.is_empty(),
+                ..ToolPermissions::default()
+            },
+            requires_approval: true,
+            provenance: None,
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for ExternalAgentTool {
+    async fn execute(&self, input: Value) -> Result<Value, ToolError> {
+        let (body, headers, timeout_ms) = external_agent_call_input(&input)?;
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(timeout_ms))
+            .build()
+            .map_err(|e| ToolError::Execution(format!("failed to build HTTP client: {e}")))?;
+        let mut request = client.post(&self.spec.endpoint).json(&body);
+        for (key, value) in headers {
+            request = request.header(key, value);
+        }
+        let response = request
+            .send()
+            .await
+            .map_err(|e| ToolError::Execution(format!("A2A request failed: {e}")))?;
+        let status = response.status();
+        let value = response
+            .json::<Value>()
+            .await
+            .map_err(|e| ToolError::Execution(format!("invalid A2A JSON response: {e}")))?;
+        if !status.is_success() {
+            return Err(ToolError::Execution(format!(
+                "A2A endpoint returned {status}: {value}"
+            )));
+        }
+        if let Some(error) = value.get("error") {
+            return Err(ToolError::Execution(format!("A2A error: {error}")));
+        }
+        Ok(value.get("result").cloned().unwrap_or(value))
+    }
+}
+
+fn external_agent_call_input(
+    input: &Value,
+) -> Result<(Value, Vec<(String, String)>, u64), ToolError> {
+    let prompt = input
+        .get("prompt")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|prompt| !prompt.is_empty())
+        .ok_or_else(|| ToolError::InvalidInput("missing string field `prompt`".into()))?;
+    let method = input
+        .get("method")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|method| !method.is_empty())
+        .unwrap_or("message/send");
+    let message_id = input
+        .get("message_id")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| format!("msg-{}", uuid::Uuid::new_v4()));
+    let mut message = json!({
+        "kind": "message",
+        "messageId": message_id,
+        "role": "user",
+        "parts": [{ "kind": "text", "text": prompt }]
+    });
+    if let Some(task_id) = optional_string(input, "task_id") {
+        message["taskId"] = json!(task_id);
+    }
+    if let Some(context_id) = optional_string(input, "context_id") {
+        message["contextId"] = json!(context_id);
+    }
+    let mut params = json!({ "message": message });
+    if let Some(metadata) = optional_object(input, "metadata")? {
+        params["metadata"] = metadata;
+    }
+    let body = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": method,
+        "params": params
+    });
+    let headers = string_map(input, "headers")?;
+    let timeout_ms = input
+        .get("timeout_ms")
+        .and_then(Value::as_u64)
+        .unwrap_or(30_000);
+    Ok((body, headers, timeout_ms))
+}
+
+fn optional_string(input: &Value, field: &str) -> Option<String> {
+    input
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn optional_object(input: &Value, field: &str) -> Result<Option<Value>, ToolError> {
+    match input.get(field) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) if value.is_object() => Ok(Some(value.clone())),
+        Some(_) => Err(ToolError::InvalidInput(format!(
+            "`{field}` must be a JSON object"
+        ))),
+    }
+}
+
+fn string_map(input: &Value, field: &str) -> Result<Vec<(String, String)>, ToolError> {
+    let Some(value) = input.get(field) else {
+        return Ok(Vec::new());
+    };
+    let map = value
+        .as_object()
+        .ok_or_else(|| ToolError::InvalidInput(format!("`{field}` must be a JSON object")))?;
+    let mut items = Vec::new();
+    for (key, value) in map {
+        let Some(value) = value.as_str() else {
+            return Err(ToolError::InvalidInput(format!(
+                "`{field}.{key}` must be a string"
+            )));
+        };
+        items.push((key.clone(), value.to_string()));
+    }
+    Ok(items)
+}
+
 async fn write_json_rpc(
     stdin: &mut tokio::process::ChildStdin,
     value: Value,
@@ -3672,6 +3891,60 @@ pub fn register_allowed_mcp_tools_from_env(registry: &mut ToolRegistry) -> usize
         return 0;
     };
     register_allowed_mcp_tools(registry, packages)
+}
+
+pub fn register_allowed_adapter_tools_with_provenance(
+    registry: &mut ToolRegistry,
+    packages: impl IntoIterator<Item = NormalizedPackage>,
+    extra_provenance: Option<&str>,
+) -> usize {
+    let packages = packages.into_iter().collect::<Vec<_>>();
+    register_allowed_mcp_tools_with_provenance(registry, packages.clone(), extra_provenance)
+        + register_allowed_external_agent_tools_with_provenance(
+            registry,
+            packages,
+            extra_provenance,
+        )
+}
+
+pub fn register_allowed_adapter_tools_for_resource_with_provenance(
+    registry: &mut ToolRegistry,
+    packages: impl IntoIterator<Item = NormalizedPackage>,
+    resource: &str,
+    extra_provenance: Option<&str>,
+) -> usize {
+    let packages = packages.into_iter().collect::<Vec<_>>();
+    register_allowed_mcp_tools_for_resource_with_provenance(
+        registry,
+        packages.clone(),
+        resource,
+        extra_provenance,
+    ) + register_allowed_external_agent_tools_for_resource_with_provenance(
+        registry,
+        packages,
+        resource,
+        extra_provenance,
+    )
+}
+
+pub fn register_allowed_adapter_tools_for_category_with_provenance(
+    registry: &mut ToolRegistry,
+    packages: impl IntoIterator<Item = NormalizedPackage>,
+    category: &str,
+    extra_provenance: Option<&str>,
+) -> usize {
+    let packages = packages.into_iter().collect::<Vec<_>>();
+    register_allowed_mcp_tools_for_category_with_provenance(
+        registry,
+        packages.clone(),
+        category,
+        extra_provenance,
+    ) + register_allowed_external_agent_tools_for_category_with_provenance(
+        registry,
+        packages,
+        category,
+        extra_provenance,
+    )
 }
 
 pub fn register_allowed_mcp_tools(
@@ -3787,6 +4060,155 @@ fn mcp_resource_matches(package: &NormalizedPackage, spec: &McpServerSpec, resou
 
 fn mcp_category_matches(package: &NormalizedPackage, category: &str) -> bool {
     category == "*" || category == "mcp" || package.id == category
+}
+
+pub fn register_allowed_external_agent_tools(
+    registry: &mut ToolRegistry,
+    packages: impl IntoIterator<Item = NormalizedPackage>,
+) -> usize {
+    register_allowed_external_agent_tools_impl(registry, packages, |_, _, _| true, false, None)
+}
+
+pub fn register_allowed_external_agent_tools_with_provenance(
+    registry: &mut ToolRegistry,
+    packages: impl IntoIterator<Item = NormalizedPackage>,
+    extra_provenance: Option<&str>,
+) -> usize {
+    register_allowed_external_agent_tools_impl(
+        registry,
+        packages,
+        |_, _, _| true,
+        false,
+        extra_provenance,
+    )
+}
+
+pub fn register_allowed_external_agent_tools_for_resource_with_provenance(
+    registry: &mut ToolRegistry,
+    packages: impl IntoIterator<Item = NormalizedPackage>,
+    resource: &str,
+    extra_provenance: Option<&str>,
+) -> usize {
+    register_allowed_external_agent_tools_impl(
+        registry,
+        packages,
+        |package, capability, spec| {
+            external_agent_resource_matches(package, capability, spec, resource)
+        },
+        true,
+        extra_provenance,
+    )
+}
+
+pub fn register_allowed_external_agent_tools_for_category_with_provenance(
+    registry: &mut ToolRegistry,
+    packages: impl IntoIterator<Item = NormalizedPackage>,
+    category: &str,
+    extra_provenance: Option<&str>,
+) -> usize {
+    register_allowed_external_agent_tools_impl(
+        registry,
+        packages,
+        |package, _, _| external_agent_category_matches(package, category),
+        true,
+        extra_provenance,
+    )
+}
+
+fn register_allowed_external_agent_tools_impl(
+    registry: &mut ToolRegistry,
+    packages: impl IntoIterator<Item = NormalizedPackage>,
+    include: impl Fn(&NormalizedPackage, &NormalizedCapability, &ExternalAgentSpec) -> bool,
+    skip_existing: bool,
+    extra_provenance: Option<&str>,
+) -> usize {
+    let mut registered = 0;
+    for package in packages {
+        if package.quarantined || package.adapter != AdapterKind::A2a {
+            continue;
+        }
+        for capability in package.capabilities.iter().filter(|capability| {
+            capability.kind == CapabilityKind::ExternalAgent && !capability.quarantined
+        }) {
+            let Some(spec) = external_agent_spec_from_capability(capability) else {
+                continue;
+            };
+            if !include(&package, capability, &spec) {
+                continue;
+            }
+            let mut descriptor = ExternalAgentTool::descriptor(&spec);
+            descriptor.provenance = Some(external_agent_tool_provenance(
+                &package,
+                capability,
+                extra_provenance,
+            ));
+            if skip_existing && registry.contains(&descriptor.id) {
+                continue;
+            }
+            registry.register(descriptor, Arc::new(ExternalAgentTool::new(spec)));
+            registered += 1;
+        }
+    }
+    registered
+}
+
+fn external_agent_spec_from_capability(
+    capability: &NormalizedCapability,
+) -> Option<ExternalAgentSpec> {
+    let runtime = capability.runtime.as_ref()?;
+    let endpoint = runtime.endpoint.as_deref()?.trim();
+    if !(endpoint.starts_with("http://") || endpoint.starts_with("https://")) {
+        return None;
+    }
+    Some(ExternalAgentSpec {
+        id: ToolId::from(format!("a2a-{}", slugify(&capability.id))),
+        name: format!("External agent: {}", capability.name),
+        description: capability.description.clone(),
+        endpoint: endpoint.to_string(),
+        input_modes: runtime.input_modes.clone(),
+        output_modes: runtime.output_modes.clone(),
+        auth_schemes: runtime.auth_schemes.clone(),
+    })
+}
+
+fn external_agent_tool_provenance(
+    package: &NormalizedPackage,
+    capability: &NormalizedCapability,
+    extra_provenance: Option<&str>,
+) -> String {
+    let mut parts = vec![
+        format!("adapter_package={}", package.id),
+        format!("capability={}", capability.id),
+    ];
+    if let Some(provenance) = package.provenance.as_deref().map(str::trim)
+        && !provenance.is_empty()
+    {
+        parts.push(provenance.to_string());
+    }
+    if let Some(provenance) = extra_provenance.map(str::trim)
+        && !provenance.is_empty()
+    {
+        parts.push(provenance.to_string());
+    }
+    parts.join("; ")
+}
+
+fn external_agent_resource_matches(
+    package: &NormalizedPackage,
+    capability: &NormalizedCapability,
+    spec: &ExternalAgentSpec,
+    resource: &str,
+) -> bool {
+    resource == "*"
+        || package.id == resource
+        || capability.id == resource
+        || capability.name == resource
+        || spec.id.0 == resource
+        || spec.name == resource
+}
+
+fn external_agent_category_matches(package: &NormalizedPackage, category: &str) -> bool {
+    category == "*" || category == "a2a" || category == "external-agent" || package.id == category
 }
 
 fn mcp_specs_from_package(package: &NormalizedPackage) -> Result<Vec<McpServerSpec>, ToolError> {
@@ -4782,6 +5204,123 @@ done
 
         assert_eq!(output["content"][0]["text"], "ok");
         server.join().unwrap();
+    }
+
+    #[tokio::test]
+    async fn a2a_external_agent_tool_posts_message_send() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let request = read_http_request(&mut stream);
+            assert!(
+                request
+                    .to_ascii_lowercase()
+                    .contains("authorization: bearer test-token")
+            );
+            let body = request.split_once("\r\n\r\n").unwrap().1;
+            let body: Value = serde_json::from_str(body).unwrap();
+            assert_eq!(body["method"], "message/send");
+            assert_eq!(body["params"]["message"]["role"], "user");
+            assert_eq!(body["params"]["message"]["parts"][0]["kind"], "text");
+            assert_eq!(body["params"]["message"]["parts"][0]["text"], "review this");
+            assert_eq!(body["params"]["message"]["contextId"], "ctx-1");
+            assert_eq!(body["params"]["metadata"]["priority"], "high");
+            write_http_json(
+                &mut stream,
+                r#"{"jsonrpc":"2.0","id":1,"result":{"taskId":"task-1","status":{"state":"completed"},"artifacts":[{"parts":[{"kind":"text","text":"done"}]}]}}"#,
+            );
+        });
+        let tool = ExternalAgentTool::new(ExternalAgentSpec {
+            id: ToolId::from("a2a-reviewer"),
+            name: "External agent: Reviewer".into(),
+            description: "Remote review agent".into(),
+            endpoint: format!("http://{addr}/a2a"),
+            input_modes: vec!["text/plain".into()],
+            output_modes: vec!["text/plain".into()],
+            auth_schemes: vec!["bearerAuth".into()],
+        });
+
+        let output = tool
+            .execute(json!({
+                "prompt": "review this",
+                "context_id": "ctx-1",
+                "metadata": { "priority": "high" },
+                "headers": { "Authorization": "Bearer test-token" },
+                "timeout_ms": 5_000
+            }))
+            .await
+            .unwrap();
+
+        assert_eq!(output["taskId"], "task-1");
+        assert_eq!(output["status"]["state"], "completed");
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn allowed_a2a_packages_register_external_agent_tools() {
+        let dir = temp_dir("a2a-register");
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("agent-card.json");
+        std::fs::write(
+            &source,
+            r#"{
+              "name": "Remote Reviewer",
+              "description": "Reviews documents.",
+              "url": "https://agents.example.test/a2a",
+              "preferredTransport": "JSONRPC",
+              "defaultInputModes": ["text/plain"],
+              "defaultOutputModes": ["text/plain"],
+              "securitySchemes": {
+                "bearerAuth": { "type": "http", "scheme": "bearer" }
+              },
+              "security": [{ "bearerAuth": [] }],
+              "skills": [
+                { "id": "review", "name": "Review", "description": "Review text." }
+              ]
+            }"#,
+        )
+        .unwrap();
+        let package = agent_adapters::inspect_source(&source).unwrap();
+        let mut quarantined_registry = ToolRegistry::new();
+
+        assert_eq!(
+            register_allowed_external_agent_tools(&mut quarantined_registry, [package.clone()]),
+            0
+        );
+
+        let mut allowed_package = package;
+        allowed_package.quarantined = false;
+        for capability in &mut allowed_package.capabilities {
+            capability.quarantined = false;
+        }
+        let mut registry = ToolRegistry::new();
+        assert_eq!(
+            register_allowed_external_agent_tools(&mut registry, [allowed_package.clone()]),
+            1
+        );
+        let review = registry.descriptor(&ToolId::from("a2a-review")).unwrap();
+
+        assert!(review.requires_approval);
+        assert!(review.permissions.network);
+        assert!(review.permissions.secrets);
+        assert_eq!(
+            review.categories,
+            vec!["external-agent".to_string(), "a2a".to_string()]
+        );
+
+        let mut granted = ToolRegistry::new();
+        assert_eq!(
+            register_allowed_external_agent_tools_for_resource_with_provenance(
+                &mut granted,
+                [allowed_package],
+                "review",
+                Some("profile=research"),
+            ),
+            1
+        );
+        assert!(granted.descriptor(&ToolId::from("a2a-review")).is_some());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     fn read_http_request(stream: &mut std::net::TcpStream) -> String {

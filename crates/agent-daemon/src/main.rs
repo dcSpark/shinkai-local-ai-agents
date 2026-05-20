@@ -47,9 +47,9 @@ use agent_tools::{
     ArtifactTool, FakeTool, ShellTool, ShellToolConfig, SubagentTool, ToolId, ToolRegistry,
     VoiceRuntimeConfig, delete_generated_artifact_from_env, generated_artifact_data_url_from_env,
     is_shell_runtime_tool_id, list_generated_artifacts_from_env, open_generated_artifact_from_env,
-    register_allowed_mcp_tools_for_category_with_provenance,
-    register_allowed_mcp_tools_for_resource_with_provenance,
-    register_allowed_mcp_tools_with_provenance, register_code_execution_tools,
+    register_allowed_adapter_tools_for_category_with_provenance,
+    register_allowed_adapter_tools_for_resource_with_provenance,
+    register_allowed_adapter_tools_with_provenance, register_code_execution_tools,
     register_payment_tools_from_env, register_voice_tools, save_voice_capture_from_env,
     show_generated_artifact_from_env,
 };
@@ -5427,7 +5427,7 @@ fn build_registry(
     }
     register_voice_tools(&mut registry, voice_runtime_config_for_agent(agent_id));
     register_payment_tools_from_env(&mut registry);
-    register_profile_scoped_mcp_tools(&mut registry);
+    register_profile_scoped_adapter_tools(&mut registry);
     Arc::new(registry)
 }
 
@@ -5513,14 +5513,18 @@ fn build_lifecycle_hooks(agent_id: Option<&str>) -> Vec<RunLifecycleHook> {
         .collect()
 }
 
-fn register_profile_scoped_mcp_tools(registry: &mut ToolRegistry) -> usize {
+fn register_profile_scoped_adapter_tools(registry: &mut ToolRegistry) -> usize {
     let active_paths = StoragePaths::from_env();
     let active_profile = active_paths.active_profile_id().to_string();
     let active_provenance = format!("profile={active_profile}");
     let mut registered = AdapterRegistry::new(active_paths.clone())
         .list()
         .map(|packages| {
-            register_allowed_mcp_tools_with_provenance(registry, packages, Some(&active_provenance))
+            register_allowed_adapter_tools_with_provenance(
+                registry,
+                packages,
+                Some(&active_provenance),
+            )
         })
         .unwrap_or_default();
     let Ok(grants) = ConfigResolver::new(active_paths.clone()).list_profile_grants() else {
@@ -5542,18 +5546,20 @@ fn register_profile_scoped_mcp_tools(registry: &mut ToolRegistry) -> usize {
             grant.from_profile, grant.from_profile, grant.id
         );
         registered += match grant.kind {
-            ProfileGrantKind::Tool => register_allowed_mcp_tools_for_resource_with_provenance(
+            ProfileGrantKind::Tool => register_allowed_adapter_tools_for_resource_with_provenance(
                 registry,
                 packages,
                 &grant.resource,
                 Some(&provenance),
             ),
-            ProfileGrantKind::Category => register_allowed_mcp_tools_for_category_with_provenance(
-                registry,
-                packages,
-                &grant.resource,
-                Some(&provenance),
-            ),
+            ProfileGrantKind::Category => {
+                register_allowed_adapter_tools_for_category_with_provenance(
+                    registry,
+                    packages,
+                    &grant.resource,
+                    Some(&provenance),
+                )
+            }
             _ => 0,
         };
     }

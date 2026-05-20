@@ -2282,6 +2282,7 @@ fn redact_secret_markers(value: &Value, secret_scoped: bool) -> Value {
 fn is_secret_key(key: &str) -> bool {
     let key = key.to_ascii_lowercase();
     key.contains("secret")
+        || key.contains("authorization")
         || key.contains("token")
         || key.contains("api_key")
         || key.contains("apikey")
@@ -5811,6 +5812,25 @@ JSON
                 .unwrap()
                 .contains("sk-test-secret")
         );
+    }
+
+    #[test]
+    fn authorization_headers_are_redacted_as_secret_payloads() {
+        let payload = json!({
+            "headers": {
+                "Authorization": "Bearer sk-test-secret",
+                "X-Trace": "visible"
+            }
+        });
+
+        assert!(contains_secret_marker(&payload));
+        let redacted = redact_secret_markers(&payload, false);
+
+        assert_eq!(
+            redacted["headers"]["Authorization"],
+            serde_json::Value::String("[REDACTED]".into())
+        );
+        assert_eq!(redacted["headers"]["X-Trace"], "visible");
     }
 
     #[tokio::test]

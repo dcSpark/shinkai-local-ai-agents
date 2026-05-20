@@ -53,7 +53,7 @@ pub fn export_bundle_from(
     let manifest = BundleManifest {
         schema_version: BUNDLE_SCHEMA_VERSION,
         exported_at: Utc::now(),
-        profile: "main".into(),
+        profile: paths.active_profile_id().into(),
     };
 
     let file = File::create(destination)?;
@@ -88,7 +88,13 @@ pub fn import_bundle_into(
         let mut entry = entry?;
         let entry_path = entry.path()?.into_owned();
         ensure_safe_relative(&entry_path)?;
+        let entry_type = entry.header().entry_type();
         if entry_path == Path::new("manifest.toml") {
+            if !entry_type.is_file() {
+                return Err(BundleError::UnsafePath(
+                    "manifest.toml must be a regular file".into(),
+                ));
+            }
             let mut text = String::new();
             std::io::Read::read_to_string(&mut entry, &mut text)?;
             let parsed: BundleManifest = toml::from_str(&text)?;
@@ -99,7 +105,19 @@ pub fn import_bundle_into(
             continue;
         }
         let out = paths.root().join(&entry_path);
-        entry.unpack(out)?;
+        if entry_type.is_dir() {
+            std::fs::create_dir_all(out)?;
+        } else if entry_type.is_file() {
+            if let Some(parent) = out.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            entry.unpack(out)?;
+        } else {
+            return Err(BundleError::UnsafePath(format!(
+                "unsupported bundle entry type at {}",
+                entry_path.display()
+            )));
+        }
     }
 
     manifest.ok_or_else(|| BundleError::UnsafePath("missing manifest.toml".into()))
@@ -158,18 +176,57 @@ mod tests {
     #[test]
     fn export_and_import_bundle_round_trips_layout() {
         let base = std::env::temp_dir().join(format!("bundle-test-{}", std::process::id()));
-        let src = StoragePaths::new(base.join("src"));
+        let src = StoragePaths::new_with_profile(base.join("src"), "research");
         src.ensure_base_dirs().unwrap();
         std::fs::write(src.default_agent_config(), "id = \"fake-agent\"\n").unwrap();
         std::fs::write(src.memory_file(), "---\n{}\n---\nhello\n").unwrap();
         let bundle = base.join("bundle.tar");
         let manifest = export_bundle_from(src, &bundle).unwrap();
         assert_eq!(manifest.schema_version, BUNDLE_SCHEMA_VERSION);
+        assert_eq!(manifest.profile, "research");
 
-        let dst = StoragePaths::new(base.join("dst"));
+        let dst = StoragePaths::new_with_profile(base.join("dst"), "research");
         let imported = import_bundle_into(dst.clone(), &bundle).unwrap();
         assert_eq!(imported.schema_version, BUNDLE_SCHEMA_VERSION);
+        assert_eq!(imported.profile, "research");
         assert!(dst.memory_file().exists());
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn import_bundle_rejects_symlink_entries() {
+        let base = std::env::temp_dir().join(format!("bundle-symlink-test-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        let bundle = base.join("bundle.tar");
+        let manifest = BundleManifest {
+            schema_version: BUNDLE_SCHEMA_VERSION,
+            exported_at: Utc::now(),
+            profile: "main".into(),
+        };
+
+        let file = File::create(&bundle).unwrap();
+        let mut builder = tar::Builder::new(file);
+        let manifest_text = toml::to_string_pretty(&manifest).unwrap();
+        append_bytes(
+            &mut builder,
+            Path::new("manifest.toml"),
+            manifest_text.as_bytes(),
+        )
+        .unwrap();
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Symlink);
+        header
+            .set_path(Path::new("profiles/main/agents/link"))
+            .unwrap();
+        header.set_link_name(Path::new("../../outside")).unwrap();
+        header.set_size(0);
+        header.set_cksum();
+        builder.append(&header, std::io::empty()).unwrap();
+        builder.finish().unwrap();
+
+        let dst = StoragePaths::new(base.join("dst"));
+        let err = import_bundle_into(dst, &bundle).unwrap_err();
+        assert!(matches!(err, BundleError::UnsafePath(_)));
         let _ = std::fs::remove_dir_all(base);
     }
 }

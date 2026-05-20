@@ -274,6 +274,7 @@ pub struct CodeExecutionConfig {
     pub python_command: String,
     pub typescript_command: String,
     pub sandbox: Option<CodeSandboxConfig>,
+    pub sandbox_required: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -327,6 +328,7 @@ impl CodeExecutionConfig {
                 .filter(|value| !value.is_empty())
                 .unwrap_or_else(|| "deno".into()),
             sandbox: CodeSandboxConfig::from_env(),
+            sandbox_required: env_flag("AGENT_CODE_SANDBOX_REQUIRED"),
         }
     }
 }
@@ -385,13 +387,18 @@ impl CodeExecutionTool {
         Self::new(CodeLanguage::TypeScript, config)
     }
 
-    fn descriptor(language: CodeLanguage) -> ToolDescriptor {
+    fn descriptor(language: CodeLanguage, sandbox_required: bool) -> ToolDescriptor {
         let code_kind = language.category();
+        let sandbox_posture = if sandbox_required {
+            "a configured sandbox wrapper is required"
+        } else {
+            "an optional configured sandbox wrapper"
+        };
         ToolDescriptor {
             id: ToolId::from(language.id()),
             name: language.name().into(),
             description: format!(
-                "Runs a {code_kind} snippet from a temporary file with timeout, captured stdout/stderr, a minimal inherited environment, and an optional configured sandbox wrapper."
+                "Runs a {code_kind} snippet from a temporary file with timeout, captured stdout/stderr, a minimal inherited environment, and {sandbox_posture}."
             ),
             categories: vec!["code".into(), code_kind.into(), "shell".into()],
             input_schema: json!({
@@ -440,11 +447,18 @@ impl CodeExecutionTool {
     }
 
     pub fn python_descriptor() -> ToolDescriptor {
-        Self::descriptor(CodeLanguage::Python)
+        Self::descriptor(CodeLanguage::Python, false)
     }
 
     pub fn typescript_descriptor() -> ToolDescriptor {
-        Self::descriptor(CodeLanguage::TypeScript)
+        Self::descriptor(CodeLanguage::TypeScript, false)
+    }
+
+    fn descriptor_for_config(
+        language: CodeLanguage,
+        config: &CodeExecutionConfig,
+    ) -> ToolDescriptor {
+        Self::descriptor(language, config.sandbox_required)
     }
 
     fn runner_command(&self) -> &str {
@@ -477,6 +491,11 @@ impl Tool for CodeExecutionTool {
             .and_then(Value::as_str)
             .map(PathBuf::from)
             .or_else(|| self.config.default_cwd.clone());
+        if self.config.sandbox_required && self.config.sandbox.is_none() {
+            return Err(ToolError::Execution(
+                "code sandbox is required but AGENT_CODE_SANDBOX_COMMAND is not configured".into(),
+            ));
+        }
 
         let temp_dir = std::env::temp_dir().join(format!(
             "agent-code-{}-{}",
@@ -593,11 +612,11 @@ pub fn register_code_execution_tools(
 ) -> usize {
     let config = CodeExecutionConfig::from_shell_config(shell_config);
     registry.register(
-        CodeExecutionTool::python_descriptor(),
+        CodeExecutionTool::descriptor_for_config(CodeLanguage::Python, &config),
         Arc::new(CodeExecutionTool::python(config.clone())),
     );
     registry.register(
-        CodeExecutionTool::typescript_descriptor(),
+        CodeExecutionTool::descriptor_for_config(CodeLanguage::TypeScript, &config),
         Arc::new(CodeExecutionTool::typescript(config)),
     );
     2
@@ -5230,6 +5249,7 @@ done
             python_command: python,
             typescript_command: "deno".into(),
             sandbox: None,
+            sandbox_required: false,
         });
 
         let output = tool
@@ -5249,6 +5269,26 @@ done
         let stdout = output["stdout"].as_str().unwrap();
         assert!(stdout.contains("secret=\n"));
         assert!(stdout.contains("arg=ok\n"));
+    }
+
+    #[tokio::test]
+    async fn code_tool_rejects_execution_when_required_sandbox_is_missing() {
+        let tool = CodeExecutionTool::python(CodeExecutionConfig {
+            default_timeout_ms: 30_000,
+            max_output_bytes: 64 * 1024,
+            default_cwd: None,
+            python_command: default_python_command(),
+            typescript_command: "deno".into(),
+            sandbox: None,
+            sandbox_required: true,
+        });
+
+        let err = tool
+            .execute(json!({ "code": "print('should not run')" }))
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("code sandbox is required"));
     }
 
     #[tokio::test]
@@ -5284,6 +5324,7 @@ raise SystemExit(subprocess.run(sys.argv[1:]).returncode)
                 command: python.clone(),
                 args: vec![wrapper_path.to_string_lossy().to_string()],
             }),
+            sandbox_required: true,
         });
 
         let output = tool
@@ -5316,6 +5357,7 @@ raise SystemExit(subprocess.run(sys.argv[1:]).returncode)
             python_command: default_python_command(),
             typescript_command: "deno".into(),
             sandbox: None,
+            sandbox_required: false,
         });
 
         let output = tool

@@ -3217,6 +3217,8 @@ pub async fn agent_save(
     approval_controller_agent: Option<String>,
     approval_controller_allowed_tools: Vec<String>,
     approval_controller_allowed_tool_categories: Vec<String>,
+    capability_drafts_enabled: Option<bool>,
+    capability_draft_guidance: Option<String>,
     allowed_skill_categories: Vec<String>,
     skill_visibility_overrides: Vec<String>,
     skill_visibility: Option<VisibilityLevel>,
@@ -3255,6 +3257,8 @@ pub async fn agent_save(
         approval_controller_agent,
         approval_controller_allowed_tools,
         approval_controller_allowed_tool_categories,
+        capability_drafts_enabled,
+        capability_draft_guidance,
         allowed_skill_categories,
         skill_visibility_overrides,
         skill_visibility,
@@ -3336,6 +3340,8 @@ fn agent_config_from_parts(
     approval_controller_agent: Option<String>,
     approval_controller_allowed_tools: Vec<String>,
     approval_controller_allowed_tool_categories: Vec<String>,
+    capability_drafts_enabled: Option<bool>,
+    capability_draft_guidance: Option<String>,
     allowed_skill_categories: Vec<String>,
     skill_visibility_overrides: Vec<String>,
     skill_visibility: Option<VisibilityLevel>,
@@ -3390,8 +3396,8 @@ fn agent_config_from_parts(
         approval_controller_allowed_tools: (!approval_controller_allowed_tools.is_empty())
             .then_some(approval_controller_allowed_tools),
         approval_controller_allowed_tool_categories,
-        capability_drafts_enabled: None,
-        capability_draft_guidance: None,
+        capability_drafts_enabled,
+        capability_draft_guidance: clean_optional_string(capability_draft_guidance),
         allowed_skill_categories: (!allowed_skill_categories.is_empty())
             .then_some(allowed_skill_categories),
         disabled_lifecycle_hooks: None,
@@ -5705,6 +5711,8 @@ pub async fn remote_agent_save(
     approval_controller_agent: Option<String>,
     approval_controller_allowed_tools: Vec<String>,
     approval_controller_allowed_tool_categories: Vec<String>,
+    capability_drafts_enabled: Option<bool>,
+    capability_draft_guidance: Option<String>,
     allowed_skill_categories: Vec<String>,
     skill_visibility_overrides: Vec<String>,
     skill_visibility: Option<VisibilityLevel>,
@@ -5743,6 +5751,8 @@ pub async fn remote_agent_save(
         approval_controller_agent,
         approval_controller_allowed_tools,
         approval_controller_allowed_tool_categories,
+        capability_drafts_enabled,
+        capability_draft_guidance,
         allowed_skill_categories,
         skill_visibility_overrides,
         skill_visibility,
@@ -7160,6 +7170,8 @@ mod slash_tests {
             None,
             Vec::new(),
             Vec::new(),
+            Some(true),
+            Some(" draft narrow reusable capabilities ".into()),
             Vec::new(),
             Vec::new(),
             None,
@@ -7187,6 +7199,11 @@ mod slash_tests {
         assert_eq!(agent.max_tokens_before_compaction, Some(128));
         assert_eq!(agent.max_compaction_output_tokens, Some(48));
         assert_eq!(agent.compaction_guidance.as_deref(), Some("keep decisions"));
+        assert_eq!(agent.capability_drafts_enabled, Some(true));
+        assert_eq!(
+            agent.capability_draft_guidance.as_deref(),
+            Some("draft narrow reusable capabilities")
+        );
         assert_eq!(agent.memory_backend.as_deref(), Some("local-markdown-v0"));
         assert_eq!(agent.memory_model.as_deref(), Some("memory-classifier"));
     }
@@ -7209,6 +7226,8 @@ mod slash_tests {
             None,
             Vec::new(),
             Vec::new(),
+            None,
+            None,
             Vec::new(),
             Vec::new(),
             None,
@@ -7259,6 +7278,8 @@ mod slash_tests {
             None,
             Vec::new(),
             Vec::new(),
+            None,
+            None,
             Vec::new(),
             vec!["review=name_only".into()],
             Some(VisibilityLevel::NameAndDescription),

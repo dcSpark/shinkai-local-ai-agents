@@ -978,6 +978,12 @@ enum AgentCommand {
         /// Allow the approval controller to approve one tool category. Repeat for multiple categories.
         #[arg(long = "approval-controller-tool-category")]
         approval_controller_allowed_tool_categories: Vec<String>,
+        /// Allow this agent to create quarantined tool, skill, or agent drafts.
+        #[arg(long)]
+        capability_drafts_enabled: Option<bool>,
+        /// Guidance shown when this agent can create capability drafts.
+        #[arg(long)]
+        capability_draft_guidance: Option<String>,
         /// Restrict loaded skills to one category/pack. Repeat for multiple categories.
         #[arg(long = "allow-skill-category")]
         allowed_skill_categories: Vec<String>,
@@ -2912,6 +2918,10 @@ enum RemoteAgentCommand {
         approval_controller_allowed_tools: Vec<String>,
         #[arg(long = "approval-controller-tool-category")]
         approval_controller_allowed_tool_categories: Vec<String>,
+        #[arg(long)]
+        capability_drafts_enabled: Option<bool>,
+        #[arg(long)]
+        capability_draft_guidance: Option<String>,
         #[arg(long = "allow-skill-category")]
         allowed_skill_categories: Vec<String>,
         #[arg(long = "skill-visibility-override")]
@@ -3637,6 +3647,10 @@ mod cli_parse_tests {
             "shell",
             "--approval-controller-tool-category",
             "sensitive",
+            "--capability-drafts-enabled",
+            "true",
+            "--capability-draft-guidance",
+            "Draft narrow reusable capabilities.",
             "--allow-skill-category",
             "review",
             "--skill-visibility-override",
@@ -3694,6 +3708,8 @@ mod cli_parse_tests {
                     approval_controller_agent,
                     approval_controller_allowed_tools,
                     approval_controller_allowed_tool_categories,
+                    capability_drafts_enabled,
+                    capability_draft_guidance,
                     tool_output_mode,
                     tool_output_interpretation_model,
                     tool_output_overrides,
@@ -3741,6 +3757,11 @@ mod cli_parse_tests {
         assert_eq!(
             approval_controller_allowed_tool_categories,
             vec!["sensitive"]
+        );
+        assert_eq!(capability_drafts_enabled, Some(true));
+        assert_eq!(
+            capability_draft_guidance.as_deref(),
+            Some("Draft narrow reusable capabilities.")
         );
         assert!(matches!(tool_output_mode, Some(ToolOutputModeArg::Raw)));
         assert_eq!(
@@ -3801,6 +3822,10 @@ mod cli_parse_tests {
             "safety-controller",
             "--approval-controller-tool",
             "shell",
+            "--capability-drafts-enabled",
+            "true",
+            "--capability-draft-guidance",
+            "Draft narrow reusable capabilities.",
             "--allow-skill-category",
             "review",
             "--skill-visibility-override",
@@ -3843,6 +3868,8 @@ mod cli_parse_tests {
                     skill_visibility,
                     approval_controller_agent,
                     approval_controller_allowed_tools,
+                    capability_drafts_enabled,
+                    capability_draft_guidance,
                     tool_output_overrides,
                     tool_interpretation_model_overrides,
                     tool_visibility_overrides,
@@ -3875,6 +3902,11 @@ mod cli_parse_tests {
             Some("safety-controller")
         );
         assert_eq!(approval_controller_allowed_tools, vec!["shell"]);
+        assert_eq!(capability_drafts_enabled, Some(true));
+        assert_eq!(
+            capability_draft_guidance.as_deref(),
+            Some("Draft narrow reusable capabilities.")
+        );
         assert_eq!(tool_output_overrides, vec!["echo=interpreted"]);
         assert_eq!(
             tool_interpretation_model_overrides,
@@ -5934,6 +5966,8 @@ async fn main() -> anyhow::Result<()> {
                 approval_controller_agent,
                 approval_controller_allowed_tools,
                 approval_controller_allowed_tool_categories,
+                capability_drafts_enabled,
+                capability_draft_guidance,
                 allowed_skill_categories,
                 skill_visibility_overrides,
                 skill_visibility,
@@ -5972,6 +6006,8 @@ async fn main() -> anyhow::Result<()> {
                     approval_controller_agent,
                     approval_controller_allowed_tools,
                     approval_controller_allowed_tool_categories,
+                    capability_drafts_enabled,
+                    capability_draft_guidance,
                     allowed_skill_categories,
                     skill_visibility_overrides,
                     skill_visibility.map(VisibilityLevel::from),
@@ -6731,6 +6767,8 @@ async fn main() -> anyhow::Result<()> {
                     approval_controller_agent,
                     approval_controller_allowed_tools,
                     approval_controller_allowed_tool_categories,
+                    capability_drafts_enabled,
+                    capability_draft_guidance,
                     allowed_skill_categories,
                     skill_visibility_overrides,
                     skill_visibility,
@@ -6770,6 +6808,8 @@ async fn main() -> anyhow::Result<()> {
                         approval_controller_agent,
                         approval_controller_allowed_tools,
                         approval_controller_allowed_tool_categories,
+                        capability_drafts_enabled,
+                        capability_draft_guidance,
                         allowed_skill_categories,
                         skill_visibility_overrides,
                         skill_visibility.map(VisibilityLevel::from),

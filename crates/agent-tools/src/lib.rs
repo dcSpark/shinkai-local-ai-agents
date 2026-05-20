@@ -91,6 +91,8 @@ pub struct ShellToolConfig {
     pub max_output_bytes: usize,
     pub default_cwd: Option<PathBuf>,
     pub allowed_commands: Vec<String>,
+    pub sandbox: Option<CodeSandboxConfig>,
+    pub sandbox_required: bool,
 }
 
 impl Default for ShellToolConfig {
@@ -100,6 +102,8 @@ impl Default for ShellToolConfig {
             max_output_bytes: 64 * 1024,
             default_cwd: None,
             allowed_commands: Vec::new(),
+            sandbox: None,
+            sandbox_required: false,
         }
     }
 }
@@ -120,6 +124,8 @@ impl ShellToolConfig {
             .collect();
         Self {
             allowed_commands,
+            sandbox: CodeSandboxConfig::shell_from_env(),
+            sandbox_required: env_flag("AGENT_SHELL_SANDBOX_REQUIRED"),
             ..Self::default()
         }
     }
@@ -141,15 +147,24 @@ impl ShellTool {
     }
 
     pub fn descriptor_for_config(config: &ShellToolConfig) -> ToolDescriptor {
+        let sandbox_posture = if config.sandbox_required {
+            "a configured sandbox wrapper is required"
+        } else if config.sandbox.is_some() {
+            "a configured sandbox wrapper"
+        } else {
+            "a minimal inherited environment"
+        };
         ToolDescriptor {
             id: ToolId::from("shell"),
             name: "Shell".into(),
             description: if config.allowed_commands.is_empty() {
-                "Runs a shell command with timeout and captured stdout/stderr.".into()
+                format!(
+                    "Runs a shell command with timeout, captured stdout/stderr, and {sandbox_posture}."
+                )
             } else {
                 format!(
-                    "Runs a restricted command from the allowlist: {}.",
-                    config.allowed_commands.join(", ")
+                    "Runs a restricted command from the allowlist with {sandbox_posture}: {}.",
+                    config.allowed_commands.join(", "),
                 )
             },
             categories: vec!["system".into(), "shell".into()],
@@ -212,16 +227,44 @@ impl Tool for ShellTool {
             .and_then(Value::as_str)
             .map(PathBuf::from)
             .or_else(|| self.config.default_cwd.clone());
+        if self.config.sandbox_required && self.config.sandbox.is_none() {
+            return Err(ToolError::Execution(
+                "shell sandbox is required but neither AGENT_SHELL_SANDBOX_COMMAND nor an available AGENT_SHELL_SANDBOX_AUTO wrapper is configured".into(),
+            ));
+        }
 
-        let mut cmd = if self.config.allowed_commands.is_empty() {
-            shell_command(command)
+        let run_cwd = cwd
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from("."));
+        let sandbox_label = self
+            .config
+            .sandbox
+            .as_ref()
+            .map(|sandbox| sandbox.label.clone())
+            .unwrap_or_else(|| "minimal_env".into());
+        let sandbox_command = self
+            .config
+            .sandbox
+            .as_ref()
+            .map(|sandbox| sandbox.command.clone());
+        let (program, args) = if self.config.allowed_commands.is_empty() {
+            shell_program_args(command)
         } else {
-            restricted_command(command, &self.config.allowed_commands)?
+            restricted_program_args(command, &self.config.allowed_commands)?
+        };
+        let mut cmd = if let Some(sandbox) = &self.config.sandbox {
+            let mut cmd = Command::new(&sandbox.command);
+            cmd.args(sandbox.args_for_context(&run_cwd, &std::env::temp_dir()));
+            cmd.arg(program);
+            cmd.args(args);
+            cmd
+        } else {
+            let mut cmd = Command::new(program);
+            cmd.args(args);
+            cmd
         };
         apply_minimal_env(&mut cmd);
-        if let Some(cwd) = cwd {
-            cmd.current_dir(cwd);
-        }
+        cmd.current_dir(&run_cwd);
         cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
         cmd.kill_on_drop(true);
 
@@ -241,7 +284,9 @@ impl Tool for ShellTool {
                         "duration_ms": started.elapsed().as_millis() as u64,
                         "timed_out": true,
                         "truncated_stdout": false,
-                        "truncated_stderr": false
+                        "truncated_stderr": false,
+                        "sandbox": sandbox_label,
+                        "sandbox_command": sandbox_command
                     }));
                 }
             };
@@ -263,7 +308,9 @@ impl Tool for ShellTool {
             "duration_ms": started.elapsed().as_millis() as u64,
             "timed_out": false,
             "truncated_stdout": truncated_stdout,
-            "truncated_stderr": truncated_stderr
+            "truncated_stderr": truncated_stderr,
+            "sandbox": sandbox_label,
+            "sandbox_command": sandbox_command
         }))
     }
 }
@@ -288,19 +335,39 @@ pub struct CodeSandboxConfig {
 
 impl CodeSandboxConfig {
     fn from_env() -> Option<Self> {
-        let Some(command) = std::env::var("AGENT_CODE_SANDBOX_COMMAND")
-            .ok()
-            .and_then(clean_non_empty)
-        else {
-            return env_flag("AGENT_CODE_SANDBOX_AUTO").then(|| {
+        Self::from_env_vars(
+            "AGENT_CODE_SANDBOX_COMMAND",
+            "AGENT_CODE_SANDBOX_ARGS_JSON",
+            "AGENT_CODE_SANDBOX_LABEL",
+            "AGENT_CODE_SANDBOX_AUTO",
+        )
+    }
+
+    fn shell_from_env() -> Option<Self> {
+        Self::from_env_vars(
+            "AGENT_SHELL_SANDBOX_COMMAND",
+            "AGENT_SHELL_SANDBOX_ARGS_JSON",
+            "AGENT_SHELL_SANDBOX_LABEL",
+            "AGENT_SHELL_SANDBOX_AUTO",
+        )
+    }
+
+    fn from_env_vars(
+        command_var: &str,
+        args_var: &str,
+        label_var: &str,
+        auto_var: &str,
+    ) -> Option<Self> {
+        let Some(command) = std::env::var(command_var).ok().and_then(clean_non_empty) else {
+            return env_flag(auto_var).then(|| {
                 builtin_code_sandbox_for_platform(std::env::consts::OS, command_in_path)
             })?;
         };
-        let args = std::env::var("AGENT_CODE_SANDBOX_ARGS_JSON")
+        let args = std::env::var(args_var)
             .ok()
             .and_then(|value| serde_json::from_str::<Vec<String>>(&value).ok())
             .unwrap_or_default();
-        let label = std::env::var("AGENT_CODE_SANDBOX_LABEL")
+        let label = std::env::var(label_var)
             .ok()
             .and_then(clean_non_empty)
             .unwrap_or_else(|| {
@@ -2336,25 +2403,32 @@ fn audio_media_extension(media_type: &str) -> Result<&'static str, ToolError> {
 }
 
 fn shell_command(command: &str) -> Command {
+    let (program, args) = shell_program_args(command);
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    cmd
+}
+
+fn shell_program_args(command: &str) -> (String, Vec<OsString>) {
     #[cfg(windows)]
     {
-        let mut cmd = Command::new("cmd");
-        cmd.arg("/C").arg(command);
-        cmd
+        ("cmd".into(), vec!["/C".into(), command.into()])
     }
     #[cfg(not(windows))]
     {
-        let mut cmd = Command::new("/bin/sh");
-        cmd.arg("-c").arg(command);
-        cmd
+        ("/bin/sh".into(), vec!["-c".into(), command.into()])
     }
 }
 
-fn restricted_command(command: &str, allowlist: &[String]) -> Result<Command, ToolError> {
+fn restricted_program_args(
+    command: &str,
+    allowlist: &[String],
+) -> Result<(String, Vec<OsString>), ToolError> {
     let parsed = parse_restricted_command(command, allowlist)?;
-    let mut cmd = Command::new(parsed.program);
-    cmd.args(parsed.args);
-    Ok(cmd)
+    Ok((
+        parsed.program,
+        parsed.args.into_iter().map(OsString::from).collect(),
+    ))
 }
 
 fn apply_minimal_env(cmd: &mut Command) {
@@ -6137,6 +6211,70 @@ raise SystemExit(subprocess.run(sys.argv[1:]).returncode)
 
         assert_eq!(out["status"], "success");
         assert_eq!(out["stdout"], "");
+        assert_eq!(out["sandbox"], "minimal_env");
+    }
+
+    #[tokio::test]
+    async fn shell_tool_rejects_execution_when_required_sandbox_is_missing() {
+        let tool = ShellTool::new(ShellToolConfig {
+            sandbox_required: true,
+            sandbox: None,
+            ..ShellToolConfig::default()
+        });
+
+        let err = tool
+            .execute(json!({"command": "echo should-not-run"}))
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("shell sandbox is required"));
+    }
+
+    #[cfg(not(windows))]
+    #[tokio::test]
+    async fn shell_tool_can_run_through_configured_sandbox_wrapper() {
+        let python = default_python_command();
+        if !command_available(&python) {
+            return;
+        }
+        let wrapper_dir =
+            std::env::temp_dir().join(format!("agent-shell-sandbox-test-{}", unique_temp_suffix()));
+        std::fs::create_dir_all(&wrapper_dir).unwrap();
+        let wrapper_path = wrapper_dir.join("wrapper.py");
+        std::fs::write(
+            &wrapper_path,
+            r#"
+import os
+import subprocess
+import sys
+
+os.environ["AGENT_SHELL_SANDBOX_MARKER"] = "wrapped"
+raise SystemExit(subprocess.run(sys.argv[1:]).returncode)
+"#,
+        )
+        .unwrap();
+        let tool = ShellTool::new(ShellToolConfig {
+            sandbox: Some(CodeSandboxConfig {
+                label: "test_shell_sandbox_wrapper".into(),
+                command: python.clone(),
+                args: vec![wrapper_path.to_string_lossy().to_string()],
+            }),
+            sandbox_required: true,
+            ..ShellToolConfig::default()
+        });
+
+        let output = tool
+            .execute(json!({
+                "command": "printf \"$AGENT_SHELL_SANDBOX_MARKER\""
+            }))
+            .await
+            .unwrap();
+        let _ = std::fs::remove_dir_all(&wrapper_dir);
+
+        assert_eq!(output["status"], "success");
+        assert_eq!(output["sandbox"], "test_shell_sandbox_wrapper");
+        assert_eq!(output["sandbox_command"], python);
+        assert_eq!(output["stdout"], "wrapped");
     }
 
     #[tokio::test]

@@ -202,6 +202,7 @@ async fn main_loop(
     );
 
     let (publish_tx, mut events_rx) = tokio::sync::mpsc::unbounded_channel::<RunEvent>();
+    let (line_tx, mut lines_rx) = tokio::sync::mpsc::unbounded_channel::<TranscriptLine>();
     let mut term_events = EventStream::new();
     let mut status_tick = tokio::time::interval(Duration::from_millis(250));
     status_tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -216,13 +217,18 @@ async fn main_loop(
             term = term_events.next() => match term {
                 Some(Ok(evt)) => handle_terminal_event(
                     &mut app, evt, demo, &registry, &agent, &publish_tx,
-                    &options,
+                    &line_tx, &options,
                 ),
                 Some(Err(_)) | None => app.quit = true,
             },
             evt = events_rx.recv() => {
                 if let Some(e) = evt {
                     handle_run_event(&mut app, &e);
+                }
+            },
+            line = lines_rx.recv() => {
+                if let Some(line) = line {
+                    app.transcript.push(line);
                 }
             },
             _ = status_tick.tick() => {
@@ -239,6 +245,7 @@ fn handle_terminal_event(
     registry: &Arc<ToolRegistry>,
     agent: &AgentConfig,
     publish_tx: &UnboundedSender<RunEvent>,
+    line_tx: &UnboundedSender<TranscriptLine>,
     options: &setup::RuntimeOptions,
 ) {
     let key = match evt {
@@ -274,7 +281,9 @@ fn handle_terminal_event(
             if app.state == AppState::Running {
                 if is_mid_run_control_command(trimmed) {
                     let prompt = std::mem::take(&mut app.input);
-                    handle_slash_command(app, &prompt, demo, registry, agent, publish_tx, options);
+                    handle_slash_command(
+                        app, &prompt, demo, registry, agent, publish_tx, line_tx, options,
+                    );
                 } else {
                     app.transcript.push(TranscriptLine {
                         kind: LineKind::Error,
@@ -285,7 +294,9 @@ fn handle_terminal_event(
                 return;
             }
             let prompt = std::mem::take(&mut app.input);
-            if handle_slash_command(app, &prompt, demo, registry, agent, publish_tx, options) {
+            if handle_slash_command(
+                app, &prompt, demo, registry, agent, publish_tx, line_tx, options,
+            ) {
                 return;
             }
             spawn_run(app, prompt, demo, registry, agent, publish_tx, options);
@@ -398,6 +409,7 @@ fn handle_slash_command(
     registry: &Arc<ToolRegistry>,
     agent: &AgentConfig,
     publish_tx: &UnboundedSender<RunEvent>,
+    line_tx: &UnboundedSender<TranscriptLine>,
     options: &setup::RuntimeOptions,
 ) -> bool {
     let trimmed = prompt.trim();
@@ -432,7 +444,7 @@ fn handle_slash_command(
         return true;
     }
     if let Some(rest) = memory_slash_rest(trimmed) {
-        handle_memory_slash(app, rest);
+        handle_memory_slash(app, rest, agent, line_tx);
         return true;
     }
     if let Some(rest) = capabilities_slash_rest(trimmed) {
@@ -1691,7 +1703,12 @@ fn adapters_slash_rest(trimmed: &str) -> Option<&str> {
     }
 }
 
-fn handle_memory_slash(app: &mut App, rest: &str) {
+fn handle_memory_slash(
+    app: &mut App,
+    rest: &str,
+    agent: &AgentConfig,
+    line_tx: &UnboundedSender<TranscriptLine>,
+) {
     let rest = rest.trim();
     if rest.is_empty() || rest == "help" {
         app.transcript.push(TranscriptLine {
@@ -1700,6 +1717,7 @@ fn handle_memory_slash(app: &mut App, rest: &str) {
                 "/memory list",
                 "/memory show <id>",
                 "/memory backends",
+                "/memory classify <id> [--model <model>] [--agent <agent>] [--no-apply]",
                 "/memory export <path> [--user]",
                 "/memory import <path> [--user]",
             ]
@@ -1743,6 +1761,41 @@ fn handle_memory_slash(app: &mut App, rest: &str) {
                     text: format!("Memory show failed: {err}"),
                 }),
             },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "classify" => match parse_memory_classify_args(args) {
+            Ok(args) => {
+                let MemoryClassifyArgs {
+                    id,
+                    model,
+                    agent: command_agent,
+                    apply,
+                } = args;
+                let agent_id = command_agent.or_else(|| Some(agent.id.clone()));
+                push_event(app, format!("Classifying memory {id}."));
+                let tx = line_tx.clone();
+                tokio::spawn(async move {
+                    let line =
+                        match crate::headless::memory_classify_result(&id, model, agent_id, apply)
+                            .await
+                        {
+                            Ok(value) => TranscriptLine {
+                                kind: LineKind::Assistant,
+                                text: serde_json::to_string_pretty(&value).unwrap_or_else(|_| {
+                                    "<unserializable memory classification>".into()
+                                }),
+                            },
+                            Err(err) => TranscriptLine {
+                                kind: LineKind::Error,
+                                text: format!("Memory classify failed: {err}"),
+                            },
+                        };
+                    let _ = tx.send(line);
+                });
+            }
             Err(err) => app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
                 text: err.to_string(),
@@ -1825,15 +1878,68 @@ fn handle_memory_slash(app: &mut App, rest: &str) {
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Memory command needs list, show, backends, export, import, or help.".into(),
+            text: "Memory command needs list, show, classify, backends, export, import, or help."
+                .into(),
         }),
     }
+}
+
+struct MemoryClassifyArgs {
+    id: String,
+    model: Option<String>,
+    agent: Option<String>,
+    apply: bool,
 }
 
 fn first_memory_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
     args.split_whitespace()
         .next()
         .ok_or_else(|| anyhow::anyhow!("memory {command} needs an argument"))
+}
+
+fn parse_memory_classify_args(args: &str) -> anyhow::Result<MemoryClassifyArgs> {
+    let mut parts = args.split_whitespace();
+    let id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("memory classify needs an id"))?
+        .to_string();
+    let mut model = None;
+    let mut agent = None;
+    let mut apply = true;
+    while let Some(part) = parts.next() {
+        match part {
+            "--model" => {
+                model = Some(next_memory_option_value(&mut parts, "--model")?.to_string());
+            }
+            "--agent" => {
+                agent = Some(next_memory_option_value(&mut parts, "--agent")?.to_string());
+            }
+            "--no-apply" => apply = false,
+            value if value.starts_with("--model=") => {
+                model = Some(value.trim_start_matches("--model=").to_string());
+            }
+            value if value.starts_with("--agent=") => {
+                agent = Some(value.trim_start_matches("--agent=").to_string());
+            }
+            other => anyhow::bail!("unexpected memory classify argument: {other}"),
+        }
+    }
+    Ok(MemoryClassifyArgs {
+        id,
+        model,
+        agent,
+        apply,
+    })
+}
+
+fn next_memory_option_value<'a>(
+    parts: &mut impl Iterator<Item = &'a str>,
+    flag: &str,
+) -> anyhow::Result<&'a str> {
+    parts
+        .next()
+        .filter(|value| !value.starts_with("--"))
+        .ok_or_else(|| anyhow::anyhow!("{flag} needs a value"))
 }
 
 fn memory_path_args<'a>(args: &'a str, command: &str) -> anyhow::Result<(&'a str, bool)> {
@@ -4733,6 +4839,28 @@ mod tests {
         );
         assert!(memory_path_args("", "export").is_err());
         assert!(memory_path_args("./memory.md extra", "export").is_err());
+    }
+
+    #[test]
+    fn memory_classify_args_accept_model_agent_and_apply_flags() {
+        let args = parse_memory_classify_args(
+            "mem-1 --model memory-classifier --agent research --no-apply",
+        )
+        .unwrap();
+        assert_eq!(args.id, "mem-1");
+        assert_eq!(args.model.as_deref(), Some("memory-classifier"));
+        assert_eq!(args.agent.as_deref(), Some("research"));
+        assert!(!args.apply);
+
+        let args = parse_memory_classify_args("mem-2 --model=classifier --agent=writer").unwrap();
+        assert_eq!(args.id, "mem-2");
+        assert_eq!(args.model.as_deref(), Some("classifier"));
+        assert_eq!(args.agent.as_deref(), Some("writer"));
+        assert!(args.apply);
+
+        assert!(parse_memory_classify_args("").is_err());
+        assert!(parse_memory_classify_args("mem-1 --model").is_err());
+        assert!(parse_memory_classify_args("mem-1 extra").is_err());
     }
 
     #[test]

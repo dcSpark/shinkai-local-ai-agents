@@ -2676,14 +2676,25 @@ pub async fn memory_classify(
     agent: Option<String>,
     apply: bool,
 ) -> anyhow::Result<()> {
+    let value = memory_classify_result(&id, model, agent, apply).await?;
+    println!("{}", serde_json::to_string_pretty(&value)?);
+    Ok(())
+}
+
+pub(crate) async fn memory_classify_result(
+    id: &str,
+    model: Option<String>,
+    agent: Option<String>,
+    apply: bool,
+) -> anyhow::Result<serde_json::Value> {
     let model = memory_classification_model(model, agent.as_deref())?;
     let store = MemoryStore::from_env();
-    let record = store.get(&id)?;
+    let record = store.get(id)?;
     let provider = ingestion_provider_for_model(&model, Some(256), Some(0.0))?;
     let output = classify_memory_with_provider(provider.as_ref(), &model, &record.content).await?;
     let classification = memory_classification_from_model_output(&output, &model)?;
     let updated = if apply {
-        let updated = store.apply_classification(&id, classification.clone())?;
+        let updated = store.apply_classification(id, classification.clone())?;
         record_memory_operation(
             &updated.id,
             "classified",
@@ -2694,17 +2705,13 @@ pub async fn memory_classify(
     } else {
         None
     };
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&serde_json::json!({
-            "id": id,
-            "model": model,
-            "classification": classification,
-            "record": updated,
-            "applied": apply
-        }))?
-    );
-    Ok(())
+    Ok(serde_json::json!({
+        "id": id,
+        "model": model,
+        "classification": classification,
+        "record": updated,
+        "applied": apply
+    }))
 }
 
 pub async fn memory_edit(id: String, content: String) -> anyhow::Result<()> {

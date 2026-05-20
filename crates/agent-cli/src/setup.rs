@@ -29,7 +29,7 @@ use agent_tools::{
     VoiceRuntimeConfig, register_allowed_mcp_tools_for_category_with_provenance,
     register_allowed_mcp_tools_for_resource_with_provenance,
     register_allowed_mcp_tools_with_provenance, register_code_execution_tools,
-    register_voice_tools,
+    register_payment_tools_from_env, register_voice_tools,
 };
 
 use crate::{Demo, Provider};
@@ -139,6 +139,7 @@ pub fn build_registry(
         );
     }
     register_voice_tools(&mut reg, voice_runtime_config_for_agent(agent_id));
+    register_payment_tools_from_env(&mut reg);
     register_profile_scoped_mcp_tools(&mut reg);
     Arc::new(reg)
 }

@@ -43,7 +43,8 @@ use agent_tools::{
     register_allowed_mcp_tools_for_category_with_provenance,
     register_allowed_mcp_tools_for_resource_with_provenance,
     register_allowed_mcp_tools_with_provenance, register_code_execution_tools,
-    register_voice_tools, save_voice_capture_from_env, show_generated_artifact_from_env,
+    register_payment_tools_from_env, register_voice_tools, save_voice_capture_from_env,
+    show_generated_artifact_from_env,
 };
 use agent_tracing::{
     EventId, EventStore, RunEvent, RunEventKind, RunId, SqliteEventStore, build_resume_plan,
@@ -4317,6 +4318,7 @@ fn build_registry(
         );
     }
     register_voice_tools(&mut registry, voice_runtime_config_for_agent(agent_id));
+    register_payment_tools_from_env(&mut registry);
     register_profile_scoped_mcp_tools(&mut registry);
     Arc::new(registry)
 }

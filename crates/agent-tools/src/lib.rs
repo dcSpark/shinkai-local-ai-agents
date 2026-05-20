@@ -544,6 +544,238 @@ pub fn is_shell_runtime_tool_id(id: &str) -> bool {
     matches!(id, "shell" | "code_python" | "code_typescript")
 }
 
+#[derive(Debug, Clone)]
+pub struct PaymentX402Config {
+    pub default_timeout_ms: u64,
+    pub max_response_bytes: usize,
+    pub max_amount: Option<f64>,
+    pub signature_env: String,
+}
+
+impl PaymentX402Config {
+    pub fn from_env() -> Self {
+        Self {
+            default_timeout_ms: env_u64("AGENT_PAYMENT_TIMEOUT_MS").unwrap_or(30_000),
+            max_response_bytes: env_usize("AGENT_PAYMENT_MAX_RESPONSE_BYTES").unwrap_or(64 * 1024),
+            max_amount: std::env::var("AGENT_PAYMENT_MAX_AMOUNT")
+                .ok()
+                .and_then(|value| value.trim().parse::<f64>().ok())
+                .filter(|value| value.is_finite() && *value >= 0.0),
+            signature_env: std::env::var("AGENT_X402_SIGNATURE_ENV")
+                .ok()
+                .and_then(clean_non_empty)
+                .unwrap_or_else(|| "AGENT_X402_PAYMENT_SIGNATURE".into()),
+        }
+    }
+}
+
+pub struct PaymentX402Tool {
+    config: PaymentX402Config,
+}
+
+impl PaymentX402Tool {
+    pub fn new(config: PaymentX402Config) -> Self {
+        Self { config }
+    }
+
+    pub fn from_env() -> Self {
+        Self::new(PaymentX402Config::from_env())
+    }
+
+    pub fn descriptor() -> ToolDescriptor {
+        ToolDescriptor {
+            id: ToolId::from("payment_x402_request"),
+            name: "x402 Payment Request".into(),
+            description: "Probes an x402 HTTP endpoint, parses PAYMENT-REQUIRED instructions, and can retry with a configured PAYMENT-SIGNATURE under an explicit spend limit.".into(),
+            categories: vec!["payment".into(), "wallet".into(), "network".into(), "x402".into()],
+            input_schema: json!({
+                "type": "object",
+                "required": ["url"],
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "HTTP or HTTPS resource URL to request."
+                    },
+                    "method": {
+                        "type": "string",
+                        "enum": ["GET", "POST"],
+                        "description": "HTTP method. Defaults to GET."
+                    },
+                    "headers": {
+                        "type": "object",
+                        "additionalProperties": { "type": "string" },
+                        "description": "Optional non-payment request headers."
+                    },
+                    "body": {
+                        "type": "string",
+                        "description": "Optional request body for POST."
+                    },
+                    "auto_pay": {
+                        "type": "boolean",
+                        "description": "Retry with PAYMENT-SIGNATURE after a 402 response. Requires a payment signature and max_amount."
+                    },
+                    "payment_signature": {
+                        "type": "string",
+                        "description": "Base64 x402 PAYMENT-SIGNATURE payload. If omitted, the configured signature env var is used."
+                    },
+                    "max_amount": {
+                        "type": "number",
+                        "minimum": 0,
+                        "description": "Raw protocol amount ceiling for retrying payment. Overrides AGENT_PAYMENT_MAX_AMOUNT."
+                    },
+                    "timeout_ms": {
+                        "type": "integer",
+                        "minimum": 1
+                    },
+                    "max_response_bytes": {
+                        "type": "integer",
+                        "minimum": 1
+                    }
+                },
+                "additionalProperties": false
+            }),
+            output_interpretation_guidance: Some(
+                "Report HTTP status, parsed PAYMENT-REQUIRED/PAYMENT-RESPONSE objects, spend-limit decision, retry status, and response truncation exactly."
+                    .into(),
+            ),
+            permissions: ToolPermissions {
+                network: true,
+                wallet: true,
+                payment: true,
+                secrets: true,
+                ..ToolPermissions::default()
+            },
+            requires_approval: true,
+            provenance: Some("native:payment_x402_request".into()),
+        }
+    }
+}
+
+#[async_trait]
+impl Tool for PaymentX402Tool {
+    async fn execute(&self, input: Value) -> Result<Value, ToolError> {
+        let url = input
+            .get("url")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| ToolError::InvalidInput("missing string field `url`".into()))?;
+        if !(url.starts_with("http://") || url.starts_with("https://")) {
+            return Err(ToolError::InvalidInput(
+                "payment URL must start with http:// or https://".into(),
+            ));
+        }
+        let method = input
+            .get("method")
+            .and_then(Value::as_str)
+            .map(str::to_ascii_uppercase)
+            .unwrap_or_else(|| "GET".into());
+        if !matches!(method.as_str(), "GET" | "POST") {
+            return Err(ToolError::InvalidInput(
+                "payment method must be GET or POST".into(),
+            ));
+        }
+        let headers = optional_header_map(input.get("headers"))?;
+        let body = input
+            .get("body")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        let auto_pay = input
+            .get("auto_pay")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let timeout_ms = input
+            .get("timeout_ms")
+            .and_then(Value::as_u64)
+            .unwrap_or(self.config.default_timeout_ms);
+        let max_response_bytes = input
+            .get("max_response_bytes")
+            .and_then(Value::as_u64)
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or(self.config.max_response_bytes);
+        let max_amount = input
+            .get("max_amount")
+            .and_then(Value::as_f64)
+            .filter(|value| value.is_finite() && *value >= 0.0)
+            .or(self.config.max_amount);
+
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(timeout_ms))
+            .build()
+            .map_err(|e| ToolError::Execution(e.to_string()))?;
+        let first = send_payment_request(
+            &client,
+            &method,
+            url,
+            &headers,
+            body.as_deref(),
+            None,
+            max_response_bytes,
+        )
+        .await?;
+        let payment_required = first.payment_required.clone();
+        if first.status_code != 402 || !auto_pay {
+            return Ok(first.into_json(false, None));
+        }
+
+        let Some(payment_required) = payment_required.as_ref() else {
+            return Err(ToolError::Execution(
+                "x402 retry requested but PAYMENT-REQUIRED was missing or invalid".into(),
+            ));
+        };
+        let Some(max_amount) = max_amount else {
+            return Err(ToolError::InvalidInput(
+                "x402 retry requires max_amount or AGENT_PAYMENT_MAX_AMOUNT".into(),
+            ));
+        };
+        let spend = assess_payment_required_amount(payment_required, max_amount)?;
+        if !spend.within_limit {
+            return Ok(first.into_json(false, Some(spend)));
+        }
+        let signature = input
+            .get("payment_signature")
+            .and_then(Value::as_str)
+            .and_then(|value| clean_non_empty(value.to_string()))
+            .or_else(|| {
+                std::env::var(&self.config.signature_env)
+                    .ok()
+                    .and_then(clean_non_empty)
+            })
+            .ok_or_else(|| {
+                ToolError::InvalidInput(format!(
+                    "x402 retry requires `payment_signature` or {}",
+                    self.config.signature_env
+                ))
+            })?;
+        let second = send_payment_request(
+            &client,
+            &method,
+            url,
+            &headers,
+            body.as_deref(),
+            Some(&signature),
+            max_response_bytes,
+        )
+        .await?;
+        Ok(json!({
+            "status": "retried",
+            "initial": first.into_json(true, Some(spend)),
+            "retry": second.into_json(true, None)
+        }))
+    }
+}
+
+pub fn register_payment_tools_from_env(registry: &mut ToolRegistry) -> usize {
+    if !env_flag("AGENT_PAYMENT_TOOLS") {
+        return 0;
+    }
+    registry.register(
+        PaymentX402Tool::descriptor(),
+        Arc::new(PaymentX402Tool::from_env()),
+    );
+    1
+}
+
 pub struct ArtifactTool {
     output_dir: PathBuf,
 }
@@ -1607,6 +1839,216 @@ fn optional_string_array(value: Option<&Value>, field: &str) -> Result<Vec<Strin
             })
         })
         .collect()
+}
+
+fn clean_non_empty(value: String) -> Option<String> {
+    let value = value.trim().to_string();
+    (!value.is_empty()).then_some(value)
+}
+
+fn env_flag(key: &str) -> bool {
+    std::env::var(key)
+        .ok()
+        .map(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn env_u64(key: &str) -> Option<u64> {
+    std::env::var(key)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|value| *value > 0)
+}
+
+fn env_usize(key: &str) -> Option<usize> {
+    env_u64(key).and_then(|value| usize::try_from(value).ok())
+}
+
+fn optional_header_map(value: Option<&Value>) -> Result<Vec<(String, String)>, ToolError> {
+    let Some(value) = value else {
+        return Ok(Vec::new());
+    };
+    let object = value
+        .as_object()
+        .ok_or_else(|| ToolError::InvalidInput("field `headers` must be an object".into()))?;
+    let mut headers = Vec::new();
+    for (key, value) in object {
+        if key.eq_ignore_ascii_case("payment-signature")
+            || key.eq_ignore_ascii_case("payment-required")
+            || key.eq_ignore_ascii_case("payment-response")
+        {
+            return Err(ToolError::InvalidInput(
+                "payment headers are managed by the x402 payment tool".into(),
+            ));
+        }
+        let value = value.as_str().ok_or_else(|| {
+            ToolError::InvalidInput("field `headers` must contain only string values".into())
+        })?;
+        headers.push((key.clone(), value.to_string()));
+    }
+    Ok(headers)
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct SpendAssessment {
+    max_amount: f64,
+    required_amounts: Vec<f64>,
+    within_limit: bool,
+}
+
+fn assess_payment_required_amount(
+    payment_required: &Value,
+    max_amount: f64,
+) -> Result<SpendAssessment, ToolError> {
+    let mut required_amounts = Vec::new();
+    collect_payment_amounts(payment_required, &mut required_amounts);
+    if required_amounts.is_empty() {
+        return Err(ToolError::InvalidInput(
+            "x402 retry could not find a numeric required amount to compare with max_amount".into(),
+        ));
+    }
+    let within_limit = required_amounts
+        .iter()
+        .copied()
+        .all(|amount| amount <= max_amount);
+    Ok(SpendAssessment {
+        max_amount,
+        required_amounts,
+        within_limit,
+    })
+}
+
+fn collect_payment_amounts(value: &Value, out: &mut Vec<f64>) {
+    match value {
+        Value::Object(object) => {
+            for (key, value) in object {
+                if is_payment_amount_key(key)
+                    && let Some(amount) = payment_amount_value(value)
+                {
+                    out.push(amount);
+                }
+                collect_payment_amounts(value, out);
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                collect_payment_amounts(value, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_payment_amount_key(key: &str) -> bool {
+    matches!(
+        key.to_ascii_lowercase().as_str(),
+        "amount"
+            | "amountrequired"
+            | "amount_required"
+            | "maxamount"
+            | "max_amount"
+            | "maxamountrequired"
+            | "max_amount_required"
+            | "price"
+            | "maxprice"
+            | "max_price"
+    )
+}
+
+fn payment_amount_value(value: &Value) -> Option<f64> {
+    match value {
+        Value::Number(number) => number.as_f64(),
+        Value::String(text) => text.trim().parse::<f64>().ok(),
+        _ => None,
+    }
+    .filter(|value| value.is_finite() && *value >= 0.0)
+}
+
+#[derive(Debug, Clone)]
+struct PaymentHttpResult {
+    status_code: u16,
+    body: String,
+    truncated_body: bool,
+    payment_required: Option<Value>,
+    payment_response: Option<Value>,
+}
+
+impl PaymentHttpResult {
+    fn into_json(self, retried: bool, spend: Option<SpendAssessment>) -> Value {
+        let status = if self.status_code == 402 {
+            "payment_required"
+        } else if (200..300).contains(&self.status_code) {
+            "success"
+        } else {
+            "http_error"
+        };
+        json!({
+            "status": status,
+            "status_code": self.status_code,
+            "retried": retried,
+            "body": self.body,
+            "truncated_body": self.truncated_body,
+            "payment_required": self.payment_required,
+            "payment_response": self.payment_response,
+            "spend": spend
+        })
+    }
+}
+
+async fn send_payment_request(
+    client: &reqwest::Client,
+    method: &str,
+    url: &str,
+    headers: &[(String, String)],
+    body: Option<&str>,
+    payment_signature: Option<&str>,
+    max_response_bytes: usize,
+) -> Result<PaymentHttpResult, ToolError> {
+    let method = reqwest::Method::from_bytes(method.as_bytes())
+        .map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+    let mut request = client.request(method, url);
+    for (key, value) in headers {
+        request = request.header(key, value);
+    }
+    if let Some(payment_signature) = payment_signature {
+        request = request.header("PAYMENT-SIGNATURE", payment_signature);
+    }
+    if let Some(body) = body {
+        request = request.body(body.to_string());
+    }
+    let response = request
+        .send()
+        .await
+        .map_err(|e| ToolError::Execution(e.to_string()))?;
+    let status_code = response.status().as_u16();
+    let payment_required = decode_payment_header(response.headers(), "PAYMENT-REQUIRED");
+    let payment_response = decode_payment_header(response.headers(), "PAYMENT-RESPONSE");
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|e| ToolError::Execution(e.to_string()))?;
+    let (body, truncated_body) = decode_and_truncate(&bytes, max_response_bytes);
+    Ok(PaymentHttpResult {
+        status_code,
+        body,
+        truncated_body,
+        payment_required,
+        payment_response,
+    })
+}
+
+fn decode_payment_header(headers: &reqwest::header::HeaderMap, name: &str) -> Option<Value> {
+    let value = headers.get(name)?.to_str().ok()?.trim();
+    if value.is_empty() {
+        return None;
+    }
+    let decoded = general_purpose::STANDARD.decode(value).ok()?;
+    serde_json::from_slice(&decoded).ok()
 }
 
 fn artifact_extension(format: &str) -> Result<&'static str, ToolError> {
@@ -3617,7 +4059,7 @@ done
         server.join().unwrap();
     }
 
-    fn read_http_body(stream: &mut std::net::TcpStream) -> String {
+    fn read_http_request(stream: &mut std::net::TcpStream) -> String {
         use std::io::Read;
 
         let mut buffer = Vec::new();
@@ -3649,7 +4091,15 @@ done
             assert!(read > 0, "HTTP client closed before body");
             buffer.extend_from_slice(&temp[..read]);
         }
-        String::from_utf8(buffer[header_end..header_end + content_length].to_vec()).unwrap()
+        String::from_utf8(buffer[..header_end + content_length].to_vec()).unwrap()
+    }
+
+    fn read_http_body(stream: &mut std::net::TcpStream) -> String {
+        let request = read_http_request(stream);
+        request
+            .split_once("\r\n\r\n")
+            .map(|(_, body)| body.to_string())
+            .unwrap()
     }
 
     fn write_http_json(stream: &mut std::net::TcpStream, body: &str) {
@@ -3662,6 +4112,36 @@ done
             body
         )
         .unwrap();
+    }
+
+    fn write_http_payment(
+        stream: &mut std::net::TcpStream,
+        status: u16,
+        headers: &[(&str, &str)],
+        body: &str,
+    ) {
+        use std::io::Write;
+
+        let reason = match status {
+            200 => "OK",
+            402 => "Payment Required",
+            _ => "Status",
+        };
+        write!(stream, "HTTP/1.1 {status} {reason}\r\n").unwrap();
+        for (name, value) in headers {
+            write!(stream, "{name}: {value}\r\n").unwrap();
+        }
+        write!(
+            stream,
+            "content-length: {}\r\nconnection: close\r\n\r\n{}",
+            body.len(),
+            body
+        )
+        .unwrap();
+    }
+
+    fn encoded_payment_header(value: &Value) -> String {
+        general_purpose::STANDARD.encode(serde_json::to_vec(value).unwrap())
     }
 
     #[test]
@@ -3692,6 +4172,164 @@ done
             assert!(descriptor.permissions.network);
             assert!(is_shell_runtime_tool_id(id));
         }
+    }
+
+    #[test]
+    fn x402_payment_descriptor_declares_wallet_payment_permissions() {
+        let descriptor = PaymentX402Tool::descriptor();
+        assert_eq!(descriptor.id.0, "payment_x402_request");
+        assert!(descriptor.requires_approval);
+        assert!(descriptor.permissions.network);
+        assert!(descriptor.permissions.wallet);
+        assert!(descriptor.permissions.payment);
+        assert!(descriptor.permissions.secrets);
+    }
+
+    #[tokio::test]
+    async fn x402_payment_tool_parses_payment_required_header() {
+        let required = json!({
+            "x402Version": 1,
+            "accepts": [{ "scheme": "exact", "maxAmountRequired": "5" }]
+        });
+        let header = encoded_payment_header(&required);
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _ = read_http_body(&mut stream);
+            write_http_payment(
+                &mut stream,
+                402,
+                &[("PAYMENT-REQUIRED", &header)],
+                "payment required",
+            );
+        });
+        let tool = PaymentX402Tool::new(PaymentX402Config {
+            default_timeout_ms: 5_000,
+            max_response_bytes: 64 * 1024,
+            max_amount: None,
+            signature_env: "AGENT_TEST_X402_SIGNATURE".into(),
+        });
+
+        let output = tool
+            .execute(json!({
+                "url": format!("http://{addr}/paid"),
+                "method": "POST",
+                "body": "probe"
+            }))
+            .await
+            .unwrap();
+
+        server.join().unwrap();
+        assert_eq!(output["status"], "payment_required");
+        assert_eq!(output["status_code"], 402);
+        assert_eq!(output["payment_required"], required);
+        assert_eq!(output["retried"], false);
+    }
+
+    #[tokio::test]
+    async fn x402_payment_tool_retries_with_signature_under_spend_limit() {
+        let required = json!({
+            "x402Version": 1,
+            "accepts": [{ "scheme": "exact", "maxAmountRequired": "5" }]
+        });
+        let response = json!({ "transaction": "tx-test" });
+        let required_header = encoded_payment_header(&required);
+        let response_header = encoded_payment_header(&response);
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _ = read_http_body(&mut stream);
+            write_http_payment(
+                &mut stream,
+                402,
+                &[("PAYMENT-REQUIRED", &required_header)],
+                "payment required",
+            );
+
+            let (mut stream, _) = listener.accept().unwrap();
+            let request = read_http_request(&mut stream);
+            assert!(
+                request
+                    .to_ascii_lowercase()
+                    .contains("payment-signature: signed-test")
+            );
+            write_http_payment(
+                &mut stream,
+                200,
+                &[("PAYMENT-RESPONSE", &response_header)],
+                "paid",
+            );
+        });
+        let tool = PaymentX402Tool::new(PaymentX402Config {
+            default_timeout_ms: 5_000,
+            max_response_bytes: 64 * 1024,
+            max_amount: None,
+            signature_env: "AGENT_TEST_X402_SIGNATURE".into(),
+        });
+
+        let output = tool
+            .execute(json!({
+                "url": format!("http://{addr}/paid"),
+                "method": "POST",
+                "body": "probe",
+                "auto_pay": true,
+                "payment_signature": "signed-test",
+                "max_amount": 5
+            }))
+            .await
+            .unwrap();
+
+        server.join().unwrap();
+        assert_eq!(output["status"], "retried");
+        assert_eq!(output["initial"]["spend"]["within_limit"], true);
+        assert_eq!(output["retry"]["status"], "success");
+        assert_eq!(output["retry"]["payment_response"], response);
+    }
+
+    #[tokio::test]
+    async fn x402_payment_tool_blocks_retry_above_spend_limit() {
+        let required = json!({
+            "x402Version": 1,
+            "accepts": [{ "scheme": "exact", "maxAmountRequired": "6" }]
+        });
+        let header = encoded_payment_header(&required);
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _ = read_http_body(&mut stream);
+            write_http_payment(
+                &mut stream,
+                402,
+                &[("PAYMENT-REQUIRED", &header)],
+                "payment required",
+            );
+        });
+        let tool = PaymentX402Tool::new(PaymentX402Config {
+            default_timeout_ms: 5_000,
+            max_response_bytes: 64 * 1024,
+            max_amount: None,
+            signature_env: "AGENT_TEST_X402_SIGNATURE".into(),
+        });
+
+        let output = tool
+            .execute(json!({
+                "url": format!("http://{addr}/paid"),
+                "method": "POST",
+                "body": "probe",
+                "auto_pay": true,
+                "payment_signature": "signed-test",
+                "max_amount": 5
+            }))
+            .await
+            .unwrap();
+
+        server.join().unwrap();
+        assert_eq!(output["status"], "payment_required");
+        assert_eq!(output["spend"]["within_limit"], false);
+        assert_eq!(output["retried"], false);
     }
 
     #[tokio::test]

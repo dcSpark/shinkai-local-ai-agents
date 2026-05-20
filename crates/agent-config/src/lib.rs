@@ -19,6 +19,8 @@ use serde::{Deserialize, Serialize};
 
 const MODEL_METADATA_CATALOG_FILE: &str = "metadata-catalog.json";
 const MODEL_METADATA_CATALOG_ENV: &str = "AGENT_MODEL_METADATA_CATALOG";
+const MODEL_PROVIDER_CATALOG_FILE: &str = "provider-catalog.json";
+const MODEL_PROVIDER_CATALOG_ENV: &str = "AGENT_MODEL_PROVIDER_CATALOG";
 const BUNDLED_MODEL_METADATA_CATALOG_JSON: &str = include_str!("../model_metadata_catalog.json");
 
 #[derive(Debug, thiserror::Error)]
@@ -361,6 +363,15 @@ pub struct ModelProviderDescriptor {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ModelProviderCatalog {
+    pub schema_version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(default)]
+    pub providers: Vec<ModelProviderDescriptor>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ModelProviderOptionDescriptor {
     pub key: String,
     pub target: ModelProviderOptionTarget,
@@ -620,6 +631,14 @@ impl ModelRuntimeConfig {
 }
 
 pub fn supported_model_providers() -> Vec<ModelProviderDescriptor> {
+    builtin_model_providers()
+}
+
+pub fn configured_model_providers() -> Result<Vec<ModelProviderDescriptor>, ConfigError> {
+    configured_model_providers_from_paths(&StoragePaths::from_env())
+}
+
+fn builtin_model_providers() -> Vec<ModelProviderDescriptor> {
     vec![
         ModelProviderDescriptor {
             id: "fake".into(),
@@ -750,6 +769,94 @@ pub fn supported_model_providers() -> Vec<ModelProviderDescriptor> {
             notes: Some("Native Gemini GenerateContent wrapper.".into()),
         },
     ]
+}
+
+fn configured_model_providers_from_paths(
+    paths: &StoragePaths,
+) -> Result<Vec<ModelProviderDescriptor>, ConfigError> {
+    let mut providers = builtin_model_providers();
+    if let Some(catalog) = load_model_provider_catalog(paths)? {
+        merge_model_provider_catalog(&mut providers, catalog)?;
+    }
+    Ok(providers)
+}
+
+fn load_model_provider_catalog(
+    paths: &StoragePaths,
+) -> Result<Option<ModelProviderCatalog>, ConfigError> {
+    if let Some(path) = std::env::var_os(MODEL_PROVIDER_CATALOG_ENV)
+        .map(PathBuf::from)
+        .filter(|path| !path.as_os_str().is_empty())
+    {
+        return read_model_provider_catalog(&path).map(Some);
+    }
+
+    let profile_path = paths.models_dir().join(MODEL_PROVIDER_CATALOG_FILE);
+    if profile_path.exists() {
+        return read_model_provider_catalog(&profile_path).map(Some);
+    }
+
+    Ok(None)
+}
+
+fn read_model_provider_catalog(path: &Path) -> Result<ModelProviderCatalog, ConfigError> {
+    let catalog: ModelProviderCatalog = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+    validate_model_provider_catalog(&catalog)?;
+    Ok(catalog)
+}
+
+fn validate_model_provider_catalog(catalog: &ModelProviderCatalog) -> Result<(), ConfigError> {
+    if catalog.schema_version != 1 {
+        return Err(ConfigError::InvalidInput(format!(
+            "unsupported model provider catalog schema_version {}; expected 1",
+            catalog.schema_version
+        )));
+    }
+    let mut ids = BTreeSet::new();
+    for provider in &catalog.providers {
+        let Some(id) = normalized_provider(Some(&provider.id)) else {
+            return Err(ConfigError::InvalidInput(
+                "model provider catalog entries require provider id".into(),
+            ));
+        };
+        if !ids.insert(id.clone()) {
+            return Err(ConfigError::InvalidInput(format!(
+                "duplicate model provider catalog entry: {id}"
+            )));
+        }
+        if provider.name.trim().is_empty() {
+            return Err(ConfigError::InvalidInput(format!(
+                "model provider catalog entry {id} requires name"
+            )));
+        }
+        if provider.default_model.trim().is_empty() {
+            return Err(ConfigError::InvalidInput(format!(
+                "model provider catalog entry {id} requires default_model"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn merge_model_provider_catalog(
+    providers: &mut Vec<ModelProviderDescriptor>,
+    catalog: ModelProviderCatalog,
+) -> Result<(), ConfigError> {
+    for mut provider in catalog.providers {
+        provider.id = normalized_provider(Some(&provider.id)).ok_or_else(|| {
+            ConfigError::InvalidInput("model provider catalog entries require provider id".into())
+        })?;
+        if let Some(existing) = providers
+            .iter_mut()
+            .find(|existing| existing.id == provider.id)
+        {
+            *existing = provider;
+        } else {
+            providers.push(provider);
+        }
+    }
+    providers.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(())
 }
 
 fn provider_option_schema(
@@ -1651,7 +1758,7 @@ impl ConfigResolver {
     pub fn save_model(&self, model: &ModelConfig) -> Result<ModelConfig, ConfigError> {
         self.paths.ensure_base_dirs()?;
         validate_model_id(&model.id)?;
-        validate_model_config(model)?;
+        validate_model_config_with_providers(model, &self.model_provider_descriptors()?)?;
         let path = self.paths.model_config(&model.id);
         write_storage_text(&self.paths, path, toml::to_string_pretty(model)?)?;
         Ok(model.clone())
@@ -1759,7 +1866,12 @@ impl ConfigResolver {
             ));
         }
 
-        Ok(provider_modality_support(model_id, &provider, &modality))
+        Ok(provider_modality_support(
+            model_id,
+            &provider,
+            &modality,
+            &self.model_provider_descriptors()?,
+        ))
     }
 
     pub fn model_supports_any_modality(
@@ -1792,8 +1904,9 @@ impl ConfigResolver {
         let provider =
             normalized_provider(model.as_ref().and_then(|model| model.provider.as_deref()))
                 .unwrap_or_else(|| "rig".into());
-        let provider_descriptor = supported_model_providers()
-            .into_iter()
+        let provider_descriptors = self.model_provider_descriptors()?;
+        let provider_descriptor = provider_descriptors
+            .iter()
             .find(|descriptor| descriptor.id == provider);
         let provider_modalities = provider_descriptor
             .as_ref()
@@ -1834,7 +1947,7 @@ impl ConfigResolver {
         {
             probe_native_provider_capabilities(
                 &provider,
-                provider_descriptor.as_ref(),
+                provider_descriptor,
                 model_id,
                 api_key_env.as_deref(),
                 model.is_some(),
@@ -1875,6 +1988,10 @@ impl ConfigResolver {
         })
     }
 
+    pub fn model_provider_descriptors(&self) -> Result<Vec<ModelProviderDescriptor>, ConfigError> {
+        configured_model_providers_from_paths(&self.paths)
+    }
+
     fn load_model_metadata_catalog(
         &self,
     ) -> Result<Option<LoadedModelMetadataCatalog>, ConfigError> {
@@ -1912,9 +2029,16 @@ fn provider_options_from_metadata(
 }
 
 pub fn validate_model_config(model: &ModelConfig) -> Result<(), ConfigError> {
+    validate_model_config_with_providers(model, &configured_model_providers()?)
+}
+
+fn validate_model_config_with_providers(
+    model: &ModelConfig,
+    providers: &[ModelProviderDescriptor],
+) -> Result<(), ConfigError> {
     if let Some(api_base_url) = model.api_base_url.as_deref()
         && !api_base_url.trim().is_empty()
-        && !provider_supports_api_base_url(model.provider.as_deref())
+        && !provider_supports_api_base_url(model.provider.as_deref(), providers)
     {
         return Err(ConfigError::InvalidInput(format!(
             "provider {} does not support api_base_url",
@@ -1999,10 +2123,13 @@ fn provider_accepts_reasoning_effort(provider: Option<&str>) -> bool {
     )
 }
 
-fn provider_supports_api_base_url(provider: Option<&str>) -> bool {
+fn provider_supports_api_base_url(
+    provider: Option<&str>,
+    providers: &[ModelProviderDescriptor],
+) -> bool {
     let normalized = normalized_provider(provider).unwrap_or_else(|| "rig".into());
-    supported_model_providers()
-        .into_iter()
+    providers
+        .iter()
         .find(|descriptor| descriptor.id == normalized)
         .map(|descriptor| descriptor.supports_api_base_url)
         .unwrap_or(true)
@@ -2032,16 +2159,17 @@ fn provider_modality_support(
     model_id: &str,
     provider: &str,
     modality: &str,
+    providers: &[ModelProviderDescriptor],
 ) -> ModelModalitySupport {
-    supported_model_providers()
-        .into_iter()
+    providers
+        .iter()
         .find(|descriptor| descriptor.id == provider)
         .map(|descriptor| {
             model_modality_support_from_modalities(
                 model_id,
                 provider,
                 modality,
-                descriptor.available_modalities,
+                descriptor.available_modalities.clone(),
                 format!("provider_descriptor:{provider}"),
             )
         })
@@ -5590,6 +5718,76 @@ system_prompt = "Review carefully."
         assert!(ollama.option_schema.iter().any(|option| {
             option.target == ModelProviderOptionTarget::Runtime && option.key == "api_base_url"
         }));
+    }
+
+    #[test]
+    fn profile_provider_catalog_extends_provider_descriptors_and_validation() {
+        let dir = std::env::temp_dir().join(format!("agent-provider-catalog-test-{}", uuid_like()));
+        let paths = StoragePaths::new(&dir);
+        paths.ensure_base_dirs().unwrap();
+        std::fs::write(
+            paths.models_dir().join(MODEL_PROVIDER_CATALOG_FILE),
+            r#"{
+              "schema_version": 1,
+              "source": "profile-provider-catalog-test",
+              "providers": [
+                {
+                  "id": "custom-openai",
+                  "name": "Custom OpenAI Compatible",
+                  "default_model": "custom-default",
+                  "api_key_env": "CUSTOM_API_KEY",
+                  "api_base_url": "http://127.0.0.1:9999/v1",
+                  "supports_api_base_url": true,
+                  "local": false,
+                  "native": false,
+                  "available_modalities": ["text", "audio"],
+                  "tool_support": true,
+                  "reasoning_modes": ["model-default"],
+                  "settings": ["api_base_url", "api_key_env", "provider_options"],
+                  "option_schema": [
+                    {
+                      "key": "custom_flag",
+                      "target": "provider_options",
+                      "label": "Custom flag",
+                      "kind": "boolean"
+                    }
+                  ],
+                  "notes": "Loaded from profile provider catalog."
+                }
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        let resolver = ConfigResolver::new(paths);
+        let providers = resolver.model_provider_descriptors().unwrap();
+        let custom = providers
+            .iter()
+            .find(|provider| provider.id == "custom-openai")
+            .expect("custom provider descriptor");
+        assert_eq!(custom.default_model, "custom-default");
+        assert!(
+            custom
+                .available_modalities
+                .iter()
+                .any(|item| item == "audio")
+        );
+        assert!(custom.option_schema.iter().any(|option| {
+            option.target == ModelProviderOptionTarget::ProviderOptions
+                && option.key == "custom_flag"
+        }));
+
+        let mut model = ModelConfig::for_id("custom-model");
+        model.provider = Some("custom-openai".into());
+        model.api_base_url = Some("http://127.0.0.1:9999/v1".into());
+        resolver.save_model(&model).unwrap();
+        let support = resolver
+            .model_modality_support("custom-model", "audio")
+            .unwrap();
+        assert!(support.supported);
+        assert_eq!(support.source, "provider_descriptor:custom-openai");
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

@@ -23,7 +23,7 @@ use agent_capabilities::{
 use agent_compaction::{CompactionRecord, CompactionStore};
 use agent_config::{
     AgentConfigFile, AgentSummary, ConfigResolver, IngestionGuardrailMode, ModelConfig,
-    ModelProviderDescriptor, ModelRuntimeConfig, ProfileGrantKind, supported_model_providers,
+    ModelProviderDescriptor, ModelRuntimeConfig, ProfileGrantKind, configured_model_providers,
 };
 use agent_conversations::{
     ConversationDoc, ConversationPolicy, ConversationRole, ConversationStore, ConversationTreeNode,
@@ -2970,7 +2970,7 @@ async fn model_list() -> Result<Vec<ModelConfig>, String> {
 
 #[tauri::command]
 async fn model_provider_list() -> Result<Vec<ModelProviderDescriptor>, String> {
-    Ok(supported_model_providers())
+    configured_model_providers().map_err(|e| e.to_string())
 }
 
 #[tauri::command]

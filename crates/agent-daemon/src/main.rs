@@ -13,7 +13,7 @@ use agent_capabilities::{
 use agent_compaction::{CompactionRecord, CompactionStore};
 use agent_config::{
     AgentConfigFile, ConfigResolver, IngestionGuardrailMode, ModelConfig, ModelRuntimeConfig,
-    ProfileGrant, ProfileGrantKind, supported_model_providers,
+    ProfileGrant, ProfileGrantKind, configured_model_providers,
 };
 use agent_conversations::{
     ConversationMessage, ConversationPolicy, ConversationRole, ConversationStore,
@@ -4269,7 +4269,7 @@ fn daemon_model_list() -> anyhow::Result<serde_json::Value> {
 }
 
 fn daemon_model_providers() -> anyhow::Result<serde_json::Value> {
-    Ok(serde_json::to_value(supported_model_providers())?)
+    Ok(serde_json::to_value(configured_model_providers()?)?)
 }
 
 fn daemon_model_show(id: &str) -> anyhow::Result<serde_json::Value> {

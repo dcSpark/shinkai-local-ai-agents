@@ -19,7 +19,7 @@ use agent_compaction::{CompactionRecord, CompactionStore};
 use agent_config::{
     AgentConfigFile, AgentPromptRefinementConfig, AgentToolOutputOverrideConfig, ConfigResolver,
     IngestionGuardrailMode, ModelConfig, ModelProviderOptionTarget, ModelRuntimeConfig,
-    ProfileGrant, ProfileGrantKind, supported_model_providers,
+    ProfileGrant, ProfileGrantKind, configured_model_providers,
 };
 use agent_conversations::{
     ConversationPolicy, ConversationRole, ConversationStore, ConversationTreeNode,
@@ -3313,7 +3313,7 @@ pub async fn model_list(json: bool) -> anyhow::Result<()> {
 }
 
 pub async fn model_providers(json: bool) -> anyhow::Result<()> {
-    let providers = supported_model_providers();
+    let providers = configured_model_providers()?;
     if json {
         println!("{}", serde_json::to_string_pretty(&providers)?);
     } else {

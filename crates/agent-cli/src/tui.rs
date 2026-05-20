@@ -41,7 +41,11 @@ use agent_memory::{
 };
 use agent_prompts::{PromptStore, is_valid_prompt_name};
 use agent_storage::StoragePaths;
-use agent_tools::{ToolId, ToolRegistry};
+use agent_tools::{
+    GeneratedArtifact, ToolId, ToolRegistry, delete_generated_artifact_from_env,
+    list_generated_artifacts_from_env, open_generated_artifact_from_env,
+    show_generated_artifact_from_env,
+};
 use agent_tracing::{
     EventStore, PublishingEventStore, RunEvent, RunEventKind, RunId, SqliteEventStore,
     hook_remediation_plan, is_terminal_run_event, latest_event_id, validate_guidance_content,
@@ -431,6 +435,10 @@ fn handle_slash_command(
     }
     if let Some(rest) = capabilities_slash_rest(trimmed) {
         handle_capabilities_slash(app, rest);
+        return true;
+    }
+    if let Some(rest) = artifacts_slash_rest(trimmed) {
+        handle_artifacts_slash(app, rest);
         return true;
     }
     if let Some(rest) = models_slash_rest(trimmed) {
@@ -1623,6 +1631,14 @@ fn capabilities_slash_rest(trimmed: &str) -> Option<&str> {
     }
 }
 
+fn artifacts_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/artifacts" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/artifacts ").map(str::trim)
+    }
+}
+
 fn models_slash_rest(trimmed: &str) -> Option<&str> {
     if trimmed == "/models" {
         Some("")
@@ -2026,6 +2042,153 @@ fn capability_draft_summary(draft: &CapabilityDraft) -> serde_json::Value {
         "provenance": draft.provenance,
         "updated_at": draft.updated_at,
         "body_preview": compact_preview(&draft.body, 240),
+    })
+}
+
+fn handle_artifacts_slash(app: &mut App, rest: &str) {
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "help" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: [
+                "/artifacts list",
+                "/artifacts show <id>",
+                "/artifacts open <id>",
+                "/artifacts delete <id> --confirm",
+            ]
+            .join("\n"),
+        });
+        return;
+    }
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "list" => match list_generated_artifacts_from_env() {
+            Ok(artifacts) => {
+                push_event(
+                    app,
+                    format!("Loaded {} generated artifact(s).", artifacts.len()),
+                );
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(
+                        &artifacts
+                            .iter()
+                            .map(generated_artifact_summary)
+                            .collect::<Vec<_>>(),
+                    )
+                    .unwrap_or_else(|_| "<unserializable artifact list>".into()),
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Artifact list failed: {err}"),
+            }),
+        },
+        "show" => match first_artifact_arg(args, "show") {
+            Ok(id) => match show_generated_artifact_from_env(id) {
+                Ok(artifact) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&artifact)
+                        .unwrap_or_else(|_| "<unserializable artifact>".into()),
+                }),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Artifact show failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "open" => match first_artifact_arg(args, "open") {
+            Ok(id) => match open_generated_artifact_from_env(id) {
+                Ok(artifact) => push_event(
+                    app,
+                    format!(
+                        "Opened artifact {} at {}",
+                        artifact.id,
+                        artifact.path.display()
+                    ),
+                ),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Artifact open failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "delete" => match artifact_delete_args(args) {
+            Ok((id, true)) => match delete_generated_artifact_from_env(id) {
+                Ok(artifact) => push_event(
+                    app,
+                    format!(
+                        "Deleted artifact {} at {}",
+                        artifact.id,
+                        artifact.path.display()
+                    ),
+                ),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Artifact delete failed: {err}"),
+                }),
+            },
+            Ok((id, false)) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: serde_json::to_string_pretty(&serde_json::json!({
+                    "pending_action": "delete_artifact",
+                    "artifact_id": id,
+                    "confirm_command": format!("/artifacts delete {id} --confirm"),
+                }))
+                .unwrap_or_else(|_| "<unserializable artifact confirmation>".into()),
+            }),
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Artifacts command needs list, show, open, delete, or help.".into(),
+        }),
+    }
+}
+
+fn first_artifact_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    args.split_whitespace()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("artifacts {command} needs an argument"))
+}
+
+fn artifact_delete_args(args: &str) -> anyhow::Result<(&str, bool)> {
+    let mut id = None;
+    let mut confirmed = false;
+    for part in args.split_whitespace() {
+        if part == "--confirm" {
+            confirmed = true;
+        } else if id.is_none() {
+            id = Some(part);
+        } else {
+            anyhow::bail!("artifacts delete accepts exactly an artifact id and optional --confirm");
+        }
+    }
+    let id = id.ok_or_else(|| anyhow::anyhow!("artifacts delete needs an artifact id"))?;
+    Ok((id, confirmed))
+}
+
+fn generated_artifact_summary(artifact: &GeneratedArtifact) -> serde_json::Value {
+    serde_json::json!({
+        "id": artifact.id,
+        "format": artifact.format,
+        "path": artifact.path,
+        "bytes": artifact.bytes,
+        "modified_ms": artifact.modified_ms,
     })
 }
 
@@ -3911,6 +4074,9 @@ mod tests {
         assert_eq!(capabilities_slash_rest("/capabilities list"), Some("list"));
         assert_eq!(capabilities_slash_rest("/capabilities"), Some(""));
         assert_eq!(capabilities_slash_rest("/capability"), None);
+        assert_eq!(artifacts_slash_rest("/artifacts list"), Some("list"));
+        assert_eq!(artifacts_slash_rest("/artifacts"), Some(""));
+        assert_eq!(artifacts_slash_rest("/artifact"), None);
         assert_eq!(
             hooks_slash_rest("/hooks review run-1"),
             Some("review run-1")
@@ -4043,6 +4209,20 @@ mod tests {
         assert!(capability_review_args("draft-1 extra", "reject").is_err());
         assert!(capability_path_arg("", "import").is_err());
         assert!(capability_path_arg("./draft.json extra", "import").is_err());
+    }
+
+    #[test]
+    fn artifact_delete_args_require_id_and_confirm_flag() {
+        assert_eq!(
+            artifact_delete_args("artifact-1 --confirm").unwrap(),
+            ("artifact-1", true)
+        );
+        assert_eq!(
+            artifact_delete_args("artifact-1").unwrap(),
+            ("artifact-1", false)
+        );
+        assert!(artifact_delete_args("").is_err());
+        assert!(artifact_delete_args("artifact-1 extra").is_err());
     }
 
     #[test]

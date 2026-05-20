@@ -1438,6 +1438,14 @@ enum AdapterCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Install an OpenClaw adapter package into the skill registry; starts quarantined.
+    InstallSkill {
+        id: String,
+
+        /// Emit JSON instead of a human-readable summary.
+        #[arg(long)]
+        json: bool,
+    },
     /// Inspect a local adapter source and print its normalized manifest.
     Inspect {
         path: String,
@@ -3100,6 +3108,9 @@ enum RemoteArtifactCommand {
 enum RemoteAdapterCommand {
     List,
     Doctor,
+    InstallSkill {
+        id: String,
+    },
     Import {
         path: String,
     },
@@ -5214,6 +5225,16 @@ mod cli_parse_tests {
         };
         assert!(json);
 
+        let cli = parse_cli(["agent", "adapter", "install-skill", "adapter-demo"]).unwrap();
+        let Command::Adapter {
+            command: AdapterCommand::InstallSkill { id, json },
+        } = into_command(cli)
+        else {
+            panic!("expected adapter install-skill command");
+        };
+        assert_eq!(id, "adapter-demo");
+        assert!(!json);
+
         let cli = parse_cli(["agent", "remote", "adapter", "doctor"]).unwrap();
         let RemoteCommand::Adapter {
             command: RemoteAdapterCommand::Doctor,
@@ -5221,6 +5242,22 @@ mod cli_parse_tests {
         else {
             panic!("expected remote adapter doctor command");
         };
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "adapter",
+            "install-skill",
+            "adapter-demo",
+        ])
+        .unwrap();
+        let RemoteCommand::Adapter {
+            command: RemoteAdapterCommand::InstallSkill { id },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote adapter install-skill command");
+        };
+        assert_eq!(id, "adapter-demo");
 
         let cli = parse_cli([
             "agent",
@@ -6083,6 +6120,9 @@ async fn main() -> anyhow::Result<()> {
             },
             AdapterCommand::List { json } => headless::adapter_list(json).await,
             AdapterCommand::Doctor { json } => headless::adapter_doctor(json).await,
+            AdapterCommand::InstallSkill { id, json } => {
+                headless::adapter_install_skill(id, json).await
+            }
             AdapterCommand::Inspect { path, json } => headless::adapter_inspect(path, json).await,
             AdapterCommand::Show { id, json } => headless::adapter_show(id, json).await,
             AdapterCommand::Export { id, path, json } => {
@@ -6847,6 +6887,9 @@ async fn main() -> anyhow::Result<()> {
             RemoteCommand::Adapter { command } => match command {
                 RemoteAdapterCommand::List => headless::remote_adapter_list(url).await,
                 RemoteAdapterCommand::Doctor => headless::remote_adapter_doctor(url).await,
+                RemoteAdapterCommand::InstallSkill { id } => {
+                    headless::remote_adapter_install_skill(url, id).await
+                }
                 RemoteAdapterCommand::Import { path } => {
                     headless::remote_adapter_import(url, path).await
                 }

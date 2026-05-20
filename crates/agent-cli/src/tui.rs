@@ -5536,6 +5536,7 @@ fn handle_adapters_slash(app: &mut App, rest: &str) {
                 "/adapters list",
                 "/adapters doctor",
                 "/adapters show <id>",
+                "/adapters install-skill <id>",
                 "/adapters import-manifest <path>",
                 "/adapters export <id> <path>",
                 "/adapters quarantine <id>",
@@ -5600,6 +5601,37 @@ fn handle_adapters_slash(app: &mut App, rest: &str) {
                 text: err.to_string(),
             }),
         },
+        "install-skill" => match first_adapter_arg(args, "install-skill") {
+            Ok(id) => match AdapterRegistry::from_env().show(id) {
+                Ok(package) => {
+                    match SkillRegistry::from_env().import_openclaw_adapter_package(&package) {
+                        Ok(doc) => {
+                            push_event(
+                                app,
+                                format!("Installed adapter {id} as quarantined skill {}", doc.id),
+                            );
+                            app.transcript.push(TranscriptLine {
+                                kind: LineKind::Assistant,
+                                text: serde_json::to_string_pretty(&skill_summary(&doc))
+                                    .unwrap_or_else(|_| "<unserializable skill>".into()),
+                            });
+                        }
+                        Err(err) => app.transcript.push(TranscriptLine {
+                            kind: LineKind::Error,
+                            text: format!("Adapter skill install failed: {err}"),
+                        }),
+                    }
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Adapter show failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
         "import-manifest" => match first_adapter_arg(args, "import-manifest") {
             Ok(path) => match AdapterRegistry::from_env().import_manifest(path) {
                 Ok(package) => {
@@ -5652,7 +5684,7 @@ fn handle_adapters_slash(app: &mut App, rest: &str) {
         "allow" => handle_adapter_allow_slash(app, args),
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Adapters command needs list, doctor, show, import-manifest, export, quarantine, allow, or help.".into(),
+            text: "Adapters command needs list, doctor, show, install-skill, import-manifest, export, quarantine, allow, or help.".into(),
         }),
     }
 }
@@ -7528,6 +7560,10 @@ mod tests {
             Some("show adapter-1")
         );
         assert_eq!(adapters_slash_rest("/adapters doctor"), Some("doctor"));
+        assert_eq!(
+            adapters_slash_rest("/adapters install-skill adapter-1"),
+            Some("install-skill adapter-1")
+        );
         assert_eq!(adapters_slash_rest("/adapters"), Some(""));
         assert_eq!(adapters_slash_rest("/adapter"), None);
         assert_eq!(compact_slash_rest("/compact keep"), Some("keep"));

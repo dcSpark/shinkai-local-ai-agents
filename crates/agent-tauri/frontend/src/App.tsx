@@ -1277,6 +1277,7 @@ export default function App() {
       { command: "/skills", label: "List imported skills" },
       { command: "/adapters", label: "List adapter manifests" },
       { command: "/adapters doctor", label: "Check adapter operability" },
+      { command: "/adapters install-skill ", label: "Install adapter as skill" },
       { command: "/trace", label: "Load last run trace" },
       { command: "/approvals", label: "Review current run approvals" },
       { command: "/batch ", label: "Run lines as deterministic batch" },
@@ -2857,6 +2858,19 @@ export default function App() {
       setActiveSection("adapters");
       appendLine("user", "/adapters doctor");
       await adapterDoctorFromOps();
+      return;
+    }
+
+    if (prompt.startsWith("/adapters install-skill ")) {
+      const id = prompt.slice("/adapters install-skill ".length).trim();
+      setInput("");
+      setActiveSection("adapters");
+      appendLine("user", prompt);
+      if (!id) {
+        appendLine("error", "Adapter install-skill needs an adapter id.");
+        return;
+      }
+      await installAdapterSkillFromOps(id);
       return;
     }
 
@@ -5974,6 +5988,22 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Adapter export failed: ${msg}`);
+    }
+  }
+
+  async function installAdapterSkillFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Adapter install skill");
+    if (!id) return;
+    try {
+      const doc =
+        transport === "daemon"
+          ? await daemonJson<SkillDoc>(`/adapters/${id}/install-skill`, {})
+          : await invoke<SkillDoc>("adapter_install_skill", { id });
+      setSkillDocs((docs) => upsertSkillDoc(docs, doc));
+      appendJson("Adapter installed as quarantined skill", doc);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Adapter skill install failed: ${msg}`);
     }
   }
 
@@ -10406,6 +10436,14 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  title="Install OpenClaw adapter package Id as a quarantined skill."
+                  onClick={() => void installAdapterSkillFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Install Skill
+                </button>
+                <button
+                  type="button"
                   title="Allow adapter package Id."
                   onClick={() => void setAdapterQuarantine(true)}
                   disabled={running || !opsId.trim()}
@@ -10586,6 +10624,20 @@ export default function App() {
                             disabled={running || highRisk}
                           >
                             Allow
+                          </button>
+                          <button
+                            type="button"
+                            title="Install this OpenClaw adapter as a quarantined skill."
+                            onClick={() => {
+                              setOpsId(adapterPackage.id);
+                              void installAdapterSkillFromOps(adapterPackage.id);
+                            }}
+                            disabled={
+                              running ||
+                              adapterPackage.adapter !== "open_claw_agent_skills"
+                            }
+                          >
+                            Install Skill
                           </button>
                           <button
                             type="button"

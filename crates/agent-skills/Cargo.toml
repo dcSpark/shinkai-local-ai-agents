@@ -8,6 +8,7 @@ authors.workspace = true
 description = "SkillDoc registry and OpenClaw/AgentSkills text importer."
 
 [dependencies]
+agent-adapters = { path = "../agent-adapters" }
 agent-core = { path = "../agent-core" }
 agent-storage = { path = "../agent-storage" }
 serde.workspace = true

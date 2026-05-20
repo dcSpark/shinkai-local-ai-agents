@@ -817,6 +817,7 @@ async fn route(
                     "POST /adapters/clawhub/install",
                     "GET /adapters/<id>",
                     "POST /adapters/<id>/export",
+                    "POST /adapters/<id>/install-skill",
                     "POST /adapters/<id>/allow",
                     "POST /bundles/export",
                     "POST /bundles/import"
@@ -4974,6 +4975,12 @@ fn daemon_adapter_route(path: &str, body: &str) -> anyhow::Result<serde_json::Va
         "quarantine" => Ok(serde_json::to_value(
             AdapterRegistry::from_env().quarantine(parts[1])?,
         )?),
+        "install-skill" => {
+            let package = AdapterRegistry::from_env().show(parts[1])?;
+            Ok(serde_json::to_value(
+                SkillRegistry::from_env().import_openclaw_adapter_package(&package)?,
+            )?)
+        }
         _ => anyhow::bail!("unknown adapter action"),
     }
 }

@@ -5,6 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
+use agent_adapters::{AdapterKind, CapabilityKind, NormalizedPackage};
 use agent_core::{SkillView, VisibilityLevel};
 use agent_storage::{StorageError, StoragePaths};
 use serde::{Deserialize, Serialize};
@@ -26,6 +27,8 @@ pub enum SkillError {
     DigestMismatch { expected: String, found: String },
     #[error("invalid skill input: {0}")]
     InvalidInput(String),
+    #[error("invalid adapter skill package: {0}")]
+    InvalidAdapterPackage(String),
     #[error("skill not found: {0}")]
     NotFound(String),
 }
@@ -62,6 +65,14 @@ impl SkillRegistry {
     }
 
     pub fn import_openclaw(&self, path: impl AsRef<Path>) -> Result<SkillDoc, SkillError> {
+        self.import_openclaw_with_provenance(path, None)
+    }
+
+    pub fn import_openclaw_with_provenance(
+        &self,
+        path: impl AsRef<Path>,
+        provenance: Option<String>,
+    ) -> Result<SkillDoc, SkillError> {
         self.paths.ensure_base_dirs()?;
         let path = path.as_ref();
         let skill_path = if path.is_dir() {
@@ -84,11 +95,40 @@ impl SkillRegistry {
             estimated_tokens: estimate_tokens(&body),
             body,
             source_path: Some(skill_path),
-            provenance: None,
+            provenance: provenance
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
             quarantined: true,
         };
         self.write(&doc)?;
         Ok(doc)
+    }
+
+    pub fn import_openclaw_adapter_package(
+        &self,
+        package: &NormalizedPackage,
+    ) -> Result<SkillDoc, SkillError> {
+        if package.adapter != AdapterKind::OpenClawAgentSkills {
+            return Err(SkillError::InvalidAdapterPackage(format!(
+                "adapter package {} is {:?}, not openclaw_agent_skills",
+                package.id, package.adapter
+            )));
+        }
+        if !package
+            .capabilities
+            .iter()
+            .any(|capability| capability.kind == CapabilityKind::Skill)
+        {
+            return Err(SkillError::InvalidAdapterPackage(format!(
+                "adapter package {} does not declare a skill capability",
+                package.id
+            )));
+        }
+        let provenance = format!(
+            "adapter_package={}; adapter_kind=openclaw_agent_skills; adapter_digest={}",
+            package.id, package.digest
+        );
+        self.import_openclaw_with_provenance(&package.source, Some(provenance))
     }
 
     pub fn promote_agent_created_skill(
@@ -512,6 +552,58 @@ mod tests {
         assert_eq!(views[0].categories, doc.categories);
         assert_eq!(views[0].body.as_deref(), Some(doc.body.as_str()));
         assert_eq!(views[0].provenance.as_deref(), Some("profile=main"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn import_openclaw_adapter_package_writes_quarantined_skill_with_provenance() {
+        let dir = std::env::temp_dir().join(format!("skills-adapter-test-{}", std::process::id()));
+        let source = dir.join("source");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(
+            source.join("SKILL.md"),
+            "# Adapter Skill\ncategories: adapter, review\nUse adapter review.",
+        )
+        .unwrap();
+        let package = agent_adapters::inspect_source(&source).unwrap();
+        let registry = SkillRegistry::new(StoragePaths::new(dir.join("home")));
+        let doc = registry.import_openclaw_adapter_package(&package).unwrap();
+
+        assert_eq!(doc.id, "adapter-skill");
+        assert!(doc.quarantined);
+        assert_eq!(doc.categories, vec!["adapter", "review"]);
+        assert!(
+            doc.provenance
+                .as_deref()
+                .unwrap_or_default()
+                .contains(&format!("adapter_package={}", package.id))
+        );
+        assert!(registry.visible_skill_views().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn import_openclaw_adapter_package_rejects_non_skill_adapters() {
+        let dir =
+            std::env::temp_dir().join(format!("skills-adapter-reject-test-{}", std::process::id()));
+        let package = NormalizedPackage {
+            id: "mcp-demo".into(),
+            source: dir.join("mcp.json"),
+            adapter: AdapterKind::Mcp,
+            digest: "digest".into(),
+            quarantined: true,
+            capabilities: vec![],
+            permissions: Default::default(),
+            secret_requirements: vec![],
+            findings: vec![],
+            provenance: None,
+        };
+        let registry = SkillRegistry::new(StoragePaths::new(dir.join("home")));
+        let err = registry
+            .import_openclaw_adapter_package(&package)
+            .unwrap_err();
+
+        assert!(matches!(err, SkillError::InvalidAdapterPackage(_)));
         let _ = std::fs::remove_dir_all(dir);
     }
 

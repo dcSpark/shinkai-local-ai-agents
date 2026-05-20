@@ -3551,6 +3551,16 @@ async fn adapter_doctor() -> Result<AdapterDoctorReport, String> {
 }
 
 #[tauri::command]
+async fn adapter_install_skill(id: String) -> Result<SkillDoc, String> {
+    let package = AdapterRegistry::from_env()
+        .show(&id)
+        .map_err(|e| e.to_string())?;
+    SkillRegistry::from_env()
+        .import_openclaw_adapter_package(&package)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn adapter_show(id: String) -> Result<NormalizedPackage, String> {
     AdapterRegistry::from_env()
         .show(&id)
@@ -3820,6 +3830,7 @@ pub fn run() {
             adapter_import_manifest,
             adapter_list,
             adapter_doctor,
+            adapter_install_skill,
             adapter_show,
             adapter_export,
             adapter_allow,

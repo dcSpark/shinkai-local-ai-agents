@@ -4507,6 +4507,26 @@ pub async fn adapter_doctor(json: bool) -> anyhow::Result<()> {
     print_adapter_doctor_report(report, json)
 }
 
+pub async fn adapter_install_skill(id: String, json: bool) -> anyhow::Result<()> {
+    let package = AdapterRegistry::from_env().show(&id)?;
+    let skill = SkillRegistry::from_env().import_openclaw_adapter_package(&package)?;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "adapter": package,
+                "skill": skill
+            }))?
+        );
+    } else {
+        println!(
+            "installed adapter {} as quarantined skill {}",
+            package.id, skill.id
+        );
+    }
+    Ok(())
+}
+
 fn print_adapter_doctor_report(report: AdapterDoctorReport, json: bool) -> anyhow::Result<()> {
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
@@ -6056,6 +6076,13 @@ pub async fn remote_adapter_list(url: String) -> anyhow::Result<()> {
 
 pub async fn remote_adapter_doctor(url: String) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).get_json("/adapters/doctor")?)
+}
+
+pub async fn remote_adapter_install_skill(url: String, id: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        &format!("/adapters/{id}/install-skill"),
+        serde_json::json!({}),
+    )?)
 }
 
 pub async fn remote_adapter_import(url: String, path: String) -> anyhow::Result<()> {

@@ -266,6 +266,7 @@ dependencies = [
 name = "agent-skills"
 version = "0.1.0"
 dependencies = [
+ "agent-adapters",
  "agent-core",
  "agent-storage",
  "serde",

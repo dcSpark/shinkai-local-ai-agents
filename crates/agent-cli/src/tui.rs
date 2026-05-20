@@ -30,7 +30,7 @@ use tokio::time::MissedTickBehavior;
 use agent_adapters::{AdapterRegistry, NormalizedPackage};
 use agent_capabilities::{CapabilityDraft, CapabilityDraftStatus, CapabilityDraftStore};
 use agent_compaction::{CompactionRecord, CompactionStore};
-use agent_config::{ConfigResolver, configured_model_providers};
+use agent_config::{AgentSummary, ConfigResolver, configured_model_providers};
 use agent_conversations::{
     ConversationMessage, ConversationPolicy, ConversationStore, ConversationTreeNode,
     render_message_range,
@@ -463,6 +463,10 @@ fn handle_slash_command(
     }
     if let Some(rest) = models_slash_rest(trimmed) {
         handle_models_slash(app, rest);
+        return true;
+    }
+    if let Some(rest) = agents_slash_rest(trimmed) {
+        handle_agents_slash(app, rest);
         return true;
     }
     if let Some(rest) = prompts_slash_rest(trimmed) {
@@ -1706,6 +1710,14 @@ fn models_slash_rest(trimmed: &str) -> Option<&str> {
         Some("")
     } else {
         trimmed.strip_prefix("/models ").map(str::trim)
+    }
+}
+
+fn agents_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/agents" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/agents ").map(str::trim)
     }
 }
 
@@ -3201,6 +3213,190 @@ fn model_provider_summary(provider: &agent_config::ModelProviderDescriptor) -> s
         "local": provider.local,
         "native": provider.native,
         "option_schema_count": provider.option_schema.len(),
+    })
+}
+
+fn handle_agents_slash(app: &mut App, rest: &str) {
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "help" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: [
+                "/agents list",
+                "/agents show <id>",
+                "/agents export <id> <path>",
+                "/agents import <path>",
+                "/agents delete <id> --confirm",
+            ]
+            .join("\n"),
+        });
+        return;
+    }
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "list" => match ConfigResolver::from_env().list_agent_configs() {
+            Ok(agents) => {
+                push_event(app, format!("Loaded {} agent config(s).", agents.len()));
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(
+                        &agents.iter().map(agent_summary).collect::<Vec<_>>(),
+                    )
+                    .unwrap_or_else(|_| "<unserializable agent list>".into()),
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Agent list failed: {err}"),
+            }),
+        },
+        "show" => match first_agent_arg(args, "show") {
+            Ok(id) => match ConfigResolver::from_env().show_agent_config(id) {
+                Ok(Some(agent)) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&agent)
+                        .unwrap_or_else(|_| "<unserializable agent config>".into()),
+                }),
+                Ok(None) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Agent {id} not found."),
+                }),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Agent show failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "export" => match agent_export_args(args) {
+            Ok((id, path)) => match ConfigResolver::from_env().export_agent_config(id, path) {
+                Ok(agent) => push_event(app, format!("Exported agent {} to {path}", agent.id)),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Agent export failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "import" => match agent_path_arg(args, "import") {
+            Ok(path) => match ConfigResolver::from_env().import_agent_config(path) {
+                Ok(agent) => {
+                    push_event(app, format!("Imported agent {}", agent.id));
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&agent)
+                            .unwrap_or_else(|_| "<unserializable agent config>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Agent import failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "delete" | "rm" => match agent_delete_args(args) {
+            Ok((id, confirmed)) => {
+                if !confirmed {
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&serde_json::json!({
+                            "pending_action": "delete_agent",
+                            "agent_id": id,
+                            "confirm_command": format!("/agents delete {id} --confirm"),
+                        }))
+                        .unwrap_or_else(|_| "<unserializable agent confirmation>".into()),
+                    });
+                    return;
+                }
+                match ConfigResolver::from_env().delete_agent_config(id) {
+                    Ok(true) => push_event(app, format!("Deleted agent {id}.")),
+                    Ok(false) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Agent {id} not found."),
+                    }),
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Agent delete failed: {err}"),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Agents command needs list, show, export, import, delete, or help.".into(),
+        }),
+    }
+}
+
+fn first_agent_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    args.split_whitespace()
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("agents {command} needs an argument"))
+}
+
+fn agent_path_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    let mut parts = args.split_whitespace();
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("agents {command} needs a path"))?;
+    if parts.next().is_some() {
+        anyhow::bail!("agents {command} accepts exactly one path");
+    }
+    Ok(path)
+}
+
+fn agent_export_args(args: &str) -> anyhow::Result<(&str, &str)> {
+    let mut parts = args.split_whitespace();
+    let id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("agents export needs an agent id"))?;
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("agents export needs a path"))?;
+    if parts.next().is_some() {
+        anyhow::bail!("agents export accepts exactly an agent id and path");
+    }
+    Ok((id, path))
+}
+
+fn agent_delete_args(args: &str) -> anyhow::Result<(&str, bool)> {
+    let mut id = None;
+    let mut confirmed = false;
+    for part in args.split_whitespace() {
+        if part == "--confirm" {
+            confirmed = true;
+        } else if id.is_none() {
+            id = Some(part);
+        } else {
+            anyhow::bail!("agents delete accepts exactly an agent id and optional --confirm");
+        }
+    }
+    let id = id.ok_or_else(|| anyhow::anyhow!("agents delete needs an agent id"))?;
+    Ok((id, confirmed))
+}
+
+fn agent_summary(agent: &AgentSummary) -> serde_json::Value {
+    serde_json::json!({
+        "id": agent.id,
+        "name": agent.name,
+        "path": agent.path.display().to_string(),
     })
 }
 
@@ -5659,6 +5855,9 @@ mod tests {
         assert_eq!(models_slash_rest("/models providers"), Some("providers"));
         assert_eq!(models_slash_rest("/models"), Some(""));
         assert_eq!(models_slash_rest("/model"), None);
+        assert_eq!(agents_slash_rest("/agents list"), Some("list"));
+        assert_eq!(agents_slash_rest("/agents"), Some(""));
+        assert_eq!(agents_slash_rest("/agentz"), None);
         assert_eq!(prompts_slash_rest("/prompts list"), Some("list"));
         assert_eq!(prompts_slash_rest("/prompts"), Some(""));
         assert_eq!(prompts_slash_rest("/prompt"), None);
@@ -5740,6 +5939,29 @@ mod tests {
         );
         assert!(model_metadata_catalog_path_arg("", "export").is_err());
         assert!(model_metadata_catalog_path_arg("./metadata.json extra", "import").is_err());
+    }
+
+    #[test]
+    fn agent_args_require_expected_id_path_and_confirmation() {
+        assert_eq!(
+            agent_export_args("research ./agent.toml").unwrap(),
+            ("research", "./agent.toml")
+        );
+        assert!(agent_export_args("research").is_err());
+        assert!(agent_export_args("research ./agent.toml extra").is_err());
+        assert_eq!(
+            agent_path_arg("./agent.toml", "import").unwrap(),
+            "./agent.toml"
+        );
+        assert!(agent_path_arg("", "import").is_err());
+        assert!(agent_path_arg("./agent.toml extra", "import").is_err());
+        assert_eq!(agent_delete_args("research").unwrap(), ("research", false));
+        assert_eq!(
+            agent_delete_args("research --confirm").unwrap(),
+            ("research", true)
+        );
+        assert!(agent_delete_args("").is_err());
+        assert!(agent_delete_args("research critic --confirm").is_err());
     }
 
     #[test]

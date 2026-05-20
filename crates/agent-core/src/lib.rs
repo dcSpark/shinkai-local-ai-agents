@@ -2280,11 +2280,73 @@ impl Harness {
                 .execute_subagent(agent, scope, parent_event, tool_id, input)
                 .await;
         }
+        if let Some(child_agent_id) = self.external_agent_child_agent_id(tool_id) {
+            return self
+                .execute_external_agent_tool(scope, parent_event, tool_id, input, child_agent_id)
+                .await;
+        }
         let output = self
             .tools
             .execute(tool_id, input)
             .await
             .map_err(HarnessError::from)?;
+        Ok(ToolExecutionResult {
+            output,
+            cost_usd: None,
+        })
+    }
+
+    fn external_agent_child_agent_id(&self, tool_id: &ToolId) -> Option<String> {
+        let descriptor = self.tools.descriptor(tool_id)?;
+        descriptor
+            .categories
+            .iter()
+            .any(|category| category == "external-agent")
+            .then(|| format!("external-agent:{}", tool_id.0))
+    }
+
+    async fn execute_external_agent_tool(
+        &self,
+        scope: &RunScope,
+        parent_event: EventId,
+        tool_id: &ToolId,
+        input: Value,
+        child_agent_id: String,
+    ) -> Result<ToolExecutionResult, HarnessError> {
+        let child_run_id = RunId::new();
+        let child_link = self.events.append(
+            scope.run_id,
+            Some(parent_event),
+            RunEventKind::ChildRunStarted {
+                child_run_id,
+                agent_id: child_agent_id,
+            },
+        );
+
+        let output = match self.tools.execute(tool_id, input).await {
+            Ok(output) => output,
+            Err(err) => {
+                self.events.append(
+                    scope.run_id,
+                    Some(child_link.id),
+                    RunEventKind::ChildRunCompleted {
+                        child_run_id,
+                        status: "failed".into(),
+                    },
+                );
+                return Err(err.into());
+            }
+        };
+
+        self.events.append(
+            scope.run_id,
+            Some(child_link.id),
+            RunEventKind::ChildRunCompleted {
+                child_run_id,
+                status: "succeeded".into(),
+            },
+        );
+
         Ok(ToolExecutionResult {
             output,
             cost_usd: None,
@@ -4675,7 +4737,9 @@ mod tests {
     use super::*;
     use agent_llm::{FakeProvider, FakeStep, LlmResponse, LlmToolCall};
     use agent_tools::{FakeTool, SubagentTool, Tool, ToolDescriptor, ToolError, ToolPermissions};
-    use agent_tracing::{InMemoryEventStore, PublishingEventStore, latest_event_id};
+    use agent_tracing::{
+        InMemoryEventStore, PublishingEventStore, build_trace_tree, latest_event_id,
+    };
     use serde_json::json;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -4984,6 +5048,40 @@ mod tests {
         let mut reg = ToolRegistry::new();
         reg.register(echo_descriptor(), Arc::new(FakeTool::echo()));
         reg.register(SubagentTool::descriptor(), Arc::new(SubagentTool));
+        Arc::new(reg)
+    }
+
+    fn external_agent_descriptor(id: &str) -> ToolDescriptor {
+        ToolDescriptor {
+            id: ToolId::from(id),
+            name: "Remote Reviewer".into(),
+            description: "Calls a remote reviewer agent.".into(),
+            categories: vec![
+                "agent".into(),
+                "subagent".into(),
+                "external-agent".into(),
+                "a2a".into(),
+            ],
+            input_schema: json!({
+                "type": "object",
+                "required": ["prompt"],
+                "properties": {
+                    "prompt": { "type": "string" }
+                }
+            }),
+            output_interpretation_guidance: Some("Preserve the remote agent response.".into()),
+            permissions: ToolPermissions {
+                network: true,
+                ..ToolPermissions::default()
+            },
+            requires_approval: true,
+            provenance: Some("adapter:test".into()),
+        }
+    }
+
+    fn registry_with_external_agent(id: &str, runner: Arc<dyn Tool>) -> Arc<ToolRegistry> {
+        let mut reg = ToolRegistry::new();
+        reg.register(external_agent_descriptor(id), runner);
         Arc::new(reg)
     }
 
@@ -7070,6 +7168,126 @@ JSON
                 "RunCompleted",
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn external_agent_tool_emits_child_run_link_without_rewriting_output() {
+        let provider = FakeProvider::sequence(vec![
+            FakeStep::CallTool {
+                id: "remote-1".into(),
+                tool: "a2a-review".into(),
+                input: json!({"prompt": "review this"}),
+            },
+            FakeStep::Reply("parent output".into()),
+        ]);
+        let h = Harness::new(
+            Arc::new(provider),
+            Arc::new(InMemoryEventStore::new()),
+            registry_with_external_agent(
+                "a2a-review",
+                Arc::new(FakeTool::constant(json!({
+                    "remote_run_id": "remote-42",
+                    "status": "completed",
+                    "message": "reviewed"
+                }))),
+            ),
+        );
+
+        let result = h
+            .run(
+                &agent_with_tools(vec![], 5),
+                UserInput {
+                    text: "delegate remotely".into(),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(result.final_output, "parent output");
+        let parent_events = h.events(result.run_id);
+        let child_run_id = parent_events
+            .iter()
+            .find_map(|event| match &event.kind {
+                RunEventKind::ChildRunStarted {
+                    child_run_id,
+                    agent_id,
+                } if agent_id == "external-agent:a2a-review" => Some(*child_run_id),
+                _ => None,
+            })
+            .expect("external-agent tool call should link a child run");
+        assert!(parent_events.iter().any(|event| matches!(
+            event.kind,
+            RunEventKind::ChildRunCompleted {
+                child_run_id: id,
+                ref status,
+            } if id == child_run_id && status == "succeeded"
+        )));
+        assert!(parent_events.iter().any(|event| matches!(
+            &event.kind,
+            RunEventKind::ToolCallCompleted { output, .. }
+                if output["remote_run_id"].as_str() == Some("remote-42")
+                    && output["status"].as_str() == Some("completed")
+                    && output.get("child_run_id").is_none()
+        )));
+        assert!(h.events(child_run_id).is_empty());
+
+        let tree = build_trace_tree(result.run_id, |run_id| Ok::<_, ()>(h.events(run_id))).unwrap();
+        assert_eq!(tree.children.len(), 1);
+        let child = &tree.children[0];
+        assert_eq!(child.run_id, child_run_id);
+        assert_eq!(child.agent_id.as_deref(), Some("external-agent:a2a-review"));
+        assert_eq!(child.status, "succeeded");
+        assert_eq!(child.link_status.as_deref(), Some("succeeded"));
+        assert!(!child.trace_available);
+    }
+
+    #[tokio::test]
+    async fn external_agent_tool_marks_child_run_link_failed_when_call_fails() {
+        let provider = FakeProvider::sequence(vec![FakeStep::CallTool {
+            id: "remote-1".into(),
+            tool: "a2a-review".into(),
+            input: json!({"prompt": "review this"}),
+        }]);
+        let store = Arc::new(CapturingEventStore::new());
+        let h = Harness::new(
+            Arc::new(provider),
+            store.clone(),
+            registry_with_external_agent(
+                "a2a-review",
+                Arc::new(FakeTool::failing("remote agent unavailable")),
+            ),
+        );
+
+        let err = h
+            .run(
+                &agent_with_tools(vec![], 5),
+                UserInput {
+                    text: "delegate remotely".into(),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("remote agent unavailable"));
+
+        let run_id = store.latest_run_id().expect("run id should be captured");
+        let parent_events = h.events(run_id);
+        let child_run_id = parent_events
+            .iter()
+            .find_map(|event| match &event.kind {
+                RunEventKind::ChildRunStarted {
+                    child_run_id,
+                    agent_id,
+                } if agent_id == "external-agent:a2a-review" => Some(*child_run_id),
+                _ => None,
+            })
+            .expect("external-agent tool call should link a child run");
+        assert!(parent_events.iter().any(|event| matches!(
+            event.kind,
+            RunEventKind::ChildRunCompleted {
+                child_run_id: id,
+                ref status,
+            } if id == child_run_id && status == "failed"
+        )));
     }
 
     #[tokio::test]

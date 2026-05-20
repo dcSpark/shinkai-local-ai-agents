@@ -41,7 +41,7 @@ use agent_memory::{
     MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget,
     supported_backends as supported_memory_backends,
 };
-use agent_prompts::{PromptStore, is_valid_prompt_name};
+use agent_prompts::{PromptDoc, PromptStore, is_valid_prompt_name};
 use agent_skills::{SkillDoc, SkillRegistry};
 use agent_storage::StoragePaths;
 use agent_tools::{
@@ -463,6 +463,10 @@ fn handle_slash_command(
     }
     if let Some(rest) = models_slash_rest(trimmed) {
         handle_models_slash(app, rest);
+        return true;
+    }
+    if let Some(rest) = prompts_slash_rest(trimmed) {
+        handle_prompts_slash(app, rest);
         return true;
     }
     if let Some(rest) = skills_slash_rest(trimmed) {
@@ -1718,6 +1722,14 @@ fn skills_slash_rest(trimmed: &str) -> Option<&str> {
         Some("")
     } else {
         trimmed.strip_prefix("/skills ").map(str::trim)
+    }
+}
+
+fn prompts_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/prompts" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/prompts ").map(str::trim)
     }
 }
 
@@ -3189,6 +3201,249 @@ fn model_provider_summary(provider: &agent_config::ModelProviderDescriptor) -> s
         "local": provider.local,
         "native": provider.native,
         "option_schema_count": provider.option_schema.len(),
+    })
+}
+
+fn handle_prompts_slash(app: &mut App, rest: &str) {
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "help" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: [
+                "/prompts list [--agent <agent>]",
+                "/prompts show <name> [--agent <agent>]",
+                "/prompts save <name> [--agent <agent>] <text>",
+                "/prompts delete <name> [--agent <agent>] --confirm",
+            ]
+            .join("\n"),
+        });
+        return;
+    }
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "list" => match prompt_agent_arg(args, "list") {
+            Ok(agent) => match PromptStore::from_env().list_scoped(agent.as_deref()) {
+                Ok(prompts) => {
+                    push_event(app, format!("Loaded {} prompt(s).", prompts.len()));
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(
+                            &prompts.iter().map(prompt_summary).collect::<Vec<_>>(),
+                        )
+                        .unwrap_or_else(|_| "<unserializable prompt list>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Prompt list failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "show" => match prompt_named_args(args, "show") {
+            Ok((name, agent)) => match PromptStore::from_env().get_scoped(agent.as_deref(), name) {
+                Ok(Some(prompt)) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&prompt)
+                        .unwrap_or_else(|_| "<unserializable prompt>".into()),
+                }),
+                Ok(None) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Prompt {name:?} not found."),
+                }),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Prompt show failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "save" => match prompt_save_args(args) {
+            Ok((name, agent, text)) => {
+                match PromptStore::from_env().save_scoped(agent.as_deref(), name, &text) {
+                    Ok(prompt) => {
+                        push_event(app, format!("Saved prompt {}.", prompt.name));
+                        app.transcript.push(TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&prompt_summary(&prompt))
+                                .unwrap_or_else(|_| "<unserializable prompt>".into()),
+                        });
+                    }
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Prompt save failed: {err}"),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "delete" => match prompt_delete_args(args) {
+            Ok((name, agent, confirmed)) => {
+                if !confirmed {
+                    let agent_flag = agent
+                        .as_ref()
+                        .map(|agent| format!(" --agent {agent}"))
+                        .unwrap_or_default();
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&serde_json::json!({
+                            "pending_action": "delete_prompt",
+                            "name": name,
+                            "agent": agent,
+                            "confirm_command": format!("/prompts delete {name}{agent_flag} --confirm"),
+                        }))
+                        .unwrap_or_else(|_| "<unserializable prompt confirmation>".into()),
+                    });
+                    return;
+                }
+                match PromptStore::from_env().delete_scoped(agent.as_deref(), name) {
+                    Ok(true) => push_event(app, format!("Deleted prompt {name}.")),
+                    Ok(false) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Prompt {name:?} not found."),
+                    }),
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Prompt delete failed: {err}"),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Prompts command needs list, show, save, delete, or help.".into(),
+        }),
+    }
+}
+
+fn prompt_agent_arg(args: &str, command: &str) -> anyhow::Result<Option<String>> {
+    let mut parts = args.split_whitespace();
+    let mut agent = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--agent" => agent = Some(next_prompt_option_value(&mut parts, "--agent")?.to_string()),
+            value if value.starts_with("--agent=") => {
+                agent = Some(value.trim_start_matches("--agent=").to_string());
+            }
+            other => anyhow::bail!("prompts {command} received unexpected argument: {other}"),
+        }
+    }
+    Ok(agent)
+}
+
+fn prompt_named_args<'a>(
+    args: &'a str,
+    command: &str,
+) -> anyhow::Result<(&'a str, Option<String>)> {
+    let mut parts = args.split_whitespace();
+    let name = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("prompts {command} needs a prompt name"))?;
+    let mut agent = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--agent" => agent = Some(next_prompt_option_value(&mut parts, "--agent")?.to_string()),
+            value if value.starts_with("--agent=") => {
+                agent = Some(value.trim_start_matches("--agent=").to_string());
+            }
+            other => anyhow::bail!("prompts {command} received unexpected argument: {other}"),
+        }
+    }
+    Ok((name, agent))
+}
+
+fn prompt_save_args(args: &str) -> anyhow::Result<(&str, Option<String>, String)> {
+    let mut parts = args.split_whitespace();
+    let name = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("prompts save needs a prompt name"))?;
+    let mut agent = None;
+    let mut text_parts = Vec::new();
+    while let Some(part) = parts.next() {
+        match part {
+            "--agent" if text_parts.is_empty() => {
+                agent = Some(next_prompt_option_value(&mut parts, "--agent")?.to_string());
+            }
+            value if value.starts_with("--agent=") && text_parts.is_empty() => {
+                agent = Some(value.trim_start_matches("--agent=").to_string());
+            }
+            value if value.starts_with("--") && text_parts.is_empty() => {
+                anyhow::bail!("prompts save received unexpected argument: {value}");
+            }
+            value => {
+                text_parts.push(value);
+                text_parts.extend(parts);
+                break;
+            }
+        }
+    }
+    let text = text_parts.join(" ");
+    let text = text.trim();
+    if text.is_empty() {
+        anyhow::bail!("prompts save needs prompt text");
+    }
+    Ok((name, agent, text.to_string()))
+}
+
+fn prompt_delete_args(args: &str) -> anyhow::Result<(&str, Option<String>, bool)> {
+    let (name, agent, confirmed) = prompt_named_confirm_args(args, "delete")?;
+    Ok((name, agent, confirmed))
+}
+
+fn prompt_named_confirm_args<'a>(
+    args: &'a str,
+    command: &str,
+) -> anyhow::Result<(&'a str, Option<String>, bool)> {
+    let mut parts = args.split_whitespace();
+    let name = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("prompts {command} needs a prompt name"))?;
+    let mut agent = None;
+    let mut confirmed = false;
+    while let Some(part) = parts.next() {
+        match part {
+            "--confirm" => confirmed = true,
+            "--agent" => agent = Some(next_prompt_option_value(&mut parts, "--agent")?.to_string()),
+            value if value.starts_with("--agent=") => {
+                agent = Some(value.trim_start_matches("--agent=").to_string());
+            }
+            other => anyhow::bail!("prompts {command} received unexpected argument: {other}"),
+        }
+    }
+    Ok((name, agent, confirmed))
+}
+
+fn next_prompt_option_value<'a>(
+    parts: &mut impl Iterator<Item = &'a str>,
+    flag: &str,
+) -> anyhow::Result<&'a str> {
+    parts
+        .next()
+        .filter(|value| !value.starts_with("--"))
+        .ok_or_else(|| anyhow::anyhow!("{flag} needs a value"))
+}
+
+fn prompt_summary(prompt: &PromptDoc) -> serde_json::Value {
+    serde_json::json!({
+        "name": prompt.name,
+        "agent_id": prompt.agent_id,
+        "body_preview": compact_preview(&prompt.body, 160),
     })
 }
 
@@ -5404,6 +5659,9 @@ mod tests {
         assert_eq!(models_slash_rest("/models providers"), Some("providers"));
         assert_eq!(models_slash_rest("/models"), Some(""));
         assert_eq!(models_slash_rest("/model"), None);
+        assert_eq!(prompts_slash_rest("/prompts list"), Some("list"));
+        assert_eq!(prompts_slash_rest("/prompts"), Some(""));
+        assert_eq!(prompts_slash_rest("/prompt"), None);
         assert_eq!(skills_slash_rest("/skills list"), Some("list"));
         assert_eq!(skills_slash_rest("/skills"), Some(""));
         assert_eq!(skills_slash_rest("/skill"), None);
@@ -5482,6 +5740,40 @@ mod tests {
         );
         assert!(model_metadata_catalog_path_arg("", "export").is_err());
         assert!(model_metadata_catalog_path_arg("./metadata.json extra", "import").is_err());
+    }
+
+    #[test]
+    fn prompt_args_accept_agent_scope_text_and_confirmation() {
+        assert_eq!(prompt_agent_arg("", "list").unwrap(), None);
+        assert_eq!(
+            prompt_agent_arg("--agent research", "list")
+                .unwrap()
+                .as_deref(),
+            Some("research")
+        );
+        assert!(prompt_agent_arg("extra", "list").is_err());
+
+        assert_eq!(
+            prompt_named_args("daily --agent=research", "show").unwrap(),
+            ("daily", Some("research".to_string()))
+        );
+        assert!(prompt_named_args("", "show").is_err());
+
+        let (name, agent, text) =
+            prompt_save_args("daily --agent research summarize the latest notes").unwrap();
+        assert_eq!(name, "daily");
+        assert_eq!(agent.as_deref(), Some("research"));
+        assert_eq!(text, "summarize the latest notes");
+        assert!(prompt_save_args("daily --agent").is_err());
+        assert!(prompt_save_args("daily").is_err());
+
+        assert_eq!(
+            prompt_delete_args("daily --agent research --confirm").unwrap(),
+            ("daily", Some("research".to_string()), true)
+        );
+        assert_eq!(prompt_delete_args("daily").unwrap(), ("daily", None, false));
+        assert!(prompt_delete_args("").is_err());
+        assert!(prompt_delete_args("daily extra").is_err());
     }
 
     #[test]

@@ -2,7 +2,7 @@
 //!
 //! v0 ships the [`Tool`] trait, an in-memory [`ToolRegistry`], and a
 //! deterministic [`FakeTool`] for tests/demos. It also includes native shell
-//! execution, stdio/HTTP MCP wrappers, secret-handle env resolution, and
+//! execution, stdio/HTTP MCP wrappers, secret-handle env/header resolution, and
 //! minimal process environment scrubbing. Stronger OS isolation and future
 //! runtime variants such as Wasm continue to land in later slices.
 
@@ -3757,16 +3757,7 @@ impl McpServerTool {
     }
 
     fn resolve_env_value(&self, value: &str) -> Result<String, ToolError> {
-        if !value.trim().starts_with("secret://") {
-            return Ok(value.to_string());
-        }
-        let handle = value
-            .parse::<SecretHandle>()
-            .map_err(|err| ToolError::InvalidInput(format!("invalid secret handle: {err}")))?;
-        let secret = self.secret_store.resolve(&handle).map_err(|err| {
-            ToolError::Execution(format!("failed to resolve secret handle: {err}"))
-        })?;
-        Ok(secret.expose().to_string())
+        resolve_secret_value(self.secret_store.as_ref(), value)
     }
 }
 
@@ -3845,11 +3836,22 @@ pub struct ExternalAgentSpec {
 
 pub struct ExternalAgentTool {
     spec: ExternalAgentSpec,
+    secret_store: Arc<dyn SecretStore>,
 }
 
 impl ExternalAgentTool {
     pub fn new(spec: ExternalAgentSpec) -> Self {
-        Self { spec }
+        Self {
+            spec,
+            secret_store: default_secret_store(),
+        }
+    }
+
+    pub fn new_with_secret_store(
+        spec: ExternalAgentSpec,
+        secret_store: Arc<dyn SecretStore>,
+    ) -> Self {
+        Self { spec, secret_store }
     }
 
     pub fn descriptor(spec: &ExternalAgentSpec) -> ToolDescriptor {
@@ -3975,6 +3977,18 @@ impl ExternalAgentTool {
             provenance: None,
         }
     }
+
+    fn resolved_headers(
+        &self,
+        headers: Vec<(String, String)>,
+    ) -> Result<Vec<(String, String)>, ToolError> {
+        headers
+            .into_iter()
+            .map(|(key, value)| {
+                resolve_secret_value(self.secret_store.as_ref(), &value).map(|value| (key, value))
+            })
+            .collect()
+    }
 }
 
 #[async_trait]
@@ -3986,6 +4000,7 @@ impl Tool for ExternalAgentTool {
         } else {
             external_agent_http_json_call_input(&input)?
         };
+        let headers = self.resolved_headers(headers)?;
         let client = reqwest::Client::builder()
             .timeout(Duration::from_millis(timeout_ms))
             .build()
@@ -4036,6 +4051,19 @@ fn external_agent_transport_is_a2a(transport: &str) -> bool {
 
 fn external_agent_transport_label(a2a: bool) -> &'static str {
     if a2a { "A2A" } else { "external agent" }
+}
+
+fn resolve_secret_value(secret_store: &dyn SecretStore, value: &str) -> Result<String, ToolError> {
+    if !value.trim().starts_with("secret://") {
+        return Ok(value.to_string());
+    }
+    let handle = value
+        .parse::<SecretHandle>()
+        .map_err(|err| ToolError::InvalidInput(format!("invalid secret handle: {err}")))?;
+    let secret = secret_store
+        .resolve(&handle)
+        .map_err(|err| ToolError::Execution(format!("failed to resolve secret handle: {err}")))?;
+    Ok(secret.expose().to_string())
 }
 
 fn external_agent_a2a_call_input(
@@ -5662,6 +5690,16 @@ done
 
     #[tokio::test]
     async fn a2a_external_agent_tool_posts_message_send() {
+        let dir = temp_dir("a2a-external-secret-header");
+        std::fs::create_dir_all(&dir).unwrap();
+        let secret_store = Arc::new(FileSecretStore::new(dir.join("secrets.json")));
+        let header_handle = secret_store
+            .set(
+                SecretId::new("a2a.authorization").unwrap(),
+                SecretValue::new("Bearer test-token"),
+                Some("A2A authorization header".into()),
+            )
+            .unwrap();
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let addr = listener.local_addr().unwrap();
         let server = std::thread::spawn(move || {
@@ -5685,24 +5723,27 @@ done
                 r#"{"jsonrpc":"2.0","id":1,"result":{"taskId":"task-1","status":{"state":"completed"},"artifacts":[{"parts":[{"kind":"text","text":"done"}]}]}}"#,
             );
         });
-        let tool = ExternalAgentTool::new(ExternalAgentSpec {
-            id: ToolId::from("a2a-reviewer"),
-            name: "External agent: Reviewer".into(),
-            description: "Remote review agent".into(),
-            transport: "a2a".into(),
-            endpoint: format!("http://{addr}/a2a"),
-            input_modes: vec!["text/plain".into()],
-            output_modes: vec!["text/plain".into()],
-            auth_schemes: vec!["bearerAuth".into()],
-            header_keys: Vec::new(),
-        });
+        let tool = ExternalAgentTool::new_with_secret_store(
+            ExternalAgentSpec {
+                id: ToolId::from("a2a-reviewer"),
+                name: "External agent: Reviewer".into(),
+                description: "Remote review agent".into(),
+                transport: "a2a".into(),
+                endpoint: format!("http://{addr}/a2a"),
+                input_modes: vec!["text/plain".into()],
+                output_modes: vec!["text/plain".into()],
+                auth_schemes: vec!["bearerAuth".into()],
+                header_keys: vec!["Authorization".into()],
+            },
+            secret_store,
+        );
 
         let output = tool
             .execute(json!({
                 "prompt": "review this",
                 "context_id": "ctx-1",
                 "metadata": { "priority": "high" },
-                "headers": { "Authorization": "Bearer test-token" },
+                "headers": { "Authorization": header_handle.to_string() },
                 "timeout_ms": 5_000
             }))
             .await
@@ -5711,6 +5752,7 @@ done
         assert_eq!(output["taskId"], "task-1");
         assert_eq!(output["status"]["state"], "completed");
         server.join().unwrap();
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]

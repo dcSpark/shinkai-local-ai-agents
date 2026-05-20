@@ -263,13 +263,13 @@ fn handle_terminal_event(
                 return;
             }
             if app.state == AppState::Running {
-                if is_mid_run_guidance_command(trimmed) {
+                if is_mid_run_control_command(trimmed) {
                     let prompt = std::mem::take(&mut app.input);
                     handle_slash_command(app, &prompt, demo, registry, agent, publish_tx, options);
                 } else {
                     app.transcript.push(TranscriptLine {
                         kind: LineKind::Error,
-                        text: "Run in progress. Use /guide <text> for mid-run guidance.".into(),
+                        text: "Run in progress. Use /guide <text> or /stop [reason].".into(),
                     });
                 }
                 return;
@@ -530,6 +530,22 @@ fn handle_slash_command(
                 text: format!("Guide failed: {err}"),
             }),
         }
+        return true;
+    }
+    if let Some(reason) = stop_slash_rest(trimmed) {
+        if app.state != AppState::Running {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: "No active run to stop.".into(),
+            });
+            return true;
+        }
+        let reason = if reason.trim().is_empty() {
+            "user requested stop"
+        } else {
+            reason.trim()
+        };
+        stop_active_run(app, reason);
         return true;
     }
     false
@@ -2419,8 +2435,16 @@ fn guide_slash_rest(trimmed: &str) -> Option<&str> {
     }
 }
 
-fn is_mid_run_guidance_command(trimmed: &str) -> bool {
-    guide_slash_rest(trimmed).is_some()
+fn stop_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/stop" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/stop ").map(str::trim)
+    }
+}
+
+fn is_mid_run_control_command(trimmed: &str) -> bool {
+    guide_slash_rest(trimmed).is_some() || stop_slash_rest(trimmed).is_some()
 }
 
 fn start_manual_tool_call(
@@ -3326,6 +3350,12 @@ mod tests {
         assert_eq!(score_slash_rest("/score 7"), Some("7"));
         assert_eq!(score_slash_rest("/score"), Some(""));
         assert_eq!(score_slash_rest("/scoreboard 7"), None);
+        assert_eq!(
+            stop_slash_rest("/stop changed my mind"),
+            Some("changed my mind")
+        );
+        assert_eq!(stop_slash_rest("/stop"), Some(""));
+        assert_eq!(stop_slash_rest("/stopped"), None);
         assert_eq!(preview_slash_rest("/preview hello"), Some("hello"));
         assert_eq!(preview_slash_rest("/preview"), Some(""));
         assert_eq!(preview_slash_rest("/previewer hello"), None);
@@ -3616,13 +3646,15 @@ mod tests {
     }
 
     #[test]
-    fn only_guide_slash_is_allowed_while_running() {
-        assert!(is_mid_run_guidance_command("/guide steer this run"));
-        assert!(is_mid_run_guidance_command("/guide"));
-        assert!(!is_mid_run_guidance_command("/score 8"));
-        assert!(!is_mid_run_guidance_command("/tool!echo {}"));
-        assert!(!is_mid_run_guidance_command("/guidance"));
-        assert!(!is_mid_run_guidance_command("normal prompt"));
+    fn only_mid_run_control_slash_commands_are_allowed_while_running() {
+        assert!(is_mid_run_control_command("/guide steer this run"));
+        assert!(is_mid_run_control_command("/guide"));
+        assert!(is_mid_run_control_command("/stop changed my mind"));
+        assert!(is_mid_run_control_command("/stop"));
+        assert!(!is_mid_run_control_command("/score 8"));
+        assert!(!is_mid_run_control_command("/tool!echo {}"));
+        assert!(!is_mid_run_control_command("/guidance"));
+        assert!(!is_mid_run_control_command("normal prompt"));
     }
 
     #[test]

@@ -231,6 +231,27 @@ interface ApprovalRecord {
   status: string;
   approved?: boolean | null;
   delegated_controller?: string | null;
+  assessment?: ApprovalAssessment | null;
+}
+
+interface ApprovalAssessment {
+  approval_id: string;
+  controller_agent: string;
+  status: string;
+  scope: string[];
+  reason: string;
+  model?: string | null;
+  recommendation?: string | null;
+  model_output?: string | null;
+  tokens_in: number;
+  tokens_out: number;
+  duration_ms: number;
+}
+
+interface ApprovalAssessResult {
+  run_id: string;
+  event_id: number;
+  assessment: ApprovalAssessment;
 }
 
 interface StorageBucket {
@@ -691,6 +712,8 @@ export default function App() {
             approval_id: k.approval_id,
             action: k.action,
             reason: k.reason,
+            controller_agent: k.controller_agent ?? null,
+            controller_scope: k.controller_scope ?? [],
             status: "pending",
             approved: null,
           }),
@@ -705,6 +728,8 @@ export default function App() {
                   ...approval,
                   status: k.approved ? "approved" : "rejected",
                   approved: k.approved,
+                  delegated_controller:
+                    k.delegated_controller ?? approval.delegated_controller,
                 }
               : approval,
           ),
@@ -713,6 +738,27 @@ export default function App() {
           `Approval resolved [${k.approval_id}] approved=${String(k.approved)}`,
         );
         return;
+      case "ApprovalControllerAssessed": {
+        const assessment: ApprovalAssessment = {
+          approval_id: k.approval_id,
+          controller_agent: k.controller_agent,
+          status: "assessed",
+          scope: k.scope,
+          reason: k.summary,
+          model: k.model,
+          recommendation: k.recommendation,
+          tokens_in: k.tokens_in,
+          tokens_out: k.tokens_out,
+          duration_ms: k.duration_ms,
+        };
+        setApprovals((items) =>
+          upsertApprovalAssessment(items, k.approval_id, assessment),
+        );
+        appendEvent(
+          `Approval assessed [${k.approval_id}] by ${k.controller_agent}: ${k.recommendation}`,
+        );
+        return;
+      }
       case "GuidanceInjected":
         appendEvent(`Guidance injected: ${k.content}`);
         return;
@@ -1667,6 +1713,19 @@ export default function App() {
               ? "The gated action was approved."
               : "The gated action was rejected.",
             tone: kind.approved ? "ok" : "danger",
+          };
+        case "ApprovalControllerAssessed":
+          return {
+            id: event.id,
+            title: "Approval assessed",
+            meta: `${at} / ${kind.controller_agent} / ${kind.recommendation}`,
+            detail: previewText(kind.summary, 180),
+            tone:
+              kind.recommendation === "approve"
+                ? "ok"
+                : kind.recommendation === "reject"
+                  ? "danger"
+                  : "warning",
           };
         case "GuidanceInjected":
           return {
@@ -4892,6 +4951,36 @@ export default function App() {
     }
   }
 
+  async function assessApproval(approvalId: string) {
+    if (!lastRunId) return;
+    const controllerAgent = approvalControllerAgent.trim() || undefined;
+    try {
+      const result =
+        transport === "daemon"
+          ? await daemonJson<ApprovalAssessResult>(
+              `/approvals/${lastRunId}/${approvalId}/assess`,
+              { controller_agent: controllerAgent },
+            )
+          : await invoke<ApprovalAssessResult>("approval_assess", {
+              runId: lastRunId,
+              approvalId,
+              controllerAgent,
+            });
+      setApprovals((items) =>
+        upsertApprovalAssessment(items, approvalId, result.assessment),
+      );
+      appendEvent(
+        `Approval assessment [${approvalId}] ${result.assessment.recommendation ?? result.assessment.status}`,
+      );
+      appendJson("Approval assessment", result);
+      const events = await fetchTraceEvents(lastRunId);
+      applyTraceEvents(events);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Approval assessment failed: ${msg}`);
+    }
+  }
+
   async function decideApproval(approvalId: string, approved: boolean) {
     if (!lastRunId) return;
     const unlock = approved && approvalUnlock ? approvalUnlock : undefined;
@@ -6902,6 +6991,31 @@ export default function App() {
   function upsertApproval(records: ApprovalRecord[], record: ApprovalRecord) {
     const rest = records.filter((item) => item.approval_id !== record.approval_id);
     return [record, ...rest];
+  }
+
+  function upsertApprovalAssessment(
+    records: ApprovalRecord[],
+    approvalId: string,
+    assessment: ApprovalAssessment,
+  ) {
+    if (records.some((item) => item.approval_id === approvalId)) {
+      return records.map((item) =>
+        item.approval_id === approvalId ? { ...item, assessment } : item,
+      );
+    }
+    return [
+      {
+        approval_id: approvalId,
+        action: null,
+        reason: assessment.reason,
+        controller_agent: assessment.controller_agent,
+        controller_scope: assessment.scope,
+        status: "pending",
+        approved: null,
+        assessment,
+      },
+      ...records,
+    ];
   }
 
   function defaultCompactionPath(id: string) {
@@ -11152,7 +11266,26 @@ export default function App() {
                     {approval.delegated_controller ? (
                       <p>delegated by {approval.delegated_controller}</p>
                     ) : null}
+                    {approval.assessment ? (
+                      <p>
+                        assessment{" "}
+                        {approval.assessment.recommendation ??
+                          approval.assessment.status}{" "}
+                        by {approval.assessment.controller_agent}
+                        {approval.assessment.model
+                          ? ` via ${approval.assessment.model}`
+                          : ""}
+                      </p>
+                    ) : null}
                     <div className="mini-actions">
+                      <button
+                        type="button"
+                        title="Ask the delegated controller agent to assess this approval."
+                        onClick={() => void assessApproval(approval.approval_id)}
+                        disabled={running || approval.status !== "pending"}
+                      >
+                        Assess
+                      </button>
                       <button
                         type="button"
                         title="Approve and execute this pending action."

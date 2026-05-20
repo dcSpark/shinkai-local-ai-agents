@@ -74,8 +74,27 @@ export type RunEventKind =
       approval_id: string;
       action: string;
       reason: string;
+      controller_agent?: string | null;
+      controller_scope?: string[];
     }
-  | { type: "ApprovalResolved"; approval_id: string; approved: boolean }
+  | {
+      type: "ApprovalResolved";
+      approval_id: string;
+      approved: boolean;
+      delegated_controller?: string | null;
+    }
+  | {
+      type: "ApprovalControllerAssessed";
+      approval_id: string;
+      controller_agent: string;
+      scope: string[];
+      model: string;
+      recommendation: string;
+      summary: string;
+      tokens_in: number;
+      tokens_out: number;
+      duration_ms: number;
+    }
   | { type: "GuidanceInjected"; content: string }
   | { type: "QualityScored"; target: string; score: number }
   | { type: "MemoryLoaded"; ids: string[] }

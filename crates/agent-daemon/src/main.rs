@@ -19,7 +19,8 @@ use agent_core::{
     AgentConfig, ApprovalMode, ConfigValueExplanation, CostPolicy, ExecutionPolicy, Harness,
     HarnessApi, HookTrigger, IngestedArtifactView, MemoryFragment, PromptRefinement,
     RunHookHandler, RunLifecycleHook, RunResult, SkillView, ToolOutputMode, ToolPolicy, UserInput,
-    VisibilityLevel, VoiceConfig, verify_configured_approval_unlock,
+    VisibilityLevel, VoiceConfig, verify_configured_approval_signature,
+    verify_configured_approval_unlock,
 };
 use agent_ingest::{
     IngestionArtifact, IngestionFindingReviewDecision, IngestionModelCall, IngestionStore,
@@ -3033,6 +3034,11 @@ async fn daemon_approval_route(path: &str, body: &str) -> anyhow::Result<serde_j
             let input: ApprovalDecisionInput = serde_json::from_str(body)?;
             if input.approved {
                 verify_configured_approval_unlock(input.unlock.as_deref())?;
+                verify_configured_approval_signature(
+                    &run_id.0.to_string(),
+                    &approval_id,
+                    input.signature.as_deref(),
+                )?;
             }
             open_event_store()?.append(
                 run_id,
@@ -3050,7 +3056,13 @@ async fn daemon_approval_route(path: &str, body: &str) -> anyhow::Result<serde_j
         }
         "execute" => {
             let input: ApprovalExecuteInput = serde_json::from_str(body)?;
-            execute_approved_tool(run_id, &approval_id, input.unlock.as_deref()).await
+            execute_approved_tool(
+                run_id,
+                &approval_id,
+                input.unlock.as_deref(),
+                input.signature.as_deref(),
+            )
+            .await
         }
         _ => anyhow::bail!("unknown approval action"),
     }
@@ -3060,8 +3072,10 @@ async fn execute_approved_tool(
     run_id: RunId,
     approval_id: &str,
     unlock: Option<&str>,
+    signature: Option<&str>,
 ) -> anyhow::Result<serde_json::Value> {
     verify_configured_approval_unlock(unlock)?;
+    verify_configured_approval_signature(&run_id.0.to_string(), approval_id, signature)?;
     let store = open_event_store()?;
     let events = store.try_events(run_id)?;
     let approved = events.iter().rev().find_map(|event| match &event.kind {
@@ -4252,12 +4266,15 @@ struct ScoreInput {
 struct ApprovalDecisionInput {
     approved: bool,
     unlock: Option<String>,
+    signature: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
 struct ApprovalExecuteInput {
     #[serde(default)]
     unlock: Option<String>,
+    #[serde(default)]
+    signature: Option<String>,
 }
 
 #[derive(serde::Deserialize)]

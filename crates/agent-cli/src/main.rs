@@ -613,6 +613,10 @@ enum ApprovalCommand {
         /// Read the approval unlock secret from this environment variable.
         #[arg(long = "unlock-env", value_name = "ENV")]
         unlock_env: Option<String>,
+
+        /// Read the approval HMAC signature from this environment variable.
+        #[arg(long = "signature-env", value_name = "ENV")]
+        signature_env: Option<String>,
     },
     /// Approve an approval request without executing it.
     Approve {
@@ -625,6 +629,10 @@ enum ApprovalCommand {
         /// Read the approval unlock secret from this environment variable.
         #[arg(long = "unlock-env", value_name = "ENV")]
         unlock_env: Option<String>,
+
+        /// Read the approval HMAC signature from this environment variable.
+        #[arg(long = "signature-env", value_name = "ENV")]
+        signature_env: Option<String>,
     },
     /// Reject an approval request without executing it.
     Reject {
@@ -649,6 +657,10 @@ enum ApprovalCommand {
         /// Read the approval unlock secret from this environment variable.
         #[arg(long = "unlock-env", value_name = "ENV")]
         unlock_env: Option<String>,
+
+        /// Read the approval HMAC signature from this environment variable.
+        #[arg(long = "signature-env", value_name = "ENV")]
+        signature_env: Option<String>,
     },
 }
 
@@ -2195,12 +2207,16 @@ enum RemoteApprovalCommand {
         approve: bool,
         #[arg(long = "unlock-env", value_name = "ENV")]
         unlock_env: Option<String>,
+        #[arg(long = "signature-env", value_name = "ENV")]
+        signature_env: Option<String>,
     },
     Approve {
         run_id: String,
         approval_id: String,
         #[arg(long = "unlock-env", value_name = "ENV")]
         unlock_env: Option<String>,
+        #[arg(long = "signature-env", value_name = "ENV")]
+        signature_env: Option<String>,
     },
     Reject {
         run_id: String,
@@ -2211,6 +2227,8 @@ enum RemoteApprovalCommand {
         approval_id: String,
         #[arg(long = "unlock-env", value_name = "ENV")]
         unlock_env: Option<String>,
+        #[arg(long = "signature-env", value_name = "ENV")]
+        signature_env: Option<String>,
     },
 }
 
@@ -4203,22 +4221,34 @@ async fn main() -> anyhow::Result<()> {
                 approval_id,
                 approve,
                 unlock_env,
-            } => headless::approval_decide(run_id, approval_id, approve, unlock_env).await,
+                signature_env,
+            } => {
+                headless::approval_decide(run_id, approval_id, approve, unlock_env, signature_env)
+                    .await
+            }
             ApprovalCommand::Approve {
                 run_id,
                 approval_id,
                 unlock_env,
-            } => headless::approval_decide(run_id, approval_id, true, unlock_env).await,
+                signature_env,
+            } => {
+                headless::approval_decide(run_id, approval_id, true, unlock_env, signature_env)
+                    .await
+            }
             ApprovalCommand::Reject {
                 run_id,
                 approval_id,
-            } => headless::approval_decide(run_id, approval_id, false, None).await,
+            } => headless::approval_decide(run_id, approval_id, false, None, None).await,
             ApprovalCommand::Execute {
                 run_id,
                 approval_id,
                 json,
                 unlock_env,
-            } => headless::approval_execute(run_id, approval_id, json, unlock_env).await,
+                signature_env,
+            } => {
+                headless::approval_execute(run_id, approval_id, json, unlock_env, signature_env)
+                    .await
+            }
         },
         Command::Guide { run_id, text } => headless::guide(run_id, text).await,
         Command::Cancel { run_id, reason } => headless::cancel(run_id, reason).await,
@@ -4926,27 +4956,56 @@ async fn main() -> anyhow::Result<()> {
                     approval_id,
                     approve,
                     unlock_env,
+                    signature_env,
                 } => {
-                    headless::remote_approval_decide(url, run_id, approval_id, approve, unlock_env)
-                        .await
+                    headless::remote_approval_decide(
+                        url,
+                        run_id,
+                        approval_id,
+                        approve,
+                        unlock_env,
+                        signature_env,
+                    )
+                    .await
                 }
                 RemoteApprovalCommand::Approve {
                     run_id,
                     approval_id,
                     unlock_env,
+                    signature_env,
                 } => {
-                    headless::remote_approval_decide(url, run_id, approval_id, true, unlock_env)
-                        .await
+                    headless::remote_approval_decide(
+                        url,
+                        run_id,
+                        approval_id,
+                        true,
+                        unlock_env,
+                        signature_env,
+                    )
+                    .await
                 }
                 RemoteApprovalCommand::Reject {
                     run_id,
                     approval_id,
-                } => headless::remote_approval_decide(url, run_id, approval_id, false, None).await,
+                } => {
+                    headless::remote_approval_decide(url, run_id, approval_id, false, None, None)
+                        .await
+                }
                 RemoteApprovalCommand::Execute {
                     run_id,
                     approval_id,
                     unlock_env,
-                } => headless::remote_approval_execute(url, run_id, approval_id, unlock_env).await,
+                    signature_env,
+                } => {
+                    headless::remote_approval_execute(
+                        url,
+                        run_id,
+                        approval_id,
+                        unlock_env,
+                        signature_env,
+                    )
+                    .await
+                }
             },
             RemoteCommand::Memory { command } => match command {
                 RemoteMemoryCommand::List => headless::remote_memory_list(url).await,

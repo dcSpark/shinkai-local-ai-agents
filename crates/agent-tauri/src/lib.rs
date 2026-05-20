@@ -34,7 +34,7 @@ use agent_core::{
     CostPolicy, ExecutionPolicy, Harness, HarnessApi, HookTrigger, IngestedArtifactView,
     MemoryFragment, PromptRefinement, RunHookHandler, RunLifecycleHook, RunResult, SkillView,
     ToolOutputMode, ToolPolicy, ToolView, UserInput, VisibilityLevel, VoiceConfig,
-    verify_configured_approval_unlock,
+    verify_configured_approval_signature, verify_configured_approval_unlock,
 };
 use agent_ingest::{
     IngestionArtifact, IngestionBackendDescriptor, IngestionFindingReviewDecision,
@@ -1805,11 +1805,18 @@ async fn approval_decide(
     approval_id: String,
     approved: bool,
     unlock: Option<String>,
+    signature: Option<String>,
 ) -> Result<(), String> {
+    let run_id = RunId(uuid::Uuid::parse_str(&run_id).map_err(|e| e.to_string())?);
     if approved {
         verify_configured_approval_unlock(unlock.as_deref()).map_err(|e| e.to_string())?;
+        verify_configured_approval_signature(
+            &run_id.0.to_string(),
+            &approval_id,
+            signature.as_deref(),
+        )
+        .map_err(|e| e.to_string())?;
     }
-    let run_id = RunId(uuid::Uuid::parse_str(&run_id).map_err(|e| e.to_string())?);
     open_event_store()?.append(
         run_id,
         None,
@@ -1826,9 +1833,12 @@ async fn approval_execute(
     approval_id: String,
     run_id: String,
     unlock: Option<String>,
+    signature: Option<String>,
 ) -> Result<Value, String> {
-    verify_configured_approval_unlock(unlock.as_deref()).map_err(|e| e.to_string())?;
     let run_id = RunId(uuid::Uuid::parse_str(&run_id).map_err(|e| e.to_string())?);
+    verify_configured_approval_unlock(unlock.as_deref()).map_err(|e| e.to_string())?;
+    verify_configured_approval_signature(&run_id.0.to_string(), &approval_id, signature.as_deref())
+        .map_err(|e| e.to_string())?;
     let store = open_event_store()?;
     let events = store.try_events(run_id).map_err(|e| e.to_string())?;
     let approved = events.iter().rev().find_map(|event| match &event.kind {

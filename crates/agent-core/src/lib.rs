@@ -48,6 +48,8 @@ const MAX_HOOK_STDOUT_BYTES: u64 = 64 * 1024;
 const DEFAULT_AUTO_COMPACTION_OUTPUT_TOKENS: u32 = 512;
 pub const APPROVAL_UNLOCK_SHA256_ENV: &str = "AGENT_APPROVAL_UNLOCK_SHA256";
 pub const APPROVAL_UNLOCK_ENV: &str = "AGENT_APPROVAL_UNLOCK";
+pub const APPROVAL_SIGNATURE_SECRET_ENV: &str = "AGENT_APPROVAL_SIGNATURE_SECRET";
+pub const APPROVAL_SIGNATURE_ENV: &str = "AGENT_APPROVAL_SIGNATURE";
 static HOOK_STDOUT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -60,6 +62,18 @@ pub enum ApprovalUnlockError {
     Invalid,
     #[error("AGENT_APPROVAL_UNLOCK_SHA256 must be a sha256 hex digest")]
     InvalidHash,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ApprovalSignatureError {
+    #[error(
+        "approval signature is required; provide it through --signature-env or AGENT_APPROVAL_SIGNATURE"
+    )]
+    Missing,
+    #[error("approval signature did not match AGENT_APPROVAL_SIGNATURE_SECRET")]
+    Invalid,
+    #[error("approval signature must be a sha256 hex digest")]
+    InvalidFormat,
 }
 
 pub fn approval_unlock_sha256(secret: &str) -> String {
@@ -75,6 +89,37 @@ pub fn verify_configured_approval_unlock(
     };
     let fallback = std::env::var(APPROVAL_UNLOCK_ENV).ok();
     verify_approval_unlock_hash(&expected_hash, candidate.or(fallback.as_deref()))
+}
+
+pub fn approval_signature_payload(run_id: &str, approval_id: &str) -> String {
+    format!("{}:{}", run_id.trim(), approval_id.trim())
+}
+
+pub fn approval_signature_hmac_sha256(secret: &str, run_id: &str, approval_id: &str) -> String {
+    hmac_sha256_hex(
+        secret.as_bytes(),
+        approval_signature_payload(run_id, approval_id).as_bytes(),
+    )
+}
+
+pub fn verify_configured_approval_signature(
+    run_id: &str,
+    approval_id: &str,
+    signature: Option<&str>,
+) -> Result<(), ApprovalSignatureError> {
+    let Ok(secret) = std::env::var(APPROVAL_SIGNATURE_SECRET_ENV) else {
+        return Ok(());
+    };
+    if secret.is_empty() {
+        return Ok(());
+    }
+    let fallback = std::env::var(APPROVAL_SIGNATURE_ENV).ok();
+    verify_approval_signature(
+        &secret,
+        run_id,
+        approval_id,
+        signature.or(fallback.as_deref()),
+    )
 }
 
 fn verify_approval_unlock_hash(
@@ -113,6 +158,70 @@ fn hex_digest(bytes: &[u8]) -> String {
         let _ = write!(out, "{byte:02x}");
     }
     out
+}
+
+fn verify_approval_signature(
+    secret: &str,
+    run_id: &str,
+    approval_id: &str,
+    signature: Option<&str>,
+) -> Result<(), ApprovalSignatureError> {
+    let Some(signature) = signature
+        .map(normalize_signature_hex)
+        .transpose()?
+        .filter(|value| !value.is_empty())
+    else {
+        return Err(ApprovalSignatureError::Missing);
+    };
+    let expected = approval_signature_hmac_sha256(secret, run_id, approval_id);
+    if constant_time_eq(expected.as_bytes(), signature.as_bytes()) {
+        Ok(())
+    } else {
+        Err(ApprovalSignatureError::Invalid)
+    }
+}
+
+fn normalize_signature_hex(value: &str) -> Result<String, ApprovalSignatureError> {
+    let value = value.trim();
+    let normalized = value
+        .strip_prefix("sha256=")
+        .or_else(|| value.strip_prefix("hmac-sha256="))
+        .unwrap_or(value)
+        .to_ascii_lowercase();
+    if normalized.len() == 64 && normalized.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        Ok(normalized)
+    } else {
+        Err(ApprovalSignatureError::InvalidFormat)
+    }
+}
+
+fn hmac_sha256_hex(key: &[u8], payload: &[u8]) -> String {
+    const BLOCK_SIZE: usize = 64;
+    let mut key_block = [0u8; BLOCK_SIZE];
+    if key.len() > BLOCK_SIZE {
+        let digest = Sha256::digest(key);
+        key_block[..digest.len()].copy_from_slice(&digest);
+    } else {
+        key_block[..key.len()].copy_from_slice(key);
+    }
+
+    let mut outer = [0x5c; BLOCK_SIZE];
+    let mut inner = [0x36; BLOCK_SIZE];
+    for idx in 0..BLOCK_SIZE {
+        outer[idx] ^= key_block[idx];
+        inner[idx] ^= key_block[idx];
+    }
+
+    let mut inner_hasher = Sha256::new();
+    inner_hasher.update(inner);
+    inner_hasher.update(payload);
+    let inner_digest = inner_hasher.finalize();
+
+    let mut outer_hasher = Sha256::new();
+    outer_hasher.update(outer);
+    outer_hasher.update(inner_digest);
+    let digest = outer_hasher.finalize();
+    hex_digest(&digest)
 }
 
 fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
@@ -4232,6 +4341,42 @@ mod tests {
         assert_eq!(
             verify_approval_unlock_hash("not-a-sha256", Some("correct horse")),
             Err(ApprovalUnlockError::InvalidHash)
+        );
+    }
+
+    #[test]
+    fn approval_signature_accepts_matching_hmac_only() {
+        let signature = approval_signature_hmac_sha256("controller-secret", "run-1", "approval-1");
+
+        assert_eq!(
+            verify_approval_signature("controller-secret", "run-1", "approval-1", Some(&signature),),
+            Ok(())
+        );
+        assert_eq!(
+            verify_approval_signature(
+                "controller-secret",
+                "run-1",
+                "approval-1",
+                Some(&format!("sha256={signature}")),
+            ),
+            Ok(())
+        );
+        assert_eq!(
+            verify_approval_signature("controller-secret", "run-1", "approval-1", None),
+            Err(ApprovalSignatureError::Missing)
+        );
+        assert_eq!(
+            verify_approval_signature("controller-secret", "run-2", "approval-1", Some(&signature),),
+            Err(ApprovalSignatureError::Invalid)
+        );
+        assert_eq!(
+            verify_approval_signature(
+                "controller-secret",
+                "run-1",
+                "approval-1",
+                Some("not-a-signature"),
+            ),
+            Err(ApprovalSignatureError::InvalidFormat)
         );
     }
 

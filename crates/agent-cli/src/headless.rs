@@ -26,7 +26,7 @@ use agent_conversations::{
 };
 use agent_core::{
     ContextSnapshot, Harness, HarnessApi, ToolOutputMode, UserInput, VisibilityLevel,
-    verify_configured_approval_unlock,
+    verify_configured_approval_signature, verify_configured_approval_unlock,
 };
 use agent_ingest::{
     IngestionArtifact, IngestionFindingReviewDecision, IngestionModelCall, IngestionStore,
@@ -1097,12 +1097,19 @@ pub async fn approval_decide(
     approval_id: String,
     approved: bool,
     unlock_env: Option<String>,
+    signature_env: Option<String>,
 ) -> anyhow::Result<()> {
+    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     if approved {
         let unlock = approval_unlock_from_env(unlock_env)?;
         verify_configured_approval_unlock(unlock.as_deref())?;
+        let signature = approval_signature_from_env(signature_env)?;
+        verify_configured_approval_signature(
+            &run_id.0.to_string(),
+            &approval_id,
+            signature.as_deref(),
+        )?;
     }
-    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
     store.append(
         run_id,
@@ -1126,10 +1133,17 @@ pub async fn approval_execute(
     approval_id: String,
     json: bool,
     unlock_env: Option<String>,
+    signature_env: Option<String>,
 ) -> anyhow::Result<()> {
+    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let unlock = approval_unlock_from_env(unlock_env)?;
     verify_configured_approval_unlock(unlock.as_deref())?;
-    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
+    let signature = approval_signature_from_env(signature_env)?;
+    verify_configured_approval_signature(
+        &run_id.0.to_string(),
+        &approval_id,
+        signature.as_deref(),
+    )?;
     let store = open_event_store()?;
     let events = store.try_events(run_id)?;
     let approved = events.iter().rev().find_map(|event| match &event.kind {
@@ -1256,6 +1270,19 @@ fn approval_unlock_from_env(unlock_env: Option<String>) -> anyhow::Result<Option
     std::env::var(name)
         .map(Some)
         .map_err(|_| anyhow::anyhow!("approval unlock env var {name:?} is not set"))
+}
+
+fn approval_signature_from_env(signature_env: Option<String>) -> anyhow::Result<Option<String>> {
+    let Some(name) = signature_env
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    else {
+        return Ok(None);
+    };
+    std::env::var(name)
+        .map(Some)
+        .map_err(|_| anyhow::anyhow!("approval signature env var {name:?} is not set"))
 }
 
 fn run_agent_id(events: &[RunEvent]) -> Option<String> {
@@ -4014,16 +4041,23 @@ pub async fn remote_approval_decide(
     approval_id: String,
     approved: bool,
     unlock_env: Option<String>,
+    signature_env: Option<String>,
 ) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
-    let unlock = if approved {
-        approval_unlock_from_env(unlock_env)?
+    let (unlock, signature) = if approved {
+        (
+            approval_unlock_from_env(unlock_env)?,
+            approval_signature_from_env(signature_env)?,
+        )
     } else {
-        None
+        (None, None)
     };
     let mut body = serde_json::json!({ "approved": approved });
     if let Some(unlock) = unlock {
         body["unlock"] = serde_json::Value::String(unlock);
+    }
+    if let Some(signature) = signature {
+        body["signature"] = serde_json::Value::String(signature);
     }
     print_remote(client.post_json(&format!("/approvals/{run_id}/{approval_id}/decide"), body)?)
 }
@@ -4033,12 +4067,18 @@ pub async fn remote_approval_execute(
     run_id: String,
     approval_id: String,
     unlock_env: Option<String>,
+    signature_env: Option<String>,
 ) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
     let unlock = approval_unlock_from_env(unlock_env)?;
-    let body = unlock
-        .map(|unlock| serde_json::json!({ "unlock": unlock }))
-        .unwrap_or_else(|| serde_json::json!({}));
+    let signature = approval_signature_from_env(signature_env)?;
+    let mut body = serde_json::json!({});
+    if let Some(unlock) = unlock {
+        body["unlock"] = serde_json::Value::String(unlock);
+    }
+    if let Some(signature) = signature {
+        body["signature"] = serde_json::Value::String(signature);
+    }
     print_remote(client.post_json(&format!("/approvals/{run_id}/{approval_id}/execute"), body)?)
 }
 

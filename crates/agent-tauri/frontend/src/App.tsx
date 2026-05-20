@@ -404,6 +404,7 @@ export default function App() {
   const [activeSection, setActiveSection] = useState<ActiveSection>("chat");
   const [approvals, setApprovals] = useState<ApprovalRecord[]>([]);
   const [approvalUnlock, setApprovalUnlock] = useState("");
+  const [approvalSignature, setApprovalSignature] = useState("");
 
   const transcriptRef = useRef<HTMLElement>(null);
   const terminalEventSeenRef = useRef(false);
@@ -4388,15 +4389,18 @@ export default function App() {
   async function decideApproval(approvalId: string, approved: boolean) {
     if (!lastRunId) return;
     const unlock = approved && approvalUnlock ? approvalUnlock : undefined;
+    const signature =
+      approved && approvalSignature ? approvalSignature : undefined;
     if (transport === "daemon") {
       await daemonJson(`/approvals/${lastRunId}/${approvalId}/decide`, {
         approved,
         unlock,
+        signature,
       });
       if (approved) {
         const output = await daemonJson<unknown>(
           `/approvals/${lastRunId}/${approvalId}/execute`,
-          { unlock },
+          { unlock, signature },
         );
         captureDirectToolMetadata(output);
         void refreshVoiceOutputFromToolOutput(output);
@@ -4408,12 +4412,14 @@ export default function App() {
         approvalId,
         approved,
         unlock,
+        signature,
       });
       if (approved) {
         const output = await invoke<unknown>("approval_execute", {
           runId: lastRunId,
           approvalId,
           unlock,
+          signature,
         });
         captureDirectToolMetadata(output);
         void refreshVoiceOutputFromToolOutput(output);
@@ -7056,6 +7062,15 @@ export default function App() {
                   placeholder="default refinement"
                   disabled={running}
                   rows={3}
+                />
+              </label>
+              <label>
+                Signature
+                <input
+                  value={approvalSignature}
+                  onChange={(e) => setApprovalSignature(e.target.value)}
+                  placeholder="optional"
+                  disabled={running}
                 />
               </label>
             </>

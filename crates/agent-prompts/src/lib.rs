@@ -60,15 +60,26 @@ impl PromptStore {
         name: &str,
         body: &str,
     ) -> Result<PromptDoc, PromptError> {
+        self.save_scoped_with_quota(agent_id, name, body, None)
+    }
+
+    fn save_scoped_with_quota(
+        &self,
+        agent_id: Option<&str>,
+        name: &str,
+        body: &str,
+        quota_bytes: Option<u64>,
+    ) -> Result<PromptDoc, PromptError> {
         self.paths.ensure_base_dirs()?;
         let name = normalize_name(name)?;
         let agent_id = normalize_agent_id_opt(agent_id)?;
-        let dir = self.prompt_dir(agent_id.as_deref());
-        std::fs::create_dir_all(&dir)?;
-        let path = dir.join(format!("{name}.md"));
-        self.paths
-            .ensure_quota_for_path_write(&path, u64::try_from(body.len()).unwrap_or(u64::MAX))?;
-        std::fs::write(path, body)?;
+        let path = self.prompt_path(agent_id.as_deref(), &name);
+        if let Some(quota_bytes) = quota_bytes {
+            self.paths
+                .write_quota_checked_with_quota(path, body.as_bytes(), Some(quota_bytes))?;
+        } else {
+            self.paths.write_quota_checked(path, body.as_bytes())?;
+        }
         Ok(PromptDoc {
             name,
             body: body.to_string(),
@@ -316,6 +327,23 @@ mod tests {
                 .is_err()
         );
         assert!(store.save_for_agent("critic-main_1", "daily", "ok").is_ok());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn prompt_save_rejects_body_over_storage_quota() {
+        let dir = std::env::temp_dir().join(format!("agent-prompts-quota-test-{}", uuid_like()));
+        let store = PromptStore::new(StoragePaths::new(&dir));
+
+        let err = store
+            .save_scoped_with_quota(None, "too-large", "this body exceeds the quota", Some(8))
+            .expect_err("prompt save should fail before writing over quota");
+
+        assert!(matches!(
+            err,
+            PromptError::Storage(StorageError::QuotaExceeded { .. })
+        ));
+        assert!(store.get("too-large").unwrap().is_none());
         let _ = std::fs::remove_dir_all(dir);
     }
 

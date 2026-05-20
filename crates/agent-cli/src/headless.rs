@@ -26,7 +26,8 @@ use agent_conversations::{
 };
 use agent_core::{
     ContextSnapshot, Harness, HarnessApi, ToolOutputMode, UserInput, VisibilityLevel,
-    verify_configured_approval_signature, verify_configured_approval_unlock,
+    verify_approval_controller_delegate, verify_configured_approval_signature,
+    verify_configured_approval_unlock,
 };
 use agent_ingest::{
     IngestionArtifact, IngestionFindingReviewDecision, IngestionModelCall, IngestionStore,
@@ -1098,8 +1099,16 @@ pub async fn approval_decide(
     approved: bool,
     unlock_env: Option<String>,
     signature_env: Option<String>,
+    controller_agent: Option<String>,
 ) -> anyhow::Result<()> {
     let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
+    let store = open_event_store()?;
+    let events = store.try_events(run_id)?;
+    let delegated_controller = if approved {
+        verify_approval_controller_delegate(&events, &approval_id, controller_agent.as_deref())?
+    } else {
+        None
+    };
     if approved {
         let unlock = approval_unlock_from_env(unlock_env)?;
         verify_configured_approval_unlock(unlock.as_deref())?;
@@ -1110,13 +1119,13 @@ pub async fn approval_decide(
             signature.as_deref(),
         )?;
     }
-    let store = open_event_store()?;
     store.append(
         run_id,
         None,
         RunEventKind::ApprovalResolved {
             approval_id: approval_id.clone(),
             approved,
+            delegated_controller,
         },
     );
     println!(
@@ -1150,6 +1159,7 @@ pub async fn approval_execute(
         RunEventKind::ApprovalResolved {
             approval_id: id,
             approved,
+            ..
         } if id == &approval_id => Some(*approved),
         _ => None,
     });
@@ -2655,6 +2665,9 @@ pub async fn agent_save(
     max_recursion_depth: Option<u32>,
     allowed_tools: Vec<String>,
     allowed_tool_categories: Vec<String>,
+    approval_controller_agent: Option<String>,
+    approval_controller_allowed_tools: Vec<String>,
+    approval_controller_allowed_tool_categories: Vec<String>,
     allowed_skill_categories: Vec<String>,
     tool_output_mode: Option<ToolOutputMode>,
     tool_output_interpretation_model: Option<String>,
@@ -2685,6 +2698,9 @@ pub async fn agent_save(
         max_recursion_depth,
         allowed_tools,
         allowed_tool_categories,
+        approval_controller_agent,
+        approval_controller_allowed_tools,
+        approval_controller_allowed_tool_categories,
         allowed_skill_categories,
         tool_output_mode,
         tool_output_interpretation_model,
@@ -2758,6 +2774,9 @@ fn agent_config_from_parts(
     max_recursion_depth: Option<u32>,
     allowed_tools: Vec<String>,
     allowed_tool_categories: Vec<String>,
+    approval_controller_agent: Option<String>,
+    approval_controller_allowed_tools: Vec<String>,
+    approval_controller_allowed_tool_categories: Vec<String>,
     allowed_skill_categories: Vec<String>,
     tool_output_mode: Option<ToolOutputMode>,
     tool_output_interpretation_model: Option<String>,
@@ -2782,6 +2801,9 @@ fn agent_config_from_parts(
         tool_interpretation_model_overrides,
         tool_guidance_overrides,
     )?;
+    let approval_controller_allowed_tool_categories =
+        (!approval_controller_allowed_tool_categories.is_empty())
+            .then_some(approval_controller_allowed_tool_categories);
     Ok(AgentConfigFile {
         id: id.clone(),
         name: name.unwrap_or(id),
@@ -2797,6 +2819,10 @@ fn agent_config_from_parts(
         allowed_tools: (!allowed_tools.is_empty()).then_some(allowed_tools),
         allowed_tool_categories: (!allowed_tool_categories.is_empty())
             .then_some(allowed_tool_categories),
+        approval_controller_agent: clean_optional_string(approval_controller_agent),
+        approval_controller_allowed_tools: (!approval_controller_allowed_tools.is_empty())
+            .then_some(approval_controller_allowed_tools),
+        approval_controller_allowed_tool_categories,
         allowed_skill_categories: (!allowed_skill_categories.is_empty())
             .then_some(allowed_skill_categories),
         disabled_lifecycle_hooks: None,
@@ -4042,6 +4068,7 @@ pub async fn remote_approval_decide(
     approved: bool,
     unlock_env: Option<String>,
     signature_env: Option<String>,
+    controller_agent: Option<String>,
 ) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
     let (unlock, signature) = if approved {
@@ -4058,6 +4085,12 @@ pub async fn remote_approval_decide(
     }
     if let Some(signature) = signature {
         body["signature"] = serde_json::Value::String(signature);
+    }
+    if let Some(controller_agent) = controller_agent
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    {
+        body["controller_agent"] = serde_json::Value::String(controller_agent);
     }
     print_remote(client.post_json(&format!("/approvals/{run_id}/{approval_id}/decide"), body)?)
 }
@@ -4333,6 +4366,9 @@ pub async fn remote_agent_save(
     max_recursion_depth: Option<u32>,
     allowed_tools: Vec<String>,
     allowed_tool_categories: Vec<String>,
+    approval_controller_agent: Option<String>,
+    approval_controller_allowed_tools: Vec<String>,
+    approval_controller_allowed_tool_categories: Vec<String>,
     allowed_skill_categories: Vec<String>,
     tool_output_mode: Option<ToolOutputMode>,
     tool_output_interpretation_model: Option<String>,
@@ -4363,6 +4399,9 @@ pub async fn remote_agent_save(
         max_recursion_depth,
         allowed_tools,
         allowed_tool_categories,
+        approval_controller_agent,
+        approval_controller_allowed_tools,
+        approval_controller_allowed_tool_categories,
         allowed_skill_categories,
         tool_output_mode,
         tool_output_interpretation_model,
@@ -4902,15 +4941,20 @@ fn approvals_for_run(run_id: RunId) -> anyhow::Result<Vec<serde_json::Value>> {
                 approval_id,
                 action,
                 reason,
+                controller_agent,
+                controller_scope,
             } => approvals.push(serde_json::json!({
                 "approval_id": approval_id,
                 "action": action,
                 "reason": reason,
+                "controller_agent": controller_agent,
+                "controller_scope": controller_scope,
                 "status": "pending"
             })),
             RunEventKind::ApprovalResolved {
                 approval_id,
                 approved,
+                delegated_controller,
             } => {
                 if let Some(existing) = approvals
                     .iter_mut()
@@ -4920,13 +4964,17 @@ fn approvals_for_run(run_id: RunId) -> anyhow::Result<Vec<serde_json::Value>> {
                         if approved { "approved" } else { "rejected" }.into(),
                     );
                     existing["approved"] = serde_json::Value::Bool(approved);
+                    existing["delegated_controller"] = delegated_controller
+                        .map(serde_json::Value::String)
+                        .unwrap_or(serde_json::Value::Null);
                 } else {
                     approvals.push(serde_json::json!({
                         "approval_id": approval_id,
                         "action": null,
                         "reason": null,
                         "status": if approved { "approved" } else { "rejected" },
-                        "approved": approved
+                        "approved": approved,
+                        "delegated_controller": delegated_controller
                     }));
                 }
             }
@@ -5058,11 +5106,28 @@ fn event_label(kind: &RunEventKind) -> String {
             approval_id,
             action,
             reason,
-        } => format!("ApprovalRequested id={approval_id} action={action} reason={reason}"),
+            controller_agent,
+            ..
+        } => {
+            let controller = controller_agent
+                .as_ref()
+                .map(|agent| format!(" controller={agent}"))
+                .unwrap_or_default();
+            format!(
+                "ApprovalRequested id={approval_id} action={action} reason={reason}{controller}"
+            )
+        }
         RunEventKind::ApprovalResolved {
             approval_id,
             approved,
-        } => format!("ApprovalResolved id={approval_id} approved={approved}"),
+            delegated_controller,
+        } => {
+            let controller = delegated_controller
+                .as_ref()
+                .map(|agent| format!(" delegated_controller={agent}"))
+                .unwrap_or_default();
+            format!("ApprovalResolved id={approval_id} approved={approved}{controller}")
+        }
         RunEventKind::GuidanceInjected { content } => {
             format!("GuidanceInjected content={content:?}")
         }
@@ -5418,6 +5483,9 @@ mod slash_tests {
             Some(48),
             Some(" keep decisions ".into()),
             None,
+            None,
+            Vec::new(),
+            Vec::new(),
             None,
             Vec::new(),
             Vec::new(),

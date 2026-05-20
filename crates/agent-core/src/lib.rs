@@ -76,6 +76,20 @@ pub enum ApprovalSignatureError {
     InvalidFormat,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ApprovalControllerError {
+    #[error("approval {approval_id} was not found in the run trace")]
+    RequestNotFound { approval_id: String },
+    #[error("approval {approval_id} is not delegated to a controller agent")]
+    NotDelegated { approval_id: String },
+    #[error("approval {approval_id} is delegated to {expected}, not {provided}")]
+    WrongController {
+        approval_id: String,
+        expected: String,
+        provided: String,
+    },
+}
+
 pub fn approval_unlock_sha256(secret: &str) -> String {
     let digest = Sha256::digest(secret.as_bytes());
     hex_digest(&digest)
@@ -120,6 +134,45 @@ pub fn verify_configured_approval_signature(
         approval_id,
         signature.or(fallback.as_deref()),
     )
+}
+
+pub fn verify_approval_controller_delegate(
+    events: &[RunEvent],
+    approval_id: &str,
+    controller_agent: Option<&str>,
+) -> Result<Option<String>, ApprovalControllerError> {
+    let Some(provided) = controller_agent
+        .map(str::trim)
+        .filter(|controller| !controller.is_empty())
+    else {
+        return Ok(None);
+    };
+    let Some(expected) = events.iter().rev().find_map(|event| match &event.kind {
+        RunEventKind::ApprovalRequested {
+            approval_id: id,
+            controller_agent,
+            ..
+        } if id == approval_id => Some(controller_agent.as_deref()),
+        _ => None,
+    }) else {
+        return Err(ApprovalControllerError::RequestNotFound {
+            approval_id: approval_id.to_string(),
+        });
+    };
+    let Some(expected) = expected else {
+        return Err(ApprovalControllerError::NotDelegated {
+            approval_id: approval_id.to_string(),
+        });
+    };
+    if expected == provided {
+        Ok(Some(provided.to_string()))
+    } else {
+        Err(ApprovalControllerError::WrongController {
+            approval_id: approval_id.to_string(),
+            expected: expected.to_string(),
+            provided: provided.to_string(),
+        })
+    }
 }
 
 fn verify_approval_unlock_hash(
@@ -235,6 +288,51 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     diff == 0
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApprovalControllerPolicy {
+    pub agent_id: String,
+    pub allowed_tools: Vec<ToolId>,
+    pub allowed_categories: Vec<String>,
+}
+
+impl ApprovalControllerPolicy {
+    pub fn new(
+        agent_id: impl Into<String>,
+        allowed_tools: Vec<ToolId>,
+        allowed_categories: Vec<String>,
+    ) -> Option<Self> {
+        let agent_id = agent_id.into().trim().to_string();
+        if agent_id.is_empty() {
+            return None;
+        }
+        Some(Self {
+            agent_id,
+            allowed_tools,
+            allowed_categories,
+        })
+    }
+
+    fn allows_descriptor(&self, descriptor: &agent_tools::ToolDescriptor) -> bool {
+        self.allowed_tools.contains(&descriptor.id)
+            || descriptor
+                .categories
+                .iter()
+                .any(|category| self.allowed_categories.contains(category))
+    }
+
+    fn scope_labels(&self) -> Vec<String> {
+        self.allowed_tools
+            .iter()
+            .map(|tool| format!("tool:{}", tool.0))
+            .chain(
+                self.allowed_categories
+                    .iter()
+                    .map(|category| format!("category:{category}")),
+            )
+            .collect()
+    }
+}
+
 /// Tool-related policy slice. v0 cut of `specs/architecture.md` §4.5
 /// `ToolPolicy`.
 #[derive(Debug, Clone)]
@@ -251,6 +349,8 @@ pub struct ToolPolicy {
     pub visibility: VisibilityLevel,
     /// How approval-required tools are handled.
     pub approval_mode: ApprovalMode,
+    /// Optional delegated controller agent allowed to approve scoped tool calls.
+    pub approval_controller: Option<ApprovalControllerPolicy>,
     /// Whether tool outputs are returned raw or fed back to the LLM.
     pub output_mode: ToolOutputMode,
     /// Optional model used for interpreted tool outputs instead of the agent model.
@@ -272,6 +372,7 @@ impl Default for ToolPolicy {
             required_tool: None,
             visibility: VisibilityLevel::FullSchema,
             approval_mode: ApprovalMode::RequireExplicit,
+            approval_controller: None,
             output_mode: ToolOutputMode::Interpreted,
             output_interpretation_model: None,
             per_tool_output_modes: HashMap::new(),
@@ -1741,6 +1842,11 @@ impl Harness {
         let approval_id = format!("approval-{call_id}");
         let action = format!("tool:{}", tool_id.0);
         let reason = permission_reason(descriptor);
+        let controller = agent
+            .tool_policy
+            .approval_controller
+            .as_ref()
+            .filter(|controller| controller.allows_descriptor(descriptor));
         let requested = self.events.append(
             run_id,
             Some(parent),
@@ -1748,6 +1854,10 @@ impl Harness {
                 approval_id: approval_id.clone(),
                 action: action.clone(),
                 reason,
+                controller_agent: controller.map(|controller| controller.agent_id.clone()),
+                controller_scope: controller
+                    .map(ApprovalControllerPolicy::scope_labels)
+                    .unwrap_or_default(),
             },
         );
         match agent.tool_policy.approval_mode {
@@ -1758,6 +1868,7 @@ impl Harness {
                     RunEventKind::ApprovalResolved {
                         approval_id,
                         approved: true,
+                        delegated_controller: None,
                     },
                 );
                 Ok(())
@@ -4080,6 +4191,13 @@ impl HarnessApi for Harness {
             .iter()
             .map(|(tool_id, guidance)| (tool_id.0.clone(), guidance.clone()))
             .collect();
+        let approval_controller = agent.tool_policy.approval_controller.as_ref().map(|policy| {
+            json!({
+                "agent_id": policy.agent_id.clone(),
+                "allowed_tools": policy.allowed_tools.iter().map(|tool| tool.0.clone()).collect::<Vec<_>>(),
+                "allowed_categories": policy.allowed_categories.clone(),
+            })
+        });
         ConfigExplanation {
             agent_id: agent.id.clone(),
             values: vec![
@@ -4138,6 +4256,11 @@ impl HarnessApi for Harness {
                     key: "agent.tool_policy.allowed_categories".into(),
                     value: serde_json::to_value(&agent.tool_policy.allowed_categories)
                         .unwrap_or(Value::Null),
+                    source: "agent/default".into(),
+                },
+                ConfigValueExplanation {
+                    key: "agent.tool_policy.approval_controller".into(),
+                    value: approval_controller.unwrap_or(Value::Null),
                     source: "agent/default".into(),
                 },
                 ConfigValueExplanation {
@@ -4259,6 +4382,7 @@ mod tests {
                 required_tool: None,
                 visibility: VisibilityLevel::FullSchema,
                 approval_mode: ApprovalMode::AutoApprove,
+                approval_controller: None,
                 output_mode: ToolOutputMode::Interpreted,
                 output_interpretation_model: None,
                 per_tool_output_modes: HashMap::new(),
@@ -6823,6 +6947,89 @@ JSON
             event.kind,
             RunEventKind::ApprovalResolved { approved: true, .. }
         )));
+    }
+
+    #[tokio::test]
+    async fn scoped_approval_controller_is_advertised_and_verified() {
+        let mut reg = ToolRegistry::new();
+        reg.register(sensitive_descriptor(), Arc::new(FakeTool::echo()));
+        let provider = FakeProvider::sequence(vec![FakeStep::CallTool {
+            id: "c1".into(),
+            tool: "sensitive".into(),
+            input: json!({}),
+        }]);
+        let h = Harness::new(
+            Arc::new(provider),
+            Arc::new(InMemoryEventStore::new()),
+            Arc::new(reg),
+        );
+        let mut agent = agent_with_tools(vec![], 5);
+        agent.tool_policy.approval_controller =
+            ApprovalControllerPolicy::new("controller-agent", Vec::new(), vec!["sensitive".into()]);
+
+        let r = h
+            .run(&agent, UserInput { text: "go".into() })
+            .await
+            .unwrap();
+        let events = h.events(r.run_id);
+
+        assert!(matches!(
+            events.iter().find(|event| matches!(event.kind, RunEventKind::ApprovalRequested { .. })).map(|event| &event.kind),
+            Some(RunEventKind::ApprovalRequested {
+                approval_id,
+                controller_agent: Some(controller),
+                controller_scope,
+                ..
+            }) if approval_id == "approval-c1"
+                && controller == "controller-agent"
+                && controller_scope == &vec!["category:sensitive".to_string()]
+        ));
+        assert_eq!(
+            verify_approval_controller_delegate(&events, "approval-c1", Some("controller-agent"),),
+            Ok(Some("controller-agent".into()))
+        );
+        assert!(matches!(
+            verify_approval_controller_delegate(&events, "approval-c1", Some("other")),
+            Err(ApprovalControllerError::WrongController { .. })
+        ));
+    }
+
+    #[tokio::test]
+    async fn approval_controller_requires_declared_tool_scope() {
+        let mut reg = ToolRegistry::new();
+        reg.register(sensitive_descriptor(), Arc::new(FakeTool::echo()));
+        let provider = FakeProvider::sequence(vec![FakeStep::CallTool {
+            id: "c1".into(),
+            tool: "sensitive".into(),
+            input: json!({}),
+        }]);
+        let h = Harness::new(
+            Arc::new(provider),
+            Arc::new(InMemoryEventStore::new()),
+            Arc::new(reg),
+        );
+        let mut agent = agent_with_tools(vec![], 5);
+        agent.tool_policy.approval_controller =
+            ApprovalControllerPolicy::new("controller-agent", Vec::new(), Vec::new());
+
+        let r = h
+            .run(&agent, UserInput { text: "go".into() })
+            .await
+            .unwrap();
+        let events = h.events(r.run_id);
+
+        assert!(matches!(
+            events.iter().find(|event| matches!(event.kind, RunEventKind::ApprovalRequested { .. })).map(|event| &event.kind),
+            Some(RunEventKind::ApprovalRequested {
+                controller_agent: None,
+                controller_scope,
+                ..
+            }) if controller_scope.is_empty()
+        ));
+        assert!(matches!(
+            verify_approval_controller_delegate(&events, "approval-c1", Some("controller-agent"),),
+            Err(ApprovalControllerError::NotDelegated { .. })
+        ));
     }
 
     #[tokio::test]

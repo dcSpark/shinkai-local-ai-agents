@@ -8,8 +8,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use agent_core::{
-    AgentConfig, ConfigValueExplanation, ContextCompactionPolicy, ContextPolicy, CostPolicy,
-    ExecutionPolicy, PromptRefinement, ToolOutputMode, ToolPolicy, VisibilityLevel, VoiceConfig,
+    AgentConfig, ApprovalControllerPolicy, ConfigValueExplanation, ContextCompactionPolicy,
+    ContextPolicy, CostPolicy, ExecutionPolicy, PromptRefinement, ToolOutputMode, ToolPolicy,
+    VisibilityLevel, VoiceConfig,
 };
 use agent_llm::{ModelRef, NativeProviderConfig, RigProviderConfig};
 use agent_storage::StoragePaths;
@@ -60,6 +61,12 @@ struct PolicyLayerToml {
     allowed_tools: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     allowed_tool_categories: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    approval_controller_agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    approval_controller_allowed_tools: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    approval_controller_allowed_tool_categories: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     allowed_skill_categories: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -208,6 +215,12 @@ pub struct AgentConfigFile {
     pub allowed_tools: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allowed_tool_categories: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_controller_agent: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_controller_allowed_tools: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub approval_controller_allowed_tool_categories: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allowed_skill_categories: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -890,6 +903,9 @@ impl Default for AgentToml {
                 max_recursion_depth: None,
                 allowed_tools: Some(Vec::new()),
                 allowed_tool_categories: None,
+                approval_controller_agent: None,
+                approval_controller_allowed_tools: None,
+                approval_controller_allowed_tool_categories: None,
                 allowed_skill_categories: None,
                 disabled_lifecycle_hooks: None,
                 tool_output_mode: Some(default_tool_output_mode()),
@@ -925,6 +941,11 @@ impl From<AgentToml> for AgentConfigFile {
             max_recursion_depth: value.policy.max_recursion_depth,
             allowed_tools: value.policy.allowed_tools,
             allowed_tool_categories: value.policy.allowed_tool_categories,
+            approval_controller_agent: value.policy.approval_controller_agent,
+            approval_controller_allowed_tools: value.policy.approval_controller_allowed_tools,
+            approval_controller_allowed_tool_categories: value
+                .policy
+                .approval_controller_allowed_tool_categories,
             allowed_skill_categories: value.policy.allowed_skill_categories,
             disabled_lifecycle_hooks: value.policy.disabled_lifecycle_hooks,
             tool_output_mode: value.policy.tool_output_mode,
@@ -960,6 +981,10 @@ impl From<AgentConfigFile> for AgentToml {
                 max_recursion_depth: value.max_recursion_depth,
                 allowed_tools: value.allowed_tools,
                 allowed_tool_categories: value.allowed_tool_categories,
+                approval_controller_agent: value.approval_controller_agent,
+                approval_controller_allowed_tools: value.approval_controller_allowed_tools,
+                approval_controller_allowed_tool_categories: value
+                    .approval_controller_allowed_tool_categories,
                 allowed_skill_categories: value.allowed_skill_categories,
                 disabled_lifecycle_hooks: value.disabled_lifecycle_hooks,
                 tool_output_mode: value.tool_output_mode,
@@ -3046,6 +3071,75 @@ fn resolve_agent(
             (parsed.policy.allowed_tool_categories, source.clone()),
         ],
     );
+    let approval_controller_agent = resolve_layered(
+        None::<String>,
+        "default:no delegated approval controller".into(),
+        vec![
+            (
+                global.policy.approval_controller_agent.map(Some),
+                global_source.clone(),
+            ),
+            (
+                profile.policy.approval_controller_agent.map(Some),
+                profile_source.clone(),
+            ),
+            (
+                parsed.policy.approval_controller_agent.map(Some),
+                source.clone(),
+            ),
+        ],
+    );
+    let approval_controller_allowed_tools = resolve_layered(
+        Vec::<String>::new(),
+        "default:no delegated approval tool scope".into(),
+        vec![
+            (
+                global.policy.approval_controller_allowed_tools,
+                global_source.clone(),
+            ),
+            (
+                profile.policy.approval_controller_allowed_tools,
+                profile_source.clone(),
+            ),
+            (
+                parsed.policy.approval_controller_allowed_tools,
+                source.clone(),
+            ),
+        ],
+    );
+    let approval_controller_allowed_tool_categories = resolve_layered(
+        Vec::<String>::new(),
+        "default:no delegated approval category scope".into(),
+        vec![
+            (
+                global.policy.approval_controller_allowed_tool_categories,
+                global_source.clone(),
+            ),
+            (
+                profile.policy.approval_controller_allowed_tool_categories,
+                profile_source.clone(),
+            ),
+            (
+                parsed.policy.approval_controller_allowed_tool_categories,
+                source.clone(),
+            ),
+        ],
+    );
+    let approval_controller = approval_controller_agent
+        .value
+        .clone()
+        .and_then(|agent_id| {
+            ApprovalControllerPolicy::new(
+                agent_id,
+                approval_controller_allowed_tools
+                    .value
+                    .iter()
+                    .cloned()
+                    .map(ToolId::from)
+                    .collect(),
+                approval_controller_allowed_tool_categories.value.clone(),
+            )
+        });
     let allowed_skill_categories = resolve_layered(
         Vec::<String>::new(),
         "default:all skill categories".into(),
@@ -3491,6 +3585,7 @@ fn resolve_agent(
             required_tool: None,
             visibility: tool_visibility.value,
             approval_mode: ToolPolicy::default().approval_mode,
+            approval_controller,
             output_mode: tool_output_mode.value,
             output_interpretation_model: tool_output_interpretation_model
                 .value
@@ -3644,6 +3739,21 @@ fn resolve_agent(
             "agent.tool_policy.allowed_categories",
             allowed_tool_categories.value,
             &allowed_tool_categories.source,
+        ),
+        config_value(
+            "agent.tool_policy.approval_controller.agent",
+            approval_controller_agent.value,
+            &approval_controller_agent.source,
+        ),
+        config_value(
+            "agent.tool_policy.approval_controller.allowed_tools",
+            approval_controller_allowed_tools.value,
+            &approval_controller_allowed_tools.source,
+        ),
+        config_value(
+            "agent.tool_policy.approval_controller.allowed_categories",
+            approval_controller_allowed_tool_categories.value,
+            &approval_controller_allowed_tool_categories.source,
         ),
         config_value(
             "agent.skill_policy.allowed_categories",
@@ -4152,6 +4262,19 @@ fn validate_agent_config(agent: &AgentConfigFile) -> Result<(), ConfigError> {
             validate_resource_id(category)?;
         }
     }
+    if let Some(controller) = &agent.approval_controller_agent {
+        validate_agent_id(controller)?;
+    }
+    if let Some(tools) = &agent.approval_controller_allowed_tools {
+        for tool in tools {
+            validate_resource_id(tool)?;
+        }
+    }
+    if let Some(categories) = &agent.approval_controller_allowed_tool_categories {
+        for category in categories {
+            validate_resource_id(category)?;
+        }
+    }
     if let Some(categories) = &agent.allowed_skill_categories {
         for category in categories {
             validate_resource_id(category)?;
@@ -4402,6 +4525,9 @@ system_prompt = "Review carefully."
             max_recursion_depth: Some(1),
             allowed_tools: Some(vec!["echo".into()]),
             allowed_tool_categories: Some(vec!["demo".into()]),
+            approval_controller_agent: Some("safety-controller".into()),
+            approval_controller_allowed_tools: Some(vec!["shell".into()]),
+            approval_controller_allowed_tool_categories: Some(vec!["sensitive".into()]),
             allowed_skill_categories: Some(vec!["review".into()]),
             disabled_lifecycle_hooks: Some(vec!["adapter:demo:audit".into()]),
             tool_output_mode: Some(ToolOutputMode::Raw),
@@ -4427,6 +4553,21 @@ system_prompt = "Review carefully."
         assert_eq!(
             resolved.agent.tool_policy.allowed_categories,
             vec!["demo".to_string()]
+        );
+        let approval_controller = resolved
+            .agent
+            .tool_policy
+            .approval_controller
+            .as_ref()
+            .expect("approval controller should resolve");
+        assert_eq!(approval_controller.agent_id, "safety-controller");
+        assert_eq!(
+            approval_controller.allowed_tools,
+            vec![ToolId::from("shell")]
+        );
+        assert_eq!(
+            approval_controller.allowed_categories,
+            vec!["sensitive".to_string()]
         );
         assert_eq!(
             resolved.agent.allowed_skill_categories,

@@ -1998,6 +1998,7 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
         RunEventKind::ApprovalResolved {
             approval_id,
             approved,
+            ..
         } => {
             push_event(
                 app,

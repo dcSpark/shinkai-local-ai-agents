@@ -617,6 +617,10 @@ enum ApprovalCommand {
         /// Read the approval HMAC signature from this environment variable.
         #[arg(long = "signature-env", value_name = "ENV")]
         signature_env: Option<String>,
+
+        /// Claim this configured controller agent as the delegated approver.
+        #[arg(long = "controller-agent")]
+        controller_agent: Option<String>,
     },
     /// Approve an approval request without executing it.
     Approve {
@@ -633,6 +637,10 @@ enum ApprovalCommand {
         /// Read the approval HMAC signature from this environment variable.
         #[arg(long = "signature-env", value_name = "ENV")]
         signature_env: Option<String>,
+
+        /// Claim this configured controller agent as the delegated approver.
+        #[arg(long = "controller-agent")]
+        controller_agent: Option<String>,
     },
     /// Reject an approval request without executing it.
     Reject {
@@ -861,6 +869,15 @@ enum AgentCommand {
         /// Restrict this agent to one tool category/pack. Repeat for multiple categories.
         #[arg(long = "allow-tool-category")]
         allowed_tool_categories: Vec<String>,
+        /// Delegate scoped approvals to this controller agent id.
+        #[arg(long = "approval-controller-agent")]
+        approval_controller_agent: Option<String>,
+        /// Allow the approval controller to approve one tool id. Repeat for multiple tools.
+        #[arg(long = "approval-controller-tool")]
+        approval_controller_allowed_tools: Vec<String>,
+        /// Allow the approval controller to approve one tool category. Repeat for multiple categories.
+        #[arg(long = "approval-controller-tool-category")]
+        approval_controller_allowed_tool_categories: Vec<String>,
         /// Restrict loaded skills to one category/pack. Repeat for multiple categories.
         #[arg(long = "allow-skill-category")]
         allowed_skill_categories: Vec<String>,
@@ -2209,6 +2226,8 @@ enum RemoteApprovalCommand {
         unlock_env: Option<String>,
         #[arg(long = "signature-env", value_name = "ENV")]
         signature_env: Option<String>,
+        #[arg(long = "controller-agent")]
+        controller_agent: Option<String>,
     },
     Approve {
         run_id: String,
@@ -2217,6 +2236,8 @@ enum RemoteApprovalCommand {
         unlock_env: Option<String>,
         #[arg(long = "signature-env", value_name = "ENV")]
         signature_env: Option<String>,
+        #[arg(long = "controller-agent")]
+        controller_agent: Option<String>,
     },
     Reject {
         run_id: String,
@@ -2416,6 +2437,12 @@ enum RemoteAgentCommand {
         allowed_tools: Vec<String>,
         #[arg(long = "allow-tool-category")]
         allowed_tool_categories: Vec<String>,
+        #[arg(long = "approval-controller-agent")]
+        approval_controller_agent: Option<String>,
+        #[arg(long = "approval-controller-tool")]
+        approval_controller_allowed_tools: Vec<String>,
+        #[arg(long = "approval-controller-tool-category")]
+        approval_controller_allowed_tool_categories: Vec<String>,
         #[arg(long = "allow-skill-category")]
         allowed_skill_categories: Vec<String>,
         #[arg(long, value_enum)]
@@ -2855,6 +2882,12 @@ mod cli_parse_tests {
             "1",
             "--allow-tool",
             "echo",
+            "--approval-controller-agent",
+            "safety-controller",
+            "--approval-controller-tool",
+            "shell",
+            "--approval-controller-tool-category",
+            "sensitive",
             "--tool-output-mode",
             "raw",
             "--tool-output-interpretation-model",
@@ -2894,6 +2927,9 @@ mod cli_parse_tests {
                     max_subagent_depth,
                     max_recursion_depth,
                     allowed_tools,
+                    approval_controller_agent,
+                    approval_controller_allowed_tools,
+                    approval_controller_allowed_tool_categories,
                     tool_output_mode,
                     tool_output_interpretation_model,
                     tool_output_overrides,
@@ -2924,6 +2960,15 @@ mod cli_parse_tests {
         assert_eq!(max_subagent_depth, Some(2));
         assert_eq!(max_recursion_depth, Some(1));
         assert_eq!(allowed_tools, vec!["echo"]);
+        assert_eq!(
+            approval_controller_agent.as_deref(),
+            Some("safety-controller")
+        );
+        assert_eq!(approval_controller_allowed_tools, vec!["shell"]);
+        assert_eq!(
+            approval_controller_allowed_tool_categories,
+            vec!["sensitive"]
+        );
         assert!(matches!(tool_output_mode, Some(ToolOutputModeArg::Raw)));
         assert_eq!(
             tool_output_interpretation_model.as_deref(),
@@ -2976,6 +3021,10 @@ mod cli_parse_tests {
             "1",
             "--allow-tool",
             "echo",
+            "--approval-controller-agent",
+            "safety-controller",
+            "--approval-controller-tool",
+            "shell",
             "--tool-output-override",
             "echo=interpreted",
             "--tool-interpretation-model",
@@ -3003,6 +3052,8 @@ mod cli_parse_tests {
                             max_subagent_depth,
                             max_recursion_depth,
                             allowed_tools,
+                            approval_controller_agent,
+                            approval_controller_allowed_tools,
                             tool_output_overrides,
                             tool_interpretation_model_overrides,
                             load_memory,
@@ -3026,6 +3077,11 @@ mod cli_parse_tests {
         assert_eq!(max_subagent_depth, Some(2));
         assert_eq!(max_recursion_depth, Some(1));
         assert_eq!(allowed_tools, vec!["echo"]);
+        assert_eq!(
+            approval_controller_agent.as_deref(),
+            Some("safety-controller")
+        );
+        assert_eq!(approval_controller_allowed_tools, vec!["shell"]);
         assert_eq!(tool_output_overrides, vec!["echo=interpreted"]);
         assert_eq!(
             tool_interpretation_model_overrides,
@@ -4222,23 +4278,39 @@ async fn main() -> anyhow::Result<()> {
                 approve,
                 unlock_env,
                 signature_env,
+                controller_agent,
             } => {
-                headless::approval_decide(run_id, approval_id, approve, unlock_env, signature_env)
-                    .await
+                headless::approval_decide(
+                    run_id,
+                    approval_id,
+                    approve,
+                    unlock_env,
+                    signature_env,
+                    controller_agent,
+                )
+                .await
             }
             ApprovalCommand::Approve {
                 run_id,
                 approval_id,
                 unlock_env,
                 signature_env,
+                controller_agent,
             } => {
-                headless::approval_decide(run_id, approval_id, true, unlock_env, signature_env)
-                    .await
+                headless::approval_decide(
+                    run_id,
+                    approval_id,
+                    true,
+                    unlock_env,
+                    signature_env,
+                    controller_agent,
+                )
+                .await
             }
             ApprovalCommand::Reject {
                 run_id,
                 approval_id,
-            } => headless::approval_decide(run_id, approval_id, false, None, None).await,
+            } => headless::approval_decide(run_id, approval_id, false, None, None, None).await,
             ApprovalCommand::Execute {
                 run_id,
                 approval_id,
@@ -4532,6 +4604,9 @@ async fn main() -> anyhow::Result<()> {
                 max_recursion_depth,
                 allowed_tools,
                 allowed_tool_categories,
+                approval_controller_agent,
+                approval_controller_allowed_tools,
+                approval_controller_allowed_tool_categories,
                 allowed_skill_categories,
                 tool_output_mode,
                 tool_output_interpretation_model,
@@ -4562,6 +4637,9 @@ async fn main() -> anyhow::Result<()> {
                     max_recursion_depth,
                     allowed_tools,
                     allowed_tool_categories,
+                    approval_controller_agent,
+                    approval_controller_allowed_tools,
+                    approval_controller_allowed_tool_categories,
                     allowed_skill_categories,
                     tool_output_mode.map(ToolOutputMode::from),
                     tool_output_interpretation_model,
@@ -4957,6 +5035,7 @@ async fn main() -> anyhow::Result<()> {
                     approve,
                     unlock_env,
                     signature_env,
+                    controller_agent,
                 } => {
                     headless::remote_approval_decide(
                         url,
@@ -4965,6 +5044,7 @@ async fn main() -> anyhow::Result<()> {
                         approve,
                         unlock_env,
                         signature_env,
+                        controller_agent,
                     )
                     .await
                 }
@@ -4973,6 +5053,7 @@ async fn main() -> anyhow::Result<()> {
                     approval_id,
                     unlock_env,
                     signature_env,
+                    controller_agent,
                 } => {
                     headless::remote_approval_decide(
                         url,
@@ -4981,6 +5062,7 @@ async fn main() -> anyhow::Result<()> {
                         true,
                         unlock_env,
                         signature_env,
+                        controller_agent,
                     )
                     .await
                 }
@@ -4988,8 +5070,16 @@ async fn main() -> anyhow::Result<()> {
                     run_id,
                     approval_id,
                 } => {
-                    headless::remote_approval_decide(url, run_id, approval_id, false, None, None)
-                        .await
+                    headless::remote_approval_decide(
+                        url,
+                        run_id,
+                        approval_id,
+                        false,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await
                 }
                 RemoteApprovalCommand::Execute {
                     run_id,
@@ -5119,6 +5209,9 @@ async fn main() -> anyhow::Result<()> {
                     max_recursion_depth,
                     allowed_tools,
                     allowed_tool_categories,
+                    approval_controller_agent,
+                    approval_controller_allowed_tools,
+                    approval_controller_allowed_tool_categories,
                     allowed_skill_categories,
                     tool_output_mode,
                     tool_output_interpretation_model,
@@ -5150,6 +5243,9 @@ async fn main() -> anyhow::Result<()> {
                         max_recursion_depth,
                         allowed_tools,
                         allowed_tool_categories,
+                        approval_controller_agent,
+                        approval_controller_allowed_tools,
+                        approval_controller_allowed_tool_categories,
                         allowed_skill_categories,
                         tool_output_mode.map(ToolOutputMode::from),
                         tool_output_interpretation_model,

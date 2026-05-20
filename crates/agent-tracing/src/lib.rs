@@ -140,10 +140,16 @@ pub enum RunEventKind {
         approval_id: String,
         action: String,
         reason: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        controller_agent: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        controller_scope: Vec<String>,
     },
     ApprovalResolved {
         approval_id: String,
         approved: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        delegated_controller: Option<String>,
     },
     GuidanceInjected {
         content: String,
@@ -445,11 +451,28 @@ fn resume_event_label(kind: &RunEventKind) -> String {
             approval_id,
             action,
             reason,
-        } => format!("ApprovalRequested id={approval_id} action={action} reason={reason}"),
+            controller_agent,
+            ..
+        } => {
+            let controller = controller_agent
+                .as_ref()
+                .map(|agent| format!(" controller={agent}"))
+                .unwrap_or_default();
+            format!(
+                "ApprovalRequested id={approval_id} action={action} reason={reason}{controller}"
+            )
+        }
         RunEventKind::ApprovalResolved {
             approval_id,
             approved,
-        } => format!("ApprovalResolved id={approval_id} approved={approved}"),
+            delegated_controller,
+        } => {
+            let controller = delegated_controller
+                .as_ref()
+                .map(|agent| format!(" delegated_controller={agent}"))
+                .unwrap_or_default();
+            format!("ApprovalResolved id={approval_id} approved={approved}{controller}")
+        }
         RunEventKind::GuidanceInjected { content } => {
             format!("GuidanceInjected content={content:?}")
         }

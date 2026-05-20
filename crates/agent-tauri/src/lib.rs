@@ -34,7 +34,8 @@ use agent_core::{
     CostPolicy, ExecutionPolicy, Harness, HarnessApi, HookTrigger, IngestedArtifactView,
     MemoryFragment, PromptRefinement, RunHookHandler, RunLifecycleHook, RunResult, SkillView,
     ToolOutputMode, ToolPolicy, ToolView, UserInput, VisibilityLevel, VoiceConfig,
-    verify_configured_approval_signature, verify_configured_approval_unlock,
+    verify_approval_controller_delegate, verify_configured_approval_signature,
+    verify_configured_approval_unlock,
 };
 use agent_ingest::{
     IngestionArtifact, IngestionBackendDescriptor, IngestionFindingReviewDecision,
@@ -1806,8 +1807,17 @@ async fn approval_decide(
     approved: bool,
     unlock: Option<String>,
     signature: Option<String>,
+    controller_agent: Option<String>,
 ) -> Result<(), String> {
     let run_id = RunId(uuid::Uuid::parse_str(&run_id).map_err(|e| e.to_string())?);
+    let store = open_event_store()?;
+    let events = store.try_events(run_id).map_err(|e| e.to_string())?;
+    let delegated_controller = if approved {
+        verify_approval_controller_delegate(&events, &approval_id, controller_agent.as_deref())
+            .map_err(|e| e.to_string())?
+    } else {
+        None
+    };
     if approved {
         verify_configured_approval_unlock(unlock.as_deref()).map_err(|e| e.to_string())?;
         verify_configured_approval_signature(
@@ -1817,12 +1827,13 @@ async fn approval_decide(
         )
         .map_err(|e| e.to_string())?;
     }
-    open_event_store()?.append(
+    store.append(
         run_id,
         None,
         RunEventKind::ApprovalResolved {
             approval_id,
             approved,
+            delegated_controller,
         },
     );
     Ok(())
@@ -1845,6 +1856,7 @@ async fn approval_execute(
         RunEventKind::ApprovalResolved {
             approval_id: id,
             approved,
+            ..
         } if id == &approval_id => Some(*approved),
         _ => None,
     });
@@ -2100,6 +2112,7 @@ fn stop_event_label(event: &RunEvent) -> String {
         RunEventKind::ApprovalResolved {
             approval_id,
             approved,
+            ..
         } => format!("approval resolved {approval_id} approved={approved}"),
         RunEventKind::GuidanceInjected { .. } => "guidance injected".into(),
         RunEventKind::QualityScored { target, score } => format!("quality scored {target}={score}"),
@@ -3105,15 +3118,20 @@ fn approvals_for_run(run_id: RunId) -> Result<Vec<Value>, String> {
                 approval_id,
                 action,
                 reason,
+                controller_agent,
+                controller_scope,
             } => approvals.push(serde_json::json!({
                 "approval_id": approval_id,
                 "action": action,
                 "reason": reason,
+                "controller_agent": controller_agent,
+                "controller_scope": controller_scope,
                 "status": "pending"
             })),
             RunEventKind::ApprovalResolved {
                 approval_id,
                 approved,
+                delegated_controller,
             } => {
                 if let Some(existing) = approvals
                     .iter_mut()
@@ -3122,13 +3140,17 @@ fn approvals_for_run(run_id: RunId) -> Result<Vec<Value>, String> {
                     existing["status"] =
                         Value::String(if approved { "approved" } else { "rejected" }.into());
                     existing["approved"] = Value::Bool(approved);
+                    existing["delegated_controller"] = delegated_controller
+                        .map(Value::String)
+                        .unwrap_or(Value::Null);
                 } else {
                     approvals.push(serde_json::json!({
                         "approval_id": approval_id,
                         "action": null,
                         "reason": null,
                         "status": if approved { "approved" } else { "rejected" },
-                        "approved": approved
+                        "approved": approved,
+                        "delegated_controller": delegated_controller
                     }));
                 }
             }

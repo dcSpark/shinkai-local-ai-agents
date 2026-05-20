@@ -199,8 +199,11 @@ interface ApprovalRecord {
   approval_id: string;
   action: string | null;
   reason: string | null;
+  controller_agent?: string | null;
+  controller_scope?: string[];
   status: string;
   approved?: boolean | null;
+  delegated_controller?: string | null;
 }
 
 interface StorageBucket {
@@ -405,6 +408,7 @@ export default function App() {
   const [approvals, setApprovals] = useState<ApprovalRecord[]>([]);
   const [approvalUnlock, setApprovalUnlock] = useState("");
   const [approvalSignature, setApprovalSignature] = useState("");
+  const [approvalControllerAgent, setApprovalControllerAgent] = useState("");
 
   const transcriptRef = useRef<HTMLElement>(null);
   const terminalEventSeenRef = useRef(false);
@@ -4391,11 +4395,16 @@ export default function App() {
     const unlock = approved && approvalUnlock ? approvalUnlock : undefined;
     const signature =
       approved && approvalSignature ? approvalSignature : undefined;
+    const controllerAgent =
+      approved && approvalControllerAgent.trim()
+        ? approvalControllerAgent.trim()
+        : undefined;
     if (transport === "daemon") {
       await daemonJson(`/approvals/${lastRunId}/${approvalId}/decide`, {
         approved,
         unlock,
         signature,
+        controller_agent: controllerAgent,
       });
       if (approved) {
         const output = await daemonJson<unknown>(
@@ -4413,6 +4422,7 @@ export default function App() {
         approved,
         unlock,
         signature,
+        controllerAgent,
       });
       if (approved) {
         const output = await invoke<unknown>("approval_execute", {
@@ -7064,15 +7074,6 @@ export default function App() {
                   rows={3}
                 />
               </label>
-              <label>
-                Signature
-                <input
-                  value={approvalSignature}
-                  onChange={(e) => setApprovalSignature(e.target.value)}
-                  placeholder="optional"
-                  disabled={running}
-                />
-              </label>
             </>
           ) : null}
           {includeIngestIds.length ? (
@@ -9528,6 +9529,24 @@ export default function App() {
                   disabled={running}
                 />
               </label>
+              <label>
+                Signature
+                <input
+                  value={approvalSignature}
+                  onChange={(e) => setApprovalSignature(e.target.value)}
+                  placeholder="optional"
+                  disabled={running}
+                />
+              </label>
+              <label>
+                Controller
+                <input
+                  value={approvalControllerAgent}
+                  onChange={(e) => setApprovalControllerAgent(e.target.value)}
+                  placeholder="optional delegated agent"
+                  disabled={running}
+                />
+              </label>
             </>
           ) : null}
           {activeSection === "approvals" ? (
@@ -9544,6 +9563,17 @@ export default function App() {
                     <span className="approval-id">{approval.approval_id}</span>
                     {approval.reason ? (
                       <p>{previewText(approval.reason, 180)}</p>
+                    ) : null}
+                    {approval.controller_agent ? (
+                      <p>
+                        controller {approval.controller_agent}
+                        {approval.controller_scope?.length
+                          ? ` (${approval.controller_scope.join(", ")})`
+                          : ""}
+                      </p>
+                    ) : null}
+                    {approval.delegated_controller ? (
+                      <p>delegated by {approval.delegated_controller}</p>
                     ) : null}
                     <div className="mini-actions">
                       <button

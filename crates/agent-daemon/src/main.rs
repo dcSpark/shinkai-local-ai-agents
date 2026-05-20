@@ -19,8 +19,8 @@ use agent_core::{
     AgentConfig, ApprovalMode, ConfigValueExplanation, CostPolicy, ExecutionPolicy, Harness,
     HarnessApi, HookTrigger, IngestedArtifactView, MemoryFragment, PromptRefinement,
     RunHookHandler, RunLifecycleHook, RunResult, SkillView, ToolOutputMode, ToolPolicy, UserInput,
-    VisibilityLevel, VoiceConfig, verify_configured_approval_signature,
-    verify_configured_approval_unlock,
+    VisibilityLevel, VoiceConfig, verify_approval_controller_delegate,
+    verify_configured_approval_signature, verify_configured_approval_unlock,
 };
 use agent_ingest::{
     IngestionArtifact, IngestionFindingReviewDecision, IngestionModelCall, IngestionStore,
@@ -1551,6 +1551,7 @@ fn stop_event_label(event: &RunEvent) -> String {
         RunEventKind::ApprovalResolved {
             approval_id,
             approved,
+            ..
         } => format!("approval resolved {approval_id} approved={approved}"),
         RunEventKind::GuidanceInjected { .. } => "guidance injected".into(),
         RunEventKind::QualityScored { target, score } => {
@@ -2988,15 +2989,20 @@ fn approvals_for_run(id: &str) -> anyhow::Result<serde_json::Value> {
                 approval_id,
                 action,
                 reason,
+                controller_agent,
+                controller_scope,
             } => approvals.push(serde_json::json!({
                 "approval_id": approval_id,
                 "action": action,
                 "reason": reason,
+                "controller_agent": controller_agent,
+                "controller_scope": controller_scope,
                 "status": "pending"
             })),
             RunEventKind::ApprovalResolved {
                 approval_id,
                 approved,
+                delegated_controller,
             } => {
                 if let Some(existing) = approvals
                     .iter_mut()
@@ -3006,13 +3012,17 @@ fn approvals_for_run(id: &str) -> anyhow::Result<serde_json::Value> {
                         if approved { "approved" } else { "rejected" }.into(),
                     );
                     existing["approved"] = serde_json::Value::Bool(approved);
+                    existing["delegated_controller"] = delegated_controller
+                        .map(serde_json::Value::String)
+                        .unwrap_or(serde_json::Value::Null);
                 } else {
                     approvals.push(serde_json::json!({
                         "approval_id": approval_id,
                         "action": null,
                         "reason": null,
                         "status": if approved { "approved" } else { "rejected" },
-                        "approved": approved
+                        "approved": approved,
+                        "delegated_controller": delegated_controller
                     }));
                 }
             }
@@ -3032,6 +3042,16 @@ async fn daemon_approval_route(path: &str, body: &str) -> anyhow::Result<serde_j
     match parts[3] {
         "decide" => {
             let input: ApprovalDecisionInput = serde_json::from_str(body)?;
+            let events = open_event_store()?.try_events(run_id)?;
+            let delegated_controller = if input.approved {
+                verify_approval_controller_delegate(
+                    &events,
+                    &approval_id,
+                    input.controller_agent.as_deref(),
+                )?
+            } else {
+                None
+            };
             if input.approved {
                 verify_configured_approval_unlock(input.unlock.as_deref())?;
                 verify_configured_approval_signature(
@@ -3046,6 +3066,7 @@ async fn daemon_approval_route(path: &str, body: &str) -> anyhow::Result<serde_j
                 RunEventKind::ApprovalResolved {
                     approval_id: approval_id.clone(),
                     approved: input.approved,
+                    delegated_controller,
                 },
             );
             Ok(serde_json::json!({
@@ -3082,6 +3103,7 @@ async fn execute_approved_tool(
         RunEventKind::ApprovalResolved {
             approval_id: id,
             approved,
+            ..
         } if id == approval_id => Some(*approved),
         _ => None,
     });
@@ -4267,6 +4289,7 @@ struct ApprovalDecisionInput {
     approved: bool,
     unlock: Option<String>,
     signature: Option<String>,
+    controller_agent: Option<String>,
 }
 
 #[derive(serde::Deserialize)]

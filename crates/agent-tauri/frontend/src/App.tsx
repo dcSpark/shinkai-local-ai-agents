@@ -14848,6 +14848,10 @@ export default function App() {
                     {adapterDoctorReport.unsupported_capability_count} unsupported
                   </span>
                   <span>
+                    {adapterDoctorReport.metadata_only_capability_count} metadata-only /{" "}
+                    {adapterDoctorReport.installable_skill_count} installable skills
+                  </span>
+                  <span>
                     {adapterDoctorReport.secret_requirement_count} secrets /{" "}
                     {adapterDoctorReport.high_risk_finding_count} high-risk findings
                   </span>
@@ -14883,6 +14887,7 @@ export default function App() {
                           key={`adapter-doctor:${pkg.id}`}
                         >
                           {pkg.id}: {pkg.ready_capability_count} ready /{" "}
+                          {pkg.installable_skill_count} installable skills /{" "}
                           {pkg.unsupported_capability_count} unsupported
                         </span>
                       ))}

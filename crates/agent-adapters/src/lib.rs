@@ -244,6 +244,7 @@ pub struct AdapterDoctorCapabilityReport {
     pub name: String,
     pub quarantined: bool,
     pub support: AdapterCapabilitySupport,
+    pub installable_as_skill: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub runtime: Option<NormalizedRuntime>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -259,6 +260,7 @@ pub struct AdapterDoctorPackageReport {
     pub capability_count: usize,
     pub ready_capability_count: usize,
     pub executable_capability_count: usize,
+    pub installable_skill_count: usize,
     pub metadata_only_capability_count: usize,
     pub unsupported_capability_count: usize,
     pub secret_requirement_count: usize,
@@ -280,6 +282,7 @@ pub struct AdapterDoctorReport {
     pub capability_count: usize,
     pub ready_capability_count: usize,
     pub executable_capability_count: usize,
+    pub installable_skill_count: usize,
     pub metadata_only_capability_count: usize,
     pub unsupported_capability_count: usize,
     pub secret_requirement_count: usize,
@@ -593,6 +596,10 @@ pub fn adapter_doctor_report_from_packages(
             .iter()
             .map(|package| package.executable_capability_count)
             .sum(),
+        installable_skill_count: package_reports
+            .iter()
+            .map(|package| package.installable_skill_count)
+            .sum(),
         metadata_only_capability_count: package_reports
             .iter()
             .map(|package| package.metadata_only_capability_count)
@@ -663,6 +670,10 @@ fn adapter_doctor_package_report(package: &NormalizedPackage) -> AdapterDoctorPa
         .iter()
         .filter(|capability| capability.support == AdapterCapabilitySupport::Executable)
         .count();
+    let installable_skill_count = capabilities
+        .iter()
+        .filter(|capability| capability.installable_as_skill)
+        .count();
     let metadata_only_capability_count = capabilities
         .iter()
         .filter(|capability| capability.support == AdapterCapabilitySupport::MetadataOnly)
@@ -695,6 +706,7 @@ fn adapter_doctor_package_report(package: &NormalizedPackage) -> AdapterDoctorPa
         capability_count: capabilities.len(),
         ready_capability_count,
         executable_capability_count,
+        installable_skill_count,
         metadata_only_capability_count,
         unsupported_capability_count,
         secret_requirement_count: package.secret_requirements.len(),
@@ -711,6 +723,7 @@ fn adapter_doctor_capability_report(
     capability: &NormalizedCapability,
 ) -> AdapterDoctorCapabilityReport {
     let (support, mut notes) = adapter_capability_support(package, capability);
+    let installable_as_skill = adapter_capability_installable_as_skill(package, capability);
     if package.quarantined || capability.quarantined {
         notes.push("quarantined: not registered until the package is allowed".into());
     }
@@ -720,6 +733,7 @@ fn adapter_doctor_capability_report(
         name: capability.name.clone(),
         quarantined: capability.quarantined,
         support,
+        installable_as_skill,
         runtime: capability.runtime.clone(),
         notes,
     }
@@ -745,6 +759,13 @@ fn adapter_capability_support(
                 vec!["hook declaration has no executable handler command".into()],
             ),
         },
+        CapabilityKind::Skill if adapter_capability_installable_as_skill(package, capability) => (
+            AdapterCapabilitySupport::MetadataOnly,
+            vec![
+                "OpenClaw/AgentSkills content is installable into the skill registry as a quarantined skill; it is not a runtime tool"
+                    .into(),
+            ],
+        ),
         CapabilityKind::Skill => (
             AdapterCapabilitySupport::MetadataOnly,
             vec![
@@ -764,6 +785,13 @@ fn adapter_capability_support(
             ],
         ),
     }
+}
+
+fn adapter_capability_installable_as_skill(
+    package: &NormalizedPackage,
+    capability: &NormalizedCapability,
+) -> bool {
+    package.adapter == AdapterKind::OpenClawAgentSkills && capability.kind == CapabilityKind::Skill
 }
 
 fn external_agent_capability_support(
@@ -2947,6 +2975,7 @@ description: trailing metadata is not an env secret
         assert_eq!(quarantined.package_count, 1);
         assert_eq!(quarantined.quarantined_package_count, 1);
         assert_eq!(quarantined.executable_capability_count, 1);
+        assert_eq!(quarantined.installable_skill_count, 0);
         assert_eq!(quarantined.ready_capability_count, 0);
         assert_eq!(
             quarantined.packages[0].capabilities[0].support,
@@ -3013,6 +3042,9 @@ description: trailing metadata is not an env secret
         assert_eq!(report.status, AdapterDoctorStatus::Error);
         assert_eq!(report.unsupported_capability_count, 1);
         assert_eq!(report.metadata_only_capability_count, 1);
+        assert_eq!(report.installable_skill_count, 1);
+        assert_eq!(report.packages[1].installable_skill_count, 1);
+        assert!(report.packages[1].capabilities[0].installable_as_skill);
         assert_eq!(report.high_risk_finding_count, 1);
         assert!(
             report

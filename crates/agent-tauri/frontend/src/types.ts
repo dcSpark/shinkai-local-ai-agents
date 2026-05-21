@@ -812,6 +812,7 @@ export type AdapterDoctorCapabilityReport = {
   name: string;
   quarantined: boolean;
   support: AdapterCapabilitySupport;
+  installable_as_skill: boolean;
   runtime?: AdapterCapabilityRuntime | null;
   notes?: string[];
 };
@@ -824,6 +825,7 @@ export type AdapterDoctorPackageReport = {
   capability_count: number;
   ready_capability_count: number;
   executable_capability_count: number;
+  installable_skill_count: number;
   metadata_only_capability_count: number;
   unsupported_capability_count: number;
   secret_requirement_count: number;
@@ -842,6 +844,7 @@ export type AdapterDoctorReport = {
   capability_count: number;
   ready_capability_count: number;
   executable_capability_count: number;
+  installable_skill_count: number;
   metadata_only_capability_count: number;
   unsupported_capability_count: number;
   secret_requirement_count: number;

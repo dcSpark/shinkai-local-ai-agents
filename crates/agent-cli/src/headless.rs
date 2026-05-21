@@ -4740,13 +4740,14 @@ fn print_adapter_doctor_report(report: AdapterDoctorReport, json: bool) -> anyho
         return Ok(());
     }
     println!(
-        "adapter_doctor status={:?} packages={} allowed={} quarantined={} ready_capabilities={} executable={} metadata_only={} unsupported={} secrets={} high_risk={}",
+        "adapter_doctor status={:?} packages={} allowed={} quarantined={} ready_capabilities={} executable={} installable_skills={} metadata_only={} unsupported={} secrets={} high_risk={}",
         report.status,
         report.package_count,
         report.allowed_package_count,
         report.quarantined_package_count,
         report.ready_capability_count,
         report.executable_capability_count,
+        report.installable_skill_count,
         report.metadata_only_capability_count,
         report.unsupported_capability_count,
         report.secret_requirement_count,
@@ -4760,7 +4761,7 @@ fn print_adapter_doctor_report(report: AdapterDoctorReport, json: bool) -> anyho
     }
     for package in &report.packages {
         println!(
-            "- {} adapter={:?} status={:?} quarantined={} ready={} capabilities={} executable={} metadata_only={} unsupported={}",
+            "- {} adapter={:?} status={:?} quarantined={} ready={} capabilities={} executable={} installable_skills={} metadata_only={} unsupported={}",
             package.id,
             package.adapter,
             package.status,
@@ -4768,6 +4769,7 @@ fn print_adapter_doctor_report(report: AdapterDoctorReport, json: bool) -> anyho
             package.ready_capability_count,
             package.capability_count,
             package.executable_capability_count,
+            package.installable_skill_count,
             package.metadata_only_capability_count,
             package.unsupported_capability_count
         );

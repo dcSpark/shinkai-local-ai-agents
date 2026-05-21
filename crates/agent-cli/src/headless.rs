@@ -133,6 +133,14 @@ pub async fn run(
                 BundleSlashCommand::Import { path } => bundle_import(path).await,
             };
         }
+        Some(SlashCommand::Secrets(command)) => {
+            return match command {
+                SecretsSlashCommand::Backends => secrets_backends(json).await,
+                SecretsSlashCommand::List => secrets_list(json).await,
+                SecretsSlashCommand::Show { id } => secrets_show(id, json).await,
+                SecretsSlashCommand::Delete { id } => secrets_delete(id).await,
+            };
+        }
         Some(SlashCommand::Ingest(command)) => {
             return match command {
                 IngestSlashCommand::List => ingest_list(json).await,
@@ -7836,6 +7844,7 @@ enum SlashCommand {
         apply: bool,
     },
     Bundle(BundleSlashCommand),
+    Secrets(SecretsSlashCommand),
     Ingest(IngestSlashCommand),
     Artifact(ArtifactSlashCommand),
     Capability(CapabilitySlashCommand),
@@ -7855,6 +7864,13 @@ enum SlashCommand {
 enum BundleSlashCommand {
     Export { path: String },
     Import { path: String },
+}
+
+enum SecretsSlashCommand {
+    Backends,
+    List,
+    Show { id: String },
+    Delete { id: String },
 }
 
 enum ArtifactSlashCommand {
@@ -8066,6 +8082,13 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         let command = parse_bundle_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Bundle(command)));
     }
+    if trimmed == "/secret" || trimmed == "/secrets" {
+        return Ok(Some(SlashCommand::Secrets(SecretsSlashCommand::List)));
+    }
+    if let Some(rest) = secrets_slash_rest(trimmed) {
+        let command = parse_secrets_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Secrets(command)));
+    }
     if trimmed == "/ingest" {
         return Ok(Some(SlashCommand::Ingest(IngestSlashCommand::List)));
     }
@@ -8164,6 +8187,7 @@ fn headless_slash_help_text() -> &'static str {
      - /trace [summary|tree|hooks] <run-id>, /compare <run-id> <run-id>, /replay <run-id>\n\
      - /storage report, /storage prune-cache <days> [--apply]\n\
      - /bundles export <path>, /bundles import <path> --confirm\n\
+     - /secrets backends|list|show|delete\n\
      - /ingest list|backends|add|probe-vision|rerun|show|review|delete\n\
      - /artifacts list|show|open|delete\n\
      - /capabilities list|doctor|show|allow|reject|delete|export|import\n\
@@ -8427,6 +8451,49 @@ fn parse_bundle_slash_rest(rest: &str) -> anyhow::Result<BundleSlashCommand> {
             Ok(BundleSlashCommand::Import { path })
         }
         _ => anyhow::bail!("bundles shortcut needs export or import"),
+    }
+}
+
+fn secrets_slash_rest(trimmed: &str) -> Option<&str> {
+    if let Some(rest) = trimmed.strip_prefix("/secrets ") {
+        Some(rest.trim())
+    } else {
+        trimmed.strip_prefix("/secret ").map(str::trim)
+    }
+}
+
+fn parse_secrets_slash_rest(rest: &str) -> anyhow::Result<SecretsSlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let command = parts.next().unwrap_or_default();
+    match command {
+        "" | "list" => {
+            ensure_no_extra(parts, "usage: /secrets list")?;
+            Ok(SecretsSlashCommand::List)
+        }
+        "backends" => {
+            ensure_no_extra(parts, "usage: /secrets backends")?;
+            Ok(SecretsSlashCommand::Backends)
+        }
+        "show" => {
+            let id = next_required(&mut parts, "secrets show needs an id")?;
+            ensure_no_extra(parts, "usage: /secrets show <id>")?;
+            Ok(SecretsSlashCommand::Show { id })
+        }
+        "delete" | "rm" => {
+            let id = next_required(&mut parts, "secrets delete needs an id")?;
+            let mut confirmed = false;
+            for part in parts {
+                match part {
+                    "--confirm" => confirmed = true,
+                    _ => anyhow::bail!("unknown secrets delete option: {part}"),
+                }
+            }
+            if !confirmed {
+                anyhow::bail!("secrets delete requires --confirm");
+            }
+            Ok(SecretsSlashCommand::Delete { id })
+        }
+        _ => anyhow::bail!("secrets shortcut needs backends, list, show, or delete"),
     }
 }
 
@@ -9556,6 +9623,37 @@ mod slash_tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn parses_secrets_shortcuts() {
+        assert!(matches!(
+            parse_slash_command("/secrets").unwrap(),
+            Some(SlashCommand::Secrets(SecretsSlashCommand::List))
+        ));
+        assert!(matches!(
+            parse_slash_command("/secret list").unwrap(),
+            Some(SlashCommand::Secrets(SecretsSlashCommand::List))
+        ));
+        assert!(matches!(
+            parse_slash_command("/secrets backends").unwrap(),
+            Some(SlashCommand::Secrets(SecretsSlashCommand::Backends))
+        ));
+        match parse_slash_command("/secrets show api-key").unwrap() {
+            Some(SlashCommand::Secrets(SecretsSlashCommand::Show { id })) => {
+                assert_eq!(id, "api-key");
+            }
+            _ => panic!("expected secrets show shortcut"),
+        }
+        match parse_slash_command("/secrets delete api-key --confirm").unwrap() {
+            Some(SlashCommand::Secrets(SecretsSlashCommand::Delete { id })) => {
+                assert_eq!(id, "api-key");
+            }
+            _ => panic!("expected secrets delete shortcut"),
+        }
+        assert!(parse_slash_command("/secrets delete api-key").is_err());
+        assert!(parse_slash_command("/secrets set api-key --value nope").is_err());
+        assert!(parse_slash_command("/secretsx list").unwrap().is_none());
     }
 
     #[test]

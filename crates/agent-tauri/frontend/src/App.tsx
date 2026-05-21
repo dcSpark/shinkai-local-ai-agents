@@ -478,6 +478,8 @@ export default function App() {
   const [enableCapabilityDrafts, setEnableCapabilityDrafts] = useState(false);
   const [capabilityDraftGuidance, setCapabilityDraftGuidance] = useState("");
   const [disabledLifecycleHooks, setDisabledLifecycleHooks] = useState("");
+  const [toolOverridesJson, setToolOverridesJson] = useState("");
+  const [skillOverridesJson, setSkillOverridesJson] = useState("");
   const [loadMemory, setLoadMemory] = useState(false);
   const [memoryBackend, setMemoryBackend] = useState("");
   const [memoryModel, setMemoryModel] = useState("");
@@ -7057,6 +7059,8 @@ export default function App() {
     setVoiceTtsModel(doc.voice?.tts_model ?? "");
     setVoiceName(doc.voice?.voice ?? "");
     setVoiceTone(doc.voice?.tone ?? "");
+    setToolOverridesJson(jsonArrayControlValue(doc.tool_overrides));
+    setSkillOverridesJson(jsonArrayControlValue(doc.skill_overrides));
     setInputCostPerMillion(numberControlValue(doc.input_cost_per_million));
     setOutputCostPerMillion(numberControlValue(doc.output_cost_per_million));
     setMaxToolCalls(numberControlValue(doc.max_tool_calls));
@@ -7135,6 +7139,25 @@ export default function App() {
     return Object.values(voice).some((value) => value !== null) ? voice : null;
   }
 
+  function jsonArrayControlValue(items: unknown[] | null | undefined) {
+    return items?.length ? JSON.stringify(items, null, 2) : "";
+  }
+
+  function parseJsonArrayControl<T>(value: string, label: string): T[] {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!Array.isArray(parsed)) {
+        throw new Error("value must be a JSON array");
+      }
+      return parsed as T[];
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error(`${label} must be a JSON array: ${msg}`);
+    }
+  }
+
   function agentConfigFromCurrentControls(id: string, systemPrompt: string): AgentConfigFile {
     return {
       id,
@@ -7148,6 +7171,14 @@ export default function App() {
               model: promptRefinementModel.trim() || null,
             }
           : null,
+      tool_overrides: parseJsonArrayControl(
+        toolOverridesJson,
+        "Tool overrides",
+      ),
+      skill_overrides: parseJsonArrayControl(
+        skillOverridesJson,
+        "Skill overrides",
+      ),
       model: model.trim() || null,
       input_cost_per_million: parseOptionalNonNegativeFloat(inputCostPerMillion),
       output_cost_per_million: parseOptionalNonNegativeFloat(
@@ -7209,7 +7240,14 @@ export default function App() {
       );
       return;
     }
-    const doc = agentConfigFromCurrentControls(id, systemPrompt);
+    let doc: AgentConfigFile;
+    try {
+      doc = agentConfigFromCurrentControls(id, systemPrompt);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Agent save failed: ${msg}`);
+      return;
+    }
     try {
       const saved =
         transport === "daemon"
@@ -12198,6 +12236,30 @@ export default function App() {
               title="Comma-separated lifecycle hook ids to skip for this run or saved agent."
             />
           </label>
+          <label>
+            Tool overrides
+            <textarea
+              className="ops-text"
+              value={toolOverridesJson}
+              onChange={(e) => setToolOverridesJson(e.target.value)}
+              placeholder='[{"id":"echo","output_mode":"raw"}]'
+              disabled={running}
+              rows={4}
+              title="JSON array of per-tool output, interpretation, guidance, or visibility overrides."
+            />
+          </label>
+          <label>
+            Skill overrides
+            <textarea
+              className="ops-text"
+              value={skillOverridesJson}
+              onChange={(e) => setSkillOverridesJson(e.target.value)}
+              placeholder='[{"id":"skill-id","visibility":"name_only"}]'
+              disabled={running}
+              rows={3}
+              title="JSON array of per-skill visibility overrides."
+            />
+          </label>
           <label className="switch">
             <input
               type="checkbox"
@@ -15577,6 +15639,12 @@ export default function App() {
                             ) : null}
                             {doc.allowed_tools?.length ? (
                               <span>allowed tools {doc.allowed_tools.join(", ")}</span>
+                            ) : null}
+                            {doc.tool_overrides?.length ? (
+                              <span>{doc.tool_overrides.length} tool overrides</span>
+                            ) : null}
+                            {doc.skill_overrides?.length ? (
+                              <span>{doc.skill_overrides.length} skill overrides</span>
                             ) : null}
                             {doc.max_subagent_depth != null ||
                             doc.max_recursion_depth != null ? (

@@ -133,6 +133,23 @@ pub async fn run(
                 BundleSlashCommand::Import { path } => bundle_import(path).await,
             };
         }
+        Some(SlashCommand::Profile(command)) => {
+            return match command {
+                ProfileSlashCommand::Current => profile_current(json).await,
+                ProfileSlashCommand::List => profile_list(json).await,
+                ProfileSlashCommand::Show { id } => profile_show(id, json).await,
+                ProfileSlashCommand::Create { id, name } => profile_create(id, name, json).await,
+                ProfileSlashCommand::Delete { id } => profile_delete(id).await,
+                ProfileSlashCommand::Grants { from } => profile_grants(from, json).await,
+                ProfileSlashCommand::Grant {
+                    from,
+                    to,
+                    kind,
+                    resource,
+                } => profile_grant(from, to, kind, resource, json).await,
+                ProfileSlashCommand::Revoke { id } => profile_revoke_grant(id, json).await,
+            };
+        }
         Some(SlashCommand::Secrets(command)) => {
             return match command {
                 SecretsSlashCommand::Backends => secrets_backends(json).await,
@@ -7844,6 +7861,7 @@ enum SlashCommand {
         apply: bool,
     },
     Bundle(BundleSlashCommand),
+    Profile(ProfileSlashCommand),
     Secrets(SecretsSlashCommand),
     Ingest(IngestSlashCommand),
     Artifact(ArtifactSlashCommand),
@@ -7864,6 +7882,33 @@ enum SlashCommand {
 enum BundleSlashCommand {
     Export { path: String },
     Import { path: String },
+}
+
+enum ProfileSlashCommand {
+    Current,
+    List,
+    Show {
+        id: String,
+    },
+    Create {
+        id: String,
+        name: Option<String>,
+    },
+    Delete {
+        id: String,
+    },
+    Grants {
+        from: Option<String>,
+    },
+    Grant {
+        from: Option<String>,
+        to: String,
+        kind: ProfileGrantKind,
+        resource: String,
+    },
+    Revoke {
+        id: String,
+    },
 }
 
 enum SecretsSlashCommand {
@@ -8082,6 +8127,13 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         let command = parse_bundle_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Bundle(command)));
     }
+    if trimmed == "/profile" || trimmed == "/profiles" {
+        return Ok(Some(SlashCommand::Profile(ProfileSlashCommand::List)));
+    }
+    if let Some(rest) = profile_slash_rest(trimmed) {
+        let command = parse_profile_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Profile(command)));
+    }
     if trimmed == "/secret" || trimmed == "/secrets" {
         return Ok(Some(SlashCommand::Secrets(SecretsSlashCommand::List)));
     }
@@ -8187,6 +8239,7 @@ fn headless_slash_help_text() -> &'static str {
      - /trace [summary|tree|hooks] <run-id>, /compare <run-id> <run-id>, /replay <run-id>\n\
      - /storage report, /storage prune-cache <days> [--apply]\n\
      - /bundles export <path>, /bundles import <path> --confirm\n\
+     - /profiles current|list|show|create|delete|grants|grant|revoke\n\
      - /secrets backends|list|show|delete\n\
      - /ingest list|backends|add|probe-vision|rerun|show|review|delete\n\
      - /artifacts list|show|open|delete\n\
@@ -8452,6 +8505,161 @@ fn parse_bundle_slash_rest(rest: &str) -> anyhow::Result<BundleSlashCommand> {
         }
         _ => anyhow::bail!("bundles shortcut needs export or import"),
     }
+}
+
+fn profile_slash_rest(trimmed: &str) -> Option<&str> {
+    if let Some(rest) = trimmed.strip_prefix("/profiles ") {
+        Some(rest.trim())
+    } else {
+        trimmed.strip_prefix("/profile ").map(str::trim)
+    }
+}
+
+fn parse_profile_slash_rest(rest: &str) -> anyhow::Result<ProfileSlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let command = parts.next().unwrap_or_default();
+    match command {
+        "" | "list" => {
+            ensure_no_extra(parts, "usage: /profiles list")?;
+            Ok(ProfileSlashCommand::List)
+        }
+        "current" => {
+            ensure_no_extra(parts, "usage: /profiles current")?;
+            Ok(ProfileSlashCommand::Current)
+        }
+        "show" => {
+            let id = next_required(&mut parts, "profiles show needs an id")?;
+            ensure_no_extra(parts, "usage: /profiles show <id>")?;
+            Ok(ProfileSlashCommand::Show { id })
+        }
+        "create" => parse_profile_create_args(parts),
+        "delete" | "rm" => {
+            let id = next_required(&mut parts, "profiles delete needs an id")?;
+            parse_profile_confirm(parts, "delete")?;
+            Ok(ProfileSlashCommand::Delete { id })
+        }
+        "grants" => parse_profile_grants_args(parts),
+        "grant" => parse_profile_grant_args(parts),
+        "revoke" | "revoke-grant" => {
+            let id = next_required(&mut parts, "profiles revoke needs a grant id")?;
+            parse_profile_confirm(parts, "revoke")?;
+            Ok(ProfileSlashCommand::Revoke { id })
+        }
+        _ => anyhow::bail!(
+            "profiles shortcut needs current, list, show, create, delete, grants, grant, or revoke"
+        ),
+    }
+}
+
+fn parse_profile_create_args<'a>(
+    mut parts: impl Iterator<Item = &'a str>,
+) -> anyhow::Result<ProfileSlashCommand> {
+    let id = next_required(&mut parts, "usage: /profiles create <id> [--name <name>]")?;
+    let mut name = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--name" => name = Some(next_required(&mut parts, "--name needs text")?),
+            _ if part.starts_with("--name=") => {
+                name = Some(required_option_value(part, "--name")?);
+            }
+            _ => anyhow::bail!("unknown profiles create option: {part}"),
+        }
+    }
+    Ok(ProfileSlashCommand::Create { id, name })
+}
+
+fn parse_profile_grants_args<'a>(
+    mut parts: impl Iterator<Item = &'a str>,
+) -> anyhow::Result<ProfileSlashCommand> {
+    let mut from = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--from" => from = Some(next_required(&mut parts, "--from needs a profile id")?),
+            _ if part.starts_with("--from=") => {
+                from = Some(required_option_value(part, "--from")?);
+            }
+            _ => anyhow::bail!("unknown profiles grants option: {part}"),
+        }
+    }
+    Ok(ProfileSlashCommand::Grants { from })
+}
+
+fn parse_profile_grant_args<'a>(
+    mut parts: impl Iterator<Item = &'a str>,
+) -> anyhow::Result<ProfileSlashCommand> {
+    let mut from = None;
+    let mut to = None;
+    let mut kind = None;
+    let mut resource = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--from" => from = Some(next_required(&mut parts, "--from needs a profile id")?),
+            _ if part.starts_with("--from=") => {
+                from = Some(required_option_value(part, "--from")?);
+            }
+            "--to" => to = Some(next_required(&mut parts, "--to needs a profile id")?),
+            _ if part.starts_with("--to=") => {
+                to = Some(required_option_value(part, "--to")?);
+            }
+            "--kind" => {
+                kind = Some(parse_profile_grant_kind(&next_required(
+                    &mut parts,
+                    "--kind needs a value",
+                )?)?);
+            }
+            _ if part.starts_with("--kind=") => {
+                kind = Some(parse_profile_grant_kind(&required_option_value(
+                    part, "--kind",
+                )?)?);
+            }
+            _ if part.starts_with("--") => anyhow::bail!("unknown profiles grant option: {part}"),
+            _ => {
+                if resource.is_some() {
+                    anyhow::bail!("profiles grant accepts one resource");
+                }
+                resource = Some(part.to_string());
+            }
+        }
+    }
+    let to = to.ok_or_else(|| anyhow::anyhow!("profiles grant requires --to <profile>"))?;
+    let kind = kind.ok_or_else(|| anyhow::anyhow!("profiles grant requires --kind <kind>"))?;
+    let resource = resource.ok_or_else(|| {
+        anyhow::anyhow!("usage: /profiles grant --to <profile> --kind <kind> <resource>")
+    })?;
+    Ok(ProfileSlashCommand::Grant {
+        from,
+        to,
+        kind,
+        resource,
+    })
+}
+
+fn parse_profile_grant_kind(value: &str) -> anyhow::Result<ProfileGrantKind> {
+    match value {
+        "agent" | "agents" => Ok(ProfileGrantKind::Agent),
+        "memory" | "memories" => Ok(ProfileGrantKind::Memory),
+        "tool" | "tools" => Ok(ProfileGrantKind::Tool),
+        "skill" | "skills" => Ok(ProfileGrantKind::Skill),
+        "category" | "categories" => Ok(ProfileGrantKind::Category),
+        _ => anyhow::bail!("profile grant kind must be agent, memory, tool, skill, or category"),
+    }
+}
+
+fn parse_profile_confirm<'a>(
+    parts: impl Iterator<Item = &'a str>,
+    action: &str,
+) -> anyhow::Result<()> {
+    let mut confirmed = false;
+    for part in parts {
+        match part {
+            "--confirm" => confirmed = true,
+            _ => anyhow::bail!("unknown profiles {action} option: {part}"),
+        }
+    }
+    if !confirmed {
+        anyhow::bail!("profiles {action} requires --confirm");
+    }
+    Ok(())
 }
 
 fn secrets_slash_rest(trimmed: &str) -> Option<&str> {
@@ -9623,6 +9831,69 @@ mod slash_tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn parses_profile_shortcuts() {
+        assert!(matches!(
+            parse_slash_command("/profiles").unwrap(),
+            Some(SlashCommand::Profile(ProfileSlashCommand::List))
+        ));
+        assert!(matches!(
+            parse_slash_command("/profile current").unwrap(),
+            Some(SlashCommand::Profile(ProfileSlashCommand::Current))
+        ));
+        match parse_slash_command("/profiles show research").unwrap() {
+            Some(SlashCommand::Profile(ProfileSlashCommand::Show { id })) => {
+                assert_eq!(id, "research");
+            }
+            _ => panic!("expected profile show shortcut"),
+        }
+        match parse_slash_command("/profiles create research --name Research").unwrap() {
+            Some(SlashCommand::Profile(ProfileSlashCommand::Create { id, name })) => {
+                assert_eq!(id, "research");
+                assert_eq!(name.as_deref(), Some("Research"));
+            }
+            _ => panic!("expected profile create shortcut"),
+        }
+        match parse_slash_command("/profiles delete research --confirm").unwrap() {
+            Some(SlashCommand::Profile(ProfileSlashCommand::Delete { id })) => {
+                assert_eq!(id, "research");
+            }
+            _ => panic!("expected profile delete shortcut"),
+        }
+        match parse_slash_command("/profiles grants --from main").unwrap() {
+            Some(SlashCommand::Profile(ProfileSlashCommand::Grants { from })) => {
+                assert_eq!(from.as_deref(), Some("main"));
+            }
+            _ => panic!("expected profile grants shortcut"),
+        }
+        match parse_slash_command("/profiles grant --from main --to research --kind memory critic")
+            .unwrap()
+        {
+            Some(SlashCommand::Profile(ProfileSlashCommand::Grant {
+                from,
+                to,
+                kind,
+                resource,
+            })) => {
+                assert_eq!(from.as_deref(), Some("main"));
+                assert_eq!(to, "research");
+                assert!(matches!(kind, ProfileGrantKind::Memory));
+                assert_eq!(resource, "critic");
+            }
+            _ => panic!("expected profile grant shortcut"),
+        }
+        match parse_slash_command("/profiles revoke grant-1 --confirm").unwrap() {
+            Some(SlashCommand::Profile(ProfileSlashCommand::Revoke { id })) => {
+                assert_eq!(id, "grant-1");
+            }
+            _ => panic!("expected profile revoke shortcut"),
+        }
+        assert!(parse_slash_command("/profiles delete research").is_err());
+        assert!(parse_slash_command("/profiles revoke grant-1").is_err());
+        assert!(parse_slash_command("/profiles grant --to research critic").is_err());
+        assert!(parse_slash_command("/profilesx list").unwrap().is_none());
     }
 
     #[test]

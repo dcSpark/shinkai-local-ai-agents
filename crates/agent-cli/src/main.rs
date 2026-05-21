@@ -2565,6 +2565,11 @@ enum RemoteCommand {
     },
     /// Show daemon hook remediation plan.
     TraceHooks { run_id: String },
+    /// Remote lifecycle hook policy operations.
+    Hooks {
+        #[command(subcommand)]
+        command: RemoteHookCommand,
+    },
     /// Show daemon quality score records.
     TraceScores { run_id: String },
     /// Remote approval operations.
@@ -2704,6 +2709,36 @@ enum RemoteBatchCommand {
 
         #[arg(long, default_value = "echo")]
         demo: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum RemoteHookCommand {
+    /// Show daemon lifecycle hook policy.
+    List {
+        #[arg(long)]
+        agent: Option<String>,
+    },
+    /// List daemon-host lifecycle hooks with policy state.
+    Available {
+        #[arg(long)]
+        agent: Option<String>,
+    },
+    /// Persistently disable one daemon-host lifecycle hook.
+    Disable {
+        hook_id: String,
+        #[arg(long)]
+        agent: Option<String>,
+        #[arg(long)]
+        confirm: bool,
+    },
+    /// Re-enable one daemon-host lifecycle hook.
+    Enable {
+        hook_id: String,
+        #[arg(long)]
+        agent: Option<String>,
+        #[arg(long)]
+        confirm: bool,
     },
 }
 
@@ -3526,6 +3561,69 @@ mod cli_parse_tests {
         };
         assert_eq!(run_id, "00000000-0000-0000-0000-000000000000");
         assert!(json);
+    }
+
+    #[test]
+    fn remote_hook_policy_commands_parse() {
+        let cli = parse_cli(["agent", "remote", "hooks", "list", "--agent", "research"]).unwrap();
+        let RemoteCommand::Hooks {
+            command: RemoteHookCommand::List { agent },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote hooks list command");
+        };
+        assert_eq!(agent.as_deref(), Some("research"));
+
+        let cli = parse_cli(["agent", "remote", "hooks", "available"]).unwrap();
+        let RemoteCommand::Hooks {
+            command: RemoteHookCommand::Available { agent },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote hooks available command");
+        };
+        assert!(agent.is_none());
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "hooks",
+            "disable",
+            "adapter:pkg:audit",
+            "--agent",
+            "research",
+            "--confirm",
+        ])
+        .unwrap();
+        let RemoteCommand::Hooks {
+            command:
+                RemoteHookCommand::Disable {
+                    hook_id,
+                    agent,
+                    confirm,
+                },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote hooks disable command");
+        };
+        assert_eq!(hook_id, "adapter:pkg:audit");
+        assert_eq!(agent.as_deref(), Some("research"));
+        assert!(confirm);
+
+        let cli = parse_cli(["agent", "remote", "hooks", "enable", "adapter:pkg:audit"]).unwrap();
+        let RemoteCommand::Hooks {
+            command:
+                RemoteHookCommand::Enable {
+                    hook_id,
+                    agent,
+                    confirm,
+                },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote hooks enable command");
+        };
+        assert_eq!(hook_id, "adapter:pkg:audit");
+        assert!(agent.is_none());
+        assert!(!confirm);
     }
 
     #[test]
@@ -6838,6 +6936,22 @@ async fn main() -> anyhow::Result<()> {
                 json,
             } => headless::remote_trace_compare(url, run_id, compare_run_id, json).await,
             RemoteCommand::TraceHooks { run_id } => headless::remote_trace_hooks(url, run_id).await,
+            RemoteCommand::Hooks { command } => match command {
+                RemoteHookCommand::List { agent } => headless::remote_hooks_list(url, agent).await,
+                RemoteHookCommand::Available { agent } => {
+                    headless::remote_hooks_available(url, agent).await
+                }
+                RemoteHookCommand::Disable {
+                    hook_id,
+                    agent,
+                    confirm,
+                } => headless::remote_hooks_set_disabled(url, hook_id, true, agent, confirm).await,
+                RemoteHookCommand::Enable {
+                    hook_id,
+                    agent,
+                    confirm,
+                } => headless::remote_hooks_set_disabled(url, hook_id, false, agent, confirm).await,
+            },
             RemoteCommand::TraceScores { run_id } => {
                 headless::remote_trace_scores(url, run_id).await
             }

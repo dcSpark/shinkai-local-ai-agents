@@ -5440,6 +5440,59 @@ pub async fn remote_trace_hooks(url: String, run_id: String) -> anyhow::Result<(
     print_remote(client.get_json(&format!("/trace/{run_id}/hooks"))?)
 }
 
+pub async fn remote_hooks_list(url: String, agent: Option<String>) -> anyhow::Result<()> {
+    print_remote(
+        DaemonHttpClient::new(url)
+            .post_json("/hooks/policy", serde_json::json!({ "agent_id": agent }))?,
+    )
+}
+
+pub async fn remote_hooks_available(url: String, agent: Option<String>) -> anyhow::Result<()> {
+    print_remote(
+        DaemonHttpClient::new(url)
+            .post_json("/hooks/available", serde_json::json!({ "agent_id": agent }))?,
+    )
+}
+
+pub async fn remote_hooks_set_disabled(
+    url: String,
+    hook_id: String,
+    disabled: bool,
+    agent: Option<String>,
+    confirm: bool,
+) -> anyhow::Result<()> {
+    let action = if disabled { "disable" } else { "enable" };
+    let scope = if agent.is_some() { "agent" } else { "profile" };
+    if !confirm {
+        let confirm_command = remote_hook_confirm_command(action, &hook_id, agent.as_deref());
+        return print_remote(serde_json::json!({
+            "hook_id": hook_id,
+            "action": action,
+            "scope": scope,
+            "agent_id": agent,
+            "confirm_command": confirm_command,
+        }));
+    }
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/hooks/policy/set",
+        serde_json::json!({
+            "hook_id": hook_id,
+            "disabled": disabled,
+            "agent_id": agent,
+            "scope": scope,
+        }),
+    )?)
+}
+
+fn remote_hook_confirm_command(action: &str, hook_id: &str, agent: Option<&str>) -> String {
+    match agent {
+        Some(agent_id) => {
+            format!("agent remote hooks {action} {hook_id} --agent {agent_id} --confirm")
+        }
+        None => format!("agent remote hooks {action} {hook_id} --confirm"),
+    }
+}
+
 pub async fn remote_trace_scores(url: String, run_id: String) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
     print_remote(client.get_json(&format!("/trace/{run_id}/scores"))?)

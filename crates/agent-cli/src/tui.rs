@@ -2869,6 +2869,7 @@ fn handle_capabilities_slash(app: &mut App, rest: &str) {
                 "/capabilities import <path>",
                 "/capabilities allow <id> --confirm",
                 "/capabilities reject <id> --confirm",
+                "/capabilities delete <id> --confirm",
             ]
             .join("\n"),
         });
@@ -2980,9 +2981,10 @@ fn handle_capabilities_slash(app: &mut App, rest: &str) {
         "reject" => {
             handle_capability_review_slash(app, args, CapabilityDraftStatus::Rejected, "reject")
         }
+        "delete" | "rm" => handle_capability_delete_slash(app, args),
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Capabilities command needs list, doctor, show, export, import, allow, reject, or help."
+            text: "Capabilities command needs list, doctor, show, export, import, allow, reject, delete, or help."
                 .into(),
         }),
     }
@@ -3018,6 +3020,32 @@ fn handle_capability_review_slash(
                 "pending_action": format!("{action}_capability_draft"),
                 "draft_id": id,
                 "confirm_command": format!("/capabilities {action} {id} --confirm"),
+            }))
+            .unwrap_or_else(|_| "<unserializable capability confirmation>".into()),
+        }),
+        Err(err) => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: err.to_string(),
+        }),
+    }
+}
+
+fn handle_capability_delete_slash(app: &mut App, args: &str) {
+    match capability_review_args(args, "delete") {
+        Ok((id, true)) => match CapabilityDraftStore::from_env().delete(id) {
+            Ok(true) => push_event(app, format!("Deleted capability draft {id}")),
+            Ok(false) => push_event(app, format!("Capability draft {id} was not stored")),
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Capability delete failed: {err}"),
+            }),
+        },
+        Ok((id, false)) => app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: serde_json::to_string_pretty(&serde_json::json!({
+                "pending_action": "delete_capability_draft",
+                "draft_id": id,
+                "confirm_command": format!("/capabilities delete {id} --confirm"),
             }))
             .unwrap_or_else(|_| "<unserializable capability confirmation>".into()),
         }),
@@ -8765,6 +8793,10 @@ mod tests {
         assert_eq!(
             capability_review_args("draft-1", "reject").unwrap(),
             ("draft-1", false)
+        );
+        assert_eq!(
+            capability_review_args("draft-1 --confirm", "delete").unwrap(),
+            ("draft-1", true)
         );
         assert_eq!(
             capability_path_arg("./draft.json", "import").unwrap(),

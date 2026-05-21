@@ -326,7 +326,7 @@ interface StorageRetentionResult {
   plan: StorageRetentionPlan;
   deleted_files: number;
   deleted_bytes: number;
-  errors: string[];
+  errors?: string[];
 }
 
 interface BridgeDeliveryRecord {
@@ -1445,6 +1445,9 @@ export default function App() {
       { command: "/config", label: "Explain effective config" },
       { command: "/tools", label: "Show visible tools" },
       { command: "/storage", label: "Show storage usage" },
+      { command: "/storage report", label: "Show storage usage" },
+      { command: "/storage prune-cache ", label: "Plan cache pruning" },
+      { command: "/storage prune-cache 30 --apply", label: "Apply cache pruning" },
       { command: "/memory", label: "List memory records" },
       { command: "/ingest", label: "List ingestion artifacts" },
       { command: "/ingest list", label: "List ingestion artifacts" },
@@ -1553,6 +1556,32 @@ export default function App() {
       id: match[1],
       path: match[2]?.trim() || undefined,
     };
+  }
+
+  function parseStoragePruneShortcut(rest: string) {
+    const parts = rest.split(/\s+/).filter(Boolean);
+    let days: number | null = null;
+    let apply = false;
+    for (const part of parts) {
+      if (part === "--apply") {
+        apply = true;
+        continue;
+      }
+      const parsed = Number(part);
+      if (!Number.isInteger(parsed) || parsed <= 0 || days !== null) {
+        appendLine(
+          "error",
+          "Storage prune-cache shortcut needs: /storage prune-cache <days> [--apply].",
+        );
+        return null;
+      }
+      days = parsed;
+    }
+    if (days === null) {
+      appendLine("error", "Storage prune-cache shortcut needs retention days.");
+      return null;
+    }
+    return { days, apply };
   }
 
   function parseIngestReviewShortcut(rest: string) {
@@ -3523,11 +3552,23 @@ export default function App() {
       return;
     }
 
-    if (prompt === "/storage") {
+    if (prompt === "/storage" || prompt === "/storage report" || prompt.startsWith("/storage ")) {
       setInput("");
       setActiveSection("adapters");
-      appendLine("user", "/storage");
-      await storageReportFromOps();
+      appendLine("user", prompt);
+      const rest = prompt === "/storage" ? "" : prompt.slice("/storage ".length).trim();
+      if (!rest || rest === "report") {
+        await storageReportFromOps();
+      } else if (rest.startsWith("prune-cache ")) {
+        const prune = parseStoragePruneShortcut(
+          rest.slice("prune-cache ".length).trim(),
+        );
+        if (prune) {
+          await storagePruneCacheFromOps(prune.apply, prune.days);
+        }
+      } else {
+        appendLine("error", "Storage shortcut needs report or prune-cache.");
+      }
       return;
     }
 
@@ -7704,8 +7745,12 @@ export default function App() {
     }
   }
 
-  async function storagePruneCacheFromOps(apply: boolean) {
-    const retentionDays = retentionDaysFromOps("Storage cache retention");
+  async function storagePruneCacheFromOps(
+    apply: boolean,
+    explicitRetentionDays?: number,
+  ) {
+    const retentionDays =
+      explicitRetentionDays ?? retentionDaysFromOps("Storage cache retention");
     if (retentionDays == null) return;
     if (apply && !confirmLocalChange(`Delete cache files older than ${retentionDays} day(s)`)) {
       return;
@@ -13426,11 +13471,16 @@ export default function App() {
                       <span>{formatBytes(storagePruneResult.deleted_bytes)}</span>
                     </div>
                   ) : null}
-                  {storagePruneResult.errors.length ? (
+                  {(storagePruneResult.errors ?? []).length ? (
                     <div className="storage-largest warning">
                       <span>errors</span>
-                      <strong>{storagePruneResult.errors.length}</strong>
-                      <span>{previewText(storagePruneResult.errors.join("; "), 160)}</span>
+                      <strong>{storagePruneResult.errors?.length ?? 0}</strong>
+                      <span>
+                        {previewText(
+                          (storagePruneResult.errors ?? []).join("; "),
+                          160,
+                        )}
+                      </span>
                     </div>
                   ) : null}
                   <div className="storage-buckets">

@@ -4252,6 +4252,9 @@ fn agent_summary(agent: &AgentSummary) -> serde_json::Value {
         "id": agent.id,
         "name": agent.name,
         "path": agent.path.display().to_string(),
+        "profile": agent.profile.as_deref(),
+        "shared_from_profile": agent.shared_from_profile.as_deref(),
+        "grant_id": agent.grant_id.as_deref(),
     })
 }
 

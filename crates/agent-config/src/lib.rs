@@ -303,6 +303,12 @@ pub struct AgentSummary {
     pub id: String,
     pub name: String,
     pub path: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared_from_profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -1441,12 +1447,15 @@ impl ConfigResolver {
 
     pub fn list_agent_configs(&self) -> Result<Vec<AgentSummary>, ConfigError> {
         self.ensure_default_files()?;
+        let active_profile = self.paths.active_profile_id().to_string();
         let mut agents = list_agent_configs_in_paths(&self.paths)?;
+        for agent in &mut agents {
+            agent.profile = Some(active_profile.clone());
+        }
         let mut seen = agents
             .iter()
             .map(|agent| agent.id.clone())
             .collect::<BTreeSet<_>>();
-        let active_profile = self.paths.active_profile_id().to_string();
         for grant in self.list_profile_grants()?.into_iter().filter(|grant| {
             grant.kind == ProfileGrantKind::Agent && grant.to_profile == active_profile
         }) {
@@ -1455,10 +1464,13 @@ impl ConfigResolver {
                 &grant.from_profile,
             );
             ConfigResolver::new(source_paths.clone()).ensure_default_files()?;
-            for agent in list_agent_configs_in_paths(&source_paths)? {
+            for mut agent in list_agent_configs_in_paths(&source_paths)? {
                 if (grant.resource == "*" || grant.resource == agent.id)
                     && seen.insert(agent.id.clone())
                 {
+                    agent.profile = Some(grant.from_profile.clone());
+                    agent.shared_from_profile = Some(grant.from_profile.clone());
+                    agent.grant_id = Some(grant.id.clone());
                     agents.push(agent);
                 }
             }
@@ -4873,6 +4885,9 @@ fn agent_summary(agent: AgentToml, path: PathBuf) -> AgentSummary {
         id: agent.id,
         name: agent.name,
         path,
+        profile: None,
+        shared_from_profile: None,
+        grant_id: None,
     }
 }
 
@@ -5410,10 +5425,15 @@ system_prompt = "Review carefully."
 
         let research_resolver = ConfigResolver::new(research_paths);
         let listed = research_resolver.list_agent_configs().unwrap();
-        assert!(
-            listed
-                .iter()
-                .any(|agent| agent.id == "critic" && agent.path == agent_path)
+        let summary = listed
+            .iter()
+            .find(|agent| agent.id == "critic" && agent.path == agent_path)
+            .unwrap();
+        assert_eq!(summary.profile.as_deref(), Some("main"));
+        assert_eq!(summary.shared_from_profile.as_deref(), Some("main"));
+        assert_eq!(
+            summary.grant_id.as_deref(),
+            Some("grant-main-research-agent-critic")
         );
         let shown = research_resolver
             .show_agent_config("critic")

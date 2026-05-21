@@ -72,6 +72,11 @@ type ActiveSection =
   | "approvals";
 type AgentMode = "answer" | "action" | "workflow" | "custom";
 type AgentConfigEntry = AgentConfigFile | AgentSummary;
+type AgentDeleteResult = { id?: string; deleted?: boolean };
+
+function agentSharedProfile(doc: AgentConfigEntry | null | undefined) {
+  return doc?.shared_from_profile?.trim() || null;
+}
 
 interface TranscriptLine {
   kind: LineKind;
@@ -4585,7 +4590,9 @@ export default function App() {
         transport === "daemon"
           ? await daemonJson<AgentConfigFile>(`/agents/${encodeURIComponent(id)}`)
           : await invoke<AgentConfigFile>("agent_show", { id });
-      setAgentConfigs((docs) => upsertAgentConfig(docs, doc));
+      setAgentConfigs((docs) =>
+        upsertAgentConfig(docs, withExistingAgentMetadata(docs, doc)),
+      );
       appendJson("Agent", doc);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -4657,7 +4664,9 @@ export default function App() {
               { path },
             )
           : await invoke<AgentConfigFile>("agent_export", { id, path });
-      setAgentConfigs((docs) => upsertAgentConfig(docs, doc));
+      setAgentConfigs((docs) =>
+        upsertAgentConfig(docs, withExistingAgentMetadata(docs, doc)),
+      );
       appendJson("Agent exported", { path, agent: doc });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -4682,15 +4691,35 @@ export default function App() {
     }
   }
 
+  function knownProfileGrantedAgent(id: string) {
+    return agentConfigs.some(
+      (doc) => doc.id === id && agentSharedProfile(doc) != null,
+    );
+  }
+
   async function deleteAgentFromOps(explicitId?: string) {
     const id = explicitId ?? requireOpsId("Agent delete");
     if (!id) return;
+    if (knownProfileGrantedAgent(id)) {
+      appendLine(
+        "error",
+        `Agent ${id} is shared from another profile; revoke its profile grant instead of deleting it here.`,
+      );
+      return;
+    }
     if (!confirmLocalChange(`Delete agent ${id}`)) return;
     try {
       const result =
         transport === "daemon"
           ? await daemonJson<unknown>(`/agents/${encodeURIComponent(id)}/delete`, {})
           : await invoke<unknown>("agent_delete", { id });
+      if ((result as AgentDeleteResult | null)?.deleted === false) {
+        appendLine(
+          "event",
+          `No active-profile agent config was deleted for ${id}.`,
+        );
+        return;
+      }
       setAgentConfigs((docs) => docs.filter((doc) => doc.id !== id));
       if (agentId.trim() === id) {
         setAgentId("");
@@ -8004,6 +8033,21 @@ export default function App() {
   function upsertAgentConfig(docs: AgentConfigEntry[], doc: AgentConfigEntry) {
     const rest = docs.filter((item) => item.id !== doc.id);
     return [doc, ...rest].sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  function withExistingAgentMetadata(
+    docs: AgentConfigEntry[],
+    doc: AgentConfigEntry,
+  ): AgentConfigEntry {
+    const existing = docs.find((item) => item.id === doc.id);
+    if (!existing) return doc;
+    return {
+      ...doc,
+      profile: doc.profile ?? existing.profile ?? null,
+      shared_from_profile:
+        doc.shared_from_profile ?? existing.shared_from_profile ?? null,
+      grant_id: doc.grant_id ?? existing.grant_id ?? null,
+    };
   }
 
   function upsertProfileSummary(profiles: ProfileSummary[], profile: ProfileSummary) {
@@ -12227,81 +12271,104 @@ export default function App() {
                 <button
                   type="button"
                   className="danger"
-                  title="Delete saved agent Id."
+                  title={
+                    knownProfileGrantedAgent(opsId.trim())
+                      ? "This agent is shared from another profile; revoke the profile grant to remove access."
+                      : "Delete saved agent Id."
+                  }
                   onClick={() => void deleteAgentFromOps()}
-                  disabled={running || !opsId.trim()}
+                  disabled={
+                    running ||
+                    !opsId.trim() ||
+                    knownProfileGrantedAgent(opsId.trim())
+                  }
                 >
                   Delete Agent
                 </button>
               </div>
               {agentConfigs.length ? (
                 <div className="ingestion-review">
-                  {agentConfigs.map((doc) => (
-                    <div className="ingestion-card" key={doc.id}>
-                      <div className="ingestion-card-head">
-                        <strong>{doc.name || doc.id}</strong>
-                        <span>{doc.id}</span>
-                      </div>
-                      {"system_prompt" in doc ? (
-                        <>
+                  {agentConfigs.map((doc) => {
+                    const sharedFrom = agentSharedProfile(doc);
+                    return (
+                      <div className="ingestion-card" key={doc.id}>
+                        <div className="ingestion-card-head">
+                          <strong>{doc.name || doc.id}</strong>
+                          <span>{doc.id}</span>
+                        </div>
+                        {sharedFrom ? (
                           <span>
-                            {doc.model ? `model ${doc.model}` : "default model"}
+                            shared from {sharedFrom}
+                            {doc.grant_id ? ` / ${doc.grant_id}` : ""}
                           </span>
-                          <span>
-                            {doc.max_tool_calls == null
-                              ? "default tool budget"
-                              : `${doc.max_tool_calls} tool calls`}
-                          </span>
-                          <p>{previewText(doc.system_prompt, 220)}</p>
-                        </>
-                      ) : (
-                        <span title={doc.path}>{fileName(doc.path)}</span>
-                      )}
-                      <div className="mini-actions">
-                        <button
-                          type="button"
-                          title="Move this agent id into the Id field."
-                          onClick={() => setOpsId(doc.id)}
-                          disabled={running}
-                        >
-                          Set Id
-                        </button>
-                        <button
-                          type="button"
-                          title="Use this saved agent for future runs."
-                          onClick={() => setAgentId(doc.id)}
-                          disabled={running}
-                        >
-                          Use
-                        </button>
-                        <button
-                          type="button"
-                          title="Show this saved agent config."
-                          onClick={() => void showAgent(doc.id)}
-                          disabled={running}
-                        >
-                          Show
-                        </button>
-                        <button
-                          type="button"
-                          title="Export this saved agent to the Value path."
-                          onClick={() => void exportAgentFromOps(doc.id)}
-                          disabled={running || !opsValue.trim()}
-                        >
-                          Export
-                        </button>
-                        <button
-                          type="button"
-                          className="danger"
-                          title="Delete this saved agent config."
-                          onClick={() => void deleteAgentFromOps(doc.id)}
-                          disabled={running}
-                        >
-                          Delete
-                        </button>
+                        ) : doc.profile ? (
+                          <span>profile {doc.profile}</span>
+                        ) : null}
+                        {"system_prompt" in doc ? (
+                          <>
+                            <span>
+                              {doc.model ? `model ${doc.model}` : "default model"}
+                            </span>
+                            <span>
+                              {doc.max_tool_calls == null
+                                ? "default tool budget"
+                                : `${doc.max_tool_calls} tool calls`}
+                            </span>
+                            <p>{previewText(doc.system_prompt, 220)}</p>
+                          </>
+                        ) : (
+                          <span title={doc.path}>{fileName(doc.path)}</span>
+                        )}
+                        <div className="mini-actions">
+                          <button
+                            type="button"
+                            title="Move this agent id into the Id field."
+                            onClick={() => setOpsId(doc.id)}
+                            disabled={running}
+                          >
+                            Set Id
+                          </button>
+                          <button
+                            type="button"
+                            title="Use this saved agent for future runs."
+                            onClick={() => setAgentId(doc.id)}
+                            disabled={running}
+                          >
+                            Use
+                          </button>
+                          <button
+                            type="button"
+                            title="Show this saved agent config."
+                            onClick={() => void showAgent(doc.id)}
+                            disabled={running}
+                          >
+                            Show
+                          </button>
+                          <button
+                            type="button"
+                            title="Export this saved agent to the Value path."
+                            onClick={() => void exportAgentFromOps(doc.id)}
+                            disabled={running || !opsValue.trim()}
+                          >
+                            Export
+                          </button>
+                          <button
+                            type="button"
+                            className="danger"
+                            title={
+                              sharedFrom
+                                ? "Revoke this profile grant to remove shared access."
+                                : "Delete this saved agent config."
+                            }
+                            onClick={() => void deleteAgentFromOps(doc.id)}
+                            disabled={running || sharedFrom != null}
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : null}
             </div>

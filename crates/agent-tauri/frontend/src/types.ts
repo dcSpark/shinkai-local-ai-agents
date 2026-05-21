@@ -287,6 +287,9 @@ export type AgentConfigFile = {
   id: string;
   name: string;
   system_prompt: string;
+  profile?: string | null;
+  shared_from_profile?: string | null;
+  grant_id?: string | null;
   model?: string | null;
   max_tool_calls?: number | null;
   max_tokens_before_compaction?: number | null;
@@ -317,6 +320,9 @@ export type AgentSummary = {
   id: string;
   name: string;
   path: string;
+  profile?: string | null;
+  shared_from_profile?: string | null;
+  grant_id?: string | null;
 };
 
 export type ProfileSummary = {

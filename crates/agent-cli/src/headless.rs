@@ -3190,11 +3190,24 @@ pub async fn agent_list(json: bool) -> anyhow::Result<()> {
         println!("{}", serde_json::to_string_pretty(&agents)?);
     } else {
         for agent in agents {
+            let shared = agent
+                .shared_from_profile
+                .as_ref()
+                .map(|profile| {
+                    format!(
+                        " shared_from_profile={} grant={}",
+                        profile,
+                        agent.grant_id.as_deref().unwrap_or("unknown")
+                    )
+                })
+                .unwrap_or_default();
             println!(
-                "{} name={:?} path={}",
+                "{} name={:?} profile={} path={}{}",
                 agent.id,
                 agent.name,
-                agent.path.display()
+                agent.profile.as_deref().unwrap_or("unknown"),
+                agent.path.display(),
+                shared
             );
         }
     }

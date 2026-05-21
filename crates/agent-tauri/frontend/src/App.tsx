@@ -1064,13 +1064,15 @@ export default function App() {
     return value as T;
   }
 
-  function captureRunIdFromError(message: string) {
+  function captureRunIdFromError(message: string): string | null {
     const match = message.match(
       /run_id=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/,
     );
     if (match) {
       setLastRunId(match[1]);
+      return match[1];
     }
+    return null;
   }
 
   function captureDirectToolMetadata(value: unknown) {
@@ -1583,6 +1585,7 @@ export default function App() {
       { command: "/replay", label: "Replay loaded trace prompt" },
       { command: "/replay ", label: "Replay a run trace by id" },
       { command: "/replay --no-hooks", label: "Replay loaded trace without hooks" },
+      { command: "/replay --compare-source", label: "Replay and compare source trace" },
       { command: "/approvals", label: "Review current run approvals" },
       { command: "/batch ", label: "Run lines as deterministic batch" },
       { command: "/resume-batch ", label: "Resume deterministic batch" },
@@ -3363,9 +3366,14 @@ export default function App() {
     await replayTracePromptWithOptions({ skipHooks: true });
   }
 
+  async function replayTracePromptWithComparison() {
+    await replayTracePromptWithOptions({ compareSource: true });
+  }
+
   async function replayTracePromptWithOptions(options?: {
     runId?: string;
     skipHooks?: boolean;
+    compareSource?: boolean;
   }) {
     let events = traceEvents;
     const runId = options?.runId?.trim();
@@ -3379,6 +3387,7 @@ export default function App() {
         return;
       }
     }
+    const sourceRunId = runId || events[0]?.run_id || "";
     const prompt = traceOriginalPrompt(events);
     if (!prompt) {
       appendLine(
@@ -3389,14 +3398,39 @@ export default function App() {
       );
       return;
     }
+    if (options?.compareSource && !sourceRunId) {
+      appendLine("error", "Replay compare needs a source trace run id.");
+      return;
+    }
+    const replayFlags = [
+      options?.skipHooks ? " (hooks skipped once)" : "",
+      options?.compareSource ? " (compare source)" : "",
+    ].join("");
     const label = runId
-      ? `replay trace ${runId} prompt${options?.skipHooks ? " (hooks skipped once)" : ""}`
-      : `replay trace prompt${options?.skipHooks ? " (hooks skipped once)" : ""}`;
-    await runAgentPrompt(
+      ? `replay trace ${runId} prompt${replayFlags}`
+      : `replay trace prompt${replayFlags}`;
+    const replayRunId = await runAgentPrompt(
       prompt,
       label,
       options?.skipHooks ? { disable_lifecycle_hooks: true } : undefined,
     );
+    if (!options?.compareSource) {
+      return;
+    }
+    if (!replayRunId) {
+      appendLine("error", "Replay compare could not identify the replay run id.");
+      return;
+    }
+    try {
+      await loadTraceFor(sourceRunId);
+      const compared = await loadTraceComparison(replayRunId, sourceRunId);
+      if (compared) {
+        appendEvent(`Compared source trace ${sourceRunId} to replay ${replayRunId}.`);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Replay compare failed: ${msg}`);
+    }
   }
 
   async function refreshHookPolicy(announce = true) {
@@ -3604,15 +3638,15 @@ export default function App() {
     }
   }
 
-  async function loadTraceComparison(runIdInput?: string) {
+  async function loadTraceComparison(runIdInput?: string, primaryRunId?: string) {
     const runId = runIdInput?.trim() || traceCompareRunId.trim() || opsId.trim();
     if (!runId) {
       appendLine("error", "Compare trace needs a run id.");
-      return;
+      return false;
     }
-    if (traceSummary?.run_id === runId) {
+    if ((primaryRunId || traceSummary?.run_id) === runId) {
       appendLine("error", "Compare trace needs a different run id.");
-      return;
+      return false;
     }
     try {
       const [events, tree] = await Promise.all([
@@ -3622,7 +3656,7 @@ export default function App() {
       const summary = summarizeTrace(events);
       if (!summary) {
         appendLine("error", `Compare trace ${runId} has no events.`);
-        return;
+        return false;
       }
       setTraceCompareRunId(runId);
       setTraceCompareSummary(summary);
@@ -3630,9 +3664,11 @@ export default function App() {
       appendEvent(
         `Loaded compare trace ${runId} (${events.length} events, ${traceTreeNodeCount(tree)} run(s))`,
       );
+      return true;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Compare trace load failed: ${msg}`);
+      return false;
     }
   }
 
@@ -5611,8 +5647,10 @@ export default function App() {
       const replayFlags = [
         "--no-hooks",
         "--skip-hooks",
+        "--compare-source",
         "no-hooks",
         "skip-hooks",
+        "compare-source",
         "help",
         "--help",
       ];
@@ -5621,6 +5659,8 @@ export default function App() {
         args.includes("--skip-hooks") ||
         args.includes("no-hooks") ||
         args.includes("skip-hooks");
+      const compareSource =
+        args.includes("--compare-source") || args.includes("compare-source");
       const help = args.includes("help") || args.includes("--help");
       const runIds = args.filter((arg) => !replayFlags.includes(arg));
       const unknownFlags = runIds.filter((arg) => arg.startsWith("--"));
@@ -5630,7 +5670,7 @@ export default function App() {
       if (help) {
         appendLine(
           "assistant",
-          "Use /replay [run-id] to run a trace prompt again, or add --no-hooks to skip lifecycle hooks once.",
+          "Use /replay [run-id] to run a trace prompt again, add --no-hooks to skip lifecycle hooks once, or add --compare-source to compare the replay against the source trace.",
         );
         return;
       }
@@ -5641,11 +5681,15 @@ export default function App() {
       if (runIds.length > 1) {
         appendLine(
           "error",
-          "Replay shortcut accepts at most one run id plus optional --no-hooks or --skip-hooks.",
+          "Replay shortcut accepts at most one run id plus optional --no-hooks, --skip-hooks, or --compare-source.",
         );
         return;
       }
-      await replayTracePromptWithOptions({ runId: runIds[0], skipHooks });
+      await replayTracePromptWithOptions({
+        runId: runIds[0],
+        skipHooks,
+        compareSource,
+      });
       return;
     }
 
@@ -5746,7 +5790,7 @@ export default function App() {
     displayText: string,
     optionOverrides: Partial<RunOptions> = {},
   ) {
-    if (running) return;
+    if (running) return null;
     setInput("");
     setRunning(true);
     setTokensIn(0);
@@ -5782,7 +5826,7 @@ export default function App() {
         rootRunIdRef.current = started.run_id;
         appendEvent(`Remote run started: ${started.run_id}`);
         await pollRemoteRun(started.run_id);
-        return;
+        return started.run_id;
       }
       // The harness emits RunCompleted/RunFailed via the event channel;
       // the resolved RunSummary here is informational.
@@ -5798,14 +5842,16 @@ export default function App() {
       }
       setRunning(false);
       runStartedAtRef.current = null;
+      return summary.run_id;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      captureRunIdFromError(msg);
+      const errorRunId = captureRunIdFromError(msg);
       if (!terminalEventSeenRef.current) {
         appendLine("error", `Invoke failed: ${msg}`);
       }
       setRunning(false);
       runStartedAtRef.current = null;
+      return errorRunId ?? rootRunIdRef.current;
     }
   }
 
@@ -12067,6 +12113,14 @@ export default function App() {
               disabled={running || !traceOriginalPrompt(traceEvents)}
             >
               Replay
+            </button>
+            <button
+              type="button"
+              title="Run the original prompt again, then compare the replay against this trace."
+              onClick={() => void replayTracePromptWithComparison()}
+              disabled={running || !traceOriginalPrompt(traceEvents)}
+            >
+              Replay Compare
             </button>
           </div>
           <label>

@@ -1465,6 +1465,7 @@ export default function App() {
       { command: "/stop status", label: "Show stop retention mode" },
       { command: "/compact ", label: "Create a guided compaction draft" },
       { command: "/compact keep", label: "Keep current compacted context" },
+      { command: "/compact keep-run ", label: "Keep auto-compaction from run" },
       { command: "/compact status", label: "Show manual compacted context" },
       { command: "/compact clear", label: "Clear manual compacted context" },
       { command: "/compactions", label: "List compacted-context artifacts" },
@@ -3817,6 +3818,14 @@ export default function App() {
         setInput("");
         appendLine("user", prompt);
         await keepAvailableCompaction();
+        return;
+      }
+      if (command === "keep-run" || command.startsWith("keep-run ")) {
+        const runId =
+          command === "keep-run" ? "" : guidance.slice("keep-run ".length).trim();
+        setInput("");
+        appendLine("user", prompt);
+        await keepRunCompaction(runId);
         return;
       }
       const draft = buildCompactionDraft(guidance);

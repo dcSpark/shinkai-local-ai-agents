@@ -1364,7 +1364,11 @@ export default function App() {
       { command: "/models providers", label: "List model providers" },
       { command: "/models doctor", label: "Run model doctor" },
       { command: "/models provider-catalog", label: "Show provider catalog" },
+      { command: "/models provider-catalog export ", label: "Export provider catalog" },
+      { command: "/models provider-catalog import ", label: "Import provider catalog" },
       { command: "/models metadata-catalog", label: "Show metadata catalog" },
+      { command: "/models metadata-catalog export ", label: "Export metadata catalog" },
+      { command: "/models metadata-catalog import ", label: "Import metadata catalog" },
       { command: "/simple", label: "Use low-overhead answer mode" },
       { command: "/router", label: "Use one-action raw router mode" },
       { command: "/answer", label: "Use zero tool calls" },
@@ -4538,7 +4542,9 @@ export default function App() {
       prompt === "/models providers" ||
       prompt === "/models doctor" ||
       prompt === "/models provider-catalog" ||
+      prompt.startsWith("/models provider-catalog ") ||
       prompt === "/models metadata-catalog" ||
+      prompt.startsWith("/models metadata-catalog ") ||
       prompt.startsWith("/models show ") ||
       prompt.startsWith("/models probe ") ||
       prompt.startsWith("/models delete ")
@@ -4552,10 +4558,74 @@ export default function App() {
         await listModelProvidersFromOps();
       } else if (prompt === "/models doctor") {
         await modelDoctorFromOps();
-      } else if (prompt === "/models provider-catalog") {
-        await showModelProviderCatalogFromOps();
-      } else if (prompt === "/models metadata-catalog") {
-        await showModelMetadataCatalogFromOps();
+      } else if (
+        prompt === "/models provider-catalog" ||
+        prompt.startsWith("/models provider-catalog ")
+      ) {
+        const rest =
+          prompt === "/models provider-catalog"
+            ? ""
+            : prompt.slice("/models provider-catalog ".length).trim();
+        if (!rest || rest === "show") {
+          await showModelProviderCatalogFromOps();
+        } else if (rest.startsWith("export ")) {
+          const path = rest.slice("export ".length).trim();
+          if (!path) {
+            appendLine("error", "Provider catalog export shortcut needs a path.");
+          } else {
+            await exportModelProviderCatalogFromOps(path);
+          }
+        } else if (rest.startsWith("import ")) {
+          const args = rest.slice("import ".length).trim().split(/\s+/).filter(Boolean);
+          const confirmed = args.includes("--confirm");
+          const path = args.filter((arg) => arg !== "--confirm").join(" ").trim();
+          if (!path) {
+            appendLine("error", "Provider catalog import shortcut needs a path.");
+          } else if (!confirmed) {
+            appendLine("error", "Provider catalog import shortcut requires --confirm.");
+          } else {
+            await importModelProviderCatalogFromOps(path, true);
+          }
+        } else {
+          appendLine(
+            "error",
+            "Provider catalog shortcut needs show, export, or import.",
+          );
+        }
+      } else if (
+        prompt === "/models metadata-catalog" ||
+        prompt.startsWith("/models metadata-catalog ")
+      ) {
+        const rest =
+          prompt === "/models metadata-catalog"
+            ? ""
+            : prompt.slice("/models metadata-catalog ".length).trim();
+        if (!rest || rest === "show") {
+          await showModelMetadataCatalogFromOps();
+        } else if (rest.startsWith("export ")) {
+          const path = rest.slice("export ".length).trim();
+          if (!path) {
+            appendLine("error", "Metadata catalog export shortcut needs a path.");
+          } else {
+            await exportModelMetadataCatalogFromOps(path);
+          }
+        } else if (rest.startsWith("import ")) {
+          const args = rest.slice("import ".length).trim().split(/\s+/).filter(Boolean);
+          const confirmed = args.includes("--confirm");
+          const path = args.filter((arg) => arg !== "--confirm").join(" ").trim();
+          if (!path) {
+            appendLine("error", "Metadata catalog import shortcut needs a path.");
+          } else if (!confirmed) {
+            appendLine("error", "Metadata catalog import shortcut requires --confirm.");
+          } else {
+            await importModelMetadataCatalogFromOps(path, true);
+          }
+        } else {
+          appendLine(
+            "error",
+            "Metadata catalog shortcut needs show, export, or import.",
+          );
+        }
       } else if (prompt.startsWith("/models show ")) {
         const id = prompt.slice("/models show ".length).trim();
         if (!id) {
@@ -7930,8 +8000,8 @@ export default function App() {
     }
   }
 
-  async function exportModelProviderCatalogFromOps() {
-    const path = requireOpsValue("Provider catalog export");
+  async function exportModelProviderCatalogFromOps(explicitPath?: string) {
+    const path = explicitPath?.trim() || requireOpsValue("Provider catalog export");
     if (!path) return;
     try {
       const catalog =
@@ -7945,9 +8015,13 @@ export default function App() {
     }
   }
 
-  async function importModelProviderCatalogFromOps() {
-    const path = requireOpsValue("Provider catalog import");
+  async function importModelProviderCatalogFromOps(
+    explicitPath?: string,
+    confirmed = false,
+  ) {
+    const path = explicitPath?.trim() || requireOpsValue("Provider catalog import");
     if (!path) return;
+    if (!confirmed && !confirmLocalChange(`Import provider catalog ${path}`)) return;
     try {
       const catalog =
         transport === "daemon"
@@ -7974,8 +8048,8 @@ export default function App() {
     }
   }
 
-  async function exportModelMetadataCatalogFromOps() {
-    const path = requireOpsValue("Metadata catalog export");
+  async function exportModelMetadataCatalogFromOps(explicitPath?: string) {
+    const path = explicitPath?.trim() || requireOpsValue("Metadata catalog export");
     if (!path) return;
     try {
       const catalog =
@@ -7989,9 +8063,13 @@ export default function App() {
     }
   }
 
-  async function importModelMetadataCatalogFromOps() {
-    const path = requireOpsValue("Metadata catalog import");
+  async function importModelMetadataCatalogFromOps(
+    explicitPath?: string,
+    confirmed = false,
+  ) {
+    const path = explicitPath?.trim() || requireOpsValue("Metadata catalog import");
     if (!path) return;
+    if (!confirmed && !confirmLocalChange(`Import metadata catalog ${path}`)) return;
     try {
       const catalog =
         transport === "daemon"

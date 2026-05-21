@@ -643,14 +643,25 @@ impl ModelRuntimeConfig {
         max_output_tokens: Option<u64>,
         temperature: Option<f64>,
     ) -> Result<RigProviderConfig, ConfigError> {
-        let provider = self
-            .provider
-            .as_deref()
-            .unwrap_or("rig")
-            .trim()
-            .to_ascii_lowercase();
+        self.rig_provider_config_with_providers(
+            model,
+            max_output_tokens,
+            temperature,
+            &configured_model_providers()?,
+        )
+    }
+
+    pub fn rig_provider_config_with_providers(
+        &self,
+        model: ModelRef,
+        max_output_tokens: Option<u64>,
+        temperature: Option<f64>,
+        providers: &[ModelProviderDescriptor],
+    ) -> Result<RigProviderConfig, ConfigError> {
+        let provider =
+            normalized_provider(self.provider.as_deref()).unwrap_or_else(|| "rig".into());
         let mut config = match provider.as_str() {
-            "rig" | "openai" | "openai_compatible" | "openai-compatible" => RigProviderConfig {
+            "rig" => RigProviderConfig {
                 api_base_url: None,
                 api_key_env: "OPENAI_API_KEY".into(),
                 allow_missing_api_key: false,
@@ -662,9 +673,31 @@ impl ModelRuntimeConfig {
             "ollama" => RigProviderConfig::ollama(model),
             "llama_cpp" | "llama-cpp" | "llamacpp" => RigProviderConfig::llama_cpp(model),
             other => {
-                return Err(ConfigError::InvalidInput(format!(
-                    "unsupported OpenAI-compatible model provider: {other}"
-                )));
+                let descriptor = providers
+                    .iter()
+                    .find(|descriptor| descriptor.id == other)
+                    .ok_or_else(|| {
+                        ConfigError::InvalidInput(format!(
+                            "unsupported OpenAI-compatible model provider: {other}"
+                        ))
+                    })?;
+                if descriptor.native {
+                    return Err(ConfigError::InvalidInput(format!(
+                        "native model provider {other} is not available through the OpenAI-compatible runtime"
+                    )));
+                }
+                RigProviderConfig {
+                    api_base_url: descriptor.api_base_url.clone(),
+                    api_key_env: descriptor
+                        .api_key_env
+                        .clone()
+                        .unwrap_or_else(|| "OPENAI_API_KEY".into()),
+                    allow_missing_api_key: descriptor.local,
+                    model,
+                    max_output_tokens: None,
+                    temperature: None,
+                    additional_params: None,
+                }
             }
         };
         if let Some(api_base_url) = self
@@ -6567,13 +6600,33 @@ system_prompt = "Review carefully."
 
         let mut model = ModelConfig::for_id("custom-model");
         model.provider = Some("custom-openai".into());
-        model.api_base_url = Some("http://127.0.0.1:9999/v1".into());
         resolver.save_model(&model).unwrap();
         let support = resolver
             .model_modality_support("custom-model", "audio")
             .unwrap();
         assert!(support.supported);
         assert_eq!(support.source, "provider_descriptor:custom-openai");
+        let runtime = resolver
+            .resolve_model_runtime("custom-model")
+            .unwrap()
+            .expect("custom model runtime");
+        let config = runtime
+            .rig_provider_config_with_providers(
+                ModelRef::from("custom-model"),
+                Some(512),
+                Some(0.2),
+                &providers,
+            )
+            .unwrap();
+        assert_eq!(
+            config.api_base_url.as_deref(),
+            Some("http://127.0.0.1:9999/v1")
+        );
+        assert_eq!(config.api_key_env, "CUSTOM_API_KEY");
+        assert!(!config.allow_missing_api_key);
+        assert_eq!(config.model.0, "custom-model");
+        assert_eq!(config.max_output_tokens, Some(512));
+        assert_eq!(config.temperature, Some(0.2));
 
         let _ = std::fs::remove_dir_all(dir);
     }

@@ -6156,6 +6156,7 @@ fn handle_adapters_slash(app: &mut App, rest: &str) {
                 "/adapters doctor",
                 "/adapters show <id>",
                 "/adapters install-skill <id>",
+                "/adapters import <path>",
                 "/adapters import-manifest <path>",
                 "/adapters export <id> <path>",
                 "/adapters quarantine <id>",
@@ -6251,6 +6252,26 @@ fn handle_adapters_slash(app: &mut App, rest: &str) {
                 text: err.to_string(),
             }),
         },
+        "import" => match first_adapter_arg(args, "import") {
+            Ok(path) => match AdapterRegistry::from_env().import(path) {
+                Ok(package) => {
+                    push_event(app, format!("Imported quarantined adapter {}", package.id));
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&adapter_package_summary(&package))
+                            .unwrap_or_else(|_| "<unserializable adapter manifest>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Adapter import failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
         "import-manifest" => match first_adapter_arg(args, "import-manifest") {
             Ok(path) => match AdapterRegistry::from_env().import_manifest(path) {
                 Ok(package) => {
@@ -6303,7 +6324,7 @@ fn handle_adapters_slash(app: &mut App, rest: &str) {
         "allow" => handle_adapter_allow_slash(app, args),
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Adapters command needs list, doctor, show, install-skill, import-manifest, export, quarantine, allow, or help.".into(),
+            text: "Adapters command needs list, doctor, show, install-skill, import, import-manifest, export, quarantine, allow, or help.".into(),
         }),
     }
 }
@@ -8622,6 +8643,10 @@ mod tests {
         assert_eq!(
             adapters_slash_rest("/adapters install-skill adapter-1"),
             Some("install-skill adapter-1")
+        );
+        assert_eq!(
+            adapters_slash_rest("/adapters import ./adapter"),
+            Some("import ./adapter")
         );
         assert_eq!(adapters_slash_rest("/adapters"), Some(""));
         assert_eq!(adapters_slash_rest("/adapter"), None);

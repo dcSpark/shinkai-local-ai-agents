@@ -1409,6 +1409,9 @@ export default function App() {
       { command: "/agents", label: "List saved agents" },
       { command: "/agents show ", label: "Show saved agent" },
       { command: "/agents use ", label: "Use saved agent" },
+      { command: "/agents save ", label: "Save current setup as agent" },
+      { command: "/agents export ", label: "Export saved agent" },
+      { command: "/agents import ", label: "Import saved agent" },
       { command: "/agents delete ", label: "Delete saved agent" },
       ...forcedToolCommands,
       ...toolCommands,
@@ -4608,6 +4611,36 @@ export default function App() {
         } else {
           await useAgent(id);
         }
+      } else if (rest.startsWith("save ")) {
+        const body = rest.slice("save ".length).trim();
+        const splitAt = body.search(/\s/);
+        const id = splitAt === -1 ? body : body.slice(0, splitAt).trim();
+        const systemPrompt = splitAt === -1 ? "" : body.slice(splitAt).trim();
+        if (!id || !systemPrompt) {
+          appendLine(
+            "error",
+            "Agents save shortcut needs an agent id and system prompt.",
+          );
+        } else {
+          await saveAgent(id, systemPrompt);
+        }
+      } else if (rest.startsWith("export ")) {
+        const body = rest.slice("export ".length).trim();
+        const splitAt = body.search(/\s/);
+        const id = splitAt === -1 ? body : body.slice(0, splitAt).trim();
+        const path = splitAt === -1 ? "" : body.slice(splitAt).trim();
+        if (!id || !path) {
+          appendLine("error", "Agents export shortcut needs an agent id and path.");
+        } else {
+          await exportAgent(id, path);
+        }
+      } else if (rest.startsWith("import ")) {
+        const path = rest.slice("import ".length).trim();
+        if (!path) {
+          appendLine("error", "Agents import shortcut needs a path.");
+        } else {
+          await importAgent(path);
+        }
       } else if (rest.startsWith("delete ")) {
         const id = rest.slice("delete ".length).trim();
         if (!id) {
@@ -4616,7 +4649,10 @@ export default function App() {
           await deleteAgentFromOps(id);
         }
       } else {
-        appendLine("error", "Agents shortcut needs show, use, or delete.");
+        appendLine(
+          "error",
+          "Agents shortcut needs show, use, save, export, import, or delete.",
+        );
       }
       return;
     }
@@ -7233,6 +7269,10 @@ export default function App() {
     const id = requireOpsId("Agent save");
     const systemPrompt = requireOpsValue("Agent save system prompt");
     if (!id || !systemPrompt) return;
+    await saveAgent(id, systemPrompt);
+  }
+
+  async function saveAgent(id: string, systemPrompt: string) {
     if (enablePromptRefinement && !promptRefinementInstructions.trim()) {
       appendLine(
         "error",
@@ -7266,6 +7306,10 @@ export default function App() {
     const id = explicitId ?? requireOpsId("Agent export");
     const path = requireOpsValue("Agent export");
     if (!id || !path) return;
+    await exportAgent(id, path);
+  }
+
+  async function exportAgent(id: string, path: string) {
     try {
       const doc =
         transport === "daemon"
@@ -7287,6 +7331,10 @@ export default function App() {
   async function importAgentFromOps() {
     const path = requireOpsValue("Agent import");
     if (!path) return;
+    await importAgent(path);
+  }
+
+  async function importAgent(path: string) {
     try {
       const doc =
         transport === "daemon"

@@ -935,6 +935,7 @@ fn global_slash_help_text() -> &'static str {
      - /tool <name> <request> - force one LLM-filled tool call\n\
      - /tool!<name> <json> - call a tool directly with manual JSON input\n\
      - /python <code>, /typescript <code>, /ts <code> - call native code tools directly\n\
+     - /voice transcribe <path>, /voice speak <text> - call native voice tools directly\n\
      - /preview <prompt> - inspect context before running\n\
      - /guide <text> - steer the active run at the next checkpoint\n\
      - /stop [--summarise|--discard] [reason] - stop the active run\n\
@@ -978,6 +979,10 @@ fn handle_slash_command(
     }
     if let Some((tool_name, code)) = code_slash_command(trimmed) {
         start_code_tool_call(app, tool_name, code, registry, agent, publish_tx);
+        return true;
+    }
+    if let Some(rest) = voice_slash_rest(trimmed) {
+        handle_voice_slash(app, rest, registry, agent, publish_tx);
         return true;
     }
     if let Some(rest) = trimmed.strip_prefix("/tool ").map(str::trim) {
@@ -7367,6 +7372,88 @@ fn code_slash_command(trimmed: &str) -> Option<(&'static str, &str)> {
     }
 }
 
+fn voice_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/voice" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/voice ").map(str::trim)
+    }
+}
+
+fn voice_slash_help_text() -> &'static str {
+    "Voice commands:\n\
+     - /voice status - show terminal voice shortcuts\n\
+     - /voice transcribe <path> - transcribe an existing audio file\n\
+     - /voice speak <text> - synthesize speech from text\n\
+     Voice capture/stop is available from the app UI; the TUI can operate on saved audio paths."
+}
+
+fn handle_voice_slash(
+    app: &mut App,
+    rest: &str,
+    registry: &Arc<ToolRegistry>,
+    agent: &AgentConfig,
+    publish_tx: &UnboundedSender<RunEvent>,
+) {
+    let rest = rest.trim();
+    if rest.is_empty() || matches!(rest, "help" | "status") {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: voice_slash_help_text().into(),
+        });
+        return;
+    }
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "transcribe" => {
+            if args.is_empty() {
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: "Voice transcribe needs an audio path.".into(),
+                });
+                return;
+            }
+            start_manual_tool_call_with_input(
+                app,
+                "voice_transcribe".into(),
+                serde_json::json!({ "audio_path": args }),
+                registry,
+                agent,
+                publish_tx,
+            );
+        }
+        "speak" => {
+            if args.is_empty() {
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: "Voice speak needs text.".into(),
+                });
+                return;
+            }
+            start_manual_tool_call_with_input(
+                app,
+                "voice_speak".into(),
+                serde_json::json!({ "text": args }),
+                registry,
+                agent,
+                publish_tx,
+            );
+        }
+        "capture" | "stop" => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Voice capture controls are available in the app UI; use /voice transcribe <path> for saved audio."
+                .into(),
+        }),
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Voice command needs status, transcribe, speak, or help.".into(),
+        }),
+    }
+}
+
 fn start_manual_tool_call(
     app: &mut App,
     rest: &str,
@@ -8920,6 +9007,12 @@ mod tests {
             Some(("code_typescript", "console.log(1)"))
         );
         assert_eq!(code_slash_command("/pythonista print(1)"), None);
+        assert_eq!(voice_slash_rest("/voice"), Some(""));
+        assert_eq!(
+            voice_slash_rest("/voice transcribe ./sample.wav"),
+            Some("transcribe ./sample.wav")
+        );
+        assert_eq!(voice_slash_rest("/voices"), None);
         assert_eq!(score_slash_rest("/score 7"), Some("7"));
         assert_eq!(score_slash_rest("/score"), Some(""));
         assert_eq!(score_slash_rest("/scoreboard 7"), None);
@@ -9190,9 +9283,18 @@ mod tests {
         assert!(help.contains("/tool <name> <request>"));
         assert!(help.contains("/tool!<name> <json>"));
         assert!(help.contains("/python <code>"));
+        assert!(help.contains("/voice transcribe <path>"));
         assert!(help.contains("manual JSON input"));
         assert!(help.contains("/guide <text>"));
         assert!(help.contains("/conversation"));
+    }
+
+    #[test]
+    fn voice_help_advertises_terminal_safe_paths() {
+        let help = voice_slash_help_text();
+        assert!(help.contains("/voice transcribe <path>"));
+        assert!(help.contains("/voice speak <text>"));
+        assert!(help.contains("saved audio paths"));
     }
 
     #[test]

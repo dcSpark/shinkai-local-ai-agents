@@ -1351,6 +1351,11 @@ export default function App() {
       { command: "/run ", label: "Run saved prompt" },
       { command: "/prompt ", label: "Load saved prompt" },
       { command: "/prompts", label: "List saved prompts" },
+      { command: "/prompts list", label: "List saved prompts" },
+      { command: "/prompts show ", label: "Show saved prompt" },
+      { command: "/prompts use ", label: "Load saved prompt" },
+      { command: "/prompts preview ", label: "Preview saved prompt context" },
+      { command: "/prompts delete ", label: "Delete saved prompt" },
       { command: "/models", label: "List model metadata" },
       { command: "/models list", label: "List model metadata" },
       { command: "/models show ", label: "Show model metadata" },
@@ -3532,11 +3537,48 @@ export default function App() {
       return;
     }
 
-    if (prompt === "/prompts") {
+    if (
+      prompt === "/prompts" ||
+      prompt === "/prompts list" ||
+      prompt.startsWith("/prompts show ") ||
+      prompt.startsWith("/prompts use ") ||
+      prompt.startsWith("/prompts preview ") ||
+      prompt.startsWith("/prompts delete ")
+    ) {
       setInput("");
       setActiveSection("prompts");
-      appendLine("user", "/prompts");
-      await reviewPrompts();
+      appendLine("user", prompt);
+      if (prompt === "/prompts" || prompt === "/prompts list") {
+        await reviewPrompts();
+      } else if (prompt.startsWith("/prompts show ")) {
+        const name = prompt.slice("/prompts show ".length).trim();
+        if (!name) {
+          appendLine("error", "Prompts show shortcut needs a prompt name.");
+        } else {
+          await showPromptFromOps(name);
+        }
+      } else if (prompt.startsWith("/prompts use ")) {
+        const name = prompt.slice("/prompts use ".length).trim();
+        if (!name) {
+          appendLine("error", "Prompts use shortcut needs a prompt name.");
+        } else {
+          await usePromptByName(name);
+        }
+      } else if (prompt.startsWith("/prompts preview ")) {
+        const name = prompt.slice("/prompts preview ".length).trim();
+        if (!name) {
+          appendLine("error", "Prompts preview shortcut needs a prompt name.");
+        } else {
+          await previewPromptByName(name);
+        }
+      } else if (prompt.startsWith("/prompts delete ")) {
+        const name = prompt.slice("/prompts delete ".length).trim();
+        if (!name) {
+          appendLine("error", "Prompts delete shortcut needs a prompt name.");
+        } else {
+          await deletePromptByName(name);
+        }
+      }
       return;
     }
 
@@ -6442,8 +6484,8 @@ export default function App() {
     }
   }
 
-  async function showPromptFromOps() {
-    const name = requireOpsId("Prompt show");
+  async function showPromptFromOps(explicitName?: string) {
+    const name = explicitName ?? requireOpsId("Prompt show");
     if (!name) return;
     try {
       const prompt = await fetchPrompt(name);

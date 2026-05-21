@@ -30,7 +30,8 @@ use tokio::time::MissedTickBehavior;
 use agent_adapters::{AdapterRegistry, ClawHubProvider, NormalizedPackage, inspect_source};
 use agent_bundles::{export_bundle, import_bundle};
 use agent_capabilities::{
-    CapabilityDraft, CapabilityDraftDoctorReport, CapabilityDraftStatus, CapabilityDraftStore,
+    CapabilityDraft, CapabilityDraftDoctorReport, CapabilityDraftInput, CapabilityDraftStatus,
+    CapabilityDraftStore, CapabilityKind,
 };
 use agent_compaction::{CompactionRecord, CompactionStore};
 use agent_config::{
@@ -2965,6 +2966,7 @@ fn handle_capabilities_slash(app: &mut App, rest: &str) {
             text: [
                 "/capabilities list",
                 "/capabilities doctor",
+                "/capabilities propose <tool|skill|agent|subagent> <name> <body>",
                 "/capabilities show <id>",
                 "/capabilities export <id> <path>",
                 "/capabilities import <path>",
@@ -3018,6 +3020,20 @@ fn handle_capabilities_slash(app: &mut App, rest: &str) {
             Err(err) => app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
                 text: format!("Capability doctor failed: {err}"),
+            }),
+        },
+        "propose" => match propose_capability_draft(args) {
+            Ok(draft) => {
+                push_event(app, format!("Proposed capability draft {}", draft.id));
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&draft)
+                        .unwrap_or_else(|_| "<unserializable capability draft>".into()),
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Capability propose failed: {err}"),
             }),
         },
         "show" => match first_capability_arg(args, "show") {
@@ -3085,10 +3101,24 @@ fn handle_capabilities_slash(app: &mut App, rest: &str) {
         "delete" | "rm" => handle_capability_delete_slash(app, args),
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Capabilities command needs list, doctor, show, export, import, allow, reject, delete, or help."
+            text: "Capabilities command needs list, doctor, propose, show, export, import, allow, reject, delete, or help."
                 .into(),
         }),
     }
+}
+
+fn propose_capability_draft(args: &str) -> anyhow::Result<CapabilityDraft> {
+    let (kind, name, body) = capability_propose_args(args)?;
+    let draft = CapabilityDraftStore::from_env().propose(CapabilityDraftInput {
+        id: None,
+        kind: CapabilityKind::parse(kind)?,
+        name: name.into(),
+        body: body.into(),
+        guidance: None,
+        created_by: "user".into(),
+        provenance: "tui:/capabilities propose".into(),
+    })?;
+    Ok(draft)
 }
 
 fn handle_capability_review_slash(
@@ -3204,6 +3234,22 @@ fn capability_export_args(args: &str) -> anyhow::Result<(&str, &str)> {
         anyhow::bail!("capabilities export accepts exactly a draft id and path");
     }
     Ok((id, path))
+}
+
+fn capability_propose_args(args: &str) -> anyhow::Result<(&str, &str, &str)> {
+    let (kind, rest) = args
+        .trim()
+        .split_once(char::is_whitespace)
+        .ok_or_else(|| anyhow::anyhow!("capabilities propose needs a kind, name, and body"))?;
+    let (name, body) = rest
+        .trim()
+        .split_once(char::is_whitespace)
+        .ok_or_else(|| anyhow::anyhow!("capabilities propose needs a name and body"))?;
+    let body = body.trim();
+    if body.is_empty() {
+        anyhow::bail!("capabilities propose needs a body");
+    }
+    Ok((kind, name, body))
 }
 
 fn capability_draft_summary(draft: &CapabilityDraft) -> serde_json::Value {
@@ -9454,6 +9500,10 @@ mod tests {
     #[test]
     fn capability_args_require_expected_id_and_path() {
         assert_eq!(
+            capability_propose_args("tool draft-name echo hello world").unwrap(),
+            ("tool", "draft-name", "echo hello world")
+        );
+        assert_eq!(
             capability_export_args("draft-1 ./draft.json").unwrap(),
             ("draft-1", "./draft.json")
         );
@@ -9473,6 +9523,9 @@ mod tests {
             capability_path_arg("./draft.json", "import").unwrap(),
             "./draft.json"
         );
+        assert!(capability_propose_args("").is_err());
+        assert!(capability_propose_args("tool").is_err());
+        assert!(capability_propose_args("tool draft-name").is_err());
         assert!(capability_export_args("draft-1").is_err());
         assert!(capability_export_args("draft-1 ./draft.json extra").is_err());
         assert!(capability_review_args("", "allow").is_err());

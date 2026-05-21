@@ -289,7 +289,15 @@ export type AgentConfigFile = {
   system_prompt: string;
   model?: string | null;
   max_tool_calls?: number | null;
+  max_tokens_before_compaction?: number | null;
+  max_compaction_output_tokens?: number | null;
+  compaction_guidance?: string | null;
   stop_retention_mode?: StopRetentionMode | null;
+  capability_drafts_enabled?: boolean | null;
+  capability_draft_guidance?: string | null;
+  tool_output_mode?: ToolOutputMode | null;
+  tool_routing_model?: string | null;
+  tool_output_interpretation_model?: string | null;
   prompt_refinement?: unknown | null;
   prompt_refinements?: unknown[];
   tool_overrides?: AgentToolOverrideConfig[];

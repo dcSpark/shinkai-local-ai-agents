@@ -1267,6 +1267,48 @@ mod tauri_slash_tests {
     }
 
     #[tokio::test]
+    async fn agent_save_command_persists_config() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("agent-tauri-save-agent-{}", uuid::Uuid::new_v4()));
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+
+        let saved = agent_save(AgentConfigFile {
+            id: "critic".into(),
+            name: "Critic".into(),
+            system_prompt: "Review carefully.".into(),
+            stop_retention_mode: Some(StopRetentionMode::Summarise),
+            ..AgentConfigFile::default()
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(saved.id, "critic");
+        assert_eq!(
+            saved.stop_retention_mode,
+            Some(StopRetentionMode::Summarise)
+        );
+        assert!(
+            ConfigResolver::from_env()
+                .show_agent_config("critic")
+                .unwrap()
+                .is_some()
+        );
+
+        unsafe {
+            if let Some(previous_home) = previous_home {
+                std::env::set_var("AGENT_HARNESS_HOME", previous_home);
+            } else {
+                std::env::remove_var("AGENT_HARNESS_HOME");
+            }
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
     async fn executes_direct_tool_slash_as_manual_call() {
         let prepared = prepare_tauri_run(
             r#"/tool!echo {"text":"manual"}"#.into(),
@@ -3274,6 +3316,13 @@ async fn agent_show(id: String) -> Result<AgentConfigFile, String> {
 }
 
 #[tauri::command]
+async fn agent_save(agent: AgentConfigFile) -> Result<AgentConfigFile, String> {
+    ConfigResolver::from_env()
+        .save_agent_config(&agent)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn agent_export(id: String, path: String) -> Result<AgentConfigFile, String> {
     ConfigResolver::from_env()
         .export_agent_config(&id, &path)
@@ -4213,6 +4262,7 @@ pub fn run() {
             capability_delete,
             agent_list,
             agent_show,
+            agent_save,
             agent_export,
             agent_import,
             agent_delete,

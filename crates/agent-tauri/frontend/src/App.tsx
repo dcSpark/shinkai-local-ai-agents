@@ -973,6 +973,10 @@ export default function App() {
       );
   }
 
+  function optionalList<T>(items: T[]) {
+    return items.length ? items : null;
+  }
+
   function runtimeOptions(): RunOptions {
     return {
       provider,
@@ -4586,6 +4590,58 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Agent show failed: ${msg}`);
+    }
+  }
+
+  function agentConfigFromCurrentControls(id: string, systemPrompt: string): AgentConfigFile {
+    return {
+      id,
+      name: id,
+      system_prompt: systemPrompt,
+      model: model.trim() || null,
+      max_tool_calls: parseOptionalNonNegativeInt(maxToolCalls),
+      max_tokens_before_compaction: parseOptionalPositiveInt(
+        maxTokensBeforeCompaction,
+      ),
+      max_compaction_output_tokens: parseOptionalPositiveInt(
+        maxCompactionOutputTokens,
+      ),
+      compaction_guidance: compactionGuidance.trim() || null,
+      stop_retention_mode: stopRetentionMode,
+      capability_drafts_enabled: enableCapabilityDrafts || null,
+      capability_draft_guidance: capabilityDraftGuidance.trim() || null,
+      tool_output_mode: rawToolOutput ? "raw" : "interpreted",
+      tool_routing_model: toolRoutingModel.trim() || null,
+      tool_output_interpretation_model:
+        toolOutputInterpretationModel.trim() || null,
+      tool_visibility: toolVisibility || null,
+      load_memory: loadMemory || null,
+      load_skills: loadSkills || null,
+      allowed_tool_categories: optionalList(
+        parsedCategoryList(allowedToolCategories),
+      ),
+      allowed_skill_categories: optionalList(
+        parsedCategoryList(allowedSkillCategories),
+      ),
+    };
+  }
+
+  async function saveAgentFromOps() {
+    const id = requireOpsId("Agent save");
+    const systemPrompt = requireOpsValue("Agent save system prompt");
+    if (!id || !systemPrompt) return;
+    const doc = agentConfigFromCurrentControls(id, systemPrompt);
+    try {
+      const saved =
+        transport === "daemon"
+          ? await daemonJson<AgentConfigFile>("/agents", doc)
+          : await invoke<AgentConfigFile>("agent_save", { agent: doc });
+      setAgentConfigs((docs) => upsertAgentConfig(docs, saved));
+      setAgentId(saved.id);
+      appendJson("Agent saved", saved);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Agent save failed: ${msg}`);
     }
   }
 
@@ -12143,6 +12199,14 @@ export default function App() {
                   disabled={running || !opsId.trim()}
                 >
                   Use Agent
+                </button>
+                <button
+                  type="button"
+                  title="Save current setup as agent Id using Value as the system prompt."
+                  onClick={() => void saveAgentFromOps()}
+                  disabled={running || !opsId.trim() || !opsValue.trim()}
+                >
+                  Save Agent
                 </button>
                 <button
                   type="button"

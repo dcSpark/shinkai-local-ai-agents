@@ -5818,6 +5818,10 @@ pub async fn remote_skill_list(url: String) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).get_json("/skills")?)
 }
 
+pub async fn remote_skill_show(url: String, id: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).get_json(&format!("/skills/{id}"))?)
+}
+
 pub async fn remote_skill_import(url: String, path: String) -> anyhow::Result<()> {
     print_remote(
         DaemonHttpClient::new(url)

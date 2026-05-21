@@ -2892,6 +2892,12 @@ enum RemoteCompactCommand {
 #[derive(Subcommand)]
 enum RemoteSkillCommand {
     List,
+    Show {
+        id: String,
+    },
+    Inspect {
+        id: String,
+    },
     ImportOpenclaw {
         path: String,
     },
@@ -5102,6 +5108,24 @@ mod cli_parse_tests {
         assert_eq!(path, "./review.skill.json");
         assert!(!json);
 
+        let cli = parse_cli(["agent", "remote", "skill", "inspect", "review"]).unwrap();
+        let RemoteCommand::Skill {
+            command: RemoteSkillCommand::Inspect { id },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote skill inspect command");
+        };
+        assert_eq!(id, "review");
+
+        let cli = parse_cli(["agent", "remote", "skill", "show", "review"]).unwrap();
+        let RemoteCommand::Skill {
+            command: RemoteSkillCommand::Show { id },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote skill show command");
+        };
+        assert_eq!(id, "review");
+
         let cli = parse_cli(["agent", "remote", "skill", "import", "./review.skill.json"]).unwrap();
         let RemoteCommand::Skill {
             command: RemoteSkillCommand::Import { path },
@@ -7034,6 +7058,9 @@ async fn main() -> anyhow::Result<()> {
             },
             RemoteCommand::Skill { command } => match command {
                 RemoteSkillCommand::List => headless::remote_skill_list(url).await,
+                RemoteSkillCommand::Show { id } | RemoteSkillCommand::Inspect { id } => {
+                    headless::remote_skill_show(url, id).await
+                }
                 RemoteSkillCommand::ImportOpenclaw { path } => {
                     headless::remote_skill_import(url, path).await
                 }

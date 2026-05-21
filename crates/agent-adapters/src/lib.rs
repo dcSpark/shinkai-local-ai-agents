@@ -1347,12 +1347,14 @@ fn mcp_capability_runtime(server: &serde_json::Value) -> Option<NormalizedRuntim
     let endpoint = mcp_endpoint(server);
     let declared_transport = json_string(server, &["transport", "type"]);
     let transport = match (command.as_ref(), endpoint.as_ref()) {
-        (Some(_), _) => "stdio",
-        (None, Some(_)) if declared_transport_is_sse(declared_transport.as_deref()) => "sse",
-        (None, Some(_)) if declared_transport_is_streamable_http(declared_transport.as_deref()) => {
-            "streamable_http"
+        (Some(_), _) => "stdio".to_string(),
+        (None, Some(_)) if declared_transport_is_sse(declared_transport.as_deref()) => {
+            "sse".to_string()
         }
-        (None, Some(_)) => "http",
+        (None, Some(_)) if declared_transport_is_streamable_http(declared_transport.as_deref()) => {
+            "streamable_http".to_string()
+        }
+        (None, Some(_)) => declared_transport.unwrap_or_else(|| "http".into()),
         (None, None) => return None,
     };
     let mut env_keys = server
@@ -1379,7 +1381,7 @@ fn mcp_capability_runtime(server: &serde_json::Value) -> Option<NormalizedRuntim
     header_keys.sort();
     header_keys.dedup();
     Some(NormalizedRuntime {
-        transport: transport.into(),
+        transport,
         endpoint,
         command,
         args: json_string_list(server, &["args"]).unwrap_or_default(),
@@ -2750,6 +2752,10 @@ mod tests {
                   "type": "sse",
                   "endpoint": "https://example.invalid/sse",
                   "headers": { "X-Events-Key": "secret://mcp.events_key" }
+                },
+                "socket": {
+                  "transport": "websocket",
+                  "url": "https://example.invalid/ws"
                 }
               }
             }"#,
@@ -2760,7 +2766,7 @@ mod tests {
 
         assert_eq!(package.adapter, AdapterKind::Mcp);
         assert!(package.quarantined);
-        assert_eq!(package.capabilities.len(), 3);
+        assert_eq!(package.capabilities.len(), 4);
         assert!(package.capabilities.iter().all(|cap| cap.quarantined));
         assert!(
             package
@@ -2818,6 +2824,17 @@ mod tests {
             Some("https://example.invalid/sse")
         );
         assert_eq!(events_runtime.header_keys, vec!["X-Events-Key".to_string()]);
+        let socket_runtime = package
+            .capabilities
+            .iter()
+            .find(|cap| cap.id == "mcp-socket")
+            .and_then(|cap| cap.runtime.as_ref())
+            .unwrap();
+        assert_eq!(socket_runtime.transport, "websocket");
+        assert_eq!(
+            socket_runtime.endpoint.as_deref(),
+            Some("https://example.invalid/ws")
+        );
         assert!(package.permissions.shell);
         assert!(package.permissions.network);
         assert!(package.permissions.secrets);

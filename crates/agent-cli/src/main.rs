@@ -2563,6 +2563,26 @@ enum RemoteCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Replay a daemon trace prompt as a fresh daemon run.
+    TraceReplay {
+        run_id: String,
+
+        /// Demo provider behavior.
+        #[arg(long, value_enum, default_value_t = Demo::Echo)]
+        demo: Demo,
+
+        /// Skip lifecycle hooks for this replay only.
+        #[arg(long = "no-hooks")]
+        no_hooks: bool,
+
+        /// Compare the replayed run against the source trace after it completes.
+        #[arg(long = "compare-source")]
+        compare_source: bool,
+
+        /// Emit JSON metadata.
+        #[arg(long)]
+        json: bool,
+    },
     /// Show daemon hook remediation plan.
     TraceHooks { run_id: String },
     /// Remote lifecycle hook policy operations.
@@ -3761,6 +3781,38 @@ mod cli_parse_tests {
         } = into_command(cli)
         else {
             panic!("expected trace replay command");
+        };
+        assert_eq!(parsed_id, run_id);
+        assert!(matches!(demo, Demo::Echo));
+        assert!(no_hooks);
+        assert!(compare_source);
+        assert!(json);
+    }
+
+    #[test]
+    fn remote_trace_replay_command_parses() {
+        let run_id = "00000000-0000-0000-0000-000000000001";
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "trace-replay",
+            run_id,
+            "--demo",
+            "echo",
+            "--no-hooks",
+            "--compare-source",
+            "--json",
+        ])
+        .unwrap();
+        let RemoteCommand::TraceReplay {
+            run_id: parsed_id,
+            demo,
+            no_hooks,
+            compare_source,
+            json,
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote trace-replay command");
         };
         assert_eq!(parsed_id, run_id);
         assert!(matches!(demo, Demo::Echo));
@@ -6935,6 +6987,16 @@ async fn main() -> anyhow::Result<()> {
                 compare_run_id,
                 json,
             } => headless::remote_trace_compare(url, run_id, compare_run_id, json).await,
+            RemoteCommand::TraceReplay {
+                run_id,
+                demo,
+                no_hooks,
+                compare_source,
+                json,
+            } => {
+                headless::remote_trace_replay(url, run_id, demo, no_hooks, compare_source, json)
+                    .await
+            }
             RemoteCommand::TraceHooks { run_id } => headless::remote_trace_hooks(url, run_id).await,
             RemoteCommand::Hooks { command } => match command {
                 RemoteHookCommand::List { agent } => headless::remote_hooks_list(url, agent).await,

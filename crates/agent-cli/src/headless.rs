@@ -5435,6 +5435,80 @@ pub async fn remote_trace_compare(
     Ok(())
 }
 
+pub async fn remote_trace_replay(
+    url: String,
+    run_id: String,
+    demo: Demo,
+    no_hooks: bool,
+    compare_source: bool,
+    json: bool,
+) -> anyhow::Result<()> {
+    let source_run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
+    let client = DaemonHttpClient::new(url);
+    let events: Vec<RunEvent> =
+        serde_json::from_value(client.get_json(&format!("/trace/{run_id}"))?)?;
+    let (agent_id, prompt) = trace_replay_source(source_run_id, &events)?;
+    let response = client.post_json(
+        "/run",
+        serde_json::json!({
+            "input": prompt,
+            "demo": demo_name(demo),
+            "agent_id": agent_id,
+            "disable_lifecycle_hooks": no_hooks,
+        }),
+    )?;
+    let replayed_run_id = response
+        .get("run_id")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| anyhow::anyhow!("daemon replay response did not include run_id"))?
+        .to_string();
+    let final_output = response
+        .get("final_output")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let comparison = if compare_source {
+        Some(client.get_json(&format!(
+            "/trace/{}/compare/{}",
+            source_run_id.0, replayed_run_id
+        ))?)
+    } else {
+        None
+    };
+
+    if json {
+        let mut payload = serde_json::json!({
+            "source_run_id": source_run_id.0,
+            "replayed_run_id": replayed_run_id,
+            "agent_id": agent_id,
+            "lifecycle_hooks_disabled": no_hooks,
+            "final_output": final_output,
+        });
+        if let Some(comparison) = comparison {
+            payload["comparison"] = comparison;
+        }
+        print_remote(payload)?;
+    } else {
+        match final_output.as_str() {
+            Some(text) => println!("{text}"),
+            None => println!("{final_output}"),
+        }
+        eprintln!();
+        eprintln!(
+            "--- replayed {} as {}{} ---",
+            source_run_id.0,
+            replayed_run_id,
+            if no_hooks { " with hooks disabled" } else { "" }
+        );
+        if let Some(comparison) = comparison {
+            eprintln!();
+            let comparison: TraceComparison = serde_json::from_value(comparison)?;
+            print_trace_comparison(&comparison);
+        }
+    }
+
+    Ok(())
+}
+
 pub async fn remote_trace_hooks(url: String, run_id: String) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
     print_remote(client.get_json(&format!("/trace/{run_id}/hooks"))?)

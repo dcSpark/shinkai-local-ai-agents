@@ -1421,10 +1421,28 @@ fn declared_transport_is_streamable_http(transport: Option<&str>) -> bool {
 }
 
 fn mcp_server_description(server: &serde_json::Value) -> String {
+    let command = server.get("command").and_then(serde_json::Value::as_str);
     if let Some(url) = mcp_endpoint(server) {
+        if let Some(command) = command {
+            return format!(
+                "MCP server declares both command `{command}` and endpoint `{url}`; review runtime selection before allowing."
+            );
+        }
+        let declared_transport = json_string(server, &["transport", "type"]);
+        if declared_transport_is_sse(declared_transport.as_deref()) {
+            return format!("MCP server over SSE: {url}");
+        }
+        if declared_transport_is_streamable_http(declared_transport.as_deref()) {
+            return format!("MCP server over streamable HTTP: {url}");
+        }
+        if let Some(transport) = declared_transport.as_deref()
+            && !mcp_runtime_transport_is_http(transport)
+        {
+            return format!("MCP server over unsupported transport `{transport}`: {url}");
+        }
         return format!("MCP server over HTTP: {url}");
     }
-    if let Some(command) = server.get("command").and_then(serde_json::Value::as_str) {
+    if let Some(command) = command {
         let args = server
             .get("args")
             .and_then(serde_json::Value::as_array)
@@ -2803,6 +2821,13 @@ mod tests {
                 .unwrap()
                 .contains("from-env")
         );
+        let events_description = package
+            .capabilities
+            .iter()
+            .find(|cap| cap.id == "mcp-events")
+            .map(|cap| cap.description.as_str())
+            .unwrap();
+        assert!(events_description.contains("over SSE"));
         let search_runtime = package
             .capabilities
             .iter()
@@ -2842,6 +2867,13 @@ mod tests {
             socket_runtime.endpoint.as_deref(),
             Some("https://example.invalid/ws")
         );
+        let socket_description = package
+            .capabilities
+            .iter()
+            .find(|cap| cap.id == "mcp-socket")
+            .map(|cap| cap.description.as_str())
+            .unwrap();
+        assert!(socket_description.contains("unsupported transport `websocket`"));
         assert!(package.permissions.shell);
         assert!(package.permissions.network);
         assert!(package.permissions.secrets);

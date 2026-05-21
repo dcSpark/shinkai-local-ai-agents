@@ -1389,6 +1389,12 @@ export default function App() {
       { command: "/memory on", label: "Load memory in context" },
       { command: "/memory off", label: "Stop loading memory" },
       { command: "/memory status", label: "Show memory loading status" },
+      { command: "/memory list", label: "List memory records" },
+      { command: "/memory access", label: "Show visible memory access" },
+      { command: "/memory backends", label: "List memory backends" },
+      { command: "/memory preview", label: "Preview context with memory" },
+      { command: "/memory classify ", label: "Classify memory record" },
+      { command: "/memory delete ", label: "Delete memory record" },
       { command: "/skills on", label: "Load skills in context" },
       { command: "/skills off", label: "Stop loading skills" },
       { command: "/skills status", label: "Show skill loading status" },
@@ -3140,8 +3146,6 @@ export default function App() {
         appendEvent(`Memory loading is ${loadMemory ? "enabled" : "disabled"}.`);
         return;
       }
-      appendLine("error", "Memory shortcut needs on, off, or status.");
-      return;
     }
 
     if (prompt.startsWith("/skills ")) {
@@ -3388,11 +3392,47 @@ export default function App() {
       return;
     }
 
-    if (prompt === "/memory") {
+    if (
+      prompt === "/memory" ||
+      prompt === "/memory list" ||
+      prompt === "/memory access" ||
+      prompt === "/memory backends" ||
+      prompt === "/memory preview" ||
+      prompt.startsWith("/memory classify ") ||
+      prompt.startsWith("/memory delete ") ||
+      prompt.startsWith("/memory ")
+    ) {
       setInput("");
       setActiveSection("memory");
-      appendLine("user", "/memory");
-      await reviewMemory();
+      appendLine("user", prompt);
+      if (prompt === "/memory" || prompt === "/memory list") {
+        await reviewMemory();
+      } else if (prompt === "/memory access") {
+        await reviewMemoryAccess();
+      } else if (prompt === "/memory backends") {
+        await reviewMemoryBackends();
+      } else if (prompt === "/memory preview") {
+        await previewWithMemoryFromOps();
+      } else if (prompt.startsWith("/memory classify ")) {
+        const id = prompt.slice("/memory classify ".length).trim();
+        if (!id) {
+          appendLine("error", "Memory classify shortcut needs a memory id.");
+        } else {
+          await classifyMemoryFromOps(id);
+        }
+      } else if (prompt.startsWith("/memory delete ")) {
+        const id = prompt.slice("/memory delete ".length).trim();
+        if (!id) {
+          appendLine("error", "Memory delete shortcut needs a memory id.");
+        } else {
+          await deleteMemoryFromOps(id);
+        }
+      } else {
+        appendLine(
+          "error",
+          "Memory shortcut needs on, off, status, list, access, backends, preview, classify, or delete.",
+        );
+      }
       return;
     }
 
@@ -6374,8 +6414,8 @@ export default function App() {
     }
   }
 
-  async function classifyMemoryFromOps() {
-    const id = requireOpsId("Memory classify");
+  async function classifyMemoryFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Memory classify");
     if (!id) return;
     const model = memoryClassificationModel.trim() || null;
     const policyAgentId = agentId.trim() || null;
@@ -6422,8 +6462,8 @@ export default function App() {
     }
   }
 
-  async function deleteMemoryFromOps() {
-    const id = requireOpsId("Memory delete");
+  async function deleteMemoryFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Memory delete");
     if (!id) return;
     if (!confirmLocalChange(`Delete memory ${id}`)) return;
     try {

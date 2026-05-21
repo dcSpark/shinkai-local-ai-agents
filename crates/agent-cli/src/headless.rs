@@ -104,6 +104,16 @@ pub async fn run(
                 SkillSlashCommand::Quarantine { id } => skill_quarantine(id).await,
             };
         }
+        Some(SlashCommand::Prompt(command)) => {
+            return match command {
+                PromptSlashCommand::List { agent } => prompt_list(json, agent).await,
+                PromptSlashCommand::Show { name, agent } => prompt_show(name, json, agent).await,
+                PromptSlashCommand::Save { name, text, agent } => {
+                    prompt_save(name, text, agent).await
+                }
+                PromptSlashCommand::Delete { name, agent } => prompt_delete(name, agent).await,
+            };
+        }
         Some(SlashCommand::ToolManual { name, input }) => {
             return call_tool(
                 name,
@@ -7934,6 +7944,7 @@ enum SlashCommand {
     },
     Agents(AgentsSlashCommand),
     Skill(SkillSlashCommand),
+    Prompt(PromptSlashCommand),
     ToolManual {
         name: String,
         input: String,
@@ -8012,6 +8023,25 @@ enum SkillSlashCommand {
     Export { id: String, path: String },
     Allow { id: String },
     Quarantine { id: String },
+}
+
+enum PromptSlashCommand {
+    List {
+        agent: Option<String>,
+    },
+    Show {
+        name: String,
+        agent: Option<String>,
+    },
+    Save {
+        name: String,
+        text: String,
+        agent: Option<String>,
+    },
+    Delete {
+        name: String,
+        agent: Option<String>,
+    },
 }
 
 enum ProfileSlashCommand {
@@ -8324,6 +8354,10 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         let command = parse_skill_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Skill(command)));
     }
+    if let Some(rest) = prompt_slash_rest(trimmed) {
+        let command = parse_prompt_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Prompt(command)));
+    }
     if let Some(rest) = trimmed.strip_prefix("/run ") {
         return Ok(Some(SlashCommand::Run(rest.trim().to_string())));
     }
@@ -8507,6 +8541,7 @@ fn headless_slash_help_text() -> &'static str {
      - /agent [id] [prompt] - inspect config, or run a prompt with a specific saved agent\n\
      - /agents list|show|export|import|delete - manage saved agent configs\n\
      - /skills list|show|inspect|import-openclaw|import-doc|export|allow|quarantine\n\
+     - /prompts list|show|save|delete - manage global or agent-scoped saved prompts\n\
      - /tool <name> [request] - force the model to call one visible tool\n\
      - /tool! <name> <json> - call one native tool directly with manual JSON input\n\
      - /python <code>, /typescript <code>, /ts <code> - call native code execution tools directly\n\
@@ -9024,6 +9059,158 @@ fn parse_skill_confirm<'a>(
         anyhow::bail!("skills {action} requires --confirm");
     }
     Ok(())
+}
+
+fn prompt_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/prompt" || trimmed == "/prompts" {
+        Some("")
+    } else if let Some(rest) = trimmed.strip_prefix("/prompts ") {
+        Some(rest.trim())
+    } else {
+        trimmed.strip_prefix("/prompt ").map(str::trim)
+    }
+}
+
+fn parse_prompt_slash_rest(rest: &str) -> anyhow::Result<PromptSlashCommand> {
+    let rest = rest.trim();
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "" | "list" => Ok(PromptSlashCommand::List {
+            agent: parse_prompt_agent_args(args, "list")?,
+        }),
+        "show" => {
+            let (name, agent) = parse_prompt_named_args(args, "show")?;
+            Ok(PromptSlashCommand::Show { name, agent })
+        }
+        "save" => {
+            let (name, agent, text) = parse_prompt_save_args(args)?;
+            Ok(PromptSlashCommand::Save { name, text, agent })
+        }
+        "delete" | "rm" => {
+            let (name, agent, confirmed) = parse_prompt_named_confirm_args(args, "delete")?;
+            if !confirmed {
+                anyhow::bail!("prompts delete requires --confirm");
+            }
+            Ok(PromptSlashCommand::Delete { name, agent })
+        }
+        _ => anyhow::bail!("prompts shortcut needs list, show, save, or delete"),
+    }
+}
+
+fn parse_prompt_agent_args(args: &str, command: &str) -> anyhow::Result<Option<String>> {
+    let mut parts = args.split_whitespace();
+    let mut agent = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--agent" => agent = Some(next_prompt_option_value(&mut parts, "--agent")?.to_string()),
+            value if value.starts_with("--agent=") => {
+                agent = Some(parse_prompt_agent_equals(value, command)?.to_string());
+            }
+            other => anyhow::bail!("prompts {command} received unexpected argument: {other}"),
+        }
+    }
+    Ok(agent)
+}
+
+fn parse_prompt_named_args(args: &str, command: &str) -> anyhow::Result<(String, Option<String>)> {
+    let mut parts = args.split_whitespace();
+    let name = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("prompts {command} needs a prompt name"))?
+        .to_string();
+    let mut agent = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--agent" => agent = Some(next_prompt_option_value(&mut parts, "--agent")?.to_string()),
+            value if value.starts_with("--agent=") => {
+                agent = Some(parse_prompt_agent_equals(value, command)?.to_string());
+            }
+            other => anyhow::bail!("prompts {command} received unexpected argument: {other}"),
+        }
+    }
+    Ok((name, agent))
+}
+
+fn parse_prompt_save_args(args: &str) -> anyhow::Result<(String, Option<String>, String)> {
+    let mut parts = args.split_whitespace();
+    let name = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("prompts save needs a prompt name"))?
+        .to_string();
+    let mut agent = None;
+    let mut text_parts = Vec::new();
+    while let Some(part) = parts.next() {
+        match part {
+            "--agent" if text_parts.is_empty() => {
+                agent = Some(next_prompt_option_value(&mut parts, "--agent")?.to_string());
+            }
+            value if value.starts_with("--agent=") && text_parts.is_empty() => {
+                agent = Some(parse_prompt_agent_equals(value, "save")?.to_string());
+            }
+            value if value.starts_with("--") && text_parts.is_empty() => {
+                anyhow::bail!("prompts save received unexpected argument: {value}");
+            }
+            value => {
+                text_parts.push(value);
+                text_parts.extend(parts);
+                break;
+            }
+        }
+    }
+    let text = text_parts.join(" ");
+    let text = text.trim();
+    if text.is_empty() {
+        anyhow::bail!("prompts save needs prompt text");
+    }
+    Ok((name, agent, text.to_string()))
+}
+
+fn parse_prompt_named_confirm_args(
+    args: &str,
+    command: &str,
+) -> anyhow::Result<(String, Option<String>, bool)> {
+    let mut parts = args.split_whitespace();
+    let name = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("prompts {command} needs a prompt name"))?
+        .to_string();
+    let mut agent = None;
+    let mut confirmed = false;
+    while let Some(part) = parts.next() {
+        match part {
+            "--confirm" => confirmed = true,
+            "--agent" => agent = Some(next_prompt_option_value(&mut parts, "--agent")?.to_string()),
+            value if value.starts_with("--agent=") => {
+                agent = Some(parse_prompt_agent_equals(value, command)?.to_string());
+            }
+            other => anyhow::bail!("prompts {command} received unexpected argument: {other}"),
+        }
+    }
+    Ok((name, agent, confirmed))
+}
+
+fn next_prompt_option_value<'a>(
+    parts: &mut impl Iterator<Item = &'a str>,
+    flag: &str,
+) -> anyhow::Result<&'a str> {
+    parts
+        .next()
+        .filter(|value| !value.starts_with("--"))
+        .ok_or_else(|| anyhow::anyhow!("{flag} needs a value"))
+}
+
+fn parse_prompt_agent_equals<'a>(value: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    let agent = value
+        .split_once('=')
+        .map(|(_, value)| value)
+        .unwrap_or_default();
+    if agent.is_empty() {
+        anyhow::bail!("prompts {command} --agent needs a value");
+    }
+    Ok(agent)
 }
 
 fn profile_slash_rest(trimmed: &str) -> Option<&str> {
@@ -10586,6 +10773,7 @@ mod slash_tests {
         assert!(help.contains(
             "/skills list|show|inspect|import-openclaw|import-doc|export|allow|quarantine"
         ));
+        assert!(help.contains("/prompts list|show|save|delete"));
         assert!(help.contains("/hooks list|available|review|disable|enable"));
     }
 
@@ -10778,6 +10966,57 @@ mod slash_tests {
         assert!(parse_slash_command("/skills allow review").is_err());
         assert!(parse_slash_command("/skills export review").is_err());
         assert!(parse_slash_command("/skillsx list").unwrap().is_none());
+    }
+
+    #[test]
+    fn parses_prompt_library_shortcuts() {
+        match parse_slash_command("/prompts").unwrap() {
+            Some(SlashCommand::Prompt(PromptSlashCommand::List { agent })) => {
+                assert_eq!(agent, None);
+            }
+            _ => panic!("expected prompt list shortcut"),
+        }
+        match parse_slash_command("/prompt list --agent critic").unwrap() {
+            Some(SlashCommand::Prompt(PromptSlashCommand::List { agent })) => {
+                assert_eq!(agent.as_deref(), Some("critic"));
+            }
+            _ => panic!("expected prompt list with agent shortcut"),
+        }
+        match parse_slash_command("/prompts show daily --agent=critic").unwrap() {
+            Some(SlashCommand::Prompt(PromptSlashCommand::Show { name, agent })) => {
+                assert_eq!(name, "daily");
+                assert_eq!(agent.as_deref(), Some("critic"));
+            }
+            _ => panic!("expected prompt show shortcut"),
+        }
+        match parse_slash_command("/prompts save daily --agent critic summarize latest notes")
+            .unwrap()
+        {
+            Some(SlashCommand::Prompt(PromptSlashCommand::Save { name, text, agent })) => {
+                assert_eq!(name, "daily");
+                assert_eq!(agent.as_deref(), Some("critic"));
+                assert_eq!(text, "summarize latest notes");
+            }
+            _ => panic!("expected prompt save shortcut"),
+        }
+        match parse_slash_command("/prompts save daily summarize --agent as text").unwrap() {
+            Some(SlashCommand::Prompt(PromptSlashCommand::Save { name, text, agent })) => {
+                assert_eq!(name, "daily");
+                assert_eq!(agent, None);
+                assert_eq!(text, "summarize --agent as text");
+            }
+            _ => panic!("expected prompt save text shortcut"),
+        }
+        match parse_slash_command("/prompts delete daily --agent critic --confirm").unwrap() {
+            Some(SlashCommand::Prompt(PromptSlashCommand::Delete { name, agent })) => {
+                assert_eq!(name, "daily");
+                assert_eq!(agent.as_deref(), Some("critic"));
+            }
+            _ => panic!("expected prompt delete shortcut"),
+        }
+        assert!(parse_slash_command("/prompts delete daily").is_err());
+        assert!(parse_slash_command("/prompts save daily").is_err());
+        assert!(parse_slash_command("/promptx list").unwrap().is_none());
     }
 
     #[test]

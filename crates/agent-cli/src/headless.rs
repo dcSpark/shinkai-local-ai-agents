@@ -150,6 +150,17 @@ pub async fn run(
                 ProfileSlashCommand::Revoke { id } => profile_revoke_grant(id, json).await,
             };
         }
+        Some(SlashCommand::Conversation(command)) => {
+            return match command {
+                ConversationSlashCommand::List => conversation_list(json).await,
+                ConversationSlashCommand::Tree => conversation_tree(json).await,
+                ConversationSlashCommand::Show { id } => conversation_show(id, json).await,
+                ConversationSlashCommand::Recover { id } => conversation_recover(id, json).await,
+                ConversationSlashCommand::Usage { id, from, to, last } => {
+                    conversation_usage(id, from, to, last, json).await
+                }
+            };
+        }
         Some(SlashCommand::Secrets(command)) => {
             return match command {
                 SecretsSlashCommand::Backends => secrets_backends(json).await,
@@ -7862,6 +7873,7 @@ enum SlashCommand {
     },
     Bundle(BundleSlashCommand),
     Profile(ProfileSlashCommand),
+    Conversation(ConversationSlashCommand),
     Secrets(SecretsSlashCommand),
     Ingest(IngestSlashCommand),
     Artifact(ArtifactSlashCommand),
@@ -7908,6 +7920,23 @@ enum ProfileSlashCommand {
     },
     Revoke {
         id: String,
+    },
+}
+
+enum ConversationSlashCommand {
+    List,
+    Tree,
+    Show {
+        id: String,
+    },
+    Recover {
+        id: String,
+    },
+    Usage {
+        id: String,
+        from: Option<usize>,
+        to: Option<usize>,
+        last: Option<usize>,
     },
 }
 
@@ -8134,6 +8163,15 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         let command = parse_profile_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Profile(command)));
     }
+    if trimmed == "/conversation" || trimmed == "/conversations" {
+        return Ok(Some(SlashCommand::Conversation(
+            ConversationSlashCommand::List,
+        )));
+    }
+    if let Some(rest) = conversation_slash_rest(trimmed) {
+        let command = parse_conversation_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Conversation(command)));
+    }
     if trimmed == "/secret" || trimmed == "/secrets" {
         return Ok(Some(SlashCommand::Secrets(SecretsSlashCommand::List)));
     }
@@ -8240,6 +8278,7 @@ fn headless_slash_help_text() -> &'static str {
      - /storage report, /storage prune-cache <days> [--apply]\n\
      - /bundles export <path>, /bundles import <path> --confirm\n\
      - /profiles current|list|show|create|delete|grants|grant|revoke\n\
+     - /conversation list|tree|show|recover|usage\n\
      - /secrets backends|list|show|delete\n\
      - /ingest list|backends|add|probe-vision|rerun|show|review|delete\n\
      - /artifacts list|show|open|delete\n\
@@ -8660,6 +8699,95 @@ fn parse_profile_confirm<'a>(
         anyhow::bail!("profiles {action} requires --confirm");
     }
     Ok(())
+}
+
+fn conversation_slash_rest(trimmed: &str) -> Option<&str> {
+    if let Some(rest) = trimmed.strip_prefix("/conversations ") {
+        Some(rest.trim())
+    } else {
+        trimmed.strip_prefix("/conversation ").map(str::trim)
+    }
+}
+
+fn parse_conversation_slash_rest(rest: &str) -> anyhow::Result<ConversationSlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let command = parts.next().unwrap_or_default();
+    match command {
+        "" | "list" => {
+            ensure_no_extra(parts, "usage: /conversation list")?;
+            Ok(ConversationSlashCommand::List)
+        }
+        "tree" => {
+            ensure_no_extra(parts, "usage: /conversation tree")?;
+            Ok(ConversationSlashCommand::Tree)
+        }
+        "show" | "select" => {
+            let id = next_required(&mut parts, "conversation show needs an id")?;
+            ensure_no_extra(parts, "usage: /conversation show <id>")?;
+            Ok(ConversationSlashCommand::Show { id })
+        }
+        "recover" => {
+            let id = next_required(&mut parts, "conversation recover needs an id")?;
+            ensure_no_extra(parts, "usage: /conversation recover <id>")?;
+            Ok(ConversationSlashCommand::Recover { id })
+        }
+        "usage" => parse_conversation_usage_args(parts),
+        _ => anyhow::bail!("conversation shortcut needs list, tree, show, recover, or usage"),
+    }
+}
+
+fn parse_conversation_usage_args<'a>(
+    mut parts: impl Iterator<Item = &'a str>,
+) -> anyhow::Result<ConversationSlashCommand> {
+    let id = next_required(
+        &mut parts,
+        "usage: /conversation usage <id> [--from N] [--to N] [--last N]",
+    )?;
+    let mut from = None;
+    let mut to = None;
+    let mut last = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--from" => {
+                from = Some(parse_nonnegative_usize(
+                    &next_required(&mut parts, "--from needs an index")?,
+                    "--from",
+                )?);
+            }
+            _ if part.starts_with("--from=") => {
+                from = Some(parse_nonnegative_usize(
+                    &required_option_value(part, "--from")?,
+                    "--from",
+                )?);
+            }
+            "--to" => {
+                to = Some(parse_nonnegative_usize(
+                    &next_required(&mut parts, "--to needs an index")?,
+                    "--to",
+                )?);
+            }
+            _ if part.starts_with("--to=") => {
+                to = Some(parse_nonnegative_usize(
+                    &required_option_value(part, "--to")?,
+                    "--to",
+                )?);
+            }
+            "--last" => {
+                last = Some(parse_positive_usize(
+                    &next_required(&mut parts, "--last needs a count")?,
+                    "--last",
+                )?);
+            }
+            _ if part.starts_with("--last=") => {
+                last = Some(parse_positive_usize(
+                    &required_option_value(part, "--last")?,
+                    "--last",
+                )?);
+            }
+            _ => anyhow::bail!("unknown conversation usage option: {part}"),
+        }
+    }
+    Ok(ConversationSlashCommand::Usage { id, from, to, last })
 }
 
 fn secrets_slash_rest(trimmed: &str) -> Option<&str> {
@@ -9334,6 +9462,14 @@ fn parse_nonnegative_usize(value: &str, label: &str) -> anyhow::Result<usize> {
         .map_err(|_| anyhow::anyhow!("{label} needs a non-negative integer"))
 }
 
+fn parse_positive_usize(value: &str, label: &str) -> anyhow::Result<usize> {
+    let parsed = parse_nonnegative_usize(value, label)?;
+    if parsed == 0 {
+        anyhow::bail!("{label} needs a positive integer");
+    }
+    Ok(parsed)
+}
+
 fn required_option_value(part: &str, option: &str) -> anyhow::Result<String> {
     let value = part
         .split_once('=')
@@ -9894,6 +10030,63 @@ mod slash_tests {
         assert!(parse_slash_command("/profiles revoke grant-1").is_err());
         assert!(parse_slash_command("/profiles grant --to research critic").is_err());
         assert!(parse_slash_command("/profilesx list").unwrap().is_none());
+    }
+
+    #[test]
+    fn parses_conversation_inspection_shortcuts() {
+        assert!(matches!(
+            parse_slash_command("/conversation").unwrap(),
+            Some(SlashCommand::Conversation(ConversationSlashCommand::List))
+        ));
+        assert!(matches!(
+            parse_slash_command("/conversations list").unwrap(),
+            Some(SlashCommand::Conversation(ConversationSlashCommand::List))
+        ));
+        assert!(matches!(
+            parse_slash_command("/conversation tree").unwrap(),
+            Some(SlashCommand::Conversation(ConversationSlashCommand::Tree))
+        ));
+        match parse_slash_command("/conversation show convo-1").unwrap() {
+            Some(SlashCommand::Conversation(ConversationSlashCommand::Show { id })) => {
+                assert_eq!(id, "convo-1");
+            }
+            _ => panic!("expected conversation show shortcut"),
+        }
+        match parse_slash_command("/conversation recover convo-1").unwrap() {
+            Some(SlashCommand::Conversation(ConversationSlashCommand::Recover { id })) => {
+                assert_eq!(id, "convo-1");
+            }
+            _ => panic!("expected conversation recover shortcut"),
+        }
+        match parse_slash_command("/conversation usage convo-1 --from 1 --to=3").unwrap() {
+            Some(SlashCommand::Conversation(ConversationSlashCommand::Usage {
+                id,
+                from,
+                to,
+                last,
+            })) => {
+                assert_eq!(id, "convo-1");
+                assert_eq!(from, Some(1));
+                assert_eq!(to, Some(3));
+                assert_eq!(last, None);
+            }
+            _ => panic!("expected conversation usage shortcut"),
+        }
+        match parse_slash_command("/conversation usage convo-1 --last 5").unwrap() {
+            Some(SlashCommand::Conversation(ConversationSlashCommand::Usage {
+                id, last, ..
+            })) => {
+                assert_eq!(id, "convo-1");
+                assert_eq!(last, Some(5));
+            }
+            _ => panic!("expected conversation usage last shortcut"),
+        }
+        assert!(parse_slash_command("/conversation usage convo-1 --last 0").is_err());
+        assert!(
+            parse_slash_command("/conversationx list")
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

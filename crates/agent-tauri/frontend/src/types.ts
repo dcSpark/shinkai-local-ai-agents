@@ -526,6 +526,7 @@ export type RunOptions = {
   require_approval: boolean;
   auto_approve: boolean;
   raw_tool_output: boolean;
+  tool_output_interpretation_model: string | null;
   disable_lifecycle_hooks: boolean;
   compacted_context: string | null;
   conversation_id: string | null;

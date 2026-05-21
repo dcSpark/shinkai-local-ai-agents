@@ -166,6 +166,7 @@ struct RunOptions {
     require_approval: bool,
     auto_approve: bool,
     raw_tool_output: bool,
+    tool_output_interpretation_model: Option<String>,
     disable_lifecycle_hooks: bool,
     compacted_context: Option<String>,
     conversation_id: Option<String>,
@@ -206,6 +207,7 @@ impl Default for RunOptions {
             require_approval: false,
             auto_approve: false,
             raw_tool_output: false,
+            tool_output_interpretation_model: None,
             disable_lifecycle_hooks: false,
             compacted_context: None,
             conversation_id: None,
@@ -687,6 +689,14 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
     }
     if options.raw_tool_output {
         agent.tool_policy.output_mode = ToolOutputMode::Raw;
+    }
+    if let Some(model) = options
+        .tool_output_interpretation_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+    {
+        agent.tool_policy.output_interpretation_model = Some(ModelRef::from(model.to_string()));
     }
     if let Some(compacted_context) = options
         .compacted_context
@@ -1204,6 +1214,21 @@ mod tauri_slash_tests {
             }
             _ => panic!("expected forced agent run"),
         }
+    }
+
+    #[test]
+    fn build_agent_applies_runtime_tool_output_interpreter_model() {
+        let mut options = RunOptions::default();
+        options.tool_output_interpretation_model = Some("interpreter-model".into());
+        let agent = build_agent(&options);
+        assert_eq!(
+            agent
+                .tool_policy
+                .output_interpretation_model
+                .as_ref()
+                .map(|model| model.0.as_str()),
+            Some("interpreter-model")
+        );
     }
 
     #[tokio::test]

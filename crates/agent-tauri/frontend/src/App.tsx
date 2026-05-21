@@ -462,6 +462,8 @@ export default function App() {
   const [promptRefinementModel, setPromptRefinementModel] = useState("");
   const [requireApproval, setRequireApproval] = useState(true);
   const [rawToolOutput, setRawToolOutput] = useState(false);
+  const [toolOutputInterpretationModel, setToolOutputInterpretationModel] =
+    useState("");
   const [stopRetentionMode, setStopRetentionMode] =
     useState<StopRetentionMode>("discard");
   const [manualCompactedContext, setManualCompactedContext] = useState("");
@@ -1009,6 +1011,8 @@ export default function App() {
       require_approval: requireApproval,
       auto_approve: !requireApproval,
       raw_tool_output: rawToolOutput,
+      tool_output_interpretation_model:
+        toolOutputInterpretationModel.trim() || null,
       disable_lifecycle_hooks: false,
       compacted_context: manualCompactedContext.trim() || null,
       conversation_id: conversationId.trim() || null,
@@ -1393,6 +1397,9 @@ export default function App() {
       { command: "/guardrails status", label: "Show guardrail status" },
       { command: "/raw", label: "Use raw tool outputs" },
       { command: "/interpret", label: "Interpret tool outputs" },
+      { command: "/interpret ", label: "Set interpreter model" },
+      { command: "/interpret clear", label: "Use configured interpreter model" },
+      { command: "/interpret status", label: "Show interpreter model" },
       { command: "/export", label: "Export backup bundle" },
       { command: "/config", label: "Explain effective config" },
       { command: "/tools", label: "Show visible tools" },
@@ -2808,11 +2815,30 @@ export default function App() {
       return;
     }
 
-    if (prompt === "/interpret" || prompt === "/interpreted") {
+    if (
+      prompt === "/interpret" ||
+      prompt === "/interpreted" ||
+      prompt.startsWith("/interpret ")
+    ) {
       setInput("");
       setRawToolOutput(false);
       appendLine("user", prompt);
-      appendEvent("Output mode set to interpreted tool results.");
+      const interpreterModel = prompt.startsWith("/interpret ")
+        ? prompt.slice("/interpret ".length).trim()
+        : "";
+      if (interpreterModel === "clear") {
+        setToolOutputInterpretationModel("");
+        appendEvent("Interpreter model cleared.");
+      } else if (interpreterModel === "status") {
+        appendEvent(
+          `Interpreter model: ${toolOutputInterpretationModel.trim() || "configured default"}.`,
+        );
+      } else if (interpreterModel) {
+        setToolOutputInterpretationModel(interpreterModel);
+        appendEvent(`Interpreter model set to ${interpreterModel}.`);
+      } else {
+        appendEvent("Output mode set to interpreted tool results.");
+      }
       return;
     }
 
@@ -9095,6 +9121,20 @@ export default function App() {
             <div className="mode-note">
               Raw output preserves original tool results and skips interpretation.
             </div>
+          ) : null}
+          {!rawToolOutput ? (
+            <label>
+              Interpreter model
+              <input
+                value={toolOutputInterpretationModel}
+                onChange={(e) =>
+                  setToolOutputInterpretationModel(e.target.value)
+                }
+                placeholder="agent default"
+                disabled={running}
+                title="Use a different model for interpreted tool outputs."
+              />
+            </label>
           ) : null}
           <label>
             Compaction guidance

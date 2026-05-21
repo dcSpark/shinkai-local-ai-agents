@@ -5619,6 +5619,7 @@ struct DaemonRuntimeOptions {
     auto_approve: bool,
     #[serde(default)]
     raw_tool_output: bool,
+    tool_output_interpretation_model: Option<String>,
     #[serde(default)]
     disable_lifecycle_hooks: bool,
     compacted_context: Option<String>,
@@ -6338,6 +6339,14 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
     if options.raw_tool_output {
         agent.tool_policy.output_mode = ToolOutputMode::Raw;
     }
+    if let Some(model) = options
+        .tool_output_interpretation_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+    {
+        agent.tool_policy.output_interpretation_model = Some(ModelRef::from(model.to_string()));
+    }
     if let Some(compacted_context) = options
         .compacted_context
         .as_deref()
@@ -6648,6 +6657,23 @@ mod tests {
     use std::path::PathBuf;
 
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn build_agent_applies_runtime_tool_output_interpreter_model() {
+        let options = DaemonRuntimeOptions {
+            tool_output_interpretation_model: Some("interpreter-model".into()),
+            ..DaemonRuntimeOptions::default()
+        };
+        let agent = build_agent(&options);
+        assert_eq!(
+            agent
+                .tool_policy
+                .output_interpretation_model
+                .as_ref()
+                .map(|model| model.0.as_str()),
+            Some("interpreter-model")
+        );
+    }
 
     #[tokio::test]
     async fn messaging_bridges_route_to_agent_and_shape_platform_responses() {

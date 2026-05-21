@@ -926,6 +926,24 @@ fn agent_switch_arg(rest: &str) -> anyhow::Result<&str> {
     Ok(id)
 }
 
+fn help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/help" | "/?")
+}
+
+fn global_slash_help_text() -> &'static str {
+    "Slash commands:\n\
+     - /tool <name> <request> - force one LLM-filled tool call\n\
+     - /tool!<name> <json> - call a tool directly with manual JSON input\n\
+     - /preview <prompt> - inspect context before running\n\
+     - /guide <text> - steer the active run at the next checkpoint\n\
+     - /stop [--summarise|--discard] [reason] - stop the active run\n\
+     - /resume [last|run-id] [--from-event N] - resume a saved run\n\
+     - /score [target] <0-10> - score the latest or selected answer\n\
+     - /agent [id] - show or switch the active saved agent\n\
+     - /models, /agents, /profiles, /memory, /ingest, /artifacts, /approval, /trace - inspect command families\n\
+     - /conversation, /capabilities, /skills, /adapters, /hooks, /compact, /storage - manage runtime assets"
+}
+
 #[allow(clippy::too_many_arguments)]
 fn handle_slash_command(
     app: &mut App,
@@ -938,6 +956,13 @@ fn handle_slash_command(
     options: &mut setup::RuntimeOptions,
 ) -> bool {
     let trimmed = prompt.trim();
+    if help_slash_command(trimmed) {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: global_slash_help_text().into(),
+        });
+        return true;
+    }
     if let Some(rest) = agent_slash_rest(trimmed) {
         if rest.is_empty() {
             show_active_agent(app, agent);
@@ -8822,6 +8847,9 @@ mod tests {
 
     #[test]
     fn slash_helpers_match_exact_command_names() {
+        assert!(help_slash_command("/help"));
+        assert!(help_slash_command("/?"));
+        assert!(!help_slash_command("/helper"));
         assert_eq!(score_slash_rest("/score 7"), Some("7"));
         assert_eq!(score_slash_rest("/score"), Some(""));
         assert_eq!(score_slash_rest("/scoreboard 7"), None);
@@ -9084,6 +9112,16 @@ mod tests {
         assert!(parse_trace_slash_args("tree last extra", Some(primary)).is_err());
         assert!(parse_compare_slash_args("", Some(primary)).is_err());
         assert!(parse_compare_slash_args("last", None).is_err());
+    }
+
+    #[test]
+    fn global_help_advertises_manual_tool_calls() {
+        let help = global_slash_help_text();
+        assert!(help.contains("/tool <name> <request>"));
+        assert!(help.contains("/tool!<name> <json>"));
+        assert!(help.contains("manual JSON input"));
+        assert!(help.contains("/guide <text>"));
+        assert!(help.contains("/conversation"));
     }
 
     #[test]

@@ -5691,6 +5691,8 @@ struct DaemonRuntimeOptions {
     enable_capability_drafts: bool,
     #[serde(default)]
     load_memory: bool,
+    memory_backend: Option<String>,
+    memory_model: Option<String>,
     #[serde(default)]
     memory_topics: Vec<String>,
     #[serde(default)]
@@ -6492,6 +6494,22 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
             model: options.prompt_refinement_model.clone().map(ModelRef::from),
         });
     }
+    if let Some(memory_backend) = options
+        .memory_backend
+        .as_deref()
+        .map(str::trim)
+        .filter(|backend| agent_core::SUPPORTED_MEMORY_BACKEND_IDS.contains(backend))
+    {
+        agent.memory_backend = memory_backend.to_string();
+    }
+    if let Some(memory_model) = options
+        .memory_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+    {
+        agent.memory_model = Some(ModelRef::from(memory_model.to_string()));
+    }
     let load_memory = conversation_policy
         .as_ref()
         .map(|policy| policy.effective_load_memory(config_load_memory, options.load_memory))
@@ -6796,6 +6814,24 @@ mod tests {
                 .as_ref()
                 .map(|model| model.0.as_str()),
             Some("interpreter-model")
+        );
+    }
+
+    #[test]
+    fn build_agent_applies_runtime_memory_backend_and_model() {
+        let options = DaemonRuntimeOptions {
+            memory_backend: Some(agent_core::LOCAL_JSONL_MEMORY_BACKEND_ID.into()),
+            memory_model: Some("memory-classifier".into()),
+            ..DaemonRuntimeOptions::default()
+        };
+        let agent = build_agent(&options);
+        assert_eq!(
+            agent.memory_backend,
+            agent_core::LOCAL_JSONL_MEMORY_BACKEND_ID
+        );
+        assert_eq!(
+            agent.memory_model.as_ref().map(|model| model.0.as_str()),
+            Some("memory-classifier")
         );
     }
 

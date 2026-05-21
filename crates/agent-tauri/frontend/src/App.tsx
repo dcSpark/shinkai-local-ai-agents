@@ -463,6 +463,8 @@ export default function App() {
   const [enableCapabilityDrafts, setEnableCapabilityDrafts] = useState(false);
   const [capabilityDraftGuidance, setCapabilityDraftGuidance] = useState("");
   const [loadMemory, setLoadMemory] = useState(false);
+  const [memoryBackend, setMemoryBackend] = useState("");
+  const [memoryModel, setMemoryModel] = useState("");
   const [generateMemoryPolicy, setGenerateMemoryPolicy] = useState<
     "" | "on" | "off"
   >("");
@@ -604,6 +606,7 @@ export default function App() {
     (descriptor) => descriptor.id === provider,
   );
   const providerSelectItems = providerSelectOptions();
+  const memoryBackendSelectItems = memoryBackendSelectOptions();
   const supportsApiBaseUrl = providerSupportsRuntimeOption("api_base_url");
   const supportsTopP = providerSupportsProviderOption("top_p");
   const supportsTopK = providerSupportsProviderOption("top_k");
@@ -1021,6 +1024,8 @@ export default function App() {
       enable_subagent: enableSubagent,
       enable_capability_drafts: enableCapabilityDrafts,
       load_memory: loadMemory,
+      memory_backend: memoryBackend.trim() || null,
+      memory_model: memoryModel.trim() || null,
       memory_topics: parsedMemoryTopics(),
       load_skills: loadSkills,
       include_ingest: includeIngestIds,
@@ -6956,6 +6961,8 @@ export default function App() {
         toolOutputInterpretationModel.trim() || null,
       tool_visibility: toolVisibility || null,
       load_memory: loadMemory || null,
+      memory_backend: memoryBackend.trim() || null,
+      memory_model: memoryModel.trim() || null,
       load_skills: loadSkills || null,
       allowed_tool_categories: optionalList(
         parsedCategoryList(allowedToolCategories),
@@ -10355,7 +10362,7 @@ export default function App() {
       {
         title: "Context Sources",
         value: `${loadMemory ? "Memory on" : "Memory off"} / ${loadSkills ? "Skills on" : "Skills off"}`,
-        detail: `${manualCompactedContext.trim() ? "Compacted context active" : "No compacted context"}; ${hasConversationContext ? `conversation ${conversationId.trim()}` : "no conversation branch"}; ${includeIngestIds.length} ingest artifacts selected.`,
+        detail: `${memoryBackend.trim() || "default memory backend"}; ${manualCompactedContext.trim() ? "Compacted context active" : "No compacted context"}; ${hasConversationContext ? `conversation ${conversationId.trim()}` : "no conversation branch"}; ${includeIngestIds.length} ingest artifacts selected.`,
         tone:
           loadMemory || loadSkills || manualCompactedContext.trim() || hasConversationContext
             ? "ok"
@@ -10407,6 +10414,28 @@ export default function App() {
     });
     if (!seen.has(provider)) {
       items.push({ id: provider, label: provider });
+    }
+    return items;
+  }
+
+  function memoryBackendSelectOptions() {
+    const seen = new Set<string>();
+    const items = [{ id: "", label: "config default" }];
+    const descriptors =
+      memoryBackends.length > 0
+        ? memoryBackends
+        : [
+            { id: "local-markdown-v0", name: "local markdown" },
+            { id: "local-jsonl-v0", name: "local JSONL" },
+          ];
+    descriptors.forEach((descriptor) => {
+      if (!seen.has(descriptor.id)) {
+        items.push({ id: descriptor.id, label: descriptor.name || descriptor.id });
+        seen.add(descriptor.id);
+      }
+    });
+    if (memoryBackend.trim() && !seen.has(memoryBackend.trim())) {
+      items.push({ id: memoryBackend.trim(), label: memoryBackend.trim() });
     }
     return items;
   }
@@ -11847,6 +11876,30 @@ export default function App() {
               disabled={running}
             />
             <span>Memory</span>
+          </label>
+          <label>
+            Memory backend
+            <select
+              value={memoryBackend}
+              onChange={(e) => setMemoryBackend(e.target.value)}
+              disabled={running}
+            >
+              {memoryBackendSelectItems.map((item) => (
+                <option key={item.id || "default"} value={item.id}>
+                  {item.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Memory model
+            <input
+              value={memoryModel}
+              onChange={(e) => setMemoryModel(e.target.value)}
+              placeholder="agent/profile default"
+              disabled={running}
+              title="Saved model id used by memory generation or classification fallbacks."
+            />
           </label>
           <label>
             Memory generation
@@ -15034,6 +15087,14 @@ export default function App() {
                                 ? "default tool budget"
                                 : `${doc.max_tool_calls} tool calls`}
                             </span>
+                            <span>
+                              {doc.memory_backend
+                                ? `memory ${doc.memory_backend}`
+                                : "default memory backend"}
+                            </span>
+                            {doc.memory_model ? (
+                              <span>memory model {doc.memory_model}</span>
+                            ) : null}
                             <p>{previewText(doc.system_prompt, 220)}</p>
                           </>
                         ) : (

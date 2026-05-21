@@ -535,6 +535,8 @@ export type RunOptions = {
   enable_subagent: boolean;
   enable_capability_drafts: boolean;
   load_memory: boolean;
+  memory_backend: string | null;
+  memory_model: string | null;
   memory_topics: string[];
   load_skills: boolean;
   include_ingest: string[];

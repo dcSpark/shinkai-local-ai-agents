@@ -35,6 +35,7 @@ import type {
   MemoryRecord,
   ModelDoctorReport,
   ModelMetadataCatalog,
+  ModelVisionProbe,
   ModelProviderCatalog,
   ModelProviderDescriptor,
   ModelProviderOptionDescriptor,
@@ -1488,6 +1489,8 @@ export default function App() {
       { command: "/ingest list", label: "List ingestion artifacts" },
       { command: "/ingest backends", label: "List ingestion backends" },
       { command: "/ingest add ", label: "Ingest a file path" },
+      { command: "/ingest probe-vision ", label: "Probe vision ingestion" },
+      { command: "/ingest probe ", label: "Probe vision ingestion" },
       { command: "/ingest show ", label: "Show ingestion artifact" },
       { command: "/ingest rerun ", label: "Rerun ingestion artifact" },
       { command: "/ingest use ", label: "Use ingestion artifact" },
@@ -1641,6 +1644,54 @@ export default function App() {
       return null;
     }
     return { days, apply };
+  }
+
+  function parseIngestProbeVisionShortcut(rest: string) {
+    const parts = rest.split(/\s+/).filter(Boolean);
+    const pathParts: string[] = [];
+    let model: string | null = null;
+    for (let index = 0; index < parts.length; index += 1) {
+      const part = parts[index];
+      if (part === "--model") {
+        const value = parts[index + 1];
+        if (!value || value.startsWith("--") || model !== null) {
+          appendLine(
+            "error",
+            "Ingest probe shortcut needs: /ingest probe-vision <path> --model <model>.",
+          );
+          return null;
+        }
+        model = value;
+        index += 1;
+        continue;
+      }
+      if (part.startsWith("--model=")) {
+        const value = part.slice("--model=".length).trim();
+        if (!value || model !== null) {
+          appendLine(
+            "error",
+            "Ingest probe shortcut needs: /ingest probe-vision <path> --model <model>.",
+          );
+          return null;
+        }
+        model = value;
+        continue;
+      }
+      if (part.startsWith("--")) {
+        appendLine("error", `Unknown ingest probe option: ${part}`);
+        return null;
+      }
+      pathParts.push(part);
+    }
+    const path = pathParts.join(" ").trim();
+    if (!path || !model) {
+      appendLine(
+        "error",
+        "Ingest probe shortcut needs: /ingest probe-vision <path> --model <model>.",
+      );
+      return null;
+    }
+    return { path, model };
   }
 
   function bundleShortcutHelpText() {
@@ -4110,6 +4161,19 @@ export default function App() {
         } else {
           await ingestPathFromOps(path);
         }
+      } else if (
+        prompt.startsWith("/ingest probe-vision ") ||
+        prompt.startsWith("/ingest probe ")
+      ) {
+        const prefix = prompt.startsWith("/ingest probe-vision ")
+          ? "/ingest probe-vision "
+          : "/ingest probe ";
+        const probe = parseIngestProbeVisionShortcut(
+          prompt.slice(prefix.length).trim(),
+        );
+        if (probe) {
+          await probeIngestVisionFromOps(probe.path, probe.model);
+        }
       } else if (prompt.startsWith("/ingest show ")) {
         const id = prompt.slice("/ingest show ".length).trim();
         if (!id) {
@@ -4170,7 +4234,7 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Ingest shortcut needs list, backends, add, show, rerun, use, preview, review, or delete.",
+          "Ingest shortcut needs list, backends, add, probe-vision, show, rerun, use, preview, review, or delete.",
         );
       }
       return;
@@ -8403,6 +8467,22 @@ export default function App() {
       visionModel,
       guardrailModel,
     });
+  }
+
+  async function probeIngestVisionFromOps(path: string, model: string) {
+    try {
+      const probe =
+        transport === "daemon"
+          ? await daemonJson<ModelVisionProbe>("/ingest/probe-vision", {
+              path,
+              model,
+            })
+          : await invoke<ModelVisionProbe>("ingest_probe_vision", { path, model });
+      appendJson("Ingestion vision probe", probe);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Ingest vision probe failed: ${msg}`);
+    }
   }
 
   async function rerunIngestFromOps(explicitId?: string) {

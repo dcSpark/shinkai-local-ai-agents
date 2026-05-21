@@ -711,6 +711,17 @@ export type IngestionArtifact = {
   created_at: string;
 };
 
+export type ModelVisionProbe = {
+  source: string;
+  model: string;
+  source_kind: string;
+  attachment_kind: string;
+  status: string;
+  response: string;
+  tokens_in: number;
+  tokens_out: number;
+};
+
 export type IngestionResult = {
   trace_run_id: string;
   artifact: IngestionArtifact;

@@ -7573,6 +7573,9 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
     if let Some((name, input)) = parse_code_slash_command(trimmed)? {
         return Ok(Some(SlashCommand::ToolManual { name, input }));
     }
+    if let Some((name, input)) = parse_voice_slash_command(trimmed)? {
+        return Ok(Some(SlashCommand::ToolManual { name, input }));
+    }
     if let Some(rest) = trimmed.strip_prefix("/tool!").map(str::trim) {
         let (name, input) = parse_tool_slash_rest(rest)?;
         return Ok(Some(SlashCommand::ToolManual { name, input }));
@@ -7621,6 +7624,41 @@ fn code_slash_command(trimmed: &str) -> Option<(&'static str, &str)> {
         trimmed
             .strip_prefix("/ts ")
             .map(|rest| ("code_typescript", rest.trim()))
+    }
+}
+
+fn parse_voice_slash_command(text: &str) -> anyhow::Result<Option<(String, String)>> {
+    let Some(rest) = voice_slash_rest(text) else {
+        return Ok(None);
+    };
+    let rest = rest.trim();
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "transcribe" if !args.is_empty() => Ok(Some((
+            "voice_transcribe".into(),
+            serde_json::json!({ "audio_path": args }).to_string(),
+        ))),
+        "speak" if !args.is_empty() => Ok(Some((
+            "voice_speak".into(),
+            serde_json::json!({ "text": args }).to_string(),
+        ))),
+        "transcribe" => anyhow::bail!("voice transcribe needs an audio path"),
+        "speak" => anyhow::bail!("voice speak needs text"),
+        "" | "help" | "status" => {
+            anyhow::bail!("voice shortcut needs transcribe <path> or speak <text>")
+        }
+        _ => anyhow::bail!("voice shortcut needs transcribe <path> or speak <text>"),
+    }
+}
+
+fn voice_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/voice" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/voice ").map(str::trim)
     }
 }
 
@@ -8294,6 +8332,38 @@ mod slash_tests {
         assert!(parse_slash_command("/python").is_err());
         assert!(
             parse_slash_command("/pythonista print(1)")
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn parses_voice_shortcuts_as_direct_tool_calls() {
+        let parsed = parse_slash_command("/voice transcribe ./sample.wav").unwrap();
+        match parsed {
+            Some(SlashCommand::ToolManual { name, input }) => {
+                assert_eq!(name, "voice_transcribe");
+                assert_eq!(
+                    serde_json::from_str::<serde_json::Value>(&input).unwrap(),
+                    json!({ "audio_path": "./sample.wav" })
+                );
+            }
+            _ => panic!("expected direct voice tool command"),
+        }
+        let parsed = parse_slash_command("/voice speak hello there").unwrap();
+        match parsed {
+            Some(SlashCommand::ToolManual { name, input }) => {
+                assert_eq!(name, "voice_speak");
+                assert_eq!(
+                    serde_json::from_str::<serde_json::Value>(&input).unwrap(),
+                    json!({ "text": "hello there" })
+                );
+            }
+            _ => panic!("expected direct voice tool command"),
+        }
+        assert!(parse_slash_command("/voice").is_err());
+        assert!(
+            parse_slash_command("/voices transcribe ./sample.wav")
                 .unwrap()
                 .is_none()
         );

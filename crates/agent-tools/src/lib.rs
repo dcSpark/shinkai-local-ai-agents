@@ -4848,7 +4848,7 @@ pub fn register_allowed_mcp_tools_for_category_with_provenance(
     register_allowed_mcp_tools_impl(
         registry,
         packages,
-        |package, _| mcp_category_matches(package, category),
+        |package, spec| mcp_category_matches(package, spec, category),
         true,
         extra_provenance,
     )
@@ -4912,8 +4912,14 @@ fn mcp_resource_matches(package: &NormalizedPackage, spec: &McpServerSpec, resou
     })
 }
 
-fn mcp_category_matches(package: &NormalizedPackage, category: &str) -> bool {
-    category == "*" || category == "mcp" || package.id == category
+fn mcp_category_matches(package: &NormalizedPackage, spec: &McpServerSpec, category: &str) -> bool {
+    let category = category.trim();
+    if category == "*" || category.eq_ignore_ascii_case("mcp") || package.id == category {
+        return true;
+    }
+    mcp_transport_label(spec)
+        .map(|transport| format!("mcp-{transport}"))
+        .is_some_and(|transport_category| transport_category.eq_ignore_ascii_case(category))
 }
 
 fn mcp_spec_uses_sse(spec: &McpServerSpec) -> bool {
@@ -6200,6 +6206,62 @@ mod tests {
             spec.headers.get("Authorization").map(String::as_str),
             Some("secret://mcp.events_auth")
         );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn mcp_transport_category_grants_register_only_matching_tools() {
+        let dir = temp_dir("mcp-transport-category");
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("mcp.json");
+        std::fs::write(
+            &source,
+            r#"{
+              "mcpServers": {
+                "filesystem": { "command": "fake-mcp-filesystem" },
+                "search": { "url": "https://example.invalid/mcp" },
+                "events": { "type": "sse", "url": "https://example.invalid/sse" }
+              }
+            }"#,
+        )
+        .unwrap();
+        let mut package = agent_adapters::inspect_source(&source).unwrap();
+        package.quarantined = false;
+        for capability in &mut package.capabilities {
+            capability.quarantined = false;
+        }
+        let mut registry = ToolRegistry::new();
+
+        assert_eq!(
+            register_allowed_mcp_tools_for_category_with_provenance(
+                &mut registry,
+                [package],
+                "mcp-sse",
+                Some("grant=transport")
+            ),
+            1
+        );
+
+        let descriptor = registry.descriptor(&ToolId::from("mcp-events")).unwrap();
+        assert!(
+            descriptor
+                .categories
+                .iter()
+                .any(|category| category == "mcp-sse")
+        );
+        assert!(
+            descriptor
+                .provenance
+                .as_deref()
+                .is_some_and(|provenance| provenance.contains("grant=transport"))
+        );
+        assert!(
+            registry
+                .descriptor(&ToolId::from("mcp-filesystem"))
+                .is_none()
+        );
+        assert!(registry.descriptor(&ToolId::from("mcp-search")).is_none());
 
         let _ = std::fs::remove_dir_all(dir);
     }

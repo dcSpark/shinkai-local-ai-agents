@@ -840,17 +840,22 @@ async fn route_inner(
                     "POST /approvals/<run_id>/<approval_id>/execute",
                     "GET|POST /memory",
                     "GET /memory/backends",
+                    "POST /memory/access",
                     "POST /memory/generate",
                     "POST /memory/generate-conversation",
                     "POST /memory/generate-pending",
                     "POST /memory/classify",
-                    "GET /skills",
+                    "POST /memory/rollback",
                     "POST /memory/export",
                     "POST /memory/import",
+                    "POST /memory/<id>/edit",
+                    "POST /memory/<id>/delete",
+                    "GET /skills",
                     "POST /skills/import",
                     "POST /skills/import-doc",
                     "GET /skills/<id>",
                     "POST /skills/<id>/allow",
+                    "POST /skills/<id>/quarantine",
                     "POST /skills/<id>/export",
                     "GET /capabilities",
                     "GET /capabilities/doctor",
@@ -907,6 +912,7 @@ async fn route_inner(
                     "GET /ingest/<id>",
                     "POST /ingest/<id>/rerun",
                     "POST /ingest/<id>/review",
+                    "POST /ingest/<id>/rm",
                     "GET /artifacts",
                     "GET /artifacts/<id>",
                     "GET /artifacts/<id>/data-url",
@@ -924,6 +930,7 @@ async fn route_inner(
                     "POST /adapters/<id>/export",
                     "POST /adapters/<id>/install-skill",
                     "POST /adapters/<id>/allow",
+                    "POST /adapters/<id>/quarantine",
                     "POST /bundles/export",
                     "POST /bundles/import"
                 ]
@@ -6889,7 +6896,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn route_index_lists_resume_start_routes() {
+    async fn route_index_lists_dynamic_action_routes() {
         let (status, body) = route(
             HttpRequest {
                 method: "GET".into(),
@@ -6907,6 +6914,13 @@ mod tests {
         assert!(available.contains(&serde_json::json!("POST /resume")));
         assert!(available.contains(&serde_json::json!("POST /resume/plan")));
         assert!(available.contains(&serde_json::json!("POST /resume/start")));
+        assert!(available.contains(&serde_json::json!("POST /memory/access")));
+        assert!(available.contains(&serde_json::json!("POST /memory/rollback")));
+        assert!(available.contains(&serde_json::json!("POST /memory/<id>/edit")));
+        assert!(available.contains(&serde_json::json!("POST /memory/<id>/delete")));
+        assert!(available.contains(&serde_json::json!("POST /skills/<id>/quarantine")));
+        assert!(available.contains(&serde_json::json!("POST /ingest/<id>/rm")));
+        assert!(available.contains(&serde_json::json!("POST /adapters/<id>/quarantine")));
     }
 
     #[tokio::test]

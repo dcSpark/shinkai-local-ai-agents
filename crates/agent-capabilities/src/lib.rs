@@ -322,11 +322,25 @@ pub fn capability_draft_doctor_report_from_drafts(
         .map(capability_draft_doctor_entry)
         .collect::<Vec<_>>();
     let review_needed_count = entries.iter().filter(|entry| entry.needs_review).count();
+    let promotion_warning_count = entries
+        .iter()
+        .filter(|entry| {
+            entry
+                .notes
+                .iter()
+                .any(|note| note.starts_with("promotion warning:"))
+        })
+        .count();
 
     let mut warnings = Vec::new();
     if review_needed_count > 0 {
         warnings.push(format!(
             "{review_needed_count} quarantined capability draft(s) need human review"
+        ));
+    }
+    if promotion_warning_count > 0 {
+        warnings.push(format!(
+            "{promotion_warning_count} capability draft(s) have promotion warnings"
         ));
     }
 
@@ -363,6 +377,8 @@ fn capability_draft_doctor_entry(draft: CapabilityDraft) -> CapabilityDraftDocto
     if needs_review {
         notes.push("needs human review before promotion".into());
     }
+    let promotion_notes = capability_draft_promotion_notes(&draft);
+    notes.extend(promotion_notes);
     match draft.status {
         CapabilityDraftStatus::Allowed => {
             notes.push("allowed draft is treated as reviewed for promotion".into());
@@ -394,6 +410,102 @@ fn capability_draft_doctor_entry(draft: CapabilityDraft) -> CapabilityDraftDocto
         needs_review,
         notes,
     }
+}
+
+fn capability_draft_promotion_notes(draft: &CapabilityDraft) -> Vec<String> {
+    if draft.kind != CapabilityKind::Tool {
+        return Vec::new();
+    }
+    let Ok(value) = serde_json::from_str::<Value>(&draft.body) else {
+        return vec!["promotion warning: tool draft body is not valid MCP JSON".into()];
+    };
+    let Some(servers) = value
+        .get("mcpServers")
+        .or_else(|| value.get("servers"))
+        .and_then(Value::as_object)
+    else {
+        return vec![
+            "promotion warning: tool drafts must declare `mcpServers` or `servers`".into(),
+        ];
+    };
+    if servers.is_empty() {
+        return vec!["promotion warning: MCP manifest declares no servers".into()];
+    }
+    let mut notes = Vec::new();
+    for (name, server) in servers {
+        let Some(server) = server.as_object() else {
+            notes.push(format!(
+                "promotion warning: MCP server `{name}` must be an object"
+            ));
+            continue;
+        };
+        let command = server
+            .get("command")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let endpoint = server
+            .get("url")
+            .or_else(|| server.get("endpoint"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        if command.is_none() && endpoint.is_none() {
+            notes.push(format!(
+                "promotion warning: MCP server `{name}` must declare a command or URL runtime"
+            ));
+        }
+        if command.is_some() && endpoint.is_some() {
+            notes.push(format!(
+                "promotion warning: MCP server `{name}` declares both command and URL runtimes"
+            ));
+        }
+        if let Some(args) = server.get("args") {
+            let valid_args = args.as_array().is_some_and(|args| {
+                args.iter().all(|arg| {
+                    arg.as_str()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .is_some()
+                })
+            });
+            if !valid_args {
+                notes.push(format!(
+                    "promotion warning: MCP server `{name}` args must be non-empty strings"
+                ));
+            }
+        }
+        for field in ["env", "headers"] {
+            let Some(entries) = server.get(field) else {
+                continue;
+            };
+            let Some(entries) = entries.as_object() else {
+                notes.push(format!(
+                    "promotion warning: MCP server `{name}` {field} must be an object"
+                ));
+                continue;
+            };
+            for (key, value) in entries {
+                if !valid_secret_key(key) || !value.is_string() {
+                    notes.push(format!(
+                        "promotion warning: MCP server `{name}` {field} entries must use safe keys and string values"
+                    ));
+                    break;
+                }
+            }
+        }
+    }
+    notes.sort();
+    notes.dedup();
+    notes
+}
+
+fn valid_secret_key(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty()
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.'))
 }
 
 pub struct CapabilityDraftTool {
@@ -733,6 +845,74 @@ mod tests {
             CapabilityDraftPromotionTarget::AdapterPackage
         );
         assert!(tool.needs_review);
+        assert!(
+            tool.notes
+                .iter()
+                .any(|note| note.contains("MCP manifest declares no servers"))
+        );
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("promotion warnings"))
+        );
+    }
+
+    #[test]
+    fn doctor_report_surfaces_tool_draft_promotion_blockers() {
+        let report = capability_draft_doctor_report_from_drafts(vec![CapabilityDraft {
+            id: "bad-tool".into(),
+            kind: CapabilityKind::Tool,
+            name: "Bad Tool".into(),
+            body: r#"{
+              "mcpServers": {
+                "ambiguous": {
+                  "command": "fake-mcp",
+                  "url": "https://example.invalid/mcp",
+                  "args": ["--ok", ""],
+                  "headers": { "Authorization": 42 }
+                },
+                "missing": {}
+              }
+            }"#
+            .into(),
+            guidance: None,
+            created_by: "agent".into(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            status: CapabilityDraftStatus::Allowed,
+            provenance: "test".into(),
+        }]);
+
+        assert_eq!(report.status, CapabilityDraftDoctorStatus::Warning);
+        assert_eq!(report.review_needed_count, 0);
+        assert!(
+            report
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("promotion warnings"))
+        );
+        let notes = &report.drafts[0].notes;
+        assert!(
+            notes
+                .iter()
+                .any(|note| note.contains("declares both command and URL"))
+        );
+        assert!(
+            notes
+                .iter()
+                .any(|note| note.contains("args must be non-empty strings"))
+        );
+        assert!(
+            notes
+                .iter()
+                .any(|note| note.contains("headers entries must use safe keys and string values"))
+        );
+        assert!(
+            notes
+                .iter()
+                .any(|note| note.contains("must declare a command or URL runtime"))
+        );
     }
 
     #[test]

@@ -1696,10 +1696,35 @@ impl ConfigResolver {
         }
         let dir = self.paths.agents_dir().join(id);
         if !dir.exists() {
+            if let Some(grant) = self.profile_grant_for_agent(id)? {
+                return Err(ConfigError::InvalidInput(format!(
+                    "agent {id:?} is shared from profile {:?} by grant {}; revoke the profile grant instead",
+                    grant.from_profile, grant.id
+                )));
+            }
             return Ok(false);
         }
         std::fs::remove_dir_all(dir)?;
         Ok(true)
+    }
+
+    fn profile_grant_for_agent(&self, id: &str) -> Result<Option<ProfileGrant>, ConfigError> {
+        let active_profile = self.paths.active_profile_id().to_string();
+        for grant in self.list_profile_grants()?.into_iter().filter(|grant| {
+            grant.kind == ProfileGrantKind::Agent
+                && grant.to_profile == active_profile
+                && (grant.resource == "*" || grant.resource == id)
+        }) {
+            let source_paths = StoragePaths::new_with_profile(
+                self.paths.root().to_path_buf(),
+                &grant.from_profile,
+            );
+            ConfigResolver::new(source_paths.clone()).ensure_default_files()?;
+            if show_agent_config_in_paths(&source_paths, id)?.is_some() {
+                return Ok(Some(grant));
+            }
+        }
+        Ok(None)
     }
 
     pub fn export_agent_config(
@@ -5446,6 +5471,13 @@ system_prompt = "Review carefully."
             .unwrap();
         assert_eq!(exported.id, "critic");
         assert!(export_path.exists());
+        assert!(
+            research_resolver
+                .delete_agent_config("critic")
+                .unwrap_err()
+                .to_string()
+                .contains("revoke the profile grant")
+        );
 
         let resolved = research_resolver.resolve_agent("critic").unwrap();
         assert_eq!(resolved.agent.id, "critic");

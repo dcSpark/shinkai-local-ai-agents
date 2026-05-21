@@ -117,6 +117,11 @@ The same `X402_*` suffixes work for `TELEGRAM`, `TEAMS`, `WHATSAPP`, and
 `WEBHOOK`, with `AGENT_BRIDGE_X402_ACCEPTS` and `AGENT_X402_FACILITATOR_URL`
 available as shared fallbacks.
 
+Daemon execution endpoints can also be paid-gated independently. Setting
+`AGENT_DAEMON_X402_ACCEPTS` protects `/run`, `/run/start`, `/resume`,
+`/resume/start`, `/batch`, `/batch/resume`, and `/tool/...`; health and
+inspection endpoints stay open.
+
 ## Verification
 
 Core test suite:

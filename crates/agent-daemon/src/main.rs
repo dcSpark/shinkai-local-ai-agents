@@ -169,6 +169,22 @@ async fn route(
     request: HttpRequest,
     state: Arc<DaemonState>,
 ) -> anyhow::Result<(u16, serde_json::Value)> {
+    let payment = match enforce_daemon_x402(&request).await? {
+        BridgeX402Decision::Open => None,
+        BridgeX402Decision::Challenge(challenge) => return Ok((402, challenge)),
+        BridgeX402Decision::Paid(payment) => Some(payment),
+    };
+    let (status, mut body) = route_inner(request, state).await?;
+    if let Some(payment) = payment {
+        attach_bridge_x402_payment(&mut body, payment);
+    }
+    Ok((status, body))
+}
+
+async fn route_inner(
+    request: HttpRequest,
+    state: Arc<DaemonState>,
+) -> anyhow::Result<(u16, serde_json::Value)> {
     match (request.method.as_str(), request.path.as_str()) {
         ("OPTIONS", _) => Ok((200, serde_json::json!({"status": "ok"}))),
         ("GET", "/health") => Ok((200, serde_json::json!({"status": "ok"}))),
@@ -2448,6 +2464,29 @@ fn bridge_response_status(value: &serde_json::Value) -> u16 {
     } else {
         200
     }
+}
+
+async fn enforce_daemon_x402(request: &HttpRequest) -> anyhow::Result<BridgeX402Decision> {
+    if !daemon_x402_enabled() || !daemon_x402_protected_request(request) {
+        return Ok(BridgeX402Decision::Open);
+    }
+    enforce_bridge_x402("daemon", &request.headers).await
+}
+
+fn daemon_x402_enabled() -> bool {
+    std::env::var("AGENT_DAEMON_X402_ACCEPTS")
+        .ok()
+        .is_some_and(|value| !value.trim().is_empty())
+}
+
+fn daemon_x402_protected_request(request: &HttpRequest) -> bool {
+    if request.method != "POST" {
+        return false;
+    }
+    matches!(
+        request.path.as_str(),
+        "/run" | "/run/start" | "/resume" | "/resume/start" | "/batch" | "/batch/resume"
+    ) || request.path.starts_with("/tool/")
 }
 
 enum BridgeX402Decision {
@@ -7067,6 +7106,109 @@ mod tests {
         restore_env("AGENT_SLACK_X402_ACCEPTS", previous_accepts);
         restore_env("AGENT_SLACK_X402_FACILITATOR_URL", previous_facilitator);
         restore_env("AGENT_SLACK_SIGNING_SECRET", previous_secret);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn daemon_x402_challenges_and_settles_protected_tool_routes() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("daemon-x402");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        let previous_accepts = std::env::var_os("AGENT_DAEMON_X402_ACCEPTS");
+        let previous_facilitator = std::env::var_os("AGENT_DAEMON_X402_FACILITATOR_URL");
+        let accepts = serde_json::json!([{
+            "scheme": "exact",
+            "network": "base-sepolia",
+            "maxAmountRequired": "9",
+            "payTo": "0x0000000000000000000000000000000000000005",
+            "asset": "0x0000000000000000000000000000000000000006",
+            "resource": "http://localhost/tool/echo"
+        }]);
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+            std::env::set_var("AGENT_DAEMON_X402_ACCEPTS", accepts.to_string());
+            std::env::remove_var("AGENT_DAEMON_X402_FACILITATOR_URL");
+        }
+
+        let (health_status, health) = route(
+            HttpRequest {
+                method: "GET".into(),
+                path: "/health".into(),
+                headers: HashMap::new(),
+                body: String::new(),
+            },
+            Arc::new(DaemonState::default()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(health_status, 200);
+        assert_eq!(health["status"], "ok");
+
+        let (status, challenge) = route(
+            HttpRequest {
+                method: "POST".into(),
+                path: "/tool/echo".into(),
+                headers: HashMap::new(),
+                body: r#"{"text":"paid daemon"}"#.into(),
+            },
+            Arc::new(DaemonState::default()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(status, 402);
+        assert_eq!(challenge["status"], "payment_required");
+        let payment_required_header = challenge["headers"]["PAYMENT-REQUIRED"].as_str().unwrap();
+        let decoded_challenge = decode_x402_header(payment_required_header).unwrap();
+        assert_eq!(decoded_challenge["accepts"], accepts);
+        assert!(http_json(status, challenge).contains("PAYMENT-REQUIRED: "));
+
+        let settlement = serde_json::json!({
+            "success": true,
+            "transaction": "0xdaemonpaid"
+        });
+        let (facilitator_url, facilitator) = spawn_json_body_server(vec![
+            (200, r#"{"isValid":true}"#.into()),
+            (200, settlement.to_string()),
+        ]);
+        unsafe {
+            std::env::set_var("AGENT_DAEMON_X402_FACILITATOR_URL", &facilitator_url);
+        }
+        let payment_signature = encode_x402_header(&serde_json::json!({
+            "x402Version": 1,
+            "scheme": "exact",
+            "network": "base-sepolia",
+            "payload": { "authorization": "signed-daemon" }
+        }))
+        .unwrap();
+        let mut headers = HashMap::new();
+        headers.insert("payment-signature".into(), payment_signature);
+
+        let (status, paid) = route(
+            HttpRequest {
+                method: "POST".into(),
+                path: "/tool/echo".into(),
+                headers,
+                body: r#"{"text":"paid daemon"}"#.into(),
+            },
+            Arc::new(DaemonState::default()),
+        )
+        .await
+        .unwrap();
+
+        let facilitator_requests = facilitator.join().unwrap();
+        assert_eq!(status, 200);
+        assert_eq!(paid["output"]["text"], "paid daemon");
+        assert_eq!(paid["payment"]["status"], "settled");
+        assert_eq!(paid["payment"]["verify"]["body"]["isValid"], true);
+        assert_eq!(paid["payment"]["settle"]["body"], settlement);
+        let payment_response = paid["headers"]["PAYMENT-RESPONSE"].as_str().unwrap();
+        assert_eq!(decode_x402_header(payment_response).unwrap(), settlement);
+        assert!(facilitator_requests[0].0.starts_with("POST /verify "));
+        assert!(facilitator_requests[1].0.starts_with("POST /settle "));
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        restore_env("AGENT_DAEMON_X402_ACCEPTS", previous_accepts);
+        restore_env("AGENT_DAEMON_X402_FACILITATOR_URL", previous_facilitator);
         let _ = std::fs::remove_dir_all(dir);
     }
 

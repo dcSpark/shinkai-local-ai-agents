@@ -1324,6 +1324,10 @@ export default function App() {
       { command: "/prompt ", label: "Load saved prompt" },
       { command: "/prompts", label: "List saved prompts" },
       { command: "/models", label: "List model metadata" },
+      { command: "/models providers", label: "List model providers" },
+      { command: "/models doctor", label: "Run model doctor" },
+      { command: "/models provider-catalog", label: "Show provider catalog" },
+      { command: "/models metadata-catalog", label: "Show metadata catalog" },
       { command: "/simple", label: "Use low-overhead answer mode" },
       { command: "/router", label: "Use one-action raw router mode" },
       { command: "/answer", label: "Use zero tool calls" },
@@ -3288,6 +3292,27 @@ export default function App() {
       setActiveSection("prompts");
       appendLine("user", "/prompts");
       await reviewPrompts();
+      return;
+    }
+
+    if (
+      prompt === "/models providers" ||
+      prompt === "/models doctor" ||
+      prompt === "/models provider-catalog" ||
+      prompt === "/models metadata-catalog"
+    ) {
+      setInput("");
+      setActiveSection("prompts");
+      appendLine("user", prompt);
+      if (prompt === "/models providers") {
+        await listModelProvidersFromOps();
+      } else if (prompt === "/models doctor") {
+        await modelDoctorFromOps();
+      } else if (prompt === "/models provider-catalog") {
+        await showModelProviderCatalogFromOps();
+      } else {
+        await showModelMetadataCatalogFromOps();
+      }
       return;
     }
 

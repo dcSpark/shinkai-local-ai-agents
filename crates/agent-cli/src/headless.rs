@@ -247,6 +247,18 @@ pub async fn run(
                 AdapterSlashCommand::InstallSkill { id } => adapter_install_skill(id, json).await,
                 AdapterSlashCommand::Allow { id } => adapter_allow(id).await,
                 AdapterSlashCommand::Quarantine { id } => adapter_quarantine(id).await,
+                AdapterSlashCommand::ClawHubSearch { catalog, query } => {
+                    clawhub_search(catalog, query, json).await
+                }
+                AdapterSlashCommand::ClawHubInspect { catalog, id } => {
+                    clawhub_inspect(catalog, id, json).await
+                }
+                AdapterSlashCommand::ClawHubPin { catalog, id } => {
+                    clawhub_pin(catalog, id, json).await
+                }
+                AdapterSlashCommand::ClawHubInstall { catalog, id } => {
+                    clawhub_install(catalog, id).await
+                }
             };
         }
         Some(SlashCommand::Memory(command)) => {
@@ -8007,14 +8019,47 @@ enum CapabilitySlashCommand {
 enum AdapterSlashCommand {
     List,
     Doctor,
-    Inspect { path: String },
-    Import { path: String },
-    ImportManifest { path: String },
-    Show { id: String },
-    Export { id: String, path: String },
-    InstallSkill { id: String },
-    Allow { id: String },
-    Quarantine { id: String },
+    Inspect {
+        path: String,
+    },
+    Import {
+        path: String,
+    },
+    ImportManifest {
+        path: String,
+    },
+    Show {
+        id: String,
+    },
+    Export {
+        id: String,
+        path: String,
+    },
+    InstallSkill {
+        id: String,
+    },
+    Allow {
+        id: String,
+    },
+    Quarantine {
+        id: String,
+    },
+    ClawHubSearch {
+        catalog: String,
+        query: Option<String>,
+    },
+    ClawHubInspect {
+        catalog: String,
+        id: String,
+    },
+    ClawHubPin {
+        catalog: String,
+        id: String,
+    },
+    ClawHubInstall {
+        catalog: String,
+        id: String,
+    },
 }
 
 enum IngestSlashCommand {
@@ -8342,7 +8387,7 @@ fn headless_slash_help_text() -> &'static str {
      - /ingest list|backends|add|probe-vision|rerun|show|review|delete\n\
      - /artifacts list|show|open|delete\n\
      - /capabilities list|doctor|show|allow|reject|delete|export|import\n\
-     - /adapters list|doctor|inspect|import|import-manifest|show|export|install-skill|allow|quarantine\n\
+     - /adapters list|doctor|inspect|import|import-manifest|show|export|install-skill|allow|quarantine|clawhub\n\
      - /memory list|access|backends|create|generate|generate-conversation|classify|edit|delete|rollback|export|import\n\
      - /compact list|show|export|import|delete|keep-run, /compactions ...\n\
      - /guide <run-id> <text> - inject guidance into an active run\n\
@@ -9205,9 +9250,43 @@ fn parse_adapter_slash_rest(rest: &str) -> anyhow::Result<AdapterSlashCommand> {
             ensure_no_extra(parts, "usage: /adapters quarantine <id>")?;
             Ok(AdapterSlashCommand::Quarantine { id })
         }
+        "clawhub" => parse_adapter_clawhub_args(parts),
         _ => anyhow::bail!(
-            "adapters shortcut needs list, doctor, inspect, import, import-manifest, show, export, install-skill, allow, or quarantine"
+            "adapters shortcut needs list, doctor, inspect, import, import-manifest, show, export, install-skill, allow, quarantine, or clawhub"
         ),
+    }
+}
+
+fn parse_adapter_clawhub_args<'a>(
+    mut parts: impl Iterator<Item = &'a str>,
+) -> anyhow::Result<AdapterSlashCommand> {
+    let command = parts.next().unwrap_or_default();
+    match command {
+        "search" => {
+            let catalog = next_required(&mut parts, "adapters clawhub search needs a catalog")?;
+            let query = parts.collect::<Vec<_>>().join(" ");
+            let query = (!query.trim().is_empty()).then_some(query);
+            Ok(AdapterSlashCommand::ClawHubSearch { catalog, query })
+        }
+        "inspect" => {
+            let catalog = next_required(&mut parts, "adapters clawhub inspect needs a catalog")?;
+            let id = next_required(&mut parts, "adapters clawhub inspect needs an id")?;
+            ensure_no_extra(parts, "usage: /adapters clawhub inspect <catalog> <id>")?;
+            Ok(AdapterSlashCommand::ClawHubInspect { catalog, id })
+        }
+        "pin" => {
+            let catalog = next_required(&mut parts, "adapters clawhub pin needs a catalog")?;
+            let id = next_required(&mut parts, "adapters clawhub pin needs an id")?;
+            ensure_no_extra(parts, "usage: /adapters clawhub pin <catalog> <id>")?;
+            Ok(AdapterSlashCommand::ClawHubPin { catalog, id })
+        }
+        "install" => {
+            let catalog = next_required(&mut parts, "adapters clawhub install needs a catalog")?;
+            let id = next_required(&mut parts, "adapters clawhub install needs an id")?;
+            ensure_no_extra(parts, "usage: /adapters clawhub install <catalog> <id>")?;
+            Ok(AdapterSlashCommand::ClawHubInstall { catalog, id })
+        }
+        _ => anyhow::bail!("adapters clawhub needs search, inspect, pin, or install"),
     }
 }
 
@@ -10688,7 +10767,37 @@ mod slash_tests {
             }
             _ => panic!("expected adapter quarantine shortcut"),
         }
+        match parse_slash_command("/adapters clawhub search ./catalog.json browser tools").unwrap()
+        {
+            Some(SlashCommand::Adapter(AdapterSlashCommand::ClawHubSearch { catalog, query })) => {
+                assert_eq!(catalog, "./catalog.json");
+                assert_eq!(query.as_deref(), Some("browser tools"));
+            }
+            _ => panic!("expected adapter clawhub search shortcut"),
+        }
+        match parse_slash_command("/adapters clawhub inspect ./catalog.json entry-1").unwrap() {
+            Some(SlashCommand::Adapter(AdapterSlashCommand::ClawHubInspect { catalog, id })) => {
+                assert_eq!(catalog, "./catalog.json");
+                assert_eq!(id, "entry-1");
+            }
+            _ => panic!("expected adapter clawhub inspect shortcut"),
+        }
+        match parse_slash_command("/adapters clawhub pin ./catalog.json entry-1").unwrap() {
+            Some(SlashCommand::Adapter(AdapterSlashCommand::ClawHubPin { catalog, id })) => {
+                assert_eq!(catalog, "./catalog.json");
+                assert_eq!(id, "entry-1");
+            }
+            _ => panic!("expected adapter clawhub pin shortcut"),
+        }
+        match parse_slash_command("/adapters clawhub install ./catalog.json entry-1").unwrap() {
+            Some(SlashCommand::Adapter(AdapterSlashCommand::ClawHubInstall { catalog, id })) => {
+                assert_eq!(catalog, "./catalog.json");
+                assert_eq!(id, "entry-1");
+            }
+            _ => panic!("expected adapter clawhub install shortcut"),
+        }
         assert!(parse_slash_command("/adapters allow adapter-1").is_err());
+        assert!(parse_slash_command("/adapters clawhub inspect ./catalog.json").is_err());
         assert!(parse_slash_command("/adaptersx list").unwrap().is_none());
     }
 

@@ -1399,8 +1399,13 @@ export default function App() {
       { command: "/memory access", label: "Show visible memory access" },
       { command: "/memory backends", label: "List memory backends" },
       { command: "/memory preview", label: "Preview context with memory" },
+      { command: "/memory create ", label: "Create memory record" },
+      { command: "/memory generate ", label: "Generate memory from text" },
+      { command: "/memory generate-conversation ", label: "Generate memory from conversation range" },
       { command: "/memory classify ", label: "Classify memory record" },
+      { command: "/memory edit ", label: "Edit memory record" },
       { command: "/memory delete ", label: "Delete memory record" },
+      { command: "/memory rollback --confirm", label: "Rollback memory file" },
       { command: "/skills on", label: "Load skills in context" },
       { command: "/skills off", label: "Stop loading skills" },
       { command: "/skills status", label: "Show skill loading status" },
@@ -1846,6 +1851,65 @@ export default function App() {
       appendLine(
         "error",
         "Conversation range-delete shortcut needs a conversation id or selected Id.",
+      );
+      return null;
+    }
+    const range = parseConversationRangeText(fromText, toText);
+    if (!range) return null;
+    return { id, range };
+  }
+
+  function memoryShortcutHelpText() {
+    return [
+      "/memory list",
+      "/memory access",
+      "/memory backends",
+      "/memory preview",
+      "/memory create <content>",
+      "/memory generate <text>",
+      "/memory generate-conversation [id] <from>:<to>",
+      "/memory classify <id>",
+      "/memory edit <id> <content>",
+      "/memory delete <id> --confirm",
+      "/memory rollback --confirm",
+    ].join("\n");
+  }
+
+  function parseMemoryConversationRangeShortcut(args: string[]) {
+    const unknownFlags = args.filter((arg) => arg.startsWith("--"));
+    const positional = args.filter((arg) => !arg.startsWith("--"));
+    if (unknownFlags.length || positional.length < 1 || positional.length > 3) {
+      appendLine(
+        "error",
+        "Memory generate-conversation shortcut needs [id] <from>:<to> or [id] <from> <to>.",
+      );
+      return null;
+    }
+
+    let id = "";
+    let fromText = "";
+    let toText = "";
+    if (positional.length === 1) {
+      const [from, to] = positional[0].split(":");
+      id = selectedConversationShortcutId();
+      fromText = from || "";
+      toText = to || "";
+    } else if (positional.length === 2 && positional[1].includes(":")) {
+      const [from, to] = positional[1].split(":");
+      id = positional[0];
+      fromText = from || "";
+      toText = to || "";
+    } else if (positional.length === 2) {
+      id = selectedConversationShortcutId();
+      [fromText, toText] = positional;
+    } else {
+      [id, fromText, toText] = positional;
+    }
+
+    if (!id) {
+      appendLine(
+        "error",
+        "Memory generate-conversation shortcut needs a conversation id or selected Id.",
       );
       return null;
     }
@@ -3916,45 +3980,81 @@ export default function App() {
       return;
     }
 
-    if (
-      prompt === "/memory" ||
-      prompt === "/memory list" ||
-      prompt === "/memory access" ||
-      prompt === "/memory backends" ||
-      prompt === "/memory preview" ||
-      prompt.startsWith("/memory classify ") ||
-      prompt.startsWith("/memory delete ") ||
-      prompt.startsWith("/memory ")
-    ) {
+    if (prompt === "/memory" || prompt.startsWith("/memory ")) {
       setInput("");
       setActiveSection("memory");
       appendLine("user", prompt);
-      if (prompt === "/memory" || prompt === "/memory list") {
+      const rest = prompt === "/memory" ? "" : prompt.slice("/memory ".length).trim();
+      const [command = "", ...args] = rest.split(/\s+/).filter(Boolean);
+      if (!rest || command === "list") {
         await reviewMemory();
-      } else if (prompt === "/memory access") {
+      } else if (command === "help") {
+        appendLine("assistant", memoryShortcutHelpText());
+      } else if (command === "access") {
         await reviewMemoryAccess();
-      } else if (prompt === "/memory backends") {
+      } else if (command === "backends") {
         await reviewMemoryBackends();
-      } else if (prompt === "/memory preview") {
+      } else if (command === "preview") {
         await previewWithMemoryFromOps();
-      } else if (prompt.startsWith("/memory classify ")) {
-        const id = prompt.slice("/memory classify ".length).trim();
-        if (!id) {
+      } else if (command === "create") {
+        const content = rest.slice("create".length).trim();
+        if (!content) {
+          appendLine("error", "Memory create shortcut needs content.");
+        } else {
+          await createMemoryFromOps(content);
+        }
+      } else if (command === "generate") {
+        const text = rest.slice("generate".length).trim();
+        if (!text) {
+          appendLine("error", "Memory generate shortcut needs text.");
+        } else {
+          await generateMemoryFromOps(text);
+        }
+      } else if (command === "generate-conversation") {
+        const parsed = parseMemoryConversationRangeShortcut(args);
+        if (parsed) {
+          await generateConversationMemoryFromOps(parsed);
+        }
+      } else if (command === "classify") {
+        if (args.length !== 1) {
           appendLine("error", "Memory classify shortcut needs a memory id.");
         } else {
-          await classifyMemoryFromOps(id);
+          await classifyMemoryFromOps(args[0]);
         }
-      } else if (prompt.startsWith("/memory delete ")) {
-        const id = prompt.slice("/memory delete ".length).trim();
-        if (!id) {
-          appendLine("error", "Memory delete shortcut needs a memory id.");
+      } else if (command === "edit") {
+        const match = rest.slice("edit".length).trim().match(/^(\S+)\s+([\s\S]+)$/);
+        if (!match) {
+          appendLine("error", "Memory edit shortcut needs a memory id and content.");
         } else {
-          await deleteMemoryFromOps(id);
+          await editMemoryFromOps(match[1], match[2].trim());
+        }
+      } else if (command === "delete") {
+        const ids = args.filter((arg) => arg !== "--confirm");
+        const confirmed = args.includes("--confirm");
+        if (ids.length !== 1) {
+          appendLine(
+            "error",
+            "Memory delete shortcut needs a memory id and required --confirm.",
+          );
+        } else if (!confirmed) {
+          appendLine("error", "Memory delete shortcut requires --confirm.");
+        } else {
+          await deleteMemoryFromOps(ids[0], true);
+        }
+      } else if (command === "rollback") {
+        const extra = args.filter((arg) => arg !== "--confirm");
+        const confirmed = args.includes("--confirm");
+        if (extra.length) {
+          appendLine("error", "Memory rollback shortcut accepts only --confirm.");
+        } else if (!confirmed) {
+          appendLine("error", "Memory rollback shortcut requires --confirm.");
+        } else {
+          await rollbackMemoryFromOps(true);
         }
       } else {
         appendLine(
           "error",
-          "Memory shortcut needs on, off, status, list, access, backends, preview, classify, or delete.",
+          "Memory shortcut needs on, off, status, list, access, backends, preview, create, generate, generate-conversation, classify, edit, delete, rollback, or help.",
         );
       }
       return;
@@ -7317,8 +7417,8 @@ export default function App() {
     }
   }
 
-  async function createMemoryFromOps() {
-    const content = requireOpsValue("Memory create");
+  async function createMemoryFromOps(explicitContent?: string) {
+    const content = explicitContent?.trim() || requireOpsValue("Memory create");
     if (!content) return;
     const topics = parsedMemoryTopics();
     const ownerAgentId = agentId.trim() || null;
@@ -7345,8 +7445,8 @@ export default function App() {
     }
   }
 
-  async function generateMemoryFromOps() {
-    const text = requireOpsValue("Memory generate");
+  async function generateMemoryFromOps(explicitText?: string) {
+    const text = explicitText?.trim() || requireOpsValue("Memory generate");
     if (!text) return;
     const range = memorySourceRange.trim() || null;
     const topics = parsedMemoryTopics();
@@ -7378,13 +7478,16 @@ export default function App() {
     }
   }
 
-  async function generateConversationMemoryFromOps() {
-    const conversation = expandedConversation?.conversation;
-    if (!conversation) {
+  async function generateConversationMemoryFromOps(
+    explicit?: { id: string; range: ConversationRange },
+  ) {
+    const conversationId = explicit?.id || expandedConversation?.conversation.id;
+    if (!conversationId) {
       appendLine("error", "Conversation memory generation needs an expanded conversation.");
       return;
     }
-    const range = parseConversationRangeFromOps("Conversation memory generation");
+    const range =
+      explicit?.range || parseConversationRangeFromOps("Conversation memory generation");
     if (!range) return;
     const topics = parsedMemoryTopics();
     const ownerAgentId = agentId.trim() || null;
@@ -7392,7 +7495,7 @@ export default function App() {
       const records =
         transport === "daemon"
           ? await daemonJson<MemoryRecord[]>("/memory/generate-conversation", {
-              id: conversation.id,
+              id: conversationId,
               from: range.from,
               to: range.to,
               user: opsUserMemory,
@@ -7400,7 +7503,7 @@ export default function App() {
               topics,
             })
           : await invoke<MemoryRecord[]>("memory_generate_conversation", {
-              id: conversation.id,
+              id: conversationId,
               from: range.from,
               to: range.to,
               user: opsUserMemory,
@@ -7448,9 +7551,9 @@ export default function App() {
     }
   }
 
-  async function editMemoryFromOps() {
-    const id = requireOpsId("Memory edit");
-    const content = requireOpsValue("Memory edit");
+  async function editMemoryFromOps(explicitId?: string, explicitContent?: string) {
+    const id = explicitId ?? requireOpsId("Memory edit");
+    const content = explicitContent?.trim() || requireOpsValue("Memory edit");
     if (!id || !content) return;
     try {
       const record =
@@ -7465,10 +7568,10 @@ export default function App() {
     }
   }
 
-  async function deleteMemoryFromOps(explicitId?: string) {
+  async function deleteMemoryFromOps(explicitId?: string, confirmed = false) {
     const id = explicitId ?? requireOpsId("Memory delete");
     if (!id) return;
-    if (!confirmLocalChange(`Delete memory ${id}`)) return;
+    if (!confirmed && !confirmLocalChange(`Delete memory ${id}`)) return;
     try {
       if (transport === "daemon") {
         await daemonJson(`/memory/${id}/delete`, {});
@@ -7483,8 +7586,13 @@ export default function App() {
     }
   }
 
-  async function rollbackMemoryFromOps() {
-    if (!confirmLocalChange(`Rollback ${opsUserMemory ? "user" : "agent"} memory`)) return;
+  async function rollbackMemoryFromOps(confirmed = false) {
+    if (
+      !confirmed &&
+      !confirmLocalChange(`Rollback ${opsUserMemory ? "user" : "agent"} memory`)
+    ) {
+      return;
+    }
     try {
       if (transport === "daemon") {
         await daemonJson("/memory/rollback", { user: opsUserMemory });

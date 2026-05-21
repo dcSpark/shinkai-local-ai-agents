@@ -1427,6 +1427,10 @@ export default function App() {
       { command: "/models list", label: "List model metadata" },
       { command: "/models show ", label: "Show model metadata" },
       { command: "/models probe ", label: "Probe model capabilities" },
+      { command: "/models save ", label: "Save model metadata" },
+      { command: "/models save-current", label: "Save current model controls" },
+      { command: "/models export ", label: "Export model metadata" },
+      { command: "/models import ", label: "Import model metadata" },
       { command: "/models delete ", label: "Delete model metadata" },
       { command: "/models providers", label: "List model providers" },
       { command: "/models doctor", label: "Run model doctor" },
@@ -5421,6 +5425,10 @@ export default function App() {
       prompt.startsWith("/models metadata-catalog ") ||
       prompt.startsWith("/models show ") ||
       prompt.startsWith("/models probe ") ||
+      prompt.startsWith("/models save ") ||
+      prompt === "/models save-current" ||
+      prompt.startsWith("/models export ") ||
+      prompt.startsWith("/models import ") ||
       prompt.startsWith("/models delete ")
     ) {
       setInput("");
@@ -5513,6 +5521,38 @@ export default function App() {
           appendLine("error", "Models probe shortcut needs a model id.");
         } else {
           await probeModelFromOps(id);
+        }
+      } else if (prompt.startsWith("/models save ")) {
+        const body = prompt.slice("/models save ".length).trim();
+        const splitAt = body.search(/\s/);
+        const id = splitAt === -1 ? body : body.slice(0, splitAt).trim();
+        const inputText = splitAt === -1 ? "" : body.slice(splitAt).trim();
+        if (!id) {
+          appendLine("error", "Models save shortcut needs a model id.");
+        } else {
+          const input = parseJsonObject("Model save", inputText);
+          if (input) {
+            await saveModel(id, input);
+          }
+        }
+      } else if (prompt === "/models save-current") {
+        await saveCurrentModelFromControls();
+      } else if (prompt.startsWith("/models export ")) {
+        const body = prompt.slice("/models export ".length).trim();
+        const splitAt = body.search(/\s/);
+        const id = splitAt === -1 ? body : body.slice(0, splitAt).trim();
+        const path = splitAt === -1 ? "" : body.slice(splitAt).trim();
+        if (!id || !path) {
+          appendLine("error", "Models export shortcut needs a model id and path.");
+        } else {
+          await exportModel(id, path);
+        }
+      } else if (prompt.startsWith("/models import ")) {
+        const path = prompt.slice("/models import ".length).trim();
+        if (!path) {
+          appendLine("error", "Models import shortcut needs a path.");
+        } else {
+          await importModel(path);
         }
       } else if (prompt.startsWith("/models delete ")) {
         const id = prompt.slice("/models delete ".length).trim();
@@ -9425,6 +9465,10 @@ export default function App() {
     if (!id) return;
     const input = parseOpsJsonObject("Model save");
     if (!input) return;
+    await saveModel(id, input);
+  }
+
+  async function saveModel(id: string, input: Record<string, unknown>) {
     const modelDoc = { id, ...input };
     try {
       const doc =
@@ -9476,6 +9520,10 @@ export default function App() {
     if (!id) return;
     const path = requireOpsValue("Model export");
     if (!path) return;
+    await exportModel(id, path);
+  }
+
+  async function exportModel(id: string, path: string) {
     try {
       const doc =
         transport === "daemon"
@@ -9491,6 +9539,10 @@ export default function App() {
   async function importModelFromOps() {
     const path = requireOpsValue("Model import");
     if (!path) return;
+    await importModel(path);
+  }
+
+  async function importModel(path: string) {
     try {
       const doc =
         transport === "daemon"

@@ -31,12 +31,13 @@ use agent_conversations::{
     ExpandedConversation, render_message_range,
 };
 use agent_core::{
-    AgentConfig, ApprovalMode, ConfigExplanation, ConfigValueExplanation, ContextSnapshot,
-    CostPolicy, ExecutionPolicy, Harness, HarnessApi, HookTrigger, IngestedArtifactView,
-    MemoryFragment, PromptRefinement, RunHookHandler, RunLifecycleHook, RunResult, SkillView,
-    StopRetentionMode, ToolOutputMode, ToolPolicy, ToolView, UserInput, VisibilityLevel,
-    VoiceConfig, assess_approval_controller_with_model, verify_approval_controller_delegate,
-    verify_configured_approval_signature, verify_configured_approval_unlock,
+    AgentConfig, ApprovalControllerPolicy, ApprovalMode, ConfigExplanation, ConfigValueExplanation,
+    ContextSnapshot, CostPolicy, ExecutionPolicy, Harness, HarnessApi, HookTrigger,
+    IngestedArtifactView, MemoryFragment, PromptRefinement, RunHookHandler, RunLifecycleHook,
+    RunResult, SkillView, StopRetentionMode, ToolOutputMode, ToolPolicy, ToolView, UserInput,
+    VisibilityLevel, VoiceConfig, assess_approval_controller_with_model,
+    verify_approval_controller_delegate, verify_configured_approval_signature,
+    verify_configured_approval_unlock,
 };
 use agent_ingest::{
     IngestionArtifact, IngestionBackendDescriptor, IngestionFindingReviewDecision,
@@ -137,6 +138,11 @@ struct RunOptions {
     allowed_tool_categories: Vec<String>,
     #[serde(default)]
     allowed_skill_categories: Vec<String>,
+    approval_controller_agent: Option<String>,
+    #[serde(default)]
+    approval_controller_allowed_tools: Vec<String>,
+    #[serde(default)]
+    approval_controller_allowed_tool_categories: Vec<String>,
     tool_visibility: Option<VisibilityLevel>,
     skill_visibility: Option<VisibilityLevel>,
     input_cost_per_million: Option<f64>,
@@ -184,6 +190,9 @@ impl Default for RunOptions {
             allowed_tools: Vec::new(),
             allowed_tool_categories: Vec::new(),
             allowed_skill_categories: Vec::new(),
+            approval_controller_agent: None,
+            approval_controller_allowed_tools: Vec::new(),
+            approval_controller_allowed_tool_categories: Vec::new(),
             tool_visibility: None,
             skill_visibility: None,
             input_cost_per_million: None,
@@ -706,6 +715,31 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
     }
     if !options.allowed_skill_categories.is_empty() {
         agent.allowed_skill_categories = options.allowed_skill_categories.clone();
+    }
+    if let Some(controller) = options
+        .approval_controller_agent
+        .as_deref()
+        .and_then(|agent_id| {
+            ApprovalControllerPolicy::new(
+                agent_id,
+                options
+                    .approval_controller_allowed_tools
+                    .iter()
+                    .map(|tool| tool.trim())
+                    .filter(|tool| !tool.is_empty())
+                    .map(ToolId::from)
+                    .collect(),
+                options
+                    .approval_controller_allowed_tool_categories
+                    .iter()
+                    .map(|category| category.trim())
+                    .filter(|category| !category.is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect(),
+            )
+        })
+    {
+        agent.tool_policy.approval_controller = Some(controller);
     }
     if let Some(visibility) = options.tool_visibility {
         agent.tool_policy.visibility = visibility;
@@ -1312,6 +1346,24 @@ mod tauri_slash_tests {
             agent.tool_policy.allowed_tools,
             vec![ToolId::from("echo"), ToolId::from("shell")]
         );
+    }
+
+    #[test]
+    fn build_agent_applies_runtime_approval_controller() {
+        let options = RunOptions {
+            approval_controller_agent: Some("safety-controller".into()),
+            approval_controller_allowed_tools: vec!["shell".into()],
+            approval_controller_allowed_tool_categories: vec!["network".into()],
+            ..RunOptions::default()
+        };
+        let agent = build_agent(&options);
+        let controller = agent
+            .tool_policy
+            .approval_controller
+            .expect("approval controller should be set");
+        assert_eq!(controller.agent_id, "safety-controller");
+        assert_eq!(controller.allowed_tools, vec![ToolId::from("shell")]);
+        assert_eq!(controller.allowed_categories, vec!["network"]);
     }
 
     #[test]

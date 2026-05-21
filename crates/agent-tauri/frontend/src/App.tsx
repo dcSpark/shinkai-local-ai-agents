@@ -480,6 +480,11 @@ export default function App() {
     useState("");
   const [promptRefinementModel, setPromptRefinementModel] = useState("");
   const [requireApproval, setRequireApproval] = useState(true);
+  const [runApprovalControllerAgent, setRunApprovalControllerAgent] =
+    useState("");
+  const [approvalControllerTools, setApprovalControllerTools] = useState("");
+  const [approvalControllerCategories, setApprovalControllerCategories] =
+    useState("");
   const [rawToolOutput, setRawToolOutput] = useState(false);
   const [toolRoutingModel, setToolRoutingModel] = useState("");
   const [toolOutputInterpretationModel, setToolOutputInterpretationModel] =
@@ -1023,6 +1028,13 @@ export default function App() {
       allowed_tools: parsedCategoryList(allowedTools),
       allowed_tool_categories: parsedCategoryList(allowedToolCategories),
       allowed_skill_categories: parsedCategoryList(allowedSkillCategories),
+      approval_controller_agent: runApprovalControllerAgent.trim() || null,
+      approval_controller_allowed_tools: parsedCategoryList(
+        approvalControllerTools,
+      ),
+      approval_controller_allowed_tool_categories: parsedCategoryList(
+        approvalControllerCategories,
+      ),
       tool_visibility: toolVisibility || null,
       skill_visibility: skillVisibility || null,
       enable_shell: enableShell,
@@ -7003,6 +7015,13 @@ export default function App() {
     setAllowedTools((doc.allowed_tools ?? []).join(", "));
     setAllowedToolCategories((doc.allowed_tool_categories ?? []).join(", "));
     setAllowedSkillCategories((doc.allowed_skill_categories ?? []).join(", "));
+    setRunApprovalControllerAgent(doc.approval_controller_agent ?? "");
+    setApprovalControllerTools(
+      (doc.approval_controller_allowed_tools ?? []).join(", "),
+    );
+    setApprovalControllerCategories(
+      (doc.approval_controller_allowed_tool_categories ?? []).join(", "),
+    );
     setEnablePromptRefinement(refinement != null);
     setPromptRefinementInstructions(refinement?.instructions ?? "");
     setPromptRefinementModel(refinement?.model ?? "");
@@ -7063,6 +7082,13 @@ export default function App() {
       ),
       allowed_skill_categories: optionalList(
         parsedCategoryList(allowedSkillCategories),
+      ),
+      approval_controller_agent: runApprovalControllerAgent.trim() || null,
+      approval_controller_allowed_tools: optionalList(
+        parsedCategoryList(approvalControllerTools),
+      ),
+      approval_controller_allowed_tool_categories: optionalList(
+        parsedCategoryList(approvalControllerCategories),
       ),
     };
   }
@@ -12093,6 +12119,36 @@ export default function App() {
             />
             <span>Approval gate</span>
           </label>
+          <label>
+            Approval controller
+            <input
+              value={runApprovalControllerAgent}
+              onChange={(e) => setRunApprovalControllerAgent(e.target.value)}
+              placeholder="human approval"
+              disabled={running}
+              title="Saved or runtime agent id allowed to assess scoped approvals."
+            />
+          </label>
+          <label>
+            Controller tools
+            <input
+              value={approvalControllerTools}
+              onChange={(e) => setApprovalControllerTools(e.target.value)}
+              placeholder="scoped tool ids"
+              disabled={running}
+              title="Comma-separated tool ids this controller may approve."
+            />
+          </label>
+          <label>
+            Controller categories
+            <input
+              value={approvalControllerCategories}
+              onChange={(e) => setApprovalControllerCategories(e.target.value)}
+              placeholder="scoped categories"
+              disabled={running}
+              title="Comma-separated tool categories this controller may approve."
+            />
+          </label>
           <div className="field-label">Output mode</div>
           <div className="segmented-control two" role="group" aria-label="Output mode">
             <button
@@ -15256,6 +15312,18 @@ export default function App() {
                             doc.max_recursion_depth != null ? (
                               <span>
                                 {`subagents depth ${doc.max_subagent_depth ?? "default"} / recursion ${doc.max_recursion_depth ?? "default"}`}
+                              </span>
+                            ) : null}
+                            {doc.approval_controller_agent ? (
+                              <span>
+                                {`approval controller ${doc.approval_controller_agent}`}
+                              </span>
+                            ) : null}
+                            {doc.approval_controller_allowed_tools?.length ||
+                            doc.approval_controller_allowed_tool_categories
+                              ?.length ? (
+                              <span>
+                                {`controller scope tools ${doc.approval_controller_allowed_tools?.join(", ") || "default"} / categories ${doc.approval_controller_allowed_tool_categories?.join(", ") || "default"}`}
                               </span>
                             ) : null}
                             <span>

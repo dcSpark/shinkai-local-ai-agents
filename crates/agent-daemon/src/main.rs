@@ -22,12 +22,12 @@ use agent_conversations::{
     render_message_range,
 };
 use agent_core::{
-    AgentConfig, ApprovalMode, ConfigValueExplanation, CostPolicy, ExecutionPolicy, Harness,
-    HarnessApi, HookTrigger, IngestedArtifactView, MemoryFragment, PromptRefinement,
-    RunHookHandler, RunLifecycleHook, RunResult, SkillView, StopRetentionMode, ToolOutputMode,
-    ToolPolicy, UserInput, VisibilityLevel, VoiceConfig, assess_approval_controller_delegate,
-    assess_approval_controller_with_model, verify_configured_approval_signature,
-    verify_configured_approval_unlock,
+    AgentConfig, ApprovalControllerPolicy, ApprovalMode, ConfigValueExplanation, CostPolicy,
+    ExecutionPolicy, Harness, HarnessApi, HookTrigger, IngestedArtifactView, MemoryFragment,
+    PromptRefinement, RunHookHandler, RunLifecycleHook, RunResult, SkillView, StopRetentionMode,
+    ToolOutputMode, ToolPolicy, UserInput, VisibilityLevel, VoiceConfig,
+    assess_approval_controller_delegate, assess_approval_controller_with_model,
+    verify_configured_approval_signature, verify_configured_approval_unlock,
 };
 use agent_ingest::{
     IngestionArtifact, IngestionFindingReviewDecision, IngestionModelCall, IngestionStore,
@@ -5681,6 +5681,11 @@ struct DaemonRuntimeOptions {
     allowed_tool_categories: Vec<String>,
     #[serde(default)]
     allowed_skill_categories: Vec<String>,
+    approval_controller_agent: Option<String>,
+    #[serde(default)]
+    approval_controller_allowed_tools: Vec<String>,
+    #[serde(default)]
+    approval_controller_allowed_tool_categories: Vec<String>,
     tool_visibility: Option<VisibilityLevel>,
     skill_visibility: Option<VisibilityLevel>,
     input_cost_per_million: Option<f64>,
@@ -6450,6 +6455,31 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
     if !options.allowed_skill_categories.is_empty() {
         agent.allowed_skill_categories = options.allowed_skill_categories.clone();
     }
+    if let Some(controller) = options
+        .approval_controller_agent
+        .as_deref()
+        .and_then(|agent_id| {
+            ApprovalControllerPolicy::new(
+                agent_id,
+                options
+                    .approval_controller_allowed_tools
+                    .iter()
+                    .map(|tool| tool.trim())
+                    .filter(|tool| !tool.is_empty())
+                    .map(ToolId::from)
+                    .collect(),
+                options
+                    .approval_controller_allowed_tool_categories
+                    .iter()
+                    .map(|category| category.trim())
+                    .filter(|category| !category.is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect(),
+            )
+        })
+    {
+        agent.tool_policy.approval_controller = Some(controller);
+    }
     if let Some(visibility) = options.tool_visibility {
         agent.tool_policy.visibility = visibility;
     }
@@ -6848,6 +6878,24 @@ mod tests {
             agent.tool_policy.allowed_tools,
             vec![ToolId::from("echo"), ToolId::from("shell")]
         );
+    }
+
+    #[test]
+    fn build_agent_applies_runtime_approval_controller() {
+        let options = DaemonRuntimeOptions {
+            approval_controller_agent: Some("safety-controller".into()),
+            approval_controller_allowed_tools: vec!["shell".into()],
+            approval_controller_allowed_tool_categories: vec!["network".into()],
+            ..DaemonRuntimeOptions::default()
+        };
+        let agent = build_agent(&options);
+        let controller = agent
+            .tool_policy
+            .approval_controller
+            .expect("approval controller should be set");
+        assert_eq!(controller.agent_id, "safety-controller");
+        assert_eq!(controller.allowed_tools, vec![ToolId::from("shell")]);
+        assert_eq!(controller.allowed_categories, vec!["network"]);
     }
 
     #[test]

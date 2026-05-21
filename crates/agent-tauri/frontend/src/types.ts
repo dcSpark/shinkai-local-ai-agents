@@ -327,6 +327,9 @@ export type AgentConfigFile = {
   allowed_tools?: string[] | null;
   allowed_tool_categories?: string[] | null;
   allowed_skill_categories?: string[] | null;
+  approval_controller_agent?: string | null;
+  approval_controller_allowed_tools?: string[] | null;
+  approval_controller_allowed_tool_categories?: string[] | null;
   max_subagent_depth?: number | null;
   max_recursion_depth?: number | null;
 };
@@ -542,6 +545,9 @@ export type RunOptions = {
   allowed_tools: string[];
   allowed_tool_categories: string[];
   allowed_skill_categories: string[];
+  approval_controller_agent: string | null;
+  approval_controller_allowed_tools: string[];
+  approval_controller_allowed_tool_categories: string[];
   tool_visibility: ToolVisibility | null;
   skill_visibility: ToolVisibility | null;
   enable_shell: boolean;

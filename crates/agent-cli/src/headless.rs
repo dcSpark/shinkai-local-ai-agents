@@ -1797,7 +1797,11 @@ pub async fn guide(run_id: String, text: String) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn cancel(run_id: String, reason: String) -> anyhow::Result<()> {
+pub async fn cancel(
+    run_id: String,
+    reason: String,
+    mode: Option<StopRetentionMode>,
+) -> anyhow::Result<()> {
     let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
     let events = store.try_events(run_id)?;
@@ -1813,8 +1817,26 @@ pub async fn cancel(run_id: String, reason: String) -> anyhow::Result<()> {
     }
     let parent = latest_event_id(&events)
         .ok_or_else(|| anyhow::anyhow!("run {run_id} has no trace events"))?;
-    store.append(run_id, Some(parent), RunEventKind::RunCancelled { reason });
-    println!("recorded cancellation for {}", run_id.0);
+    store.append(
+        run_id,
+        Some(parent),
+        RunEventKind::RunCancelled {
+            reason: reason.clone(),
+        },
+    );
+    let compaction = if effective_stop_retention_mode(mode, &reason, &events).summarises() {
+        Some(create_stop_compaction(run_id, &reason, &events)?)
+    } else {
+        None
+    };
+    if let Some(compaction) = compaction {
+        println!(
+            "recorded cancellation for {}; retained compaction {}",
+            run_id.0, compaction.id
+        );
+    } else {
+        println!("recorded cancellation for {}", run_id.0);
+    }
     Ok(())
 }
 
@@ -5367,11 +5389,17 @@ pub async fn remote_guide(url: String, run_id: String, text: String) -> anyhow::
     )?)
 }
 
-pub async fn remote_cancel(url: String, run_id: String, reason: String) -> anyhow::Result<()> {
-    print_remote(DaemonHttpClient::new(url).post_json(
-        "/cancel",
-        serde_json::json!({ "run_id": run_id, "reason": reason }),
-    )?)
+pub async fn remote_cancel(
+    url: String,
+    run_id: String,
+    reason: String,
+    mode: Option<StopRetentionMode>,
+) -> anyhow::Result<()> {
+    let mut body = serde_json::json!({ "run_id": run_id, "reason": reason });
+    if let Some(mode) = mode {
+        body["mode"] = serde_json::Value::String(mode.as_str().into());
+    }
+    print_remote(DaemonHttpClient::new(url).post_json("/cancel", body)?)
 }
 
 pub async fn remote_resume(
@@ -7024,6 +7052,92 @@ fn print_remote_auto_compaction_keep_hint(
     );
 }
 
+fn effective_stop_retention_mode(
+    mode: Option<StopRetentionMode>,
+    reason: &str,
+    events: &[RunEvent],
+) -> StopRetentionMode {
+    if let Some(mode) = mode {
+        return mode;
+    }
+    if let Some(mode) = stop_retention_mode_from_reason(reason) {
+        return mode;
+    }
+    events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RunEventKind::RunStarted { agent_id, .. } => Some(agent_id.as_str()),
+            _ => None,
+        })
+        .and_then(configured_stop_retention_mode)
+        .unwrap_or(StopRetentionMode::Discard)
+}
+
+fn stop_retention_mode_from_reason(reason: &str) -> Option<StopRetentionMode> {
+    if reason.contains("mode=discard") {
+        Some(StopRetentionMode::Discard)
+    } else if reason.contains("mode=summarise")
+        || reason.contains("mode=summarize")
+        || reason.contains("mode=summary")
+    {
+        Some(StopRetentionMode::Summarise)
+    } else {
+        None
+    }
+}
+
+fn configured_stop_retention_mode(agent_id: &str) -> Option<StopRetentionMode> {
+    ConfigResolver::from_env()
+        .resolve_agent(agent_id)
+        .ok()
+        .map(|resolved| resolved.agent.execution_policy.stop_retention_mode)
+}
+
+fn create_stop_compaction(
+    run_id: RunId,
+    reason: &str,
+    events: &[RunEvent],
+) -> anyhow::Result<CompactionRecord> {
+    CompactionStore::from_env()
+        .create_from_text(
+            &stopped_run_summary_text(run_id, reason, events),
+            Some("Stopped run summary retained by user request.".into()),
+            Some(512),
+            Some(format!("stopped-run:{}", run_id.0)),
+        )
+        .map_err(Into::into)
+}
+
+fn stopped_run_summary_text(run_id: RunId, reason: &str, events: &[RunEvent]) -> String {
+    let summary = summarize_trace(events, run_id);
+    let mut lines = vec![
+        format!("Stopped run: {}", run_id.0),
+        format!("Reason: {reason}"),
+        format!(
+            "Observed before stop: {} events, {} LLM calls, {} tool calls, {} approvals, {} guidance injections.",
+            summary.events,
+            summary.llm_calls,
+            summary.tool_calls,
+            summary.approvals,
+            summary.guidance_injections
+        ),
+        format!(
+            "Token/cost counters before stop: input={}, output={}, cost={}.",
+            summary.tokens_in,
+            summary.tokens_out,
+            summary
+                .cost_usd
+                .map(|value| format!("{value:.6}"))
+                .unwrap_or_else(|| "unknown".into())
+        ),
+        "Recent trace events:".into(),
+    ];
+    for event in events.iter().rev().take(12).rev() {
+        lines.push(format!("- {}", format_event(event)));
+    }
+    lines.join("\n")
+}
+
 fn stop_compaction_for_run(run_id: RunId) -> anyhow::Result<Option<String>> {
     let source = format!("stopped-run:{}", run_id.0);
     Ok(CompactionStore::from_env()
@@ -7850,6 +7964,61 @@ mod slash_tests {
         assert!(help.contains("/python <code>"));
         assert!(help.contains("/voice transcribe <path>"));
         assert!(help.contains("/x402 request"));
+    }
+
+    #[test]
+    fn stop_retention_mode_uses_reason_and_agent_default() {
+        let dir = std::env::temp_dir().join(format!(
+            "headless-stop-retention-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let _home = HarnessHomeGuard::set(&dir);
+        ConfigResolver::from_env()
+            .save_agent_config(&AgentConfigFile {
+                id: "critic".into(),
+                name: "Critic".into(),
+                system_prompt: "Review carefully.".into(),
+                stop_retention_mode: Some(StopRetentionMode::Summarise),
+                ..AgentConfigFile::default()
+            })
+            .unwrap();
+        let store = agent_tracing::InMemoryEventStore::new();
+        let run_id = RunId::new();
+        let events = vec![store.append(
+            run_id,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "critic".into(),
+                input: "work".into(),
+            },
+        )];
+
+        assert_eq!(
+            effective_stop_retention_mode(None, "user requested stop", &events),
+            StopRetentionMode::Summarise
+        );
+        assert_eq!(
+            effective_stop_retention_mode(
+                Some(StopRetentionMode::Discard),
+                "user requested stop",
+                &events
+            ),
+            StopRetentionMode::Discard
+        );
+        assert_eq!(
+            effective_stop_retention_mode(None, "mode=discard", &events),
+            StopRetentionMode::Discard
+        );
+        assert_eq!(
+            effective_stop_retention_mode(None, "mode=summarize", &[]),
+            StopRetentionMode::Summarise
+        );
+        let summary = stopped_run_summary_text(run_id, "user requested stop", &events);
+        assert!(summary.contains("Stopped run:"));
+        assert!(summary.contains("Recent trace events:"));
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

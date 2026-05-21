@@ -351,6 +351,10 @@ enum Command {
         /// Run UUID printed by `agent run`.
         run_id: String,
 
+        /// Context retention mode for this stop. Defaults to agent/profile/global policy.
+        #[arg(long, value_enum)]
+        mode: Option<StopRetentionModeArg>,
+
         /// Cancellation reason.
         #[arg(long, default_value = "user requested stop")]
         reason: String,
@@ -2494,6 +2498,9 @@ enum RemoteCommand {
     /// Mark a remote run as cancelled in the daemon trace store.
     Cancel {
         run_id: String,
+
+        #[arg(long, value_enum)]
+        mode: Option<StopRetentionModeArg>,
 
         #[arg(long, default_value = "user requested stop")]
         reason: String,
@@ -5415,6 +5422,18 @@ mod cli_parse_tests {
     #[test]
     fn resume_commands_parse() {
         let run_id = "00000000-0000-0000-0000-000000000000";
+        let cli = parse_cli(["agent", "cancel", run_id, "--mode", "summarise"]).unwrap();
+        let Command::Cancel {
+            run_id: parsed_id,
+            mode,
+            ..
+        } = into_command(cli)
+        else {
+            panic!("expected cancel command");
+        };
+        assert_eq!(parsed_id, run_id);
+        assert!(matches!(mode, Some(StopRetentionModeArg::Summarise)));
+
         let cli = parse_cli(["agent", "resume", run_id, "--from-event", "7", "--json"]).unwrap();
         let Command::Resume {
             run_id: parsed_id,
@@ -5471,6 +5490,18 @@ mod cli_parse_tests {
         };
         assert_eq!(parsed_id, run_id);
         assert_eq!(from_event, Some(3));
+
+        let cli = parse_cli(["agent", "remote", "cancel", run_id, "--mode", "discard"]).unwrap();
+        let RemoteCommand::Cancel {
+            run_id: parsed_id,
+            mode,
+            ..
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote cancel command");
+        };
+        assert_eq!(parsed_id, run_id);
+        assert!(matches!(mode, Some(StopRetentionModeArg::Discard)));
 
         let cli = parse_cli([
             "agent",
@@ -6402,7 +6433,11 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         Command::Guide { run_id, text } => headless::guide(run_id, text).await,
-        Command::Cancel { run_id, reason } => headless::cancel(run_id, reason).await,
+        Command::Cancel {
+            run_id,
+            reason,
+            mode,
+        } => headless::cancel(run_id, reason, mode.map(StopRetentionMode::from)).await,
         Command::Resume {
             run_id,
             from_event,
@@ -7199,8 +7234,13 @@ async fn main() -> anyhow::Result<()> {
             RemoteCommand::Guide { run_id, text } => {
                 headless::remote_guide(url, run_id, text).await
             }
-            RemoteCommand::Cancel { run_id, reason } => {
-                headless::remote_cancel(url, run_id, reason).await
+            RemoteCommand::Cancel {
+                run_id,
+                reason,
+                mode,
+            } => {
+                headless::remote_cancel(url, run_id, reason, mode.map(StopRetentionMode::from))
+                    .await
             }
             RemoteCommand::Resume {
                 run_id,

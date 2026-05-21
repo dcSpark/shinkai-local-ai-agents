@@ -1442,6 +1442,15 @@ export default function App() {
       { command: "/compactions export ", label: "Export compacted-context artifact" },
       { command: "/compactions import ", label: "Import compacted-context artifact" },
       { command: "/compactions delete ", label: "Delete compacted-context artifact" },
+      { command: "/conversation", label: "List conversation branches" },
+      { command: "/conversation list", label: "List conversation branches" },
+      { command: "/conversation tree", label: "Show conversation tree" },
+      { command: "/conversation select ", label: "Select conversation branch" },
+      { command: "/conversation show ", label: "Show conversation branch" },
+      { command: "/conversation recover ", label: "Recover conversation context" },
+      { command: "/conversation delete-plan ", label: "Preview conversation deletion" },
+      { command: "/conversation delete ", label: "Delete conversation branch" },
+      { command: "/conversation range-delete ", label: "Delete conversation message range" },
       { command: "/guardrails", label: "Review ingestion guardrails" },
       { command: "/guardrails unsafe on", label: "Allow flagged ingestion content" },
       { command: "/guardrails unsafe off", label: "Block flagged ingestion content" },
@@ -1720,6 +1729,129 @@ export default function App() {
       "/hooks disable <hook-id> [--agent] --confirm",
       "/hooks enable <hook-id> [--agent] --confirm",
     ].join("\n");
+  }
+
+  function conversationShortcutHelpText() {
+    return [
+      "/conversation list",
+      "/conversation tree",
+      "/conversation select <id>",
+      "/conversation show [id]",
+      "/conversation recover [id]",
+      "/conversation delete-plan [id] [--recursive]",
+      "/conversation delete [id] [--recursive] --confirm",
+      "/conversation range-delete [id] <from>:<to> --confirm",
+    ].join("\n");
+  }
+
+  function selectedConversationShortcutId() {
+    return expandedConversation?.conversation.id || opsId.trim();
+  }
+
+  function parseConversationBranchShortcut(
+    command: string,
+    args: string[],
+    requireConfirm: boolean,
+  ) {
+    const recursive = args.includes("--recursive");
+    const confirmed = args.includes("--confirm");
+    const unknownFlags = args.filter(
+      (arg) => arg.startsWith("--") && arg !== "--recursive" && arg !== "--confirm",
+    );
+    const ids = args.filter((arg) => !arg.startsWith("--"));
+    if (unknownFlags.length || ids.length > 1) {
+      appendLine(
+        "error",
+        `Conversation ${command} shortcut accepts [id], optional --recursive, and${requireConfirm ? " required" : " no"} --confirm.`,
+      );
+      return null;
+    }
+    if (requireConfirm && !confirmed) {
+      appendLine("error", `Conversation ${command} shortcut requires --confirm.`);
+      return null;
+    }
+    if (!requireConfirm && confirmed) {
+      appendLine("error", `Conversation ${command} shortcut does not use --confirm.`);
+      return null;
+    }
+    const id = ids[0] || selectedConversationShortcutId();
+    if (!id) {
+      appendLine(
+        "error",
+        `Conversation ${command} shortcut needs a conversation id or selected Id.`,
+      );
+      return null;
+    }
+    return { id, recursive };
+  }
+
+  function parseConversationRangeText(fromText: string, toText: string) {
+    const from = Number(fromText);
+    const to = Number(toText);
+    if (
+      !Number.isInteger(from) ||
+      !Number.isInteger(to) ||
+      from < 0 ||
+      to < 0
+    ) {
+      appendLine("error", "Conversation range needs non-negative whole-number indexes.");
+      return null;
+    }
+    if (from > to) {
+      appendLine("error", "Conversation range start must be before the end.");
+      return null;
+    }
+    return { from, to } satisfies ConversationRange;
+  }
+
+  function parseConversationRangeShortcut(args: string[]) {
+    const confirmed = args.includes("--confirm");
+    const unknownFlags = args.filter(
+      (arg) => arg.startsWith("--") && arg !== "--confirm",
+    );
+    const positional = args.filter((arg) => !arg.startsWith("--"));
+    if (unknownFlags.length || positional.length < 1 || positional.length > 3) {
+      appendLine(
+        "error",
+        "Conversation range-delete shortcut needs [id] <from>:<to> or [id] <from> <to> plus --confirm.",
+      );
+      return null;
+    }
+    if (!confirmed) {
+      appendLine("error", "Conversation range-delete shortcut requires --confirm.");
+      return null;
+    }
+
+    let id = "";
+    let fromText = "";
+    let toText = "";
+    if (positional.length === 1) {
+      const [from, to] = positional[0].split(":");
+      id = selectedConversationShortcutId();
+      fromText = from || "";
+      toText = to || "";
+    } else if (positional.length === 2 && positional[1].includes(":")) {
+      const [from, to] = positional[1].split(":");
+      id = positional[0];
+      fromText = from || "";
+      toText = to || "";
+    } else if (positional.length === 2) {
+      id = selectedConversationShortcutId();
+      [fromText, toText] = positional;
+    } else {
+      [id, fromText, toText] = positional;
+    }
+
+    if (!id) {
+      appendLine(
+        "error",
+        "Conversation range-delete shortcut needs a conversation id or selected Id.",
+      );
+      return null;
+    }
+    const range = parseConversationRangeText(fromText, toText);
+    if (!range) return null;
+    return { id, range };
   }
 
   function parseIngestReviewShortcut(rest: string) {
@@ -4363,6 +4495,74 @@ export default function App() {
       return;
     }
 
+    if (prompt === "/conversation" || prompt.startsWith("/conversation ")) {
+      setInput("");
+      setActiveSection("conversations");
+      appendLine("user", prompt);
+      const rest =
+        prompt === "/conversation" ? "" : prompt.slice("/conversation ".length).trim();
+      const [command = "", ...args] = rest.split(/\s+/).filter(Boolean);
+      if (!rest || command === "list" || command === "tree") {
+        await reviewConversations();
+      } else if (command === "help") {
+        appendLine("assistant", conversationShortcutHelpText());
+      } else if (command === "select") {
+        if (args.length !== 1) {
+          appendLine("error", "Conversation select shortcut needs a conversation id.");
+        } else {
+          setOpsId(args[0]);
+          setConversationId(args[0]);
+          appendEvent(`Conversation selected: ${args[0]}`);
+        }
+      } else if (command === "show") {
+        if (args.length > 1) {
+          appendLine("error", "Conversation show shortcut accepts at most one id.");
+        } else {
+          const id = args[0] || selectedConversationShortcutId();
+          if (!id) {
+            appendLine("error", "Conversation show shortcut needs a conversation id or selected Id.");
+          } else {
+            await showConversation(id);
+          }
+        }
+      } else if (command === "recover") {
+        if (args.length > 1) {
+          appendLine("error", "Conversation recover shortcut accepts at most one id.");
+        } else {
+          const id = args[0] || selectedConversationShortcutId();
+          if (!id) {
+            appendLine(
+              "error",
+              "Conversation recover shortcut needs a conversation id or selected Id.",
+            );
+          } else {
+            await recoverConversation(id);
+          }
+        }
+      } else if (command === "delete-plan" || command === "delete-preview") {
+        const parsed = parseConversationBranchShortcut("delete-plan", args, false);
+        if (parsed) {
+          await previewConversationDelete(parsed.id, parsed.recursive);
+        }
+      } else if (command === "delete") {
+        const parsed = parseConversationBranchShortcut("delete", args, true);
+        if (parsed) {
+          await deleteConversation(parsed.id, parsed.recursive, true);
+        }
+      } else if (command === "range-delete" || command === "delete-range") {
+        const parsed = parseConversationRangeShortcut(args);
+        if (parsed) {
+          await deleteConversationRange(parsed.id, parsed.range, true);
+        }
+      } else {
+        appendLine(
+          "error",
+          "Conversation shortcut needs list, tree, select, show, recover, delete-plan, delete, range-delete, or help.",
+        );
+      }
+      return;
+    }
+
     if (prompt === "/bridge-deliveries" || prompt.startsWith("/bridge-deliveries ")) {
       setInput("");
       setActiveSection("adapters");
@@ -6497,8 +6697,15 @@ export default function App() {
     setConversationDeletePlan([]);
   }
 
-  async function deleteConversation(id: string, recursive: boolean) {
-    if (!confirmLocalChange(`Delete conversation ${id}${recursive ? " recursively" : ""}`)) {
+  async function deleteConversation(
+    id: string,
+    recursive: boolean,
+    confirmed = false,
+  ) {
+    if (
+      !confirmed &&
+      !confirmLocalChange(`Delete conversation ${id}${recursive ? " recursively" : ""}`)
+    ) {
       return;
     }
     try {
@@ -6577,7 +6784,16 @@ export default function App() {
     const id = requireOpsId("Conversation range delete");
     const range = parseConversationRangeFromOps();
     if (!id || !range) return;
+    await deleteConversationRange(id, range);
+  }
+
+  async function deleteConversationRange(
+    id: string,
+    range: ConversationRange,
+    confirmed = false,
+  ) {
     if (
+      !confirmed &&
       !confirmLocalChange(
         `Delete conversation messages ${range.from}:${range.to} from ${id}`,
       )
@@ -6589,7 +6805,7 @@ export default function App() {
         transport === "daemon"
           ? await daemonJson<ConversationDeleteRangeResult>(
               `/conversations/${encodeURIComponent(id)}/delete-range`,
-              range,
+              { from: range.from, to: range.to },
             )
           : await invoke<ConversationDeleteRangeResult>(
               "conversation_delete_range",

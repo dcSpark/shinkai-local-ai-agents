@@ -13,7 +13,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
-use agent_adapters::{AdapterDoctorReport, AdapterRegistry, NormalizedPackage, inspect_source};
+use agent_adapters::{
+    AdapterDoctorReport, AdapterRegistry, ClawHubProvider, NormalizedPackage, inspect_source,
+};
 use agent_batch::{BatchItemState, BatchPlan};
 use agent_bundles::{BundleManifest, export_bundle, import_bundle};
 use agent_capabilities::{
@@ -4219,6 +4221,43 @@ async fn adapter_import_manifest(path: String) -> Result<NormalizedPackage, Stri
 }
 
 #[tauri::command]
+async fn adapter_clawhub_search(
+    catalog: String,
+    query: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let entries = ClawHubProvider::from_catalog(catalog)
+        .map_err(|e| e.to_string())?
+        .search(query.as_deref());
+    serde_json::to_value(entries).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn adapter_clawhub_inspect(catalog: String, id: String) -> Result<serde_json::Value, String> {
+    let inspection = ClawHubProvider::from_catalog(catalog)
+        .map_err(|e| e.to_string())?
+        .inspect(&id)
+        .map_err(|e| e.to_string())?;
+    serde_json::to_value(inspection).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn adapter_clawhub_pin(catalog: String, id: String) -> Result<serde_json::Value, String> {
+    let pin = ClawHubProvider::from_catalog(catalog)
+        .map_err(|e| e.to_string())?
+        .pin(&id)
+        .map_err(|e| e.to_string())?;
+    serde_json::to_value(pin).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn adapter_clawhub_install(catalog: String, id: String) -> Result<NormalizedPackage, String> {
+    ClawHubProvider::from_catalog(catalog)
+        .map_err(|e| e.to_string())?
+        .install(&id, &AdapterRegistry::from_env())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn adapter_list() -> Result<Vec<NormalizedPackage>, String> {
     AdapterRegistry::from_env()
         .list()
@@ -4529,6 +4568,10 @@ pub fn run() {
             adapter_inspect,
             adapter_import,
             adapter_import_manifest,
+            adapter_clawhub_search,
+            adapter_clawhub_inspect,
+            adapter_clawhub_pin,
+            adapter_clawhub_install,
             adapter_list,
             adapter_doctor,
             adapter_install_skill,

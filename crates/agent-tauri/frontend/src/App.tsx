@@ -1635,6 +1635,10 @@ export default function App() {
       { command: "/adapters install-skill ", label: "Install adapter as skill" },
       { command: "/adapters allow ", label: "Allow adapter manifest" },
       { command: "/adapters quarantine ", label: "Quarantine adapter manifest" },
+      { command: "/adapters clawhub search ", label: "Search ClawHub catalog" },
+      { command: "/adapters clawhub inspect ", label: "Inspect ClawHub entry" },
+      { command: "/adapters clawhub pin ", label: "Pin ClawHub entry digest" },
+      { command: "/adapters clawhub install ", label: "Install ClawHub entry" },
       { command: "/bridge-deliveries", label: "List bridge dead letters" },
       { command: "/bridge-deliveries retry ", label: "Retry bridge delivery" },
       { command: "/bridge-deliveries retry-all", label: "Retry all bridge deliveries" },
@@ -2240,6 +2244,10 @@ export default function App() {
       "/adapters install-skill <id>",
       "/adapters allow <id> --confirm",
       "/adapters quarantine <id>",
+      "/adapters clawhub search <catalog> [query]",
+      "/adapters clawhub inspect <catalog> <id>",
+      "/adapters clawhub pin <catalog> <id>",
+      "/adapters clawhub install <catalog> <id>",
     ].join("\n");
   }
 
@@ -5630,10 +5638,52 @@ export default function App() {
         } else {
           await setAdapterQuarantine(false, ids[0]);
         }
+      } else if (command === "clawhub") {
+        const [subcommand = "", ...clawArgs] = args;
+        if (subcommand === "search") {
+          const [catalog = "", ...queryParts] = clawArgs;
+          if (!catalog) {
+            appendLine("error", "Adapters clawhub search shortcut needs a catalog path.");
+          } else {
+            await clawHubSearchFromOps(catalog, queryParts.join(" "));
+          }
+        } else if (subcommand === "inspect") {
+          if (clawArgs.length !== 2) {
+            appendLine(
+              "error",
+              "Adapters clawhub inspect shortcut needs a catalog path and entry id.",
+            );
+          } else {
+            await clawHubInspectFromOps(clawArgs[0], clawArgs[1]);
+          }
+        } else if (subcommand === "pin") {
+          if (clawArgs.length !== 2) {
+            appendLine(
+              "error",
+              "Adapters clawhub pin shortcut needs a catalog path and entry id.",
+            );
+          } else {
+            await clawHubPinFromOps(clawArgs[0], clawArgs[1]);
+          }
+        } else if (subcommand === "install") {
+          if (clawArgs.length !== 2) {
+            appendLine(
+              "error",
+              "Adapters clawhub install shortcut needs a catalog path and entry id.",
+            );
+          } else {
+            await clawHubInstallFromOps(clawArgs[0], clawArgs[1]);
+          }
+        } else {
+          appendLine(
+            "error",
+            "Adapters clawhub shortcut needs search, inspect, pin, or install.",
+          );
+        }
       } else {
         appendLine(
           "error",
-          "Adapters shortcut needs list, doctor, show, import, import-manifest, export, install-skill, allow, quarantine, or help.",
+          "Adapters shortcut needs list, doctor, show, import, import-manifest, export, install-skill, allow, quarantine, clawhub, or help.",
         );
       }
       return;
@@ -10092,6 +10142,71 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Adapter manifest import failed: ${msg}`);
+    }
+  }
+
+  async function clawHubSearchFromOps(explicitCatalog?: string, explicitQuery?: string) {
+    const catalog = explicitCatalog ?? requireOpsValue("ClawHub catalog");
+    if (!catalog) return;
+    const query = explicitQuery?.trim() || undefined;
+    try {
+      const entries =
+        transport === "daemon"
+          ? await daemonJson<unknown>("/adapters/clawhub/search", { catalog, query })
+          : await invoke<unknown>("adapter_clawhub_search", { catalog, query });
+      appendJson("ClawHub entries", entries);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `ClawHub search failed: ${msg}`);
+    }
+  }
+
+  async function clawHubInspectFromOps(explicitCatalog?: string, explicitId?: string) {
+    const catalog = explicitCatalog ?? requireOpsValue("ClawHub catalog");
+    const id = explicitId ?? requireOpsId("ClawHub inspect");
+    if (!catalog || !id) return;
+    try {
+      const inspection =
+        transport === "daemon"
+          ? await daemonJson<unknown>("/adapters/clawhub/inspect", { catalog, id })
+          : await invoke<unknown>("adapter_clawhub_inspect", { catalog, id });
+      appendJson("ClawHub inspection", inspection);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `ClawHub inspect failed: ${msg}`);
+    }
+  }
+
+  async function clawHubPinFromOps(explicitCatalog?: string, explicitId?: string) {
+    const catalog = explicitCatalog ?? requireOpsValue("ClawHub catalog");
+    const id = explicitId ?? requireOpsId("ClawHub pin");
+    if (!catalog || !id) return;
+    try {
+      const pin =
+        transport === "daemon"
+          ? await daemonJson<unknown>("/adapters/clawhub/pin", { catalog, id })
+          : await invoke<unknown>("adapter_clawhub_pin", { catalog, id });
+      appendJson("ClawHub pin", pin);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `ClawHub pin failed: ${msg}`);
+    }
+  }
+
+  async function clawHubInstallFromOps(explicitCatalog?: string, explicitId?: string) {
+    const catalog = explicitCatalog ?? requireOpsValue("ClawHub catalog");
+    const id = explicitId ?? requireOpsId("ClawHub install");
+    if (!catalog || !id) return;
+    try {
+      const manifest =
+        transport === "daemon"
+          ? await daemonJson<AdapterPackage>("/adapters/clawhub/install", { catalog, id })
+          : await invoke<AdapterPackage>("adapter_clawhub_install", { catalog, id });
+      setAdapterPackages((packages) => upsertAdapterPackage(packages, manifest));
+      appendJson("ClawHub adapter installed into quarantine", manifest);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `ClawHub install failed: ${msg}`);
     }
   }
 

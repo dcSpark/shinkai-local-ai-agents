@@ -1422,6 +1422,13 @@ export default function App() {
       { command: "/compact ", label: "Create a guided compaction draft" },
       { command: "/compact status", label: "Show manual compacted context" },
       { command: "/compact clear", label: "Clear manual compacted context" },
+      { command: "/compactions", label: "List compacted-context artifacts" },
+      { command: "/compactions list", label: "List compacted-context artifacts" },
+      { command: "/compactions show ", label: "Show compacted-context artifact" },
+      { command: "/compactions use ", label: "Use compacted-context artifact" },
+      { command: "/compactions export ", label: "Export compacted-context artifact" },
+      { command: "/compactions import ", label: "Import compacted-context artifact" },
+      { command: "/compactions delete ", label: "Delete compacted-context artifact" },
       { command: "/guardrails", label: "Review ingestion guardrails" },
       { command: "/guardrails unsafe on", label: "Allow flagged ingestion content" },
       { command: "/guardrails unsafe off", label: "Block flagged ingestion content" },
@@ -1531,6 +1538,21 @@ export default function App() {
       return 1;
     }
     return 2;
+  }
+
+  function parseCompactionExportShortcut(rest: string) {
+    const match = rest.match(/^(\S+)(?:\s+([\s\S]+))?$/);
+    if (!match) {
+      appendLine(
+        "error",
+        "Compactions export shortcut needs: /compactions export <id> [path].",
+      );
+      return null;
+    }
+    return {
+      id: match[1],
+      path: match[2]?.trim() || undefined,
+    };
   }
 
   function parseIngestReviewShortcut(rest: string) {
@@ -3442,6 +3464,65 @@ export default function App() {
       return;
     }
 
+    if (
+      prompt === "/compactions" ||
+      prompt === "/compactions list" ||
+      prompt.startsWith("/compactions ")
+    ) {
+      setInput("");
+      setActiveSection("chat");
+      appendLine("user", prompt);
+      const rest =
+        prompt === "/compactions"
+          ? ""
+          : prompt.slice("/compactions ".length).trim();
+      if (!rest || rest === "list") {
+        await listCompactionsFromOps();
+      } else if (rest.startsWith("show ")) {
+        const id = rest.slice("show ".length).trim();
+        if (!id) {
+          appendLine("error", "Compactions show shortcut needs a compaction id.");
+        } else {
+          await showCompactionFromOps(id);
+        }
+      } else if (rest.startsWith("use ")) {
+        const id = rest.slice("use ".length).trim();
+        if (!id) {
+          appendLine("error", "Compactions use shortcut needs a compaction id.");
+        } else {
+          await useCompactionFromOps(id);
+        }
+      } else if (rest.startsWith("export ")) {
+        const exportArgs = parseCompactionExportShortcut(
+          rest.slice("export ".length).trim(),
+        );
+        if (exportArgs) {
+          await exportCompactionFromOps(exportArgs.id, exportArgs.path);
+        }
+      } else if (rest.startsWith("import ")) {
+        const path = rest.slice("import ".length).trim();
+        if (!path) {
+          appendLine("error", "Compactions import shortcut needs a file path.");
+        } else {
+          await importCompactionFromOps(path);
+        }
+      } else if (rest.startsWith("delete ") || rest.startsWith("rm ")) {
+        const prefix = rest.startsWith("delete ") ? "delete " : "rm ";
+        const id = rest.slice(prefix.length).trim();
+        if (!id) {
+          appendLine("error", "Compactions delete shortcut needs a compaction id.");
+        } else {
+          await deleteCompactionFromOps(id);
+        }
+      } else {
+        appendLine(
+          "error",
+          "Compactions shortcut needs list, show, use, export, import, or delete.",
+        );
+      }
+      return;
+    }
+
     if (prompt === "/storage") {
       setInput("");
       setActiveSection("adapters");
@@ -4706,7 +4787,7 @@ export default function App() {
   }
 
   async function showCompactionFromOps(explicitId?: string) {
-    const id = explicitId ?? requireOpsId("Compaction show");
+    const id = explicitId?.trim() || requireOpsId("Compaction show");
     if (!id) return null;
     try {
       const record =
@@ -4727,17 +4808,17 @@ export default function App() {
     }
   }
 
-  async function useCompactionFromOps() {
-    const record = await showCompactionFromOps();
+  async function useCompactionFromOps(explicitId?: string) {
+    const record = await showCompactionFromOps(explicitId);
     if (!record) return;
     setManualCompactedContext(record.content);
     appendEvent(`Manual compacted context set from ${record.id}.`);
   }
 
-  async function exportCompactionFromOps() {
-    const id = requireOpsId("Compaction export");
+  async function exportCompactionFromOps(explicitId?: string, explicitPath?: string) {
+    const id = explicitId?.trim() || requireOpsId("Compaction export");
     if (!id) return;
-    const path = opsValue.trim() || defaultCompactionPath(id);
+    const path = explicitPath?.trim() || opsValue.trim() || defaultCompactionPath(id);
     setOpsValue(path);
     await exportCompactionToPath(id, path);
   }
@@ -4769,8 +4850,8 @@ export default function App() {
     }
   }
 
-  async function importCompactionFromOps() {
-    const path = requireOpsValue("Compaction import");
+  async function importCompactionFromOps(explicitPath?: string) {
+    const path = explicitPath?.trim() || requireOpsValue("Compaction import");
     if (!path) return;
     try {
       const record =
@@ -4789,8 +4870,9 @@ export default function App() {
   }
 
   async function deleteCompactionFromOps(explicitId?: string) {
-    const id = explicitId ?? requireOpsId("Compaction delete");
+    const id = explicitId?.trim() || requireOpsId("Compaction delete");
     if (!id) return;
+    if (!confirmLocalChange(`Delete compacted context ${id}`)) return;
     try {
       if (transport === "daemon") {
         await daemonJson<{ deleted: boolean; id: string }>(

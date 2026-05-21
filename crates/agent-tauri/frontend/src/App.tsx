@@ -1406,7 +1406,11 @@ export default function App() {
       { command: "/typescript ", label: "Run TypeScript code" },
       { command: "/ts ", label: "Run TypeScript code" },
       { command: "/x402 request ", label: "Probe an x402 endpoint" },
+      { command: "/x402 required ", label: "Build an x402 payment challenge" },
+      { command: "/x402 settle ", label: "Verify and settle an x402 payment" },
       { command: "/payment x402-request ", label: "Probe an x402 endpoint" },
+      { command: "/payment x402-required ", label: "Build an x402 payment challenge" },
+      { command: "/payment x402-settle ", label: "Verify and settle an x402 payment" },
       { command: "/memory on", label: "Load memory in context" },
       { command: "/memory off", label: "Stop loading memory" },
       { command: "/memory status", label: "Show memory loading status" },
@@ -1860,6 +1864,205 @@ export default function App() {
       return true;
     }
     inputBody.payment_signature_secret = value;
+    return true;
+  }
+
+  function parseX402RequiredShortcut(rest: string) {
+    const parts = rest.split(/\s+/).filter(Boolean);
+    const inputBody: Record<string, unknown> = {};
+    const accept: Record<string, unknown> = { scheme: "exact" };
+    for (let index = 0; index < parts.length; index += 1) {
+      const part = parts[index];
+      const inline = part.match(
+        /^(--scheme|--network|--amount|--max-amount|--pay-to|--asset|--resource|--version|--error|--body)=(.+)$/,
+      );
+      const flag = inline?.[1] ?? part;
+      const inlineValue = inline?.[2]?.trim();
+      if (
+        flag === "--scheme" ||
+        flag === "--network" ||
+        flag === "--amount" ||
+        flag === "--max-amount" ||
+        flag === "--pay-to" ||
+        flag === "--asset" ||
+        flag === "--resource" ||
+        flag === "--version" ||
+        flag === "--error" ||
+        flag === "--body"
+      ) {
+        const value = inlineValue ?? parts[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", `x402 required ${flag} needs a value.`);
+          return null;
+        }
+        if (!setX402RequiredOption(inputBody, accept, flag, value)) {
+          return null;
+        }
+        if (inlineValue === undefined) index += 1;
+        continue;
+      }
+      appendLine("error", `Unknown x402 required option: ${part}`);
+      return null;
+    }
+    if (!validateX402Accept(accept, "x402 required")) {
+      return null;
+    }
+    inputBody.accepts = [accept];
+    return inputBody;
+  }
+
+  function setX402RequiredOption(
+    inputBody: Record<string, unknown>,
+    accept: Record<string, unknown>,
+    flag: string,
+    value: string,
+  ) {
+    if (flag === "--version") {
+      const version = Number(value);
+      if (!Number.isInteger(version) || version < 1) {
+        appendLine("error", "x402 required --version needs a positive integer.");
+        return false;
+      }
+      inputBody.x402_version = version;
+      return true;
+    }
+    if (flag === "--error") {
+      inputBody.error = value;
+      return true;
+    }
+    if (flag === "--body") {
+      inputBody.body = value;
+      return true;
+    }
+    setX402AcceptOption(accept, flag, value);
+    return true;
+  }
+
+  function parseX402SettleShortcut(rest: string) {
+    const parts = rest.split(/\s+/).filter(Boolean);
+    const paymentSignature = parts.shift();
+    if (!paymentSignature || paymentSignature.startsWith("--")) {
+      appendLine("error", "x402 settle shortcut needs a PAYMENT-SIGNATURE value.");
+      return null;
+    }
+    const inputBody: Record<string, unknown> = {
+      payment_signature: paymentSignature,
+    };
+    const accept: Record<string, unknown> = { scheme: "exact" };
+    for (let index = 0; index < parts.length; index += 1) {
+      const part = parts[index];
+      const inline = part.match(
+        /^(--facilitator|--facilitator-url|--mode|--scheme|--network|--amount|--max-amount|--pay-to|--asset|--resource|--version)=(.+)$/,
+      );
+      const flag = inline?.[1] ?? part;
+      const inlineValue = inline?.[2]?.trim();
+      if (
+        flag === "--facilitator" ||
+        flag === "--facilitator-url" ||
+        flag === "--mode" ||
+        flag === "--scheme" ||
+        flag === "--network" ||
+        flag === "--amount" ||
+        flag === "--max-amount" ||
+        flag === "--pay-to" ||
+        flag === "--asset" ||
+        flag === "--resource" ||
+        flag === "--version"
+      ) {
+        const value = inlineValue ?? parts[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", `x402 settle ${flag} needs a value.`);
+          return null;
+        }
+        if (!setX402SettleOption(inputBody, accept, flag, value)) {
+          return null;
+        }
+        if (inlineValue === undefined) index += 1;
+        continue;
+      }
+      appendLine("error", `Unknown x402 settle option: ${part}`);
+      return null;
+    }
+    if (!inputBody.facilitator_url) {
+      appendLine("error", "x402 settle needs --facilitator <url>.");
+      return null;
+    }
+    if (!validateX402Accept(accept, "x402 settle")) {
+      return null;
+    }
+    inputBody.payment_requirements = accept;
+    return inputBody;
+  }
+
+  function setX402SettleOption(
+    inputBody: Record<string, unknown>,
+    accept: Record<string, unknown>,
+    flag: string,
+    value: string,
+  ) {
+    if (flag === "--facilitator" || flag === "--facilitator-url") {
+      inputBody.facilitator_url = value;
+      return true;
+    }
+    if (flag === "--mode") {
+      const mode = value.replace(/-/g, "_");
+      if (mode !== "verify" && mode !== "settle" && mode !== "verify_and_settle") {
+        appendLine("error", "x402 settle --mode must be verify, settle, or verify-and-settle.");
+        return false;
+      }
+      inputBody.mode = mode;
+      return true;
+    }
+    if (flag === "--version") {
+      const version = Number(value);
+      if (!Number.isInteger(version) || version < 1) {
+        appendLine("error", "x402 settle --version needs a positive integer.");
+        return false;
+      }
+      inputBody.x402_version = version;
+      return true;
+    }
+    setX402AcceptOption(accept, flag, value);
+    return true;
+  }
+
+  function setX402AcceptOption(
+    accept: Record<string, unknown>,
+    flag: string,
+    value: string,
+  ) {
+    if (flag === "--scheme") {
+      accept.scheme = value;
+    } else if (flag === "--network") {
+      accept.network = value;
+    } else if (flag === "--amount" || flag === "--max-amount") {
+      accept.maxAmountRequired = value;
+    } else if (flag === "--pay-to") {
+      accept.payTo = value;
+    } else if (flag === "--asset") {
+      accept.asset = value;
+    } else if (flag === "--resource") {
+      accept.resource = value;
+    }
+  }
+
+  function validateX402Accept(accept: Record<string, unknown>, label: string) {
+    const missing = [
+      ["--resource", accept.resource],
+      ["--amount", accept.maxAmountRequired],
+      ["--pay-to", accept.payTo],
+      ["--asset", accept.asset],
+      ["--network", accept.network],
+    ]
+      .filter(([, value]) => typeof value !== "string" || !value.trim())
+      .map(([flag]) => flag);
+    if (missing.length > 0) {
+      appendLine(
+        "error",
+        `${label} needs ${missing.join(", ")}.`,
+      );
+      return false;
+    }
     return true;
   }
 
@@ -3931,11 +4134,15 @@ export default function App() {
       prompt === "/x402" ||
       prompt === "/payment" ||
       prompt === "/x402 request" ||
-      prompt === "/payment x402-request"
+      prompt === "/x402 required" ||
+      prompt === "/x402 settle" ||
+      prompt === "/payment x402-request" ||
+      prompt === "/payment x402-required" ||
+      prompt === "/payment x402-settle"
     ) {
       appendLine(
         "error",
-        "x402 shortcut needs: /x402 request <url> [--method GET|POST] [--max-amount n] [--auto-pay] [--signature-secret id].",
+        "x402 shortcuts: /x402 request <url> [--method GET|POST] [--max-amount n] [--auto-pay] [--signature-secret id]; /x402 required --resource <url> --amount <n> --pay-to <addr> --asset <asset> --network <name>; /x402 settle <payment-signature> --facilitator <url> --resource <url> --amount <n> --pay-to <addr> --asset <asset> --network <name> [--mode verify|settle|verify-and-settle].",
       );
       return;
     }
@@ -3952,6 +4159,36 @@ export default function App() {
       if (!inputBody) return;
       setInput("");
       await callToolDirect("payment_x402_request", inputBody, prompt);
+      return;
+    }
+    if (
+      prompt.startsWith("/x402 required ") ||
+      prompt.startsWith("/payment x402-required ")
+    ) {
+      const prefix = prompt.startsWith("/x402 required ")
+        ? "/x402 required "
+        : "/payment x402-required ";
+      const inputBody = parseX402RequiredShortcut(
+        prompt.slice(prefix.length).trim(),
+      );
+      if (!inputBody) return;
+      setInput("");
+      await callToolDirect("payment_x402_required", inputBody, prompt);
+      return;
+    }
+    if (
+      prompt.startsWith("/x402 settle ") ||
+      prompt.startsWith("/payment x402-settle ")
+    ) {
+      const prefix = prompt.startsWith("/x402 settle ")
+        ? "/x402 settle "
+        : "/payment x402-settle ";
+      const inputBody = parseX402SettleShortcut(
+        prompt.slice(prefix.length).trim(),
+      );
+      if (!inputBody) return;
+      setInput("");
+      await callToolDirect("payment_x402_settle", inputBody, prompt);
       return;
     }
 

@@ -687,6 +687,35 @@ fn default_tool_view_output_mode() -> ToolOutputMode {
     ToolOutputMode::Interpreted
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StopRetentionMode {
+    Discard,
+    #[serde(alias = "summarize", alias = "summary")]
+    Summarise,
+}
+
+impl StopRetentionMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Discard => "discard",
+            Self::Summarise => "summarise",
+        }
+    }
+
+    pub fn from_config_str(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "discard" | "off" | "none" => Some(Self::Discard),
+            "summarise" | "summarize" | "summary" | "on" => Some(Self::Summarise),
+            _ => None,
+        }
+    }
+
+    pub fn summarises(self) -> bool {
+        self == Self::Summarise
+    }
+}
+
 /// User/config-provided model pricing for trace cost estimates.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CostPolicy {
@@ -702,6 +731,8 @@ pub struct ExecutionPolicy {
     /// Number of repeated appearances of an agent id in its own ancestry.
     /// `0` denies cycles; higher values opt into bounded recursion.
     pub max_recursion_depth: u32,
+    /// Context retained when the user stops a run without an explicit mode.
+    pub stop_retention_mode: StopRetentionMode,
 }
 
 impl Default for ExecutionPolicy {
@@ -709,6 +740,7 @@ impl Default for ExecutionPolicy {
         Self {
             max_subagent_depth: 1,
             max_recursion_depth: 0,
+            stop_retention_mode: StopRetentionMode::Discard,
         }
     }
 }
@@ -4615,6 +4647,12 @@ impl HarnessApi for Harness {
                 ConfigValueExplanation {
                     key: "agent.execution_policy.max_recursion_depth".into(),
                     value: Value::from(agent.execution_policy.max_recursion_depth),
+                    source: "agent/default".into(),
+                },
+                ConfigValueExplanation {
+                    key: "agent.execution_policy.stop_retention_mode".into(),
+                    value: serde_json::to_value(agent.execution_policy.stop_retention_mode)
+                        .unwrap_or(Value::Null),
                     source: "agent/default".into(),
                 },
                 ConfigValueExplanation {

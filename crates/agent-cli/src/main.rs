@@ -13,7 +13,7 @@ mod tui;
 use std::io::IsTerminal;
 
 use agent_config::{IngestionGuardrailMode, ProfileGrantKind};
-use agent_core::{ToolOutputMode, VisibilityLevel};
+use agent_core::{StopRetentionMode, ToolOutputMode, VisibilityLevel};
 use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Parser)]
@@ -963,6 +963,9 @@ enum AgentCommand {
         /// Number of repeated agent-id occurrences allowed in a subagent ancestry chain.
         #[arg(long)]
         max_recursion_depth: Option<u32>,
+        /// Default context retention when this agent's run is stopped without an explicit mode.
+        #[arg(long = "stop-retention-mode", value_enum)]
+        stop_retention_mode: Option<StopRetentionModeArg>,
         /// Restrict this agent to one tool id. Repeat for multiple tools.
         #[arg(long = "allow-tool")]
         allowed_tools: Vec<String>,
@@ -2911,6 +2914,8 @@ enum RemoteAgentCommand {
         max_subagent_depth: Option<u32>,
         #[arg(long)]
         max_recursion_depth: Option<u32>,
+        #[arg(long = "stop-retention-mode", value_enum)]
+        stop_retention_mode: Option<StopRetentionModeArg>,
         #[arg(long = "allow-tool")]
         allowed_tools: Vec<String>,
         #[arg(long = "allow-tool-category")]
@@ -3232,6 +3237,12 @@ pub enum ToolOutputModeArg {
 }
 
 #[derive(Clone, Copy, ValueEnum)]
+pub enum StopRetentionModeArg {
+    Discard,
+    Summarise,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
 pub enum IngestionGuardrailArg {
     Block,
     Warn,
@@ -3253,6 +3264,15 @@ impl From<ToolOutputModeArg> for ToolOutputMode {
         match value {
             ToolOutputModeArg::Interpreted => ToolOutputMode::Interpreted,
             ToolOutputModeArg::Raw => ToolOutputMode::Raw,
+        }
+    }
+}
+
+impl From<StopRetentionModeArg> for StopRetentionMode {
+    fn from(value: StopRetentionModeArg) -> Self {
+        match value {
+            StopRetentionModeArg::Discard => StopRetentionMode::Discard,
+            StopRetentionModeArg::Summarise => StopRetentionMode::Summarise,
         }
     }
 }
@@ -3644,6 +3664,8 @@ mod cli_parse_tests {
             "2",
             "--max-recursion-depth",
             "1",
+            "--stop-retention-mode",
+            "summarise",
             "--allow-tool",
             "echo",
             "--approval-controller-agent",
@@ -3708,6 +3730,7 @@ mod cli_parse_tests {
                     compaction_guidance,
                     max_subagent_depth,
                     max_recursion_depth,
+                    stop_retention_mode,
                     allowed_tools,
                     allowed_skill_categories,
                     skill_visibility_overrides,
@@ -3750,6 +3773,10 @@ mod cli_parse_tests {
         assert_eq!(compaction_guidance.as_deref(), Some("Keep decisions."));
         assert_eq!(max_subagent_depth, Some(2));
         assert_eq!(max_recursion_depth, Some(1));
+        assert!(matches!(
+            stop_retention_mode,
+            Some(StopRetentionModeArg::Summarise)
+        ));
         assert_eq!(allowed_tools, vec!["echo"]);
         assert_eq!(allowed_skill_categories, vec!["review"]);
         assert_eq!(skill_visibility_overrides, vec!["review=name-only"]);
@@ -3825,6 +3852,8 @@ mod cli_parse_tests {
             "2",
             "--max-recursion-depth",
             "1",
+            "--stop-retention-mode",
+            "discard",
             "--allow-tool",
             "echo",
             "--approval-controller-agent",
@@ -3873,6 +3902,7 @@ mod cli_parse_tests {
                     compaction_guidance,
                     max_subagent_depth,
                     max_recursion_depth,
+                    stop_retention_mode,
                     allowed_tools,
                     allowed_skill_categories,
                     skill_visibility_overrides,
@@ -3905,6 +3935,10 @@ mod cli_parse_tests {
         assert_eq!(compaction_guidance.as_deref(), Some("Keep facts."));
         assert_eq!(max_subagent_depth, Some(2));
         assert_eq!(max_recursion_depth, Some(1));
+        assert!(matches!(
+            stop_retention_mode,
+            Some(StopRetentionModeArg::Discard)
+        ));
         assert_eq!(allowed_tools, vec!["echo"]);
         assert_eq!(allowed_skill_categories, vec!["review"]);
         assert_eq!(skill_visibility_overrides, vec!["review=full-schema"]);
@@ -5974,6 +6008,7 @@ async fn main() -> anyhow::Result<()> {
                 compaction_guidance,
                 max_subagent_depth,
                 max_recursion_depth,
+                stop_retention_mode,
                 allowed_tools,
                 allowed_tool_categories,
                 approval_controller_agent,
@@ -6015,6 +6050,7 @@ async fn main() -> anyhow::Result<()> {
                     compaction_guidance,
                     max_subagent_depth,
                     max_recursion_depth,
+                    stop_retention_mode.map(StopRetentionMode::from),
                     allowed_tools,
                     allowed_tool_categories,
                     approval_controller_agent,
@@ -6777,6 +6813,7 @@ async fn main() -> anyhow::Result<()> {
                     compaction_guidance,
                     max_subagent_depth,
                     max_recursion_depth,
+                    stop_retention_mode,
                     allowed_tools,
                     allowed_tool_categories,
                     approval_controller_agent,
@@ -6819,6 +6856,7 @@ async fn main() -> anyhow::Result<()> {
                         compaction_guidance,
                         max_subagent_depth,
                         max_recursion_depth,
+                        stop_retention_mode.map(StopRetentionMode::from),
                         allowed_tools,
                         allowed_tool_categories,
                         approval_controller_agent,

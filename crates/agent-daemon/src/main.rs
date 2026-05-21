@@ -24,8 +24,8 @@ use agent_conversations::{
 use agent_core::{
     AgentConfig, ApprovalMode, ConfigValueExplanation, CostPolicy, ExecutionPolicy, Harness,
     HarnessApi, HookTrigger, IngestedArtifactView, MemoryFragment, PromptRefinement,
-    RunHookHandler, RunLifecycleHook, RunResult, SkillView, ToolOutputMode, ToolPolicy, UserInput,
-    VisibilityLevel, VoiceConfig, assess_approval_controller_delegate,
+    RunHookHandler, RunLifecycleHook, RunResult, SkillView, StopRetentionMode, ToolOutputMode,
+    ToolPolicy, UserInput, VisibilityLevel, VoiceConfig, assess_approval_controller_delegate,
     assess_approval_controller_with_model, verify_configured_approval_signature,
     verify_configured_approval_unlock,
 };
@@ -1779,7 +1779,8 @@ async fn daemon_cancel(body: &str, state: Arc<DaemonState>) -> anyhow::Result<se
     if let Some(handle) = active_handle {
         handle.abort();
     }
-    let compaction = if stop_mode_summarises(input.mode.as_deref(), &input.reason) {
+    let compaction = if stop_mode_summarises(input.mode.as_deref(), &input.reason, &existing_events)
+    {
         Some(create_stop_compaction(
             run_id,
             &input.reason,
@@ -1796,10 +1797,49 @@ async fn daemon_cancel(body: &str, state: Arc<DaemonState>) -> anyhow::Result<se
     }))
 }
 
-fn stop_mode_summarises(mode: Option<&str>, reason: &str) -> bool {
-    mode.is_some_and(|mode| matches!(mode, "summarise" | "summarize" | "summary"))
-        || reason.contains("mode=summarise")
+fn stop_mode_summarises(mode: Option<&str>, reason: &str, events: &[RunEvent]) -> bool {
+    effective_stop_retention_mode(mode, reason, events).summarises()
+}
+
+fn effective_stop_retention_mode(
+    mode: Option<&str>,
+    reason: &str,
+    events: &[RunEvent],
+) -> StopRetentionMode {
+    if let Some(mode) = mode {
+        return StopRetentionMode::from_config_str(mode).unwrap_or(StopRetentionMode::Discard);
+    }
+    if let Some(mode) = stop_retention_mode_from_reason(reason) {
+        return mode;
+    }
+    events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RunEventKind::RunStarted { agent_id, .. } => Some(agent_id.as_str()),
+            _ => None,
+        })
+        .and_then(configured_stop_retention_mode)
+        .unwrap_or(StopRetentionMode::Discard)
+}
+
+fn stop_retention_mode_from_reason(reason: &str) -> Option<StopRetentionMode> {
+    if reason.contains("mode=discard") {
+        Some(StopRetentionMode::Discard)
+    } else if reason.contains("mode=summarise")
         || reason.contains("mode=summarize")
+        || reason.contains("mode=summary")
+    {
+        Some(StopRetentionMode::Summarise)
+    } else {
+        None
+    }
+}
+
+fn configured_stop_retention_mode(agent_id: &str) -> Option<StopRetentionMode> {
+    ConfigResolver::from_env()
+        .resolve_agent(agent_id)
+        .ok()
+        .map(|resolved| resolved.agent.execution_policy.stop_retention_mode)
 }
 
 fn create_stop_compaction(
@@ -6691,6 +6731,47 @@ mod tests {
                 .map(|model| model.0.as_str()),
             Some("interpreter-model")
         );
+    }
+
+    #[test]
+    fn stop_retention_mode_uses_config_default_and_explicit_override() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("stop-retention-mode");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+        ConfigResolver::from_env()
+            .save_agent_config(&AgentConfigFile {
+                id: "critic".into(),
+                name: "Critic".into(),
+                system_prompt: "Review carefully.".into(),
+                stop_retention_mode: Some(StopRetentionMode::Summarise),
+                ..AgentConfigFile::default()
+            })
+            .unwrap();
+        let store = agent_tracing::InMemoryEventStore::new();
+        let run_id = RunId::new();
+        let events = vec![store.append(
+            run_id,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "critic".into(),
+                input: "work".into(),
+            },
+        )];
+
+        assert_eq!(
+            effective_stop_retention_mode(None, "user requested stop", &events),
+            StopRetentionMode::Summarise
+        );
+        assert_eq!(
+            effective_stop_retention_mode(Some("discard"), "user requested stop", &events),
+            StopRetentionMode::Discard
+        );
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]

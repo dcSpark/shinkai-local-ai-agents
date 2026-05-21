@@ -268,6 +268,7 @@ export type ModelMetadataCatalog = {
 
 export type ToolVisibility = "full_schema" | "name_and_description" | "name_only";
 export type ToolOutputMode = "interpreted" | "raw";
+export type StopRetentionMode = "discard" | "summarise";
 
 export type AgentToolOverrideConfig = {
   id: string;
@@ -288,6 +289,7 @@ export type AgentConfigFile = {
   system_prompt: string;
   model?: string | null;
   max_tool_calls?: number | null;
+  stop_retention_mode?: StopRetentionMode | null;
   prompt_refinement?: unknown | null;
   prompt_refinements?: unknown[];
   tool_overrides?: AgentToolOverrideConfig[];

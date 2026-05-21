@@ -34,8 +34,8 @@ use agent_core::{
     AgentConfig, ApprovalMode, ConfigExplanation, ConfigValueExplanation, ContextSnapshot,
     CostPolicy, ExecutionPolicy, Harness, HarnessApi, HookTrigger, IngestedArtifactView,
     MemoryFragment, PromptRefinement, RunHookHandler, RunLifecycleHook, RunResult, SkillView,
-    ToolOutputMode, ToolPolicy, ToolView, UserInput, VisibilityLevel, VoiceConfig,
-    assess_approval_controller_with_model, verify_approval_controller_delegate,
+    StopRetentionMode, ToolOutputMode, ToolPolicy, ToolView, UserInput, VisibilityLevel,
+    VoiceConfig, assess_approval_controller_with_model, verify_approval_controller_delegate,
     verify_configured_approval_signature, verify_configured_approval_unlock,
 };
 use agent_ingest::{
@@ -1250,6 +1250,22 @@ mod tauri_slash_tests {
         );
     }
 
+    #[test]
+    fn stop_retention_mode_prefers_explicit_request() {
+        assert_eq!(
+            effective_stop_retention_mode(
+                Some("discard"),
+                "user requested stop; mode=summarise",
+                &[],
+            ),
+            StopRetentionMode::Discard
+        );
+        assert_eq!(
+            effective_stop_retention_mode(Some("summarize"), "user requested stop", &[]),
+            StopRetentionMode::Summarise
+        );
+    }
+
     #[tokio::test]
     async fn executes_direct_tool_slash_as_manual_call() {
         let prepared = prepare_tauri_run(
@@ -2394,7 +2410,7 @@ async fn cancel(
     if let Some(handle) = active_handle {
         handle.abort();
     }
-    let compaction = if stop_mode_summarises(mode.as_deref(), &reason) {
+    let compaction = if stop_mode_summarises(mode.as_deref(), &reason, &events) {
         Some(create_stop_compaction(parsed_run_id, &reason, &events).map_err(|e| e.to_string())?)
     } else {
         None
@@ -2407,10 +2423,49 @@ async fn cancel(
     }))
 }
 
-fn stop_mode_summarises(mode: Option<&str>, reason: &str) -> bool {
-    mode.is_some_and(|mode| matches!(mode, "summarise" | "summarize" | "summary"))
-        || reason.contains("mode=summarise")
+fn stop_mode_summarises(mode: Option<&str>, reason: &str, events: &[RunEvent]) -> bool {
+    effective_stop_retention_mode(mode, reason, events).summarises()
+}
+
+fn effective_stop_retention_mode(
+    mode: Option<&str>,
+    reason: &str,
+    events: &[RunEvent],
+) -> StopRetentionMode {
+    if let Some(mode) = mode {
+        return StopRetentionMode::from_config_str(mode).unwrap_or(StopRetentionMode::Discard);
+    }
+    if let Some(mode) = stop_retention_mode_from_reason(reason) {
+        return mode;
+    }
+    events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RunEventKind::RunStarted { agent_id, .. } => Some(agent_id.as_str()),
+            _ => None,
+        })
+        .and_then(configured_stop_retention_mode)
+        .unwrap_or(StopRetentionMode::Discard)
+}
+
+fn stop_retention_mode_from_reason(reason: &str) -> Option<StopRetentionMode> {
+    if reason.contains("mode=discard") {
+        Some(StopRetentionMode::Discard)
+    } else if reason.contains("mode=summarise")
         || reason.contains("mode=summarize")
+        || reason.contains("mode=summary")
+    {
+        Some(StopRetentionMode::Summarise)
+    } else {
+        None
+    }
+}
+
+fn configured_stop_retention_mode(agent_id: &str) -> Option<StopRetentionMode> {
+    ConfigResolver::from_env()
+        .resolve_agent(agent_id)
+        .ok()
+        .map(|resolved| resolved.agent.execution_policy.stop_retention_mode)
 }
 
 fn create_stop_compaction(

@@ -38,7 +38,7 @@ use agent_conversations::{
     ConversationMessage, ConversationPolicy, ConversationStore, ConversationTreeNode,
     render_message_range,
 };
-use agent_core::{AgentConfig, ContextSnapshot, HarnessApi, UserInput};
+use agent_core::{AgentConfig, ContextSnapshot, HarnessApi, StopRetentionMode, UserInput};
 use agent_ingest::{IngestionArtifact, IngestionFindingReviewDecision, IngestionStore};
 use agent_memory::{
     MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget,
@@ -267,7 +267,11 @@ fn handle_terminal_event(
 
     if key.modifiers == KeyModifiers::CONTROL && key.code == KeyCode::Char('c') {
         if app.state == AppState::Running {
-            stop_active_run(app, "user requested stop", false);
+            stop_active_run(
+                app,
+                "user requested stop",
+                agent.execution_policy.stop_retention_mode,
+            );
         } else {
             app.quit = true;
         }
@@ -280,7 +284,11 @@ fn handle_terminal_event(
     match (key.modifiers, key.code) {
         (_, KeyCode::Esc) => {
             if app.state == AppState::Running {
-                stop_active_run(app, "user requested stop", false);
+                stop_active_run(
+                    app,
+                    "user requested stop",
+                    agent.execution_policy.stop_retention_mode,
+                );
             } else {
                 app.quit = true;
             }
@@ -901,7 +909,13 @@ fn handle_slash_command(
             return true;
         }
         let request = parse_stop_request(reason);
-        stop_active_run(app, &request.reason, request.summarise);
+        stop_active_run(
+            app,
+            &request.reason,
+            request
+                .mode
+                .unwrap_or(agent.execution_policy.stop_retention_mode),
+        );
         return true;
     }
     false
@@ -6332,33 +6346,33 @@ fn stop_slash_rest(trimmed: &str) -> Option<&str> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct StopRequest {
     reason: String,
-    summarise: bool,
+    mode: Option<StopRetentionMode>,
 }
 
 fn parse_stop_request(rest: &str) -> StopRequest {
     let rest = rest.trim();
-    let (summarise, reason) = if rest == "--summarise"
+    let (mode, reason) = if rest == "--summarise"
         || rest == "--summarize"
         || rest == "summarise"
         || rest == "summarize"
     {
-        (true, "")
+        (Some(StopRetentionMode::Summarise), "")
     } else if let Some(reason) = rest.strip_prefix("--summarise ") {
-        (true, reason)
+        (Some(StopRetentionMode::Summarise), reason)
     } else if let Some(reason) = rest.strip_prefix("--summarize ") {
-        (true, reason)
+        (Some(StopRetentionMode::Summarise), reason)
     } else if let Some(reason) = rest.strip_prefix("summarise ") {
-        (true, reason)
+        (Some(StopRetentionMode::Summarise), reason)
     } else if let Some(reason) = rest.strip_prefix("summarize ") {
-        (true, reason)
+        (Some(StopRetentionMode::Summarise), reason)
     } else if let Some(reason) = rest.strip_prefix("--discard ") {
-        (false, reason)
+        (Some(StopRetentionMode::Discard), reason)
     } else if rest == "--discard" || rest == "discard" {
-        (false, "")
+        (Some(StopRetentionMode::Discard), "")
     } else if let Some(reason) = rest.strip_prefix("discard ") {
-        (false, reason)
+        (Some(StopRetentionMode::Discard), reason)
     } else {
-        (false, rest)
+        (None, rest)
     };
     let reason = if reason.trim().is_empty() {
         "user requested stop"
@@ -6367,7 +6381,7 @@ fn parse_stop_request(rest: &str) -> StopRequest {
     };
     StopRequest {
         reason: reason.to_string(),
-        summarise,
+        mode,
     }
 }
 
@@ -7001,7 +7015,7 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
     }
 }
 
-fn stop_active_run(app: &mut App, reason: &str, summarise: bool) {
+fn stop_active_run(app: &mut App, reason: &str, mode: StopRetentionMode) {
     if let Some(handle) = app.active_run_handle.take() {
         handle.abort();
     }
@@ -7009,7 +7023,7 @@ fn stop_active_run(app: &mut App, reason: &str, summarise: bool) {
         match open_event_store() {
             Ok(store) => match record_stop_event(&store, run_id, reason.to_string()) {
                 Ok(events) => {
-                    if summarise {
+                    if mode.summarises() {
                         match create_tui_stop_compaction(run_id, reason, &events) {
                             Ok(record) => push_event(
                                 app,
@@ -7568,21 +7582,21 @@ mod tests {
             parse_stop_request("--summarise changed my mind"),
             StopRequest {
                 reason: "changed my mind".into(),
-                summarise: true,
+                mode: Some(StopRetentionMode::Summarise),
             }
         );
         assert_eq!(
             parse_stop_request("discard no longer needed"),
             StopRequest {
                 reason: "no longer needed".into(),
-                summarise: false,
+                mode: Some(StopRetentionMode::Discard),
             }
         );
         assert_eq!(
             parse_stop_request(""),
             StopRequest {
                 reason: "user requested stop".into(),
-                summarise: false,
+                mode: None,
             }
         );
         assert_eq!(preview_slash_rest("/preview hello"), Some("hello"));

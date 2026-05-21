@@ -50,6 +50,7 @@ import type {
   SecretRecord,
   SecretWriteResult,
   SkillDoc,
+  StopRetentionMode,
   TraceTreeNode,
   ToolVisibility,
 } from "./types";
@@ -70,7 +71,6 @@ type ActiveSection =
   | "adapters"
   | "approvals";
 type AgentMode = "answer" | "action" | "workflow" | "custom";
-type StopRetentionMode = "discard" | "summarise";
 type AgentConfigEntry = AgentConfigFile | AgentSummary;
 
 interface TranscriptLine {

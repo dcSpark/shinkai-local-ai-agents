@@ -10,7 +10,8 @@ use std::path::{Path, PathBuf};
 use agent_core::{
     AgentConfig, ApprovalControllerPolicy, ConfigValueExplanation, ContextCompactionPolicy,
     ContextPolicy, CostPolicy, DEFAULT_MEMORY_BACKEND_ID, ExecutionPolicy, PromptRefinement,
-    SUPPORTED_MEMORY_BACKEND_IDS, ToolOutputMode, ToolPolicy, VisibilityLevel, VoiceConfig,
+    SUPPORTED_MEMORY_BACKEND_IDS, StopRetentionMode, ToolOutputMode, ToolPolicy, VisibilityLevel,
+    VoiceConfig,
 };
 use agent_llm::{ModelRef, NativeProviderConfig, RigProviderConfig};
 use agent_storage::StoragePaths;
@@ -63,6 +64,8 @@ struct PolicyLayerToml {
     max_subagent_depth: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     max_recursion_depth: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stop_retention_mode: Option<StopRetentionMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     allowed_tools: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -241,6 +244,8 @@ pub struct AgentConfigFile {
     pub max_subagent_depth: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_recursion_depth: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stop_retention_mode: Option<StopRetentionMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allowed_tools: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1147,6 +1152,7 @@ impl Default for AgentToml {
                 max_tool_calls: Some(5),
                 max_subagent_depth: None,
                 max_recursion_depth: None,
+                stop_retention_mode: None,
                 allowed_tools: Some(Vec::new()),
                 allowed_tool_categories: None,
                 approval_controller_agent: None,
@@ -1192,6 +1198,7 @@ impl From<AgentToml> for AgentConfigFile {
             max_tool_calls: value.policy.max_tool_calls,
             max_subagent_depth: value.policy.max_subagent_depth,
             max_recursion_depth: value.policy.max_recursion_depth,
+            stop_retention_mode: value.policy.stop_retention_mode,
             allowed_tools: value.policy.allowed_tools,
             allowed_tool_categories: value.policy.allowed_tool_categories,
             approval_controller_agent: value.policy.approval_controller_agent,
@@ -1239,6 +1246,7 @@ impl From<AgentConfigFile> for AgentToml {
                 max_tool_calls: value.max_tool_calls,
                 max_subagent_depth: value.max_subagent_depth,
                 max_recursion_depth: value.max_recursion_depth,
+                stop_retention_mode: value.stop_retention_mode,
                 allowed_tools: value.allowed_tools,
                 allowed_tool_categories: value.allowed_tool_categories,
                 approval_controller_agent: value.approval_controller_agent,
@@ -3651,6 +3659,15 @@ fn resolve_agent(
             (parsed.policy.max_recursion_depth, source.clone()),
         ],
     );
+    let stop_retention_mode = resolve_layered(
+        ExecutionPolicy::default().stop_retention_mode,
+        "default:discard stopped context".into(),
+        vec![
+            (global.policy.stop_retention_mode, global_source.clone()),
+            (profile.policy.stop_retention_mode, profile_source.clone()),
+            (parsed.policy.stop_retention_mode, source.clone()),
+        ],
+    );
     let allowed_tool_ids = resolve_layered(
         Vec::<String>::new(),
         "default:all registered tools".into(),
@@ -4309,6 +4326,7 @@ fn resolve_agent(
         execution_policy: ExecutionPolicy {
             max_subagent_depth: max_subagent_depth.value,
             max_recursion_depth: max_recursion_depth.value,
+            stop_retention_mode: stop_retention_mode.value,
         },
         cost_policy: CostPolicy {
             input_cost_per_million: input_cost_per_million.value,
@@ -4430,6 +4448,11 @@ fn resolve_agent(
             "agent.execution_policy.max_recursion_depth",
             max_recursion_depth.value,
             &max_recursion_depth.source,
+        ),
+        config_value(
+            "agent.execution_policy.stop_retention_mode",
+            stop_retention_mode.value,
+            &stop_retention_mode.source,
         ),
         config_value(
             "agent.tool_policy.allowed_tools",
@@ -5373,6 +5396,7 @@ system_prompt = "Review carefully."
             max_tool_calls: Some(1),
             max_subagent_depth: Some(2),
             max_recursion_depth: Some(1),
+            stop_retention_mode: Some(StopRetentionMode::Summarise),
             allowed_tools: Some(vec!["echo".into()]),
             allowed_tool_categories: Some(vec!["demo".into()]),
             approval_controller_agent: Some("safety-controller".into()),
@@ -5460,6 +5484,10 @@ system_prompt = "Review carefully."
         }));
         assert_eq!(resolved.agent.execution_policy.max_subagent_depth, 2);
         assert_eq!(resolved.agent.execution_policy.max_recursion_depth, 1);
+        assert_eq!(
+            resolved.agent.execution_policy.stop_retention_mode,
+            StopRetentionMode::Summarise
+        );
         assert_eq!(
             resolved
                 .agent
@@ -5576,6 +5604,9 @@ system_prompt = "Review carefully."
                 .get(&ToolId::from("echo")),
             Some(&VisibilityLevel::FullSchema)
         );
+        assert!(resolved.values.iter().any(|value| {
+            value.key == "agent.execution_policy.stop_retention_mode" && value.value == "summarise"
+        }));
         assert!(resolved.values.iter().any(|value| {
             value.key == "agent.tool_policy.per_tool_visibility"
                 && value.value == serde_json::json!({"echo": "full_schema"})
@@ -6785,6 +6816,7 @@ name = "Main"
 model = "profile-model"
 tool_output_mode = "raw"
 max_compaction_output_tokens = 64
+stop_retention_mode = "summarise"
 capability_draft_guidance = "draft narrow reusable pieces"
 "#,
         )
@@ -6830,6 +6862,10 @@ capability_drafts_enabled = true
         assert_eq!(
             resolved.agent.context_policy.compaction.guidance.as_deref(),
             Some("keep decisions")
+        );
+        assert_eq!(
+            resolved.agent.execution_policy.stop_retention_mode,
+            StopRetentionMode::Summarise
         );
         assert!(resolved.agent.tool_policy.capability_drafts_enabled);
         assert_eq!(
@@ -6878,6 +6914,11 @@ capability_drafts_enabled = true
             &resolved.values,
             "agent.context_policy.compaction_guidance",
             "global:",
+        );
+        assert_source_contains(
+            &resolved.values,
+            "agent.execution_policy.stop_retention_mode",
+            "profile:",
         );
         let _ = std::fs::remove_dir_all(dir);
     }

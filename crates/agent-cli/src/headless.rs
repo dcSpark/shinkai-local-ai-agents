@@ -30,8 +30,8 @@ use agent_conversations::{
     render_message_range,
 };
 use agent_core::{
-    ContextSnapshot, Harness, HarnessApi, ToolOutputMode, UserInput, VisibilityLevel,
-    assess_approval_controller_with_model, verify_approval_controller_delegate,
+    ContextSnapshot, Harness, HarnessApi, StopRetentionMode, ToolOutputMode, UserInput,
+    VisibilityLevel, assess_approval_controller_with_model, verify_approval_controller_delegate,
     verify_configured_approval_signature, verify_configured_approval_unlock,
 };
 use agent_ingest::{
@@ -3225,6 +3225,7 @@ pub async fn agent_save(
     compaction_guidance: Option<String>,
     max_subagent_depth: Option<u32>,
     max_recursion_depth: Option<u32>,
+    stop_retention_mode: Option<StopRetentionMode>,
     allowed_tools: Vec<String>,
     allowed_tool_categories: Vec<String>,
     approval_controller_agent: Option<String>,
@@ -3266,6 +3267,7 @@ pub async fn agent_save(
         compaction_guidance,
         max_subagent_depth,
         max_recursion_depth,
+        stop_retention_mode,
         allowed_tools,
         allowed_tool_categories,
         approval_controller_agent,
@@ -3350,6 +3352,7 @@ fn agent_config_from_parts(
     compaction_guidance: Option<String>,
     max_subagent_depth: Option<u32>,
     max_recursion_depth: Option<u32>,
+    stop_retention_mode: Option<StopRetentionMode>,
     allowed_tools: Vec<String>,
     allowed_tool_categories: Vec<String>,
     approval_controller_agent: Option<String>,
@@ -3405,6 +3408,7 @@ fn agent_config_from_parts(
         max_tool_calls,
         max_subagent_depth,
         max_recursion_depth,
+        stop_retention_mode,
         allowed_tools: (!allowed_tools.is_empty()).then_some(allowed_tools),
         allowed_tool_categories: (!allowed_tool_categories.is_empty())
             .then_some(allowed_tool_categories),
@@ -5723,6 +5727,7 @@ pub async fn remote_agent_save(
     compaction_guidance: Option<String>,
     max_subagent_depth: Option<u32>,
     max_recursion_depth: Option<u32>,
+    stop_retention_mode: Option<StopRetentionMode>,
     allowed_tools: Vec<String>,
     allowed_tool_categories: Vec<String>,
     approval_controller_agent: Option<String>,
@@ -5764,6 +5769,7 @@ pub async fn remote_agent_save(
         compaction_guidance,
         max_subagent_depth,
         max_recursion_depth,
+        stop_retention_mode,
         allowed_tools,
         allowed_tool_categories,
         approval_controller_agent,
@@ -7307,6 +7313,7 @@ mod slash_tests {
             Some(" keep decisions ".into()),
             None,
             None,
+            Some(StopRetentionMode::Summarise),
             Vec::new(),
             Vec::new(),
             None,
@@ -7342,6 +7349,10 @@ mod slash_tests {
         assert_eq!(agent.max_tokens_before_compaction, Some(128));
         assert_eq!(agent.max_compaction_output_tokens, Some(48));
         assert_eq!(agent.compaction_guidance.as_deref(), Some("keep decisions"));
+        assert_eq!(
+            agent.stop_retention_mode,
+            Some(StopRetentionMode::Summarise)
+        );
         assert_eq!(agent.capability_drafts_enabled, Some(true));
         assert_eq!(
             agent.capability_draft_guidance.as_deref(),
@@ -7358,6 +7369,7 @@ mod slash_tests {
             None,
             "Review carefully.".into(),
             Some("fake-model".into()),
+            None,
             None,
             None,
             None,
@@ -7411,6 +7423,7 @@ mod slash_tests {
             None,
             "Review carefully.".into(),
             Some("fake-model".into()),
+            None,
             None,
             None,
             None,

@@ -1510,6 +1510,9 @@ export default function App() {
       { command: "/adapters install-skill ", label: "Install adapter as skill" },
       { command: "/adapters allow ", label: "Allow adapter manifest" },
       { command: "/adapters quarantine ", label: "Quarantine adapter manifest" },
+      { command: "/bridge-deliveries", label: "List bridge dead letters" },
+      { command: "/bridge-deliveries retry ", label: "Retry bridge delivery" },
+      { command: "/bridge-deliveries retry-all", label: "Retry all bridge deliveries" },
       { command: "/hooks", label: "List lifecycle hooks" },
       { command: "/hooks policy", label: "Show lifecycle hook policy" },
       { command: "/trace", label: "Load last run trace" },
@@ -1693,6 +1696,14 @@ export default function App() {
       "/adapters install-skill <id>",
       "/adapters allow <id> --confirm",
       "/adapters quarantine <id>",
+    ].join("\n");
+  }
+
+  function bridgeDeliveryShortcutHelpText() {
+    return [
+      "/bridge-deliveries list",
+      "/bridge-deliveries retry <id>",
+      "/bridge-deliveries retry-all",
     ].join("\n");
   }
 
@@ -4313,6 +4324,40 @@ export default function App() {
         appendLine(
           "error",
           "Adapters shortcut needs list, doctor, show, import, import-manifest, export, install-skill, allow, quarantine, or help.",
+        );
+      }
+      return;
+    }
+
+    if (prompt === "/bridge-deliveries" || prompt.startsWith("/bridge-deliveries ")) {
+      setInput("");
+      setActiveSection("adapters");
+      appendLine("user", prompt);
+      const rest =
+        prompt === "/bridge-deliveries"
+          ? ""
+          : prompt.slice("/bridge-deliveries ".length).trim();
+      const [command = "", ...args] = rest.split(/\s+/).filter(Boolean);
+      if (!rest || command === "list") {
+        await listBridgeDeliveriesFromOps();
+      } else if (command === "help") {
+        appendLine("assistant", bridgeDeliveryShortcutHelpText());
+      } else if (command === "retry") {
+        if (args.length !== 1) {
+          appendLine("error", "Bridge delivery retry shortcut needs a delivery id.");
+        } else {
+          await retryBridgeDeliveryFromOps(args[0]);
+        }
+      } else if (command === "retry-all") {
+        if (args.length) {
+          appendLine("error", "Bridge delivery retry-all shortcut accepts no arguments.");
+        } else {
+          await retryAllBridgeDeliveriesFromOps();
+        }
+      } else {
+        appendLine(
+          "error",
+          "Bridge delivery shortcut needs list, retry, retry-all, or help.",
         );
       }
       return;

@@ -1570,7 +1570,10 @@ export default function App() {
       { command: "/hooks enable ", label: "Enable lifecycle hook" },
       { command: "/trace", label: "Load last run trace" },
       { command: "/trace ", label: "Load a run trace by id" },
+      { command: "/trace prompt", label: "Load loaded trace prompt" },
+      { command: "/trace clear", label: "Clear loaded trace" },
       { command: "/compare ", label: "Compare loaded trace to a run id" },
+      { command: "/compare clear", label: "Clear comparison trace" },
       { command: "/replay", label: "Replay loaded trace prompt" },
       { command: "/replay --no-hooks", label: "Replay loaded trace without hooks" },
       { command: "/approvals", label: "Review current run approvals" },
@@ -3329,6 +3332,20 @@ export default function App() {
     setInput(prompt);
     setActiveSection("chat");
     appendEvent("Loaded original trace prompt into the composer.");
+  }
+
+  function clearLoadedTrace() {
+    setTraceEvents([]);
+    setTraceSummary(null);
+    setTraceTree(null);
+    setCollapsedTraceTreeRuns([]);
+    clearTraceComparison();
+  }
+
+  function clearTraceComparison() {
+    setTraceCompareSummary(null);
+    setTraceCompareTree(null);
+    setTraceCompareRunId("");
   }
 
   async function replayTracePrompt() {
@@ -5489,13 +5506,22 @@ export default function App() {
     }
 
     if (prompt === "/trace" || prompt.startsWith("/trace ")) {
-      const runId = prompt === "/trace" ? "" : prompt.slice("/trace ".length).trim();
+      const rest = prompt === "/trace" ? "" : prompt.slice("/trace ".length).trim();
       setInput("");
       setActiveSection("trace");
       appendLine("user", prompt);
-      if (runId) {
-        setOpsId(runId);
-        await loadTraceById(runId);
+      if (rest === "prompt" || rest === "load-prompt") {
+        loadTracePromptToComposer();
+        return;
+      }
+      if (rest === "clear") {
+        clearLoadedTrace();
+        appendEvent("Cleared loaded trace.");
+        return;
+      }
+      if (rest) {
+        setOpsId(rest);
+        await loadTraceById(rest);
         return;
       }
       if (!lastRunId) {
@@ -5507,12 +5533,17 @@ export default function App() {
     }
 
     if (prompt === "/compare" || prompt.startsWith("/compare ")) {
-      const runId =
+      const rest =
         prompt === "/compare" ? "" : prompt.slice("/compare ".length).trim();
       setInput("");
       setActiveSection("trace");
       appendLine("user", prompt);
-      if (!runId) {
+      if (rest === "clear") {
+        clearTraceComparison();
+        appendEvent("Cleared comparison trace.");
+        return;
+      }
+      if (!rest) {
         appendLine("error", "Compare shortcut needs a run id.");
         return;
       }
@@ -5520,7 +5551,7 @@ export default function App() {
         appendLine("error", "Load a primary trace before comparing.");
         return;
       }
-      await loadTraceComparison(runId);
+      await loadTraceComparison(rest);
       return;
     }
 
@@ -11939,26 +11970,14 @@ export default function App() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                setTraceEvents([]);
-                setTraceSummary(null);
-                setTraceTree(null);
-                setCollapsedTraceTreeRuns([]);
-                setTraceCompareSummary(null);
-                setTraceCompareTree(null);
-                setTraceCompareRunId("");
-              }}
+              onClick={clearLoadedTrace}
               disabled={running || !traceEvents.length}
             >
               Clear Trace
             </button>
             <button
               type="button"
-              onClick={() => {
-                setTraceCompareSummary(null);
-                setTraceCompareTree(null);
-                setTraceCompareRunId("");
-              }}
+              onClick={clearTraceComparison}
               disabled={running || !traceCompareSummary}
             >
               Clear Compare

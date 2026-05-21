@@ -38,7 +38,7 @@ use agent_conversations::{
     ConversationMessage, ConversationPolicy, ConversationStore, ConversationTreeNode,
     render_message_range,
 };
-use agent_core::{AgentConfig, ContextSnapshot, HarnessApi, StopRetentionMode, UserInput};
+use agent_core::{AgentConfig, ContextSnapshot, Harness, HarnessApi, StopRetentionMode, UserInput};
 use agent_ingest::{IngestionArtifact, IngestionFindingReviewDecision, IngestionStore};
 use agent_memory::{
     MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget,
@@ -429,6 +429,11 @@ struct ResumeSlashArgs {
     from_event: Option<u64>,
 }
 
+struct ReplaySlashArgs {
+    run_id: RunId,
+    no_hooks: bool,
+}
+
 fn start_resume_run(
     app: &mut App,
     rest: &str,
@@ -550,6 +555,120 @@ fn start_resume_run(
     app.active_run_handle = Some(run_task.abort_handle());
 }
 
+fn start_replay_run(
+    app: &mut App,
+    rest: &str,
+    demo: Demo,
+    publish_tx: &UnboundedSender<RunEvent>,
+    options: &setup::RuntimeOptions,
+) {
+    let args = match parse_replay_slash_args(rest, app.last_run_id) {
+        Ok(args) => args,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Replay failed: {err}"),
+            });
+            return;
+        }
+    };
+    let store = match open_event_store() {
+        Ok(store) => store,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Replay trace lookup failed: {err}"),
+            });
+            return;
+        }
+    };
+    let source_events = match store.try_events(args.run_id) {
+        Ok(events) => events,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Replay trace lookup failed: {err}"),
+            });
+            return;
+        }
+    };
+    let (agent_id, prompt) = match trace_replay_source(args.run_id, &source_events) {
+        Ok(source) => source,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Replay plan failed: {err}"),
+            });
+            return;
+        }
+    };
+    let mut replay_options = options.clone();
+    replay_options.agent_id = Some(agent_id.clone());
+    let replay_agent = setup::build_agent(&replay_options);
+    let provider = match setup::build_provider(demo, &prompt, &replay_options) {
+        Ok(provider) => provider,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Replay provider setup failed: {err}"),
+            });
+            return;
+        }
+    };
+    let publishing_store = PublishingEventStore::new(store, publish_tx.clone());
+    let registry = setup::build_registry(
+        replay_options.enable_shell,
+        replay_options.enable_subagent,
+        replay_options.enable_capability_drafts,
+        replay_options.agent_id.as_deref(),
+        replay_options.conversation_id.as_deref(),
+    );
+    let harness = if args.no_hooks {
+        Harness::new(provider, Arc::new(publishing_store), registry)
+    } else {
+        setup::build_harness_for_agent(
+            provider,
+            Arc::new(publishing_store),
+            registry,
+            replay_options.agent_id.as_deref(),
+        )
+    };
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::User,
+        text: format!(
+            "/replay {}{}",
+            args.run_id.0,
+            if args.no_hooks { " --no-hooks" } else { "" }
+        ),
+    });
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::Event,
+        text: format!(
+            "Replaying {} as agent {}{}",
+            args.run_id.0,
+            agent_id,
+            if args.no_hooks {
+                " with lifecycle hooks skipped"
+            } else {
+                ""
+            }
+        ),
+    });
+    app.state = AppState::Running;
+    app.tokens_in = 0;
+    app.tokens_out = 0;
+    app.cost_usd = 0.0;
+    app.calls_used = 0;
+    app.calls_max = replay_agent.tool_policy.max_calls;
+    app.calls_remaining = replay_agent.tool_policy.max_calls;
+    app.elapsed_ms = 0;
+    app.run_started_at = Some(Instant::now());
+    let run_task = tokio::spawn(async move {
+        let _ = harness.run(&replay_agent, UserInput { text: prompt }).await;
+    });
+    app.active_run_handle = Some(run_task.abort_handle());
+}
+
 fn parse_resume_slash_args(
     rest: &str,
     last_run_id: Option<RunId>,
@@ -582,6 +701,36 @@ fn parse_resume_slash_args(
         .or(last_run_id)
         .ok_or_else(|| anyhow::anyhow!("resume needs a run id or a previous run"))?;
     Ok(ResumeSlashArgs { run_id, from_event })
+}
+
+fn parse_replay_slash_args(
+    rest: &str,
+    last_run_id: Option<RunId>,
+) -> anyhow::Result<ReplaySlashArgs> {
+    let mut run_id = None;
+    let mut no_hooks = false;
+    for part in rest.split_whitespace() {
+        match part {
+            "--no-hooks" | "--skip-hooks" | "no-hooks" | "skip-hooks" => no_hooks = true,
+            "last" if run_id.is_none() => run_id = last_run_id,
+            value if run_id.is_none() => run_id = Some(RunId(uuid::Uuid::parse_str(value)?)),
+            other => anyhow::bail!("unexpected replay argument {other:?}"),
+        }
+    }
+    let run_id = run_id
+        .or(last_run_id)
+        .ok_or_else(|| anyhow::anyhow!("replay needs a run id or a previous run"))?;
+    Ok(ReplaySlashArgs { run_id, no_hooks })
+}
+
+fn trace_replay_source(run_id: RunId, events: &[RunEvent]) -> anyhow::Result<(String, String)> {
+    events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RunEventKind::RunStarted { agent_id, input } => Some((agent_id.clone(), input.clone())),
+            _ => None,
+        })
+        .ok_or_else(|| anyhow::anyhow!("run {run_id} has no RunStarted event"))
 }
 
 fn parse_event_id(value: &str) -> anyhow::Result<u64> {
@@ -881,6 +1030,10 @@ fn handle_slash_command(
     }
     if let Some(rest) = resume_slash_rest(trimmed) {
         start_resume_run(app, rest, demo, publish_tx, options);
+        return true;
+    }
+    if let Some(rest) = replay_slash_rest(trimmed) {
+        start_replay_run(app, rest, demo, publish_tx, options);
         return true;
     }
     if let Some(text) = guide_slash_rest(trimmed) {
@@ -6419,6 +6572,14 @@ fn resume_slash_rest(trimmed: &str) -> Option<&str> {
     }
 }
 
+fn replay_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/replay" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/replay ").map(str::trim)
+    }
+}
+
 fn trace_slash_rest(trimmed: &str) -> Option<&str> {
     if trimmed == "/trace" {
         Some("")
@@ -7873,6 +8034,12 @@ mod tests {
             Some("last --from-event 7")
         );
         assert_eq!(resume_slash_rest("/resumed"), None);
+        assert_eq!(replay_slash_rest("/replay"), Some(""));
+        assert_eq!(
+            replay_slash_rest("/replay last --no-hooks"),
+            Some("last --no-hooks")
+        );
+        assert_eq!(replay_slash_rest("/replayed"), None);
         assert_eq!(trace_slash_rest("/trace"), Some(""));
         assert_eq!(trace_slash_rest("/trace tree last"), Some("tree last"));
         assert_eq!(trace_slash_rest("/traces"), None);
@@ -7999,6 +8166,50 @@ mod tests {
         assert!(parse_resume_slash_args("--from-event", Some(last_run)).is_err());
         assert!(parse_resume_slash_args("", None).is_err());
         assert!(parse_resume_slash_args("last extra", Some(last_run)).is_err());
+    }
+
+    #[test]
+    fn replay_slash_args_parse_run_last_and_hook_override() {
+        let explicit_run =
+            RunId(uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000123").unwrap());
+        let last_run =
+            RunId(uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000456").unwrap());
+
+        let explicit =
+            parse_replay_slash_args(&format!("{} --no-hooks", explicit_run.0), None).unwrap();
+        assert_eq!(explicit.run_id, explicit_run);
+        assert!(explicit.no_hooks);
+
+        let last = parse_replay_slash_args("last skip-hooks", Some(last_run)).unwrap();
+        assert_eq!(last.run_id, last_run);
+        assert!(last.no_hooks);
+
+        let default_last = parse_replay_slash_args("", Some(last_run)).unwrap();
+        assert_eq!(default_last.run_id, last_run);
+        assert!(!default_last.no_hooks);
+
+        assert!(parse_replay_slash_args("", None).is_err());
+        assert!(parse_replay_slash_args("last extra", Some(last_run)).is_err());
+    }
+
+    #[test]
+    fn trace_replay_source_reads_original_prompt_and_agent() {
+        let run_id = RunId::new();
+        let store = agent_tracing::InMemoryEventStore::new();
+        store.append(
+            run_id,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "researcher".into(),
+                input: "write a memo".into(),
+            },
+        );
+
+        let (agent_id, prompt) = trace_replay_source(run_id, &store.events(run_id)).unwrap();
+
+        assert_eq!(agent_id, "researcher");
+        assert_eq!(prompt, "write a memo");
+        assert!(trace_replay_source(RunId::new(), &[]).is_err());
     }
 
     #[test]
@@ -8819,6 +9030,7 @@ mod tests {
         assert!(is_mid_run_control_command("/stop"));
         assert!(is_mid_run_control_command("/approval list last"));
         assert!(!is_mid_run_control_command("/score 8"));
+        assert!(!is_mid_run_control_command("/replay last"));
         assert!(!is_mid_run_control_command("/tool!echo {}"));
         assert!(!is_mid_run_control_command("/guidance"));
         assert!(!is_mid_run_control_command("normal prompt"));

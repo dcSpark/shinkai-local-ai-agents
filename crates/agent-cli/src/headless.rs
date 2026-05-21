@@ -65,7 +65,7 @@ use agent_tracing::{
     summarize_trace, validate_guidance_content, validate_quality_score,
 };
 
-use crate::{Demo, Provider, setup};
+use crate::{Demo, setup};
 
 pub async fn run(
     input: Option<String>,
@@ -5073,7 +5073,7 @@ pub async fn remote_run(
         serde_json::json!({
             "input": input,
             "demo": demo,
-            "provider": provider_name(options.provider),
+            "provider": setup::selected_provider_id(&options),
             "agent_id": options.agent_id.clone(),
             "model": options.model,
             "api_base_url": options.api_base_url,
@@ -5126,7 +5126,7 @@ pub async fn remote_run_start(
         serde_json::json!({
             "input": input,
             "demo": demo,
-            "provider": provider_name(options.provider),
+            "provider": setup::selected_provider_id(&options),
             "agent_id": options.agent_id.clone(),
             "model": options.model,
             "api_base_url": options.api_base_url,
@@ -6571,17 +6571,6 @@ fn remote_run_wait_report(
         report["events"] = serde_json::Value::Array(events);
     }
     report
-}
-
-fn provider_name(provider: Provider) -> &'static str {
-    match provider {
-        Provider::Fake => "fake",
-        Provider::Rig => "rig",
-        Provider::Ollama => "ollama",
-        Provider::LlamaCpp => "llama_cpp",
-        Provider::Anthropic => "anthropic",
-        Provider::Gemini => "gemini",
-    }
 }
 
 fn demo_name(demo: Demo) -> &'static str {

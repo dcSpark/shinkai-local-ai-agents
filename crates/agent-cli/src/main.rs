@@ -62,6 +62,10 @@ enum Command {
         #[arg(long, value_enum, default_value_t = Provider::Fake)]
         provider: Provider,
 
+        /// Catalog provider id to use instead of the built-in --provider enum.
+        #[arg(long)]
+        provider_id: Option<String>,
+
         /// Model id. Defaults to fake-model for fake provider and gpt-4o-mini
         /// for rig provider.
         #[arg(long)]
@@ -2098,6 +2102,10 @@ enum RemoteCommand {
         #[arg(long, value_enum, default_value_t = Provider::Fake)]
         provider: Provider,
 
+        /// Catalog provider id to use on the daemon instead of the built-in --provider enum.
+        #[arg(long)]
+        provider_id: Option<String>,
+
         /// Model id for real-provider daemon runs.
         #[arg(long)]
         model: Option<String>,
@@ -2229,6 +2237,10 @@ enum RemoteCommand {
         /// LLM provider to use on the daemon.
         #[arg(long, value_enum, default_value_t = Provider::Fake)]
         provider: Provider,
+
+        /// Catalog provider id to use on the daemon instead of the built-in --provider enum.
+        #[arg(long)]
+        provider_id: Option<String>,
 
         /// Model id for real-provider daemon runs.
         #[arg(long)]
@@ -4132,6 +4144,8 @@ mod cli_parse_tests {
             "run",
             "--input",
             "hello",
+            "--provider-id",
+            "custom-openai",
             "--allow-tool-category",
             "mcp",
             "--allow-skill-category",
@@ -4161,6 +4175,7 @@ mod cli_parse_tests {
             refine_prompt,
             refinement_instructions,
             refinement_model,
+            provider_id,
             ..
         } = into_remote_command(cli)
         else {
@@ -4175,6 +4190,7 @@ mod cli_parse_tests {
         assert!(refine_prompt);
         assert_eq!(refinement_instructions.as_deref(), Some("Clarify first."));
         assert_eq!(refinement_model.as_deref(), Some("fake-refiner"));
+        assert_eq!(provider_id.as_deref(), Some("custom-openai"));
     }
 
     #[test]
@@ -4346,6 +4362,26 @@ mod cli_parse_tests {
         };
         assert!(matches!(provider, Provider::Ollama));
         assert_eq!(model.as_deref(), Some("llama3.1"));
+
+        let cli = parse_cli([
+            "agent",
+            "run",
+            "--provider-id",
+            "custom-openai",
+            "--input",
+            "hello",
+        ])
+        .unwrap();
+        let Command::Run {
+            provider,
+            provider_id,
+            ..
+        } = into_command(cli)
+        else {
+            panic!("expected run command");
+        };
+        assert!(matches!(provider, Provider::Fake));
+        assert_eq!(provider_id.as_deref(), Some("custom-openai"));
 
         let cli = parse_cli([
             "agent",
@@ -5651,6 +5687,7 @@ async fn main() -> anyhow::Result<()> {
             demo,
             agent,
             provider,
+            provider_id,
             model,
             api_base_url,
             api_key_env,
@@ -5685,6 +5722,7 @@ async fn main() -> anyhow::Result<()> {
         } => {
             let options = setup::RuntimeOptions {
                 provider,
+                provider_id,
                 agent_id: agent,
                 model,
                 api_base_url,
@@ -6497,6 +6535,7 @@ async fn main() -> anyhow::Result<()> {
                 demo,
                 agent,
                 provider,
+                provider_id,
                 model,
                 api_base_url,
                 api_key_env,
@@ -6529,6 +6568,7 @@ async fn main() -> anyhow::Result<()> {
             } => {
                 let options = setup::RuntimeOptions {
                     provider,
+                    provider_id,
                     agent_id: agent,
                     model,
                     api_base_url,
@@ -6569,6 +6609,7 @@ async fn main() -> anyhow::Result<()> {
                 demo,
                 agent,
                 provider,
+                provider_id,
                 model,
                 api_base_url,
                 api_key_env,
@@ -6601,6 +6642,7 @@ async fn main() -> anyhow::Result<()> {
             } => {
                 let options = setup::RuntimeOptions {
                     provider,
+                    provider_id,
                     agent_id: agent,
                     model,
                     api_base_url,

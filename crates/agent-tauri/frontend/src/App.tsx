@@ -1495,6 +1495,7 @@ export default function App() {
       { command: "/skills status", label: "Show skill loading status" },
       { command: "/skills list", label: "List imported skills" },
       { command: "/skills show ", label: "Show imported skill" },
+      { command: "/skills inspect ", label: "Inspect imported skill" },
       { command: "/skills import-openclaw ", label: "Import OpenClaw skill" },
       { command: "/skills import-doc ", label: "Import portable skill doc" },
       { command: "/skills export ", label: "Export portable skill doc" },
@@ -2227,6 +2228,7 @@ export default function App() {
     return [
       "/skills list",
       "/skills show <id>",
+      "/skills inspect <id>",
       "/skills import-openclaw <path>",
       "/skills import-doc <path>",
       "/skills export <id> <path>",
@@ -5156,7 +5158,7 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Skills shortcut needs list, show, import-openclaw, import-doc, export, allow, quarantine, or help.",
+          "Skills shortcut needs list, show, inspect, import-openclaw, import-doc, export, allow, quarantine, or help.",
         );
       }
       return;

@@ -1402,6 +1402,9 @@ export default function App() {
       { command: "/shell on", label: "Enable shell tool access" },
       { command: "/shell off", label: "Disable shell tool access" },
       { command: "/shell status", label: "Show shell access status" },
+      { command: "/python ", label: "Run Python code" },
+      { command: "/typescript ", label: "Run TypeScript code" },
+      { command: "/ts ", label: "Run TypeScript code" },
       { command: "/memory on", label: "Load memory in context" },
       { command: "/memory off", label: "Stop loading memory" },
       { command: "/memory status", label: "Show memory loading status" },
@@ -3819,6 +3822,35 @@ export default function App() {
         return;
       }
       appendLine("error", "Shell shortcut needs on, off, or status.");
+      return;
+    }
+
+    if (prompt === "/python" || prompt === "/typescript" || prompt === "/ts") {
+      appendLine("error", "Code shortcut needs code text.");
+      return;
+    }
+    if (
+      prompt.startsWith("/python ") ||
+      prompt.startsWith("/typescript ") ||
+      prompt.startsWith("/ts ")
+    ) {
+      const python = prompt.startsWith("/python ");
+      const prefix = python
+        ? "/python "
+        : prompt.startsWith("/typescript ")
+          ? "/typescript "
+          : "/ts ";
+      const code = prompt.slice(prefix.length).trim();
+      if (!code) {
+        appendLine("error", "Code shortcut needs code text.");
+        return;
+      }
+      setInput("");
+      await callToolDirect(
+        python ? "code_python" : "code_typescript",
+        { code },
+        prompt,
+      );
       return;
     }
 

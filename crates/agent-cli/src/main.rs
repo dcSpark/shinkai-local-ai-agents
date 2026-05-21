@@ -2941,6 +2941,28 @@ enum RemoteMemoryCommand {
 
 #[derive(Subcommand)]
 enum RemoteCompactCommand {
+    /// Keep compacted text as a daemon compacted-context artifact.
+    Keep {
+        /// Compacted context text. Reads stdin when omitted.
+        #[arg(short, long)]
+        input: Option<String>,
+
+        /// Guidance associated with the compacted context.
+        #[arg(long)]
+        guidance: Option<String>,
+
+        /// Source label, for example auto-preview or run id.
+        #[arg(long)]
+        source: Option<String>,
+
+        /// Conversation this compaction should be linked to.
+        #[arg(long)]
+        conversation: Option<String>,
+
+        /// Approximate max output tokens represented by this compacted artifact.
+        #[arg(long)]
+        max_output_tokens: Option<u32>,
+    },
     /// Keep the auto-compacted context emitted by a completed daemon run.
     KeepRun {
         /// Run id that emitted an auto-compacted ContextBuilt event.
@@ -2954,6 +2976,25 @@ enum RemoteCompactCommand {
         #[arg(long)]
         guidance: Option<String>,
     },
+    /// List daemon compacted-context artifacts.
+    List,
+    /// Show one daemon compacted-context artifact.
+    Show { id: String },
+    /// Export one daemon compacted-context artifact as portable JSON.
+    Export {
+        id: String,
+
+        /// Destination JSON path on the daemon host.
+        #[arg(short, long)]
+        path: String,
+    },
+    /// Import one portable compacted-context artifact JSON file on the daemon host.
+    Import {
+        /// Source JSON path on the daemon host.
+        path: String,
+    },
+    /// Remove a daemon compacted-context artifact.
+    Rm { id: String },
 }
 
 #[derive(Subcommand)]
@@ -4496,6 +4537,109 @@ mod cli_parse_tests {
         assert_eq!(run_id, "00000000-0000-0000-0000-000000000001");
         assert_eq!(conversation.as_deref(), Some("conv-1"));
         assert_eq!(guidance.as_deref(), Some("Keep decisions."));
+    }
+
+    #[test]
+    fn remote_compact_artifact_commands_parse() {
+        let keep_cli = parse_cli([
+            "agent",
+            "remote",
+            "compact",
+            "keep",
+            "--input",
+            "<auto-compaction>summary</auto-compaction>",
+            "--guidance",
+            "Keep decisions.",
+            "--source",
+            "manual",
+            "--conversation",
+            "conv-1",
+            "--max-output-tokens",
+            "128",
+        ])
+        .unwrap();
+        let RemoteCommand::Compact {
+            command:
+                RemoteCompactCommand::Keep {
+                    input,
+                    guidance,
+                    source,
+                    conversation,
+                    max_output_tokens,
+                },
+        } = into_remote_command(keep_cli)
+        else {
+            panic!("expected remote compact keep command");
+        };
+        assert_eq!(
+            input.as_deref(),
+            Some("<auto-compaction>summary</auto-compaction>")
+        );
+        assert_eq!(guidance.as_deref(), Some("Keep decisions."));
+        assert_eq!(source.as_deref(), Some("manual"));
+        assert_eq!(conversation.as_deref(), Some("conv-1"));
+        assert_eq!(max_output_tokens, Some(128));
+
+        let list_cli = parse_cli(["agent", "remote", "compact", "list"]).unwrap();
+        let RemoteCommand::Compact {
+            command: RemoteCompactCommand::List,
+        } = into_remote_command(list_cli)
+        else {
+            panic!("expected remote compact list command");
+        };
+
+        let show_cli = parse_cli(["agent", "remote", "compact", "show", "compact-1"]).unwrap();
+        let RemoteCommand::Compact {
+            command: RemoteCompactCommand::Show { id },
+        } = into_remote_command(show_cli)
+        else {
+            panic!("expected remote compact show command");
+        };
+        assert_eq!(id, "compact-1");
+
+        let export_cli = parse_cli([
+            "agent",
+            "remote",
+            "compact",
+            "export",
+            "compact-1",
+            "--path",
+            "/tmp/compact-1.json",
+        ])
+        .unwrap();
+        let RemoteCommand::Compact {
+            command: RemoteCompactCommand::Export { id, path },
+        } = into_remote_command(export_cli)
+        else {
+            panic!("expected remote compact export command");
+        };
+        assert_eq!(id, "compact-1");
+        assert_eq!(path, "/tmp/compact-1.json");
+
+        let import_cli = parse_cli([
+            "agent",
+            "remote",
+            "compact",
+            "import",
+            "/tmp/compact-1.json",
+        ])
+        .unwrap();
+        let RemoteCommand::Compact {
+            command: RemoteCompactCommand::Import { path },
+        } = into_remote_command(import_cli)
+        else {
+            panic!("expected remote compact import command");
+        };
+        assert_eq!(path, "/tmp/compact-1.json");
+
+        let rm_cli = parse_cli(["agent", "remote", "compact", "rm", "compact-1"]).unwrap();
+        let RemoteCommand::Compact {
+            command: RemoteCompactCommand::Rm { id },
+        } = into_remote_command(rm_cli)
+        else {
+            panic!("expected remote compact rm command");
+        };
+        assert_eq!(id, "compact-1");
     }
 
     #[test]
@@ -7269,11 +7413,37 @@ async fn main() -> anyhow::Result<()> {
                 }
             },
             RemoteCommand::Compact { command } => match command {
+                RemoteCompactCommand::Keep {
+                    input,
+                    guidance,
+                    source,
+                    conversation,
+                    max_output_tokens,
+                } => {
+                    headless::remote_compact_keep(
+                        url,
+                        input,
+                        guidance,
+                        source,
+                        conversation,
+                        max_output_tokens,
+                    )
+                    .await
+                }
                 RemoteCompactCommand::KeepRun {
                     run_id,
                     conversation,
                     guidance,
                 } => headless::remote_compact_keep_run(url, run_id, conversation, guidance).await,
+                RemoteCompactCommand::List => headless::remote_compact_list(url).await,
+                RemoteCompactCommand::Show { id } => headless::remote_compact_show(url, id).await,
+                RemoteCompactCommand::Export { id, path } => {
+                    headless::remote_compact_export(url, id, path).await
+                }
+                RemoteCompactCommand::Import { path } => {
+                    headless::remote_compact_import(url, path).await
+                }
+                RemoteCompactCommand::Rm { id } => headless::remote_compact_rm(url, id).await,
             },
             RemoteCommand::Skill { command } => match command {
                 RemoteSkillCommand::List => headless::remote_skill_list(url).await,

@@ -5948,6 +5948,27 @@ pub async fn remote_memory_import(
     )?)
 }
 
+pub async fn remote_compact_keep(
+    url: String,
+    input: Option<String>,
+    guidance: Option<String>,
+    source: Option<String>,
+    conversation: Option<String>,
+    max_output_tokens: Option<u32>,
+) -> anyhow::Result<()> {
+    let content = read_text(input)?;
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/compactions/keep",
+        serde_json::json!({
+            "content": content,
+            "guidance": guidance,
+            "source": source,
+            "conversation_id": conversation,
+            "max_output_tokens": max_output_tokens
+        }),
+    )?)
+}
+
 pub async fn remote_compact_keep_run(
     url: String,
     run_id: String,
@@ -5984,6 +6005,35 @@ pub async fn remote_compact_keep_run(
         "run_id": run_id.0,
         "record": record
     }))
+}
+
+pub async fn remote_compact_list(url: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).get_json("/compactions")?)
+}
+
+pub async fn remote_compact_show(url: String, id: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).get_json(&format!("/compactions/{id}"))?)
+}
+
+pub async fn remote_compact_export(url: String, id: String, path: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/compactions/export",
+        serde_json::json!({ "id": id, "path": path }),
+    )?)
+}
+
+pub async fn remote_compact_import(url: String, path: String) -> anyhow::Result<()> {
+    print_remote(
+        DaemonHttpClient::new(url)
+            .post_json("/compactions/import", serde_json::json!({ "path": path }))?,
+    )
+}
+
+pub async fn remote_compact_rm(url: String, id: String) -> anyhow::Result<()> {
+    print_remote(
+        DaemonHttpClient::new(url)
+            .post_json(&format!("/compactions/{id}/delete"), serde_json::json!({}))?,
+    )
 }
 
 pub async fn remote_skill_list(url: String) -> anyhow::Result<()> {

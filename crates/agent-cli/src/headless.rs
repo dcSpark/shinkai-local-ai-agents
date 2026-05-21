@@ -93,6 +93,17 @@ pub async fn run(
                 AgentsSlashCommand::Import { path } => agent_import(path, json).await,
             };
         }
+        Some(SlashCommand::Skill(command)) => {
+            return match command {
+                SkillSlashCommand::List => skill_list(json).await,
+                SkillSlashCommand::Inspect { id } => skill_inspect(id).await,
+                SkillSlashCommand::ImportOpenclaw { path } => skill_import_openclaw(path).await,
+                SkillSlashCommand::ImportDoc { path } => skill_import_doc(path, json).await,
+                SkillSlashCommand::Export { id, path } => skill_export(id, path, json).await,
+                SkillSlashCommand::Allow { id } => skill_allow(id).await,
+                SkillSlashCommand::Quarantine { id } => skill_quarantine(id).await,
+            };
+        }
         Some(SlashCommand::ToolManual { name, input }) => {
             return call_tool(
                 name,
@@ -7922,6 +7933,7 @@ enum SlashCommand {
         prompt: String,
     },
     Agents(AgentsSlashCommand),
+    Skill(SkillSlashCommand),
     ToolManual {
         name: String,
         input: String,
@@ -7990,6 +8002,16 @@ enum AgentsSlashCommand {
     Delete { id: String },
     Export { id: String, path: String },
     Import { path: String },
+}
+
+enum SkillSlashCommand {
+    List,
+    Inspect { id: String },
+    ImportOpenclaw { path: String },
+    ImportDoc { path: String },
+    Export { id: String, path: String },
+    Allow { id: String },
+    Quarantine { id: String },
 }
 
 enum ProfileSlashCommand {
@@ -8298,6 +8320,10 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         let command = parse_agents_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Agents(command)));
     }
+    if let Some(rest) = skill_slash_rest(trimmed) {
+        let command = parse_skill_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Skill(command)));
+    }
     if let Some(rest) = trimmed.strip_prefix("/run ") {
         return Ok(Some(SlashCommand::Run(rest.trim().to_string())));
     }
@@ -8480,6 +8506,7 @@ fn headless_slash_help_text() -> &'static str {
      - /run <prompt-name> - use a saved prompt when available, otherwise run the literal text\n\
      - /agent [id] [prompt] - inspect config, or run a prompt with a specific saved agent\n\
      - /agents list|show|export|import|delete - manage saved agent configs\n\
+     - /skills list|show|inspect|import-openclaw|import-doc|export|allow|quarantine\n\
      - /tool <name> [request] - force the model to call one visible tool\n\
      - /tool! <name> <json> - call one native tool directly with manual JSON input\n\
      - /python <code>, /typescript <code>, /ts <code> - call native code execution tools directly\n\
@@ -8923,6 +8950,78 @@ fn parse_agents_confirm<'a>(
     }
     if !confirmed {
         anyhow::bail!("agents {action} requires --confirm");
+    }
+    Ok(())
+}
+
+fn skill_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/skill" || trimmed == "/skills" {
+        Some("")
+    } else if let Some(rest) = trimmed.strip_prefix("/skills ") {
+        Some(rest.trim())
+    } else {
+        trimmed.strip_prefix("/skill ").map(str::trim)
+    }
+}
+
+fn parse_skill_slash_rest(rest: &str) -> anyhow::Result<SkillSlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let command = parts.next().unwrap_or_default();
+    match command {
+        "" | "list" => {
+            ensure_no_extra(parts, "usage: /skills list")?;
+            Ok(SkillSlashCommand::List)
+        }
+        "show" | "inspect" => {
+            let id = next_required(&mut parts, "skills show needs a skill id")?;
+            ensure_no_extra(parts, "usage: /skills show <id>")?;
+            Ok(SkillSlashCommand::Inspect { id })
+        }
+        "import-openclaw" | "install" => {
+            let path = next_required(&mut parts, "skills import-openclaw needs a path")?;
+            ensure_no_extra(parts, "usage: /skills import-openclaw <path>")?;
+            Ok(SkillSlashCommand::ImportOpenclaw { path })
+        }
+        "import-doc" | "import" => {
+            let path = next_required(&mut parts, "skills import-doc needs a path")?;
+            ensure_no_extra(parts, "usage: /skills import-doc <path>")?;
+            Ok(SkillSlashCommand::ImportDoc { path })
+        }
+        "export" => {
+            let id = next_required(&mut parts, "skills export needs a skill id")?;
+            let path = next_required(&mut parts, "skills export needs a path")?;
+            ensure_no_extra(parts, "usage: /skills export <id> <path>")?;
+            Ok(SkillSlashCommand::Export { id, path })
+        }
+        "allow" => {
+            let id = next_required(&mut parts, "skills allow needs a skill id")?;
+            parse_skill_confirm(parts, "allow")?;
+            Ok(SkillSlashCommand::Allow { id })
+        }
+        "quarantine" => {
+            let id = next_required(&mut parts, "skills quarantine needs a skill id")?;
+            parse_skill_confirm(parts, "quarantine")?;
+            Ok(SkillSlashCommand::Quarantine { id })
+        }
+        _ => anyhow::bail!(
+            "skills shortcut needs list, show, inspect, import-openclaw, import-doc, export, allow, or quarantine"
+        ),
+    }
+}
+
+fn parse_skill_confirm<'a>(
+    parts: impl Iterator<Item = &'a str>,
+    action: &str,
+) -> anyhow::Result<()> {
+    let mut confirmed = false;
+    for part in parts {
+        match part {
+            "--confirm" => confirmed = true,
+            _ => anyhow::bail!("unknown skills {action} option: {part}"),
+        }
+    }
+    if !confirmed {
+        anyhow::bail!("skills {action} requires --confirm");
     }
     Ok(())
 }
@@ -10484,6 +10583,9 @@ mod slash_tests {
         assert!(help.contains("/x402 request"));
         assert!(help.contains("/agent [id] [prompt]"));
         assert!(help.contains("/agents list|show|export|import|delete"));
+        assert!(help.contains(
+            "/skills list|show|inspect|import-openclaw|import-doc|export|allow|quarantine"
+        ));
         assert!(help.contains("/hooks list|available|review|disable|enable"));
     }
 
@@ -10606,6 +10708,76 @@ mod slash_tests {
         assert!(parse_slash_command("/agents import /tmp/critic.toml").is_err());
         assert!(parse_slash_command("/agents delete critic").is_err());
         assert!(parse_slash_command("/agents critic").is_err());
+    }
+
+    #[test]
+    fn parses_skill_registry_shortcuts() {
+        assert!(matches!(
+            parse_slash_command("/skills").unwrap(),
+            Some(SlashCommand::Skill(SkillSlashCommand::List))
+        ));
+        assert!(matches!(
+            parse_slash_command("/skill list").unwrap(),
+            Some(SlashCommand::Skill(SkillSlashCommand::List))
+        ));
+        match parse_slash_command("/skills show review").unwrap() {
+            Some(SlashCommand::Skill(SkillSlashCommand::Inspect { id })) => {
+                assert_eq!(id, "review");
+            }
+            _ => panic!("expected skill show shortcut"),
+        }
+        match parse_slash_command("/skill inspect review").unwrap() {
+            Some(SlashCommand::Skill(SkillSlashCommand::Inspect { id })) => {
+                assert_eq!(id, "review");
+            }
+            _ => panic!("expected skill inspect shortcut"),
+        }
+        match parse_slash_command("/skills import-openclaw ./SKILL.md").unwrap() {
+            Some(SlashCommand::Skill(SkillSlashCommand::ImportOpenclaw { path })) => {
+                assert_eq!(path, "./SKILL.md");
+            }
+            _ => panic!("expected skill import-openclaw shortcut"),
+        }
+        match parse_slash_command("/skills install ./skill").unwrap() {
+            Some(SlashCommand::Skill(SkillSlashCommand::ImportOpenclaw { path })) => {
+                assert_eq!(path, "./skill");
+            }
+            _ => panic!("expected skill install shortcut"),
+        }
+        match parse_slash_command("/skills import-doc ./review.skill.json").unwrap() {
+            Some(SlashCommand::Skill(SkillSlashCommand::ImportDoc { path })) => {
+                assert_eq!(path, "./review.skill.json");
+            }
+            _ => panic!("expected skill import-doc shortcut"),
+        }
+        match parse_slash_command("/skills import ./review.skill.json").unwrap() {
+            Some(SlashCommand::Skill(SkillSlashCommand::ImportDoc { path })) => {
+                assert_eq!(path, "./review.skill.json");
+            }
+            _ => panic!("expected skill import shortcut"),
+        }
+        match parse_slash_command("/skills export review /tmp/review.skill.json").unwrap() {
+            Some(SlashCommand::Skill(SkillSlashCommand::Export { id, path })) => {
+                assert_eq!(id, "review");
+                assert_eq!(path, "/tmp/review.skill.json");
+            }
+            _ => panic!("expected skill export shortcut"),
+        }
+        match parse_slash_command("/skills allow review --confirm").unwrap() {
+            Some(SlashCommand::Skill(SkillSlashCommand::Allow { id })) => {
+                assert_eq!(id, "review");
+            }
+            _ => panic!("expected skill allow shortcut"),
+        }
+        match parse_slash_command("/skills quarantine review --confirm").unwrap() {
+            Some(SlashCommand::Skill(SkillSlashCommand::Quarantine { id })) => {
+                assert_eq!(id, "review");
+            }
+            _ => panic!("expected skill quarantine shortcut"),
+        }
+        assert!(parse_slash_command("/skills allow review").is_err());
+        assert!(parse_slash_command("/skills export review").is_err());
+        assert!(parse_slash_command("/skillsx list").unwrap().is_none());
     }
 
     #[test]

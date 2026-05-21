@@ -1453,6 +1453,10 @@ export default function App() {
       { command: "/conversation select ", label: "Select conversation branch" },
       { command: "/conversation show ", label: "Show conversation branch" },
       { command: "/conversation recover ", label: "Recover conversation context" },
+      { command: "/conversation policy", label: "Show conversation policy" },
+      { command: "/conversation policy apply", label: "Apply conversation policy" },
+      { command: "/conversation policy save", label: "Save conversation policy" },
+      { command: "/conversation policy clear", label: "Clear conversation policy" },
       { command: "/conversation delete-plan ", label: "Preview conversation deletion" },
       { command: "/conversation delete ", label: "Delete conversation branch" },
       { command: "/conversation range-delete ", label: "Delete conversation message range" },
@@ -1743,6 +1747,10 @@ export default function App() {
       "/conversation select <id>",
       "/conversation show [id]",
       "/conversation recover [id]",
+      "/conversation policy [show] [id]",
+      "/conversation policy apply [id]",
+      "/conversation policy save [id]",
+      "/conversation policy clear [id]",
       "/conversation delete-plan [id] [--recursive]",
       "/conversation delete [id] [--recursive] --confirm",
       "/conversation range-delete [id] <from>:<to> --confirm",
@@ -1751,6 +1759,19 @@ export default function App() {
 
   function selectedConversationShortcutId() {
     return expandedConversation?.conversation.id || opsId.trim();
+  }
+
+  function parseConversationPolicyShortcutId(args: string[], label: string) {
+    if (args.length > 1) {
+      appendLine("error", `${label} shortcut accepts at most one conversation id.`);
+      return null;
+    }
+    const id = args[0] || selectedConversationShortcutId();
+    if (!id) {
+      appendLine("error", `${label} shortcut needs a conversation id or selected Id.`);
+      return null;
+    }
+    return id;
   }
 
   function parseConversationBranchShortcut(
@@ -4639,6 +4660,31 @@ export default function App() {
             await recoverConversation(id);
           }
         }
+      } else if (command === "policy") {
+        if (args[0] === "help") {
+          appendLine("assistant", conversationShortcutHelpText());
+          return;
+        }
+        const knownPolicyCommands = ["show", "apply", "save", "clear"];
+        const policyCommand = knownPolicyCommands.includes(args[0] || "")
+          ? args[0] || "show"
+          : "show";
+        const idArgs = policyCommand === args[0] ? args.slice(1) : args;
+        const id = parseConversationPolicyShortcutId(
+          idArgs,
+          `Conversation policy ${policyCommand}`,
+        );
+        if (id) {
+          if (policyCommand === "show") {
+            await showConversationPolicy(id);
+          } else if (policyCommand === "apply") {
+            await applyConversationPolicyFromShortcut(id);
+          } else if (policyCommand === "save") {
+            await saveConversationPolicy(id);
+          } else {
+            await clearConversationPolicy(id);
+          }
+        }
       } else if (command === "delete-plan" || command === "delete-preview") {
         const parsed = parseConversationBranchShortcut("delete-plan", args, false);
         if (parsed) {
@@ -4657,7 +4703,7 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Conversation shortcut needs list, tree, select, show, recover, delete-plan, delete, range-delete, or help.",
+          "Conversation shortcut needs list, tree, select, show, recover, policy, delete-plan, delete, range-delete, or help.",
         );
       }
       return;
@@ -6660,11 +6706,10 @@ export default function App() {
     }
   }
 
-  async function saveSelectedConversationPolicy() {
-    if (!expandedConversation) return;
+  function conversationPolicyFromContextControls() {
     const toolCategories = parsedCategoryList(allowedToolCategories);
     const skillCategories = parsedCategoryList(allowedSkillCategories);
-    const policy: ConversationPolicy = {
+    return {
       load_memory: loadMemory,
       generate_memory:
         generateMemoryPolicy === "" ? null : generateMemoryPolicy === "on",
@@ -6679,12 +6724,28 @@ export default function App() {
         maxCompactionOutputTokens,
       ),
       compaction_guidance: compactionGuidance.trim() || null,
-    };
+    } satisfies ConversationPolicy;
+  }
+
+  async function showConversationPolicy(id: string) {
     try {
-      const doc = await setConversationPolicy(
-        expandedConversation.conversation.id,
-        policy,
-      );
+      const conversation = await fetchConversation(id);
+      setExpandedConversation(conversation);
+      setOpsId(conversation.conversation.id);
+      setConversationId(conversation.conversation.id);
+      appendJson("Conversation policy", {
+        id: conversation.conversation.id,
+        policy: conversation.conversation.policy || {},
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Conversation policy show failed: ${msg}`);
+    }
+  }
+
+  async function saveConversationPolicy(id: string) {
+    try {
+      const doc = await setConversationPolicy(id, conversationPolicyFromContextControls());
       updateConversationDoc(doc);
       appendJson("Conversation policy saved", doc);
       appendEvent(`Conversation policy saved for ${doc.id}`);
@@ -6694,13 +6755,14 @@ export default function App() {
     }
   }
 
-  async function clearSelectedConversationPolicy() {
+  async function saveSelectedConversationPolicy() {
     if (!expandedConversation) return;
+    await saveConversationPolicy(expandedConversation.conversation.id);
+  }
+
+  async function clearConversationPolicy(id: string) {
     try {
-      const doc = await setConversationPolicy(
-        expandedConversation.conversation.id,
-        {},
-      );
+      const doc = await setConversationPolicy(id, {});
       updateConversationDoc(doc);
       appendJson("Conversation policy cleared", doc);
       appendEvent(`Conversation policy cleared for ${doc.id}`);
@@ -6710,9 +6772,15 @@ export default function App() {
     }
   }
 
-  function applySelectedConversationPolicy() {
-    const policy = expandedConversation?.conversation.policy;
-    if (!policy) return;
+  async function clearSelectedConversationPolicy() {
+    if (!expandedConversation) return;
+    await clearConversationPolicy(expandedConversation.conversation.id);
+  }
+
+  function applyConversationPolicyToContextControls(
+    id: string,
+    policy: ConversationPolicy,
+  ) {
     if (typeof policy.load_memory === "boolean") {
       setLoadMemory(policy.load_memory);
     }
@@ -6749,8 +6817,32 @@ export default function App() {
     );
     setCompactionGuidance(policy.compaction_guidance || "");
     appendEvent(
-      `Conversation policy applied to context controls for ${expandedConversation.conversation.id}`,
+      `Conversation policy applied to context controls for ${id}`,
     );
+  }
+
+  function applySelectedConversationPolicy() {
+    const conversation = expandedConversation?.conversation;
+    if (!conversation?.policy) return;
+    applyConversationPolicyToContextControls(conversation.id, conversation.policy);
+  }
+
+  async function applyConversationPolicyFromShortcut(id: string) {
+    try {
+      const conversation = await fetchConversation(id);
+      setExpandedConversation(conversation);
+      setOpsId(conversation.conversation.id);
+      setConversationId(conversation.conversation.id);
+      const policy = conversation.conversation.policy;
+      if (!policy) {
+        appendEvent(`Conversation ${conversation.conversation.id} has no policy overrides.`);
+        return;
+      }
+      applyConversationPolicyToContextControls(conversation.conversation.id, policy);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Conversation policy apply failed: ${msg}`);
+    }
   }
 
   async function previewConversationDeleteFromOps(recursive: boolean) {

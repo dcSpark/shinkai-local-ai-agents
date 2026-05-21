@@ -123,6 +123,10 @@ pub async fn run(
             no_hooks,
             compare_source,
         }) => return trace_replay(run_id, demo, no_hooks, compare_source, json).await,
+        Some(SlashCommand::Storage {
+            prune_cache_days,
+            apply,
+        }) => return storage_report(json, prune_cache_days, apply).await,
         Some(SlashCommand::Guide { run_id, text }) => return guide(run_id, text).await,
         Some(SlashCommand::Score {
             run_id,
@@ -7709,6 +7713,10 @@ enum SlashCommand {
         no_hooks: bool,
         compare_source: bool,
     },
+    Storage {
+        prune_cache_days: Option<u64>,
+        apply: bool,
+    },
     Guide {
         run_id: String,
         text: String,
@@ -7783,6 +7791,19 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
             compare_source,
         }));
     }
+    if trimmed == "/storage" {
+        return Ok(Some(SlashCommand::Storage {
+            prune_cache_days: None,
+            apply: false,
+        }));
+    }
+    if let Some(rest) = trimmed.strip_prefix("/storage ").map(str::trim) {
+        let (prune_cache_days, apply) = parse_storage_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Storage {
+            prune_cache_days,
+            apply,
+        }));
+    }
     if let Some(rest) = trimmed.strip_prefix("/guide ").map(str::trim) {
         let (run_id, text) = parse_guide_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Guide { run_id, text }));
@@ -7844,6 +7865,7 @@ fn headless_slash_help_text() -> &'static str {
      - /x402 request|required|settle ... - call native x402 payment tools directly\n\
      - /resume <run-id> [--from-event N], /resume plan <run-id> [--from-event N]\n\
      - /trace [summary|tree|hooks] <run-id>, /compare <run-id> <run-id>, /replay <run-id>\n\
+     - /storage report, /storage prune-cache <days> [--apply]\n\
      - /guide <run-id> <text> - inject guidance into an active run\n\
      - /score <run-id> <0-10> [target] - record a quality score\n\
      Use --json to print this help as JSON."
@@ -8040,6 +8062,32 @@ fn parse_replay_slash_rest(rest: &str) -> anyhow::Result<(String, bool, bool)> {
         }
     }
     Ok((run_id, no_hooks, compare_source))
+}
+
+fn parse_storage_slash_rest(rest: &str) -> anyhow::Result<(Option<u64>, bool)> {
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "report" {
+        return Ok((None, false));
+    }
+    let mut parts = rest.split_whitespace();
+    let command = parts.next().unwrap_or_default();
+    match command {
+        "prune-cache" => {
+            let days = parts
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("usage: /storage prune-cache <days> [--apply]"))?;
+            let prune_cache_days = parse_positive_u64(days, "storage prune-cache days")?;
+            let mut apply = false;
+            for part in parts {
+                match part {
+                    "--apply" => apply = true,
+                    _ => anyhow::bail!("unknown storage prune-cache option: {part}"),
+                }
+            }
+            Ok((Some(prune_cache_days), apply))
+        }
+        _ => anyhow::bail!("storage shortcut needs report or prune-cache"),
+    }
 }
 
 fn parse_guide_slash_rest(rest: &str) -> anyhow::Result<(String, String)> {
@@ -8345,6 +8393,43 @@ mod slash_tests {
         assert!(parse_slash_command("/trace summary").is_err());
         assert!(parse_slash_command(&format!("/compare {primary}")).is_err());
         assert!(parse_slash_command(&format!("/replay {primary} --mystery")).is_err());
+    }
+
+    #[test]
+    fn parses_storage_shortcuts() {
+        match parse_slash_command("/storage").unwrap() {
+            Some(SlashCommand::Storage {
+                prune_cache_days,
+                apply,
+            }) => {
+                assert_eq!(prune_cache_days, None);
+                assert!(!apply);
+            }
+            _ => panic!("expected storage report shortcut"),
+        }
+        match parse_slash_command("/storage report").unwrap() {
+            Some(SlashCommand::Storage {
+                prune_cache_days,
+                apply,
+            }) => {
+                assert_eq!(prune_cache_days, None);
+                assert!(!apply);
+            }
+            _ => panic!("expected storage report shortcut"),
+        }
+        match parse_slash_command("/storage prune-cache 30 --apply").unwrap() {
+            Some(SlashCommand::Storage {
+                prune_cache_days,
+                apply,
+            }) => {
+                assert_eq!(prune_cache_days, Some(30));
+                assert!(apply);
+            }
+            _ => panic!("expected storage prune shortcut"),
+        }
+        assert!(parse_slash_command("/storage prune-cache 0").is_err());
+        assert!(parse_slash_command("/storage prune-cache 30 --force").is_err());
+        assert!(parse_slash_command("/storagex report").unwrap().is_none());
     }
 
     #[test]

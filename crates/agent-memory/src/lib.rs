@@ -259,6 +259,7 @@ impl MemoryStore {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn create_for_conversation_with_topics_for_agent(
         &self,
         target: MemoryTarget,
@@ -866,7 +867,7 @@ pub fn profile_memory_access_report(
         });
     }
 
-    records.sort_by(|left, right| memory_access_sort_key(left).cmp(&memory_access_sort_key(right)));
+    records.sort_by_key(memory_access_sort_key);
 
     Ok(MemoryAccessReport {
         active_profile,
@@ -1287,7 +1288,11 @@ fn file_bytes(path: &Path) -> Result<u64, MemoryError> {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(0),
         Err(err) => return Err(err.into()),
     };
-    Ok(metadata.is_file().then_some(metadata.len()).unwrap_or(0))
+    Ok(if metadata.is_file() {
+        metadata.len()
+    } else {
+        0
+    })
 }
 
 fn generated_memory_candidates(text: &str) -> Vec<String> {

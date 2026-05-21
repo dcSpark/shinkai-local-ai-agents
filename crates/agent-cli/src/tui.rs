@@ -250,6 +250,7 @@ async fn main_loop(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_terminal_event(
     app: &mut App,
     evt: CtEvent,
@@ -675,6 +676,7 @@ fn agent_switch_arg(rest: &str) -> anyhow::Result<&str> {
     Ok(id)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn handle_slash_command(
     app: &mut App,
     prompt: &str,
@@ -3484,9 +3486,7 @@ fn approval_action_args(
                 .map(|(name, value)| (name, Some(value)))
                 .unwrap_or((option, None));
             let value = match inline_value {
-                Some(value) if value.is_empty() => {
-                    anyhow::bail!("approval {command} --{name} needs a value")
-                }
+                Some("") => anyhow::bail!("approval {command} --{name} needs a value"),
                 Some(value) => value,
                 None => parts
                     .next()

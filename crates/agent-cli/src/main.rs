@@ -10,6 +10,9 @@ mod headless;
 mod setup;
 mod tui;
 
+#[cfg(test)]
+pub(crate) static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 use std::io::IsTerminal;
 
 use agent_config::{IngestionGuardrailMode, ProfileGrantKind};
@@ -2022,6 +2025,7 @@ enum ConversationCommand {
     },
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Subcommand)]
 enum RemoteCommand {
     /// Check daemon health/version.

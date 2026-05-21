@@ -4192,9 +4192,9 @@ fn resolve_secret_reference_value(
     )
 }
 
-fn external_agent_a2a_call_input(
-    input: &Value,
-) -> Result<(Value, Vec<(String, String)>, u64), ToolError> {
+type ExternalAgentCallInput = (Value, Vec<(String, String)>, u64);
+
+fn external_agent_a2a_call_input(input: &Value) -> Result<ExternalAgentCallInput, ToolError> {
     let prompt = input
         .get("prompt")
         .and_then(Value::as_str)
@@ -4244,9 +4244,7 @@ fn external_agent_a2a_call_input(
     Ok((body, headers, timeout_ms))
 }
 
-fn external_agent_http_json_call_input(
-    input: &Value,
-) -> Result<(Value, Vec<(String, String)>, u64), ToolError> {
+fn external_agent_http_json_call_input(input: &Value) -> Result<ExternalAgentCallInput, ToolError> {
     let prompt = input
         .get("prompt")
         .and_then(Value::as_str)
@@ -4634,7 +4632,7 @@ fn external_agent_capability_supported(
     capability
         .runtime
         .as_ref()
-        .is_some_and(|runtime| external_agent_runtime_supported(runtime))
+        .is_some_and(external_agent_runtime_supported)
 }
 
 fn external_agent_runtime_supported(runtime: &agent_adapters::NormalizedRuntime) -> bool {

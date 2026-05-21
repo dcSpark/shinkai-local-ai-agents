@@ -8134,7 +8134,7 @@ mod tests {
         assert_eq!(grant["resource"], "critic");
 
         let grants = daemon_profile_grant_list(r#"{"from_profile":"main"}"#).unwrap();
-        assert_eq!(grants.as_array().unwrap(), &[grant.clone()]);
+        assert_eq!(grants.as_array().unwrap(), std::slice::from_ref(&grant));
 
         let revoked = daemon_profile_grant_revoke(grant["id"].as_str().unwrap()).unwrap();
         assert_eq!(revoked["id"], grant["id"]);

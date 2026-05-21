@@ -6313,6 +6313,7 @@ fn timeout_reached(started: Instant, timeout_ms: Option<u64>) -> bool {
         .unwrap_or(false)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn remote_run_wait_report(
     run_id: String,
     status_name: String,
@@ -7080,6 +7081,33 @@ fn parse_score_slash_rest(rest: &str) -> anyhow::Result<(String, f32, String)> {
 mod slash_tests {
     use super::*;
 
+    struct HarnessHomeGuard {
+        _lock: std::sync::MutexGuard<'static, ()>,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl HarnessHomeGuard {
+        fn set(dir: &std::path::Path) -> Self {
+            let lock = crate::TEST_ENV_LOCK
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let previous = std::env::var_os("AGENT_HARNESS_HOME");
+            unsafe {
+                std::env::set_var("AGENT_HARNESS_HOME", dir);
+            }
+            Self {
+                _lock: lock,
+                previous,
+            }
+        }
+    }
+
+    impl Drop for HarnessHomeGuard {
+        fn drop(&mut self) {
+            restore_env("AGENT_HARNESS_HOME", self.previous.take());
+        }
+    }
+
     fn restore_env(name: &str, value: Option<std::ffi::OsString>) {
         unsafe {
             if let Some(value) = value {
@@ -7136,10 +7164,7 @@ mod slash_tests {
             std::process::id(),
             uuid::Uuid::new_v4()
         ));
-        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
-        unsafe {
-            std::env::set_var("AGENT_HARNESS_HOME", &dir);
-        }
+        let _home = HarnessHomeGuard::set(&dir);
         CapabilityDraftStore::from_env()
             .propose(CapabilityDraftInput {
                 id: Some("draft-weather-tool".into()),
@@ -7185,7 +7210,6 @@ mod slash_tests {
                 .as_deref()
                 .is_some_and(|value| value.contains("draft_id=draft-weather-tool"))
         );
-        restore_env("AGENT_HARNESS_HOME", previous_home);
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -7196,10 +7220,7 @@ mod slash_tests {
             std::process::id(),
             uuid::Uuid::new_v4()
         ));
-        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
-        unsafe {
-            std::env::set_var("AGENT_HARNESS_HOME", &dir);
-        }
+        let _home = HarnessHomeGuard::set(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let import_path = dir.join("draft-subagent.json");
         std::fs::write(
@@ -7238,7 +7259,6 @@ mod slash_tests {
             .expect("allowed subagent alias draft should save an agent config");
         assert_eq!(saved.name, "Research Subagent");
         assert_eq!(saved.system_prompt, "Research carefully and cite sources.");
-        restore_env("AGENT_HARNESS_HOME", previous_home);
         let _ = std::fs::remove_dir_all(dir);
     }
 

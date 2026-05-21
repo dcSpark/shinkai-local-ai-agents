@@ -549,10 +549,7 @@ pub fn adapter_doctor_report_from_packages(
         .iter()
         .filter(|package| !package.quarantined)
         .count();
-    let high_risk_finding_count = packages
-        .iter()
-        .map(|package| high_risk_finding_count(package))
-        .sum();
+    let high_risk_finding_count = packages.iter().map(high_risk_finding_count).sum();
     let errors = package_reports
         .iter()
         .flat_map(|package| {
@@ -2377,21 +2374,22 @@ fn scan_a2a_permissions(text: &str) -> PermissionManifest {
     let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
         return PermissionManifest::default();
     };
-    let mut permissions = PermissionManifest::default();
-    permissions.network = a2a_agent_endpoint(&value).is_some()
-        || json_array(&value, &["supportedInterfaces", "supported_interfaces"]).is_some()
-        || json_array(&value, &["additionalInterfaces", "additional_interfaces"]).is_some();
-    permissions.secrets = json_object(
-        &value,
-        &[
-            "securitySchemes",
-            "security_schemes",
-            "authSchemes",
-            "auth_schemes",
-        ],
-    )
-    .is_some();
-    permissions
+    PermissionManifest {
+        network: a2a_agent_endpoint(&value).is_some()
+            || json_array(&value, &["supportedInterfaces", "supported_interfaces"]).is_some()
+            || json_array(&value, &["additionalInterfaces", "additional_interfaces"]).is_some(),
+        secrets: json_object(
+            &value,
+            &[
+                "securitySchemes",
+                "security_schemes",
+                "authSchemes",
+                "auth_schemes",
+            ],
+        )
+        .is_some(),
+        ..PermissionManifest::default()
+    }
 }
 
 fn scan_static_findings(text: &str) -> Vec<StaticScanFinding> {
@@ -2589,6 +2587,13 @@ fn json_string_list(value: &serde_json::Value, keys: &[&str]) -> Option<Vec<Stri
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn uuid_like() -> String {
+        use std::sync::atomic::{AtomicU64, Ordering};
+
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        format!("{}", COUNTER.fetch_add(1, Ordering::Relaxed))
+    }
 
     #[test]
     fn openclaw_skill_is_detected_and_quarantined() {
@@ -3588,12 +3593,4 @@ hooks:
         assert!(matches!(err, AdapterError::InvalidCatalog(_)));
         let _ = std::fs::remove_dir_all(dir);
     }
-}
-
-#[cfg(test)]
-fn uuid_like() -> String {
-    use std::sync::atomic::{AtomicU64, Ordering};
-
-    static COUNTER: AtomicU64 = AtomicU64::new(0);
-    format!("{}", COUNTER.fetch_add(1, Ordering::Relaxed))
 }

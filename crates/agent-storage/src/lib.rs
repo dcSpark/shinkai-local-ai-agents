@@ -658,7 +658,11 @@ fn existing_file_bytes(path: &Path) -> Result<u64, StorageError> {
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(0),
         Err(err) => return Err(err.into()),
     };
-    Ok(metadata.is_file().then_some(metadata.len()).unwrap_or(0))
+    Ok(if metadata.is_file() {
+        metadata.len()
+    } else {
+        0
+    })
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]

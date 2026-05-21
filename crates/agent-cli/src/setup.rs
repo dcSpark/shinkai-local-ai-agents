@@ -874,9 +874,6 @@ mod tests {
     use super::*;
     use agent_config::{AgentConfigFile, AgentPromptRefinementConfig};
     use agent_tools::ToolId;
-    use std::sync::Mutex;
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn restore_env(name: &str, value: Option<std::ffi::OsString>) {
         unsafe {
@@ -1331,7 +1328,9 @@ hooks:
 
     #[test]
     fn capability_draft_registry_uses_agent_policy_and_guidance() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = crate::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let dir = std::env::temp_dir().join(format!(
             "capability-draft-policy-setup-test-{}",
             std::process::id()
@@ -1367,7 +1366,9 @@ hooks:
 
     #[test]
     fn conversation_policy_can_disable_capability_draft_registry() {
-        let _guard = ENV_LOCK.lock().unwrap();
+        let _guard = crate::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let dir = std::env::temp_dir().join(format!(
             "capability-draft-conversation-policy-test-{}",
             std::process::id()

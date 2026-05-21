@@ -100,14 +100,14 @@ fn validate_built_frontend(frontend_dir: &Path) -> Result<(), String> {
     let dist_mtime = index_metadata
         .modified()
         .map_err(|err| format!("failed to inspect {}: {err}", dist_index.display()))?;
-    if let Some((source_mtime, source_path)) = newest_frontend_source(frontend_dir) {
-        if source_mtime > dist_mtime {
-            return Err(format!(
-                "built frontend is stale; {} is newer than {}",
-                source_path.display(),
-                dist_index.display()
-            ));
-        }
+    if let Some((source_mtime, source_path)) = newest_frontend_source(frontend_dir)
+        && source_mtime > dist_mtime
+    {
+        return Err(format!(
+            "built frontend is stale; {} is newer than {}",
+            source_path.display(),
+            dist_index.display()
+        ));
     }
 
     Ok(())

@@ -1228,9 +1228,11 @@ mod tauri_slash_tests {
 
     #[test]
     fn build_agent_applies_runtime_tool_output_interpreter_model() {
-        let mut options = RunOptions::default();
-        options.tool_routing_model = Some("router-model".into());
-        options.tool_output_interpretation_model = Some("interpreter-model".into());
+        let options = RunOptions {
+            tool_routing_model: Some("router-model".into()),
+            tool_output_interpretation_model: Some("interpreter-model".into()),
+            ..RunOptions::default()
+        };
         let agent = build_agent(&options);
         assert_eq!(
             agent

@@ -261,6 +261,32 @@ pub async fn run(
                 }
             };
         }
+        Some(SlashCommand::Model(command)) => {
+            return match command {
+                ModelSlashCommand::List => model_list(json).await,
+                ModelSlashCommand::Providers => model_providers(json).await,
+                ModelSlashCommand::Doctor => model_doctor(json).await,
+                ModelSlashCommand::Show { id } => model_show(id, json).await,
+                ModelSlashCommand::Probe { id } => model_probe(id, json).await,
+                ModelSlashCommand::Delete { id } => model_delete(id).await,
+                ModelSlashCommand::Export { id, path } => model_export(id, path, json).await,
+                ModelSlashCommand::Import { path } => model_import(path, json).await,
+                ModelSlashCommand::ProviderCatalogShow => model_provider_catalog_show(json).await,
+                ModelSlashCommand::ProviderCatalogExport { path } => {
+                    model_provider_catalog_export(path, json).await
+                }
+                ModelSlashCommand::ProviderCatalogImport { path } => {
+                    model_provider_catalog_import(path, json).await
+                }
+                ModelSlashCommand::MetadataCatalogShow => model_metadata_catalog_show(json).await,
+                ModelSlashCommand::MetadataCatalogExport { path } => {
+                    model_metadata_catalog_export(path, json).await
+                }
+                ModelSlashCommand::MetadataCatalogImport { path } => {
+                    model_metadata_catalog_import(path, json).await
+                }
+            };
+        }
         Some(SlashCommand::Memory(command)) => {
             return match command {
                 MemorySlashCommand::List => memory_list(json).await,
@@ -7916,6 +7942,7 @@ enum SlashCommand {
     Artifact(ArtifactSlashCommand),
     Capability(CapabilitySlashCommand),
     Adapter(AdapterSlashCommand),
+    Model(ModelSlashCommand),
     Memory(MemorySlashCommand),
     Compact(CompactSlashCommand),
     Guide {
@@ -8060,6 +8087,23 @@ enum AdapterSlashCommand {
         catalog: String,
         id: String,
     },
+}
+
+enum ModelSlashCommand {
+    List,
+    Providers,
+    Doctor,
+    Show { id: String },
+    Probe { id: String },
+    Delete { id: String },
+    Export { id: String, path: String },
+    Import { path: String },
+    ProviderCatalogShow,
+    ProviderCatalogExport { path: String },
+    ProviderCatalogImport { path: String },
+    MetadataCatalogShow,
+    MetadataCatalogExport { path: String },
+    MetadataCatalogImport { path: String },
 }
 
 enum IngestSlashCommand {
@@ -8304,6 +8348,13 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         let command = parse_adapter_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Adapter(command)));
     }
+    if trimmed == "/model" || trimmed == "/models" {
+        return Ok(Some(SlashCommand::Model(ModelSlashCommand::List)));
+    }
+    if let Some(rest) = model_slash_rest(trimmed) {
+        let command = parse_model_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Model(command)));
+    }
     if trimmed == "/memory" {
         return Ok(Some(SlashCommand::Memory(MemorySlashCommand::List)));
     }
@@ -8388,6 +8439,7 @@ fn headless_slash_help_text() -> &'static str {
      - /artifacts list|show|open|delete\n\
      - /capabilities list|doctor|show|allow|reject|delete|export|import\n\
      - /adapters list|doctor|inspect|import|import-manifest|show|export|install-skill|allow|quarantine|clawhub\n\
+     - /models list|providers|doctor|show|probe|export|import|delete|provider-catalog|metadata-catalog\n\
      - /memory list|access|backends|create|generate|generate-conversation|classify|edit|delete|rollback|export|import\n\
      - /compact list|show|export|import|delete|keep-run, /compactions ...\n\
      - /guide <run-id> <text> - inject guidance into an active run\n\
@@ -9303,6 +9355,122 @@ fn parse_adapter_confirm<'a>(
     }
     if !confirmed {
         anyhow::bail!("adapters {action} requires --confirm");
+    }
+    Ok(())
+}
+
+fn model_slash_rest(trimmed: &str) -> Option<&str> {
+    if let Some(rest) = trimmed.strip_prefix("/models ") {
+        Some(rest.trim())
+    } else {
+        trimmed.strip_prefix("/model ").map(str::trim)
+    }
+}
+
+fn parse_model_slash_rest(rest: &str) -> anyhow::Result<ModelSlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let command = parts.next().unwrap_or_default();
+    match command {
+        "" | "list" => {
+            ensure_no_extra(parts, "usage: /models list")?;
+            Ok(ModelSlashCommand::List)
+        }
+        "providers" => {
+            ensure_no_extra(parts, "usage: /models providers")?;
+            Ok(ModelSlashCommand::Providers)
+        }
+        "doctor" => {
+            ensure_no_extra(parts, "usage: /models doctor")?;
+            Ok(ModelSlashCommand::Doctor)
+        }
+        "show" => {
+            let id = next_required(&mut parts, "models show needs an id")?;
+            ensure_no_extra(parts, "usage: /models show <id>")?;
+            Ok(ModelSlashCommand::Show { id })
+        }
+        "probe" => {
+            let id = next_required(&mut parts, "models probe needs an id")?;
+            ensure_no_extra(parts, "usage: /models probe <id>")?;
+            Ok(ModelSlashCommand::Probe { id })
+        }
+        "delete" | "rm" => {
+            let id = next_required(&mut parts, "models delete needs an id")?;
+            parse_model_confirm(parts, "delete")?;
+            Ok(ModelSlashCommand::Delete { id })
+        }
+        "export" => {
+            let id = next_required(&mut parts, "models export needs an id")?;
+            let path = next_required(&mut parts, "models export needs a path")?;
+            ensure_no_extra(parts, "usage: /models export <id> <path>")?;
+            Ok(ModelSlashCommand::Export { id, path })
+        }
+        "import" => {
+            let path = next_required(&mut parts, "models import needs a path")?;
+            parse_model_confirm(parts, "import")?;
+            Ok(ModelSlashCommand::Import { path })
+        }
+        "provider-catalog" => parse_model_catalog_args(parts, true),
+        "metadata-catalog" => parse_model_catalog_args(parts, false),
+        _ => anyhow::bail!(
+            "models shortcut needs list, providers, doctor, show, probe, delete, export, import, provider-catalog, or metadata-catalog"
+        ),
+    }
+}
+
+fn parse_model_catalog_args<'a>(
+    mut parts: impl Iterator<Item = &'a str>,
+    provider_catalog: bool,
+) -> anyhow::Result<ModelSlashCommand> {
+    let label = if provider_catalog {
+        "provider-catalog"
+    } else {
+        "metadata-catalog"
+    };
+    let command = parts.next().unwrap_or("show");
+    match command {
+        "" | "show" => {
+            ensure_no_extra(parts, &format!("usage: /models {label} show"))?;
+            if provider_catalog {
+                Ok(ModelSlashCommand::ProviderCatalogShow)
+            } else {
+                Ok(ModelSlashCommand::MetadataCatalogShow)
+            }
+        }
+        "export" => {
+            let path = next_required(&mut parts, &format!("models {label} export needs a path"))?;
+            ensure_no_extra(parts, &format!("usage: /models {label} export <path>"))?;
+            if provider_catalog {
+                Ok(ModelSlashCommand::ProviderCatalogExport { path })
+            } else {
+                Ok(ModelSlashCommand::MetadataCatalogExport { path })
+            }
+        }
+        "import" => {
+            let path = next_required(&mut parts, &format!("models {label} import needs a path"))?;
+            parse_model_confirm(parts, &format!("{label} import"))?;
+            if provider_catalog {
+                Ok(ModelSlashCommand::ProviderCatalogImport { path })
+            } else {
+                Ok(ModelSlashCommand::MetadataCatalogImport { path })
+            }
+        }
+        _ => anyhow::bail!("models {label} needs show, export, or import"),
+    }
+}
+
+fn parse_model_confirm<'a>(
+    parts: impl Iterator<Item = &'a str>,
+    action: &str,
+) -> anyhow::Result<()> {
+    let mut confirmed = false;
+    for part in parts {
+        match part {
+            "--confirm" => confirmed = true,
+            _ => anyhow::bail!("unknown models {action} option: {part}"),
+        }
+    }
+    if !confirmed {
+        anyhow::bail!("models {action} requires --confirm");
     }
     Ok(())
 }
@@ -10799,6 +10967,95 @@ mod slash_tests {
         assert!(parse_slash_command("/adapters allow adapter-1").is_err());
         assert!(parse_slash_command("/adapters clawhub inspect ./catalog.json").is_err());
         assert!(parse_slash_command("/adaptersx list").unwrap().is_none());
+    }
+
+    #[test]
+    fn parses_model_shortcuts() {
+        assert!(matches!(
+            parse_slash_command("/models").unwrap(),
+            Some(SlashCommand::Model(ModelSlashCommand::List))
+        ));
+        assert!(matches!(
+            parse_slash_command("/model providers").unwrap(),
+            Some(SlashCommand::Model(ModelSlashCommand::Providers))
+        ));
+        assert!(matches!(
+            parse_slash_command("/models doctor").unwrap(),
+            Some(SlashCommand::Model(ModelSlashCommand::Doctor))
+        ));
+        match parse_slash_command("/models show gpt").unwrap() {
+            Some(SlashCommand::Model(ModelSlashCommand::Show { id })) => {
+                assert_eq!(id, "gpt");
+            }
+            _ => panic!("expected model show shortcut"),
+        }
+        match parse_slash_command("/models probe gpt").unwrap() {
+            Some(SlashCommand::Model(ModelSlashCommand::Probe { id })) => {
+                assert_eq!(id, "gpt");
+            }
+            _ => panic!("expected model probe shortcut"),
+        }
+        match parse_slash_command("/models export gpt /tmp/gpt.toml").unwrap() {
+            Some(SlashCommand::Model(ModelSlashCommand::Export { id, path })) => {
+                assert_eq!(id, "gpt");
+                assert_eq!(path, "/tmp/gpt.toml");
+            }
+            _ => panic!("expected model export shortcut"),
+        }
+        match parse_slash_command("/models import /tmp/gpt.toml --confirm").unwrap() {
+            Some(SlashCommand::Model(ModelSlashCommand::Import { path })) => {
+                assert_eq!(path, "/tmp/gpt.toml");
+            }
+            _ => panic!("expected model import shortcut"),
+        }
+        match parse_slash_command("/models delete gpt --confirm").unwrap() {
+            Some(SlashCommand::Model(ModelSlashCommand::Delete { id })) => {
+                assert_eq!(id, "gpt");
+            }
+            _ => panic!("expected model delete shortcut"),
+        }
+        assert!(matches!(
+            parse_slash_command("/models provider-catalog").unwrap(),
+            Some(SlashCommand::Model(ModelSlashCommand::ProviderCatalogShow))
+        ));
+        match parse_slash_command("/models provider-catalog export /tmp/providers.json").unwrap() {
+            Some(SlashCommand::Model(ModelSlashCommand::ProviderCatalogExport { path })) => {
+                assert_eq!(path, "/tmp/providers.json");
+            }
+            _ => panic!("expected provider catalog export shortcut"),
+        }
+        match parse_slash_command("/models provider-catalog import /tmp/providers.json --confirm")
+            .unwrap()
+        {
+            Some(SlashCommand::Model(ModelSlashCommand::ProviderCatalogImport { path })) => {
+                assert_eq!(path, "/tmp/providers.json");
+            }
+            _ => panic!("expected provider catalog import shortcut"),
+        }
+        assert!(matches!(
+            parse_slash_command("/models metadata-catalog show").unwrap(),
+            Some(SlashCommand::Model(ModelSlashCommand::MetadataCatalogShow))
+        ));
+        match parse_slash_command("/models metadata-catalog export /tmp/metadata.json").unwrap() {
+            Some(SlashCommand::Model(ModelSlashCommand::MetadataCatalogExport { path })) => {
+                assert_eq!(path, "/tmp/metadata.json");
+            }
+            _ => panic!("expected metadata catalog export shortcut"),
+        }
+        match parse_slash_command("/models metadata-catalog import /tmp/metadata.json --confirm")
+            .unwrap()
+        {
+            Some(SlashCommand::Model(ModelSlashCommand::MetadataCatalogImport { path })) => {
+                assert_eq!(path, "/tmp/metadata.json");
+            }
+            _ => panic!("expected metadata catalog import shortcut"),
+        }
+        assert!(parse_slash_command("/models delete gpt").is_err());
+        assert!(parse_slash_command("/models import /tmp/gpt.toml").is_err());
+        assert!(
+            parse_slash_command("/models provider-catalog import /tmp/providers.json").is_err()
+        );
+        assert!(parse_slash_command("/modelsx list").unwrap().is_none());
     }
 
     #[test]

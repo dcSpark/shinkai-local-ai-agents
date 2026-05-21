@@ -1445,6 +1445,8 @@ export default function App() {
       { command: "/cost status", label: "Show token cost overrides" },
       { command: "/usage", label: "Show current usage totals" },
       { command: "/usage trace", label: "Load last trace usage totals" },
+      { command: "/usage trace ", label: "Load run trace usage totals by id" },
+      { command: "/usage run ", label: "Load run usage totals by id" },
       { command: "/score 10", label: "Score last answer" },
       { command: "/score conversation 10", label: "Score the full conversation" },
       { command: "/score range:important 8", label: "Score a selected range" },
@@ -3671,16 +3673,28 @@ export default function App() {
 
     if (prompt === "/usage" || prompt.startsWith("/usage ")) {
       const scope = prompt === "/usage" ? "current" : prompt.slice("/usage ".length).trim();
-      if (scope === "current" || scope === "status") {
+      const usageArgs = scope.split(/\s+/).filter(Boolean);
+      const usageCommand = usageArgs[0] ?? "current";
+      if (usageCommand === "current" || usageCommand === "status") {
         setInput("");
         appendLine("user", prompt);
+        if (usageArgs.length > 1) {
+          appendLine("error", "Usage current shortcut does not accept a run id.");
+          return;
+        }
         appendEvent(currentUsageSummary());
         return;
       }
-      if (scope === "trace" || scope === "last" || scope === "run") {
+      if (usageCommand === "trace" || usageCommand === "last" || usageCommand === "run") {
         setInput("");
         appendLine("user", prompt);
-        if (!lastRunId) {
+        if (usageArgs.length > 2) {
+          appendLine("error", "Usage trace shortcut accepts at most one run id.");
+          return;
+        }
+        const requestedRunId = usageArgs[1] === "last" ? "" : usageArgs[1];
+        const runId = requestedRunId || lastRunId;
+        if (!runId) {
           appendLine("error", "Usage trace shortcut needs a completed or active run.");
           return;
         }
@@ -3689,7 +3703,10 @@ export default function App() {
           return;
         }
         try {
-          const { summary } = await loadTraceFor(lastRunId);
+          if (requestedRunId) {
+            setOpsId(requestedRunId);
+          }
+          const { summary } = await loadTraceFor(runId);
           if (summary) {
             appendEvent(traceUsageSummary(summary));
           }
@@ -3699,7 +3716,7 @@ export default function App() {
         }
         return;
       }
-      appendLine("error", "Usage shortcut needs current or trace.");
+      appendLine("error", "Usage shortcut needs current, trace, or run.");
       return;
     }
 

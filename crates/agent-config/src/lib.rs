@@ -1360,7 +1360,7 @@ impl ConfigResolver {
             Err(err) => return Err(err),
         }
         let active_profile = self.paths.active_profile_id().to_string();
-        if let Some(grant) = self.list_profile_grants()?.into_iter().find(|grant| {
+        for grant in self.list_profile_grants()?.into_iter().filter(|grant| {
             grant.kind == ProfileGrantKind::Agent
                 && grant.to_profile == active_profile
                 && (grant.resource == "*" || grant.resource == id)
@@ -1371,14 +1371,18 @@ impl ConfigResolver {
             );
             let source_resolver = ConfigResolver::new(source_paths);
             source_resolver.ensure_default_files()?;
-            let mut resolved =
-                source_resolver.resolve_agent_in_paths(&source_resolver.paths, id)?;
-            resolved.values.push(config_value(
-                "agent.shared_from_profile",
-                grant.from_profile,
-                &format!("profile-grant:{}", grant.id),
-            ));
-            return Ok(resolved);
+            match source_resolver.resolve_agent_in_paths(&source_resolver.paths, id) {
+                Ok(mut resolved) => {
+                    resolved.values.push(config_value(
+                        "agent.shared_from_profile",
+                        grant.from_profile,
+                        &format!("profile-grant:{}", grant.id),
+                    ));
+                    return Ok(resolved);
+                }
+                Err(ConfigError::InvalidInput(_)) => {}
+                Err(err) => return Err(err),
+            }
         }
         Err(ConfigError::InvalidInput(format!("agent not found: {id}")))
     }
@@ -1437,13 +1441,25 @@ impl ConfigResolver {
 
     pub fn list_agent_configs(&self) -> Result<Vec<AgentSummary>, ConfigError> {
         self.ensure_default_files()?;
-        let mut agents = Vec::new();
-        for entry in std::fs::read_dir(self.paths.agents_dir())? {
-            let entry = entry?;
-            if entry.path().is_dir() {
-                let path = entry.path().join("agent.toml");
-                if path.exists() {
-                    agents.push(agent_summary(read_agent_config(&path)?, path));
+        let mut agents = list_agent_configs_in_paths(&self.paths)?;
+        let mut seen = agents
+            .iter()
+            .map(|agent| agent.id.clone())
+            .collect::<BTreeSet<_>>();
+        let active_profile = self.paths.active_profile_id().to_string();
+        for grant in self.list_profile_grants()?.into_iter().filter(|grant| {
+            grant.kind == ProfileGrantKind::Agent && grant.to_profile == active_profile
+        }) {
+            let source_paths = StoragePaths::new_with_profile(
+                self.paths.root().to_path_buf(),
+                &grant.from_profile,
+            );
+            ConfigResolver::new(source_paths.clone()).ensure_default_files()?;
+            for agent in list_agent_configs_in_paths(&source_paths)? {
+                if (grant.resource == "*" || grant.resource == agent.id)
+                    && seen.insert(agent.id.clone())
+                {
+                    agents.push(agent);
                 }
             }
         }
@@ -1485,11 +1501,25 @@ impl ConfigResolver {
     pub fn show_agent_config(&self, id: &str) -> Result<Option<AgentConfigFile>, ConfigError> {
         self.ensure_default_files()?;
         validate_agent_id(id)?;
-        let path = self.paths.agent_config(id);
-        if !path.exists() {
-            return Ok(None);
+        if let Some(agent) = show_agent_config_in_paths(&self.paths, id)? {
+            return Ok(Some(agent));
         }
-        Ok(Some(read_agent_config(&path)?.into()))
+        let active_profile = self.paths.active_profile_id().to_string();
+        for grant in self.list_profile_grants()?.into_iter().filter(|grant| {
+            grant.kind == ProfileGrantKind::Agent
+                && grant.to_profile == active_profile
+                && (grant.resource == "*" || grant.resource == id)
+        }) {
+            let source_paths = StoragePaths::new_with_profile(
+                self.paths.root().to_path_buf(),
+                &grant.from_profile,
+            );
+            ConfigResolver::new(source_paths.clone()).ensure_default_files()?;
+            if let Some(agent) = show_agent_config_in_paths(&source_paths, id)? {
+                return Ok(Some(agent));
+            }
+        }
+        Ok(None)
     }
 
     pub fn save_agent_config(
@@ -4808,6 +4838,32 @@ fn read_agent_config(path: &Path) -> Result<AgentToml, ConfigError> {
     Ok(toml::from_str(&std::fs::read_to_string(path)?)?)
 }
 
+fn list_agent_configs_in_paths(paths: &StoragePaths) -> Result<Vec<AgentSummary>, ConfigError> {
+    let mut agents = Vec::new();
+    for entry in std::fs::read_dir(paths.agents_dir())? {
+        let entry = entry?;
+        if entry.path().is_dir() {
+            let path = entry.path().join("agent.toml");
+            if path.exists() {
+                agents.push(agent_summary(read_agent_config(&path)?, path));
+            }
+        }
+    }
+    agents.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(agents)
+}
+
+fn show_agent_config_in_paths(
+    paths: &StoragePaths,
+    id: &str,
+) -> Result<Option<AgentConfigFile>, ConfigError> {
+    let path = paths.agent_config(id);
+    if !path.exists() {
+        return Ok(None);
+    }
+    Ok(Some(read_agent_config(&path)?.into()))
+}
+
 fn read_profile_config(path: &Path) -> Result<ProfileToml, ConfigError> {
     Ok(toml::from_str(&std::fs::read_to_string(path)?)?)
 }
@@ -5334,6 +5390,7 @@ max_tool_calls = 1
         let research_paths = StoragePaths::new_with_profile(&dir, "research");
         let resolver = ConfigResolver::new(main_paths.clone());
         resolver.create_profile("research", None).unwrap();
+        resolver.create_profile("design", None).unwrap();
         let agent_path = main_paths.agent_config("critic");
         std::fs::create_dir_all(agent_path.parent().unwrap()).unwrap();
         std::fs::write(
@@ -5345,12 +5402,32 @@ system_prompt = "Review carefully."
         )
         .unwrap();
         resolver
+            .grant_profile_access("design", "research", ProfileGrantKind::Agent, "*")
+            .unwrap();
+        resolver
             .grant_profile_access("main", "research", ProfileGrantKind::Agent, "critic")
             .unwrap();
 
-        let resolved = ConfigResolver::new(research_paths)
-            .resolve_agent("critic")
+        let research_resolver = ConfigResolver::new(research_paths);
+        let listed = research_resolver.list_agent_configs().unwrap();
+        assert!(
+            listed
+                .iter()
+                .any(|agent| agent.id == "critic" && agent.path == agent_path)
+        );
+        let shown = research_resolver
+            .show_agent_config("critic")
+            .unwrap()
             .unwrap();
+        assert_eq!(shown.name, "Critic");
+        let export_path = dir.join("critic-export.toml");
+        let exported = research_resolver
+            .export_agent_config("critic", &export_path)
+            .unwrap();
+        assert_eq!(exported.id, "critic");
+        assert!(export_path.exists());
+
+        let resolved = research_resolver.resolve_agent("critic").unwrap();
         assert_eq!(resolved.agent.id, "critic");
         assert!(resolved.values.iter().any(|value| {
             value.key == "agent.shared_from_profile" && value.source.contains("profile-grant:")

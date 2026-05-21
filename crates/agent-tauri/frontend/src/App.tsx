@@ -1440,6 +1440,15 @@ export default function App() {
       { command: "/storage", label: "Show storage usage" },
       { command: "/memory", label: "List memory records" },
       { command: "/ingest", label: "List ingestion artifacts" },
+      { command: "/ingest list", label: "List ingestion artifacts" },
+      { command: "/ingest backends", label: "List ingestion backends" },
+      { command: "/ingest add ", label: "Ingest a file path" },
+      { command: "/ingest show ", label: "Show ingestion artifact" },
+      { command: "/ingest rerun ", label: "Rerun ingestion artifact" },
+      { command: "/ingest use ", label: "Use ingestion artifact" },
+      { command: "/ingest preview ", label: "Preview context with artifact" },
+      { command: "/ingest review ", label: "Review ingestion finding" },
+      { command: "/ingest delete ", label: "Delete ingestion artifact" },
       { command: "/artifacts", label: "List generated artifacts" },
       { command: "/artifacts list", label: "List generated artifacts" },
       { command: "/artifacts show ", label: "Show generated artifact" },
@@ -1522,6 +1531,50 @@ export default function App() {
       return 1;
     }
     return 2;
+  }
+
+  function parseIngestReviewShortcut(rest: string) {
+    const parts = rest.split(/\s+/).filter(Boolean);
+    const [id, findingText, decisionText, ...noteParts] = parts;
+    if (!id || !findingText || !decisionText) {
+      appendLine(
+        "error",
+        "Ingest review shortcut needs: /ingest review <id> <finding-index> <approve|acknowledge|reject> [note].",
+      );
+      return null;
+    }
+    const finding = Number(findingText);
+    if (!Number.isInteger(finding) || finding < 0) {
+      appendLine("error", "Ingest review finding index must be a zero-based integer.");
+      return null;
+    }
+    const decision = parseIngestReviewDecision(decisionText);
+    if (!decision) {
+      appendLine("error", "Ingest review decision must be approve, acknowledge, or reject.");
+      return null;
+    }
+    return {
+      id,
+      finding,
+      decision,
+      note: noteParts.join(" ").trim() || null,
+    };
+  }
+
+  function parseIngestReviewDecision(
+    value: string,
+  ): IngestionFindingReviewDecision | null {
+    const normalized = value.trim().toLowerCase();
+    if (
+      normalized === "approve" ||
+      normalized === "acknowledge" ||
+      normalized === "reject"
+    ) {
+      return normalized;
+    }
+    if (normalized === "allow") return "approve";
+    if (normalized === "block") return "reject";
+    return null;
   }
 
   function parseScoreShortcut(text: string) {
@@ -3441,11 +3494,84 @@ export default function App() {
       return;
     }
 
-    if (prompt === "/ingest") {
+    if (prompt === "/ingest" || prompt === "/ingest list" || prompt.startsWith("/ingest ")) {
       setInput("");
       setActiveSection("ingest");
-      appendLine("user", "/ingest");
-      await reviewIngestion();
+      appendLine("user", prompt);
+      if (prompt === "/ingest" || prompt === "/ingest list") {
+        await reviewIngestion();
+      } else if (prompt === "/ingest backends") {
+        await reviewIngestionBackends();
+      } else if (prompt.startsWith("/ingest add ")) {
+        const path = prompt.slice("/ingest add ".length).trim();
+        if (!path) {
+          appendLine("error", "Ingest add shortcut needs a file path.");
+        } else {
+          await ingestPathFromOps(path);
+        }
+      } else if (prompt.startsWith("/ingest show ")) {
+        const id = prompt.slice("/ingest show ".length).trim();
+        if (!id) {
+          appendLine("error", "Ingest show shortcut needs an artifact id.");
+        } else {
+          await showIngestFromOps(id);
+        }
+      } else if (prompt.startsWith("/ingest rerun ")) {
+        const id = prompt.slice("/ingest rerun ".length).trim();
+        if (!id) {
+          appendLine("error", "Ingest rerun shortcut needs an artifact id.");
+        } else {
+          await rerunIngestFromOps(id);
+        }
+      } else if (
+        prompt.startsWith("/ingest use ") ||
+        prompt.startsWith("/ingest include ")
+      ) {
+        const prefix = prompt.startsWith("/ingest use ")
+          ? "/ingest use "
+          : "/ingest include ";
+        const id = prompt.slice(prefix.length).trim();
+        if (!id) {
+          appendLine("error", "Ingest use shortcut needs an artifact id.");
+        } else {
+          includeIngestFromOps(id);
+        }
+      } else if (prompt.startsWith("/ingest preview ")) {
+        const id = prompt.slice("/ingest preview ".length).trim();
+        if (!id) {
+          appendLine("error", "Ingest preview shortcut needs an artifact id.");
+        } else {
+          await previewWithIngestFromOps(id);
+        }
+      } else if (prompt.startsWith("/ingest review ")) {
+        const review = parseIngestReviewShortcut(
+          prompt.slice("/ingest review ".length).trim(),
+        );
+        if (review) {
+          await reviewIngestFindingFromOps(review);
+        }
+      } else if (
+        prompt.startsWith("/ingest delete ") ||
+        prompt.startsWith("/ingest rm ") ||
+        prompt.startsWith("/ingest remove ")
+      ) {
+        const prefix = prompt.startsWith("/ingest delete ")
+          ? "/ingest delete "
+          : prompt.startsWith("/ingest remove ")
+            ? "/ingest remove "
+            : "/ingest rm ";
+        const id = prompt.slice(prefix.length).trim();
+        if (!id) {
+          appendLine("error", "Ingest delete shortcut needs an artifact id.");
+        } else {
+          await removeIngestFromOps(id);
+        }
+      } else {
+        appendLine(
+          "error",
+          "Ingest shortcut needs list, backends, add, show, rerun, use, preview, review, or delete.",
+        );
+      }
       return;
     }
 
@@ -5505,8 +5631,8 @@ export default function App() {
     }
   }
 
-  async function previewWithIngestFromOps() {
-    await previewWithIngest();
+  async function previewWithIngestFromOps(explicitId?: string) {
+    await previewWithIngest(explicitId);
   }
 
   async function openSkillFromPreview(
@@ -7056,8 +7182,8 @@ export default function App() {
     }
   }
 
-  async function ingestPathFromOps() {
-    const path = requireOpsValue("Ingest add");
+  async function ingestPathFromOps(explicitPath?: string) {
+    const path = explicitPath?.trim() || requireOpsValue("Ingest add");
     if (!path) return;
     const backend = ingestBackend.trim() || "local-v0";
     const visionModel = ingestVisionModel.trim() || null;
@@ -7096,8 +7222,8 @@ export default function App() {
     });
   }
 
-  async function rerunIngestFromOps() {
-    const id = requireOpsId("Ingest rerun");
+  async function rerunIngestFromOps(explicitId?: string) {
+    const id = explicitId?.trim() || requireOpsId("Ingest rerun");
     if (!id) return;
     await rerunIngestId(id);
   }
@@ -7138,8 +7264,8 @@ export default function App() {
     );
   }
 
-  async function showIngestFromOps() {
-    const id = requireOpsId("Ingest show");
+  async function showIngestFromOps(explicitId?: string) {
+    const id = explicitId?.trim() || requireOpsId("Ingest show");
     if (!id) return;
     try {
       const artifact =
@@ -7154,27 +7280,35 @@ export default function App() {
     }
   }
 
-  async function reviewIngestFindingFromOps() {
-    const id = requireOpsId("Review ingest");
+  async function reviewIngestFindingFromOps(
+    explicit?: {
+      id: string;
+      finding: number;
+      decision: IngestionFindingReviewDecision;
+      note: string | null;
+    },
+  ) {
+    const id = explicit?.id.trim() || requireOpsId("Review ingest");
     if (!id) return;
-    const finding = Number(ingestFindingIndex);
+    const finding = explicit?.finding ?? Number(ingestFindingIndex);
     if (!Number.isInteger(finding) || finding < 0) {
       appendLine("error", "Finding index must be a zero-based integer.");
       return;
     }
-    const note = ingestReviewNote.trim() || null;
+    const decision = explicit?.decision ?? ingestReviewDecision;
+    const note = explicit ? explicit.note : ingestReviewNote.trim() || null;
     try {
       const artifact =
         transport === "daemon"
           ? await daemonJson<IngestionArtifact>(`/ingest/${id}/review`, {
               finding,
-              decision: ingestReviewDecision,
+              decision,
               note,
             })
           : await invoke<IngestionArtifact>("ingest_review", {
               id,
               finding,
-              decision: ingestReviewDecision,
+              decision,
               note,
             });
       setIngestionArtifacts((artifacts) => upsertArtifact(artifacts, artifact));
@@ -7261,8 +7395,8 @@ export default function App() {
     }
   }
 
-  async function removeIngestFromOps() {
-    const id = requireOpsId("Ingest remove");
+  async function removeIngestFromOps(explicitId?: string) {
+    const id = explicitId?.trim() || requireOpsId("Ingest remove");
     if (!id) return;
     if (!confirmLocalChange(`Remove ingestion artifact ${id}`)) return;
     try {
@@ -7282,8 +7416,8 @@ export default function App() {
     }
   }
 
-  function includeIngestFromOps() {
-    const id = requireOpsId("Use ingest");
+  function includeIngestFromOps(explicitId?: string) {
+    const id = explicitId?.trim() || requireOpsId("Use ingest");
     if (!id) return;
     includeIngestId(id);
   }
@@ -11987,7 +12121,7 @@ export default function App() {
                 <button
                   type="button"
                   title="Include ingestion artifact Id in the next run context."
-                  onClick={includeIngestFromOps}
+                  onClick={() => includeIngestFromOps()}
                   disabled={running || !opsId.trim()}
                 >
                   Use Ingest

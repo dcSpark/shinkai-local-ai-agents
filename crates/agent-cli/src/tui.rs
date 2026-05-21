@@ -99,6 +99,7 @@ struct App {
     run_started_at: Option<Instant>,
     active_run_handle: Option<AbortHandle>,
     last_run_id: Option<RunId>,
+    pending_replay_comparison: Option<ReplayComparisonRequest>,
     pending_auto_compaction_run: Option<RunId>,
     selected_conversation_id: Option<String>,
     conversation_tree_index: Vec<String>,
@@ -434,6 +435,13 @@ struct ResumeSlashArgs {
 struct ReplaySlashArgs {
     run_id: RunId,
     no_hooks: bool,
+    compare_source: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ReplayComparisonRequest {
+    source_run_id: RunId,
+    replay_run_id: Option<RunId>,
 }
 
 fn start_resume_run(
@@ -637,24 +645,29 @@ fn start_replay_run(
     };
     app.transcript.push(TranscriptLine {
         kind: LineKind::User,
-        text: format!(
-            "/replay {}{}",
-            args.run_id.0,
-            if args.no_hooks { " --no-hooks" } else { "" }
-        ),
+        text: format!("/replay {}{}", args.run_id.0, replay_flags_text(&args)),
     });
     app.transcript.push(TranscriptLine {
         kind: LineKind::Event,
         text: format!(
-            "Replaying {} as agent {}{}",
+            "Replaying {} as agent {}{}{}",
             args.run_id.0,
             agent_id,
             if args.no_hooks {
                 " with lifecycle hooks skipped"
             } else {
                 ""
-            }
+            },
+            if args.compare_source {
+                "; will compare replay to source"
+            } else {
+                ""
+            },
         ),
+    });
+    app.pending_replay_comparison = args.compare_source.then_some(ReplayComparisonRequest {
+        source_run_id: args.run_id,
+        replay_run_id: None,
     });
     app.state = AppState::Running;
     app.tokens_in = 0;
@@ -711,9 +724,11 @@ fn parse_replay_slash_args(
 ) -> anyhow::Result<ReplaySlashArgs> {
     let mut run_id = None;
     let mut no_hooks = false;
+    let mut compare_source = false;
     for part in rest.split_whitespace() {
         match part {
             "--no-hooks" | "--skip-hooks" | "no-hooks" | "skip-hooks" => no_hooks = true,
+            "--compare-source" | "compare-source" => compare_source = true,
             "last" if run_id.is_none() => run_id = last_run_id,
             value if run_id.is_none() => run_id = Some(RunId(uuid::Uuid::parse_str(value)?)),
             other => anyhow::bail!("unexpected replay argument {other:?}"),
@@ -722,7 +737,26 @@ fn parse_replay_slash_args(
     let run_id = run_id
         .or(last_run_id)
         .ok_or_else(|| anyhow::anyhow!("replay needs a run id or a previous run"))?;
-    Ok(ReplaySlashArgs { run_id, no_hooks })
+    Ok(ReplaySlashArgs {
+        run_id,
+        no_hooks,
+        compare_source,
+    })
+}
+
+fn replay_flags_text(args: &ReplaySlashArgs) -> String {
+    let mut flags = Vec::new();
+    if args.no_hooks {
+        flags.push("--no-hooks");
+    }
+    if args.compare_source {
+        flags.push("--compare-source");
+    }
+    if flags.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", flags.join(" "))
+    }
 }
 
 fn trace_replay_source(run_id: RunId, events: &[RunEvent]) -> anyhow::Result<(String, String)> {
@@ -7171,6 +7205,11 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
     match &evt.kind {
         RunEventKind::RunStarted { .. } => {
             app.last_run_id = Some(evt.run_id);
+            if let Some(request) = app.pending_replay_comparison.as_mut()
+                && request.replay_run_id.is_none()
+            {
+                request.replay_run_id = Some(evt.run_id);
+            }
             app.pending_auto_compaction_run = None;
         }
         RunEventKind::ContextBuilt { snapshot } => {
@@ -7484,6 +7523,7 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
             app.run_started_at = None;
             app.active_run_handle = None;
             app.state = AppState::Idle;
+            maybe_append_replay_comparison(app, evt.run_id);
         }
         RunEventKind::RunCancelled { reason } => {
             app.transcript.push(TranscriptLine {
@@ -7494,6 +7534,7 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
             app.run_started_at = None;
             app.active_run_handle = None;
             app.state = AppState::Idle;
+            maybe_append_replay_comparison(app, evt.run_id);
         }
         RunEventKind::RunCompleted {
             final_output,
@@ -7524,6 +7565,7 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
             app.run_started_at = None;
             app.active_run_handle = None;
             app.state = AppState::Idle;
+            maybe_append_replay_comparison(app, evt.run_id);
         }
         RunEventKind::RunFailed { reason } => {
             app.transcript.push(TranscriptLine {
@@ -7534,7 +7576,40 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
             app.run_started_at = None;
             app.active_run_handle = None;
             app.state = AppState::Idle;
+            maybe_append_replay_comparison(app, evt.run_id);
         }
+    }
+}
+
+fn maybe_append_replay_comparison(app: &mut App, replay_run_id: RunId) {
+    let Some(request) = app.pending_replay_comparison else {
+        return;
+    };
+    if request.replay_run_id != Some(replay_run_id) {
+        return;
+    }
+    app.pending_replay_comparison = None;
+    let store = match open_event_store() {
+        Ok(store) => store,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Replay comparison failed: {err}"),
+            });
+            return;
+        }
+    };
+    match build_trace_comparison(request.source_run_id, replay_run_id, |id| {
+        store.try_events(id)
+    }) {
+        Ok(comparison) => app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: trace_compare_report(&comparison),
+        }),
+        Err(err) => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: format!("Replay comparison failed: {err}"),
+        }),
     }
 }
 
@@ -8103,8 +8178,8 @@ mod tests {
         assert_eq!(resume_slash_rest("/resumed"), None);
         assert_eq!(replay_slash_rest("/replay"), Some(""));
         assert_eq!(
-            replay_slash_rest("/replay last --no-hooks"),
-            Some("last --no-hooks")
+            replay_slash_rest("/replay last --no-hooks --compare-source"),
+            Some("last --no-hooks --compare-source")
         );
         assert_eq!(replay_slash_rest("/replayed"), None);
         assert_eq!(trace_slash_rest("/trace"), Some(""));
@@ -8250,14 +8325,19 @@ mod tests {
             parse_replay_slash_args(&format!("{} --no-hooks", explicit_run.0), None).unwrap();
         assert_eq!(explicit.run_id, explicit_run);
         assert!(explicit.no_hooks);
+        assert!(!explicit.compare_source);
 
-        let last = parse_replay_slash_args("last skip-hooks", Some(last_run)).unwrap();
+        let last =
+            parse_replay_slash_args("last skip-hooks --compare-source", Some(last_run)).unwrap();
         assert_eq!(last.run_id, last_run);
         assert!(last.no_hooks);
+        assert!(last.compare_source);
+        assert_eq!(replay_flags_text(&last), " --no-hooks --compare-source");
 
         let default_last = parse_replay_slash_args("", Some(last_run)).unwrap();
         assert_eq!(default_last.run_id, last_run);
         assert!(!default_last.no_hooks);
+        assert!(!default_last.compare_source);
 
         assert!(parse_replay_slash_args("", None).is_err());
         assert!(parse_replay_slash_args("last extra", Some(last_run)).is_err());

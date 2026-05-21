@@ -76,6 +76,7 @@ pub async fn run(
     let mut text = read_text(input)?;
 
     match parse_slash_command(&text)? {
+        Some(SlashCommand::Help) => return print_slash_help(json),
         Some(SlashCommand::Agent) => return explain_config(options.agent_id.clone(), json).await,
         Some(SlashCommand::ToolManual { name, input }) => {
             return call_tool(
@@ -7529,6 +7530,7 @@ pub(crate) fn record_memory_operation(
 }
 
 enum SlashCommand {
+    Help,
     Agent,
     ToolManual {
         name: String,
@@ -7552,6 +7554,9 @@ enum SlashCommand {
 
 fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
     let trimmed = text.trim();
+    if matches!(trimmed, "/help" | "/?") {
+        return Ok(Some(SlashCommand::Help));
+    }
     if trimmed == "/agent" {
         return Ok(Some(SlashCommand::Agent));
     }
@@ -7592,6 +7597,34 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         return Ok(Some(SlashCommand::ToolForced { name, prompt }));
     }
     Ok(None)
+}
+
+fn print_slash_help(json: bool) -> anyhow::Result<()> {
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "slash_help": headless_slash_help_text()
+            }))?
+        );
+    } else {
+        println!("{}", headless_slash_help_text());
+    }
+    Ok(())
+}
+
+fn headless_slash_help_text() -> &'static str {
+    "Headless slash commands:\n\
+     - /run <prompt-name> - use a saved prompt when available, otherwise run the literal text\n\
+     - /agent - print effective config and context provenance\n\
+     - /tool <name> [request] - force the model to call one visible tool\n\
+     - /tool! <name> <json> - call one native tool directly with manual JSON input\n\
+     - /python <code>, /typescript <code>, /ts <code> - call native code execution tools directly\n\
+     - /voice transcribe <path>, /voice speak <text> - call native voice tools directly\n\
+     - /x402 request|required|settle ... - call native x402 payment tools directly\n\
+     - /guide <run-id> <text> - inject guidance into an active run\n\
+     - /score <run-id> <0-10> [target] - record a quality score\n\
+     Use --json to print this help as JSON."
 }
 
 fn parse_tool_slash_rest(rest: &str) -> anyhow::Result<(String, String)> {
@@ -7802,6 +7835,21 @@ mod slash_tests {
         assert!(validate_remote_wait_options(1, Some(1)).is_ok());
         assert!(validate_remote_wait_options(0, None).is_err());
         assert!(validate_remote_wait_options(1, Some(0)).is_err());
+    }
+
+    #[test]
+    fn parses_headless_slash_help_exactly() {
+        for command in ["/help", "/?"] {
+            let parsed = parse_slash_command(command).unwrap();
+            assert!(matches!(parsed, Some(SlashCommand::Help)));
+        }
+        assert!(parse_slash_command("/helper").unwrap().is_none());
+
+        let help = headless_slash_help_text();
+        assert!(help.contains("/tool! <name> <json>"));
+        assert!(help.contains("/python <code>"));
+        assert!(help.contains("/voice transcribe <path>"));
+        assert!(help.contains("/x402 request"));
     }
 
     #[test]

@@ -4800,6 +4800,17 @@ export default function App() {
   async function deleteProfileFromOps(explicitId?: string) {
     const id = explicitId ?? requireOpsId("Profile delete");
     if (!id) return;
+    if (id === "main") {
+      appendLine("error", "The main profile cannot be deleted.");
+      return;
+    }
+    if (currentProfile?.id === id) {
+      appendLine(
+        "error",
+        `Profile ${id} is active; switch to another profile before deleting it.`,
+      );
+      return;
+    }
     if (!confirmLocalChange(`Delete profile ${id}`)) return;
     try {
       const result =
@@ -10455,9 +10466,20 @@ export default function App() {
                 <button
                   type="button"
                   className="danger"
-                  title="Delete profile Id."
+                  title={
+                    currentProfile?.id === opsId.trim()
+                      ? "The active profile cannot be deleted from this session."
+                      : opsId.trim() === "main"
+                        ? "The main profile cannot be deleted."
+                        : "Delete profile Id."
+                  }
                   onClick={() => void deleteProfileFromOps()}
-                  disabled={running || !opsId.trim()}
+                  disabled={
+                    running ||
+                    !opsId.trim() ||
+                    opsId.trim() === "main" ||
+                    currentProfile?.id === opsId.trim()
+                  }
                 >
                   Delete
                 </button>
@@ -10602,9 +10624,19 @@ export default function App() {
                         <button
                           type="button"
                           className="danger"
-                          title="Delete this profile."
+                          title={
+                            currentProfile?.id === profile.id
+                              ? "The active profile cannot be deleted from this session."
+                              : profile.id === "main"
+                                ? "The main profile cannot be deleted."
+                                : "Delete this profile."
+                          }
                           onClick={() => void deleteProfileFromOps(profile.id)}
-                          disabled={running || profile.id === "main"}
+                          disabled={
+                            running ||
+                            profile.id === "main" ||
+                            currentProfile?.id === profile.id
+                          }
                         >
                           Delete
                         </button>

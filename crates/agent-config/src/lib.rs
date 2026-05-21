@@ -1840,6 +1840,11 @@ impl ConfigResolver {
                 "main profile cannot be deleted".into(),
             ));
         }
+        if id == self.paths.active_profile_id() {
+            return Err(ConfigError::InvalidInput(
+                "active profile cannot be deleted; switch to another profile first".into(),
+            ));
+        }
         let dir = self.paths.profile_dir(id);
         if !dir.exists() {
             return Ok(false);
@@ -6869,6 +6874,14 @@ system_prompt = "Review carefully."
         assert_eq!(resolver.show_profile("research").unwrap(), profile);
         assert!(matches!(
             resolver.delete_profile("main").unwrap_err(),
+            ConfigError::InvalidInput(_)
+        ));
+        let active_research_resolver =
+            ConfigResolver::new(StoragePaths::new_with_profile(&dir, "research"));
+        assert!(matches!(
+            active_research_resolver
+                .delete_profile("research")
+                .unwrap_err(),
             ConfigError::InvalidInput(_)
         ));
         assert!(resolver.delete_profile("research").unwrap());

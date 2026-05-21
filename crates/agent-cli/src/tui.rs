@@ -934,6 +934,7 @@ fn global_slash_help_text() -> &'static str {
     "Slash commands:\n\
      - /tool <name> <request> - force one LLM-filled tool call\n\
      - /tool!<name> <json> - call a tool directly with manual JSON input\n\
+     - /python <code>, /typescript <code>, /ts <code> - call native code tools directly\n\
      - /preview <prompt> - inspect context before running\n\
      - /guide <text> - steer the active run at the next checkpoint\n\
      - /stop [--summarise|--discard] [reason] - stop the active run\n\
@@ -973,6 +974,10 @@ fn handle_slash_command(
     }
     if let Some(rest) = trimmed.strip_prefix("/tool!").map(str::trim) {
         start_manual_tool_call(app, rest, registry, agent, publish_tx);
+        return true;
+    }
+    if let Some((tool_name, code)) = code_slash_command(trimmed) {
+        start_code_tool_call(app, tool_name, code, registry, agent, publish_tx);
         return true;
     }
     if let Some(rest) = trimmed.strip_prefix("/tool ").map(str::trim) {
@@ -7346,6 +7351,22 @@ fn compare_slash_rest(trimmed: &str) -> Option<&str> {
     }
 }
 
+fn code_slash_command(trimmed: &str) -> Option<(&'static str, &str)> {
+    if trimmed == "/python" {
+        Some(("code_python", ""))
+    } else if let Some(rest) = trimmed.strip_prefix("/python ") {
+        Some(("code_python", rest.trim()))
+    } else if trimmed == "/typescript" || trimmed == "/ts" {
+        Some(("code_typescript", ""))
+    } else if let Some(rest) = trimmed.strip_prefix("/typescript ") {
+        Some(("code_typescript", rest.trim()))
+    } else {
+        trimmed
+            .strip_prefix("/ts ")
+            .map(|rest| ("code_typescript", rest.trim()))
+    }
+}
+
 fn start_manual_tool_call(
     app: &mut App,
     rest: &str,
@@ -7363,6 +7384,42 @@ fn start_manual_tool_call(
             return;
         }
     };
+    start_manual_tool_call_with_input(app, name, input, registry, agent, publish_tx);
+}
+
+fn start_code_tool_call(
+    app: &mut App,
+    tool_name: &str,
+    code: &str,
+    registry: &Arc<ToolRegistry>,
+    agent: &AgentConfig,
+    publish_tx: &UnboundedSender<RunEvent>,
+) {
+    if code.trim().is_empty() {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Code shortcut needs code text.".into(),
+        });
+        return;
+    }
+    start_manual_tool_call_with_input(
+        app,
+        tool_name.to_string(),
+        serde_json::json!({ "code": code }),
+        registry,
+        agent,
+        publish_tx,
+    );
+}
+
+fn start_manual_tool_call_with_input(
+    app: &mut App,
+    name: String,
+    input: serde_json::Value,
+    registry: &Arc<ToolRegistry>,
+    agent: &AgentConfig,
+    publish_tx: &UnboundedSender<RunEvent>,
+) {
     app.transcript.push(TranscriptLine {
         kind: LineKind::User,
         text: format!("/tool! {name} {input}"),
@@ -8850,6 +8907,19 @@ mod tests {
         assert!(help_slash_command("/help"));
         assert!(help_slash_command("/?"));
         assert!(!help_slash_command("/helper"));
+        assert_eq!(
+            code_slash_command("/python print(1)"),
+            Some(("code_python", "print(1)"))
+        );
+        assert_eq!(
+            code_slash_command("/typescript console.log(1)"),
+            Some(("code_typescript", "console.log(1)"))
+        );
+        assert_eq!(
+            code_slash_command("/ts console.log(1)"),
+            Some(("code_typescript", "console.log(1)"))
+        );
+        assert_eq!(code_slash_command("/pythonista print(1)"), None);
         assert_eq!(score_slash_rest("/score 7"), Some("7"));
         assert_eq!(score_slash_rest("/score"), Some(""));
         assert_eq!(score_slash_rest("/scoreboard 7"), None);
@@ -9119,6 +9189,7 @@ mod tests {
         let help = global_slash_help_text();
         assert!(help.contains("/tool <name> <request>"));
         assert!(help.contains("/tool!<name> <json>"));
+        assert!(help.contains("/python <code>"));
         assert!(help.contains("manual JSON input"));
         assert!(help.contains("/guide <text>"));
         assert!(help.contains("/conversation"));

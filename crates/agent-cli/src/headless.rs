@@ -106,6 +106,23 @@ pub async fn run(
         Some(SlashCommand::ResumePlan { run_id, from_event }) => {
             return resume_plan(run_id, from_event, json).await;
         }
+        Some(SlashCommand::Trace { run_id, view }) => {
+            return match view {
+                TraceSlashView::Events => trace_show(run_id, json).await,
+                TraceSlashView::Summary => trace_summary(run_id, json).await,
+                TraceSlashView::Tree => trace_tree(run_id, json).await,
+                TraceSlashView::Hooks => trace_hooks(run_id, json).await,
+            };
+        }
+        Some(SlashCommand::Compare {
+            primary_run_id,
+            compare_run_id,
+        }) => return trace_compare(primary_run_id, compare_run_id, json).await,
+        Some(SlashCommand::Replay {
+            run_id,
+            no_hooks,
+            compare_source,
+        }) => return trace_replay(run_id, demo, no_hooks, compare_source, json).await,
         Some(SlashCommand::Guide { run_id, text }) => return guide(run_id, text).await,
         Some(SlashCommand::Score {
             run_id,
@@ -7679,6 +7696,19 @@ enum SlashCommand {
         run_id: String,
         from_event: Option<u64>,
     },
+    Trace {
+        run_id: String,
+        view: TraceSlashView,
+    },
+    Compare {
+        primary_run_id: String,
+        compare_run_id: String,
+    },
+    Replay {
+        run_id: String,
+        no_hooks: bool,
+        compare_source: bool,
+    },
     Guide {
         run_id: String,
         text: String,
@@ -7688,6 +7718,14 @@ enum SlashCommand {
         score: f32,
         target: String,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TraceSlashView {
+    Events,
+    Summary,
+    Tree,
+    Hooks,
 }
 
 fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
@@ -7725,6 +7763,25 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         }
         let (run_id, from_event) = parse_resume_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Resume { run_id, from_event }));
+    }
+    if let Some(rest) = trimmed.strip_prefix("/trace ").map(str::trim) {
+        let (run_id, view) = parse_trace_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Trace { run_id, view }));
+    }
+    if let Some(rest) = trimmed.strip_prefix("/compare ").map(str::trim) {
+        let (primary_run_id, compare_run_id) = parse_compare_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Compare {
+            primary_run_id,
+            compare_run_id,
+        }));
+    }
+    if let Some(rest) = trimmed.strip_prefix("/replay ").map(str::trim) {
+        let (run_id, no_hooks, compare_source) = parse_replay_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Replay {
+            run_id,
+            no_hooks,
+            compare_source,
+        }));
     }
     if let Some(rest) = trimmed.strip_prefix("/guide ").map(str::trim) {
         let (run_id, text) = parse_guide_slash_rest(rest)?;
@@ -7786,6 +7843,7 @@ fn headless_slash_help_text() -> &'static str {
      - /voice transcribe <path>, /voice speak <text> - call native voice tools directly\n\
      - /x402 request|required|settle ... - call native x402 payment tools directly\n\
      - /resume <run-id> [--from-event N], /resume plan <run-id> [--from-event N]\n\
+     - /trace [summary|tree|hooks] <run-id>, /compare <run-id> <run-id>, /replay <run-id>\n\
      - /guide <run-id> <text> - inject guidance into an active run\n\
      - /score <run-id> <0-10> [target] - record a quality score\n\
      Use --json to print this help as JSON."
@@ -7926,6 +7984,62 @@ fn parse_positive_u64(value: &str, label: &str) -> anyhow::Result<u64> {
         anyhow::bail!("{label} needs a positive integer");
     }
     Ok(parsed)
+}
+
+fn parse_trace_slash_rest(rest: &str) -> anyhow::Result<(String, TraceSlashView)> {
+    let (first, tail) = rest
+        .trim()
+        .split_once(char::is_whitespace)
+        .map(|(first, tail)| (first.trim(), tail.trim()))
+        .unwrap_or((rest.trim(), ""));
+    let (view, run_id) = match first {
+        "summary" => (TraceSlashView::Summary, tail),
+        "tree" => (TraceSlashView::Tree, tail),
+        "hooks" => (TraceSlashView::Hooks, tail),
+        _ => (TraceSlashView::Events, first),
+    };
+    if run_id.is_empty() {
+        anyhow::bail!("usage: /trace [summary|tree|hooks] <run-id>");
+    }
+    let _ = uuid::Uuid::parse_str(run_id)?;
+    Ok((run_id.to_string(), view))
+}
+
+fn parse_compare_slash_rest(rest: &str) -> anyhow::Result<(String, String)> {
+    let mut parts = rest.split_whitespace();
+    let primary_run_id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("usage: /compare <primary-run-id> <compare-run-id>"))?
+        .to_string();
+    let compare_run_id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("usage: /compare <primary-run-id> <compare-run-id>"))?
+        .to_string();
+    if parts.next().is_some() {
+        anyhow::bail!("usage: /compare <primary-run-id> <compare-run-id>");
+    }
+    let _ = uuid::Uuid::parse_str(&primary_run_id)?;
+    let _ = uuid::Uuid::parse_str(&compare_run_id)?;
+    Ok((primary_run_id, compare_run_id))
+}
+
+fn parse_replay_slash_rest(rest: &str) -> anyhow::Result<(String, bool, bool)> {
+    let mut parts = rest.split_whitespace();
+    let run_id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("usage: /replay <run-id> [--no-hooks] [--compare-source]"))?
+        .to_string();
+    let _ = uuid::Uuid::parse_str(&run_id)?;
+    let mut no_hooks = false;
+    let mut compare_source = false;
+    for part in parts {
+        match part {
+            "--no-hooks" | "--skip-hooks" | "no-hooks" | "skip-hooks" => no_hooks = true,
+            "--compare-source" | "compare-source" => compare_source = true,
+            _ => anyhow::bail!("unknown replay option: {part}"),
+        }
+    }
+    Ok((run_id, no_hooks, compare_source))
 }
 
 fn parse_guide_slash_rest(rest: &str) -> anyhow::Result<(String, String)> {
@@ -8169,6 +8283,68 @@ mod slash_tests {
         }
         assert!(parse_slash_command("/resume nope").is_err());
         assert!(parse_slash_command(&format!("/resume {run_id} --from-event 0")).is_err());
+    }
+
+    #[test]
+    fn parses_trace_compare_and_replay_shortcuts() {
+        let primary = uuid::Uuid::new_v4().to_string();
+        let compare = uuid::Uuid::new_v4().to_string();
+
+        match parse_slash_command(&format!("/trace {primary}")).unwrap() {
+            Some(SlashCommand::Trace { run_id, view }) => {
+                assert_eq!(run_id, primary);
+                assert_eq!(view, TraceSlashView::Events);
+            }
+            _ => panic!("expected trace shortcut"),
+        }
+        match parse_slash_command(&format!("/trace summary {primary}")).unwrap() {
+            Some(SlashCommand::Trace { run_id, view }) => {
+                assert_eq!(run_id, primary);
+                assert_eq!(view, TraceSlashView::Summary);
+            }
+            _ => panic!("expected trace summary shortcut"),
+        }
+        match parse_slash_command(&format!("/trace tree {primary}")).unwrap() {
+            Some(SlashCommand::Trace { run_id, view }) => {
+                assert_eq!(run_id, primary);
+                assert_eq!(view, TraceSlashView::Tree);
+            }
+            _ => panic!("expected trace tree shortcut"),
+        }
+        match parse_slash_command(&format!("/trace hooks {primary}")).unwrap() {
+            Some(SlashCommand::Trace { run_id, view }) => {
+                assert_eq!(run_id, primary);
+                assert_eq!(view, TraceSlashView::Hooks);
+            }
+            _ => panic!("expected trace hooks shortcut"),
+        }
+        match parse_slash_command(&format!("/compare {primary} {compare}")).unwrap() {
+            Some(SlashCommand::Compare {
+                primary_run_id,
+                compare_run_id,
+            }) => {
+                assert_eq!(primary_run_id, primary);
+                assert_eq!(compare_run_id, compare);
+            }
+            _ => panic!("expected compare shortcut"),
+        }
+        match parse_slash_command(&format!("/replay {primary} --no-hooks --compare-source"))
+            .unwrap()
+        {
+            Some(SlashCommand::Replay {
+                run_id,
+                no_hooks,
+                compare_source,
+            }) => {
+                assert_eq!(run_id, primary);
+                assert!(no_hooks);
+                assert!(compare_source);
+            }
+            _ => panic!("expected replay shortcut"),
+        }
+        assert!(parse_slash_command("/trace summary").is_err());
+        assert!(parse_slash_command(&format!("/compare {primary}")).is_err());
+        assert!(parse_slash_command(&format!("/replay {primary} --mystery")).is_err());
     }
 
     #[test]

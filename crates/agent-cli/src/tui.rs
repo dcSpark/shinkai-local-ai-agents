@@ -34,7 +34,8 @@ use agent_capabilities::{
 };
 use agent_compaction::{CompactionRecord, CompactionStore};
 use agent_config::{
-    AgentSummary, ConfigResolver, ProfileGrantKind, ProfileSummary, configured_model_providers,
+    AgentConfigFile, AgentSummary, ConfigResolver, ProfileGrantKind, ProfileSummary,
+    configured_model_providers,
 };
 use agent_conversations::{
     ConversationMessage, ConversationPolicy, ConversationStore, ConversationTreeNode,
@@ -4408,6 +4409,7 @@ fn handle_agents_slash(app: &mut App, rest: &str) {
             text: [
                 "/agents list",
                 "/agents show <id>",
+                "/agents save <id> <system prompt>",
                 "/agents export <id> <path>",
                 "/agents import <path>",
                 "/agents delete <id> --confirm",
@@ -4453,6 +4455,34 @@ fn handle_agents_slash(app: &mut App, rest: &str) {
                     text: format!("Agent show failed: {err}"),
                 }),
             },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "save" => match agent_save_args(args) {
+            Ok((id, system_prompt)) => {
+                let agent = AgentConfigFile {
+                    id: id.into(),
+                    name: id.into(),
+                    system_prompt: system_prompt.into(),
+                    ..AgentConfigFile::default()
+                };
+                match ConfigResolver::from_env().save_agent_config(&agent) {
+                    Ok(saved) => {
+                        push_event(app, format!("Saved agent {}.", saved.id));
+                        app.transcript.push(TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&saved)
+                                .unwrap_or_else(|_| "<unserializable agent config>".into()),
+                        });
+                    }
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Agent save failed: {err}"),
+                    }),
+                }
+            }
             Err(err) => app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
                 text: err.to_string(),
@@ -4524,7 +4554,7 @@ fn handle_agents_slash(app: &mut App, rest: &str) {
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Agents command needs list, show, export, import, delete, or help.".into(),
+            text: "Agents command needs list, show, save, export, import, delete, or help.".into(),
         }),
     }
 }
@@ -4544,6 +4574,21 @@ fn agent_path_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
         anyhow::bail!("agents {command} accepts exactly one path");
     }
     Ok(path)
+}
+
+fn agent_save_args(args: &str) -> anyhow::Result<(&str, &str)> {
+    let trimmed = args.trim();
+    let (id, system_prompt) = trimmed
+        .split_once(char::is_whitespace)
+        .map(|(id, system_prompt)| (id.trim(), system_prompt.trim()))
+        .unwrap_or((trimmed, ""));
+    if id.is_empty() {
+        anyhow::bail!("agents save needs an agent id");
+    }
+    if system_prompt.is_empty() {
+        anyhow::bail!("agents save needs a system prompt");
+    }
+    Ok((id, system_prompt))
 }
 
 fn agent_export_args(args: &str) -> anyhow::Result<(&str, &str)> {
@@ -8619,6 +8664,12 @@ mod tests {
 
     #[test]
     fn agent_args_require_expected_id_path_and_confirmation() {
+        assert_eq!(
+            agent_save_args("research You are a careful researcher.").unwrap(),
+            ("research", "You are a careful researcher.")
+        );
+        assert!(agent_save_args("").is_err());
+        assert!(agent_save_args("research").is_err());
         assert_eq!(
             agent_export_args("research ./agent.toml").unwrap(),
             ("research", "./agent.toml")

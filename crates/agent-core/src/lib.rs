@@ -2076,6 +2076,7 @@ impl Harness {
                 "payment": descriptor.permissions.payment,
                 "browser_profile": descriptor.permissions.browser_profile,
                 "approval_required": tool_requires_approval(descriptor),
+                "connector_isolation": tool_connector_isolation_audit(descriptor),
                 "sandbox": sandbox
             })
         })
@@ -2583,6 +2584,66 @@ fn tool_requires_approval(descriptor: &agent_tools::ToolDescriptor) -> bool {
         || descriptor.permissions.wallet
         || descriptor.permissions.payment
         || descriptor.permissions.browser_profile
+}
+
+fn tool_connector_isolation_audit(descriptor: &agent_tools::ToolDescriptor) -> Value {
+    let connector_kind = tool_connector_kind(descriptor);
+    let connector_scoped = connector_kind != "native";
+    let credential_boundary = if descriptor.permissions.secrets {
+        "secret handles are resolved outside LLM-visible input and redacted in trace payloads"
+    } else {
+        "no secret permission declared"
+    };
+    let notes = if connector_scoped {
+        vec![
+            "connector capabilities are normalized into harness ToolDescriptor records before execution",
+            "tool/category allowlists, approval gates, permission audits, and sandbox posture still apply",
+        ]
+    } else {
+        vec!["native harness tool descriptor; connector-specific isolation is not required"]
+    };
+
+    json!({
+        "connector_scoped": connector_scoped,
+        "connector_kind": connector_kind,
+        "provenance": descriptor.provenance.as_deref(),
+        "credential_boundary": credential_boundary,
+        "policy_boundaries": [
+            "tool/category allowlists",
+            "approval gates",
+            "permission audit",
+            "sandbox posture",
+            "secret redaction"
+        ],
+        "notes": notes
+    })
+}
+
+fn tool_connector_kind(descriptor: &agent_tools::ToolDescriptor) -> &'static str {
+    if descriptor_has_category(descriptor, "mcp") {
+        "mcp"
+    } else if descriptor_has_category(descriptor, "a2a") {
+        "a2a_external_agent"
+    } else if descriptor_has_category(descriptor, "http-json") {
+        "http_json_external_agent"
+    } else if descriptor_has_category(descriptor, "external-agent") {
+        "external_agent"
+    } else if descriptor.provenance.as_deref().is_some_and(|provenance| {
+        provenance.contains("adapter_package=")
+            || provenance.contains("capability_draft=")
+            || provenance.contains("draft_id=")
+    }) {
+        "adapter"
+    } else {
+        "native"
+    }
+}
+
+fn descriptor_has_category(descriptor: &agent_tools::ToolDescriptor, category: &str) -> bool {
+    descriptor
+        .categories
+        .iter()
+        .any(|value| value.eq_ignore_ascii_case(category))
 }
 
 fn contains_secret_marker(value: &Value) -> bool {
@@ -7301,6 +7362,21 @@ JSON
 
         assert_eq!(result.final_output, "parent output");
         let parent_events = h.events(result.run_id);
+        assert!(parent_events.iter().any(|event| matches!(
+            &event.kind,
+            RunEventKind::ToolCallProposed {
+                permissions: Some(permissions),
+                ..
+            } if permissions["network"] == true
+                && permissions["connector_isolation"]["connector_scoped"] == true
+                && permissions["connector_isolation"]["connector_kind"] == "a2a_external_agent"
+                && permissions["connector_isolation"]["provenance"] == "adapter:test"
+                && permissions["connector_isolation"]["policy_boundaries"]
+                    .as_array()
+                    .is_some_and(|boundaries| boundaries
+                        .iter()
+                        .any(|boundary| boundary.as_str() == Some("approval gates")))
+        )));
         let child_run_id = parent_events
             .iter()
             .find_map(|event| match &event.kind {

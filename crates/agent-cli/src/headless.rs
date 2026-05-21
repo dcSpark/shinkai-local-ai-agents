@@ -71,13 +71,19 @@ pub async fn run(
     input: Option<String>,
     json: bool,
     demo: Demo,
-    options: setup::RuntimeOptions,
+    mut options: setup::RuntimeOptions,
 ) -> anyhow::Result<()> {
     let mut text = read_text(input)?;
 
     match parse_slash_command(&text)? {
         Some(SlashCommand::Help) => return print_slash_help(json),
-        Some(SlashCommand::Agent) => return explain_config(options.agent_id.clone(), json).await,
+        Some(SlashCommand::Agent(agent_id)) => {
+            return explain_config(agent_id.or(options.agent_id.clone()), json).await;
+        }
+        Some(SlashCommand::AgentRun { agent_id, prompt }) => {
+            options.agent_id = Some(agent_id);
+            text = prompt;
+        }
         Some(SlashCommand::ToolManual { name, input }) => {
             return call_tool(
                 name,
@@ -7645,7 +7651,11 @@ pub(crate) fn record_memory_operation(
 
 enum SlashCommand {
     Help,
-    Agent,
+    Agent(Option<String>),
+    AgentRun {
+        agent_id: String,
+        prompt: String,
+    },
     ToolManual {
         name: String,
         input: String,
@@ -7672,7 +7682,20 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         return Ok(Some(SlashCommand::Help));
     }
     if trimmed == "/agent" {
-        return Ok(Some(SlashCommand::Agent));
+        return Ok(Some(SlashCommand::Agent(None)));
+    }
+    if let Some(rest) = trimmed.strip_prefix("/agent ").map(str::trim) {
+        let (agent_id, prompt) = rest
+            .split_once(char::is_whitespace)
+            .map(|(agent_id, prompt)| (agent_id.trim().to_string(), prompt.trim().to_string()))
+            .unwrap_or_else(|| (rest.to_string(), String::new()));
+        if agent_id.is_empty() {
+            anyhow::bail!("agent shortcut needs an agent id");
+        }
+        if prompt.is_empty() {
+            return Ok(Some(SlashCommand::Agent(Some(agent_id))));
+        }
+        return Ok(Some(SlashCommand::AgentRun { agent_id, prompt }));
     }
     if let Some(rest) = trimmed.strip_prefix("/run ") {
         return Ok(Some(SlashCommand::Run(rest.trim().to_string())));
@@ -7730,7 +7753,7 @@ fn print_slash_help(json: bool) -> anyhow::Result<()> {
 fn headless_slash_help_text() -> &'static str {
     "Headless slash commands:\n\
      - /run <prompt-name> - use a saved prompt when available, otherwise run the literal text\n\
-     - /agent - print effective config and context provenance\n\
+     - /agent [id] [prompt] - inspect config, or run a prompt with a specific saved agent\n\
      - /tool <name> [request] - force the model to call one visible tool\n\
      - /tool! <name> <json> - call one native tool directly with manual JSON input\n\
      - /python <code>, /typescript <code>, /ts <code> - call native code execution tools directly\n\
@@ -7964,6 +7987,7 @@ mod slash_tests {
         assert!(help.contains("/python <code>"));
         assert!(help.contains("/voice transcribe <path>"));
         assert!(help.contains("/x402 request"));
+        assert!(help.contains("/agent [id] [prompt]"));
     }
 
     #[test]
@@ -8019,6 +8043,26 @@ mod slash_tests {
         assert!(summary.contains("Recent trace events:"));
 
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn parses_agent_shortcut_for_inspection_and_one_shot_run() {
+        assert!(matches!(
+            parse_slash_command("/agent").unwrap(),
+            Some(SlashCommand::Agent(None))
+        ));
+        match parse_slash_command("/agent critic").unwrap() {
+            Some(SlashCommand::Agent(Some(agent_id))) => assert_eq!(agent_id, "critic"),
+            _ => panic!("expected agent inspection shortcut"),
+        }
+        match parse_slash_command("/agent critic review this patch").unwrap() {
+            Some(SlashCommand::AgentRun { agent_id, prompt }) => {
+                assert_eq!(agent_id, "critic");
+                assert_eq!(prompt, "review this patch");
+            }
+            _ => panic!("expected one-shot agent run shortcut"),
+        }
+        assert!(parse_slash_command("/agents critic").unwrap().is_none());
     }
 
     #[test]

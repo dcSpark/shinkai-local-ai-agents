@@ -143,6 +143,8 @@ struct RunOptions {
     output_cost_per_million: Option<f64>,
     enable_shell: bool,
     enable_subagent: bool,
+    max_subagent_depth: Option<u32>,
+    max_recursion_depth: Option<u32>,
     enable_capability_drafts: bool,
     load_memory: bool,
     memory_backend: Option<String>,
@@ -188,6 +190,8 @@ impl Default for RunOptions {
             output_cost_per_million: None,
             enable_shell: false,
             enable_subagent: false,
+            max_subagent_depth: None,
+            max_recursion_depth: None,
             enable_capability_drafts: false,
             load_memory: false,
             memory_backend: None,
@@ -752,6 +756,12 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
     if options.output_cost_per_million.is_some() {
         agent.cost_policy.output_cost_per_million = options.output_cost_per_million;
     }
+    if let Some(depth) = options.max_subagent_depth {
+        agent.execution_policy.max_subagent_depth = depth;
+    }
+    if let Some(depth) = options.max_recursion_depth {
+        agent.execution_policy.max_recursion_depth = depth;
+    }
     if options.enable_prompt_refinement {
         agent.prompt_refinement = Some(PromptRefinement {
             instructions: options
@@ -1302,6 +1312,18 @@ mod tauri_slash_tests {
             agent.tool_policy.allowed_tools,
             vec![ToolId::from("echo"), ToolId::from("shell")]
         );
+    }
+
+    #[test]
+    fn build_agent_applies_runtime_subagent_depth_limits() {
+        let options = RunOptions {
+            max_subagent_depth: Some(3),
+            max_recursion_depth: Some(2),
+            ..RunOptions::default()
+        };
+        let agent = build_agent(&options);
+        assert_eq!(agent.execution_policy.max_subagent_depth, 3);
+        assert_eq!(agent.execution_policy.max_recursion_depth, 2);
     }
 
     #[test]

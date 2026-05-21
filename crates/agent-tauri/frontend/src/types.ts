@@ -327,6 +327,8 @@ export type AgentConfigFile = {
   allowed_tools?: string[] | null;
   allowed_tool_categories?: string[] | null;
   allowed_skill_categories?: string[] | null;
+  max_subagent_depth?: number | null;
+  max_recursion_depth?: number | null;
 };
 
 export type AgentSummary = {
@@ -544,6 +546,8 @@ export type RunOptions = {
   skill_visibility: ToolVisibility | null;
   enable_shell: boolean;
   enable_subagent: boolean;
+  max_subagent_depth: number | null;
+  max_recursion_depth: number | null;
   enable_capability_drafts: boolean;
   load_memory: boolean;
   memory_backend: string | null;

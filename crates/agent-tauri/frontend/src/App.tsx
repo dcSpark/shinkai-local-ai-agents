@@ -462,6 +462,8 @@ export default function App() {
   const [skillVisibility, setSkillVisibility] = useState<ToolVisibility | "">("");
   const [enableShell, setEnableShell] = useState(false);
   const [enableSubagent, setEnableSubagent] = useState(false);
+  const [maxSubagentDepth, setMaxSubagentDepth] = useState("");
+  const [maxRecursionDepth, setMaxRecursionDepth] = useState("");
   const [enableCapabilityDrafts, setEnableCapabilityDrafts] = useState(false);
   const [capabilityDraftGuidance, setCapabilityDraftGuidance] = useState("");
   const [loadMemory, setLoadMemory] = useState(false);
@@ -1025,6 +1027,8 @@ export default function App() {
       skill_visibility: skillVisibility || null,
       enable_shell: enableShell,
       enable_subagent: enableSubagent,
+      max_subagent_depth: parseOptionalNonNegativeInt(maxSubagentDepth),
+      max_recursion_depth: parseOptionalNonNegativeInt(maxRecursionDepth),
       enable_capability_drafts: enableCapabilityDrafts,
       load_memory: loadMemory,
       memory_backend: memoryBackend.trim() || null,
@@ -6980,6 +6984,8 @@ export default function App() {
       numberControlValue(doc.max_compaction_output_tokens),
     );
     setCompactionGuidance(doc.compaction_guidance ?? "");
+    setMaxSubagentDepth(numberControlValue(doc.max_subagent_depth));
+    setMaxRecursionDepth(numberControlValue(doc.max_recursion_depth));
     setStopRetentionMode(doc.stop_retention_mode ?? null);
     setEnableCapabilityDrafts(doc.capability_drafts_enabled === true);
     setCapabilityDraftGuidance(doc.capability_draft_guidance ?? "");
@@ -7036,6 +7042,8 @@ export default function App() {
         maxCompactionOutputTokens,
       ),
       compaction_guidance: compactionGuidance.trim() || null,
+      max_subagent_depth: parseOptionalNonNegativeInt(maxSubagentDepth),
+      max_recursion_depth: parseOptionalNonNegativeInt(maxRecursionDepth),
       stop_retention_mode: stopRetentionMode,
       capability_drafts_enabled: enableCapabilityDrafts || null,
       capability_draft_guidance: capabilityDraftGuidance.trim() || null,
@@ -11969,6 +11977,30 @@ export default function App() {
             />
             <span>Subagent</span>
           </label>
+          <label>
+            Max subagent depth
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={maxSubagentDepth}
+              onChange={(e) => setMaxSubagentDepth(e.target.value)}
+              placeholder="config"
+              disabled={running}
+            />
+          </label>
+          <label>
+            Max recursion depth
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={maxRecursionDepth}
+              onChange={(e) => setMaxRecursionDepth(e.target.value)}
+              placeholder="config"
+              disabled={running}
+            />
+          </label>
           <label className="switch">
             <input
               type="checkbox"
@@ -15219,6 +15251,12 @@ export default function App() {
                             ) : null}
                             {doc.allowed_tools?.length ? (
                               <span>allowed tools {doc.allowed_tools.join(", ")}</span>
+                            ) : null}
+                            {doc.max_subagent_depth != null ||
+                            doc.max_recursion_depth != null ? (
+                              <span>
+                                {`subagents depth ${doc.max_subagent_depth ?? "default"} / recursion ${doc.max_recursion_depth ?? "default"}`}
+                              </span>
                             ) : null}
                             <span>
                               {doc.memory_backend

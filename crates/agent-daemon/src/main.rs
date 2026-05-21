@@ -5689,6 +5689,8 @@ struct DaemonRuntimeOptions {
     enable_shell: bool,
     #[serde(default)]
     enable_subagent: bool,
+    max_subagent_depth: Option<u32>,
+    max_recursion_depth: Option<u32>,
     #[serde(default)]
     enable_capability_drafts: bool,
     #[serde(default)]
@@ -6497,6 +6499,12 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
     if options.output_cost_per_million.is_some() {
         agent.cost_policy.output_cost_per_million = options.output_cost_per_million;
     }
+    if let Some(depth) = options.max_subagent_depth {
+        agent.execution_policy.max_subagent_depth = depth;
+    }
+    if let Some(depth) = options.max_recursion_depth {
+        agent.execution_policy.max_recursion_depth = depth;
+    }
     if options.enable_prompt_refinement {
         agent.prompt_refinement = Some(PromptRefinement {
             instructions: options
@@ -6840,6 +6848,18 @@ mod tests {
             agent.tool_policy.allowed_tools,
             vec![ToolId::from("echo"), ToolId::from("shell")]
         );
+    }
+
+    #[test]
+    fn build_agent_applies_runtime_subagent_depth_limits() {
+        let options = DaemonRuntimeOptions {
+            max_subagent_depth: Some(3),
+            max_recursion_depth: Some(2),
+            ..DaemonRuntimeOptions::default()
+        };
+        let agent = build_agent(&options);
+        assert_eq!(agent.execution_policy.max_subagent_depth, 3);
+        assert_eq!(agent.execution_policy.max_recursion_depth, 2);
     }
 
     #[test]

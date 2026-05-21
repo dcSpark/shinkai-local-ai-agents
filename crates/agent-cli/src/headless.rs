@@ -159,6 +159,15 @@ pub async fn run(
                 ConversationSlashCommand::Usage { id, from, to, last } => {
                     conversation_usage(id, from, to, last, json).await
                 }
+                ConversationSlashCommand::Delete { id, options } => {
+                    conversation_delete(id, options).await
+                }
+                ConversationSlashCommand::DeleteRange { id, from, to } => {
+                    conversation_delete_range(id, from, to).await
+                }
+                ConversationSlashCommand::DeleteAgent { agent, options } => {
+                    conversation_delete_agent(agent, options).await
+                }
             };
         }
         Some(SlashCommand::Secrets(command)) => {
@@ -7938,6 +7947,19 @@ enum ConversationSlashCommand {
         to: Option<usize>,
         last: Option<usize>,
     },
+    Delete {
+        id: String,
+        options: ConversationDeleteOptions,
+    },
+    DeleteRange {
+        id: String,
+        from: usize,
+        to: usize,
+    },
+    DeleteAgent {
+        agent: String,
+        options: ConversationDeleteOptions,
+    },
 }
 
 enum SecretsSlashCommand {
@@ -8278,7 +8300,7 @@ fn headless_slash_help_text() -> &'static str {
      - /storage report, /storage prune-cache <days> [--apply]\n\
      - /bundles export <path>, /bundles import <path> --confirm\n\
      - /profiles current|list|show|create|delete|grants|grant|revoke\n\
-     - /conversation list|tree|show|recover|usage\n\
+     - /conversation list|tree|show|recover|usage|delete|range-delete|delete-agent\n\
      - /secrets backends|list|show|delete\n\
      - /ingest list|backends|add|probe-vision|rerun|show|review|delete\n\
      - /artifacts list|show|open|delete\n\
@@ -8732,7 +8754,12 @@ fn parse_conversation_slash_rest(rest: &str) -> anyhow::Result<ConversationSlash
             Ok(ConversationSlashCommand::Recover { id })
         }
         "usage" => parse_conversation_usage_args(parts),
-        _ => anyhow::bail!("conversation shortcut needs list, tree, show, recover, or usage"),
+        "delete" | "rm" => parse_conversation_delete_args(parts),
+        "range-delete" | "delete-range" => parse_conversation_delete_range_args(parts),
+        "delete-agent" => parse_conversation_delete_agent_args(parts),
+        _ => anyhow::bail!(
+            "conversation shortcut needs list, tree, show, recover, usage, delete, range-delete, or delete-agent"
+        ),
     }
 }
 
@@ -8788,6 +8815,134 @@ fn parse_conversation_usage_args<'a>(
         }
     }
     Ok(ConversationSlashCommand::Usage { id, from, to, last })
+}
+
+fn parse_conversation_delete_args<'a>(
+    mut parts: impl Iterator<Item = &'a str>,
+) -> anyhow::Result<ConversationSlashCommand> {
+    let id = next_required(&mut parts, "usage: /conversation delete <id> --confirm")?;
+    let options = parse_conversation_delete_options(parts, "delete")?;
+    Ok(ConversationSlashCommand::Delete { id, options })
+}
+
+fn parse_conversation_delete_agent_args<'a>(
+    mut parts: impl Iterator<Item = &'a str>,
+) -> anyhow::Result<ConversationSlashCommand> {
+    let agent = next_required(
+        &mut parts,
+        "usage: /conversation delete-agent <agent> --confirm",
+    )?;
+    let options = parse_conversation_delete_options(parts, "delete-agent")?;
+    Ok(ConversationSlashCommand::DeleteAgent { agent, options })
+}
+
+fn parse_conversation_delete_options<'a>(
+    mut parts: impl Iterator<Item = &'a str>,
+    action: &str,
+) -> anyhow::Result<ConversationDeleteOptions> {
+    let mut confirmed = false;
+    let mut options = ConversationDeleteOptions {
+        recursive: false,
+        compact_first: false,
+        compact_guidance: None,
+        compact_max_output_tokens: 512,
+        memory_first: false,
+        memory_user: false,
+    };
+    while let Some(part) = parts.next() {
+        match part {
+            "--confirm" => confirmed = true,
+            "--recursive" => options.recursive = true,
+            "--compact-first" => options.compact_first = true,
+            "--compact-guidance" => {
+                options.compact_guidance =
+                    Some(next_required(&mut parts, "--compact-guidance needs text")?);
+            }
+            _ if part.starts_with("--compact-guidance=") => {
+                options.compact_guidance = Some(required_option_value(part, "--compact-guidance")?);
+            }
+            "--compact-max-output-tokens" => {
+                options.compact_max_output_tokens = parse_positive_u32(
+                    &next_required(&mut parts, "--compact-max-output-tokens needs a value")?,
+                    "--compact-max-output-tokens",
+                )?;
+            }
+            _ if part.starts_with("--compact-max-output-tokens=") => {
+                options.compact_max_output_tokens = parse_positive_u32(
+                    &required_option_value(part, "--compact-max-output-tokens")?,
+                    "--compact-max-output-tokens",
+                )?;
+            }
+            "--memory-first" => options.memory_first = true,
+            "--memory-user" => options.memory_user = true,
+            _ => anyhow::bail!("unknown conversation {action} option: {part}"),
+        }
+    }
+    if !confirmed {
+        anyhow::bail!("conversation {action} requires --confirm");
+    }
+    Ok(options)
+}
+
+fn parse_conversation_delete_range_args<'a>(
+    mut parts: impl Iterator<Item = &'a str>,
+) -> anyhow::Result<ConversationSlashCommand> {
+    let id = next_required(
+        &mut parts,
+        "usage: /conversation range-delete <id> <from>:<to> --confirm",
+    )?;
+    let mut from = None;
+    let mut to = None;
+    let mut confirmed = false;
+    while let Some(part) = parts.next() {
+        match part {
+            "--confirm" => confirmed = true,
+            "--from" => {
+                from = Some(parse_nonnegative_usize(
+                    &next_required(&mut parts, "--from needs an index")?,
+                    "--from",
+                )?);
+            }
+            _ if part.starts_with("--from=") => {
+                from = Some(parse_nonnegative_usize(
+                    &required_option_value(part, "--from")?,
+                    "--from",
+                )?);
+            }
+            "--to" => {
+                to = Some(parse_nonnegative_usize(
+                    &next_required(&mut parts, "--to needs an index")?,
+                    "--to",
+                )?);
+            }
+            _ if part.starts_with("--to=") => {
+                to = Some(parse_nonnegative_usize(
+                    &required_option_value(part, "--to")?,
+                    "--to",
+                )?);
+            }
+            _ if !part.starts_with("--") && part.contains(':') => {
+                if from.is_some() || to.is_some() {
+                    anyhow::bail!("conversation range-delete range specified twice");
+                }
+                let (range_from, range_to) = parse_memory_message_range(part)?;
+                from = Some(range_from);
+                to = Some(range_to);
+            }
+            _ => anyhow::bail!("unknown conversation range-delete option: {part}"),
+        }
+    }
+    if !confirmed {
+        anyhow::bail!("conversation range-delete requires --confirm");
+    }
+    let from = from
+        .ok_or_else(|| anyhow::anyhow!("conversation range-delete requires --from or from:to"))?;
+    let to =
+        to.ok_or_else(|| anyhow::anyhow!("conversation range-delete requires --to or from:to"))?;
+    if to < from {
+        anyhow::bail!("conversation range-delete end must be greater than or equal to start");
+    }
+    Ok(ConversationSlashCommand::DeleteRange { id, from, to })
 }
 
 fn secrets_slash_rest(trimmed: &str) -> Option<&str> {
@@ -9135,6 +9290,14 @@ fn parse_u32_value(value: &str, label: &str) -> anyhow::Result<u32> {
     value
         .parse::<u32>()
         .map_err(|_| anyhow::anyhow!("{label} needs a non-negative integer"))
+}
+
+fn parse_positive_u32(value: &str, label: &str) -> anyhow::Result<u32> {
+    let parsed = parse_u32_value(value, label)?;
+    if parsed == 0 {
+        anyhow::bail!("{label} needs a positive integer");
+    }
+    Ok(parsed)
 }
 
 #[derive(Default)]
@@ -10087,6 +10250,59 @@ mod slash_tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn parses_conversation_delete_shortcuts() {
+        match parse_slash_command(
+            "/conversation delete convo-1 --recursive --compact-first --compact-guidance keep --compact-max-output-tokens 256 --memory-first --memory-user --confirm",
+        )
+        .unwrap()
+        {
+            Some(SlashCommand::Conversation(ConversationSlashCommand::Delete {
+                id,
+                options,
+            })) => {
+                assert_eq!(id, "convo-1");
+                assert!(options.recursive);
+                assert!(options.compact_first);
+                assert_eq!(options.compact_guidance.as_deref(), Some("keep"));
+                assert_eq!(options.compact_max_output_tokens, 256);
+                assert!(options.memory_first);
+                assert!(options.memory_user);
+            }
+            _ => panic!("expected conversation delete shortcut"),
+        }
+        match parse_slash_command("/conversation range-delete convo-1 1:3 --confirm").unwrap() {
+            Some(SlashCommand::Conversation(ConversationSlashCommand::DeleteRange {
+                id,
+                from,
+                to,
+            })) => {
+                assert_eq!(id, "convo-1");
+                assert_eq!(from, 1);
+                assert_eq!(to, 3);
+            }
+            _ => panic!("expected conversation range-delete shortcut"),
+        }
+        match parse_slash_command(
+            "/conversation delete-agent critic --recursive --memory-first --confirm",
+        )
+        .unwrap()
+        {
+            Some(SlashCommand::Conversation(ConversationSlashCommand::DeleteAgent {
+                agent,
+                options,
+            })) => {
+                assert_eq!(agent, "critic");
+                assert!(options.recursive);
+                assert!(options.memory_first);
+            }
+            _ => panic!("expected conversation delete-agent shortcut"),
+        }
+        assert!(parse_slash_command("/conversation delete convo-1").is_err());
+        assert!(parse_slash_command("/conversation range-delete convo-1 3:1 --confirm").is_err());
+        assert!(parse_slash_command("/conversation delete-agent critic").is_err());
     }
 
     #[test]

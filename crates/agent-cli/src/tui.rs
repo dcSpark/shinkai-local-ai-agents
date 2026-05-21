@@ -5778,6 +5778,7 @@ fn handle_skills_slash(app: &mut App, rest: &str) {
             text: [
                 "/skills list",
                 "/skills show <id>",
+                "/skills inspect <id>",
                 "/skills import-openclaw <path>",
                 "/skills import-doc <path>",
                 "/skills export <id> <path>",
@@ -5882,7 +5883,7 @@ fn handle_skills_slash(app: &mut App, rest: &str) {
         "allow" | "quarantine" => handle_skill_review_slash(app, command, args),
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Skills command needs list, show, import-openclaw, import-doc, export, allow, quarantine, or help.".into(),
+            text: "Skills command needs list, show, inspect, import-openclaw, import-doc, export, allow, quarantine, or help.".into(),
         }),
     }
 }

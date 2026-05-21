@@ -4033,10 +4033,10 @@ fn handle_models_slash(app: &mut App, rest: &str) {
                 "/models doctor",
                 "/models provider-catalog show",
                 "/models provider-catalog export <path>",
-                "/models provider-catalog import <path>",
+                "/models provider-catalog import <path> --confirm",
                 "/models metadata-catalog show",
                 "/models metadata-catalog export <path>",
-                "/models metadata-catalog import <path>",
+                "/models metadata-catalog import <path> --confirm",
             ]
             .join("\n"),
         });
@@ -4311,7 +4311,7 @@ fn handle_model_provider_catalog_slash(app: &mut App, rest: &str) {
             text: [
                 "/models provider-catalog show",
                 "/models provider-catalog export <path>",
-                "/models provider-catalog import <path>",
+                "/models provider-catalog import <path> --confirm",
             ]
             .join("\n"),
         });
@@ -4352,27 +4352,46 @@ fn handle_model_provider_catalog_slash(app: &mut App, rest: &str) {
                 text: err.to_string(),
             }),
         },
-        "import" => match model_provider_catalog_path_arg(args, "import") {
-            Ok(path) => match ConfigResolver::from_env().import_model_provider_catalog(path) {
-                Ok(catalog) => {
-                    push_event(
-                        app,
-                        format!(
-                            "Imported model provider catalog with {} provider(s).",
-                            catalog.providers.len()
-                        ),
-                    );
+        "import" => match model_provider_catalog_import_args(args) {
+            Ok((path, confirmed)) => {
+                if !confirmed {
                     app.transcript.push(TranscriptLine {
                         kind: LineKind::Assistant,
-                        text: serde_json::to_string_pretty(&catalog)
-                            .unwrap_or_else(|_| "<unserializable model provider catalog>".into()),
+                        text: serde_json::to_string_pretty(&serde_json::json!({
+                            "pending_action": "import_model_provider_catalog",
+                            "path": path,
+                            "confirm_command": format!(
+                                "/models provider-catalog import {path} --confirm"
+                            ),
+                        }))
+                        .unwrap_or_else(|_| {
+                            "<unserializable model provider catalog confirmation>".into()
+                        }),
                     });
+                    return;
                 }
-                Err(err) => app.transcript.push(TranscriptLine {
-                    kind: LineKind::Error,
-                    text: format!("Model provider catalog import failed: {err}"),
-                }),
-            },
+                match ConfigResolver::from_env().import_model_provider_catalog(path) {
+                    Ok(catalog) => {
+                        push_event(
+                            app,
+                            format!(
+                                "Imported model provider catalog with {} provider(s).",
+                                catalog.providers.len()
+                            ),
+                        );
+                        app.transcript.push(TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&catalog).unwrap_or_else(|_| {
+                                "<unserializable model provider catalog>".into()
+                            }),
+                        });
+                    }
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Model provider catalog import failed: {err}"),
+                    }),
+                }
+            }
             Err(err) => app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
                 text: err.to_string(),
@@ -4396,6 +4415,25 @@ fn model_provider_catalog_path_arg<'a>(args: &'a str, command: &str) -> anyhow::
     Ok(path)
 }
 
+fn model_provider_catalog_import_args(args: &str) -> anyhow::Result<(&str, bool)> {
+    let mut path = None;
+    let mut confirmed = false;
+    for part in args.split_whitespace() {
+        if part == "--confirm" {
+            confirmed = true;
+        } else if path.is_none() {
+            path = Some(part);
+        } else {
+            anyhow::bail!(
+                "models provider-catalog import accepts exactly one path and optional --confirm"
+            );
+        }
+    }
+    let path =
+        path.ok_or_else(|| anyhow::anyhow!("models provider-catalog import needs a path"))?;
+    Ok((path, confirmed))
+}
+
 fn handle_model_metadata_catalog_slash(app: &mut App, rest: &str) {
     let rest = rest.trim();
     if rest.is_empty() || rest == "help" {
@@ -4404,7 +4442,7 @@ fn handle_model_metadata_catalog_slash(app: &mut App, rest: &str) {
             text: [
                 "/models metadata-catalog show",
                 "/models metadata-catalog export <path>",
-                "/models metadata-catalog import <path>",
+                "/models metadata-catalog import <path> --confirm",
             ]
             .join("\n"),
         });
@@ -4445,27 +4483,46 @@ fn handle_model_metadata_catalog_slash(app: &mut App, rest: &str) {
                 text: err.to_string(),
             }),
         },
-        "import" => match model_metadata_catalog_path_arg(args, "import") {
-            Ok(path) => match ConfigResolver::from_env().import_model_metadata_catalog(path) {
-                Ok(catalog) => {
-                    push_event(
-                        app,
-                        format!(
-                            "Imported model metadata catalog with {} model(s).",
-                            catalog.models.len()
-                        ),
-                    );
+        "import" => match model_metadata_catalog_import_args(args) {
+            Ok((path, confirmed)) => {
+                if !confirmed {
                     app.transcript.push(TranscriptLine {
                         kind: LineKind::Assistant,
-                        text: serde_json::to_string_pretty(&catalog)
-                            .unwrap_or_else(|_| "<unserializable model metadata catalog>".into()),
+                        text: serde_json::to_string_pretty(&serde_json::json!({
+                            "pending_action": "import_model_metadata_catalog",
+                            "path": path,
+                            "confirm_command": format!(
+                                "/models metadata-catalog import {path} --confirm"
+                            ),
+                        }))
+                        .unwrap_or_else(|_| {
+                            "<unserializable model metadata catalog confirmation>".into()
+                        }),
                     });
+                    return;
                 }
-                Err(err) => app.transcript.push(TranscriptLine {
-                    kind: LineKind::Error,
-                    text: format!("Model metadata catalog import failed: {err}"),
-                }),
-            },
+                match ConfigResolver::from_env().import_model_metadata_catalog(path) {
+                    Ok(catalog) => {
+                        push_event(
+                            app,
+                            format!(
+                                "Imported model metadata catalog with {} model(s).",
+                                catalog.models.len()
+                            ),
+                        );
+                        app.transcript.push(TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&catalog).unwrap_or_else(|_| {
+                                "<unserializable model metadata catalog>".into()
+                            }),
+                        });
+                    }
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Model metadata catalog import failed: {err}"),
+                    }),
+                }
+            }
             Err(err) => app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
                 text: err.to_string(),
@@ -4487,6 +4544,25 @@ fn model_metadata_catalog_path_arg<'a>(args: &'a str, command: &str) -> anyhow::
         anyhow::bail!("models metadata-catalog {command} accepts exactly one path");
     }
     Ok(path)
+}
+
+fn model_metadata_catalog_import_args(args: &str) -> anyhow::Result<(&str, bool)> {
+    let mut path = None;
+    let mut confirmed = false;
+    for part in args.split_whitespace() {
+        if part == "--confirm" {
+            confirmed = true;
+        } else if path.is_none() {
+            path = Some(part);
+        } else {
+            anyhow::bail!(
+                "models metadata-catalog import accepts exactly one path and optional --confirm"
+            );
+        }
+    }
+    let path =
+        path.ok_or_else(|| anyhow::anyhow!("models metadata-catalog import needs a path"))?;
+    Ok((path, confirmed))
 }
 
 fn model_config_summary(model: &agent_config::ModelConfig) -> serde_json::Value {
@@ -8802,14 +8878,34 @@ mod tests {
             model_provider_catalog_path_arg("./catalog.json", "export").unwrap(),
             "./catalog.json"
         );
+        assert_eq!(
+            model_provider_catalog_import_args("./catalog.json --confirm").unwrap(),
+            ("./catalog.json", true)
+        );
+        assert_eq!(
+            model_provider_catalog_import_args("./catalog.json").unwrap(),
+            ("./catalog.json", false)
+        );
         assert!(model_provider_catalog_path_arg("", "export").is_err());
         assert!(model_provider_catalog_path_arg("./catalog.json extra", "import").is_err());
+        assert!(model_provider_catalog_import_args("").is_err());
+        assert!(model_provider_catalog_import_args("./catalog.json extra").is_err());
         assert_eq!(
             model_metadata_catalog_path_arg("./metadata.json", "export").unwrap(),
             "./metadata.json"
         );
+        assert_eq!(
+            model_metadata_catalog_import_args("./metadata.json --confirm").unwrap(),
+            ("./metadata.json", true)
+        );
+        assert_eq!(
+            model_metadata_catalog_import_args("./metadata.json").unwrap(),
+            ("./metadata.json", false)
+        );
         assert!(model_metadata_catalog_path_arg("", "export").is_err());
         assert!(model_metadata_catalog_path_arg("./metadata.json extra", "import").is_err());
+        assert!(model_metadata_catalog_import_args("").is_err());
+        assert!(model_metadata_catalog_import_args("./metadata.json extra").is_err());
     }
 
     #[test]

@@ -1467,6 +1467,13 @@ export default function App() {
       { command: "/artifacts delete ", label: "Delete generated artifact" },
       { command: "/skills", label: "List imported skills" },
       { command: "/capabilities", label: "List capability drafts" },
+      { command: "/capabilities list", label: "List capability drafts" },
+      { command: "/capabilities show ", label: "Show capability draft" },
+      { command: "/capabilities export ", label: "Export capability draft" },
+      { command: "/capabilities import ", label: "Import capability draft" },
+      { command: "/capabilities allow ", label: "Allow capability draft" },
+      { command: "/capabilities reject ", label: "Reject capability draft" },
+      { command: "/capabilities delete ", label: "Delete capability draft" },
       { command: "/profiles", label: "List profiles" },
       { command: "/profiles current", label: "Show current profile" },
       { command: "/profiles show ", label: "Show a profile" },
@@ -3748,11 +3755,80 @@ export default function App() {
       return;
     }
 
-    if (prompt === "/capabilities") {
+    if (prompt === "/capabilities" || prompt.startsWith("/capabilities ")) {
       setInput("");
       setActiveSection("skills");
-      appendLine("user", "/capabilities");
-      await reviewCapabilities();
+      appendLine("user", prompt);
+      const rest =
+        prompt === "/capabilities"
+          ? ""
+          : prompt.slice("/capabilities ".length).trim();
+      const [command = "", ...args] = rest.split(/\s+/).filter(Boolean);
+      if (!rest || command === "list") {
+        await reviewCapabilities();
+      } else if (command === "help") {
+        appendLine(
+          "assistant",
+          [
+            "/capabilities list",
+            "/capabilities show <id>",
+            "/capabilities export <id> <path>",
+            "/capabilities import <path>",
+            "/capabilities allow <id> --confirm",
+            "/capabilities reject <id> --confirm",
+            "/capabilities delete <id>",
+          ].join("\n"),
+        );
+      } else if (command === "show") {
+        if (args.length !== 1) {
+          appendLine("error", "Capabilities show shortcut needs a draft id.");
+        } else {
+          await showCapabilityFromOps(args[0]);
+        }
+      } else if (command === "export") {
+        if (args.length !== 2) {
+          appendLine(
+            "error",
+            "Capabilities export shortcut needs a draft id and path.",
+          );
+        } else {
+          await exportCapabilityFromOps(args[0], args[1]);
+        }
+      } else if (command === "import") {
+        if (args.length !== 1) {
+          appendLine("error", "Capabilities import shortcut needs a path.");
+        } else {
+          await importCapabilityFromOps(args[0]);
+        }
+      } else if (command === "allow" || command === "reject") {
+        const ids = args.filter((arg) => arg !== "--confirm");
+        const id = ids[0] ?? "";
+        const confirmed = args.includes("--confirm");
+        if (ids.length !== 1) {
+          appendLine(
+            "error",
+            `Capabilities ${command} shortcut needs a draft id and optional --confirm.`,
+          );
+        } else if (!confirmed) {
+          appendLine(
+            "error",
+            `Capabilities ${command} shortcut requires --confirm.`,
+          );
+        } else {
+          await reviewCapabilityDraft(command === "allow", id);
+        }
+      } else if (command === "delete") {
+        if (args.length !== 1) {
+          appendLine("error", "Capabilities delete shortcut needs a draft id.");
+        } else {
+          await deleteCapabilityFromOps(args[0]);
+        }
+      } else {
+        appendLine(
+          "error",
+          "Capabilities shortcut needs list, show, export, import, allow, reject, delete, or help.",
+        );
+      }
       return;
     }
 
@@ -5583,8 +5659,8 @@ export default function App() {
     }
   }
 
-  async function showCapabilityFromOps() {
-    const id = requireOpsId("Capability show");
+  async function showCapabilityFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Capability show");
     if (!id) return;
     try {
       const draft =
@@ -5599,9 +5675,9 @@ export default function App() {
     }
   }
 
-  async function exportCapabilityFromOps(explicitId?: string) {
+  async function exportCapabilityFromOps(explicitId?: string, explicitPath?: string) {
     const id = explicitId ?? requireOpsId("Capability export");
-    const path = requireOpsValue("Capability export");
+    const path = explicitPath ?? requireOpsValue("Capability export");
     if (!id || !path) return;
     try {
       const draft =
@@ -5618,8 +5694,8 @@ export default function App() {
     }
   }
 
-  async function importCapabilityFromOps() {
-    const path = requireOpsValue("Capability import");
+  async function importCapabilityFromOps(explicitPath?: string) {
+    const path = explicitPath ?? requireOpsValue("Capability import");
     if (!path) return;
     try {
       const draft =
@@ -5671,6 +5747,7 @@ export default function App() {
   async function deleteCapabilityFromOps(explicitId?: string) {
     const id = explicitId ?? requireOpsId("Capability delete");
     if (!id) return;
+    if (!confirmLocalChange(`Delete capability draft ${id}`)) return;
     try {
       const result =
         transport === "daemon"

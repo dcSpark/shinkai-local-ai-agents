@@ -744,10 +744,9 @@ fn adapter_capability_support(
     capability: &NormalizedCapability,
 ) -> (AdapterCapabilitySupport, Vec<String>) {
     match capability.kind {
-        CapabilityKind::Tool if package.adapter == AdapterKind::Mcp => (
-            AdapterCapabilitySupport::Executable,
-            vec!["MCP tools register as approval-gated tools when allowed".into()],
-        ),
+        CapabilityKind::Tool if package.adapter == AdapterKind::Mcp => {
+            mcp_capability_support(capability)
+        }
         CapabilityKind::ExternalAgent => external_agent_capability_support(package, capability),
         CapabilityKind::Hook => match capability.hook_handler.as_ref() {
             Some(handler) if !handler.command.trim().is_empty() => (
@@ -792,6 +791,73 @@ fn adapter_capability_installable_as_skill(
     capability: &NormalizedCapability,
 ) -> bool {
     package.adapter == AdapterKind::OpenClawAgentSkills && capability.kind == CapabilityKind::Skill
+}
+
+fn mcp_capability_support(
+    capability: &NormalizedCapability,
+) -> (AdapterCapabilitySupport, Vec<String>) {
+    let Some(runtime) = capability.runtime.as_ref() else {
+        return (
+            AdapterCapabilitySupport::MetadataOnly,
+            vec!["MCP server entry has no command or HTTP(S) endpoint runtime".into()],
+        );
+    };
+    if runtime
+        .command
+        .as_deref()
+        .is_some_and(|command| !command.trim().is_empty())
+    {
+        return (
+            AdapterCapabilitySupport::Executable,
+            vec!["stdio MCP tools register as approval-gated tools when allowed".into()],
+        );
+    }
+    let Some(endpoint) = runtime.endpoint.as_deref().map(str::trim) else {
+        return (
+            AdapterCapabilitySupport::MetadataOnly,
+            vec!["MCP server entry has no command or HTTP(S) endpoint runtime".into()],
+        );
+    };
+    if !(endpoint.starts_with("http://") || endpoint.starts_with("https://")) {
+        return (
+            AdapterCapabilitySupport::Unsupported,
+            vec!["MCP endpoint must use http:// or https://".into()],
+        );
+    }
+    if declared_transport_is_sse(Some(&runtime.transport)) {
+        (
+            AdapterCapabilitySupport::Executable,
+            vec!["SSE MCP tools register as approval-gated tools when allowed".into()],
+        )
+    } else if declared_transport_is_streamable_http(Some(&runtime.transport)) {
+        (
+            AdapterCapabilitySupport::Executable,
+            vec![
+                "streamable HTTP MCP tools register as approval-gated HTTP tools when allowed"
+                    .into(),
+            ],
+        )
+    } else if mcp_runtime_transport_is_http(&runtime.transport) {
+        (
+            AdapterCapabilitySupport::Executable,
+            vec!["HTTP MCP tools register as approval-gated tools when allowed".into()],
+        )
+    } else {
+        (
+            AdapterCapabilitySupport::Unsupported,
+            vec![format!(
+                "MCP transport {} is not supported",
+                runtime.transport
+            )],
+        )
+    }
+}
+
+fn mcp_runtime_transport_is_http(transport: &str) -> bool {
+    transport
+        .to_ascii_lowercase()
+        .split(|ch: char| !ch.is_ascii_alphanumeric())
+        .any(|part| matches!(part, "http" | "https"))
 }
 
 fn external_agent_capability_support(
@@ -3032,6 +3098,106 @@ description: trailing metadata is not an env secret
         assert_eq!(allowed.allowed_package_count, 1);
         assert_eq!(allowed.ready_capability_count, 1);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn adapter_doctor_classifies_mcp_runtime_support() {
+        let report = adapter_doctor_report_from_packages(vec![NormalizedPackage {
+            id: "mcp-mixed".into(),
+            source: PathBuf::from("mcp.json"),
+            adapter: AdapterKind::Mcp,
+            digest: "digest".into(),
+            quarantined: false,
+            capabilities: vec![
+                NormalizedCapability {
+                    id: "metadata".into(),
+                    kind: CapabilityKind::Tool,
+                    name: "metadata".into(),
+                    description: String::new(),
+                    quarantined: false,
+                    runtime: None,
+                    hook_triggers: Vec::new(),
+                    hook_handler: None,
+                },
+                NormalizedCapability {
+                    id: "socket".into(),
+                    kind: CapabilityKind::Tool,
+                    name: "socket".into(),
+                    description: String::new(),
+                    quarantined: false,
+                    runtime: Some(NormalizedRuntime {
+                        transport: "websocket".into(),
+                        endpoint: Some("https://example.invalid/ws".into()),
+                        command: None,
+                        args: Vec::new(),
+                        env_keys: Vec::new(),
+                        header_keys: Vec::new(),
+                        input_modes: Vec::new(),
+                        output_modes: Vec::new(),
+                        auth_schemes: Vec::new(),
+                    }),
+                    hook_triggers: Vec::new(),
+                    hook_handler: None,
+                },
+                NormalizedCapability {
+                    id: "events".into(),
+                    kind: CapabilityKind::Tool,
+                    name: "events".into(),
+                    description: String::new(),
+                    quarantined: false,
+                    runtime: Some(NormalizedRuntime {
+                        transport: "sse".into(),
+                        endpoint: Some("https://example.invalid/sse".into()),
+                        command: None,
+                        args: Vec::new(),
+                        env_keys: Vec::new(),
+                        header_keys: Vec::new(),
+                        input_modes: Vec::new(),
+                        output_modes: Vec::new(),
+                        auth_schemes: Vec::new(),
+                    }),
+                    hook_triggers: Vec::new(),
+                    hook_handler: None,
+                },
+            ],
+            permissions: PermissionManifest::default(),
+            secret_requirements: Vec::new(),
+            findings: Vec::new(),
+            provenance: None,
+        }]);
+
+        assert_eq!(report.status, AdapterDoctorStatus::Warning);
+        assert_eq!(report.executable_capability_count, 1);
+        assert_eq!(report.metadata_only_capability_count, 1);
+        assert_eq!(report.unsupported_capability_count, 1);
+        let package = &report.packages[0];
+        assert_eq!(
+            package
+                .capabilities
+                .iter()
+                .find(|capability| capability.id == "metadata")
+                .unwrap()
+                .support,
+            AdapterCapabilitySupport::MetadataOnly
+        );
+        assert_eq!(
+            package
+                .capabilities
+                .iter()
+                .find(|capability| capability.id == "socket")
+                .unwrap()
+                .support,
+            AdapterCapabilitySupport::Unsupported
+        );
+        assert_eq!(
+            package
+                .capabilities
+                .iter()
+                .find(|capability| capability.id == "events")
+                .unwrap()
+                .support,
+            AdapterCapabilitySupport::Executable
+        );
     }
 
     #[test]

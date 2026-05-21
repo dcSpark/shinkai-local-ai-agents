@@ -1378,6 +1378,12 @@ export default function App() {
       { command: "/approval on", label: "Require approval for tool actions" },
       { command: "/approval off", label: "Auto-approve tool actions" },
       { command: "/approval status", label: "Show approval gate status" },
+      { command: "/approval list", label: "List approvals for current run" },
+      { command: "/approval list last", label: "List approvals for last run" },
+      { command: "/approval assess ", label: "Assess an approval" },
+      { command: "/approval approve ", label: "Approve and execute an approval" },
+      { command: "/approval reject ", label: "Reject an approval" },
+      { command: "/approval execute ", label: "Execute an approved action" },
       { command: "/refine on", label: "Enable prompt refinement" },
       { command: "/refine off", label: "Disable prompt refinement" },
       { command: "/refine status", label: "Show prompt refinement status" },
@@ -1589,6 +1595,65 @@ export default function App() {
       return null;
     }
     return { days, apply };
+  }
+
+  function approvalShortcutHelpText() {
+    return [
+      "/approval on",
+      "/approval off",
+      "/approval status",
+      "/approval list [run-id|last]",
+      "/approval assess [run-id|last] <approval-id>",
+      "/approval approve [run-id|last] <approval-id>",
+      "/approval reject [run-id|last] <approval-id>",
+      "/approval execute [run-id|last] <approval-id>",
+    ].join("\n");
+  }
+
+  function approvalShortcutRunId(raw?: string) {
+    if (!raw || raw === "last") return lastRunId || "";
+    return raw;
+  }
+
+  function parseApprovalListShortcut(args: string[]) {
+    if (args.length > 1) {
+      appendLine("error", "Approval list shortcut accepts at most one run id.");
+      return null;
+    }
+    const runId = approvalShortcutRunId(args[0]);
+    if (!runId) {
+      appendLine("error", "Approval list shortcut needs a run id or previous run.");
+      return null;
+    }
+    return runId;
+  }
+
+  function parseApprovalActionShortcut(command: string, args: string[]) {
+    if (args.length === 0) {
+      appendLine("error", `Approval ${command} shortcut needs an approval id.`);
+      return null;
+    }
+    if (args.length > 2) {
+      appendLine(
+        "error",
+        `Approval ${command} shortcut accepts [run-id|last] <approval-id>.`,
+      );
+      return null;
+    }
+    const runId = args.length === 1 ? approvalShortcutRunId() : approvalShortcutRunId(args[0]);
+    const approvalId = args.length === 1 ? args[0] : args[1];
+    if (!runId) {
+      appendLine(
+        "error",
+        `Approval ${command} shortcut needs a run id or previous run.`,
+      );
+      return null;
+    }
+    if (!approvalId) {
+      appendLine("error", `Approval ${command} shortcut needs an approval id.`);
+      return null;
+    }
+    return { runId, approvalId };
   }
 
   function parseIngestReviewShortcut(rest: string) {
@@ -3120,19 +3185,29 @@ export default function App() {
     }
 
     if (prompt === "/approval") {
-      appendLine("error", "Approval shortcut needs on, off, or status.");
+      setInput("");
+      appendLine("user", "/approval");
+      appendLine("assistant", approvalShortcutHelpText());
       return;
     }
     if (prompt.startsWith("/approval ")) {
-      const value = prompt.slice("/approval ".length).trim().toLowerCase();
-      if (value === "on") {
+      const rest = prompt.slice("/approval ".length).trim();
+      const [command = "", ...args] = rest.split(/\s+/).filter(Boolean);
+      const normalized = command.toLowerCase();
+      if (normalized === "help") {
+        setInput("");
+        appendLine("user", prompt);
+        appendLine("assistant", approvalShortcutHelpText());
+        return;
+      }
+      if (normalized === "on" && args.length === 0) {
         setInput("");
         setRequireApproval(true);
         appendLine("user", "/approval on");
         appendEvent("Approval gate enabled for tool actions.");
         return;
       }
-      if (value === "off") {
+      if (normalized === "off" && args.length === 0) {
         setInput("");
         setRequireApproval(false);
         appendLine("user", "/approval off");
@@ -3141,13 +3216,60 @@ export default function App() {
         );
         return;
       }
-      if (value === "status") {
+      if (normalized === "status" && args.length === 0) {
         setInput("");
         appendLine("user", "/approval status");
         appendEvent(`Approval gate is ${requireApproval ? "enabled" : "disabled"}.`);
         return;
       }
-      appendLine("error", "Approval shortcut needs on, off, or status.");
+      if (normalized === "list") {
+        setInput("");
+        setActiveSection("approvals");
+        appendLine("user", prompt);
+        const runId = parseApprovalListShortcut(args);
+        if (runId) {
+          await reviewApprovals(runId);
+        }
+        return;
+      }
+      if (normalized === "assess") {
+        setInput("");
+        setActiveSection("approvals");
+        appendLine("user", prompt);
+        const parsed = parseApprovalActionShortcut("assess", args);
+        if (parsed) {
+          await assessApproval(parsed.approvalId, parsed.runId);
+        }
+        return;
+      }
+      if (normalized === "approve" || normalized === "reject") {
+        setInput("");
+        setActiveSection("approvals");
+        appendLine("user", prompt);
+        const parsed = parseApprovalActionShortcut(normalized, args);
+        if (parsed) {
+          await decideApproval(
+            parsed.approvalId,
+            normalized === "approve",
+            parsed.runId,
+          );
+        }
+        return;
+      }
+      if (normalized === "execute") {
+        setInput("");
+        setActiveSection("approvals");
+        appendLine("user", prompt);
+        const parsed = parseApprovalActionShortcut("execute", args);
+        if (parsed) {
+          await executeApproval(parsed.approvalId, parsed.runId);
+        }
+        return;
+      }
+      appendLine(
+        "error",
+        "Approval shortcut needs on, off, status, list, assess, approve, reject, or execute.",
+      );
       return;
     }
 
@@ -6460,12 +6582,14 @@ export default function App() {
     await resumeRun(sourceRunId);
   }
 
-  async function reviewApprovals() {
-    if (!lastRunId) return;
+  async function reviewApprovals(explicitRunId?: string) {
+    const runId = explicitRunId ?? lastRunId;
+    if (!runId) return;
     try {
-      const next = await loadApprovalsForLastRun();
+      setLastRunId(runId);
+      const next = await loadApprovalsForRun(runId);
       setApprovals(next);
-      appendEvent(`Approvals for ${lastRunId}: ${next.length}`);
+      appendEvent(`Approvals for ${runId}: ${next.length}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Approval review failed: ${msg}`);
@@ -6474,9 +6598,13 @@ export default function App() {
 
   async function loadApprovalsForLastRun() {
     if (!lastRunId) return [];
+    return loadApprovalsForRun(lastRunId);
+  }
+
+  async function loadApprovalsForRun(runId: string) {
     return transport === "daemon"
-      ? await daemonJson<ApprovalRecord[]>(`/approvals/${lastRunId}`)
-      : await invoke<ApprovalRecord[]>("approval_list", { runId: lastRunId });
+      ? await daemonJson<ApprovalRecord[]>(`/approvals/${runId}`)
+      : await invoke<ApprovalRecord[]>("approval_list", { runId });
   }
 
   async function approveFirstPending() {
@@ -6513,18 +6641,20 @@ export default function App() {
     }
   }
 
-  async function assessApproval(approvalId: string) {
-    if (!lastRunId) return;
+  async function assessApproval(approvalId: string, explicitRunId?: string) {
+    const runId = explicitRunId ?? lastRunId;
+    if (!runId) return;
     const controllerAgent = approvalControllerAgent.trim() || undefined;
     try {
+      setLastRunId(runId);
       const result =
         transport === "daemon"
           ? await daemonJson<ApprovalAssessResult>(
-              `/approvals/${lastRunId}/${approvalId}/assess`,
+              `/approvals/${runId}/${approvalId}/assess`,
               { controller_agent: controllerAgent },
             )
           : await invoke<ApprovalAssessResult>("approval_assess", {
-              runId: lastRunId,
+              runId,
               approvalId,
               controllerAgent,
             });
@@ -6535,7 +6665,7 @@ export default function App() {
         `Approval assessment [${approvalId}] ${result.assessment.recommendation ?? result.assessment.status}`,
       );
       appendJson("Approval assessment", result);
-      const events = await fetchTraceEvents(lastRunId);
+      const events = await fetchTraceEvents(runId);
       applyTraceEvents(events);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -6543,8 +6673,13 @@ export default function App() {
     }
   }
 
-  async function decideApproval(approvalId: string, approved: boolean) {
-    if (!lastRunId) return;
+  async function decideApproval(
+    approvalId: string,
+    approved: boolean,
+    explicitRunId?: string,
+  ) {
+    const runId = explicitRunId ?? lastRunId;
+    if (!runId) return;
     const unlock = approved && approvalUnlock ? approvalUnlock : undefined;
     const signature =
       approved && approvalSignature ? approvalSignature : undefined;
@@ -6552,48 +6687,85 @@ export default function App() {
       approved && approvalControllerAgent.trim()
         ? approvalControllerAgent.trim()
         : undefined;
-    if (transport === "daemon") {
-      await daemonJson(`/approvals/${lastRunId}/${approvalId}/decide`, {
-        approved,
-        unlock,
-        signature,
-        controller_agent: controllerAgent,
-      });
-      if (approved) {
-        const output = await daemonJson<unknown>(
-          `/approvals/${lastRunId}/${approvalId}/execute`,
-          { unlock, signature },
-        );
-        captureDirectToolMetadata(output);
-        void refreshVoiceOutputFromToolOutput(output);
-        appendJson("Approved tool output", output);
-      }
-    } else {
-      await invoke("approval_decide", {
-        runId: lastRunId,
-        approvalId,
-        approved,
-        unlock,
-        signature,
-        controllerAgent,
-      });
-      if (approved) {
-        const output = await invoke<unknown>("approval_execute", {
-          runId: lastRunId,
-          approvalId,
+    try {
+      setLastRunId(runId);
+      if (transport === "daemon") {
+        await daemonJson(`/approvals/${runId}/${approvalId}/decide`, {
+          approved,
           unlock,
           signature,
+          controller_agent: controllerAgent,
         });
-        captureDirectToolMetadata(output);
-        void refreshVoiceOutputFromToolOutput(output);
-        appendJson("Approved tool output", output);
+        if (approved) {
+          const output = await daemonJson<unknown>(
+            `/approvals/${runId}/${approvalId}/execute`,
+            { unlock, signature },
+          );
+          captureDirectToolMetadata(output);
+          void refreshVoiceOutputFromToolOutput(output);
+          appendJson("Approved tool output", output);
+        }
+      } else {
+        await invoke("approval_decide", {
+          runId,
+          approvalId,
+          approved,
+          unlock,
+          signature,
+          controllerAgent,
+        });
+        if (approved) {
+          const output = await invoke<unknown>("approval_execute", {
+            runId,
+            approvalId,
+            unlock,
+            signature,
+          });
+          captureDirectToolMetadata(output);
+          void refreshVoiceOutputFromToolOutput(output);
+          appendJson("Approved tool output", output);
+        }
       }
+      const next = await loadApprovalsForRun(runId);
+      setApprovals(next);
+      appendEvent(
+        approved ? `Approved and executed ${approvalId}` : `Rejected ${approvalId}`,
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Approval decision failed: ${msg}`);
     }
-    const next = await loadApprovalsForLastRun();
-    setApprovals(next);
-    appendEvent(
-      approved ? `Approved and executed ${approvalId}` : `Rejected ${approvalId}`,
-    );
+  }
+
+  async function executeApproval(approvalId: string, explicitRunId?: string) {
+    const runId = explicitRunId ?? lastRunId;
+    if (!runId) return;
+    const unlock = approvalUnlock || undefined;
+    const signature = approvalSignature || undefined;
+    try {
+      setLastRunId(runId);
+      const output =
+        transport === "daemon"
+          ? await daemonJson<unknown>(
+              `/approvals/${runId}/${approvalId}/execute`,
+              { unlock, signature },
+            )
+          : await invoke<unknown>("approval_execute", {
+              runId,
+              approvalId,
+              unlock,
+              signature,
+            });
+      captureDirectToolMetadata(output);
+      void refreshVoiceOutputFromToolOutput(output);
+      appendJson("Approved tool output", output);
+      const next = await loadApprovalsForRun(runId);
+      setApprovals(next);
+      appendEvent(`Executed approved action ${approvalId}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Approval execution failed: ${msg}`);
+    }
   }
 
   async function runBatchFromInput() {

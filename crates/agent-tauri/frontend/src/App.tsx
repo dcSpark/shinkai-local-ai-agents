@@ -1571,6 +1571,8 @@ export default function App() {
       { command: "/trace", label: "Load last run trace" },
       { command: "/trace ", label: "Load a run trace by id" },
       { command: "/compare ", label: "Compare loaded trace to a run id" },
+      { command: "/replay", label: "Replay loaded trace prompt" },
+      { command: "/replay --no-hooks", label: "Replay loaded trace without hooks" },
       { command: "/approvals", label: "Review current run approvals" },
       { command: "/batch ", label: "Run lines as deterministic batch" },
       { command: "/resume-batch ", label: "Resume deterministic batch" },
@@ -5519,6 +5521,51 @@ export default function App() {
         return;
       }
       await loadTraceComparison(runId);
+      return;
+    }
+
+    if (prompt === "/replay" || prompt.startsWith("/replay ")) {
+      const rest = prompt === "/replay" ? "" : prompt.slice("/replay ".length).trim();
+      const args = rest.split(/\s+/).filter(Boolean);
+      const skipHooks =
+        args.includes("--no-hooks") ||
+        args.includes("--skip-hooks") ||
+        args.includes("no-hooks") ||
+        args.includes("skip-hooks");
+      const help = args.includes("help") || args.includes("--help");
+      const unknown = args.filter(
+        (arg) =>
+          ![
+            "--no-hooks",
+            "--skip-hooks",
+            "no-hooks",
+            "skip-hooks",
+            "help",
+            "--help",
+          ].includes(arg),
+      );
+      setInput("");
+      setActiveSection("trace");
+      appendLine("user", prompt);
+      if (help) {
+        appendLine(
+          "assistant",
+          "Use /replay to run the loaded trace prompt again, or /replay --no-hooks to skip lifecycle hooks once.",
+        );
+        return;
+      }
+      if (unknown.length) {
+        appendLine(
+          "error",
+          "Replay shortcut accepts only --no-hooks or --skip-hooks.",
+        );
+        return;
+      }
+      if (skipHooks) {
+        await replayTracePromptWithoutHooks();
+        return;
+      }
+      await replayTracePrompt();
       return;
     }
 

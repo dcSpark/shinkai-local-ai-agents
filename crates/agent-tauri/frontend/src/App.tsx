@@ -1462,6 +1462,7 @@ export default function App() {
       { command: "/stop default", label: "Use configured stop mode" },
       { command: "/stop discard", label: "Stop without retaining context" },
       { command: "/stop summarise", label: "Stop and retain a summary" },
+      { command: "/stop --summarise ", label: "Stop, retain summary, add reason" },
       { command: "/stop status", label: "Show stop retention mode" },
       { command: "/compact ", label: "Create a guided compaction draft" },
       { command: "/compact keep", label: "Keep current compacted context" },
@@ -3765,22 +3766,32 @@ export default function App() {
     }
 
     if (prompt === "/stop" || prompt.startsWith("/stop ")) {
-      const value = prompt === "/stop" ? "now" : prompt.slice("/stop ".length).trim().toLowerCase();
+      const rawValue = prompt === "/stop" ? "now" : prompt.slice("/stop ".length).trim();
+      const value = rawValue.toLowerCase();
       if (value === "status") {
         setInput("");
         appendLine("user", prompt);
         appendEvent(`Stop mode is ${stopRetentionLabel(stopRetentionMode)}.`);
         return;
       }
-      const requestedMode = parseStopRetentionMode(value);
+      const [firstToken = "", ...reasonParts] = rawValue.split(/\s+/).filter(Boolean);
+      const modeToken = firstToken.startsWith("--")
+        ? firstToken.slice("--".length)
+        : firstToken;
+      const requestedMode = parseStopRetentionMode(modeToken.toLowerCase());
       if (requestedMode !== null) {
         setInput("");
         const nextMode = requestedMode === "default" ? null : requestedMode;
-        setStopRetentionMode(nextMode);
+        const reason = reasonParts.join(" ").trim();
         appendLine("user", prompt);
+        if (reason && (!running || !lastRunId)) {
+          appendLine("error", "Stop reason needs an active run.");
+          return;
+        }
+        setStopRetentionMode(nextMode);
         appendEvent(`Stop mode set to ${stopRetentionLabel(nextMode)}.`);
         if (running && lastRunId) {
-          await cancelLastRun(nextMode);
+          await cancelLastRun(nextMode, reason || undefined);
         }
         return;
       }
@@ -3794,7 +3805,16 @@ export default function App() {
         await cancelLastRun();
         return;
       }
-      appendLine("error", "Stop shortcut needs default, discard, summarise, status, or an active run.");
+      if (running && lastRunId) {
+        setInput("");
+        appendLine("user", prompt);
+        await cancelLastRun(stopRetentionMode, rawValue);
+        return;
+      }
+      appendLine(
+        "error",
+        "Stop shortcut needs default, discard, summarise, status, or an active run.",
+      );
       return;
     }
 
@@ -8150,9 +8170,14 @@ export default function App() {
     }
   }
 
-  async function cancelLastRun(mode: StopRetentionMode | null = stopRetentionMode) {
+  async function cancelLastRun(
+    mode: StopRetentionMode | null = stopRetentionMode,
+    reasonOverride?: string,
+  ) {
     if (!lastRunId) return;
-    const reason = mode ? `user requested stop; mode=${mode}` : "user requested stop";
+    const reason =
+      reasonOverride?.trim() ||
+      (mode ? `user requested stop; mode=${mode}` : "user requested stop");
     try {
       let result: CancelResult;
       if (transport === "daemon") {

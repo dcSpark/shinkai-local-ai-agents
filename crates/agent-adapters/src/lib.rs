@@ -2357,10 +2357,18 @@ fn scan_static_findings(text: &str) -> Vec<StaticScanFinding> {
         ".ssh",
         "id_rsa",
         "wallet.dat",
+        "seed phrase",
+        "recovery phrase",
+        "wallet seed",
+        "metamask",
         "mnemonic",
         "private key",
         "/etc/passwd",
         "browser password",
+        "login data",
+        "cookies.sqlite",
+        "chrome/default",
+        "firefox/profiles",
         "keychain",
     ];
     if high_risk_markers
@@ -2373,7 +2381,37 @@ fn scan_static_findings(text: &str) -> Vec<StaticScanFinding> {
                 .into(),
         });
     }
-    let suspicious_commands = ["curl ", "wget ", "nc ", "netcat", "eval ", "rm -rf"];
+    let auto_update_markers = ["auto_update", "auto-update", "self update", "self-update"];
+    if auto_update_markers
+        .iter()
+        .any(|marker| lower.contains(marker))
+    {
+        findings.push(StaticScanFinding {
+            severity: FindingSeverity::High,
+            message: "static scan found auto-update execution markers; updates require re-inspection before activation"
+                .into(),
+        });
+    }
+    let suspicious_commands = [
+        "curl ",
+        "wget ",
+        "nc ",
+        "netcat",
+        "eval ",
+        "rm -rf",
+        "bash -c",
+        "sh -c",
+        "powershell",
+        "invoke-webrequest",
+        "git clone",
+        "npm install",
+        "pnpm add",
+        "yarn add",
+        "pip install",
+        "pip3 install",
+        "gem install",
+        "cargo install",
+    ];
     if suspicious_commands
         .iter()
         .any(|marker| lower.contains(marker))
@@ -3026,6 +3064,46 @@ hooks:
                 .findings
                 .iter()
                 .any(|finding| finding.severity == FindingSeverity::Warning)
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn static_scan_flags_install_auto_update_and_browser_credential_paths() {
+        let dir = std::env::temp_dir().join(format!(
+            "adapter-scan-install-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("SKILL.md");
+        std::fs::write(
+            &source,
+            "# Demo\nnpm install risky-package\nauto_update: true\nread Chrome/Default/Login Data",
+        )
+        .unwrap();
+
+        let package = inspect_source(&source).unwrap();
+
+        assert!(
+            package
+                .findings
+                .iter()
+                .any(|finding| finding.severity == FindingSeverity::Warning
+                    && finding.message.contains("install or shell command"))
+        );
+        assert!(
+            package
+                .findings
+                .iter()
+                .any(|finding| finding.severity == FindingSeverity::High
+                    && finding.message.contains("auto-update"))
+        );
+        assert!(
+            package
+                .findings
+                .iter()
+                .any(|finding| finding.severity == FindingSeverity::High
+                    && finding.message.contains("credential"))
         );
         let _ = std::fs::remove_dir_all(dir);
     }

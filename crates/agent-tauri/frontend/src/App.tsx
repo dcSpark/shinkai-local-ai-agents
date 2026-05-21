@@ -5629,15 +5629,51 @@ export default function App() {
         appendEvent("Cleared comparison trace.");
         return;
       }
-      if (!rest) {
+      if (rest === "help" || rest === "--help") {
+        appendLine(
+          "assistant",
+          "Use /compare <compare-run-id> after loading a primary trace, /compare <primary-run-id> <compare-run-id>, or /compare clear.",
+        );
+        return;
+      }
+      const args = rest.split(/\s+/).filter(Boolean);
+      if (!args.length) {
         appendLine("error", "Compare shortcut needs a run id.");
+        return;
+      }
+      const unknownFlags = args.filter((arg) => arg.startsWith("--"));
+      if (unknownFlags.length) {
+        appendLine("error", `Compare shortcut does not support ${unknownFlags[0]}.`);
+        return;
+      }
+      if (args.length > 2) {
+        appendLine(
+          "error",
+          "Compare shortcut accepts one compare run id, or primary and compare run ids.",
+        );
+        return;
+      }
+      if (args.length === 2) {
+        const [primaryRunId, compareRunId] = args;
+        if (primaryRunId === compareRunId) {
+          appendLine("error", "Compare shortcut needs two different run ids.");
+          return;
+        }
+        try {
+          setOpsId(primaryRunId);
+          await loadTraceFor(primaryRunId);
+          await loadTraceComparison(compareRunId, primaryRunId);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          appendLine("error", `Compare trace load failed: ${msg}`);
+        }
         return;
       }
       if (!traceSummary) {
         appendLine("error", "Load a primary trace before comparing.");
         return;
       }
-      await loadTraceComparison(rest);
+      await loadTraceComparison(args[0]);
       return;
     }
 

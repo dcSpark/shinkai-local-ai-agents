@@ -5443,19 +5443,11 @@ pub async fn remote_trace_replay(
     compare_source: bool,
     json: bool,
 ) -> anyhow::Result<()> {
-    let source_run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let client = DaemonHttpClient::new(url);
-    let events: Vec<RunEvent> =
-        serde_json::from_value(client.get_json(&format!("/trace/{run_id}"))?)?;
-    let (agent_id, prompt) = trace_replay_source(source_run_id, &events)?;
+    let (source_run_id, agent_id, prompt) = remote_trace_replay_source(&client, &run_id)?;
     let response = client.post_json(
         "/run",
-        serde_json::json!({
-            "input": prompt,
-            "demo": demo_name(demo),
-            "agent_id": agent_id,
-            "disable_lifecycle_hooks": no_hooks,
-        }),
+        remote_trace_replay_run_payload(prompt, demo, agent_id.clone(), no_hooks),
     )?;
     let replayed_run_id = response
         .get("run_id")
@@ -5507,6 +5499,59 @@ pub async fn remote_trace_replay(
     }
 
     Ok(())
+}
+
+pub async fn remote_trace_replay_start(
+    url: String,
+    run_id: String,
+    demo: Demo,
+    no_hooks: bool,
+) -> anyhow::Result<()> {
+    let client = DaemonHttpClient::new(url);
+    let (source_run_id, agent_id, prompt) = remote_trace_replay_source(&client, &run_id)?;
+    let mut response = client.post_json(
+        "/run/start",
+        remote_trace_replay_run_payload(prompt, demo, agent_id.clone(), no_hooks),
+    )?;
+    let replayed_run_id = response
+        .get("run_id")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    if let Some(object) = response.as_object_mut() {
+        object.insert("source_run_id".into(), serde_json::json!(source_run_id.0));
+        object.insert("replayed_run_id".into(), replayed_run_id);
+        object.insert("agent_id".into(), serde_json::json!(agent_id));
+        object.insert(
+            "lifecycle_hooks_disabled".into(),
+            serde_json::json!(no_hooks),
+        );
+    }
+    print_remote(response)
+}
+
+fn remote_trace_replay_source(
+    client: &DaemonHttpClient,
+    run_id: &str,
+) -> anyhow::Result<(RunId, String, String)> {
+    let source_run_id = RunId(uuid::Uuid::parse_str(run_id)?);
+    let events: Vec<RunEvent> =
+        serde_json::from_value(client.get_json(&format!("/trace/{run_id}"))?)?;
+    let (agent_id, prompt) = trace_replay_source(source_run_id, &events)?;
+    Ok((source_run_id, agent_id, prompt))
+}
+
+fn remote_trace_replay_run_payload(
+    prompt: String,
+    demo: Demo,
+    agent_id: String,
+    no_hooks: bool,
+) -> serde_json::Value {
+    serde_json::json!({
+        "input": prompt,
+        "demo": demo_name(demo),
+        "agent_id": agent_id,
+        "disable_lifecycle_hooks": no_hooks,
+    })
 }
 
 pub async fn remote_trace_hooks(url: String, run_id: String) -> anyhow::Result<()> {

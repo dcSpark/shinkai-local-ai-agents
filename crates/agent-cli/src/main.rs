@@ -2583,6 +2583,18 @@ enum RemoteCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Start replaying a daemon trace prompt asynchronously.
+    TraceReplayStart {
+        run_id: String,
+
+        /// Demo provider behavior.
+        #[arg(long, value_enum, default_value_t = Demo::Echo)]
+        demo: Demo,
+
+        /// Skip lifecycle hooks for this replay only.
+        #[arg(long = "no-hooks")]
+        no_hooks: bool,
+    },
     /// Show daemon hook remediation plan.
     TraceHooks { run_id: String },
     /// Remote lifecycle hook policy operations.
@@ -3819,6 +3831,32 @@ mod cli_parse_tests {
         assert!(no_hooks);
         assert!(compare_source);
         assert!(json);
+    }
+
+    #[test]
+    fn remote_trace_replay_start_command_parses() {
+        let run_id = "00000000-0000-0000-0000-000000000001";
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "trace-replay-start",
+            run_id,
+            "--demo",
+            "tool",
+            "--no-hooks",
+        ])
+        .unwrap();
+        let RemoteCommand::TraceReplayStart {
+            run_id: parsed_id,
+            demo,
+            no_hooks,
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote trace-replay-start command");
+        };
+        assert_eq!(parsed_id, run_id);
+        assert!(matches!(demo, Demo::Tool));
+        assert!(no_hooks);
     }
 
     #[test]
@@ -6997,6 +7035,11 @@ async fn main() -> anyhow::Result<()> {
                 headless::remote_trace_replay(url, run_id, demo, no_hooks, compare_source, json)
                     .await
             }
+            RemoteCommand::TraceReplayStart {
+                run_id,
+                demo,
+                no_hooks,
+            } => headless::remote_trace_replay_start(url, run_id, demo, no_hooks).await,
             RemoteCommand::TraceHooks { run_id } => headless::remote_trace_hooks(url, run_id).await,
             RemoteCommand::Hooks { command } => match command {
                 RemoteHookCommand::List { agent } => headless::remote_hooks_list(url, agent).await,

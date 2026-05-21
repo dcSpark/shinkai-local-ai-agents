@@ -127,6 +127,35 @@ pub async fn run(
             prune_cache_days,
             apply,
         }) => return storage_report(json, prune_cache_days, apply).await,
+        Some(SlashCommand::Ingest(command)) => {
+            return match command {
+                IngestSlashCommand::List => ingest_list(json).await,
+                IngestSlashCommand::Backends => ingest_backends(json).await,
+                IngestSlashCommand::Add {
+                    path,
+                    backend,
+                    vision_model,
+                    guardrail_model,
+                } => ingest_add(path, backend, vision_model, guardrail_model).await,
+                IngestSlashCommand::ProbeVision { path, model } => {
+                    ingest_probe_vision(path, model, json).await
+                }
+                IngestSlashCommand::Rerun {
+                    id,
+                    backend,
+                    vision_model,
+                    guardrail_model,
+                } => ingest_rerun(id, backend, vision_model, guardrail_model).await,
+                IngestSlashCommand::Show { id } => ingest_show(id, json).await,
+                IngestSlashCommand::Review {
+                    id,
+                    finding,
+                    decision,
+                    note,
+                } => ingest_review(id, finding, decision, note).await,
+                IngestSlashCommand::Delete { id } => ingest_rm(id).await,
+            };
+        }
         Some(SlashCommand::Memory(command)) => {
             return match command {
                 MemorySlashCommand::List => memory_list(json).await,
@@ -7774,6 +7803,7 @@ enum SlashCommand {
         prune_cache_days: Option<u64>,
         apply: bool,
     },
+    Ingest(IngestSlashCommand),
     Memory(MemorySlashCommand),
     Compact(CompactSlashCommand),
     Guide {
@@ -7784,6 +7814,39 @@ enum SlashCommand {
         run_id: String,
         score: f32,
         target: String,
+    },
+}
+
+enum IngestSlashCommand {
+    List,
+    Backends,
+    Add {
+        path: String,
+        backend: String,
+        vision_model: Option<String>,
+        guardrail_model: Option<String>,
+    },
+    ProbeVision {
+        path: String,
+        model: String,
+    },
+    Rerun {
+        id: String,
+        backend: String,
+        vision_model: Option<String>,
+        guardrail_model: Option<String>,
+    },
+    Show {
+        id: String,
+    },
+    Review {
+        id: String,
+        finding: u32,
+        decision: String,
+        note: Option<String>,
+    },
+    Delete {
+        id: String,
     },
 }
 
@@ -7941,6 +8004,13 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
             apply,
         }));
     }
+    if trimmed == "/ingest" {
+        return Ok(Some(SlashCommand::Ingest(IngestSlashCommand::List)));
+    }
+    if let Some(rest) = trimmed.strip_prefix("/ingest ").map(str::trim) {
+        let command = parse_ingest_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Ingest(command)));
+    }
     if trimmed == "/memory" {
         return Ok(Some(SlashCommand::Memory(MemorySlashCommand::List)));
     }
@@ -8017,6 +8087,7 @@ fn headless_slash_help_text() -> &'static str {
      - /resume <run-id> [--from-event N], /resume plan <run-id> [--from-event N]\n\
      - /trace [summary|tree|hooks] <run-id>, /compare <run-id> <run-id>, /replay <run-id>\n\
      - /storage report, /storage prune-cache <days> [--apply]\n\
+     - /ingest list|backends|add|probe-vision|rerun|show|review|delete\n\
      - /memory list|access|backends|create|generate|generate-conversation|classify|edit|delete|rollback|export|import\n\
      - /compact list|show|export|import|delete|keep-run, /compactions ...\n\
      - /guide <run-id> <text> - inject guidance into an active run\n\
@@ -8241,6 +8312,192 @@ fn parse_storage_slash_rest(rest: &str) -> anyhow::Result<(Option<u64>, bool)> {
         }
         _ => anyhow::bail!("storage shortcut needs report or prune-cache"),
     }
+}
+
+struct IngestModelOptions {
+    backend: String,
+    vision_model: Option<String>,
+    guardrail_model: Option<String>,
+}
+
+fn parse_ingest_slash_rest(rest: &str) -> anyhow::Result<IngestSlashCommand> {
+    let rest = rest.trim();
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command.trim(), args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "" | "list" => {
+            ensure_no_extra(args.split_whitespace(), "usage: /ingest list")?;
+            Ok(IngestSlashCommand::List)
+        }
+        "backends" => {
+            ensure_no_extra(args.split_whitespace(), "usage: /ingest backends")?;
+            Ok(IngestSlashCommand::Backends)
+        }
+        "add" => parse_ingest_add_args(args),
+        "probe-vision" | "probe" => parse_ingest_probe_vision_args(args),
+        "rerun" => parse_ingest_rerun_args(args),
+        "show" => {
+            let mut parts = args.split_whitespace();
+            let id = next_required(&mut parts, "usage: /ingest show <id>")?;
+            ensure_no_extra(parts, "usage: /ingest show <id>")?;
+            Ok(IngestSlashCommand::Show { id })
+        }
+        "review" => parse_ingest_review_args(args),
+        "delete" | "rm" => parse_ingest_delete_args(args),
+        _ => anyhow::bail!(
+            "ingest shortcut needs list, backends, add, probe-vision, rerun, show, review, or delete"
+        ),
+    }
+}
+
+fn parse_ingest_add_args(rest: &str) -> anyhow::Result<IngestSlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let path = next_required(
+        &mut parts,
+        "usage: /ingest add <path> [--backend <id>] [--vision-model <id>] [--guardrail-model <id>]",
+    )?;
+    let options = parse_ingest_model_options(parts)?;
+    Ok(IngestSlashCommand::Add {
+        path,
+        backend: options.backend,
+        vision_model: options.vision_model,
+        guardrail_model: options.guardrail_model,
+    })
+}
+
+fn parse_ingest_rerun_args(rest: &str) -> anyhow::Result<IngestSlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let id = next_required(
+        &mut parts,
+        "usage: /ingest rerun <id> [--backend <id>] [--vision-model <id>] [--guardrail-model <id>]",
+    )?;
+    let options = parse_ingest_model_options(parts)?;
+    Ok(IngestSlashCommand::Rerun {
+        id,
+        backend: options.backend,
+        vision_model: options.vision_model,
+        guardrail_model: options.guardrail_model,
+    })
+}
+
+fn parse_ingest_model_options<'a>(
+    mut parts: impl Iterator<Item = &'a str>,
+) -> anyhow::Result<IngestModelOptions> {
+    let mut backend = "local-v0".to_string();
+    let mut vision_model = None;
+    let mut guardrail_model = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--backend" => backend = next_required(&mut parts, "--backend needs an id")?,
+            _ if part.starts_with("--backend=") => {
+                backend = required_option_value(part, "--backend")?;
+            }
+            "--vision-model" => {
+                vision_model = Some(next_required(&mut parts, "--vision-model needs an id")?);
+            }
+            _ if part.starts_with("--vision-model=") => {
+                vision_model = Some(required_option_value(part, "--vision-model")?);
+            }
+            "--guardrail-model" => {
+                guardrail_model = Some(next_required(&mut parts, "--guardrail-model needs an id")?);
+            }
+            _ if part.starts_with("--guardrail-model=") => {
+                guardrail_model = Some(required_option_value(part, "--guardrail-model")?);
+            }
+            _ => anyhow::bail!("unknown ingest option: {part}"),
+        }
+    }
+    Ok(IngestModelOptions {
+        backend,
+        vision_model,
+        guardrail_model,
+    })
+}
+
+fn parse_ingest_probe_vision_args(rest: &str) -> anyhow::Result<IngestSlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let path = next_required(
+        &mut parts,
+        "usage: /ingest probe-vision <path> --model <id>",
+    )?;
+    let mut model = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--model" => model = Some(next_required(&mut parts, "--model needs an id")?),
+            _ if part.starts_with("--model=") => {
+                model = Some(required_option_value(part, "--model")?);
+            }
+            _ => anyhow::bail!("unknown ingest probe-vision option: {part}"),
+        }
+    }
+    let model = model.ok_or_else(|| anyhow::anyhow!("ingest probe-vision requires --model"))?;
+    Ok(IngestSlashCommand::ProbeVision { path, model })
+}
+
+fn parse_ingest_review_args(rest: &str) -> anyhow::Result<IngestSlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let id = next_required(
+        &mut parts,
+        "usage: /ingest review <id> <finding> <decision> [--note <text>]",
+    )?;
+    let finding = parse_u32_value(
+        &next_required(
+            &mut parts,
+            "usage: /ingest review <id> <finding> <decision> [--note <text>]",
+        )?,
+        "ingest finding",
+    )?;
+    let decision = next_required(
+        &mut parts,
+        "usage: /ingest review <id> <finding> <decision> [--note <text>]",
+    )?;
+    let mut note = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--note" => {
+                let text = parts.collect::<Vec<_>>().join(" ");
+                if text.trim().is_empty() {
+                    anyhow::bail!("--note needs text");
+                }
+                note = Some(text);
+                break;
+            }
+            _ if part.starts_with("--note=") => {
+                note = Some(required_option_value(part, "--note")?);
+            }
+            _ => anyhow::bail!("unknown ingest review option: {part}"),
+        }
+    }
+    Ok(IngestSlashCommand::Review {
+        id,
+        finding,
+        decision,
+        note,
+    })
+}
+
+fn parse_ingest_delete_args(rest: &str) -> anyhow::Result<IngestSlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let id = next_required(&mut parts, "usage: /ingest delete <id> --confirm")?;
+    let mut confirmed = false;
+    for part in parts {
+        match part {
+            "--confirm" => confirmed = true,
+            _ => anyhow::bail!("unknown ingest delete option: {part}"),
+        }
+    }
+    if !confirmed {
+        anyhow::bail!("ingest delete requires --confirm");
+    }
+    Ok(IngestSlashCommand::Delete { id })
+}
+
+fn parse_u32_value(value: &str, label: &str) -> anyhow::Result<u32> {
+    value
+        .parse::<u32>()
+        .map_err(|_| anyhow::anyhow!("{label} needs a non-negative integer"))
 }
 
 #[derive(Default)]
@@ -9036,6 +9293,84 @@ mod slash_tests {
         assert!(parse_slash_command("/storage prune-cache 0").is_err());
         assert!(parse_slash_command("/storage prune-cache 30 --force").is_err());
         assert!(parse_slash_command("/storagex report").unwrap().is_none());
+    }
+
+    #[test]
+    fn parses_ingest_shortcuts() {
+        assert!(matches!(
+            parse_slash_command("/ingest").unwrap(),
+            Some(SlashCommand::Ingest(IngestSlashCommand::List))
+        ));
+        assert!(matches!(
+            parse_slash_command("/ingest list").unwrap(),
+            Some(SlashCommand::Ingest(IngestSlashCommand::List))
+        ));
+        assert!(matches!(
+            parse_slash_command("/ingest backends").unwrap(),
+            Some(SlashCommand::Ingest(IngestSlashCommand::Backends))
+        ));
+        match parse_slash_command(
+            "/ingest add ./doc.pdf --backend local-layout-v0 --vision-model vision --guardrail-model guard",
+        )
+        .unwrap()
+        {
+            Some(SlashCommand::Ingest(IngestSlashCommand::Add {
+                path,
+                backend,
+                vision_model,
+                guardrail_model,
+            })) => {
+                assert_eq!(path, "./doc.pdf");
+                assert_eq!(backend, "local-layout-v0");
+                assert_eq!(vision_model.as_deref(), Some("vision"));
+                assert_eq!(guardrail_model.as_deref(), Some("guard"));
+            }
+            _ => panic!("expected ingest add shortcut"),
+        }
+        match parse_slash_command("/ingest probe-vision ./image.png --model vision").unwrap() {
+            Some(SlashCommand::Ingest(IngestSlashCommand::ProbeVision { path, model })) => {
+                assert_eq!(path, "./image.png");
+                assert_eq!(model, "vision");
+            }
+            _ => panic!("expected ingest probe shortcut"),
+        }
+        match parse_slash_command("/ingest rerun artifact-1 --backend local-v0").unwrap() {
+            Some(SlashCommand::Ingest(IngestSlashCommand::Rerun { id, backend, .. })) => {
+                assert_eq!(id, "artifact-1");
+                assert_eq!(backend, "local-v0");
+            }
+            _ => panic!("expected ingest rerun shortcut"),
+        }
+        match parse_slash_command("/ingest show artifact-1").unwrap() {
+            Some(SlashCommand::Ingest(IngestSlashCommand::Show { id })) => {
+                assert_eq!(id, "artifact-1");
+            }
+            _ => panic!("expected ingest show shortcut"),
+        }
+        match parse_slash_command("/ingest review artifact-1 2 approve --note looks fine").unwrap()
+        {
+            Some(SlashCommand::Ingest(IngestSlashCommand::Review {
+                id,
+                finding,
+                decision,
+                note,
+            })) => {
+                assert_eq!(id, "artifact-1");
+                assert_eq!(finding, 2);
+                assert_eq!(decision, "approve");
+                assert_eq!(note.as_deref(), Some("looks fine"));
+            }
+            _ => panic!("expected ingest review shortcut"),
+        }
+        match parse_slash_command("/ingest delete artifact-1 --confirm").unwrap() {
+            Some(SlashCommand::Ingest(IngestSlashCommand::Delete { id })) => {
+                assert_eq!(id, "artifact-1");
+            }
+            _ => panic!("expected ingest delete shortcut"),
+        }
+        assert!(parse_slash_command("/ingest delete artifact-1").is_err());
+        assert!(parse_slash_command("/ingest probe-vision ./image.png").is_err());
+        assert!(parse_slash_command("/ingester list").unwrap().is_none());
     }
 
     #[test]

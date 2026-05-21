@@ -603,6 +603,7 @@ export default function App() {
   const selectedProviderDescriptor = modelProviderDescriptors.find(
     (descriptor) => descriptor.id === provider,
   );
+  const providerSelectItems = providerSelectOptions();
   const supportsApiBaseUrl = providerSupportsRuntimeOption("api_base_url");
   const supportsTopP = providerSupportsProviderOption("top_p");
   const supportsTopK = providerSupportsProviderOption("top_k");
@@ -9129,7 +9130,7 @@ export default function App() {
       provider,
       api_base_url: supportsApiBaseUrl ? apiBaseUrl.trim() || null : null,
       api_key_env: apiKeyEnv.trim() || defaultApiKeyEnvForProvider(provider),
-      allow_missing_api_key: provider === "ollama" || provider === "llama_cpp" ? true : null,
+      allow_missing_api_key: providerAllowsMissingApiKey(provider) ? true : null,
       available_modalities: modelSupportsImage ? ["text", "image"] : [],
       metadata,
     };
@@ -10383,6 +10384,46 @@ export default function App() {
     return modelProviderDescriptors.find((descriptor) => descriptor.id === value);
   }
 
+  function providerSelectOptions() {
+    const seen = new Set<string>();
+    const items: Array<{ id: Provider; label: string }> = [{ id: "fake", label: "fake" }];
+    seen.add("fake");
+    const fallbackProviders = ["rig", "ollama", "llama_cpp", "anthropic", "gemini"];
+    const descriptors =
+      modelProviderDescriptors.length > 0
+        ? modelProviderDescriptors
+        : fallbackProviders.map((id) => ({
+            id,
+            name: id === "llama_cpp" ? "llama.cpp" : id,
+          }));
+    descriptors.forEach((descriptor) => {
+      if (!seen.has(descriptor.id)) {
+        items.push({
+          id: descriptor.id,
+          label: descriptor.id === "llama_cpp" ? "llama.cpp" : descriptor.id,
+        });
+        seen.add(descriptor.id);
+      }
+    });
+    if (!seen.has(provider)) {
+      items.push({ id: provider, label: provider });
+    }
+    return items;
+  }
+
+  function defaultApiKeyEnvs() {
+    return new Set([
+      "OPENAI_API_KEY",
+      "OLLAMA_API_KEY",
+      "LLAMA_CPP_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "GEMINI_API_KEY",
+      ...modelProviderDescriptors
+        .map((descriptor) => descriptor.api_key_env)
+        .filter((value): value is string => Boolean(value)),
+    ]);
+  }
+
   function runtimeOptionDescriptor(key: string) {
     return selectedProviderDescriptor?.option_schema.find(
       (option) => option.target === "runtime" && option.key === key,
@@ -10409,6 +10450,11 @@ export default function App() {
     }
     if (selectedProviderDescriptor?.option_schema.length) {
       return Boolean(runtimeOptionDescriptor(key));
+    }
+    if (selectedProviderDescriptor) {
+      return key === "api_base_url"
+        ? selectedProviderDescriptor.supports_api_base_url
+        : key === "api_key_env";
     }
     return key === "api_base_url"
       ? provider === "rig" || provider === "ollama" || provider === "llama_cpp"
@@ -10470,6 +10516,8 @@ export default function App() {
         return "gemini-2.5-flash";
       case "rig":
         return "gpt-4o-mini";
+      default:
+        return "gpt-4o-mini";
     }
   }
 
@@ -10490,6 +10538,8 @@ export default function App() {
       case "fake":
       case "rig":
         return "OPENAI_API_KEY";
+      default:
+        return "OPENAI_API_KEY";
     }
   }
 
@@ -10508,7 +10558,17 @@ export default function App() {
       case "anthropic":
       case "gemini":
         return "";
+      default:
+        return "";
     }
+  }
+
+  function providerAllowsMissingApiKey(value: Provider) {
+    const descriptor = descriptorForProvider(value);
+    if (descriptor) {
+      return descriptor.local;
+    }
+    return value === "ollama" || value === "llama_cpp";
   }
 
   function fileName(path: string) {
@@ -11467,28 +11527,19 @@ export default function App() {
                   : "Provider options unavailable"
               }
               onChange={(e) => {
-                const nextProvider = e.target.value as Provider;
+                const nextProvider = e.target.value;
                 setProvider(nextProvider);
-                if (
-                  [
-                    "OPENAI_API_KEY",
-                    "OLLAMA_API_KEY",
-                    "LLAMA_CPP_API_KEY",
-                    "ANTHROPIC_API_KEY",
-                    "GEMINI_API_KEY",
-                  ].includes(apiKeyEnv)
-                ) {
+                if (defaultApiKeyEnvs().has(apiKeyEnv)) {
                   setApiKeyEnv(defaultApiKeyEnvForProvider(nextProvider));
                 }
               }}
               disabled={running}
             >
-              <option value="fake">fake</option>
-              <option value="rig">rig</option>
-              <option value="ollama">ollama</option>
-              <option value="llama_cpp">llama.cpp</option>
-              <option value="anthropic">anthropic</option>
-              <option value="gemini">gemini</option>
+              {providerSelectItems.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label}
+                </option>
+              ))}
             </select>
           </label>
           <label>

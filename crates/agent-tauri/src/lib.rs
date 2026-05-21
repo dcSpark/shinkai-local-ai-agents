@@ -45,7 +45,7 @@ use agent_ingest::{
 };
 use agent_llm::{
     AnthropicProvider, FakeProvider, FakeStep, GeminiProvider, LlmProvider, LlmRequest, Message,
-    ModelRef, NativeProviderConfig, RigProvider, RigProviderConfig,
+    ModelRef, NativeProviderConfig, RigProvider,
 };
 use agent_memory::{
     MemoryAccessReport, MemoryAuthor, MemoryBackendDescriptor, MemoryRecord, MemoryStore,
@@ -116,23 +116,10 @@ enum Demo {
     Tool,
 }
 
-#[derive(Deserialize, Clone, Copy, Default)]
-#[serde(rename_all = "lowercase")]
-enum ProviderKind {
-    #[default]
-    Fake,
-    Rig,
-    Ollama,
-    #[serde(rename = "llama_cpp")]
-    LlamaCpp,
-    Anthropic,
-    Gemini,
-}
-
 #[derive(Deserialize, Clone)]
 #[serde(default)]
 struct RunOptions {
-    provider: ProviderKind,
+    provider: String,
     agent_id: Option<String>,
     model: Option<String>,
     api_base_url: Option<String>,
@@ -176,7 +163,7 @@ struct RunOptions {
 impl Default for RunOptions {
     fn default() -> Self {
         Self {
-            provider: ProviderKind::Fake,
+            provider: "fake".into(),
             agent_id: None,
             model: None,
             api_base_url: None,
@@ -223,79 +210,15 @@ fn build_provider(
     options: &RunOptions,
 ) -> Result<Arc<dyn LlmProvider>, String> {
     let prompt_refinement_enabled = effective_prompt_refinement_enabled(options);
-    match options.provider {
-        ProviderKind::Fake => Ok(match demo {
-            Demo::Echo if prompt_refinement_enabled => Arc::new(FakeProvider::sequence(vec![
-                FakeStep::Reply(format!("refined: {input}")),
-                FakeStep::Reply(format!("[fake] refined: {input}")),
-            ])),
-            Demo::Echo => Arc::new(FakeProvider::echo()),
-            Demo::Tool => {
-                let mut steps = Vec::new();
-                if prompt_refinement_enabled {
-                    steps.push(FakeStep::Reply(format!("refined: {input}")));
-                }
-                steps.extend([
-                    FakeStep::CallTool {
-                        id: "call-1".into(),
-                        tool: "echo".into(),
-                        input: serde_json::json!({"text": input}),
-                    },
-                    FakeStep::Reply(format!("[fake] tool said: {input}")),
-                ]);
-                Arc::new(FakeProvider::sequence(steps))
-            }
-        }),
-        ProviderKind::Rig => {
-            let model = model_id_for_provider(options, ProviderKind::Rig);
-            let model_runtime = ConfigResolver::from_env()
-                .resolve_model_runtime(&model)
-                .ok()
-                .flatten()
-                .unwrap_or_default();
-            let mut config = model_runtime
-                .rig_provider_config(
-                    ModelRef::from(model),
-                    options.max_output_tokens,
-                    options.temperature,
-                )
-                .map_err(|e| e.to_string())?;
-            if let Some(api_base_url) = options.api_base_url.clone() {
-                config.api_base_url = Some(api_base_url);
-            }
-            if options.api_key_env != "OPENAI_API_KEY" || model_runtime.api_key_env.is_none() {
-                config.api_key_env = options.api_key_env.clone();
-            }
-            RigProvider::from_config_with_api_key_override(config, options.api_key.clone())
-                .map(|provider| Arc::new(provider) as Arc<dyn LlmProvider>)
-                .map_err(|e| e.to_string())
-        }
-        ProviderKind::Ollama => {
-            let model = model_id_for_provider(options, ProviderKind::Ollama);
-            let mut config = RigProviderConfig::ollama(ModelRef::from(model));
-            if let Some(base_url) = options.api_base_url.clone() {
-                config.api_base_url = Some(base_url);
-            }
-            config.max_output_tokens = options.max_output_tokens;
-            config.temperature = options.temperature;
-            RigProvider::from_config_with_api_key_override(config, options.api_key.clone())
-                .map(|provider| Arc::new(provider) as Arc<dyn LlmProvider>)
-                .map_err(|e| e.to_string())
-        }
-        ProviderKind::LlamaCpp => {
-            let model = model_id_for_provider(options, ProviderKind::LlamaCpp);
-            let mut config = RigProviderConfig::llama_cpp(ModelRef::from(model));
-            if let Some(base_url) = options.api_base_url.clone() {
-                config.api_base_url = Some(base_url);
-            }
-            config.max_output_tokens = options.max_output_tokens;
-            config.temperature = options.temperature;
-            RigProvider::from_config_with_api_key_override(config, options.api_key.clone())
-                .map(|provider| Arc::new(provider) as Arc<dyn LlmProvider>)
-                .map_err(|e| e.to_string())
-        }
-        ProviderKind::Anthropic => {
-            let model = model_id_for_provider(options, ProviderKind::Anthropic);
+    let provider = normalized_provider_id(&options.provider);
+    match provider.as_str() {
+        "fake" => Ok(fake_provider_for_demo(
+            demo,
+            input,
+            prompt_refinement_enabled,
+        )),
+        "anthropic" => {
+            let model = model_id_for_provider(options, &provider);
             let config = native_provider_config(
                 model,
                 options,
@@ -306,8 +229,8 @@ fn build_provider(
                 .map(|provider| Arc::new(provider) as Arc<dyn LlmProvider>)
                 .map_err(|e| e.to_string())
         }
-        ProviderKind::Gemini => {
-            let model = model_id_for_provider(options, ProviderKind::Gemini);
+        "gemini" => {
+            let model = model_id_for_provider(options, &provider);
             let config = native_provider_config(
                 model,
                 options,
@@ -318,7 +241,68 @@ fn build_provider(
                 .map(|provider| Arc::new(provider) as Arc<dyn LlmProvider>)
                 .map_err(|e| e.to_string())
         }
+        _ => openai_compatible_provider_for_run(&provider, options),
     }
+}
+
+fn fake_provider_for_demo(
+    demo: Demo,
+    input: &str,
+    prompt_refinement_enabled: bool,
+) -> Arc<dyn LlmProvider> {
+    match demo {
+        Demo::Echo if prompt_refinement_enabled => Arc::new(FakeProvider::sequence(vec![
+            FakeStep::Reply(format!("refined: {input}")),
+            FakeStep::Reply(format!("[fake] refined: {input}")),
+        ])),
+        Demo::Echo => Arc::new(FakeProvider::echo()),
+        Demo::Tool => {
+            let mut steps = Vec::new();
+            if prompt_refinement_enabled {
+                steps.push(FakeStep::Reply(format!("refined: {input}")));
+            }
+            steps.extend([
+                FakeStep::CallTool {
+                    id: "call-1".into(),
+                    tool: "echo".into(),
+                    input: serde_json::json!({"text": input}),
+                },
+                FakeStep::Reply(format!("[fake] tool said: {input}")),
+            ]);
+            Arc::new(FakeProvider::sequence(steps))
+        }
+    }
+}
+
+fn openai_compatible_provider_for_run(
+    provider: &str,
+    options: &RunOptions,
+) -> Result<Arc<dyn LlmProvider>, String> {
+    let model = model_id_for_provider(options, provider);
+    let mut model_runtime = ConfigResolver::from_env()
+        .resolve_model_runtime(&model)
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    if model_runtime.provider.is_none() {
+        model_runtime.provider = Some(provider.to_string());
+    }
+    let mut config = model_runtime
+        .rig_provider_config(
+            ModelRef::from(model),
+            options.max_output_tokens,
+            options.temperature,
+        )
+        .map_err(|e| e.to_string())?;
+    if let Some(api_base_url) = options.api_base_url.clone() {
+        config.api_base_url = Some(api_base_url);
+    }
+    if options.api_key_env != "OPENAI_API_KEY" {
+        config.api_key_env = options.api_key_env.clone();
+    }
+    RigProvider::from_config_with_api_key_override(config, options.api_key.clone())
+        .map(|provider| Arc::new(provider) as Arc<dyn LlmProvider>)
+        .map_err(|e| e.to_string())
 }
 
 fn native_provider_config(
@@ -357,7 +341,7 @@ fn effective_prompt_refinement_enabled(options: &RunOptions) -> bool {
         .unwrap_or(false)
 }
 
-fn model_id_for_provider(options: &RunOptions, provider: ProviderKind) -> String {
+fn model_id_for_provider(options: &RunOptions, provider: &str) -> String {
     if let Some(model) = options.model.clone() {
         return model;
     }
@@ -366,20 +350,39 @@ fn model_id_for_provider(options: &RunOptions, provider: ProviderKind) -> String
         .map(|resolved| resolved.agent.model.0)
         .unwrap_or_else(|_| "fake-model".into());
     if configured == "fake-model" {
-        default_model_for_provider(provider).into()
+        default_model_for_provider(provider)
     } else {
         configured
     }
 }
 
-fn default_model_for_provider(provider: ProviderKind) -> &'static str {
-    match provider {
-        ProviderKind::Fake => "fake-model",
-        ProviderKind::Rig => "gpt-4o-mini",
-        ProviderKind::Ollama => "llama3.1",
-        ProviderKind::LlamaCpp => "local-model",
-        ProviderKind::Anthropic => "claude-sonnet-4-5",
-        ProviderKind::Gemini => "gemini-2.5-flash",
+fn default_model_for_provider(provider: &str) -> String {
+    let provider = normalized_provider_id(provider);
+    match provider.as_str() {
+        "fake" => "fake-model".into(),
+        "rig" => "gpt-4o-mini".into(),
+        "ollama" => "llama3.1".into(),
+        "llama_cpp" => "local-model".into(),
+        "anthropic" => "claude-sonnet-4-5".into(),
+        "gemini" => "gemini-2.5-flash".into(),
+        other => configured_model_providers()
+            .ok()
+            .and_then(|providers| {
+                providers
+                    .into_iter()
+                    .find(|descriptor| descriptor.id == other)
+            })
+            .map(|descriptor| descriptor.default_model)
+            .unwrap_or_else(|| "fake-model".into()),
+    }
+}
+
+fn normalized_provider_id(provider: &str) -> String {
+    match provider.trim().to_ascii_lowercase().as_str() {
+        "" => "fake".into(),
+        "openai" | "openai-compatible" | "openai_compatible" => "rig".into(),
+        "llama-cpp" | "llamacpp" => "llama_cpp".into(),
+        other => other.into(),
     }
 }
 
@@ -653,8 +656,11 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
 
     if let Some(model) = options.model.clone() {
         agent.model = ModelRef::from(model);
-    } else if !matches!(options.provider, ProviderKind::Fake) && agent.model.0 == "fake-model" {
-        agent.model = ModelRef::from(default_model_for_provider(options.provider));
+    } else {
+        let provider = normalized_provider_id(&options.provider);
+        if provider != "fake" && agent.model.0 == "fake-model" {
+            agent.model = ModelRef::from(default_model_for_provider(&provider));
+        }
     }
     if let Some(max_tool_calls) = options.max_tool_calls {
         agent.tool_policy.max_calls = max_tool_calls;

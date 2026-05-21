@@ -184,13 +184,7 @@ export type TraceTreeNode = {
 };
 
 export type Demo = "echo" | "tool";
-export type Provider =
-  | "fake"
-  | "rig"
-  | "ollama"
-  | "llama_cpp"
-  | "anthropic"
-  | "gemini";
+export type Provider = string;
 
 export type ModelProviderOptionTarget = "runtime" | "provider_options";
 export type ModelProviderOptionKind = "number" | "integer" | "string" | "boolean";

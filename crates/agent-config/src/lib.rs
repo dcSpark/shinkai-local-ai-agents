@@ -6269,6 +6269,28 @@ system_prompt = "Review carefully."
             Some("2.50")
         );
 
+        let router_probe = resolver.probe_model_capabilities("functiongemma").unwrap();
+        assert_eq!(router_probe.live_probe.status, "not_configured");
+        assert_eq!(
+            router_probe.live_probe.fallback_source.as_deref(),
+            Some("specs/gils_feedback.md:94")
+        );
+        assert!(
+            router_probe
+                .live_probe
+                .reported_capabilities
+                .iter()
+                .any(|capability| capability == "routing")
+        );
+        assert!(
+            router_probe
+                .live_probe
+                .reported_capabilities
+                .iter()
+                .any(|capability| capability == "function_calling")
+        );
+        assert_eq!(router_probe.live_probe.reported_tool_support, Some(true));
+
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -6850,6 +6872,29 @@ system_prompt = "Review carefully."
                 .any(|modality| modality == "audio")
         );
         assert_eq!(gemini_pro.limits.get("input_tokens"), Some(&1_048_576));
+
+        for provider in ["rig", "ollama", "llama_cpp"] {
+            for model_id in ["functiongemma", "qwen3.5", "gemma4", "ministral"] {
+                let model = models
+                    .iter()
+                    .find(|model| model.provider == provider && model.model_id == model_id)
+                    .unwrap_or_else(|| panic!("{provider}/{model_id} metadata"));
+                assert_eq!(model.modalities, vec!["text"]);
+                assert!(
+                    model
+                        .capabilities
+                        .iter()
+                        .any(|capability| capability == "routing")
+                );
+                assert!(
+                    model
+                        .capabilities
+                        .iter()
+                        .any(|capability| capability == "function_calling")
+                );
+                assert_eq!(model.tool_support, Some(true));
+            }
+        }
     }
 
     #[test]

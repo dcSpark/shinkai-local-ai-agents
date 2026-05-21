@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source": "bundled:agent-config/model_metadata_catalog.json",
-  "updated_at": "2026-05-20",
+  "updated_at": "2026-05-21",
   "models": [
     {
       "provider": "rig",
@@ -114,6 +114,38 @@
         "output_per_million": "0.40"
       },
       "source": "https://platform.openai.com/docs/models/gpt-4.1-nano"
+    },
+    {
+      "provider": "rig",
+      "model_id": "functiongemma",
+      "modalities": ["text"],
+      "capabilities": ["function_calling", "routing"],
+      "tool_support": true,
+      "source": "specs/gils_feedback.md:94"
+    },
+    {
+      "provider": "rig",
+      "model_id": "qwen3.5",
+      "modalities": ["text"],
+      "capabilities": ["function_calling", "routing"],
+      "tool_support": true,
+      "source": "specs/gils_feedback.md:94"
+    },
+    {
+      "provider": "rig",
+      "model_id": "gemma4",
+      "modalities": ["text"],
+      "capabilities": ["function_calling", "routing"],
+      "tool_support": true,
+      "source": "specs/gils_feedback.md:94"
+    },
+    {
+      "provider": "rig",
+      "model_id": "ministral",
+      "modalities": ["text"],
+      "capabilities": ["function_calling", "routing"],
+      "tool_support": true,
+      "source": "specs/gils_feedback.md:94"
     },
     {
       "provider": "anthropic",
@@ -244,6 +276,70 @@
         "cached_audio_input_per_million": "0.10"
       },
       "source": "https://ai.google.dev/gemini-api/docs/models/gemini"
+    },
+    {
+      "provider": "ollama",
+      "model_id": "functiongemma",
+      "modalities": ["text"],
+      "capabilities": ["function_calling", "routing"],
+      "tool_support": true,
+      "source": "specs/gils_feedback.md:94"
+    },
+    {
+      "provider": "ollama",
+      "model_id": "qwen3.5",
+      "modalities": ["text"],
+      "capabilities": ["function_calling", "routing"],
+      "tool_support": true,
+      "source": "specs/gils_feedback.md:94"
+    },
+    {
+      "provider": "ollama",
+      "model_id": "gemma4",
+      "modalities": ["text"],
+      "capabilities": ["function_calling", "routing"],
+      "tool_support": true,
+      "source": "specs/gils_feedback.md:94"
+    },
+    {
+      "provider": "ollama",
+      "model_id": "ministral",
+      "modalities": ["text"],
+      "capabilities": ["function_calling", "routing"],
+      "tool_support": true,
+      "source": "specs/gils_feedback.md:94"
+    },
+    {
+      "provider": "llama_cpp",
+      "model_id": "functiongemma",
+      "modalities": ["text"],
+      "capabilities": ["function_calling", "routing"],
+      "tool_support": true,
+      "source": "specs/gils_feedback.md:94"
+    },
+    {
+      "provider": "llama_cpp",
+      "model_id": "qwen3.5",
+      "modalities": ["text"],
+      "capabilities": ["function_calling", "routing"],
+      "tool_support": true,
+      "source": "specs/gils_feedback.md:94"
+    },
+    {
+      "provider": "llama_cpp",
+      "model_id": "gemma4",
+      "modalities": ["text"],
+      "capabilities": ["function_calling", "routing"],
+      "tool_support": true,
+      "source": "specs/gils_feedback.md:94"
+    },
+    {
+      "provider": "llama_cpp",
+      "model_id": "ministral",
+      "modalities": ["text"],
+      "capabilities": ["function_calling", "routing"],
+      "tool_support": true,
+      "source": "specs/gils_feedback.md:94"
     }
   ]
 }

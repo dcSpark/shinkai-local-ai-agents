@@ -132,6 +132,18 @@ pub async fn run(
             no_hooks,
             compare_source,
         }) => return trace_replay(run_id, demo, no_hooks, compare_source, json).await,
+        Some(SlashCommand::Hooks(command)) => {
+            return match command {
+                HookSlashCommand::Review { run_id } => trace_hooks(run_id, json).await,
+                HookSlashCommand::List { agent } => hooks_list(agent, json).await,
+                HookSlashCommand::Available { agent } => hooks_available(agent, json).await,
+                HookSlashCommand::SetDisabled {
+                    hook_id,
+                    disabled,
+                    agent,
+                } => hooks_set_disabled(hook_id, disabled, agent, true, json).await,
+            };
+        }
         Some(SlashCommand::Storage {
             prune_cache_days,
             apply,
@@ -7940,6 +7952,7 @@ enum SlashCommand {
         no_hooks: bool,
         compare_source: bool,
     },
+    Hooks(HookSlashCommand),
     Storage {
         prune_cache_days: Option<u64>,
         apply: bool,
@@ -8243,6 +8256,23 @@ enum TraceSlashView {
     Hooks,
 }
 
+enum HookSlashCommand {
+    Review {
+        run_id: String,
+    },
+    List {
+        agent: Option<String>,
+    },
+    Available {
+        agent: Option<String>,
+    },
+    SetDisabled {
+        hook_id: String,
+        disabled: bool,
+        agent: Option<String>,
+    },
+}
+
 fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
     let trimmed = text.trim();
     if matches!(trimmed, "/help" | "/?") {
@@ -8301,6 +8331,10 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
             no_hooks,
             compare_source,
         }));
+    }
+    if let Some(rest) = hooks_slash_rest(trimmed) {
+        let command = parse_hooks_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Hooks(command)));
     }
     if trimmed == "/storage" {
         return Ok(Some(SlashCommand::Storage {
@@ -8453,6 +8487,7 @@ fn headless_slash_help_text() -> &'static str {
      - /x402 request|required|settle ... - call native x402 payment tools directly\n\
      - /resume <run-id> [--from-event N], /resume plan <run-id> [--from-event N]\n\
      - /trace [summary|tree|hooks] <run-id>, /compare <run-id> <run-id>, /replay <run-id>\n\
+     - /hooks list|available|review|disable|enable\n\
      - /storage report, /storage prune-cache <days> [--apply]\n\
      - /bundles export <path>, /bundles import <path> --confirm\n\
      - /profiles current|list|show|create|delete|grants|grant|revoke\n\
@@ -8661,6 +8696,114 @@ fn parse_replay_slash_rest(rest: &str) -> anyhow::Result<(String, bool, bool)> {
         }
     }
     Ok((run_id, no_hooks, compare_source))
+}
+
+fn hooks_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/hooks" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/hooks ").map(str::trim)
+    }
+}
+
+fn parse_hooks_slash_rest(rest: &str) -> anyhow::Result<HookSlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let command = parts.next().unwrap_or_default();
+    match command {
+        "" | "list" => Ok(HookSlashCommand::List {
+            agent: parse_hook_agent_option(parts, "list")?,
+        }),
+        "available" => Ok(HookSlashCommand::Available {
+            agent: parse_hook_agent_option(parts, "available")?,
+        }),
+        "review" => {
+            let run_id = next_required(&mut parts, "hooks review needs a run id")?;
+            ensure_no_extra(parts, "usage: /hooks review <run-id>")?;
+            let _ = uuid::Uuid::parse_str(&run_id)?;
+            Ok(HookSlashCommand::Review { run_id })
+        }
+        "disable" | "enable" => {
+            let hook_id = next_required(&mut parts, "hooks policy change needs a hook id")?;
+            let (agent, confirmed) = parse_hook_policy_options(parts, command)?;
+            if !confirmed {
+                anyhow::bail!("hooks {command} requires --confirm");
+            }
+            Ok(HookSlashCommand::SetDisabled {
+                hook_id,
+                disabled: command == "disable",
+                agent,
+            })
+        }
+        _ => anyhow::bail!("hooks shortcut needs list, available, review, disable, or enable"),
+    }
+}
+
+fn parse_hook_agent_option<'a>(
+    mut parts: impl Iterator<Item = &'a str>,
+    action: &str,
+) -> anyhow::Result<Option<String>> {
+    let mut agent = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--agent" => {
+                let value = parts
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("hooks {action} --agent needs an id"))?;
+                if agent.replace(value.to_string()).is_some() {
+                    anyhow::bail!("hooks {action} accepts at most one --agent");
+                }
+            }
+            _ if part.starts_with("--agent=") => {
+                let value = part
+                    .split_once('=')
+                    .map(|(_, value)| value)
+                    .unwrap_or_default();
+                if value.is_empty() {
+                    anyhow::bail!("hooks {action} --agent needs an id");
+                }
+                if agent.replace(value.to_string()).is_some() {
+                    anyhow::bail!("hooks {action} accepts at most one --agent");
+                }
+            }
+            _ => anyhow::bail!("unknown hooks {action} option: {part}"),
+        }
+    }
+    Ok(agent)
+}
+
+fn parse_hook_policy_options<'a>(
+    mut parts: impl Iterator<Item = &'a str>,
+    action: &str,
+) -> anyhow::Result<(Option<String>, bool)> {
+    let mut agent = None;
+    let mut confirmed = false;
+    while let Some(part) = parts.next() {
+        match part {
+            "--confirm" => confirmed = true,
+            "--agent" => {
+                let value = parts
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("hooks {action} --agent needs an id"))?;
+                if agent.replace(value.to_string()).is_some() {
+                    anyhow::bail!("hooks {action} accepts at most one --agent");
+                }
+            }
+            _ if part.starts_with("--agent=") => {
+                let value = part
+                    .split_once('=')
+                    .map(|(_, value)| value)
+                    .unwrap_or_default();
+                if value.is_empty() {
+                    anyhow::bail!("hooks {action} --agent needs an id");
+                }
+                if agent.replace(value.to_string()).is_some() {
+                    anyhow::bail!("hooks {action} accepts at most one --agent");
+                }
+            }
+            _ => anyhow::bail!("unknown hooks {action} option: {part}"),
+        }
+    }
+    Ok((agent, confirmed))
 }
 
 fn parse_storage_slash_rest(rest: &str) -> anyhow::Result<(Option<u64>, bool)> {
@@ -10341,6 +10484,7 @@ mod slash_tests {
         assert!(help.contains("/x402 request"));
         assert!(help.contains("/agent [id] [prompt]"));
         assert!(help.contains("/agents list|show|export|import|delete"));
+        assert!(help.contains("/hooks list|available|review|disable|enable"));
     }
 
     #[test]
@@ -10561,6 +10705,64 @@ mod slash_tests {
         assert!(parse_slash_command("/trace summary").is_err());
         assert!(parse_slash_command(&format!("/compare {primary}")).is_err());
         assert!(parse_slash_command(&format!("/replay {primary} --mystery")).is_err());
+    }
+
+    #[test]
+    fn parses_hook_policy_shortcuts() {
+        let run_id = uuid::Uuid::new_v4().to_string();
+        match parse_slash_command("/hooks").unwrap() {
+            Some(SlashCommand::Hooks(HookSlashCommand::List { agent })) => {
+                assert_eq!(agent, None);
+            }
+            _ => panic!("expected hook list shortcut"),
+        }
+        match parse_slash_command("/hooks list --agent critic").unwrap() {
+            Some(SlashCommand::Hooks(HookSlashCommand::List { agent })) => {
+                assert_eq!(agent.as_deref(), Some("critic"));
+            }
+            _ => panic!("expected hook list with agent shortcut"),
+        }
+        match parse_slash_command("/hooks available --agent=critic").unwrap() {
+            Some(SlashCommand::Hooks(HookSlashCommand::Available { agent })) => {
+                assert_eq!(agent.as_deref(), Some("critic"));
+            }
+            _ => panic!("expected hook available shortcut"),
+        }
+        match parse_slash_command(&format!("/hooks review {run_id}")).unwrap() {
+            Some(SlashCommand::Hooks(HookSlashCommand::Review { run_id: parsed })) => {
+                assert_eq!(parsed, run_id);
+            }
+            _ => panic!("expected hook review shortcut"),
+        }
+        match parse_slash_command("/hooks disable adapter:pkg:audit --agent critic --confirm")
+            .unwrap()
+        {
+            Some(SlashCommand::Hooks(HookSlashCommand::SetDisabled {
+                hook_id,
+                disabled,
+                agent,
+            })) => {
+                assert_eq!(hook_id, "adapter:pkg:audit");
+                assert!(disabled);
+                assert_eq!(agent.as_deref(), Some("critic"));
+            }
+            _ => panic!("expected hook disable shortcut"),
+        }
+        match parse_slash_command("/hooks enable adapter:pkg:audit --confirm").unwrap() {
+            Some(SlashCommand::Hooks(HookSlashCommand::SetDisabled {
+                hook_id,
+                disabled,
+                agent,
+            })) => {
+                assert_eq!(hook_id, "adapter:pkg:audit");
+                assert!(!disabled);
+                assert_eq!(agent, None);
+            }
+            _ => panic!("expected hook enable shortcut"),
+        }
+        assert!(parse_slash_command("/hooks disable adapter:pkg:audit").is_err());
+        assert!(parse_slash_command("/hooks available --force").is_err());
+        assert!(parse_slash_command("/hooksx list").unwrap().is_none());
     }
 
     #[test]

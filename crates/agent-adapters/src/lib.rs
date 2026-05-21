@@ -1131,6 +1131,28 @@ fn validate_agent_created_tool_manifest(body: &str) -> Result<(), AdapterError> 
                 )));
             }
         }
+        for field in ["env", "headers"] {
+            let Some(entries) = server.get(field) else {
+                continue;
+            };
+            let entries = entries.as_object().ok_or_else(|| {
+                AdapterError::InvalidToolDraft(format!(
+                    "MCP server `{name}` {field} must be an object"
+                ))
+            })?;
+            for (key, value) in entries {
+                if clean_secret_name(key).is_none() {
+                    return Err(AdapterError::InvalidToolDraft(format!(
+                        "MCP server `{name}` {field} contains invalid key `{key}`"
+                    )));
+                }
+                if !value.is_string() {
+                    return Err(AdapterError::InvalidToolDraft(format!(
+                        "MCP server `{name}` {field} values must be strings"
+                    )));
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -3288,6 +3310,64 @@ hooks:
 
         assert!(matches!(err, AdapterError::InvalidToolDraft(_)));
         assert!(err.to_string().contains("args must be an array"));
+        assert!(registry.list().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn agent_created_tool_rejects_malformed_mcp_secret_maps() {
+        let dir = std::env::temp_dir().join(format!(
+            "adapter-agent-tool-secret-map-test-{}-{}",
+            std::process::id(),
+            uuid_like()
+        ));
+        let registry = AdapterRegistry::new(StoragePaths::new(dir.join("home")));
+        let cases = [
+            (
+                "draft-bad-env-value",
+                r#"{
+                  "mcpServers": {
+                    "bad_env": {
+                      "command": "fake-mcp",
+                      "env": { "API_KEY": 123 }
+                    }
+                  }
+                }"#,
+                "env values must be strings",
+            ),
+            (
+                "draft-bad-headers-shape",
+                r#"{
+                  "mcpServers": {
+                    "bad_headers": {
+                      "url": "https://example.invalid/mcp",
+                      "headers": ["Authorization"]
+                    }
+                  }
+                }"#,
+                "headers must be an object",
+            ),
+            (
+                "draft-bad-header-key",
+                r#"{
+                  "mcpServers": {
+                    "bad_header_key": {
+                      "url": "https://example.invalid/mcp",
+                      "headers": { "Bad Header": "secret://mcp.header" }
+                    }
+                  }
+                }"#,
+                "headers contains invalid key",
+            ),
+        ];
+        for (draft_id, body, message) in cases {
+            let err = registry
+                .promote_agent_created_tool(draft_id, "Bad Secret Map Tool", body, "agent", "test")
+                .unwrap_err();
+
+            assert!(matches!(err, AdapterError::InvalidToolDraft(_)));
+            assert!(err.to_string().contains(message));
+        }
         assert!(registry.list().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }

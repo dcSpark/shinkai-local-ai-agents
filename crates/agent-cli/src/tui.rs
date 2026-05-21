@@ -57,8 +57,9 @@ use agent_tools::{
 };
 use agent_tracing::{
     EventId, EventStore, PublishingEventStore, RunEvent, RunEventKind, RunId, SqliteEventStore,
-    build_resume_plan, hook_remediation_plan, is_terminal_run_event, latest_event_id,
-    quality_score_records, validate_guidance_content, validate_quality_score,
+    TraceComparison, TraceSummary, TraceTreeNode, build_resume_plan, build_trace_comparison,
+    build_trace_tree, hook_remediation_plan, is_terminal_run_event, latest_event_id,
+    quality_score_records, summarize_trace, validate_guidance_content, validate_quality_score,
 };
 
 use crate::{Demo, setup};
@@ -762,6 +763,14 @@ fn handle_slash_command(
     }
     if let Some(rest) = adapters_slash_rest(trimmed) {
         handle_adapters_slash(app, rest);
+        return true;
+    }
+    if let Some(rest) = trace_slash_rest(trimmed) {
+        handle_trace_slash(app, rest);
+        return true;
+    }
+    if let Some(rest) = compare_slash_rest(trimmed) {
+        handle_compare_slash(app, rest);
         return true;
     }
     if let Some(rest) = hooks_slash_rest(trimmed) {
@@ -6410,6 +6419,22 @@ fn resume_slash_rest(trimmed: &str) -> Option<&str> {
     }
 }
 
+fn trace_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/trace" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/trace ").map(str::trim)
+    }
+}
+
+fn compare_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/compare" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/compare ").map(str::trim)
+    }
+}
+
 fn start_manual_tool_call(
     app: &mut App,
     rest: &str,
@@ -6611,6 +6636,273 @@ fn quality_score_report(run_id: RunId, records: &[agent_tracing::QualityScoreRec
             record.target,
             record.score,
             record.at.to_rfc3339()
+        )
+    }));
+    lines.join("\n")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TraceSlashMode {
+    Overview,
+    Summary,
+    Tree,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TraceSlashArgs {
+    mode: TraceSlashMode,
+    run_id: RunId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CompareSlashArgs {
+    primary_run_id: RunId,
+    compare_run_id: RunId,
+}
+
+fn handle_trace_slash(app: &mut App, rest: &str) {
+    let args = match parse_trace_slash_args(rest, app.last_run_id) {
+        Ok(args) => args,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Trace failed: {err}"),
+            });
+            return;
+        }
+    };
+    let store = match open_event_store() {
+        Ok(store) => store,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Trace failed: {err}"),
+            });
+            return;
+        }
+    };
+    let events = match store.try_events(args.run_id) {
+        Ok(events) => events,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Trace failed: {err}"),
+            });
+            return;
+        }
+    };
+    if events.is_empty() {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: format!("No events found for run {}.", args.run_id.0),
+        });
+        return;
+    }
+    let summary = summarize_trace(&events, args.run_id);
+    let tree = match build_trace_tree(args.run_id, |id| store.try_events(id)) {
+        Ok(tree) => tree,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Trace tree failed: {err}"),
+            });
+            return;
+        }
+    };
+    let text = match args.mode {
+        TraceSlashMode::Overview => {
+            format!(
+                "{}\n\n{}",
+                trace_summary_report(&summary),
+                trace_tree_report(&tree)
+            )
+        }
+        TraceSlashMode::Summary => trace_summary_report(&summary),
+        TraceSlashMode::Tree => trace_tree_report(&tree),
+    };
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::Assistant,
+        text,
+    });
+}
+
+fn handle_compare_slash(app: &mut App, rest: &str) {
+    let args = match parse_compare_slash_args(rest, app.last_run_id) {
+        Ok(args) => args,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Compare failed: {err}"),
+            });
+            return;
+        }
+    };
+    let store = match open_event_store() {
+        Ok(store) => store,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Compare failed: {err}"),
+            });
+            return;
+        }
+    };
+    match build_trace_comparison(args.primary_run_id, args.compare_run_id, |id| {
+        store.try_events(id)
+    }) {
+        Ok(comparison) => app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: trace_compare_report(&comparison),
+        }),
+        Err(err) => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: format!("Compare failed: {err}"),
+        }),
+    }
+}
+
+fn parse_trace_slash_args(
+    rest: &str,
+    last_run_id: Option<RunId>,
+) -> anyhow::Result<TraceSlashArgs> {
+    let mut parts = rest.split_whitespace();
+    let first = parts.next();
+    let (mode, run_part) = match first {
+        None => (TraceSlashMode::Overview, None),
+        Some("summary") => (TraceSlashMode::Summary, parts.next()),
+        Some("tree") => (TraceSlashMode::Tree, parts.next()),
+        Some(value) => (TraceSlashMode::Overview, Some(value)),
+    };
+    if let Some(extra) = parts.next() {
+        anyhow::bail!("unexpected trace argument {extra:?}");
+    }
+    Ok(TraceSlashArgs {
+        mode,
+        run_id: parse_run_id_arg(run_part, last_run_id, "trace")?,
+    })
+}
+
+fn parse_compare_slash_args(
+    rest: &str,
+    last_run_id: Option<RunId>,
+) -> anyhow::Result<CompareSlashArgs> {
+    let parts = rest.split_whitespace().collect::<Vec<_>>();
+    match parts.as_slice() {
+        [compare] => Ok(CompareSlashArgs {
+            primary_run_id: parse_run_id_arg(None, last_run_id, "compare primary")?,
+            compare_run_id: parse_run_id_arg(Some(compare), last_run_id, "compare target")?,
+        }),
+        [primary, compare] => Ok(CompareSlashArgs {
+            primary_run_id: parse_run_id_arg(Some(primary), last_run_id, "compare primary")?,
+            compare_run_id: parse_run_id_arg(Some(compare), last_run_id, "compare target")?,
+        }),
+        [] => anyhow::bail!("compare needs a run id, or primary and compare run ids"),
+        _ => anyhow::bail!("compare accepts at most two run ids"),
+    }
+}
+
+fn parse_run_id_arg(
+    value: Option<&str>,
+    last_run_id: Option<RunId>,
+    label: &str,
+) -> anyhow::Result<RunId> {
+    match value {
+        None | Some("last") => last_run_id.ok_or_else(|| anyhow::anyhow!("{label} needs a run id")),
+        Some(value) => Ok(RunId(uuid::Uuid::parse_str(value)?)),
+    }
+}
+
+fn trace_summary_report(summary: &TraceSummary) -> String {
+    let cost = summary
+        .cost_usd
+        .map(|value| format!("${value:.6}"))
+        .unwrap_or_else(|| "n/a".into());
+    let duration = summary
+        .duration_ms
+        .map(|value| format!("{value}ms"))
+        .unwrap_or_else(|| "n/a".into());
+    let score = summary
+        .quality_score_average
+        .map(|value| format!("{value:.1}/10"))
+        .unwrap_or_else(|| "n/a".into());
+    [
+        format!("Trace {}", summary.run_id.0),
+        format!(
+            "events {}, contexts {}, llm {}, tools {}",
+            summary.events, summary.context_snapshots, summary.llm_calls, summary.tool_calls
+        ),
+        format!(
+            "tokens {}/{}, cost {}, duration {}",
+            summary.tokens_in, summary.tokens_out, cost, duration
+        ),
+        format!(
+            "approvals {}, guidance {}, quality {}, hooks {}/{} failed",
+            summary.approvals,
+            summary.guidance_injections,
+            score,
+            summary.hooks,
+            summary.hook_failures
+        ),
+        format!(
+            "memory fragments {}, artifact refs {}",
+            summary.memory_fragments, summary.artifact_refs
+        ),
+    ]
+    .join("\n")
+}
+
+fn trace_tree_report(tree: &TraceTreeNode) -> String {
+    let mut lines = vec![format!("Trace tree {}", tree.run_id.0)];
+    push_trace_tree_report_node(&mut lines, tree, 0);
+    lines.join("\n")
+}
+
+fn push_trace_tree_report_node(lines: &mut Vec<String>, node: &TraceTreeNode, depth: usize) {
+    let indent = "  ".repeat(depth);
+    let agent = node.agent_id.as_deref().unwrap_or("unknown");
+    let trace = if node.trace_available {
+        format!("events={}", node.event_count)
+    } else {
+        "trace=missing".into()
+    };
+    let link = node
+        .link_status
+        .as_deref()
+        .map(|status| format!(" link_status={status}"))
+        .unwrap_or_default();
+    lines.push(format!(
+        "{indent}- {} agent={} status={} {}{}",
+        node.run_id.0, agent, node.status, trace, link
+    ));
+    for child in &node.children {
+        push_trace_tree_report_node(lines, child, depth + 1);
+    }
+}
+
+fn trace_compare_report(comparison: &TraceComparison) -> String {
+    let mut lines = vec![
+        format!(
+            "Trace compare {} -> {}",
+            comparison.primary_run_id.0, comparison.compare_run_id.0
+        ),
+        format!(
+            "primary tree: {} run(s), {} leaf run(s), depth {}",
+            comparison.primary_tree.runs,
+            comparison.primary_tree.leaf_runs,
+            comparison.primary_tree.max_depth
+        ),
+        format!(
+            "compare tree: {} run(s), {} leaf run(s), depth {}",
+            comparison.compare_tree.runs,
+            comparison.compare_tree.leaf_runs,
+            comparison.compare_tree.max_depth
+        ),
+        "metric | primary | compare | delta".into(),
+    ];
+    lines.extend(comparison.rows.iter().map(|row| {
+        format!(
+            "{} | {} | {} | {}",
+            row.label, row.primary, row.compare, row.delta
         )
     }));
     lines.join("\n")
@@ -7581,6 +7873,15 @@ mod tests {
             Some("last --from-event 7")
         );
         assert_eq!(resume_slash_rest("/resumed"), None);
+        assert_eq!(trace_slash_rest("/trace"), Some(""));
+        assert_eq!(trace_slash_rest("/trace tree last"), Some("tree last"));
+        assert_eq!(trace_slash_rest("/traces"), None);
+        assert_eq!(compare_slash_rest("/compare"), Some(""));
+        assert_eq!(
+            compare_slash_rest("/compare last run-2"),
+            Some("last run-2")
+        );
+        assert_eq!(compare_slash_rest("/compared"), None);
         assert_eq!(
             parse_stop_request("--summarise changed my mind"),
             StopRequest {
@@ -7698,6 +7999,35 @@ mod tests {
         assert!(parse_resume_slash_args("--from-event", Some(last_run)).is_err());
         assert!(parse_resume_slash_args("", None).is_err());
         assert!(parse_resume_slash_args("last extra", Some(last_run)).is_err());
+    }
+
+    #[test]
+    fn trace_and_compare_slash_args_accept_last_and_explicit_ids() {
+        let primary = RunId(uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000123").unwrap());
+        let compare = RunId(uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000456").unwrap());
+
+        let trace = parse_trace_slash_args("", Some(primary)).unwrap();
+        assert_eq!(trace.mode, TraceSlashMode::Overview);
+        assert_eq!(trace.run_id, primary);
+
+        let tree = parse_trace_slash_args(&format!("tree {}", compare.0), Some(primary)).unwrap();
+        assert_eq!(tree.mode, TraceSlashMode::Tree);
+        assert_eq!(tree.run_id, compare);
+
+        let implicit_primary =
+            parse_compare_slash_args(&compare.0.to_string(), Some(primary)).unwrap();
+        assert_eq!(implicit_primary.primary_run_id, primary);
+        assert_eq!(implicit_primary.compare_run_id, compare);
+
+        let explicit =
+            parse_compare_slash_args(&format!("{} {}", primary.0, compare.0), None).unwrap();
+        assert_eq!(explicit.primary_run_id, primary);
+        assert_eq!(explicit.compare_run_id, compare);
+
+        assert!(parse_trace_slash_args("summary", None).is_err());
+        assert!(parse_trace_slash_args("tree last extra", Some(primary)).is_err());
+        assert!(parse_compare_slash_args("", Some(primary)).is_err());
+        assert!(parse_compare_slash_args("last", None).is_err());
     }
 
     #[test]

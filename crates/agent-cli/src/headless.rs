@@ -233,6 +233,22 @@ pub async fn run(
                 CapabilitySlashCommand::Import { path } => capability_import(path, json).await,
             };
         }
+        Some(SlashCommand::Adapter(command)) => {
+            return match command {
+                AdapterSlashCommand::List => adapter_list(json).await,
+                AdapterSlashCommand::Doctor => adapter_doctor(json).await,
+                AdapterSlashCommand::Inspect { path } => adapter_inspect(path, json).await,
+                AdapterSlashCommand::Import { path } => adapter_import(path).await,
+                AdapterSlashCommand::ImportManifest { path } => {
+                    adapter_import_manifest(path, json).await
+                }
+                AdapterSlashCommand::Show { id } => adapter_show(id, json).await,
+                AdapterSlashCommand::Export { id, path } => adapter_export(id, path, json).await,
+                AdapterSlashCommand::InstallSkill { id } => adapter_install_skill(id, json).await,
+                AdapterSlashCommand::Allow { id } => adapter_allow(id).await,
+                AdapterSlashCommand::Quarantine { id } => adapter_quarantine(id).await,
+            };
+        }
         Some(SlashCommand::Memory(command)) => {
             return match command {
                 MemorySlashCommand::List => memory_list(json).await,
@@ -7887,6 +7903,7 @@ enum SlashCommand {
     Ingest(IngestSlashCommand),
     Artifact(ArtifactSlashCommand),
     Capability(CapabilitySlashCommand),
+    Adapter(AdapterSlashCommand),
     Memory(MemorySlashCommand),
     Compact(CompactSlashCommand),
     Guide {
@@ -7985,6 +8002,19 @@ enum CapabilitySlashCommand {
     Delete { id: String },
     Export { id: String, path: String },
     Import { path: String },
+}
+
+enum AdapterSlashCommand {
+    List,
+    Doctor,
+    Inspect { path: String },
+    Import { path: String },
+    ImportManifest { path: String },
+    Show { id: String },
+    Export { id: String, path: String },
+    InstallSkill { id: String },
+    Allow { id: String },
+    Quarantine { id: String },
 }
 
 enum IngestSlashCommand {
@@ -8222,6 +8252,13 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         let command = parse_capability_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Capability(command)));
     }
+    if trimmed == "/adapter" || trimmed == "/adapters" {
+        return Ok(Some(SlashCommand::Adapter(AdapterSlashCommand::List)));
+    }
+    if let Some(rest) = adapter_slash_rest(trimmed) {
+        let command = parse_adapter_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Adapter(command)));
+    }
     if trimmed == "/memory" {
         return Ok(Some(SlashCommand::Memory(MemorySlashCommand::List)));
     }
@@ -8305,6 +8342,7 @@ fn headless_slash_help_text() -> &'static str {
      - /ingest list|backends|add|probe-vision|rerun|show|review|delete\n\
      - /artifacts list|show|open|delete\n\
      - /capabilities list|doctor|show|allow|reject|delete|export|import\n\
+     - /adapters list|doctor|inspect|import|import-manifest|show|export|install-skill|allow|quarantine\n\
      - /memory list|access|backends|create|generate|generate-conversation|classify|edit|delete|rollback|export|import\n\
      - /compact list|show|export|import|delete|keep-run, /compactions ...\n\
      - /guide <run-id> <text> - inject guidance into an active run\n\
@@ -9102,6 +9140,90 @@ fn parse_capability_confirm<'a>(
     }
     if !confirmed {
         anyhow::bail!("capabilities {action} requires --confirm");
+    }
+    Ok(())
+}
+
+fn adapter_slash_rest(trimmed: &str) -> Option<&str> {
+    if let Some(rest) = trimmed.strip_prefix("/adapters ") {
+        Some(rest.trim())
+    } else {
+        trimmed.strip_prefix("/adapter ").map(str::trim)
+    }
+}
+
+fn parse_adapter_slash_rest(rest: &str) -> anyhow::Result<AdapterSlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let command = parts.next().unwrap_or_default();
+    match command {
+        "" | "list" => {
+            ensure_no_extra(parts, "usage: /adapters list")?;
+            Ok(AdapterSlashCommand::List)
+        }
+        "doctor" => {
+            ensure_no_extra(parts, "usage: /adapters doctor")?;
+            Ok(AdapterSlashCommand::Doctor)
+        }
+        "inspect" => {
+            let path = next_required(&mut parts, "adapters inspect needs a path")?;
+            ensure_no_extra(parts, "usage: /adapters inspect <path>")?;
+            Ok(AdapterSlashCommand::Inspect { path })
+        }
+        "import" => {
+            let path = next_required(&mut parts, "adapters import needs a path")?;
+            ensure_no_extra(parts, "usage: /adapters import <path>")?;
+            Ok(AdapterSlashCommand::Import { path })
+        }
+        "import-manifest" => {
+            let path = next_required(&mut parts, "adapters import-manifest needs a path")?;
+            ensure_no_extra(parts, "usage: /adapters import-manifest <path>")?;
+            Ok(AdapterSlashCommand::ImportManifest { path })
+        }
+        "show" => {
+            let id = next_required(&mut parts, "adapters show needs an id")?;
+            ensure_no_extra(parts, "usage: /adapters show <id>")?;
+            Ok(AdapterSlashCommand::Show { id })
+        }
+        "export" => {
+            let id = next_required(&mut parts, "adapters export needs an id")?;
+            let path = next_required(&mut parts, "adapters export needs a path")?;
+            ensure_no_extra(parts, "usage: /adapters export <id> <path>")?;
+            Ok(AdapterSlashCommand::Export { id, path })
+        }
+        "install-skill" => {
+            let id = next_required(&mut parts, "adapters install-skill needs an id")?;
+            ensure_no_extra(parts, "usage: /adapters install-skill <id>")?;
+            Ok(AdapterSlashCommand::InstallSkill { id })
+        }
+        "allow" => {
+            let id = next_required(&mut parts, "adapters allow needs an id")?;
+            parse_adapter_confirm(parts, "allow")?;
+            Ok(AdapterSlashCommand::Allow { id })
+        }
+        "quarantine" => {
+            let id = next_required(&mut parts, "adapters quarantine needs an id")?;
+            ensure_no_extra(parts, "usage: /adapters quarantine <id>")?;
+            Ok(AdapterSlashCommand::Quarantine { id })
+        }
+        _ => anyhow::bail!(
+            "adapters shortcut needs list, doctor, inspect, import, import-manifest, show, export, install-skill, allow, or quarantine"
+        ),
+    }
+}
+
+fn parse_adapter_confirm<'a>(
+    parts: impl Iterator<Item = &'a str>,
+    action: &str,
+) -> anyhow::Result<()> {
+    let mut confirmed = false;
+    for part in parts {
+        match part {
+            "--confirm" => confirmed = true,
+            _ => anyhow::bail!("unknown adapters {action} option: {part}"),
+        }
+    }
+    if !confirmed {
+        anyhow::bail!("adapters {action} requires --confirm");
     }
     Ok(())
 }
@@ -10505,6 +10627,69 @@ mod slash_tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn parses_adapter_shortcuts() {
+        assert!(matches!(
+            parse_slash_command("/adapters").unwrap(),
+            Some(SlashCommand::Adapter(AdapterSlashCommand::List))
+        ));
+        assert!(matches!(
+            parse_slash_command("/adapter doctor").unwrap(),
+            Some(SlashCommand::Adapter(AdapterSlashCommand::Doctor))
+        ));
+        match parse_slash_command("/adapters inspect ./adapter").unwrap() {
+            Some(SlashCommand::Adapter(AdapterSlashCommand::Inspect { path })) => {
+                assert_eq!(path, "./adapter");
+            }
+            _ => panic!("expected adapter inspect shortcut"),
+        }
+        match parse_slash_command("/adapters import ./adapter").unwrap() {
+            Some(SlashCommand::Adapter(AdapterSlashCommand::Import { path })) => {
+                assert_eq!(path, "./adapter");
+            }
+            _ => panic!("expected adapter import shortcut"),
+        }
+        match parse_slash_command("/adapters import-manifest /tmp/adapter.json").unwrap() {
+            Some(SlashCommand::Adapter(AdapterSlashCommand::ImportManifest { path })) => {
+                assert_eq!(path, "/tmp/adapter.json");
+            }
+            _ => panic!("expected adapter import-manifest shortcut"),
+        }
+        match parse_slash_command("/adapters show adapter-1").unwrap() {
+            Some(SlashCommand::Adapter(AdapterSlashCommand::Show { id })) => {
+                assert_eq!(id, "adapter-1");
+            }
+            _ => panic!("expected adapter show shortcut"),
+        }
+        match parse_slash_command("/adapters export adapter-1 /tmp/adapter.json").unwrap() {
+            Some(SlashCommand::Adapter(AdapterSlashCommand::Export { id, path })) => {
+                assert_eq!(id, "adapter-1");
+                assert_eq!(path, "/tmp/adapter.json");
+            }
+            _ => panic!("expected adapter export shortcut"),
+        }
+        match parse_slash_command("/adapters install-skill adapter-1").unwrap() {
+            Some(SlashCommand::Adapter(AdapterSlashCommand::InstallSkill { id })) => {
+                assert_eq!(id, "adapter-1");
+            }
+            _ => panic!("expected adapter install-skill shortcut"),
+        }
+        match parse_slash_command("/adapters allow adapter-1 --confirm").unwrap() {
+            Some(SlashCommand::Adapter(AdapterSlashCommand::Allow { id })) => {
+                assert_eq!(id, "adapter-1");
+            }
+            _ => panic!("expected adapter allow shortcut"),
+        }
+        match parse_slash_command("/adapters quarantine adapter-1").unwrap() {
+            Some(SlashCommand::Adapter(AdapterSlashCommand::Quarantine { id })) => {
+                assert_eq!(id, "adapter-1");
+            }
+            _ => panic!("expected adapter quarantine shortcut"),
+        }
+        assert!(parse_slash_command("/adapters allow adapter-1").is_err());
+        assert!(parse_slash_command("/adaptersx list").unwrap().is_none());
     }
 
     #[test]

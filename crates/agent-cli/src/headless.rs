@@ -156,6 +156,14 @@ pub async fn run(
                 IngestSlashCommand::Delete { id } => ingest_rm(id).await,
             };
         }
+        Some(SlashCommand::Artifact(command)) => {
+            return match command {
+                ArtifactSlashCommand::List => artifact_list(json).await,
+                ArtifactSlashCommand::Show { id } => artifact_show(id, json).await,
+                ArtifactSlashCommand::Open { id } => artifact_open(id, json).await,
+                ArtifactSlashCommand::Delete { id } => artifact_delete(id, json).await,
+            };
+        }
         Some(SlashCommand::Capability(command)) => {
             return match command {
                 CapabilitySlashCommand::List => capability_list(json).await,
@@ -7822,6 +7830,7 @@ enum SlashCommand {
         apply: bool,
     },
     Ingest(IngestSlashCommand),
+    Artifact(ArtifactSlashCommand),
     Capability(CapabilitySlashCommand),
     Memory(MemorySlashCommand),
     Compact(CompactSlashCommand),
@@ -7834,6 +7843,13 @@ enum SlashCommand {
         score: f32,
         target: String,
     },
+}
+
+enum ArtifactSlashCommand {
+    List,
+    Show { id: String },
+    Open { id: String },
+    Delete { id: String },
 }
 
 enum CapabilitySlashCommand {
@@ -8041,6 +8057,13 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         let command = parse_ingest_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Ingest(command)));
     }
+    if trimmed == "/artifact" || trimmed == "/artifacts" {
+        return Ok(Some(SlashCommand::Artifact(ArtifactSlashCommand::List)));
+    }
+    if let Some(rest) = artifact_slash_rest(trimmed) {
+        let command = parse_artifact_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Artifact(command)));
+    }
     if trimmed == "/capability" || trimmed == "/capabilities" {
         return Ok(Some(SlashCommand::Capability(CapabilitySlashCommand::List)));
     }
@@ -8125,6 +8148,7 @@ fn headless_slash_help_text() -> &'static str {
      - /trace [summary|tree|hooks] <run-id>, /compare <run-id> <run-id>, /replay <run-id>\n\
      - /storage report, /storage prune-cache <days> [--apply]\n\
      - /ingest list|backends|add|probe-vision|rerun|show|review|delete\n\
+     - /artifacts list|show|open|delete\n\
      - /capabilities list|doctor|show|allow|reject|delete|export|import\n\
      - /memory list|access|backends|create|generate|generate-conversation|classify|edit|delete|rollback|export|import\n\
      - /compact list|show|export|import|delete|keep-run, /compactions ...\n\
@@ -8349,6 +8373,50 @@ fn parse_storage_slash_rest(rest: &str) -> anyhow::Result<(Option<u64>, bool)> {
             Ok((Some(prune_cache_days), apply))
         }
         _ => anyhow::bail!("storage shortcut needs report or prune-cache"),
+    }
+}
+
+fn artifact_slash_rest(trimmed: &str) -> Option<&str> {
+    if let Some(rest) = trimmed.strip_prefix("/artifacts ") {
+        Some(rest.trim())
+    } else {
+        trimmed.strip_prefix("/artifact ").map(str::trim)
+    }
+}
+
+fn parse_artifact_slash_rest(rest: &str) -> anyhow::Result<ArtifactSlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let command = parts.next().unwrap_or_default();
+    match command {
+        "" | "list" => {
+            ensure_no_extra(parts, "usage: /artifacts list")?;
+            Ok(ArtifactSlashCommand::List)
+        }
+        "show" => {
+            let id = next_required(&mut parts, "artifact show needs an id")?;
+            ensure_no_extra(parts, "usage: /artifacts show <id>")?;
+            Ok(ArtifactSlashCommand::Show { id })
+        }
+        "open" => {
+            let id = next_required(&mut parts, "artifact open needs an id")?;
+            ensure_no_extra(parts, "usage: /artifacts open <id>")?;
+            Ok(ArtifactSlashCommand::Open { id })
+        }
+        "delete" | "rm" => {
+            let id = next_required(&mut parts, "artifact delete needs an id")?;
+            let mut confirmed = false;
+            for part in parts {
+                match part {
+                    "--confirm" => confirmed = true,
+                    _ => anyhow::bail!("unknown artifact delete option: {part}"),
+                }
+            }
+            if !confirmed {
+                anyhow::bail!("artifact delete requires --confirm");
+            }
+            Ok(ArtifactSlashCommand::Delete { id })
+        }
+        _ => anyhow::bail!("artifact shortcut needs list, show, open, or delete"),
     }
 }
 
@@ -9483,6 +9551,38 @@ mod slash_tests {
         assert!(parse_slash_command("/ingest delete artifact-1").is_err());
         assert!(parse_slash_command("/ingest probe-vision ./image.png").is_err());
         assert!(parse_slash_command("/ingester list").unwrap().is_none());
+    }
+
+    #[test]
+    fn parses_artifact_shortcuts() {
+        assert!(matches!(
+            parse_slash_command("/artifacts").unwrap(),
+            Some(SlashCommand::Artifact(ArtifactSlashCommand::List))
+        ));
+        assert!(matches!(
+            parse_slash_command("/artifact list").unwrap(),
+            Some(SlashCommand::Artifact(ArtifactSlashCommand::List))
+        ));
+        match parse_slash_command("/artifacts show artifact-1").unwrap() {
+            Some(SlashCommand::Artifact(ArtifactSlashCommand::Show { id })) => {
+                assert_eq!(id, "artifact-1");
+            }
+            _ => panic!("expected artifact show shortcut"),
+        }
+        match parse_slash_command("/artifacts open artifact-1").unwrap() {
+            Some(SlashCommand::Artifact(ArtifactSlashCommand::Open { id })) => {
+                assert_eq!(id, "artifact-1");
+            }
+            _ => panic!("expected artifact open shortcut"),
+        }
+        match parse_slash_command("/artifacts delete artifact-1 --confirm").unwrap() {
+            Some(SlashCommand::Artifact(ArtifactSlashCommand::Delete { id })) => {
+                assert_eq!(id, "artifact-1");
+            }
+            _ => panic!("expected artifact delete shortcut"),
+        }
+        assert!(parse_slash_command("/artifacts delete artifact-1").is_err());
+        assert!(parse_slash_command("/artifactsx list").unwrap().is_none());
     }
 
     #[test]

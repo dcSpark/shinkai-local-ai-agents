@@ -809,6 +809,7 @@ pub struct PaymentX402Config {
     pub max_response_bytes: usize,
     pub max_amount: Option<f64>,
     pub signature_env: String,
+    pub signature_secret: Option<String>,
     pub facilitator_url: Option<String>,
 }
 
@@ -825,6 +826,9 @@ impl PaymentX402Config {
                 .ok()
                 .and_then(clean_non_empty)
                 .unwrap_or_else(|| "AGENT_X402_PAYMENT_SIGNATURE".into()),
+            signature_secret: std::env::var("AGENT_X402_SIGNATURE_SECRET")
+                .ok()
+                .and_then(clean_non_empty),
             facilitator_url: std::env::var("AGENT_X402_FACILITATOR_URL")
                 .ok()
                 .and_then(clean_non_empty),
@@ -834,11 +838,25 @@ impl PaymentX402Config {
 
 pub struct PaymentX402Tool {
     config: PaymentX402Config,
+    secret_store: Arc<dyn SecretStore>,
 }
 
 impl PaymentX402Tool {
     pub fn new(config: PaymentX402Config) -> Self {
-        Self { config }
+        Self {
+            config,
+            secret_store: default_secret_store(),
+        }
+    }
+
+    pub fn new_with_secret_store(
+        config: PaymentX402Config,
+        secret_store: Arc<dyn SecretStore>,
+    ) -> Self {
+        Self {
+            config,
+            secret_store,
+        }
     }
 
     pub fn from_env() -> Self {
@@ -879,7 +897,11 @@ impl PaymentX402Tool {
                     },
                     "payment_signature": {
                         "type": "string",
-                        "description": "Base64 x402 PAYMENT-SIGNATURE payload. If omitted, the configured signature env var is used."
+                        "description": "Base64 x402 PAYMENT-SIGNATURE payload. Prefer payment_signature_secret for stored credentials."
+                    },
+                    "payment_signature_secret": {
+                        "type": "string",
+                        "description": "secret:// handle or active secret id containing the PAYMENT-SIGNATURE payload. Overrides AGENT_X402_SIGNATURE_SECRET."
                     },
                     "max_amount": {
                         "type": "number",
@@ -995,37 +1017,82 @@ impl Tool for PaymentX402Tool {
         if !spend.within_limit {
             return Ok(first.into_json(false, Some(spend)));
         }
-        let signature = input
-            .get("payment_signature")
-            .and_then(Value::as_str)
-            .and_then(|value| clean_non_empty(value.to_string()))
-            .or_else(|| {
-                std::env::var(&self.config.signature_env)
-                    .ok()
-                    .and_then(clean_non_empty)
-            })
-            .ok_or_else(|| {
-                ToolError::InvalidInput(format!(
-                    "x402 retry requires `payment_signature` or {}",
-                    self.config.signature_env
-                ))
-            })?;
+        let signature =
+            payment_signature_material(&input, &self.config, self.secret_store.as_ref())?;
         let second = send_payment_request(
             &client,
             &method,
             url,
             &headers,
             body.as_deref(),
-            Some(&signature),
+            Some(&signature.value),
             max_response_bytes,
         )
         .await?;
         Ok(json!({
             "status": "retried",
             "initial": first.into_json(true, Some(spend)),
-            "retry": second.into_json(true, None)
+            "retry": second.into_json(true, None),
+            "wallet": {
+                "signature_source": signature.source
+            }
         }))
     }
+}
+
+struct PaymentSignatureMaterial {
+    value: String,
+    source: &'static str,
+}
+
+fn payment_signature_material(
+    input: &Value,
+    config: &PaymentX402Config,
+    secret_store: &dyn SecretStore,
+) -> Result<PaymentSignatureMaterial, ToolError> {
+    if let Some(value) = input
+        .get("payment_signature")
+        .and_then(Value::as_str)
+        .and_then(|value| clean_non_empty(value.to_string()))
+    {
+        return Ok(PaymentSignatureMaterial {
+            value,
+            source: "input",
+        });
+    }
+
+    if let Some(reference) = input
+        .get("payment_signature_secret")
+        .and_then(Value::as_str)
+        .and_then(|value| clean_non_empty(value.to_string()))
+    {
+        return Ok(PaymentSignatureMaterial {
+            value: resolve_secret_reference_value(secret_store, &reference)?,
+            source: "input_secret",
+        });
+    }
+
+    if let Some(reference) = config.signature_secret.as_deref() {
+        return Ok(PaymentSignatureMaterial {
+            value: resolve_secret_reference_value(secret_store, reference)?,
+            source: "configured_secret",
+        });
+    }
+
+    if let Some(value) = std::env::var(&config.signature_env)
+        .ok()
+        .and_then(clean_non_empty)
+    {
+        return Ok(PaymentSignatureMaterial {
+            value,
+            source: "env",
+        });
+    }
+
+    Err(ToolError::InvalidInput(format!(
+        "x402 retry requires `payment_signature`, `payment_signature_secret`, AGENT_X402_SIGNATURE_SECRET, or {}",
+        config.signature_env
+    )))
 }
 
 pub struct PaymentX402RequiredTool;
@@ -4102,6 +4169,29 @@ fn resolve_secret_value(secret_store: &dyn SecretStore, value: &str) -> Result<S
     Ok(secret.expose().to_string())
 }
 
+fn resolve_secret_reference_value(
+    secret_store: &dyn SecretStore,
+    reference: &str,
+) -> Result<String, ToolError> {
+    let reference = reference.trim();
+    if reference.starts_with("secret://") {
+        return resolve_secret_value(secret_store, reference);
+    }
+    let id = SecretId::new(reference)
+        .map_err(|err| ToolError::InvalidInput(format!("invalid secret id: {err}")))?;
+    let record = secret_store
+        .show(&id)
+        .map_err(|err| ToolError::Execution(format!("failed to inspect secret id: {err}")))?;
+    resolve_secret_value(
+        secret_store,
+        &SecretHandle {
+            id: record.id,
+            version: record.current_version,
+        }
+        .to_string(),
+    )
+}
+
 fn external_agent_a2a_call_input(
     input: &Value,
 ) -> Result<(Value, Vec<(String, String)>, u64), ToolError> {
@@ -6168,6 +6258,11 @@ external_agents:
         assert!(descriptor.permissions.wallet);
         assert!(descriptor.permissions.payment);
         assert!(descriptor.permissions.secrets);
+        assert!(
+            descriptor.input_schema["properties"]
+                .get("payment_signature_secret")
+                .is_some()
+        );
 
         let descriptor = PaymentX402RequiredTool::descriptor();
         assert_eq!(descriptor.id.0, "payment_x402_required");
@@ -6269,6 +6364,7 @@ external_agents:
             max_response_bytes: 64 * 1024,
             max_amount: None,
             signature_env: "AGENT_TEST_X402_SIGNATURE".into(),
+            signature_secret: None,
             facilitator_url: Some(format!("http://{addr}")),
         });
 
@@ -6327,6 +6423,7 @@ external_agents:
             max_response_bytes: 64 * 1024,
             max_amount: None,
             signature_env: "AGENT_TEST_X402_SIGNATURE".into(),
+            signature_secret: None,
             facilitator_url: Some(format!("http://{addr}")),
         });
 
@@ -6367,6 +6464,7 @@ external_agents:
             max_response_bytes: 64 * 1024,
             max_amount: None,
             signature_env: "AGENT_TEST_X402_SIGNATURE".into(),
+            signature_secret: None,
             facilitator_url: None,
         });
 
@@ -6426,6 +6524,7 @@ external_agents:
             max_response_bytes: 64 * 1024,
             max_amount: None,
             signature_env: "AGENT_TEST_X402_SIGNATURE".into(),
+            signature_secret: None,
             facilitator_url: None,
         });
 
@@ -6446,6 +6545,83 @@ external_agents:
         assert_eq!(output["initial"]["spend"]["within_limit"], true);
         assert_eq!(output["retry"]["status"], "success");
         assert_eq!(output["retry"]["payment_response"], response);
+        assert_eq!(output["wallet"]["signature_source"], "input");
+    }
+
+    #[tokio::test]
+    async fn x402_payment_tool_retries_with_secret_signature() {
+        let required = json!({
+            "x402Version": 1,
+            "accepts": [{ "scheme": "exact", "maxAmountRequired": "5" }]
+        });
+        let response = json!({ "transaction": "tx-secret" });
+        let required_header = encoded_payment_header(&required);
+        let response_header = encoded_payment_header(&response);
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _ = read_http_body(&mut stream);
+            write_http_payment(
+                &mut stream,
+                402,
+                &[("PAYMENT-REQUIRED", &required_header)],
+                "payment required",
+            );
+
+            let (mut stream, _) = listener.accept().unwrap();
+            let request = read_http_request(&mut stream);
+            assert!(
+                request
+                    .to_ascii_lowercase()
+                    .contains("payment-signature: signed-from-secret")
+            );
+            write_http_payment(
+                &mut stream,
+                200,
+                &[("PAYMENT-RESPONSE", &response_header)],
+                "paid",
+            );
+        });
+        let secret_store = Arc::new(FileSecretStore::new(
+            temp_dir("x402-payment-secret").join("secrets.json"),
+        ));
+        secret_store
+            .set(
+                SecretId::new("payment.signature").unwrap(),
+                SecretValue::new("signed-from-secret"),
+                Some("test payment signature".into()),
+            )
+            .unwrap();
+        let tool = PaymentX402Tool::new_with_secret_store(
+            PaymentX402Config {
+                default_timeout_ms: 5_000,
+                max_response_bytes: 64 * 1024,
+                max_amount: None,
+                signature_env: "AGENT_TEST_X402_SIGNATURE".into(),
+                signature_secret: None,
+                facilitator_url: None,
+            },
+            secret_store,
+        );
+
+        let output = tool
+            .execute(json!({
+                "url": format!("http://{addr}/paid"),
+                "method": "POST",
+                "body": "probe",
+                "auto_pay": true,
+                "payment_signature_secret": "payment.signature",
+                "max_amount": 5
+            }))
+            .await
+            .unwrap();
+
+        server.join().unwrap();
+        assert_eq!(output["status"], "retried");
+        assert_eq!(output["wallet"]["signature_source"], "input_secret");
+        assert_eq!(output["retry"]["payment_response"], response);
+        assert!(!output.to_string().contains("signed-from-secret"));
     }
 
     #[tokio::test]
@@ -6472,6 +6648,7 @@ external_agents:
             max_response_bytes: 64 * 1024,
             max_amount: None,
             signature_env: "AGENT_TEST_X402_SIGNATURE".into(),
+            signature_secret: None,
             facilitator_url: None,
         });
 

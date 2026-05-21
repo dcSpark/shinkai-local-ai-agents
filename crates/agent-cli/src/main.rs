@@ -9,6 +9,7 @@
 mod headless;
 mod setup;
 mod tui;
+mod x402_slash;
 
 #[cfg(test)]
 pub(crate) static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());

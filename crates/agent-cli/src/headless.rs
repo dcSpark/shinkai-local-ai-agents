@@ -7576,6 +7576,13 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
     if let Some((name, input)) = parse_voice_slash_command(trimmed)? {
         return Ok(Some(SlashCommand::ToolManual { name, input }));
     }
+    if let Some(rest) = crate::x402_slash::slash_rest(trimmed) {
+        let (name, input) = parse_x402_slash_command(rest)?;
+        return Ok(Some(SlashCommand::ToolManual {
+            name: name.into(),
+            input,
+        }));
+    }
     if let Some(rest) = trimmed.strip_prefix("/tool!").map(str::trim) {
         let (name, input) = parse_tool_slash_rest(rest)?;
         return Ok(Some(SlashCommand::ToolManual { name, input }));
@@ -7660,6 +7667,14 @@ fn voice_slash_rest(trimmed: &str) -> Option<&str> {
     } else {
         trimmed.strip_prefix("/voice ").map(str::trim)
     }
+}
+
+fn parse_x402_slash_command(rest: &str) -> anyhow::Result<(&'static str, String)> {
+    if crate::x402_slash::is_help(rest) {
+        anyhow::bail!("x402 shortcut needs request, required, or settle");
+    }
+    let (name, input) = crate::x402_slash::parse_tool_call(rest)?;
+    Ok((name, input.to_string()))
 }
 
 fn parse_forced_tool_slash_rest(rest: &str) -> anyhow::Result<(String, String)> {
@@ -8364,6 +8379,58 @@ mod slash_tests {
         assert!(parse_slash_command("/voice").is_err());
         assert!(
             parse_slash_command("/voices transcribe ./sample.wav")
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn parses_x402_shortcuts_as_direct_tool_calls() {
+        let parsed = parse_slash_command(
+            "/x402 request https://example.test --method post --max-amount=5 --auto-pay",
+        )
+        .unwrap();
+        match parsed {
+            Some(SlashCommand::ToolManual { name, input }) => {
+                assert_eq!(name, "payment_x402_request");
+                assert_eq!(
+                    serde_json::from_str::<serde_json::Value>(&input).unwrap(),
+                    json!({
+                        "url": "https://example.test",
+                        "method": "POST",
+                        "max_amount": 5.0,
+                        "auto_pay": true
+                    })
+                );
+            }
+            _ => panic!("expected direct x402 tool command"),
+        }
+        let parsed = parse_slash_command(
+            "/payment x402-required --resource https://example.test --amount 5 --pay-to 0xabc --asset USDC --network base-sepolia",
+        )
+        .unwrap();
+        match parsed {
+            Some(SlashCommand::ToolManual { name, input }) => {
+                assert_eq!(name, "payment_x402_required");
+                assert_eq!(
+                    serde_json::from_str::<serde_json::Value>(&input).unwrap(),
+                    json!({
+                        "accepts": [{
+                            "scheme": "exact",
+                            "resource": "https://example.test",
+                            "maxAmountRequired": "5",
+                            "payTo": "0xabc",
+                            "asset": "USDC",
+                            "network": "base-sepolia"
+                        }]
+                    })
+                );
+            }
+            _ => panic!("expected direct x402 tool command"),
+        }
+        assert!(parse_slash_command("/x402").is_err());
+        assert!(
+            parse_slash_command("/payments x402-request https://example.test")
                 .unwrap()
                 .is_none()
         );

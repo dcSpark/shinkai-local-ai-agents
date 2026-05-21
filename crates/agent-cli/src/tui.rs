@@ -34,7 +34,7 @@ use agent_capabilities::{
 };
 use agent_compaction::{CompactionRecord, CompactionStore};
 use agent_config::{
-    AgentConfigFile, AgentSummary, ConfigResolver, ProfileGrantKind, ProfileSummary,
+    AgentConfigFile, AgentSummary, ConfigResolver, ModelConfig, ProfileGrantKind, ProfileSummary,
     configured_model_providers,
 };
 use agent_conversations::{
@@ -4024,6 +4024,7 @@ fn handle_models_slash(app: &mut App, rest: &str) {
             text: [
                 "/models list",
                 "/models show <id>",
+                "/models save <id> [json]",
                 "/models export <id> <path>",
                 "/models import <path>",
                 "/models providers",
@@ -4074,6 +4075,26 @@ fn handle_models_slash(app: &mut App, rest: &str) {
                 Err(err) => app.transcript.push(TranscriptLine {
                     kind: LineKind::Error,
                     text: format!("Model show failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "save" => match model_save_args(args) {
+            Ok(model) => match ConfigResolver::from_env().save_model(&model) {
+                Ok(saved) => {
+                    push_event(app, format!("Saved model {}.", saved.id));
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&saved)
+                            .unwrap_or_else(|_| "<unserializable model config>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Model save failed: {err}"),
                 }),
             },
             Err(err) => app.transcript.push(TranscriptLine {
@@ -4154,7 +4175,7 @@ fn handle_models_slash(app: &mut App, rest: &str) {
         "metadata-catalog" => handle_model_metadata_catalog_slash(app, args),
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Models command needs list, show, export, import, providers, doctor, provider-catalog, metadata-catalog, or help.".into(),
+            text: "Models command needs list, show, save, export, import, providers, doctor, provider-catalog, metadata-catalog, or help.".into(),
         }),
     }
 }
@@ -4174,6 +4195,29 @@ fn model_path_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
         anyhow::bail!("models {command} accepts exactly one path");
     }
     Ok(path)
+}
+
+fn model_save_args(args: &str) -> anyhow::Result<ModelConfig> {
+    let trimmed = args.trim();
+    let (id, input) = trimmed
+        .split_once(char::is_whitespace)
+        .map(|(id, input)| (id.trim(), input.trim()))
+        .unwrap_or((trimmed, ""));
+    if id.is_empty() {
+        anyhow::bail!("models save needs a model id");
+    }
+    let mut value = if input.is_empty() {
+        serde_json::json!({})
+    } else {
+        serde_json::from_str::<serde_json::Value>(input)
+            .map_err(|err| anyhow::anyhow!("models save JSON is invalid: {err}"))?
+    };
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("models save JSON must be an object"))?;
+    object.insert("id".into(), serde_json::Value::String(id.into()));
+    serde_json::from_value(value)
+        .map_err(|err| anyhow::anyhow!("models save JSON does not match ModelConfig: {err}"))
 }
 
 fn model_export_args(args: &str) -> anyhow::Result<(&str, &str)> {
@@ -8641,6 +8685,17 @@ mod tests {
 
     #[test]
     fn model_args_require_expected_id_and_path() {
+        let model = model_save_args(
+            r#"gpt-test {"provider":"openai-compatible","available_modalities":["text"]}"#,
+        )
+        .unwrap();
+        assert_eq!(model.id, "gpt-test");
+        assert_eq!(model.provider.as_deref(), Some("openai-compatible"));
+        assert_eq!(model.available_modalities, vec!["text"]);
+        assert_eq!(model_save_args("gpt-test").unwrap().id, "gpt-test");
+        assert!(model_save_args("").is_err());
+        assert!(model_save_args("gpt-test []").is_err());
+        assert!(model_save_args("gpt-test {").is_err());
         assert_eq!(
             model_export_args("gpt-test ./model.toml").unwrap(),
             ("gpt-test", "./model.toml")

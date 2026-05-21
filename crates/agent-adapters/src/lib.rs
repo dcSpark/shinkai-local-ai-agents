@@ -1114,6 +1114,23 @@ fn validate_agent_created_tool_manifest(body: &str) -> Result<(), AdapterError> 
                 "MCP server `{name}` must declare either command or URL runtime, not both"
             )));
         }
+        if let Some(args) = server.get("args") {
+            let args = args.as_array().ok_or_else(|| {
+                AdapterError::InvalidToolDraft(format!(
+                    "MCP server `{name}` args must be an array of non-empty strings"
+                ))
+            })?;
+            if args.iter().any(|arg| {
+                arg.as_str()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .is_none()
+            }) {
+                return Err(AdapterError::InvalidToolDraft(format!(
+                    "MCP server `{name}` args must be an array of non-empty strings"
+                )));
+            }
+        }
     }
     Ok(())
 }
@@ -3240,6 +3257,37 @@ hooks:
 
         assert!(matches!(err, AdapterError::InvalidToolDraft(_)));
         assert!(err.to_string().contains("either command or URL runtime"));
+        assert!(registry.list().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn agent_created_tool_rejects_non_string_mcp_args() {
+        let dir = std::env::temp_dir().join(format!(
+            "adapter-agent-tool-args-test-{}-{}",
+            std::process::id(),
+            uuid_like()
+        ));
+        let registry = AdapterRegistry::new(StoragePaths::new(dir.join("home")));
+        let err = registry
+            .promote_agent_created_tool(
+                "draft-bad-args",
+                "Bad Args Tool",
+                r#"{
+                  "mcpServers": {
+                    "bad_args": {
+                      "command": "fake-mcp",
+                      "args": ["--stdio", 123]
+                    }
+                  }
+                }"#,
+                "agent",
+                "test:capability",
+            )
+            .unwrap_err();
+
+        assert!(matches!(err, AdapterError::InvalidToolDraft(_)));
+        assert!(err.to_string().contains("args must be an array"));
         assert!(registry.list().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }

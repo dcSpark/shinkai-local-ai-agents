@@ -982,7 +982,7 @@ fn handle_slash_command(
         return true;
     }
     if let Some(rest) = agents_slash_rest(trimmed) {
-        handle_agents_slash(app, rest);
+        handle_agents_slash(app, rest, registry, agent, options);
         return true;
     }
     if let Some(rest) = profiles_slash_rest(trimmed) {
@@ -4401,7 +4401,13 @@ fn model_provider_summary(provider: &agent_config::ModelProviderDescriptor) -> s
     })
 }
 
-fn handle_agents_slash(app: &mut App, rest: &str) {
+fn handle_agents_slash(
+    app: &mut App,
+    rest: &str,
+    registry: &mut Arc<ToolRegistry>,
+    agent: &mut AgentConfig,
+    options: &mut setup::RuntimeOptions,
+) {
     let rest = rest.trim();
     if rest.is_empty() || rest == "help" {
         app.transcript.push(TranscriptLine {
@@ -4410,6 +4416,7 @@ fn handle_agents_slash(app: &mut App, rest: &str) {
                 "/agents list",
                 "/agents show <id>",
                 "/agents save <id> <system prompt>",
+                "/agents use <id>",
                 "/agents export <id> <path>",
                 "/agents import <path>",
                 "/agents delete <id> --confirm",
@@ -4488,6 +4495,7 @@ fn handle_agents_slash(app: &mut App, rest: &str) {
                 text: err.to_string(),
             }),
         },
+        "use" => switch_active_agent(app, args, registry, agent, options),
         "export" => match agent_export_args(args) {
             Ok((id, path)) => match ConfigResolver::from_env().export_agent_config(id, path) {
                 Ok(agent) => push_event(app, format!("Exported agent {} to {path}", agent.id)),
@@ -4554,7 +4562,8 @@ fn handle_agents_slash(app: &mut App, rest: &str) {
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Agents command needs list, show, save, export, import, delete, or help.".into(),
+            text: "Agents command needs list, show, save, use, export, import, delete, or help."
+                .into(),
         }),
     }
 }

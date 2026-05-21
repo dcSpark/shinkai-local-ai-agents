@@ -1435,6 +1435,7 @@ export default function App() {
       { command: "/secrets backends", label: "List secret backends" },
       { command: "/secrets list", label: "List secret metadata" },
       { command: "/secrets show ", label: "Show secret metadata" },
+      { command: "/secrets delete ", label: "Delete secret metadata" },
       { command: "/bundles backup", label: "Export profile backup bundle" },
       { command: "/adapters", label: "List adapter manifests" },
       { command: "/adapters doctor", label: "Check adapter operability" },
@@ -3452,7 +3453,8 @@ export default function App() {
       prompt === "/secrets" ||
       prompt === "/secrets backends" ||
       prompt === "/secrets list" ||
-      prompt.startsWith("/secrets show ")
+      prompt.startsWith("/secrets show ") ||
+      prompt.startsWith("/secrets delete ")
     ) {
       setInput("");
       setActiveSection("profiles");
@@ -3465,6 +3467,13 @@ export default function App() {
           appendLine("error", "Secrets show shortcut needs a secret id.");
         } else {
           await showSecretFromOps(id);
+        }
+      } else if (prompt.startsWith("/secrets delete ")) {
+        const id = prompt.slice("/secrets delete ".length).trim();
+        if (!id) {
+          appendLine("error", "Secrets delete shortcut needs a secret id.");
+        } else {
+          await deleteSecretFromOps(id);
         }
       } else {
         await listSecretsFromOps();

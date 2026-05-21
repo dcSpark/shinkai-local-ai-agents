@@ -4870,6 +4870,9 @@ fn register_allowed_mcp_tools_impl(
             continue;
         };
         for spec in specs {
+            if !mcp_spec_has_supported_runtime(&spec) {
+                continue;
+            }
             if !include(&package, &spec) {
                 continue;
             }
@@ -4929,6 +4932,19 @@ fn mcp_spec_uses_sse(spec: &McpServerSpec) -> bool {
             .split(|ch: char| !ch.is_ascii_alphanumeric())
             .any(|part| part == "sse")
     })
+}
+
+fn mcp_spec_has_supported_runtime(spec: &McpServerSpec) -> bool {
+    if spec.command.is_some() {
+        return true;
+    }
+    if spec.url.is_none() {
+        return false;
+    }
+    let transport = spec.transport.as_deref();
+    mcp_transport_is_sse(transport)
+        || mcp_transport_is_streamable_http(transport)
+        || mcp_transport_is_http(transport)
 }
 
 fn mcp_transport_label(spec: &McpServerSpec) -> Option<&'static str> {
@@ -5303,6 +5319,15 @@ fn mcp_transport_is_streamable_http(transport: Option<&str>) -> bool {
     transport.is_some_and(|transport| {
         let lower = transport.to_ascii_lowercase();
         lower.contains("streamable") || lower.contains("streaming_http")
+    })
+}
+
+fn mcp_transport_is_http(transport: Option<&str>) -> bool {
+    transport.is_none_or(|transport| {
+        transport
+            .to_ascii_lowercase()
+            .split(|ch: char| !ch.is_ascii_alphanumeric())
+            .any(|part| matches!(part, "http" | "https"))
     })
 }
 
@@ -6262,6 +6287,40 @@ mod tests {
                 .is_none()
         );
         assert!(registry.descriptor(&ToolId::from("mcp-search")).is_none());
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn mcp_registration_skips_servers_without_supported_runtime() {
+        let dir = temp_dir("mcp-supported-runtime");
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("mcp.json");
+        std::fs::write(
+            &source,
+            r#"{
+              "mcpServers": {
+                "metadata": { "description": "Catalog-only entry" },
+                "socket": {
+                  "transport": "websocket",
+                  "url": "https://example.invalid/ws"
+                },
+                "search": { "url": "https://example.invalid/mcp" }
+              }
+            }"#,
+        )
+        .unwrap();
+        let mut package = agent_adapters::inspect_source(&source).unwrap();
+        package.quarantined = false;
+        for capability in &mut package.capabilities {
+            capability.quarantined = false;
+        }
+        let mut registry = ToolRegistry::new();
+
+        assert_eq!(register_allowed_mcp_tools(&mut registry, [package]), 1);
+        assert!(registry.descriptor(&ToolId::from("mcp-search")).is_some());
+        assert!(registry.descriptor(&ToolId::from("mcp-metadata")).is_none());
+        assert!(registry.descriptor(&ToolId::from("mcp-socket")).is_none());
 
         let _ = std::fs::remove_dir_all(dir);
     }

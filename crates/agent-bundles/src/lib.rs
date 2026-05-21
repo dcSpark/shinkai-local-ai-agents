@@ -104,6 +104,7 @@ pub fn import_bundle_into(
     let file = File::open(source)?;
     let mut archive = tar::Archive::new(file);
     let mut manifest = None;
+    let mut credential_reminders = Vec::new();
 
     for entry in archive.entries()? {
         let mut entry = entry?;
@@ -125,6 +126,10 @@ pub fn import_bundle_into(
             manifest = Some(parsed);
             continue;
         }
+        if is_credential_bundle_path(&entry_path) {
+            credential_reminders.push(credential_reminder(&entry_path));
+            continue;
+        }
         let out = paths.root().join(&entry_path);
         if entry_type.is_dir() {
             std::fs::create_dir_all(out)?;
@@ -142,7 +147,10 @@ pub fn import_bundle_into(
         }
     }
 
-    manifest.ok_or_else(|| BundleError::UnsafePath("missing manifest.toml".into()))
+    let mut manifest =
+        manifest.ok_or_else(|| BundleError::UnsafePath("missing manifest.toml".into()))?;
+    merge_credential_reminders(&mut manifest, credential_reminders);
+    Ok(manifest)
 }
 
 fn append_bytes(
@@ -223,14 +231,30 @@ fn collect_credential_reminders(
         if file_type.is_dir() {
             collect_credential_reminders(entry_source, &entry_archive_path, reminders)?;
         } else if file_type.is_file() && is_credential_bundle_path(&entry_archive_path) {
-            reminders.push(BundleCredentialReminder {
-                path: archive_path_label(&entry_archive_path),
-                reason: "secret credential file omitted; recreate matching secrets after import"
-                    .into(),
-            });
+            reminders.push(credential_reminder(&entry_archive_path));
         }
     }
     Ok(())
+}
+
+fn credential_reminder(path: &Path) -> BundleCredentialReminder {
+    BundleCredentialReminder {
+        path: archive_path_label(path),
+        reason: "secret credential file omitted; recreate matching secrets after import".into(),
+    }
+}
+
+fn merge_credential_reminders(
+    manifest: &mut BundleManifest,
+    reminders: Vec<BundleCredentialReminder>,
+) {
+    manifest.credential_reminders.extend(reminders);
+    manifest
+        .credential_reminders
+        .sort_by(|left, right| left.path.cmp(&right.path));
+    manifest
+        .credential_reminders
+        .dedup_by(|left, right| left.path == right.path);
 }
 
 fn is_credential_bundle_path(path: &Path) -> bool {
@@ -369,6 +393,48 @@ mod tests {
         );
         assert!(!contents.contains("sk-secret"));
         assert!(contents.contains("credential_reminders"));
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn import_bundle_skips_secret_files_and_records_reminders() {
+        let base =
+            std::env::temp_dir().join(format!("bundle-secret-import-test-{}", std::process::id()));
+        std::fs::create_dir_all(&base).unwrap();
+        let bundle = base.join("bundle.tar");
+        let manifest = BundleManifest {
+            schema_version: BUNDLE_SCHEMA_VERSION,
+            exported_at: Utc::now(),
+            profile: "main".into(),
+            credential_reminders: Vec::new(),
+        };
+
+        let file = File::create(&bundle).unwrap();
+        let mut builder = tar::Builder::new(file);
+        let manifest_text = toml::to_string_pretty(&manifest).unwrap();
+        append_bytes(
+            &mut builder,
+            Path::new("manifest.toml"),
+            manifest_text.as_bytes(),
+        )
+        .unwrap();
+        append_bytes(
+            &mut builder,
+            Path::new("profiles/main/secrets.json"),
+            br#"{"entries":[{"id":"api.key","versions":[{"version":1,"value":"sk-secret"}]}]}"#,
+        )
+        .unwrap();
+        builder.finish().unwrap();
+
+        let dst = StoragePaths::new_with_profile(base.join("dst"), "main");
+        let imported = import_bundle_into(dst.clone(), &bundle).unwrap();
+
+        assert!(!dst.secrets_file().exists());
+        assert_eq!(imported.credential_reminders.len(), 1);
+        assert_eq!(
+            imported.credential_reminders[0].path,
+            "profiles/main/secrets.json"
+        );
         let _ = std::fs::remove_dir_all(base);
     }
 }

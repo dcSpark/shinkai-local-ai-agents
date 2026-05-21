@@ -1392,6 +1392,11 @@ export default function App() {
       { command: "/ingest", label: "List ingestion artifacts" },
       { command: "/artifacts", label: "List generated artifacts" },
       { command: "/skills", label: "List imported skills" },
+      { command: "/capabilities", label: "List capability drafts" },
+      { command: "/profiles", label: "List profiles" },
+      { command: "/profiles current", label: "Show current profile" },
+      { command: "/profiles grants", label: "List profile grants" },
+      { command: "/bundles backup", label: "Export profile backup bundle" },
       { command: "/adapters", label: "List adapter manifests" },
       { command: "/adapters doctor", label: "Check adapter operability" },
       { command: "/adapters install-skill ", label: "Install adapter as skill" },
@@ -3284,6 +3289,40 @@ export default function App() {
       setActiveSection("skills");
       appendLine("user", "/skills");
       await reviewSkills();
+      return;
+    }
+
+    if (prompt === "/capabilities") {
+      setInput("");
+      setActiveSection("skills");
+      appendLine("user", "/capabilities");
+      await reviewCapabilities();
+      return;
+    }
+
+    if (
+      prompt === "/profiles" ||
+      prompt === "/profiles current" ||
+      prompt === "/profiles grants"
+    ) {
+      setInput("");
+      setActiveSection("profiles");
+      appendLine("user", prompt);
+      if (prompt === "/profiles current") {
+        await showCurrentProfileFromOps();
+      } else if (prompt === "/profiles grants") {
+        await listProfileGrantsFromOps();
+      } else {
+        await listProfilesFromOps();
+      }
+      return;
+    }
+
+    if (prompt === "/bundles backup") {
+      setInput("");
+      setActiveSection("adapters");
+      appendLine("user", "/bundles backup");
+      await backupBundleNow();
       return;
     }
 

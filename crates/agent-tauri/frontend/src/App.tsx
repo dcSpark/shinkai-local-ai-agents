@@ -1490,6 +1490,13 @@ export default function App() {
       { command: "/storage prune-cache ", label: "Plan cache pruning" },
       { command: "/storage prune-cache 30 --apply", label: "Apply cache pruning" },
       { command: "/memory", label: "List memory records" },
+      { command: "/voice status", label: "Show voice artifacts" },
+      { command: "/voice capture", label: "Start voice capture" },
+      { command: "/voice stop", label: "Stop voice capture" },
+      { command: "/voice transcribe", label: "Transcribe latest voice capture" },
+      { command: "/voice transcribe ", label: "Transcribe an audio path" },
+      { command: "/voice speak ", label: "Create speech from text" },
+      { command: "/voice stage ", label: "Stage speech tool input" },
       { command: "/ingest", label: "List ingestion artifacts" },
       { command: "/ingest list", label: "List ingestion artifacts" },
       { command: "/ingest backends", label: "List ingestion backends" },
@@ -4073,6 +4080,65 @@ export default function App() {
       return;
     }
 
+    if (prompt === "/voice" || prompt.startsWith("/voice ")) {
+      setInput("");
+      setActiveSection("artifacts");
+      const rest = prompt === "/voice" ? "status" : prompt.slice("/voice ".length).trim();
+      if (!rest || rest === "status") {
+        appendLine("user", prompt);
+        appendVoiceStatus();
+      } else if (rest === "capture" || rest === "start" || rest === "record") {
+        appendLine("user", prompt);
+        await startVoiceCapture();
+      } else if (rest === "stop" || rest === "end") {
+        appendLine("user", prompt);
+        stopVoiceCapture();
+      } else if (rest === "transcribe") {
+        if (!voiceCaptureArtifact) {
+          appendLine("user", prompt);
+          appendLine("error", "Voice transcribe needs a captured artifact or audio path.");
+        } else {
+          await transcribeVoicePath(voiceCaptureArtifact.path, prompt);
+        }
+      } else if (rest.startsWith("transcribe ")) {
+        const path = rest.slice("transcribe ".length).trim();
+        if (!path) {
+          appendLine("user", prompt);
+          appendLine("error", "Voice transcribe needs an audio path.");
+        } else {
+          await transcribeVoicePath(path, prompt);
+        }
+      } else if (rest === "speak") {
+        const text = voiceSpeakText();
+        if (!text) {
+          appendLine("user", prompt);
+          appendLine("error", "Voice speak needs text or a recent assistant answer.");
+        } else {
+          await speakVoiceText(text, prompt);
+        }
+      } else if (rest.startsWith("speak ")) {
+        const text = rest.slice("speak ".length).trim();
+        if (!text) {
+          appendLine("user", prompt);
+          appendLine("error", "Voice speak needs text.");
+        } else {
+          await speakVoiceText(text, prompt);
+        }
+      } else if (rest === "stage") {
+        appendLine("user", prompt);
+        stageVoiceSpeak();
+      } else if (rest.startsWith("stage ")) {
+        appendLine("user", prompt);
+        stageVoiceSpeak(rest.slice("stage ".length).trim());
+      } else {
+        appendLine(
+          "error",
+          "Voice shortcut needs status, capture, stop, transcribe, speak, or stage.",
+        );
+      }
+      return;
+    }
+
     if (
       prompt === "/compactions" ||
       prompt === "/compactions list" ||
@@ -5332,6 +5398,14 @@ export default function App() {
     }
   }
 
+  function appendVoiceStatus() {
+    appendJson("Voice status", {
+      recording: recordingVoice,
+      capture_artifact: voiceCaptureArtifact,
+      output_artifact: voiceOutputArtifact,
+    });
+  }
+
   async function persistVoiceCapture(blob: Blob) {
     if (blob.size === 0) {
       appendLine("error", "Voice capture was empty.");
@@ -5406,11 +5480,14 @@ export default function App() {
 
   async function transcribeVoiceCapture() {
     if (!voiceCaptureArtifact || running) return;
-    await callToolDirect(
-      "voice_transcribe",
-      { audio_path: voiceCaptureArtifact.path },
+    await transcribeVoicePath(
+      voiceCaptureArtifact.path,
       `voice transcribe ${fileName(voiceCaptureArtifact.path)}`,
     );
+  }
+
+  async function transcribeVoicePath(path: string, display: string) {
+    await callToolDirect("voice_transcribe", { audio_path: path }, display);
   }
 
   async function speakVoiceOutput() {
@@ -5422,20 +5499,25 @@ export default function App() {
     }
     setVoiceOutputBusy(true);
     try {
-      await callToolDirect("voice_speak", { text }, `voice speak ${previewText(text, 48)}`);
+      await speakVoiceText(text, `voice speak ${previewText(text, 48)}`);
     } finally {
       setVoiceOutputBusy(false);
     }
   }
 
-  function stageVoiceSpeak() {
+  async function speakVoiceText(text: string, display: string) {
+    await callToolDirect("voice_speak", { text }, display);
+  }
+
+  function stageVoiceSpeak(textOverride?: string) {
     const text = voiceSpeakText();
-    if (!text) {
+    const resolvedText = textOverride?.trim() || text;
+    if (!resolvedText) {
       appendLine("error", "Voice output needs composer text or a recent assistant answer.");
       return;
     }
     setOpsId("voice_speak");
-    setOpsValue(previewJson({ text }));
+    setOpsValue(previewJson({ text: resolvedText }));
     appendEvent("voice_speak staged.");
   }
 
@@ -13692,7 +13774,7 @@ export default function App() {
                 <button
                   type="button"
                   title="Stage voice_speak with composer text or the latest assistant answer."
-                  onClick={stageVoiceSpeak}
+                  onClick={() => stageVoiceSpeak()}
                   disabled={running || recordingVoice}
                 >
                   Stage TTS

@@ -1629,6 +1629,7 @@ export default function App() {
       { command: "/adapters list", label: "List adapter manifests" },
       { command: "/adapters doctor", label: "Check adapter operability" },
       { command: "/adapters show ", label: "Show adapter manifest" },
+      { command: "/adapters inspect ", label: "Inspect adapter source" },
       { command: "/adapters import ", label: "Import adapter package" },
       { command: "/adapters import-manifest ", label: "Import adapter manifest" },
       { command: "/adapters export ", label: "Export adapter manifest" },
@@ -2238,6 +2239,7 @@ export default function App() {
       "/adapters list",
       "/adapters doctor",
       "/adapters show <id>",
+      "/adapters inspect <path>",
       "/adapters import <path>",
       "/adapters import-manifest <path>",
       "/adapters export <id> <path>",
@@ -5591,6 +5593,12 @@ export default function App() {
         } else {
           await showAdapterFromOps(args[0]);
         }
+      } else if (command === "inspect") {
+        if (args.length !== 1) {
+          appendLine("error", "Adapters inspect shortcut needs a path.");
+        } else {
+          await inspectAdapterFromOps(args[0]);
+        }
       } else if (command === "import") {
         if (args.length !== 1) {
           appendLine("error", "Adapters import shortcut needs a path.");
@@ -5683,7 +5691,7 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Adapters shortcut needs list, doctor, show, import, import-manifest, export, install-skill, allow, quarantine, clawhub, or help.",
+          "Adapters shortcut needs list, doctor, show, inspect, import, import-manifest, export, install-skill, allow, quarantine, clawhub, or help.",
         );
       }
       return;
@@ -10126,6 +10134,21 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Adapter import failed: ${msg}`);
+    }
+  }
+
+  async function inspectAdapterFromOps(explicitPath?: string) {
+    const path = explicitPath ?? requireOpsValue("Adapter inspect");
+    if (!path) return;
+    try {
+      const manifest =
+        transport === "daemon"
+          ? await daemonJson<AdapterPackage>("/adapters/inspect", { path })
+          : await invoke<AdapterPackage>("adapter_inspect", { path });
+      appendJson("Adapter source inspection", manifest);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Adapter inspect failed: ${msg}`);
     }
   }
 

@@ -2620,7 +2620,15 @@ fn tool_connector_isolation_audit(descriptor: &agent_tools::ToolDescriptor) -> V
 }
 
 fn tool_connector_kind(descriptor: &agent_tools::ToolDescriptor) -> &'static str {
-    if descriptor_has_category(descriptor, "mcp") {
+    if descriptor_has_category(descriptor, "mcp-sse") {
+        "mcp_sse"
+    } else if descriptor_has_category(descriptor, "mcp-streamable-http") {
+        "mcp_streamable_http"
+    } else if descriptor_has_category(descriptor, "mcp-http") {
+        "mcp_http"
+    } else if descriptor_has_category(descriptor, "mcp-stdio") {
+        "mcp_stdio"
+    } else if descriptor_has_category(descriptor, "mcp") {
         "mcp"
     } else if descriptor_has_category(descriptor, "a2a") {
         "a2a_external_agent"
@@ -5041,6 +5049,50 @@ mod tests {
             requires_approval: false,
             provenance: None,
         }
+    }
+
+    #[test]
+    fn connector_isolation_audit_distinguishes_mcp_transport_categories() {
+        let descriptor = ToolDescriptor {
+            id: ToolId::from("mcp-review"),
+            name: "MCP Review".into(),
+            description: "Calls a remote MCP review server.".into(),
+            categories: vec!["mcp".into(), "mcp-sse".into()],
+            input_schema: json!({"type": "object"}),
+            output_interpretation_guidance: None,
+            permissions: ToolPermissions {
+                network: true,
+                secrets: true,
+                ..ToolPermissions::default()
+            },
+            requires_approval: true,
+            provenance: Some("adapter_package=reviewer".into()),
+        };
+
+        let audit = tool_connector_isolation_audit(&descriptor);
+
+        assert_eq!(audit["connector_scoped"], true);
+        assert_eq!(audit["connector_kind"], "mcp_sse");
+        assert_eq!(audit["provenance"], "adapter_package=reviewer");
+        assert!(
+            audit["credential_boundary"]
+                .as_str()
+                .is_some_and(|value| value.contains("redacted"))
+        );
+        assert!(
+            audit["policy_boundaries"]
+                .as_array()
+                .is_some_and(|boundaries| boundaries
+                    .iter()
+                    .any(|boundary| boundary.as_str() == Some("approval gates")))
+        );
+
+        let mut streamable_descriptor = descriptor;
+        streamable_descriptor.categories = vec!["mcp".into(), "mcp-streamable-http".into()];
+        assert_eq!(
+            tool_connector_isolation_audit(&streamable_descriptor)["connector_kind"],
+            "mcp_streamable_http"
+        );
     }
 
     fn registry_with_echo() -> Arc<ToolRegistry> {

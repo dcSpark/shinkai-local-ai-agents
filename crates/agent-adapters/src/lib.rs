@@ -1109,6 +1109,11 @@ fn validate_agent_created_tool_manifest(body: &str) -> Result<(), AdapterError> 
                 "MCP server `{name}` must declare a command or URL runtime"
             )));
         }
+        if command.is_some() && url.is_some() {
+            return Err(AdapterError::InvalidToolDraft(format!(
+                "MCP server `{name}` must declare either command or URL runtime, not both"
+            )));
+        }
     }
     Ok(())
 }
@@ -3204,6 +3209,37 @@ hooks:
             .unwrap_err();
 
         assert!(matches!(err, AdapterError::InvalidToolDraft(_)));
+        assert!(registry.list().unwrap().is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn agent_created_tool_rejects_ambiguous_mcp_runtime() {
+        let dir = std::env::temp_dir().join(format!(
+            "adapter-agent-tool-ambiguous-test-{}-{}",
+            std::process::id(),
+            uuid_like()
+        ));
+        let registry = AdapterRegistry::new(StoragePaths::new(dir.join("home")));
+        let err = registry
+            .promote_agent_created_tool(
+                "draft-ambiguous",
+                "Ambiguous Tool",
+                r#"{
+                  "mcpServers": {
+                    "ambiguous": {
+                      "command": "fake-mcp",
+                      "url": "https://example.invalid/mcp"
+                    }
+                  }
+                }"#,
+                "agent",
+                "test:capability",
+            )
+            .unwrap_err();
+
+        assert!(matches!(err, AdapterError::InvalidToolDraft(_)));
+        assert!(err.to_string().contains("either command or URL runtime"));
         assert!(registry.list().unwrap().is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }

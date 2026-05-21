@@ -970,6 +970,67 @@ pub async fn trace_compare(
     Ok(())
 }
 
+pub async fn trace_replay(
+    run_id: String,
+    demo: Demo,
+    no_hooks: bool,
+    json: bool,
+) -> anyhow::Result<()> {
+    let source_run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
+    let store = open_event_store()?;
+    let events = store.try_events(source_run_id)?;
+    let (agent_id, prompt) = trace_replay_source(source_run_id, &events)?;
+    let options = setup::RuntimeOptions {
+        agent_id: Some(agent_id.clone()),
+        ..setup::RuntimeOptions::default()
+    };
+    let provider = setup::build_provider(demo, &prompt, &options)?;
+    let replay_store = Arc::new(open_event_store()?);
+    let registry = setup::build_registry(
+        options.enable_shell,
+        options.enable_subagent,
+        options.enable_capability_drafts,
+        options.agent_id.as_deref(),
+        options.conversation_id.as_deref(),
+    );
+    let harness = if no_hooks {
+        Harness::new(provider, replay_store, registry)
+    } else {
+        setup::build_harness_for_agent(
+            provider,
+            replay_store,
+            registry,
+            options.agent_id.as_deref(),
+        )
+    };
+    let agent = setup::build_agent(&options);
+    let result = harness.run(&agent, UserInput { text: prompt }).await?;
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "source_run_id": source_run_id.0,
+                "replayed_run_id": result.run_id.0,
+                "agent_id": agent_id,
+                "lifecycle_hooks_disabled": no_hooks,
+                "final_output": result.final_output,
+            }))?
+        );
+    } else {
+        println!("{}", result.final_output);
+        eprintln!();
+        eprintln!(
+            "--- replayed {} as {}{} ---",
+            source_run_id.0,
+            result.run_id.0,
+            if no_hooks { " with hooks disabled" } else { "" }
+        );
+    }
+
+    Ok(())
+}
+
 pub async fn trace_hooks(run_id: String, json: bool) -> anyhow::Result<()> {
     let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
@@ -1647,6 +1708,16 @@ fn run_agent_id(events: &[RunEvent]) -> Option<String> {
         RunEventKind::RunStarted { agent_id, .. } => Some(agent_id.clone()),
         _ => None,
     })
+}
+
+fn trace_replay_source(run_id: RunId, events: &[RunEvent]) -> anyhow::Result<(String, String)> {
+    events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RunEventKind::RunStarted { agent_id, input } => Some((agent_id.clone(), input.clone())),
+            _ => None,
+        })
+        .ok_or_else(|| anyhow::anyhow!("run {run_id} has no RunStarted event"))
 }
 
 pub async fn guide(run_id: String, text: String) -> anyhow::Result<()> {
@@ -7746,6 +7817,26 @@ mod slash_tests {
             }
             _ => panic!("expected guide command"),
         }
+    }
+
+    #[test]
+    fn trace_replay_source_reads_original_prompt_and_agent() {
+        let run_id = RunId::new();
+        let store = agent_tracing::InMemoryEventStore::new();
+        store.append(
+            run_id,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "researcher".into(),
+                input: "write a memo".into(),
+            },
+        );
+
+        let (agent_id, prompt) = trace_replay_source(run_id, &store.events(run_id)).unwrap();
+
+        assert_eq!(agent_id, "researcher");
+        assert_eq!(prompt, "write a memo");
+        assert!(trace_replay_source(RunId::new(), &[]).is_err());
     }
 
     #[test]

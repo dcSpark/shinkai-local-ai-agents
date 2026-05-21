@@ -548,6 +548,23 @@ enum TraceCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Run the original prompt from a persisted trace as a fresh run.
+    Replay {
+        /// Source run UUID printed by `agent run`.
+        run_id: String,
+
+        /// Demo provider behavior.
+        #[arg(long, value_enum, default_value_t = Demo::Echo)]
+        demo: Demo,
+
+        /// Skip lifecycle hooks for this replay only.
+        #[arg(long = "no-hooks")]
+        no_hooks: bool,
+
+        /// Emit JSON metadata.
+        #[arg(long)]
+        json: bool,
+    },
     /// Review hook failures and suggested retry/override actions.
     Hooks {
         /// Run UUID printed by `agent run`.
@@ -3567,6 +3584,38 @@ mod cli_parse_tests {
     }
 
     #[test]
+    fn trace_replay_command_parses() {
+        let run_id = "00000000-0000-0000-0000-000000000001";
+        let cli = parse_cli([
+            "agent",
+            "trace",
+            "replay",
+            run_id,
+            "--demo",
+            "echo",
+            "--no-hooks",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Trace {
+            command:
+                TraceCommand::Replay {
+                    run_id: parsed_id,
+                    demo,
+                    no_hooks,
+                    json,
+                },
+        } = into_command(cli)
+        else {
+            panic!("expected trace replay command");
+        };
+        assert_eq!(parsed_id, run_id);
+        assert!(matches!(demo, Demo::Echo));
+        assert!(no_hooks);
+        assert!(json);
+    }
+
+    #[test]
     fn hooks_disable_command_requires_confirm_flag() {
         let cli = parse_cli([
             "agent",
@@ -5671,6 +5720,15 @@ async fn main() -> anyhow::Result<()> {
                     json,
                 },
         } => headless::trace_compare(run_id, compare_run_id, json).await,
+        Command::Trace {
+            command:
+                TraceCommand::Replay {
+                    run_id,
+                    demo,
+                    no_hooks,
+                    json,
+                },
+        } => headless::trace_replay(run_id, demo, no_hooks, json).await,
         Command::Trace {
             command: TraceCommand::Hooks { run_id, json },
         } => headless::trace_hooks(run_id, json).await,

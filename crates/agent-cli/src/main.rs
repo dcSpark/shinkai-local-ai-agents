@@ -536,6 +536,18 @@ enum TraceCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Compare two persisted run traces side by side.
+    Compare {
+        /// Baseline run UUID printed by `agent run`.
+        run_id: String,
+
+        /// Run UUID to compare against the baseline.
+        compare_run_id: String,
+
+        /// Emit a JSON comparison object.
+        #[arg(long)]
+        json: bool,
+    },
     /// Review hook failures and suggested retry/override actions.
     Hooks {
         /// Run UUID printed by `agent run`.
@@ -2485,6 +2497,13 @@ enum RemoteCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Compare two daemon traces side by side.
+    TraceCompare {
+        run_id: String,
+        compare_run_id: String,
+        #[arg(long)]
+        json: bool,
+    },
     /// Show daemon hook remediation plan.
     TraceHooks { run_id: String },
     /// Show daemon quality score records.
@@ -3502,6 +3521,48 @@ mod cli_parse_tests {
             panic!("expected remote trace-tree command");
         };
         assert_eq!(run_id, "00000000-0000-0000-0000-000000000000");
+        assert!(json);
+    }
+
+    #[test]
+    fn trace_compare_commands_parse() {
+        let primary = "00000000-0000-0000-0000-000000000001";
+        let compare = "00000000-0000-0000-0000-000000000002";
+        let cli = parse_cli(["agent", "trace", "compare", primary, compare, "--json"]).unwrap();
+        let Command::Trace {
+            command:
+                TraceCommand::Compare {
+                    run_id,
+                    compare_run_id,
+                    json,
+                },
+        } = into_command(cli)
+        else {
+            panic!("expected trace compare command");
+        };
+        assert_eq!(run_id, primary);
+        assert_eq!(compare_run_id, compare);
+        assert!(json);
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "trace-compare",
+            primary,
+            compare,
+            "--json",
+        ])
+        .unwrap();
+        let RemoteCommand::TraceCompare {
+            run_id,
+            compare_run_id,
+            json,
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote trace-compare command");
+        };
+        assert_eq!(run_id, primary);
+        assert_eq!(compare_run_id, compare);
         assert!(json);
     }
 
@@ -5603,6 +5664,14 @@ async fn main() -> anyhow::Result<()> {
             command: TraceCommand::Tree { run_id, json },
         } => headless::trace_tree(run_id, json).await,
         Command::Trace {
+            command:
+                TraceCommand::Compare {
+                    run_id,
+                    compare_run_id,
+                    json,
+                },
+        } => headless::trace_compare(run_id, compare_run_id, json).await,
+        Command::Trace {
             command: TraceCommand::Hooks { run_id, json },
         } => headless::trace_hooks(run_id, json).await,
         Command::Trace {
@@ -6517,6 +6586,11 @@ async fn main() -> anyhow::Result<()> {
             RemoteCommand::TraceTree { run_id, json } => {
                 headless::remote_trace_tree(url, run_id, json).await
             }
+            RemoteCommand::TraceCompare {
+                run_id,
+                compare_run_id,
+                json,
+            } => headless::remote_trace_compare(url, run_id, compare_run_id, json).await,
             RemoteCommand::TraceHooks { run_id } => headless::remote_trace_hooks(url, run_id).await,
             RemoteCommand::TraceScores { run_id } => {
                 headless::remote_trace_scores(url, run_id).await

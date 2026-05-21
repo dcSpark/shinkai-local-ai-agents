@@ -62,8 +62,9 @@ use agent_tools::{
 };
 use agent_tracing::{
     EventId, EventStore, RunEvent, RunEventKind, RunId, SqliteEventStore, build_resume_plan,
-    build_trace_tree, hook_remediation_plan, is_terminal_run_event, latest_event_id,
-    quality_score_records, summarize_trace, validate_guidance_content, validate_quality_score,
+    build_trace_comparison, build_trace_tree, hook_remediation_plan, is_terminal_run_event,
+    latest_event_id, quality_score_records, summarize_trace, validate_guidance_content,
+    validate_quality_score,
 };
 use base64::{Engine, engine::general_purpose};
 use hmac::{Hmac, Mac};
@@ -521,6 +522,11 @@ async fn route_inner(
         ("POST", "/bundles/import") => {
             daemon_bundle_import(&request.body).map(|value| (200, value))
         }
+        _ if request.method == "GET" && trace_compare_path(&request.path).is_some() => {
+            let (primary, compare) =
+                trace_compare_path(&request.path).expect("checked trace compare path");
+            trace_compare(primary, compare).map(|value| (200, value))
+        }
         _ if request.method == "GET"
             && request.path.starts_with("/trace/")
             && request.path.ends_with("/summary") =>
@@ -783,6 +789,7 @@ async fn route_inner(
                     "GET /trace/<run_id>",
                     "GET /trace/<run_id>/summary",
                     "GET /trace/<run_id>/tree",
+                    "GET /trace/<run_id>/compare/<compare_run_id>",
                     "GET /trace/<run_id>/hooks",
                     "GET /trace/<run_id>/scores",
                     "POST /run",
@@ -3517,6 +3524,23 @@ fn trace_summary(id: &str) -> anyhow::Result<serde_json::Value> {
     let run_id = RunId(uuid::Uuid::parse_str(id)?);
     let events = open_event_store()?.try_events(run_id)?;
     Ok(serde_json::to_value(summarize_trace(&events, run_id))?)
+}
+
+fn trace_compare_path(path: &str) -> Option<(&str, &str)> {
+    let rest = path.strip_prefix("/trace/")?;
+    let (primary, compare) = rest.split_once("/compare/")?;
+    (!primary.is_empty() && !compare.is_empty()).then_some((primary, compare))
+}
+
+fn trace_compare(primary: &str, compare: &str) -> anyhow::Result<serde_json::Value> {
+    let primary_run_id = RunId(uuid::Uuid::parse_str(primary)?);
+    let compare_run_id = RunId(uuid::Uuid::parse_str(compare)?);
+    let store = open_event_store()?;
+    Ok(serde_json::to_value(build_trace_comparison(
+        primary_run_id,
+        compare_run_id,
+        |id| store.try_events(id),
+    )?)?)
 }
 
 fn trace_tree(id: &str) -> anyhow::Result<serde_json::Value> {
@@ -7570,6 +7594,65 @@ mod tests {
         assert_eq!(records[0]["parent_event"], started.id.0);
         assert_eq!(records[0]["target"], "last_answer");
         assert_eq!(records[0]["score"], 8.5);
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn trace_compare_returns_side_by_side_metrics() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("trace-compare");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+        let primary = RunId::new();
+        let compare = RunId::new();
+        let child = RunId::new();
+        let store = open_event_store().unwrap();
+        store.append(
+            primary,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "primary".into(),
+                input: "hello".into(),
+            },
+        );
+        store.append(
+            compare,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "compare".into(),
+                input: "hello".into(),
+            },
+        );
+        store.append(
+            compare,
+            None,
+            RunEventKind::ChildRunStarted {
+                child_run_id: child,
+                agent_id: "child".into(),
+            },
+        );
+
+        let compare_path = format!("/trace/{}/compare/{}", primary.0, compare.0);
+        let parsed = trace_compare_path(&compare_path).unwrap();
+        assert_eq!(parsed.0, primary.0.to_string());
+        assert_eq!(parsed.1, compare.0.to_string());
+        let value = trace_compare(&primary.0.to_string(), &compare.0.to_string()).unwrap();
+
+        assert_eq!(value["primary_run_id"], primary.0.to_string());
+        assert_eq!(value["compare_run_id"], compare.0.to_string());
+        assert_eq!(value["primary_tree"]["runs"], 1);
+        assert_eq!(value["compare_tree"]["runs"], 2);
+        assert!(
+            value["rows"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|row| { row["label"] == "Run Tree" && row["delta"] == "+1 runs / +1 depth" })
+        );
 
         restore_env("AGENT_HARNESS_HOME", previous_home);
         let _ = std::fs::remove_dir_all(dir);

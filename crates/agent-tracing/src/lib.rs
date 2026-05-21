@@ -743,6 +743,32 @@ pub struct TraceTreeNode {
     pub children: Vec<TraceTreeNode>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TraceTreeStats {
+    pub runs: usize,
+    pub leaf_runs: usize,
+    pub max_depth: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TraceComparisonRow {
+    pub label: String,
+    pub primary: String,
+    pub compare: String,
+    pub delta: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TraceComparison {
+    pub primary_run_id: RunId,
+    pub compare_run_id: RunId,
+    pub primary_summary: TraceSummary,
+    pub compare_summary: TraceSummary,
+    pub primary_tree: TraceTreeStats,
+    pub compare_tree: TraceTreeStats,
+    pub rows: Vec<TraceComparisonRow>,
+}
+
 struct ChildRunLink {
     run_id: RunId,
     agent_id: Option<String>,
@@ -757,6 +783,244 @@ where
 {
     let mut visited = HashSet::new();
     build_trace_tree_node(root_run_id, None, None, &mut load_events, &mut visited)
+}
+
+pub fn build_trace_comparison<F, E>(
+    primary_run_id: RunId,
+    compare_run_id: RunId,
+    mut load_events: F,
+) -> Result<TraceComparison, E>
+where
+    F: FnMut(RunId) -> Result<Vec<RunEvent>, E>,
+{
+    let primary_events = load_events(primary_run_id)?;
+    let compare_events = load_events(compare_run_id)?;
+    let primary_summary = summarize_trace(&primary_events, primary_run_id);
+    let compare_summary = summarize_trace(&compare_events, compare_run_id);
+    let primary_tree = build_trace_tree(primary_run_id, &mut load_events)?;
+    let compare_tree = build_trace_tree(compare_run_id, load_events)?;
+    Ok(compare_trace_summaries(
+        primary_summary,
+        compare_summary,
+        &primary_tree,
+        &compare_tree,
+    ))
+}
+
+pub fn compare_trace_summaries(
+    primary_summary: TraceSummary,
+    compare_summary: TraceSummary,
+    primary_tree: &TraceTreeNode,
+    compare_tree: &TraceTreeNode,
+) -> TraceComparison {
+    let primary_tree_stats = trace_tree_stats(primary_tree);
+    let compare_tree_stats = trace_tree_stats(compare_tree);
+    let rows = vec![
+        comparison_row_usize("Events", primary_summary.events, compare_summary.events),
+        comparison_row_tree(&primary_tree_stats, &compare_tree_stats),
+        comparison_row_u32(
+            "Contexts",
+            primary_summary.context_snapshots,
+            compare_summary.context_snapshots,
+        ),
+        comparison_row_u32(
+            "LLM Calls",
+            primary_summary.llm_calls,
+            compare_summary.llm_calls,
+        ),
+        comparison_row_u32(
+            "Tool Calls",
+            primary_summary.tool_calls,
+            compare_summary.tool_calls,
+        ),
+        comparison_row_u32(
+            "Input Tokens",
+            primary_summary.tokens_in,
+            compare_summary.tokens_in,
+        ),
+        comparison_row_u32(
+            "Output Tokens",
+            primary_summary.tokens_out,
+            compare_summary.tokens_out,
+        ),
+        comparison_row_f64(
+            "Cost",
+            primary_summary.cost_usd,
+            compare_summary.cost_usd,
+            6,
+            |value| format!("${value:.6}"),
+            "",
+        ),
+        comparison_row_u64_option(
+            "Duration",
+            primary_summary.duration_ms,
+            compare_summary.duration_ms,
+            "ms",
+        ),
+        comparison_row_u32(
+            "Approvals",
+            primary_summary.approvals,
+            compare_summary.approvals,
+        ),
+        comparison_row_f32(
+            "Quality Avg",
+            primary_summary.quality_score_average,
+            compare_summary.quality_score_average,
+            1,
+        ),
+        comparison_row_u32(
+            "Hook Failures",
+            primary_summary.hook_failures,
+            compare_summary.hook_failures,
+        ),
+    ];
+    TraceComparison {
+        primary_run_id: primary_summary.run_id,
+        compare_run_id: compare_summary.run_id,
+        primary_summary,
+        compare_summary,
+        primary_tree: primary_tree_stats,
+        compare_tree: compare_tree_stats,
+        rows,
+    }
+}
+
+pub fn trace_tree_stats(node: &TraceTreeNode) -> TraceTreeStats {
+    let mut runs = 1;
+    let mut leaf_runs = 0;
+    let mut max_child_depth = 0;
+    for child in &node.children {
+        let child_stats = trace_tree_stats(child);
+        runs += child_stats.runs;
+        leaf_runs += child_stats.leaf_runs;
+        max_child_depth = max_child_depth.max(child_stats.max_depth);
+    }
+    TraceTreeStats {
+        runs,
+        leaf_runs: if node.children.is_empty() {
+            1
+        } else {
+            leaf_runs
+        },
+        max_depth: 1 + max_child_depth,
+    }
+}
+
+fn comparison_row_tree(primary: &TraceTreeStats, compare: &TraceTreeStats) -> TraceComparisonRow {
+    TraceComparisonRow {
+        label: "Run Tree".into(),
+        primary: format!("{} runs / depth {}", primary.runs, primary.max_depth),
+        compare: format!("{} runs / depth {}", compare.runs, compare.max_depth),
+        delta: format!(
+            "{} runs / {} depth",
+            signed_delta(compare.runs as i128, primary.runs as i128, ""),
+            signed_delta(compare.max_depth as i128, primary.max_depth as i128, "")
+        ),
+    }
+}
+
+fn comparison_row_usize(label: &str, primary: usize, compare: usize) -> TraceComparisonRow {
+    TraceComparisonRow {
+        label: label.into(),
+        primary: primary.to_string(),
+        compare: compare.to_string(),
+        delta: signed_delta(compare as i128, primary as i128, ""),
+    }
+}
+
+fn comparison_row_u32(label: &str, primary: u32, compare: u32) -> TraceComparisonRow {
+    TraceComparisonRow {
+        label: label.into(),
+        primary: primary.to_string(),
+        compare: compare.to_string(),
+        delta: signed_delta(compare as i128, primary as i128, ""),
+    }
+}
+
+fn comparison_row_u64_option(
+    label: &str,
+    primary: Option<u64>,
+    compare: Option<u64>,
+    suffix: &str,
+) -> TraceComparisonRow {
+    TraceComparisonRow {
+        label: label.into(),
+        primary: format_option_number(primary, suffix),
+        compare: format_option_number(compare, suffix),
+        delta: match (compare, primary) {
+            (Some(compare), Some(primary)) => {
+                signed_delta(compare as i128, primary as i128, suffix)
+            }
+            _ => "n/a".into(),
+        },
+    }
+}
+
+fn comparison_row_f32(
+    label: &str,
+    primary: Option<f32>,
+    compare: Option<f32>,
+    fixed: usize,
+) -> TraceComparisonRow {
+    TraceComparisonRow {
+        label: label.into(),
+        primary: primary
+            .map(|value| format_float(value as f64, fixed))
+            .unwrap_or_else(|| "n/a".into()),
+        compare: compare
+            .map(|value| format_float(value as f64, fixed))
+            .unwrap_or_else(|| "n/a".into()),
+        delta: match (compare, primary) {
+            (Some(compare), Some(primary)) => {
+                signed_float_delta(compare as f64, primary as f64, fixed, "")
+            }
+            _ => "n/a".into(),
+        },
+    }
+}
+
+fn comparison_row_f64(
+    label: &str,
+    primary: Option<f64>,
+    compare: Option<f64>,
+    fixed: usize,
+    format_value: impl Fn(f64) -> String,
+    suffix: &str,
+) -> TraceComparisonRow {
+    TraceComparisonRow {
+        label: label.into(),
+        primary: primary.map(&format_value).unwrap_or_else(|| "n/a".into()),
+        compare: compare.map(&format_value).unwrap_or_else(|| "n/a".into()),
+        delta: match (compare, primary) {
+            (Some(compare), Some(primary)) => signed_float_delta(compare, primary, fixed, suffix),
+            _ => "n/a".into(),
+        },
+    }
+}
+
+fn format_option_number(value: Option<u64>, suffix: &str) -> String {
+    value
+        .map(|value| format!("{value}{suffix}"))
+        .unwrap_or_else(|| "n/a".into())
+}
+
+fn signed_delta(compare: i128, primary: i128, suffix: &str) -> String {
+    let delta = compare - primary;
+    if delta > 0 {
+        format!("+{delta}{suffix}")
+    } else {
+        format!("{delta}{suffix}")
+    }
+}
+
+fn signed_float_delta(compare: f64, primary: f64, fixed: usize, suffix: &str) -> String {
+    let delta = compare - primary;
+    let sign = if delta > 0.0 { "+" } else { "" };
+    format!("{sign}{}{suffix}", format_float(delta, fixed))
+}
+
+fn format_float(value: f64, fixed: usize) -> String {
+    format!("{value:.fixed$}")
 }
 
 fn build_trace_tree_node<F, E>(
@@ -1454,6 +1718,126 @@ mod tests {
         );
         assert_eq!(tree.children[0].children[0].status, "succeeded");
         assert!(!tree.children[0].children[0].trace_available);
+    }
+
+    #[test]
+    fn trace_comparison_rolls_up_summary_and_tree_deltas() {
+        let store = InMemoryEventStore::new();
+        let primary = RunId::new();
+        let compare = RunId::new();
+        let child = RunId::new();
+
+        store.append(
+            primary,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "primary".into(),
+                input: "task".into(),
+            },
+        );
+        store.append(
+            primary,
+            None,
+            RunEventKind::LlmRequestCompleted {
+                tokens_in: 10,
+                tokens_out: 5,
+                cost_usd: Some(0.001),
+                duration_ms: 100,
+            },
+        );
+        store.append(
+            primary,
+            None,
+            RunEventKind::RunCompleted {
+                final_output: "done".into(),
+                total_cost_usd: Some(0.001),
+                total_duration_ms: 100,
+            },
+        );
+
+        store.append(
+            compare,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "compare".into(),
+                input: "task".into(),
+            },
+        );
+        store.append(
+            compare,
+            None,
+            RunEventKind::ChildRunStarted {
+                child_run_id: child,
+                agent_id: "child".into(),
+            },
+        );
+        store.append(
+            compare,
+            None,
+            RunEventKind::HookFailed {
+                hook_id: "adapter:pkg:hook".into(),
+                trigger: "before_tool_call".into(),
+                error: "blocked".into(),
+                attempt: 1,
+                will_retry: false,
+            },
+        );
+        store.append(
+            compare,
+            None,
+            RunEventKind::LlmRequestCompleted {
+                tokens_in: 15,
+                tokens_out: 7,
+                cost_usd: Some(0.002),
+                duration_ms: 200,
+            },
+        );
+        store.append(
+            compare,
+            None,
+            RunEventKind::QualityScored {
+                target: "last_answer".into(),
+                score: 8.0,
+            },
+        );
+        store.append(
+            compare,
+            None,
+            RunEventKind::RunCompleted {
+                final_output: "done".into(),
+                total_cost_usd: Some(0.002),
+                total_duration_ms: 200,
+            },
+        );
+
+        let comparison = build_trace_comparison(primary, compare, |run_id| {
+            Ok::<_, TraceStoreError>(store.events(run_id))
+        })
+        .unwrap();
+
+        assert_eq!(comparison.primary_run_id, primary);
+        assert_eq!(comparison.compare_run_id, compare);
+        assert_eq!(comparison.primary_tree.runs, 1);
+        assert_eq!(comparison.compare_tree.runs, 2);
+        assert_eq!(comparison.compare_tree.max_depth, 2);
+        let run_tree = comparison
+            .rows
+            .iter()
+            .find(|row| row.label == "Run Tree")
+            .unwrap();
+        assert_eq!(run_tree.delta, "+1 runs / +1 depth");
+        let tokens = comparison
+            .rows
+            .iter()
+            .find(|row| row.label == "Input Tokens")
+            .unwrap();
+        assert_eq!(tokens.delta, "+5");
+        let hooks = comparison
+            .rows
+            .iter()
+            .find(|row| row.label == "Hook Failures")
+            .unwrap();
+        assert_eq!(hooks.delta, "+1");
     }
 
     #[test]

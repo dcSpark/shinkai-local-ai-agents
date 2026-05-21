@@ -59,10 +59,10 @@ use agent_tools::{
     show_generated_artifact_from_env,
 };
 use agent_tracing::{
-    EventId, EventStore, RunEvent, RunEventKind, RunId, SqliteEventStore, TraceSummary,
-    TraceTreeNode, build_resume_plan, build_trace_tree, hook_remediation_plan,
-    is_terminal_run_event, latest_event_id, quality_score_records, summarize_trace,
-    validate_guidance_content, validate_quality_score,
+    EventId, EventStore, RunEvent, RunEventKind, RunId, SqliteEventStore, TraceComparison,
+    TraceSummary, TraceTreeNode, build_resume_plan, build_trace_comparison, build_trace_tree,
+    hook_remediation_plan, is_terminal_run_event, latest_event_id, quality_score_records,
+    summarize_trace, validate_guidance_content, validate_quality_score,
 };
 
 use crate::{Demo, Provider, setup};
@@ -951,6 +951,25 @@ pub async fn trace_tree(run_id: String, json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn trace_compare(
+    primary_run_id: String,
+    compare_run_id: String,
+    json: bool,
+) -> anyhow::Result<()> {
+    let primary_run_id = RunId(uuid::Uuid::parse_str(&primary_run_id)?);
+    let compare_run_id = RunId(uuid::Uuid::parse_str(&compare_run_id)?);
+    let store = open_event_store()?;
+    let comparison =
+        build_trace_comparison(primary_run_id, compare_run_id, |id| store.try_events(id))?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&comparison)?);
+    } else {
+        print_trace_comparison(&comparison);
+    }
+    Ok(())
+}
+
 pub async fn trace_hooks(run_id: String, json: bool) -> anyhow::Result<()> {
     let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
@@ -1239,6 +1258,32 @@ fn print_trace_tree_node(node: &TraceTreeNode, depth: usize) {
     );
     for child in &node.children {
         print_trace_tree_node(child, depth + 1);
+    }
+}
+
+fn print_trace_comparison(comparison: &TraceComparison) {
+    println!(
+        "trace compare {} -> {}",
+        comparison.primary_run_id.0, comparison.compare_run_id.0
+    );
+    println!(
+        "primary tree: {} run(s), {} leaf run(s), depth {}",
+        comparison.primary_tree.runs,
+        comparison.primary_tree.leaf_runs,
+        comparison.primary_tree.max_depth
+    );
+    println!(
+        "compare tree: {} run(s), {} leaf run(s), depth {}",
+        comparison.compare_tree.runs,
+        comparison.compare_tree.leaf_runs,
+        comparison.compare_tree.max_depth
+    );
+    println!("metric | primary | compare | delta");
+    for row in &comparison.rows {
+        println!(
+            "{} | {} | {} | {}",
+            row.label, row.primary, row.compare, row.delta
+        );
     }
 }
 
@@ -5205,6 +5250,23 @@ pub async fn remote_trace_tree(url: String, run_id: String, json: bool) -> anyho
     } else {
         print_remote(value)?;
     }
+    Ok(())
+}
+
+pub async fn remote_trace_compare(
+    url: String,
+    primary_run_id: String,
+    compare_run_id: String,
+    json: bool,
+) -> anyhow::Result<()> {
+    let client = DaemonHttpClient::new(url);
+    let value = client.get_json(&format!("/trace/{primary_run_id}/compare/{compare_run_id}"))?;
+    if json {
+        print_remote(value)?;
+        return Ok(());
+    }
+    let comparison: TraceComparison = serde_json::from_value(value)?;
+    print_trace_comparison(&comparison);
     Ok(())
 }
 

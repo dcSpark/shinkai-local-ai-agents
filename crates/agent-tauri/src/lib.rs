@@ -3078,6 +3078,13 @@ async fn skill_import_openclaw(path: String) -> Result<SkillDoc, String> {
 }
 
 #[tauri::command]
+async fn skill_import_doc(path: String) -> Result<SkillDoc, String> {
+    SkillRegistry::from_env()
+        .import_doc(path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn skill_list() -> Result<Vec<SkillDoc>, String> {
     SkillRegistry::from_env().list().map_err(|e| e.to_string())
 }
@@ -3086,6 +3093,13 @@ async fn skill_list() -> Result<Vec<SkillDoc>, String> {
 async fn skill_inspect(id: String) -> Result<SkillDoc, String> {
     SkillRegistry::from_env()
         .inspect(&id)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn skill_export(id: String, path: String) -> Result<SkillDoc, String> {
+    SkillRegistry::from_env()
+        .export(&id, path)
         .map_err(|e| e.to_string())
 }
 
@@ -4248,8 +4262,10 @@ pub fn run() {
             memory_delete,
             memory_rollback,
             skill_import_openclaw,
+            skill_import_doc,
             skill_list,
             skill_inspect,
+            skill_export,
             skill_allow,
             skill_quarantine,
             capability_propose,

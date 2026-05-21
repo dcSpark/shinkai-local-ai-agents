@@ -1404,6 +1404,13 @@ export default function App() {
       { command: "/skills on", label: "Load skills in context" },
       { command: "/skills off", label: "Stop loading skills" },
       { command: "/skills status", label: "Show skill loading status" },
+      { command: "/skills list", label: "List imported skills" },
+      { command: "/skills show ", label: "Show imported skill" },
+      { command: "/skills import-openclaw ", label: "Import OpenClaw skill" },
+      { command: "/skills import-doc ", label: "Import portable skill doc" },
+      { command: "/skills export ", label: "Export portable skill doc" },
+      { command: "/skills allow ", label: "Allow quarantined skill" },
+      { command: "/skills quarantine ", label: "Quarantine skill" },
       { command: "/subagent on", label: "Enable subagent tool" },
       { command: "/subagent off", label: "Disable subagent tool" },
       { command: "/subagent status", label: "Show subagent status" },
@@ -1654,6 +1661,18 @@ export default function App() {
       return null;
     }
     return { runId, approvalId };
+  }
+
+  function skillShortcutHelpText() {
+    return [
+      "/skills list",
+      "/skills show <id>",
+      "/skills import-openclaw <path>",
+      "/skills import-doc <path>",
+      "/skills export <id> <path>",
+      "/skills allow <id> --confirm",
+      "/skills quarantine <id> --confirm",
+    ].join("\n");
   }
 
   function parseIngestReviewShortcut(rest: string) {
@@ -3408,8 +3427,6 @@ export default function App() {
         appendEvent(`Skill loading is ${loadSkills ? "enabled" : "disabled"}.`);
         return;
       }
-      appendLine("error", "Skills shortcut needs on, off, or status.");
-      return;
     }
 
     if (prompt === "/subagent") {
@@ -3869,11 +3886,60 @@ export default function App() {
       return;
     }
 
-    if (prompt === "/skills") {
+    if (prompt === "/skills" || prompt.startsWith("/skills ")) {
       setInput("");
       setActiveSection("skills");
-      appendLine("user", "/skills");
-      await reviewSkills();
+      appendLine("user", prompt);
+      const rest = prompt === "/skills" ? "" : prompt.slice("/skills ".length).trim();
+      const [command = "", ...args] = rest.split(/\s+/).filter(Boolean);
+      if (!rest || command === "list") {
+        await reviewSkills();
+      } else if (command === "help") {
+        appendLine("assistant", skillShortcutHelpText());
+      } else if (command === "show" || command === "inspect") {
+        if (args.length !== 1) {
+          appendLine("error", "Skills show shortcut needs a skill id.");
+        } else {
+          await showSkillFromOps(args[0]);
+        }
+      } else if (command === "import-openclaw" || command === "install") {
+        if (args.length !== 1) {
+          appendLine("error", "Skills import-openclaw shortcut needs a path.");
+        } else {
+          await importSkillFromOps(args[0]);
+        }
+      } else if (command === "import-doc" || command === "import") {
+        if (args.length !== 1) {
+          appendLine("error", "Skills import-doc shortcut needs a path.");
+        } else {
+          await importSkillDocFromOps(args[0]);
+        }
+      } else if (command === "export") {
+        if (args.length !== 2) {
+          appendLine("error", "Skills export shortcut needs a skill id and path.");
+        } else {
+          await exportSkillFromOps(args[0], args[1]);
+        }
+      } else if (command === "allow" || command === "quarantine") {
+        const ids = args.filter((arg) => arg !== "--confirm");
+        const id = ids[0] ?? "";
+        const confirmed = args.includes("--confirm");
+        if (ids.length !== 1) {
+          appendLine(
+            "error",
+            `Skills ${command} shortcut needs a skill id and optional --confirm.`,
+          );
+        } else if (!confirmed) {
+          appendLine("error", `Skills ${command} shortcut requires --confirm.`);
+        } else {
+          await setSkillQuarantine(command === "allow", id);
+        }
+      } else {
+        appendLine(
+          "error",
+          "Skills shortcut needs list, show, import-openclaw, import-doc, export, allow, quarantine, or help.",
+        );
+      }
       return;
     }
 
@@ -7500,8 +7566,8 @@ export default function App() {
     }
   }
 
-  async function importSkillFromOps() {
-    const path = requireOpsValue("Skill import");
+  async function importSkillFromOps(explicitPath?: string) {
+    const path = explicitPath ?? requireOpsValue("Skill import");
     if (!path) return;
     try {
       const doc =
@@ -7516,8 +7582,24 @@ export default function App() {
     }
   }
 
-  async function showSkillFromOps() {
-    const id = requireOpsId("Skill show");
+  async function importSkillDocFromOps(explicitPath?: string) {
+    const path = explicitPath ?? requireOpsValue("Skill import doc");
+    if (!path) return;
+    try {
+      const doc =
+        transport === "daemon"
+          ? await daemonJson<SkillDoc>("/skills/import-doc", { path })
+          : await invoke<SkillDoc>("skill_import_doc", { path });
+      setSkillDocs((docs) => upsertSkillDoc(docs, doc));
+      appendJson("Skill document imported into quarantine", doc);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Skill document import failed: ${msg}`);
+    }
+  }
+
+  async function showSkillFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Skill show");
     if (!id) return;
     try {
       const doc =
@@ -7529,6 +7611,23 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Skill show failed: ${msg}`);
+    }
+  }
+
+  async function exportSkillFromOps(explicitId?: string, explicitPath?: string) {
+    const id = explicitId ?? requireOpsId("Skill export");
+    const path = explicitPath ?? requireOpsValue("Skill export");
+    if (!id || !path) return;
+    try {
+      const doc =
+        transport === "daemon"
+          ? await daemonJson<SkillDoc>(`/skills/${id}/export`, { path })
+          : await invoke<SkillDoc>("skill_export", { id, path });
+      setSkillDocs((docs) => upsertSkillDoc(docs, doc));
+      appendJson("Skill exported", doc);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Skill export failed: ${msg}`);
     }
   }
 

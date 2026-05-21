@@ -1342,6 +1342,10 @@ export default function App() {
       { command: "/agent tool", label: "Switch to Tool agent" },
       { command: "/agent echo", label: "Switch to Echo agent" },
       { command: "/agent ", label: "Use saved agent id" },
+      { command: "/agents", label: "List saved agents" },
+      { command: "/agents show ", label: "Show saved agent" },
+      { command: "/agents use ", label: "Use saved agent" },
+      { command: "/agents delete ", label: "Delete saved agent" },
       ...forcedToolCommands,
       ...toolCommands,
       { command: "/run ", label: "Run saved prompt" },
@@ -3269,6 +3273,41 @@ export default function App() {
       return;
     }
     if (isAgentShortcut) return;
+
+    if (prompt === "/agents" || prompt.startsWith("/agents ")) {
+      setInput("");
+      setActiveSection("chat");
+      appendLine("user", prompt);
+      const rest = prompt === "/agents" ? "" : prompt.slice("/agents ".length).trim();
+      if (!rest) {
+        await reviewAgents();
+      } else if (rest.startsWith("show ")) {
+        const id = rest.slice("show ".length).trim();
+        if (!id) {
+          appendLine("error", "Agents show shortcut needs an agent id.");
+        } else {
+          await showAgent(id);
+        }
+      } else if (rest.startsWith("use ")) {
+        const id = rest.slice("use ".length).trim();
+        if (!id) {
+          appendLine("error", "Agents use shortcut needs an agent id.");
+        } else {
+          setAgentId(id);
+          appendEvent(`Selected configured agent ${id}`);
+        }
+      } else if (rest.startsWith("delete ")) {
+        const id = rest.slice("delete ".length).trim();
+        if (!id) {
+          appendLine("error", "Agents delete shortcut needs an agent id.");
+        } else {
+          await deleteAgentFromOps(id);
+        }
+      } else {
+        appendLine("error", "Agents shortcut needs show, use, or delete.");
+      }
+      return;
+    }
 
     const previewPrompt = parsePreviewShortcut(prompt);
     if (previewPrompt !== null) {

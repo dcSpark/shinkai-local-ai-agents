@@ -124,6 +124,15 @@ inspection endpoints stay open. Set `AGENT_DAEMON_X402_PATHS` to a comma- or
 newline-separated list of exact paths or `/prefix/*` patterns to override that
 default protected route set.
 
+For outbound x402 payment retries, enable the native payment tools with
+`AGENT_PAYMENT_TOOLS=1` and either pass a per-call signature, use a
+`payment_signature_secret`/`AGENT_X402_SIGNATURE_SECRET`, or configure
+`AGENT_X402_WALLET_COMMAND`. The wallet command receives JSON on stdin with
+`payment_required`, `url`, `method`, and `max_amount`, then prints either the raw
+`PAYMENT-SIGNATURE` value or JSON containing `payment_signature`.
+`AGENT_X402_WALLET_ARGS_JSON` and `AGENT_X402_WALLET_TIMEOUT_MS` customize the
+wallet process.
+
 ## Verification
 
 Core test suite:

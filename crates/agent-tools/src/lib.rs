@@ -811,12 +811,21 @@ pub struct PaymentX402Config {
     pub signature_env: String,
     pub signature_secret: Option<String>,
     pub facilitator_url: Option<String>,
+    pub wallet_command: Option<PaymentWalletCommandConfig>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PaymentWalletCommandConfig {
+    pub command: String,
+    pub args: Vec<String>,
+    pub timeout_ms: u64,
 }
 
 impl PaymentX402Config {
     pub fn from_env() -> Self {
+        let default_timeout_ms = env_u64("AGENT_PAYMENT_TIMEOUT_MS").unwrap_or(30_000);
         Self {
-            default_timeout_ms: env_u64("AGENT_PAYMENT_TIMEOUT_MS").unwrap_or(30_000),
+            default_timeout_ms,
             max_response_bytes: env_usize("AGENT_PAYMENT_MAX_RESPONSE_BYTES").unwrap_or(64 * 1024),
             max_amount: std::env::var("AGENT_PAYMENT_MAX_AMOUNT")
                 .ok()
@@ -832,8 +841,25 @@ impl PaymentX402Config {
             facilitator_url: std::env::var("AGENT_X402_FACILITATOR_URL")
                 .ok()
                 .and_then(clean_non_empty),
+            wallet_command: payment_wallet_command_from_env(default_timeout_ms),
         }
     }
+}
+
+fn payment_wallet_command_from_env(default_timeout_ms: u64) -> Option<PaymentWalletCommandConfig> {
+    let command = std::env::var("AGENT_X402_WALLET_COMMAND")
+        .ok()
+        .and_then(clean_non_empty)?;
+    let args = std::env::var("AGENT_X402_WALLET_ARGS_JSON")
+        .ok()
+        .and_then(|value| serde_json::from_str::<Vec<String>>(&value).ok())
+        .unwrap_or_default();
+    let timeout_ms = env_u64("AGENT_X402_WALLET_TIMEOUT_MS").unwrap_or(default_timeout_ms);
+    Some(PaymentWalletCommandConfig {
+        command,
+        args,
+        timeout_ms,
+    })
 }
 
 pub struct PaymentX402Tool {
@@ -893,7 +919,7 @@ impl PaymentX402Tool {
                     },
                     "auto_pay": {
                         "type": "boolean",
-                        "description": "Retry with PAYMENT-SIGNATURE after a 402 response. Requires a payment signature and max_amount."
+                        "description": "Retry with PAYMENT-SIGNATURE after a 402 response. Requires a payment signature, secret, env signature, or configured wallet command plus max_amount."
                     },
                     "payment_signature": {
                         "type": "string",
@@ -1017,8 +1043,16 @@ impl Tool for PaymentX402Tool {
         if !spend.within_limit {
             return Ok(first.into_json(false, Some(spend)));
         }
-        let signature =
-            payment_signature_material(&input, &self.config, self.secret_store.as_ref())?;
+        let signature = payment_signature_material(
+            &input,
+            &self.config,
+            self.secret_store.as_ref(),
+            payment_required,
+            url,
+            &method,
+            max_amount,
+        )
+        .await?;
         let second = send_payment_request(
             &client,
             &method,
@@ -1045,10 +1079,14 @@ struct PaymentSignatureMaterial {
     source: &'static str,
 }
 
-fn payment_signature_material(
+async fn payment_signature_material(
     input: &Value,
     config: &PaymentX402Config,
     secret_store: &dyn SecretStore,
+    payment_required: &Value,
+    url: &str,
+    method: &str,
+    max_amount: f64,
 ) -> Result<PaymentSignatureMaterial, ToolError> {
     if let Some(value) = input
         .get("payment_signature")
@@ -1089,10 +1127,111 @@ fn payment_signature_material(
         });
     }
 
+    if let Some(wallet_command) = config.wallet_command.as_ref() {
+        return payment_signature_from_wallet_command(
+            wallet_command,
+            payment_required,
+            url,
+            method,
+            max_amount,
+        )
+        .await;
+    }
+
     Err(ToolError::InvalidInput(format!(
-        "x402 retry requires `payment_signature`, `payment_signature_secret`, AGENT_X402_SIGNATURE_SECRET, or {}",
+        "x402 retry requires `payment_signature`, `payment_signature_secret`, AGENT_X402_SIGNATURE_SECRET, {}, or AGENT_X402_WALLET_COMMAND",
         config.signature_env
     )))
+}
+
+async fn payment_signature_from_wallet_command(
+    wallet_command: &PaymentWalletCommandConfig,
+    payment_required: &Value,
+    url: &str,
+    method: &str,
+    max_amount: f64,
+) -> Result<PaymentSignatureMaterial, ToolError> {
+    let payload = json!({
+        "payment_required": payment_required,
+        "url": url,
+        "method": method,
+        "max_amount": max_amount,
+    });
+    let mut child = Command::new(&wallet_command.command)
+        .args(&wallet_command.args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| ToolError::Execution(format!("failed to start x402 wallet command: {e}")))?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or_else(|| ToolError::Execution("x402 wallet command stdin unavailable".into()))?;
+    stdin
+        .write_all(payload.to_string().as_bytes())
+        .await
+        .map_err(|e| ToolError::Execution(format!("failed to write x402 wallet request: {e}")))?;
+    drop(stdin);
+    let output = timeout(
+        Duration::from_millis(wallet_command.timeout_ms),
+        child.wait_with_output(),
+    )
+    .await
+    .map_err(|_| ToolError::Execution("x402 wallet command timed out".into()))?
+    .map_err(|e| ToolError::Execution(format!("failed to run x402 wallet command: {e}")))?;
+    if !output.status.success() {
+        let status = output
+            .status
+            .code()
+            .map(|code| code.to_string())
+            .unwrap_or_else(|| "signal".into());
+        return Err(ToolError::Execution(format!(
+            "x402 wallet command exited with status {status}"
+        )));
+    }
+    if output.stdout.len() > 16 * 1024 {
+        return Err(ToolError::Execution(
+            "x402 wallet command returned too much output".into(),
+        ));
+    }
+    Ok(PaymentSignatureMaterial {
+        value: payment_signature_from_wallet_output(&output.stdout)?,
+        source: "wallet_command",
+    })
+}
+
+fn payment_signature_from_wallet_output(stdout: &[u8]) -> Result<String, ToolError> {
+    let text = std::str::from_utf8(stdout).map_err(|_| {
+        ToolError::Execution("x402 wallet command returned non-UTF-8 output".into())
+    })?;
+    let text = text.trim();
+    if text.is_empty() {
+        return Err(ToolError::Execution(
+            "x402 wallet command returned an empty signature".into(),
+        ));
+    }
+    if let Ok(value) = serde_json::from_str::<Value>(text) {
+        let signature = match value {
+            Value::String(signature) => Some(signature),
+            Value::Object(map) => map
+                .get("payment_signature")
+                .or_else(|| map.get("signature"))
+                .or_else(|| map.get("paymentSignature"))
+                .and_then(Value::as_str)
+                .map(str::to_string),
+            _ => None,
+        }
+        .and_then(clean_non_empty)
+        .ok_or_else(|| {
+            ToolError::Execution("x402 wallet command JSON must contain payment_signature".into())
+        })?;
+        return Ok(signature);
+    }
+    clean_non_empty(text.to_string()).ok_or_else(|| {
+        ToolError::Execution("x402 wallet command returned an empty signature".into())
+    })
 }
 
 pub struct PaymentX402RequiredTool;
@@ -6453,6 +6592,7 @@ external_agents:
             signature_env: "AGENT_TEST_X402_SIGNATURE".into(),
             signature_secret: None,
             facilitator_url: Some(format!("http://{addr}")),
+            wallet_command: None,
         });
 
         let output = tool
@@ -6512,6 +6652,7 @@ external_agents:
             signature_env: "AGENT_TEST_X402_SIGNATURE".into(),
             signature_secret: None,
             facilitator_url: Some(format!("http://{addr}")),
+            wallet_command: None,
         });
 
         let output = tool
@@ -6553,6 +6694,7 @@ external_agents:
             signature_env: "AGENT_TEST_X402_SIGNATURE".into(),
             signature_secret: None,
             facilitator_url: None,
+            wallet_command: None,
         });
 
         let output = tool
@@ -6613,6 +6755,7 @@ external_agents:
             signature_env: "AGENT_TEST_X402_SIGNATURE".into(),
             signature_secret: None,
             facilitator_url: None,
+            wallet_command: None,
         });
 
         let output = tool
@@ -6688,6 +6831,7 @@ external_agents:
                 signature_env: "AGENT_TEST_X402_SIGNATURE".into(),
                 signature_secret: None,
                 facilitator_url: None,
+                wallet_command: None,
             },
             secret_store,
         );
@@ -6709,6 +6853,96 @@ external_agents:
         assert_eq!(output["wallet"]["signature_source"], "input_secret");
         assert_eq!(output["retry"]["payment_response"], response);
         assert!(!output.to_string().contains("signed-from-secret"));
+    }
+
+    #[tokio::test]
+    async fn x402_payment_tool_retries_with_wallet_command() {
+        let python = default_python_command();
+        if !command_available(&python) {
+            return;
+        }
+        let required = json!({
+            "x402Version": 1,
+            "accepts": [{ "scheme": "exact", "maxAmountRequired": "5" }]
+        });
+        let response = json!({ "transaction": "tx-wallet" });
+        let required_header = encoded_payment_header(&required);
+        let response_header = encoded_payment_header(&response);
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _ = read_http_body(&mut stream);
+            write_http_payment(
+                &mut stream,
+                402,
+                &[("PAYMENT-REQUIRED", &required_header)],
+                "payment required",
+            );
+
+            let (mut stream, _) = listener.accept().unwrap();
+            let request = read_http_request(&mut stream);
+            assert!(
+                request
+                    .to_ascii_lowercase()
+                    .contains("payment-signature: wallet-signed")
+            );
+            write_http_payment(
+                &mut stream,
+                200,
+                &[("PAYMENT-RESPONSE", &response_header)],
+                "paid",
+            );
+        });
+        let wallet_dir = temp_dir("x402-wallet-command");
+        std::fs::create_dir_all(&wallet_dir).unwrap();
+        let wallet_path = wallet_dir.join("wallet.py");
+        std::fs::write(
+            &wallet_path,
+            r#"
+import json
+import sys
+
+payload = json.load(sys.stdin)
+assert payload["payment_required"]["accepts"][0]["maxAmountRequired"] == "5"
+assert payload["url"].endswith("/paid")
+assert payload["method"] == "POST"
+assert payload["max_amount"] == 5
+print(json.dumps({"payment_signature": "wallet-signed"}))
+"#,
+        )
+        .unwrap();
+        let tool = PaymentX402Tool::new(PaymentX402Config {
+            default_timeout_ms: 5_000,
+            max_response_bytes: 64 * 1024,
+            max_amount: None,
+            signature_env: "AGENT_TEST_X402_SIGNATURE".into(),
+            signature_secret: None,
+            facilitator_url: None,
+            wallet_command: Some(PaymentWalletCommandConfig {
+                command: python,
+                args: vec![wallet_path.to_string_lossy().to_string()],
+                timeout_ms: 5_000,
+            }),
+        });
+
+        let output = tool
+            .execute(json!({
+                "url": format!("http://{addr}/paid"),
+                "method": "POST",
+                "body": "probe",
+                "auto_pay": true,
+                "max_amount": 5
+            }))
+            .await
+            .unwrap();
+
+        server.join().unwrap();
+        let _ = std::fs::remove_dir_all(&wallet_dir);
+        assert_eq!(output["status"], "retried");
+        assert_eq!(output["wallet"]["signature_source"], "wallet_command");
+        assert_eq!(output["retry"]["payment_response"], response);
+        assert!(!output.to_string().contains("wallet-signed"));
     }
 
     #[tokio::test]
@@ -6737,6 +6971,7 @@ external_agents:
             signature_env: "AGENT_TEST_X402_SIGNATURE".into(),
             signature_secret: None,
             facilitator_url: None,
+            wallet_command: None,
         });
 
         let output = tool

@@ -311,6 +311,7 @@ export type AgentConfigFile = {
   stop_retention_mode?: StopRetentionMode | null;
   capability_drafts_enabled?: boolean | null;
   capability_draft_guidance?: string | null;
+  disabled_lifecycle_hooks?: string[] | null;
   tool_output_mode?: ToolOutputMode | null;
   tool_routing_model?: string | null;
   tool_output_interpretation_model?: string | null;
@@ -575,6 +576,7 @@ export type RunOptions = {
   tool_routing_model: string | null;
   tool_output_interpretation_model: string | null;
   disable_lifecycle_hooks: boolean;
+  disabled_lifecycle_hooks: string[];
   compacted_context: string | null;
   conversation_id: string | null;
 };

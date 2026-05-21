@@ -169,6 +169,8 @@ struct RunOptions {
     tool_routing_model: Option<String>,
     tool_output_interpretation_model: Option<String>,
     disable_lifecycle_hooks: bool,
+    #[serde(default)]
+    disabled_lifecycle_hooks: Vec<String>,
     compacted_context: Option<String>,
     conversation_id: Option<String>,
 }
@@ -220,6 +222,7 @@ impl Default for RunOptions {
             tool_routing_model: None,
             tool_output_interpretation_model: None,
             disable_lifecycle_hooks: false,
+            disabled_lifecycle_hooks: Vec::new(),
             compacted_context: None,
             conversation_id: None,
         }
@@ -515,7 +518,7 @@ fn build_harness(
     events: Arc<dyn EventStore>,
     registry: Arc<ToolRegistry>,
 ) -> Harness {
-    build_harness_with_hook_policy(provider, events, registry, false, None)
+    build_harness_with_hook_policy(provider, events, registry, false, &[], None)
 }
 
 fn build_harness_with_hook_policy(
@@ -523,23 +526,34 @@ fn build_harness_with_hook_policy(
     events: Arc<dyn EventStore>,
     registry: Arc<ToolRegistry>,
     disable_lifecycle_hooks: bool,
+    disabled_lifecycle_hooks: &[String],
     agent_id: Option<&str>,
 ) -> Harness {
     let harness = Harness::new(provider, events, registry);
     if disable_lifecycle_hooks {
         harness
     } else {
-        harness.with_hooks(build_lifecycle_hooks(agent_id))
+        harness.with_hooks(build_lifecycle_hooks(agent_id, disabled_lifecycle_hooks))
     }
 }
 
-fn build_lifecycle_hooks(agent_id: Option<&str>) -> Vec<RunLifecycleHook> {
+fn build_lifecycle_hooks(
+    agent_id: Option<&str>,
+    runtime_disabled_hooks: &[String],
+) -> Vec<RunLifecycleHook> {
     let paths = StoragePaths::from_env();
-    let disabled = ConfigResolver::new(paths.clone())
+    let mut disabled = ConfigResolver::new(paths.clone())
         .disabled_lifecycle_hooks_for_agent(agent_id.unwrap_or("fake-agent"))
         .unwrap_or_default()
         .into_iter()
         .collect::<HashSet<_>>();
+    disabled.extend(
+        runtime_disabled_hooks
+            .iter()
+            .map(|hook| hook.trim())
+            .filter(|hook| !hook.is_empty())
+            .map(ToOwned::to_owned),
+    );
     AdapterRegistry::new(paths)
         .lifecycle_hooks()
         .unwrap_or_default()
@@ -1118,6 +1132,7 @@ async fn execute_prepared_tauri_run(
                 store,
                 registry,
                 options.disable_lifecycle_hooks,
+                &options.disabled_lifecycle_hooks,
                 options.agent_id.as_deref(),
             );
             harness
@@ -2217,6 +2232,7 @@ async fn call_tool(name: String, input: Value, options: RunOptions) -> Result<Va
             options.conversation_id.as_deref(),
         ),
         disable_lifecycle_hooks,
+        &options.disabled_lifecycle_hooks,
         options.agent_id.as_deref(),
     );
     let agent = build_agent(&RunOptions {

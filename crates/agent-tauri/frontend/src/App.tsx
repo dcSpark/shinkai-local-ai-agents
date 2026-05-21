@@ -467,6 +467,7 @@ export default function App() {
   const [maxRecursionDepth, setMaxRecursionDepth] = useState("");
   const [enableCapabilityDrafts, setEnableCapabilityDrafts] = useState(false);
   const [capabilityDraftGuidance, setCapabilityDraftGuidance] = useState("");
+  const [disabledLifecycleHooks, setDisabledLifecycleHooks] = useState("");
   const [loadMemory, setLoadMemory] = useState(false);
   const [memoryBackend, setMemoryBackend] = useState("");
   const [memoryModel, setMemoryModel] = useState("");
@@ -1073,6 +1074,7 @@ export default function App() {
       tool_output_interpretation_model:
         toolOutputInterpretationModel.trim() || null,
       disable_lifecycle_hooks: false,
+      disabled_lifecycle_hooks: parsedCategoryList(disabledLifecycleHooks),
       compacted_context: manualCompactedContext.trim() || null,
       conversation_id: conversationId.trim() || null,
     };
@@ -6030,6 +6032,13 @@ export default function App() {
     try {
       if (transport === "daemon") {
         const inputBody: Record<string, unknown> = { command };
+        if (agentId.trim()) {
+          inputBody.__agent_id = agentId.trim();
+        }
+        const disabledHooks = parsedCategoryList(disabledLifecycleHooks);
+        if (disabledHooks.length) {
+          inputBody.__disabled_lifecycle_hooks = disabledHooks;
+        }
         if (requireApproval) {
           inputBody.__require_approval = true;
         } else {
@@ -6537,6 +6546,10 @@ export default function App() {
         if (agentId.trim()) {
           daemonInput.__agent_id = agentId.trim();
         }
+        const disabledHooks = parsedCategoryList(disabledLifecycleHooks);
+        if (disabledHooks.length) {
+          daemonInput.__disabled_lifecycle_hooks = disabledHooks;
+        }
         if (requireApproval) {
           daemonInput.__require_approval = true;
         } else {
@@ -7039,6 +7052,7 @@ export default function App() {
     setStopRetentionMode(doc.stop_retention_mode ?? null);
     setEnableCapabilityDrafts(doc.capability_drafts_enabled === true);
     setCapabilityDraftGuidance(doc.capability_draft_guidance ?? "");
+    setDisabledLifecycleHooks((doc.disabled_lifecycle_hooks ?? []).join(", "));
     setRawToolOutput(doc.tool_output_mode === "raw");
     setToolRoutingModel(doc.tool_routing_model ?? "");
     setToolOutputInterpretationModel(
@@ -7107,6 +7121,9 @@ export default function App() {
       stop_retention_mode: stopRetentionMode,
       capability_drafts_enabled: enableCapabilityDrafts || null,
       capability_draft_guidance: capabilityDraftGuidance.trim() || null,
+      disabled_lifecycle_hooks: optionalList(
+        parsedCategoryList(disabledLifecycleHooks),
+      ),
       tool_output_mode: rawToolOutput ? "raw" : "interpreted",
       tool_routing_model: toolRoutingModel.trim() || null,
       tool_output_interpretation_model:
@@ -12126,6 +12143,16 @@ export default function App() {
               disabled={running}
             />
           </label>
+          <label>
+            Disabled hooks
+            <input
+              value={disabledLifecycleHooks}
+              onChange={(e) => setDisabledLifecycleHooks(e.target.value)}
+              placeholder="all lifecycle hooks enabled"
+              disabled={running}
+              title="Comma-separated lifecycle hook ids to skip for this run or saved agent."
+            />
+          </label>
           <label className="switch">
             <input
               type="checkbox"
@@ -15430,6 +15457,11 @@ export default function App() {
                             {doc.ingestion_guardrail_model ? (
                               <span>
                                 guardrail model {doc.ingestion_guardrail_model}
+                              </span>
+                            ) : null}
+                            {doc.disabled_lifecycle_hooks?.length ? (
+                              <span>
+                                disabled hooks {doc.disabled_lifecycle_hooks.join(", ")}
                               </span>
                             ) : null}
                             <span>

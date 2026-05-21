@@ -444,6 +444,68 @@ struct ReplayComparisonRequest {
     replay_run_id: Option<RunId>,
 }
 
+fn show_resume_plan(app: &mut App, rest: &str) {
+    let args = match parse_resume_slash_args(rest, app.last_run_id) {
+        Ok(args) => args,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Resume plan failed: {err}"),
+            });
+            return;
+        }
+    };
+    let store = match open_event_store() {
+        Ok(store) => store,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Resume trace lookup failed: {err}"),
+            });
+            return;
+        }
+    };
+    let source_events = match store.try_events(args.run_id) {
+        Ok(events) => events,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Resume trace lookup failed: {err}"),
+            });
+            return;
+        }
+    };
+    let plan = match build_resume_plan(args.run_id, &source_events, args.from_event.map(EventId)) {
+        Ok(plan) => plan,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Resume plan failed: {err}"),
+            });
+            return;
+        }
+    };
+
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::User,
+        text: format!(
+            "/resume plan {} --from-event {}",
+            args.run_id.0, plan.selected_event_id.0
+        ),
+    });
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::Event,
+        text: format!(
+            "Resume plan for {} from event {} as agent {} (omitted {} earlier events)",
+            args.run_id.0, plan.selected_event_id.0, plan.agent_id, plan.omitted_events
+        ),
+    });
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::Assistant,
+        text: plan.prompt,
+    });
+}
+
 fn start_resume_run(
     app: &mut App,
     rest: &str,
@@ -1062,6 +1124,10 @@ fn handle_slash_command(
                 text: format!("Score failed: {err}"),
             }),
         }
+        return true;
+    }
+    if let Some(rest) = resume_plan_slash_rest(trimmed) {
+        show_resume_plan(app, rest);
         return true;
     }
     if let Some(rest) = resume_slash_rest(trimmed) {
@@ -6673,6 +6739,16 @@ fn resume_slash_rest(trimmed: &str) -> Option<&str> {
     }
 }
 
+fn resume_plan_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/resume plan" || trimmed == "/resume-plan" {
+        Some("")
+    } else if let Some(rest) = trimmed.strip_prefix("/resume plan ") {
+        Some(rest.trim())
+    } else {
+        trimmed.strip_prefix("/resume-plan ").map(str::trim)
+    }
+}
+
 fn replay_slash_rest(trimmed: &str) -> Option<&str> {
     if trimmed == "/replay" {
         Some("")
@@ -8176,6 +8252,16 @@ mod tests {
             Some("last --from-event 7")
         );
         assert_eq!(resume_slash_rest("/resumed"), None);
+        assert_eq!(resume_plan_slash_rest("/resume plan"), Some(""));
+        assert_eq!(resume_plan_slash_rest("/resume-plan"), Some(""));
+        assert_eq!(
+            resume_plan_slash_rest("/resume plan last --from-event 7"),
+            Some("last --from-event 7")
+        );
+        assert_eq!(
+            resume_plan_slash_rest("/resume-plan last --from-event 7"),
+            Some("last --from-event 7")
+        );
         assert_eq!(replay_slash_rest("/replay"), Some(""));
         assert_eq!(
             replay_slash_rest("/replay last --no-hooks --compare-source"),

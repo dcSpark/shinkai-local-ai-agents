@@ -4028,6 +4028,7 @@ fn handle_models_slash(app: &mut App, rest: &str) {
                 "/models save <id> [json]",
                 "/models export <id> <path>",
                 "/models import <path>",
+                "/models delete <id> --confirm",
                 "/models providers",
                 "/models doctor",
                 "/models provider-catalog show",
@@ -4156,6 +4157,37 @@ fn handle_models_slash(app: &mut App, rest: &str) {
                 text: err.to_string(),
             }),
         },
+        "delete" | "rm" => match model_delete_args(args) {
+            Ok((id, confirmed)) => {
+                if !confirmed {
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&serde_json::json!({
+                            "pending_action": "delete_model",
+                            "model_id": id,
+                            "confirm_command": format!("/models delete {id} --confirm"),
+                        }))
+                        .unwrap_or_else(|_| "<unserializable model confirmation>".into()),
+                    });
+                    return;
+                }
+                match ConfigResolver::from_env().delete_model(id) {
+                    Ok(true) => push_event(app, format!("Deleted model {id}.")),
+                    Ok(false) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Model {id} not found."),
+                    }),
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Model delete failed: {err}"),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
         "providers" => match configured_model_providers() {
             Ok(providers) => {
                 push_event(
@@ -4196,7 +4228,7 @@ fn handle_models_slash(app: &mut App, rest: &str) {
         "metadata-catalog" => handle_model_metadata_catalog_slash(app, args),
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Models command needs list, show, probe, save, export, import, providers, doctor, provider-catalog, metadata-catalog, or help.".into(),
+            text: "Models command needs list, show, probe, save, export, import, delete, providers, doctor, provider-catalog, metadata-catalog, or help.".into(),
         }),
     }
 }
@@ -4253,6 +4285,22 @@ fn model_export_args(args: &str) -> anyhow::Result<(&str, &str)> {
         anyhow::bail!("models export accepts exactly a model id and path");
     }
     Ok((id, path))
+}
+
+fn model_delete_args(args: &str) -> anyhow::Result<(&str, bool)> {
+    let mut id = None;
+    let mut confirmed = false;
+    for part in args.split_whitespace() {
+        if part == "--confirm" {
+            confirmed = true;
+        } else if id.is_none() {
+            id = Some(part);
+        } else {
+            anyhow::bail!("models delete accepts exactly a model id and optional --confirm");
+        }
+    }
+    let id = id.ok_or_else(|| anyhow::anyhow!("models delete needs a model id"))?;
+    Ok((id, confirmed))
 }
 
 fn handle_model_provider_catalog_slash(app: &mut App, rest: &str) {
@@ -8457,6 +8505,10 @@ mod tests {
             models_slash_rest("/models probe gpt-test"),
             Some("probe gpt-test")
         );
+        assert_eq!(
+            models_slash_rest("/models delete gpt-test"),
+            Some("delete gpt-test")
+        );
         assert_eq!(models_slash_rest("/models"), Some(""));
         assert_eq!(models_slash_rest("/model"), None);
         assert_eq!(agents_slash_rest("/agents list"), Some("list"));
@@ -8733,6 +8785,13 @@ mod tests {
         );
         assert!(model_export_args("gpt-test").is_err());
         assert!(model_export_args("gpt-test ./model.toml extra").is_err());
+        assert_eq!(
+            model_delete_args("gpt-test --confirm").unwrap(),
+            ("gpt-test", true)
+        );
+        assert_eq!(model_delete_args("gpt-test").unwrap(), ("gpt-test", false));
+        assert!(model_delete_args("").is_err());
+        assert!(model_delete_args("gpt-test extra").is_err());
         assert!(model_path_arg("", "import").is_err());
         assert!(model_path_arg("./model.toml extra", "import").is_err());
     }

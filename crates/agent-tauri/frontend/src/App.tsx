@@ -458,6 +458,7 @@ export default function App() {
   const [allowedToolCategories, setAllowedToolCategories] = useState("");
   const [allowedSkillCategories, setAllowedSkillCategories] = useState("");
   const [toolVisibility, setToolVisibility] = useState<ToolVisibility | "">("");
+  const [skillVisibility, setSkillVisibility] = useState<ToolVisibility | "">("");
   const [enableShell, setEnableShell] = useState(false);
   const [enableSubagent, setEnableSubagent] = useState(false);
   const [enableCapabilityDrafts, setEnableCapabilityDrafts] = useState(false);
@@ -1019,7 +1020,7 @@ export default function App() {
       allowed_tool_categories: parsedCategoryList(allowedToolCategories),
       allowed_skill_categories: parsedCategoryList(allowedSkillCategories),
       tool_visibility: toolVisibility || null,
-      skill_visibility: null,
+      skill_visibility: skillVisibility || null,
       enable_shell: enableShell,
       enable_subagent: enableSubagent,
       enable_capability_drafts: enableCapabilityDrafts,
@@ -6986,6 +6987,7 @@ export default function App() {
       doc.tool_output_interpretation_model ?? "",
     );
     setToolVisibility(doc.tool_visibility ?? "");
+    setSkillVisibility(doc.skill_visibility ?? "");
     setLoadMemory(doc.load_memory === true);
     setMemoryBackend(doc.memory_backend ?? "");
     setMemoryModel(doc.memory_model ?? "");
@@ -7039,6 +7041,7 @@ export default function App() {
       tool_output_interpretation_model:
         toolOutputInterpretationModel.trim() || null,
       tool_visibility: toolVisibility || null,
+      skill_visibility: skillVisibility || null,
       load_memory: loadMemory || null,
       memory_backend: memoryBackend.trim() || null,
       memory_model: memoryModel.trim() || null,
@@ -10427,7 +10430,7 @@ export default function App() {
           effectiveMaxToolCalls === 0
             ? "Answer only"
             : `${effectiveMaxToolCalls} calls max`,
-        detail: `${toolVisibility || "config"} visibility; ${remainingToolCalls} remaining now.`,
+        detail: `tools ${toolVisibility || "config"}; skills ${skillVisibility || "config"}; ${remainingToolCalls} remaining now.`,
         tone:
           effectiveMaxToolCalls === 0
             ? "neutral"
@@ -11900,7 +11903,24 @@ export default function App() {
             Tool visibility
             <select
               value={toolVisibility}
-              onChange={(e) => setToolVisibility(e.target.value as ToolVisibility | "")}
+              onChange={(e) =>
+                setToolVisibility(e.target.value as ToolVisibility | "")
+              }
+              disabled={running}
+            >
+              <option value="">config</option>
+              <option value="full_schema">full schema</option>
+              <option value="name_and_description">name and description</option>
+              <option value="name_only">name only</option>
+            </select>
+          </label>
+          <label>
+            Skill visibility
+            <select
+              value={skillVisibility}
+              onChange={(e) =>
+                setSkillVisibility(e.target.value as ToolVisibility | "")
+              }
               disabled={running}
             >
               <option value="">config</option>
@@ -15177,6 +15197,11 @@ export default function App() {
                             doc.output_cost_per_million != null ? (
                               <span>
                                 {`cost ${doc.input_cost_per_million ?? "default"}/${doc.output_cost_per_million ?? "default"} $/M`}
+                              </span>
+                            ) : null}
+                            {doc.tool_visibility || doc.skill_visibility ? (
+                              <span>
+                                {`visibility tools ${doc.tool_visibility ?? "default"} / skills ${doc.skill_visibility ?? "default"}`}
                               </span>
                             ) : null}
                             <span>

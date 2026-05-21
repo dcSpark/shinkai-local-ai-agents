@@ -1393,6 +1393,7 @@ export default function App() {
       { command: "/adapters install-skill ", label: "Install adapter as skill" },
       { command: "/trace", label: "Load last run trace" },
       { command: "/trace ", label: "Load a run trace by id" },
+      { command: "/compare ", label: "Compare loaded trace to a run id" },
       { command: "/approvals", label: "Review current run approvals" },
       { command: "/batch ", label: "Run lines as deterministic batch" },
       { command: "/resume-batch ", label: "Resume deterministic batch" },
@@ -2562,8 +2563,8 @@ export default function App() {
     }
   }
 
-  async function loadTraceComparisonFromOps() {
-    const runId = traceCompareRunId.trim() || opsId.trim();
+  async function loadTraceComparison(runIdInput?: string) {
+    const runId = runIdInput?.trim() || traceCompareRunId.trim() || opsId.trim();
     if (!runId) {
       appendLine("error", "Compare trace needs a run id.");
       return;
@@ -2592,6 +2593,10 @@ export default function App() {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Compare trace load failed: ${msg}`);
     }
+  }
+
+  async function loadTraceComparisonFromOps() {
+    await loadTraceComparison();
   }
 
   async function loadTraceTreeNode(runId: string) {
@@ -3336,6 +3341,24 @@ export default function App() {
         return;
       }
       await loadLastTrace();
+      return;
+    }
+
+    if (prompt === "/compare" || prompt.startsWith("/compare ")) {
+      const runId =
+        prompt === "/compare" ? "" : prompt.slice("/compare ".length).trim();
+      setInput("");
+      setActiveSection("trace");
+      appendLine("user", prompt);
+      if (!runId) {
+        appendLine("error", "Compare shortcut needs a run id.");
+        return;
+      }
+      if (!traceSummary) {
+        appendLine("error", "Load a primary trace before comparing.");
+        return;
+      }
+      await loadTraceComparison(runId);
       return;
     }
 

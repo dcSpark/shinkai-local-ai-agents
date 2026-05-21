@@ -27,7 +27,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::AbortHandle;
 use tokio::time::MissedTickBehavior;
 
-use agent_adapters::{AdapterRegistry, NormalizedPackage};
+use agent_adapters::{AdapterRegistry, NormalizedPackage, inspect_source};
 use agent_bundles::{export_bundle, import_bundle};
 use agent_capabilities::{
     CapabilityDraft, CapabilityDraftDoctorReport, CapabilityDraftStatus, CapabilityDraftStore,
@@ -6155,6 +6155,7 @@ fn handle_adapters_slash(app: &mut App, rest: &str) {
                 "/adapters list",
                 "/adapters doctor",
                 "/adapters show <id>",
+                "/adapters inspect <path>",
                 "/adapters install-skill <id>",
                 "/adapters import <path>",
                 "/adapters import-manifest <path>",
@@ -6214,6 +6215,23 @@ fn handle_adapters_slash(app: &mut App, rest: &str) {
                 Err(err) => app.transcript.push(TranscriptLine {
                     kind: LineKind::Error,
                     text: format!("Adapter show failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "inspect" => match first_adapter_arg(args, "inspect") {
+            Ok(path) => match inspect_source(path) {
+                Ok(package) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&adapter_package_summary(&package))
+                        .unwrap_or_else(|_| "<unserializable adapter manifest>".into()),
+                }),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Adapter inspect failed: {err}"),
                 }),
             },
             Err(err) => app.transcript.push(TranscriptLine {
@@ -6324,7 +6342,7 @@ fn handle_adapters_slash(app: &mut App, rest: &str) {
         "allow" => handle_adapter_allow_slash(app, args),
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Adapters command needs list, doctor, show, install-skill, import, import-manifest, export, quarantine, allow, or help.".into(),
+            text: "Adapters command needs list, doctor, show, inspect, install-skill, import, import-manifest, export, quarantine, allow, or help.".into(),
         }),
     }
 }
@@ -8643,6 +8661,10 @@ mod tests {
         assert_eq!(
             adapters_slash_rest("/adapters install-skill adapter-1"),
             Some("install-skill adapter-1")
+        );
+        assert_eq!(
+            adapters_slash_rest("/adapters inspect ./adapter"),
+            Some("inspect ./adapter")
         );
         assert_eq!(
             adapters_slash_rest("/adapters import ./adapter"),

@@ -127,6 +127,12 @@ pub async fn run(
             prune_cache_days,
             apply,
         }) => return storage_report(json, prune_cache_days, apply).await,
+        Some(SlashCommand::Bundle(command)) => {
+            return match command {
+                BundleSlashCommand::Export { path } => bundle_export(path).await,
+                BundleSlashCommand::Import { path } => bundle_import(path).await,
+            };
+        }
         Some(SlashCommand::Ingest(command)) => {
             return match command {
                 IngestSlashCommand::List => ingest_list(json).await,
@@ -7829,6 +7835,7 @@ enum SlashCommand {
         prune_cache_days: Option<u64>,
         apply: bool,
     },
+    Bundle(BundleSlashCommand),
     Ingest(IngestSlashCommand),
     Artifact(ArtifactSlashCommand),
     Capability(CapabilitySlashCommand),
@@ -7843,6 +7850,11 @@ enum SlashCommand {
         score: f32,
         target: String,
     },
+}
+
+enum BundleSlashCommand {
+    Export { path: String },
+    Import { path: String },
 }
 
 enum ArtifactSlashCommand {
@@ -8050,6 +8062,10 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
             apply,
         }));
     }
+    if let Some(rest) = bundle_slash_rest(trimmed) {
+        let command = parse_bundle_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Bundle(command)));
+    }
     if trimmed == "/ingest" {
         return Ok(Some(SlashCommand::Ingest(IngestSlashCommand::List)));
     }
@@ -8147,6 +8163,7 @@ fn headless_slash_help_text() -> &'static str {
      - /resume <run-id> [--from-event N], /resume plan <run-id> [--from-event N]\n\
      - /trace [summary|tree|hooks] <run-id>, /compare <run-id> <run-id>, /replay <run-id>\n\
      - /storage report, /storage prune-cache <days> [--apply]\n\
+     - /bundles export <path>, /bundles import <path> --confirm\n\
      - /ingest list|backends|add|probe-vision|rerun|show|review|delete\n\
      - /artifacts list|show|open|delete\n\
      - /capabilities list|doctor|show|allow|reject|delete|export|import\n\
@@ -8373,6 +8390,43 @@ fn parse_storage_slash_rest(rest: &str) -> anyhow::Result<(Option<u64>, bool)> {
             Ok((Some(prune_cache_days), apply))
         }
         _ => anyhow::bail!("storage shortcut needs report or prune-cache"),
+    }
+}
+
+fn bundle_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/bundle" || trimmed == "/bundles" {
+        Some("")
+    } else if let Some(rest) = trimmed.strip_prefix("/bundles ") {
+        Some(rest.trim())
+    } else {
+        trimmed.strip_prefix("/bundle ").map(str::trim)
+    }
+}
+
+fn parse_bundle_slash_rest(rest: &str) -> anyhow::Result<BundleSlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let command = parts.next().unwrap_or_default();
+    match command {
+        "export" | "backup" => {
+            let path = next_required(&mut parts, "bundles export needs a path")?;
+            ensure_no_extra(parts, "usage: /bundles export <path>")?;
+            Ok(BundleSlashCommand::Export { path })
+        }
+        "import" => {
+            let path = next_required(&mut parts, "bundles import needs a path")?;
+            let mut confirmed = false;
+            for part in parts {
+                match part {
+                    "--confirm" => confirmed = true,
+                    _ => anyhow::bail!("unknown bundles import option: {part}"),
+                }
+            }
+            if !confirmed {
+                anyhow::bail!("bundles import requires --confirm");
+            }
+            Ok(BundleSlashCommand::Import { path })
+        }
+        _ => anyhow::bail!("bundles shortcut needs export or import"),
     }
 }
 
@@ -9473,6 +9527,35 @@ mod slash_tests {
         assert!(parse_slash_command("/storage prune-cache 0").is_err());
         assert!(parse_slash_command("/storage prune-cache 30 --force").is_err());
         assert!(parse_slash_command("/storagex report").unwrap().is_none());
+    }
+
+    #[test]
+    fn parses_bundle_shortcuts() {
+        match parse_slash_command("/bundles export /tmp/profile.tar").unwrap() {
+            Some(SlashCommand::Bundle(BundleSlashCommand::Export { path })) => {
+                assert_eq!(path, "/tmp/profile.tar");
+            }
+            _ => panic!("expected bundle export shortcut"),
+        }
+        match parse_slash_command("/bundle backup /tmp/profile.tar").unwrap() {
+            Some(SlashCommand::Bundle(BundleSlashCommand::Export { path })) => {
+                assert_eq!(path, "/tmp/profile.tar");
+            }
+            _ => panic!("expected bundle backup shortcut"),
+        }
+        match parse_slash_command("/bundles import /tmp/profile.tar --confirm").unwrap() {
+            Some(SlashCommand::Bundle(BundleSlashCommand::Import { path })) => {
+                assert_eq!(path, "/tmp/profile.tar");
+            }
+            _ => panic!("expected bundle import shortcut"),
+        }
+        assert!(parse_slash_command("/bundles").is_err());
+        assert!(parse_slash_command("/bundles import /tmp/profile.tar").is_err());
+        assert!(
+            parse_slash_command("/bundlesx export /tmp/profile.tar")
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

@@ -3742,6 +3742,7 @@ pub struct McpServerSpec {
     pub id: ToolId,
     pub name: String,
     pub description: String,
+    pub transport: Option<String>,
     pub command: Option<String>,
     pub args: Vec<String>,
     pub env: HashMap<String, String>,
@@ -3769,11 +3770,15 @@ impl McpServerTool {
     }
 
     pub fn descriptor(spec: &McpServerSpec) -> ToolDescriptor {
+        let mut categories = vec!["mcp".into()];
+        if let Some(transport) = mcp_transport_label(spec) {
+            categories.push(format!("mcp-{transport}"));
+        }
         ToolDescriptor {
             id: spec.id.clone(),
             name: spec.name.clone(),
             description: spec.description.clone(),
-            categories: vec!["mcp".into()],
+            categories,
             input_schema: json!({
                 "type": "object",
                 "required": ["tool_name"],
@@ -3954,6 +3959,101 @@ impl McpServerTool {
         Ok(response.get("result").cloned().unwrap_or(response))
     }
 
+    async fn execute_sse(&self, input: Value) -> Result<Value, ToolError> {
+        let url = self
+            .spec
+            .url
+            .as_deref()
+            .ok_or_else(|| ToolError::Execution("MCP SSE server has no URL".into()))?;
+        let (tool_name, arguments, timeout_ms) = mcp_call_input(&input)?;
+        let mut headers = self.resolved_headers()?;
+        headers.extend(string_map(&input, "headers")?);
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(timeout_ms))
+            .build()
+            .map_err(|e| ToolError::Execution(format!("failed to build HTTP client: {e}")))?;
+
+        let run = async {
+            let mut request = client.get(url);
+            for (key, value) in &headers {
+                request = request.header(key.as_str(), value.as_str());
+            }
+            let response = request
+                .send()
+                .await
+                .map_err(|e| ToolError::Execution(format!("SSE MCP connect failed: {e}")))?;
+            let status = response.status();
+            if !status.is_success() {
+                let body = response.text().await.unwrap_or_default();
+                return Err(ToolError::Execution(format!(
+                    "SSE MCP endpoint returned {status}: {body}"
+                )));
+            }
+            let mut stream = SseReader::new(response);
+            let message_url = resolve_sse_endpoint_url(url, &stream.read_endpoint().await?)?;
+
+            post_sse_message(
+                &client,
+                &message_url,
+                &headers,
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "initialize",
+                    "params": {
+                        "protocolVersion": "2024-11-05",
+                        "capabilities": {},
+                        "clientInfo": {
+                            "name": "shinkai",
+                            "version": env!("CARGO_PKG_VERSION")
+                        }
+                    }
+                }),
+            )
+            .await?;
+            let _ = stream.read_json_rpc_response(1).await?;
+            post_sse_message(
+                &client,
+                &message_url,
+                &headers,
+                json!({
+                    "jsonrpc": "2.0",
+                    "method": "notifications/initialized"
+                }),
+            )
+            .await?;
+            post_sse_message(
+                &client,
+                &message_url,
+                &headers,
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": 2,
+                    "method": "tools/call",
+                    "params": {
+                        "name": tool_name,
+                        "arguments": arguments
+                    }
+                }),
+            )
+            .await?;
+            stream.read_json_rpc_response(2).await
+        };
+
+        let response = match timeout(Duration::from_millis(timeout_ms), run).await {
+            Ok(result) => result?,
+            Err(_) => {
+                return Err(ToolError::Execution(format!(
+                    "SSE MCP call timed out after {timeout_ms} ms"
+                )));
+            }
+        };
+        if let Some(error) = response.get("error") {
+            return Err(ToolError::Execution(format!("MCP error: {error}")));
+        }
+        Ok(response.get("result").cloned().unwrap_or(response))
+    }
+
     fn resolved_headers(&self) -> Result<Vec<(String, String)>, ToolError> {
         self.spec
             .headers
@@ -3971,6 +4071,9 @@ impl McpServerTool {
 impl Tool for McpServerTool {
     async fn execute(&self, input: Value) -> Result<Value, ToolError> {
         if self.spec.url.is_some() {
+            if mcp_spec_uses_sse(&self.spec) {
+                return self.execute_sse(input).await;
+            }
             return self.execute_http(input).await;
         }
         self.execute_stdio(input).await
@@ -4025,6 +4128,158 @@ async fn post_json_rpc_http(
         return Err(ToolError::Execution(format!("MCP error: {error}")));
     }
     Ok(value)
+}
+
+async fn post_sse_message(
+    client: &reqwest::Client,
+    url: &str,
+    headers: &[(String, String)],
+    body: Value,
+) -> Result<(), ToolError> {
+    let mut request = client.post(url).json(&body);
+    for (key, value) in headers {
+        request = request.header(key.as_str(), value.as_str());
+    }
+    let response = request
+        .send()
+        .await
+        .map_err(|e| ToolError::Execution(format!("SSE MCP POST failed: {e}")))?;
+    let status = response.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let body = response.text().await.unwrap_or_default();
+    Err(ToolError::Execution(format!(
+        "SSE MCP message endpoint returned {status}: {body}"
+    )))
+}
+
+struct SseReader {
+    response: reqwest::Response,
+    buffer: String,
+}
+
+impl SseReader {
+    fn new(response: reqwest::Response) -> Self {
+        Self {
+            response,
+            buffer: String::new(),
+        }
+    }
+
+    async fn read_endpoint(&mut self) -> Result<String, ToolError> {
+        while let Some(event) = self.next_event().await? {
+            let data = event.data.trim();
+            if event.event.as_deref() == Some("endpoint")
+                || data.starts_with("http://")
+                || data.starts_with("https://")
+                || data.starts_with('/')
+            {
+                return Ok(data.to_string());
+            }
+        }
+        Err(ToolError::Execution(
+            "SSE MCP stream closed before endpoint event".into(),
+        ))
+    }
+
+    async fn read_json_rpc_response(&mut self, id: u64) -> Result<Value, ToolError> {
+        while let Some(event) = self.next_event().await? {
+            let data = event.data.trim();
+            if data.is_empty() || event.event.as_deref() == Some("endpoint") {
+                continue;
+            }
+            let Ok(value) = serde_json::from_str::<Value>(data) else {
+                continue;
+            };
+            if value.get("id").and_then(Value::as_u64) == Some(id) {
+                return Ok(value);
+            }
+        }
+        Err(ToolError::Execution(format!(
+            "SSE MCP stream closed before response id {id}"
+        )))
+    }
+
+    async fn next_event(&mut self) -> Result<Option<SseEvent>, ToolError> {
+        loop {
+            if let Some(event) = take_next_sse_event(&mut self.buffer) {
+                return Ok(Some(event));
+            }
+            let Some(chunk) =
+                self.response.chunk().await.map_err(|e| {
+                    ToolError::Execution(format!("failed to read SSE MCP stream: {e}"))
+                })?
+            else {
+                return Ok(None);
+            };
+            let text = std::str::from_utf8(&chunk).map_err(|_| {
+                ToolError::Execution("SSE MCP stream returned non-UTF-8 data".into())
+            })?;
+            self.buffer.push_str(text);
+        }
+    }
+}
+
+struct SseEvent {
+    event: Option<String>,
+    data: String,
+}
+
+fn take_next_sse_event(buffer: &mut String) -> Option<SseEvent> {
+    let (index, separator_len) = next_sse_separator(buffer)?;
+    let raw = buffer[..index].to_string();
+    buffer.drain(..index + separator_len);
+    parse_sse_event(&raw)
+}
+
+fn next_sse_separator(buffer: &str) -> Option<(usize, usize)> {
+    let crlf = buffer.find("\r\n\r\n").map(|index| (index, 4));
+    let lf = buffer.find("\n\n").map(|index| (index, 2));
+    match (crlf, lf) {
+        (Some(left), Some(right)) => Some(if left.0 <= right.0 { left } else { right }),
+        (Some(value), None) | (None, Some(value)) => Some(value),
+        (None, None) => None,
+    }
+}
+
+fn parse_sse_event(raw: &str) -> Option<SseEvent> {
+    let mut event = None;
+    let mut data = Vec::new();
+    for line in raw.lines() {
+        let line = line.trim_end_matches('\r');
+        if line.is_empty() || line.starts_with(':') {
+            continue;
+        }
+        if let Some(value) = line.strip_prefix("event:") {
+            event = Some(sse_field_value(value).to_string());
+        } else if let Some(value) = line.strip_prefix("data:") {
+            data.push(sse_field_value(value).to_string());
+        }
+    }
+    if event.is_none() && data.is_empty() {
+        return None;
+    }
+    Some(SseEvent {
+        event,
+        data: data.join("\n"),
+    })
+}
+
+fn sse_field_value(value: &str) -> &str {
+    value.strip_prefix(' ').unwrap_or(value)
+}
+
+fn resolve_sse_endpoint_url(base: &str, endpoint: &str) -> Result<String, ToolError> {
+    let endpoint = endpoint.trim();
+    if endpoint.starts_with("http://") || endpoint.starts_with("https://") {
+        return Ok(endpoint.to_string());
+    }
+    let base = reqwest::Url::parse(base)
+        .map_err(|e| ToolError::InvalidInput(format!("invalid SSE MCP URL: {e}")))?;
+    base.join(endpoint)
+        .map(|url| url.to_string())
+        .map_err(|e| ToolError::InvalidInput(format!("invalid SSE MCP endpoint URL: {e}")))
 }
 
 #[derive(Debug, Clone)]
@@ -4661,6 +4916,29 @@ fn mcp_category_matches(package: &NormalizedPackage, category: &str) -> bool {
     category == "*" || category == "mcp" || package.id == category
 }
 
+fn mcp_spec_uses_sse(spec: &McpServerSpec) -> bool {
+    spec.transport.as_deref().is_some_and(|transport| {
+        transport
+            .to_ascii_lowercase()
+            .split(|ch: char| !ch.is_ascii_alphanumeric())
+            .any(|part| part == "sse")
+    })
+}
+
+fn mcp_transport_label(spec: &McpServerSpec) -> Option<&'static str> {
+    if spec.command.is_some() {
+        Some("stdio")
+    } else if mcp_spec_uses_sse(spec) {
+        Some("sse")
+    } else if mcp_transport_is_streamable_http(spec.transport.as_deref()) {
+        Some("streamable-http")
+    } else if spec.url.is_some() {
+        Some("http")
+    } else {
+        None
+    }
+}
+
 pub fn register_allowed_external_agent_tools(
     registry: &mut ToolRegistry,
     packages: impl IntoIterator<Item = NormalizedPackage>,
@@ -4888,10 +5166,8 @@ fn mcp_specs_from_package(package: &NormalizedPackage) -> Result<Vec<McpServerSp
             .get("command")
             .and_then(Value::as_str)
             .map(ToOwned::to_owned);
-        let url = server
-            .get("url")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned);
+        let url = mcp_server_endpoint(server);
+        let transport = mcp_server_transport(server, command.as_deref(), url.as_deref());
         let args = server
             .get("args")
             .and_then(Value::as_array)
@@ -4941,6 +5217,11 @@ fn mcp_specs_from_package(package: &NormalizedPackage) -> Result<Vec<McpServerSp
         };
         let description = if let Some(command) = &command {
             format!("Allowed stdio MCP server `{name}` via command `{command}`.")
+        } else if mcp_transport_is_sse(transport.as_deref()) {
+            format!(
+                "Allowed SSE MCP server `{name}` at {}.",
+                url.as_deref().unwrap_or("")
+            )
         } else if let Some(url) = &url {
             format!("Allowed HTTP MCP server `{name}` at {url}.")
         } else {
@@ -4950,6 +5231,7 @@ fn mcp_specs_from_package(package: &NormalizedPackage) -> Result<Vec<McpServerSp
             id,
             name: format!("MCP: {name}"),
             description,
+            transport,
             command,
             args,
             env,
@@ -4960,6 +5242,62 @@ fn mcp_specs_from_package(package: &NormalizedPackage) -> Result<Vec<McpServerSp
         });
     }
     Ok(specs)
+}
+
+fn mcp_server_endpoint(server: &serde_json::Map<String, Value>) -> Option<String> {
+    server
+        .get("url")
+        .or_else(|| server.get("endpoint"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn mcp_server_transport(
+    server: &serde_json::Map<String, Value>,
+    command: Option<&str>,
+    url: Option<&str>,
+) -> Option<String> {
+    if command.is_some() {
+        return Some("stdio".into());
+    }
+    let declared = server
+        .get("transport")
+        .or_else(|| server.get("type"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if mcp_transport_is_sse(declared) {
+        return Some("sse".into());
+    }
+    if mcp_transport_is_streamable_http(declared) {
+        return Some("streamable_http".into());
+    }
+    if url.is_some() {
+        return Some(
+            declared
+                .map(ToOwned::to_owned)
+                .unwrap_or_else(|| "http".into()),
+        );
+    }
+    declared.map(ToOwned::to_owned)
+}
+
+fn mcp_transport_is_sse(transport: Option<&str>) -> bool {
+    transport.is_some_and(|transport| {
+        transport
+            .to_ascii_lowercase()
+            .split(|ch: char| !ch.is_ascii_alphanumeric())
+            .any(|part| part == "sse")
+    })
+}
+
+fn mcp_transport_is_streamable_http(transport: Option<&str>) -> bool {
+    transport.is_some_and(|transport| {
+        let lower = transport.to_ascii_lowercase();
+        lower.contains("streamable") || lower.contains("streaming_http")
+    })
 }
 
 fn read_mcp_manifest(source: &Path) -> Result<Value, ToolError> {
@@ -5805,6 +6143,67 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    #[test]
+    fn allowed_mcp_sse_packages_register_native_approval_gated_tools() {
+        let dir = temp_dir("mcp-sse-register");
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("mcp.json");
+        std::fs::write(
+            &source,
+            r#"{
+              "mcpServers": {
+                "events": {
+                  "type": "sse",
+                  "endpoint": "https://example.invalid/sse",
+                  "headers": { "Authorization": "secret://mcp.events_auth" }
+                }
+              }
+            }"#,
+        )
+        .unwrap();
+        let mut package = agent_adapters::inspect_source(&source).unwrap();
+        package.quarantined = false;
+        for capability in &mut package.capabilities {
+            capability.quarantined = false;
+        }
+        let mut registry = ToolRegistry::new();
+
+        assert_eq!(
+            register_allowed_mcp_tools(&mut registry, [package.clone()]),
+            1
+        );
+
+        let descriptor = registry.descriptor(&ToolId::from("mcp-events")).unwrap();
+        assert!(descriptor.requires_approval);
+        assert!(descriptor.permissions.network);
+        assert!(descriptor.permissions.secrets);
+        assert!(
+            descriptor
+                .categories
+                .iter()
+                .any(|category| category == "mcp")
+        );
+        assert!(
+            descriptor
+                .categories
+                .iter()
+                .any(|category| category == "mcp-sse")
+        );
+        let spec = mcp_specs_from_package(&package)
+            .unwrap()
+            .into_iter()
+            .find(|spec| spec.id == ToolId::from("mcp-events"))
+            .unwrap();
+        assert_eq!(spec.transport.as_deref(), Some("sse"));
+        assert_eq!(spec.url.as_deref(), Some("https://example.invalid/sse"));
+        assert_eq!(
+            spec.headers.get("Authorization").map(String::as_str),
+            Some("secret://mcp.events_auth")
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn mcp_stdio_tool_calls_fake_json_rpc_server() {
@@ -5831,6 +6230,7 @@ done
             id: ToolId::from("mcp-fake"),
             name: "MCP: fake".into(),
             description: "Fake MCP server.".into(),
+            transport: Some("stdio".into()),
             command: Some("/bin/sh".into()),
             args: vec![script.display().to_string()],
             env: HashMap::new(),
@@ -5892,6 +6292,7 @@ done
                 id: ToolId::from("mcp-fake-secret"),
                 name: "MCP: fake secret".into(),
                 description: "Fake MCP server with secret env.".into(),
+                transport: Some("stdio".into()),
                 command: Some("/bin/sh".into()),
                 args: vec![script.display().to_string()],
                 env: HashMap::from([("SECRET_VALUE".into(), handle.to_string())]),
@@ -5946,6 +6347,7 @@ done
             id: ToolId::from("mcp-http"),
             name: "MCP: http".into(),
             description: "HTTP MCP server".into(),
+            transport: Some("http".into()),
             command: None,
             args: Vec::new(),
             env: HashMap::new(),
@@ -6010,6 +6412,7 @@ done
                 id: ToolId::from("mcp-http-secret"),
                 name: "MCP: http secret".into(),
                 description: "HTTP MCP server with auth headers".into(),
+                transport: Some("http".into()),
                 command: None,
                 args: Vec::new(),
                 env: HashMap::new(),
@@ -6040,6 +6443,87 @@ done
         assert_eq!(output["content"][0]["text"], "secret ok");
         server.join().unwrap();
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn mcp_sse_tool_posts_messages_and_reads_streamed_responses() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            use std::io::Write;
+
+            let (mut sse_stream, _) = listener.accept().unwrap();
+            let request = read_http_request(&mut sse_stream);
+            assert!(request.starts_with("GET /sse HTTP/1.1"));
+            write!(
+                sse_stream,
+                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncache-control: no-cache\r\nconnection: keep-alive\r\n\r\n"
+            )
+            .unwrap();
+            write_sse_event(
+                &mut sse_stream,
+                "endpoint",
+                &format!("http://{addr}/messages"),
+            );
+
+            let (mut initialize_stream, _) = listener.accept().unwrap();
+            let initialize = read_http_body(&mut initialize_stream);
+            let initialize_json: Value = serde_json::from_str(&initialize).unwrap();
+            assert_eq!(initialize_json["method"], "initialize");
+            write_http_empty(&mut initialize_stream, 202);
+            write_sse_event(
+                &mut sse_stream,
+                "message",
+                r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{}}}"#,
+            );
+
+            let (mut initialized_stream, _) = listener.accept().unwrap();
+            let initialized = read_http_body(&mut initialized_stream);
+            let initialized_json: Value = serde_json::from_str(&initialized).unwrap();
+            assert_eq!(initialized_json["method"], "notifications/initialized");
+            write_http_empty(&mut initialized_stream, 202);
+
+            let (mut call_stream, _) = listener.accept().unwrap();
+            let call = read_http_body(&mut call_stream);
+            let call_json: Value = serde_json::from_str(&call).unwrap();
+            assert_eq!(call_json["method"], "tools/call");
+            assert_eq!(call_json["params"]["name"], "events.search");
+            assert_eq!(call_json["params"]["arguments"]["q"], "rust");
+            write_http_empty(&mut call_stream, 202);
+            write_sse_event(
+                &mut sse_stream,
+                "message",
+                r#"{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"sse ok"}]}}"#,
+            );
+        });
+        let tool = McpServerTool::new(McpServerSpec {
+            id: ToolId::from("mcp-sse"),
+            name: "MCP: sse".into(),
+            description: "SSE MCP server".into(),
+            transport: Some("sse".into()),
+            command: None,
+            args: Vec::new(),
+            env: HashMap::new(),
+            headers: HashMap::new(),
+            cwd: None,
+            url: Some(format!("http://{addr}/sse")),
+            permissions: ToolPermissions {
+                network: true,
+                ..ToolPermissions::default()
+            },
+        });
+
+        let output = tool
+            .execute(json!({
+                "tool_name": "events.search",
+                "arguments": { "q": "rust" },
+                "timeout_ms": 5_000
+            }))
+            .await
+            .unwrap();
+
+        assert_eq!(output["content"][0]["text"], "sse ok");
+        server.join().unwrap();
     }
 
     #[tokio::test]
@@ -6386,7 +6870,7 @@ external_agents:
                 name.eq_ignore_ascii_case("content-length")
                     .then(|| value.trim().parse::<usize>().unwrap())
             })
-            .unwrap();
+            .unwrap_or(0);
         while buffer.len() < header_end + content_length {
             let read = stream.read(&mut temp).unwrap();
             assert!(read > 0, "HTTP client closed before body");
@@ -6413,6 +6897,28 @@ external_agents:
             body
         )
         .unwrap();
+    }
+
+    fn write_http_empty(stream: &mut std::net::TcpStream, status: u16) {
+        use std::io::Write;
+
+        let reason = match status {
+            200 => "OK",
+            202 => "Accepted",
+            _ => "Status",
+        };
+        write!(
+            stream,
+            "HTTP/1.1 {status} {reason}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+        )
+        .unwrap();
+    }
+
+    fn write_sse_event(stream: &mut std::net::TcpStream, event: &str, data: &str) {
+        use std::io::Write;
+
+        write!(stream, "event: {event}\ndata: {data}\n\n").unwrap();
+        stream.flush().unwrap();
     }
 
     fn write_http_payment(

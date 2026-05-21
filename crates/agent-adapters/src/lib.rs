@@ -1124,17 +1124,15 @@ fn validate_agent_created_tool_manifest(body: &str) -> Result<(), AdapterError> 
             .and_then(serde_json::Value::as_str)
             .map(str::trim)
             .filter(|value| !value.is_empty());
-        let url = server
-            .get("url")
-            .and_then(serde_json::Value::as_str)
-            .map(str::trim)
+        let endpoint = mcp_endpoint(&serde_json::Value::Object(server.clone()))
+            .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty());
-        if command.is_none() && url.is_none() {
+        if command.is_none() && endpoint.is_none() {
             return Err(AdapterError::InvalidToolDraft(format!(
                 "MCP server `{name}` must declare a command or URL runtime"
             )));
         }
-        if command.is_some() && url.is_some() {
+        if command.is_some() && endpoint.is_some() {
             return Err(AdapterError::InvalidToolDraft(format!(
                 "MCP server `{name}` must declare either command or URL runtime, not both"
             )));
@@ -1280,9 +1278,14 @@ fn mcp_capabilities(text: &str) -> Vec<NormalizedCapability> {
 
 fn mcp_capability_runtime(server: &serde_json::Value) -> Option<NormalizedRuntime> {
     let command = json_string(server, &["command"]);
-    let endpoint = json_string(server, &["url"]);
+    let endpoint = mcp_endpoint(server);
+    let declared_transport = json_string(server, &["transport", "type"]);
     let transport = match (command.as_ref(), endpoint.as_ref()) {
         (Some(_), _) => "stdio",
+        (None, Some(_)) if declared_transport_is_sse(declared_transport.as_deref()) => "sse",
+        (None, Some(_)) if declared_transport_is_streamable_http(declared_transport.as_deref()) => {
+            "streamable_http"
+        }
         (None, Some(_)) => "http",
         (None, None) => return None,
     };
@@ -1322,8 +1325,28 @@ fn mcp_capability_runtime(server: &serde_json::Value) -> Option<NormalizedRuntim
     })
 }
 
+fn mcp_endpoint(server: &serde_json::Value) -> Option<String> {
+    json_string(server, &["url"]).or_else(|| json_string(server, &["endpoint"]))
+}
+
+fn declared_transport_is_sse(transport: Option<&str>) -> bool {
+    transport.is_some_and(|transport| {
+        transport
+            .to_ascii_lowercase()
+            .split(|ch: char| !ch.is_ascii_alphanumeric())
+            .any(|part| part == "sse")
+    })
+}
+
+fn declared_transport_is_streamable_http(transport: Option<&str>) -> bool {
+    transport.is_some_and(|transport| {
+        let lower = transport.to_ascii_lowercase();
+        lower.contains("streamable") || lower.contains("streaming_http")
+    })
+}
+
 fn mcp_server_description(server: &serde_json::Value) -> String {
-    if let Some(url) = server.get("url").and_then(serde_json::Value::as_str) {
+    if let Some(url) = mcp_endpoint(server) {
         return format!("MCP server over HTTP: {url}");
     }
     if let Some(command) = server.get("command").and_then(serde_json::Value::as_str) {
@@ -2656,6 +2679,11 @@ mod tests {
                 "search": {
                   "url": "https://example.invalid/mcp",
                   "headers": { "Authorization": "secret://mcp.search_auth" }
+                },
+                "events": {
+                  "type": "sse",
+                  "endpoint": "https://example.invalid/sse",
+                  "headers": { "X-Events-Key": "secret://mcp.events_key" }
                 }
               }
             }"#,
@@ -2666,7 +2694,7 @@ mod tests {
 
         assert_eq!(package.adapter, AdapterKind::Mcp);
         assert!(package.quarantined);
-        assert_eq!(package.capabilities.len(), 2);
+        assert_eq!(package.capabilities.len(), 3);
         assert!(package.capabilities.iter().all(|cap| cap.quarantined));
         assert!(
             package
@@ -2712,11 +2740,23 @@ mod tests {
             search_runtime.header_keys,
             vec!["Authorization".to_string()]
         );
+        let events_runtime = package
+            .capabilities
+            .iter()
+            .find(|cap| cap.id == "mcp-events")
+            .and_then(|cap| cap.runtime.as_ref())
+            .unwrap();
+        assert_eq!(events_runtime.transport, "sse");
+        assert_eq!(
+            events_runtime.endpoint.as_deref(),
+            Some("https://example.invalid/sse")
+        );
+        assert_eq!(events_runtime.header_keys, vec!["X-Events-Key".to_string()]);
         assert!(package.permissions.shell);
         assert!(package.permissions.network);
         assert!(package.permissions.secrets);
         assert!(package.permissions.file_read);
-        assert_eq!(package.secret_requirements.len(), 2);
+        assert_eq!(package.secret_requirements.len(), 3);
         assert!(package.secret_requirements.iter().any(|requirement| {
             requirement.name == "API_KEY"
                 && requirement.source == "mcp:filesystem"
@@ -2725,6 +2765,11 @@ mod tests {
         assert!(package.secret_requirements.iter().any(|requirement| {
             requirement.name == "Authorization"
                 && requirement.source == "mcp:search"
+                && requirement.description.as_deref() == Some("MCP HTTP header")
+        }));
+        assert!(package.secret_requirements.iter().any(|requirement| {
+            requirement.name == "X-Events-Key"
+                && requirement.source == "mcp:events"
                 && requirement.description.as_deref() == Some("MCP HTTP header")
         }));
         let package_json = serde_json::to_string(&package).unwrap();

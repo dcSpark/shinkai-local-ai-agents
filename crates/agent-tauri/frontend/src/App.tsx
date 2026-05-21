@@ -182,6 +182,13 @@ interface TraceTimelineItem {
   tone: "neutral" | "ok" | "warning" | "danger";
 }
 
+interface TraceComparisonRow {
+  label: string;
+  primary: string;
+  compare: string;
+  delta: string;
+}
+
 interface HookRemediationRecord {
   event_id: number;
   hook_id: string;
@@ -469,6 +476,11 @@ export default function App() {
   const [collapsedTraceTreeRuns, setCollapsedTraceTreeRuns] = useState<string[]>(
     [],
   );
+  const [traceCompareSummary, setTraceCompareSummary] =
+    useState<TraceSummary | null>(null);
+  const [traceCompareTree, setTraceCompareTree] =
+    useState<TraceTreeNode | null>(null);
+  const [traceCompareRunId, setTraceCompareRunId] = useState("");
   const [hookPolicy, setHookPolicy] = useState<HookPolicyRecord | null>(null);
   const [hookCatalog, setHookCatalog] = useState<HookCatalogRecord[]>([]);
   const [storageReport, setStorageReport] = useState<StorageReport | null>(null);
@@ -1037,6 +1049,9 @@ export default function App() {
       setTraceSummary(null);
       setTraceTree(null);
       setCollapsedTraceTreeRuns([]);
+      setTraceCompareSummary(null);
+      setTraceCompareTree(null);
+      setTraceCompareRunId("");
     }
     const duration = durationMsFromValue(value);
     if (duration !== null) {
@@ -2049,6 +2064,131 @@ export default function App() {
     return 1 + Math.max(...children.map(traceTreeMaxDepth));
   }
 
+  function formatTraceNumber(value: number | null | undefined, suffix = "") {
+    if (value == null) return "n/a";
+    return `${value}${suffix}`;
+  }
+
+  function formatTraceCost(value: number | null | undefined) {
+    if (value == null) return "n/a";
+    return `$${value.toFixed(6)}`;
+  }
+
+  function formatTraceAverage(value: number | null | undefined) {
+    if (value == null) return "n/a";
+    return value.toFixed(1);
+  }
+
+  function traceNumberDelta(
+    compare: number | null | undefined,
+    primary: number | null | undefined,
+    suffix = "",
+    fixed?: number,
+  ) {
+    if (compare == null || primary == null) return "n/a";
+    const delta = compare - primary;
+    const formatted =
+      fixed == null ? String(delta) : Math.abs(delta).toFixed(fixed);
+    const value = fixed == null ? formatted : `${delta < 0 ? "-" : ""}${formatted}`;
+    return `${delta > 0 ? "+" : ""}${value}${suffix}`;
+  }
+
+  function traceComparisonRows(
+    primary: TraceSummary,
+    compare: TraceSummary,
+    primaryTree: TraceTreeNode | null,
+    compareTree: TraceTreeNode | null,
+  ): TraceComparisonRow[] {
+    return [
+      {
+        label: "Events",
+        primary: formatTraceNumber(primary.events),
+        compare: formatTraceNumber(compare.events),
+        delta: traceNumberDelta(compare.events, primary.events),
+      },
+      {
+        label: "Run Tree",
+        primary: `${traceTreeNodeCount(primaryTree)} runs / depth ${traceTreeMaxDepth(primaryTree)}`,
+        compare: `${traceTreeNodeCount(compareTree)} runs / depth ${traceTreeMaxDepth(compareTree)}`,
+        delta: `${traceNumberDelta(
+          traceTreeNodeCount(compareTree),
+          traceTreeNodeCount(primaryTree),
+        )} runs / ${traceNumberDelta(
+          traceTreeMaxDepth(compareTree),
+          traceTreeMaxDepth(primaryTree),
+        )} depth`,
+      },
+      {
+        label: "Contexts",
+        primary: formatTraceNumber(primary.context_snapshots),
+        compare: formatTraceNumber(compare.context_snapshots),
+        delta: traceNumberDelta(
+          compare.context_snapshots,
+          primary.context_snapshots,
+        ),
+      },
+      {
+        label: "LLM Calls",
+        primary: formatTraceNumber(primary.llm_calls),
+        compare: formatTraceNumber(compare.llm_calls),
+        delta: traceNumberDelta(compare.llm_calls, primary.llm_calls),
+      },
+      {
+        label: "Tool Calls",
+        primary: formatTraceNumber(primary.tool_calls),
+        compare: formatTraceNumber(compare.tool_calls),
+        delta: traceNumberDelta(compare.tool_calls, primary.tool_calls),
+      },
+      {
+        label: "Input Tokens",
+        primary: formatTraceNumber(primary.tokens_in),
+        compare: formatTraceNumber(compare.tokens_in),
+        delta: traceNumberDelta(compare.tokens_in, primary.tokens_in),
+      },
+      {
+        label: "Output Tokens",
+        primary: formatTraceNumber(primary.tokens_out),
+        compare: formatTraceNumber(compare.tokens_out),
+        delta: traceNumberDelta(compare.tokens_out, primary.tokens_out),
+      },
+      {
+        label: "Cost",
+        primary: formatTraceCost(primary.cost_usd),
+        compare: formatTraceCost(compare.cost_usd),
+        delta: traceNumberDelta(compare.cost_usd, primary.cost_usd, "", 6),
+      },
+      {
+        label: "Duration",
+        primary: formatTraceNumber(primary.duration_ms, "ms"),
+        compare: formatTraceNumber(compare.duration_ms, "ms"),
+        delta: traceNumberDelta(compare.duration_ms, primary.duration_ms, "ms"),
+      },
+      {
+        label: "Approvals",
+        primary: formatTraceNumber(primary.approvals),
+        compare: formatTraceNumber(compare.approvals),
+        delta: traceNumberDelta(compare.approvals, primary.approvals),
+      },
+      {
+        label: "Quality Avg",
+        primary: formatTraceAverage(primary.quality_score_average),
+        compare: formatTraceAverage(compare.quality_score_average),
+        delta: traceNumberDelta(
+          compare.quality_score_average,
+          primary.quality_score_average,
+          "",
+          1,
+        ),
+      },
+      {
+        label: "Hook Failures",
+        primary: formatTraceNumber(primary.hook_failures),
+        compare: formatTraceNumber(compare.hook_failures),
+        delta: traceNumberDelta(compare.hook_failures, primary.hook_failures),
+      },
+    ];
+  }
+
   function expandableTraceTreeRunIds(node: TraceTreeNode | null): string[] {
     if (!node) return [];
     const children = node.children ?? [];
@@ -2419,6 +2559,38 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Trace load failed: ${msg}`);
+    }
+  }
+
+  async function loadTraceComparisonFromOps() {
+    const runId = traceCompareRunId.trim() || opsId.trim();
+    if (!runId) {
+      appendLine("error", "Compare trace needs a run id.");
+      return;
+    }
+    if (traceSummary?.run_id === runId) {
+      appendLine("error", "Compare trace needs a different run id.");
+      return;
+    }
+    try {
+      const [events, tree] = await Promise.all([
+        fetchTraceEvents(runId),
+        fetchTraceTree(runId),
+      ]);
+      const summary = summarizeTrace(events);
+      if (!summary) {
+        appendLine("error", `Compare trace ${runId} has no events.`);
+        return;
+      }
+      setTraceCompareRunId(runId);
+      setTraceCompareSummary(summary);
+      setTraceCompareTree(tree);
+      appendEvent(
+        `Loaded compare trace ${runId} (${events.length} events, ${traceTreeNodeCount(tree)} run(s))`,
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Compare trace load failed: ${msg}`);
     }
   }
 
@@ -3276,6 +3448,9 @@ export default function App() {
     setTraceSummary(null);
     setTraceTree(null);
     setCollapsedTraceTreeRuns([]);
+    setTraceCompareSummary(null);
+    setTraceCompareTree(null);
+    setTraceCompareRunId("");
     setApprovals([]);
     setPostRunCompactionPrompt(null);
     terminalEventSeenRef.current = false;
@@ -5247,6 +5422,9 @@ export default function App() {
     setTraceSummary(null);
     setTraceTree(null);
     setCollapsedTraceTreeRuns([]);
+    setTraceCompareSummary(null);
+    setTraceCompareTree(null);
+    setTraceCompareRunId("");
     setApprovals([]);
     terminalEventSeenRef.current = false;
     rootRunIdRef.current = null;
@@ -9039,15 +9217,41 @@ export default function App() {
             </button>
             <button
               type="button"
+              title="Load the comparison run id as a secondary trace."
+              onClick={() => void loadTraceComparisonFromOps()}
+              disabled={
+                running ||
+                !traceSummary ||
+                (!traceCompareRunId.trim() && !opsId.trim())
+              }
+            >
+              Compare
+            </button>
+            <button
+              type="button"
               onClick={() => {
                 setTraceEvents([]);
                 setTraceSummary(null);
                 setTraceTree(null);
                 setCollapsedTraceTreeRuns([]);
+                setTraceCompareSummary(null);
+                setTraceCompareTree(null);
+                setTraceCompareRunId("");
               }}
               disabled={running || !traceEvents.length}
             >
               Clear Trace
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setTraceCompareSummary(null);
+                setTraceCompareTree(null);
+                setTraceCompareRunId("");
+              }}
+              disabled={running || !traceCompareSummary}
+            >
+              Clear Compare
             </button>
             <button
               type="button"
@@ -9066,6 +9270,15 @@ export default function App() {
               Replay
             </button>
           </div>
+          <label>
+            Compare run
+            <input
+              aria-label="Compare run id"
+              value={traceCompareRunId}
+              onChange={(event) => setTraceCompareRunId(event.target.value)}
+              placeholder="run id to compare"
+            />
+          </label>
           {traceSummary ? (
             <div className="trace-summary">
               <span>events {traceSummary.events}</span>
@@ -9138,6 +9351,34 @@ export default function App() {
                 </div>
               </div>
               <div className="trace-tree-list">{renderTraceTreeNode(traceTree)}</div>
+            </section>
+          ) : null}
+          {traceSummary && traceCompareSummary ? (
+            <section className="trace-tree">
+              <div className="trace-tree-head">
+                <div>
+                  <strong>Trace Compare</strong>
+                  <span>
+                    primary {traceSummary.run_id} / compare{" "}
+                    {traceCompareSummary.run_id}
+                  </span>
+                </div>
+              </div>
+              <div className="context-cards">
+                {traceComparisonRows(
+                  traceSummary,
+                  traceCompareSummary,
+                  traceTree,
+                  traceCompareTree,
+                ).map((row) => (
+                  <div className="context-card compact" key={row.label}>
+                    <strong>{row.label}</strong>
+                    <span>primary {row.primary}</span>
+                    <span>compare {row.compare}</span>
+                    <span>delta {row.delta}</span>
+                  </div>
+                ))}
+              </div>
             </section>
           ) : null}
           <section className="hook-remediation-list">

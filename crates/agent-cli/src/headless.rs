@@ -84,6 +84,15 @@ pub async fn run(
             options.agent_id = Some(agent_id);
             text = prompt;
         }
+        Some(SlashCommand::Agents(command)) => {
+            return match command {
+                AgentsSlashCommand::List => agent_list(json).await,
+                AgentsSlashCommand::Show { id } => agent_show(id, json).await,
+                AgentsSlashCommand::Delete { id } => agent_delete(id).await,
+                AgentsSlashCommand::Export { id, path } => agent_export(id, path, json).await,
+                AgentsSlashCommand::Import { path } => agent_import(path, json).await,
+            };
+        }
         Some(SlashCommand::ToolManual { name, input }) => {
             return call_tool(
                 name,
@@ -7900,6 +7909,7 @@ enum SlashCommand {
         agent_id: String,
         prompt: String,
     },
+    Agents(AgentsSlashCommand),
     ToolManual {
         name: String,
         input: String,
@@ -7958,6 +7968,14 @@ enum SlashCommand {
 
 enum BundleSlashCommand {
     Export { path: String },
+    Import { path: String },
+}
+
+enum AgentsSlashCommand {
+    List,
+    Show { id: String },
+    Delete { id: String },
+    Export { id: String, path: String },
     Import { path: String },
 }
 
@@ -8246,6 +8264,10 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         }
         return Ok(Some(SlashCommand::AgentRun { agent_id, prompt }));
     }
+    if let Some(rest) = agents_slash_rest(trimmed) {
+        let command = parse_agents_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Agents(command)));
+    }
     if let Some(rest) = trimmed.strip_prefix("/run ") {
         return Ok(Some(SlashCommand::Run(rest.trim().to_string())));
     }
@@ -8423,6 +8445,7 @@ fn headless_slash_help_text() -> &'static str {
     "Headless slash commands:\n\
      - /run <prompt-name> - use a saved prompt when available, otherwise run the literal text\n\
      - /agent [id] [prompt] - inspect config, or run a prompt with a specific saved agent\n\
+     - /agents list|show|export|import|delete - manage saved agent configs\n\
      - /tool <name> [request] - force the model to call one visible tool\n\
      - /tool! <name> <json> - call one native tool directly with manual JSON input\n\
      - /python <code>, /typescript <code>, /ts <code> - call native code execution tools directly\n\
@@ -8701,6 +8724,64 @@ fn parse_bundle_slash_rest(rest: &str) -> anyhow::Result<BundleSlashCommand> {
         }
         _ => anyhow::bail!("bundles shortcut needs export or import"),
     }
+}
+
+fn agents_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/agents" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/agents ").map(str::trim)
+    }
+}
+
+fn parse_agents_slash_rest(rest: &str) -> anyhow::Result<AgentsSlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let command = parts.next().unwrap_or_default();
+    match command {
+        "" | "list" => {
+            ensure_no_extra(parts, "usage: /agents list")?;
+            Ok(AgentsSlashCommand::List)
+        }
+        "show" => {
+            let id = next_required(&mut parts, "agents show needs an agent id")?;
+            ensure_no_extra(parts, "usage: /agents show <id>")?;
+            Ok(AgentsSlashCommand::Show { id })
+        }
+        "delete" | "rm" => {
+            let id = next_required(&mut parts, "agents delete needs an agent id")?;
+            parse_agents_confirm(parts, "delete")?;
+            Ok(AgentsSlashCommand::Delete { id })
+        }
+        "export" => {
+            let id = next_required(&mut parts, "agents export needs an agent id")?;
+            let path = next_required(&mut parts, "agents export needs a path")?;
+            ensure_no_extra(parts, "usage: /agents export <id> <path>")?;
+            Ok(AgentsSlashCommand::Export { id, path })
+        }
+        "import" => {
+            let path = next_required(&mut parts, "agents import needs a path")?;
+            parse_agents_confirm(parts, "import")?;
+            Ok(AgentsSlashCommand::Import { path })
+        }
+        _ => anyhow::bail!("agents shortcut needs list, show, export, import, or delete"),
+    }
+}
+
+fn parse_agents_confirm<'a>(
+    parts: impl Iterator<Item = &'a str>,
+    action: &str,
+) -> anyhow::Result<()> {
+    let mut confirmed = false;
+    for part in parts {
+        match part {
+            "--confirm" => confirmed = true,
+            _ => anyhow::bail!("unknown agents {action} option: {part}"),
+        }
+    }
+    if !confirmed {
+        anyhow::bail!("agents {action} requires --confirm");
+    }
+    Ok(())
 }
 
 fn profile_slash_rest(trimmed: &str) -> Option<&str> {
@@ -10259,6 +10340,7 @@ mod slash_tests {
         assert!(help.contains("/voice transcribe <path>"));
         assert!(help.contains("/x402 request"));
         assert!(help.contains("/agent [id] [prompt]"));
+        assert!(help.contains("/agents list|show|export|import|delete"));
     }
 
     #[test]
@@ -10333,7 +10415,53 @@ mod slash_tests {
             }
             _ => panic!("expected one-shot agent run shortcut"),
         }
-        assert!(parse_slash_command("/agents critic").unwrap().is_none());
+        assert!(parse_slash_command("/agentx critic").unwrap().is_none());
+    }
+
+    #[test]
+    fn parses_saved_agent_registry_shortcuts() {
+        assert!(matches!(
+            parse_slash_command("/agents").unwrap(),
+            Some(SlashCommand::Agents(AgentsSlashCommand::List))
+        ));
+        assert!(matches!(
+            parse_slash_command("/agents list").unwrap(),
+            Some(SlashCommand::Agents(AgentsSlashCommand::List))
+        ));
+        match parse_slash_command("/agents show critic").unwrap() {
+            Some(SlashCommand::Agents(AgentsSlashCommand::Show { id })) => {
+                assert_eq!(id, "critic");
+            }
+            _ => panic!("expected saved-agent show shortcut"),
+        }
+        match parse_slash_command("/agents export critic /tmp/critic.toml").unwrap() {
+            Some(SlashCommand::Agents(AgentsSlashCommand::Export { id, path })) => {
+                assert_eq!(id, "critic");
+                assert_eq!(path, "/tmp/critic.toml");
+            }
+            _ => panic!("expected saved-agent export shortcut"),
+        }
+        match parse_slash_command("/agents import /tmp/critic.toml --confirm").unwrap() {
+            Some(SlashCommand::Agents(AgentsSlashCommand::Import { path })) => {
+                assert_eq!(path, "/tmp/critic.toml");
+            }
+            _ => panic!("expected saved-agent import shortcut"),
+        }
+        match parse_slash_command("/agents delete critic --confirm").unwrap() {
+            Some(SlashCommand::Agents(AgentsSlashCommand::Delete { id })) => {
+                assert_eq!(id, "critic");
+            }
+            _ => panic!("expected saved-agent delete shortcut"),
+        }
+        match parse_slash_command("/agents rm critic --confirm").unwrap() {
+            Some(SlashCommand::Agents(AgentsSlashCommand::Delete { id })) => {
+                assert_eq!(id, "critic");
+            }
+            _ => panic!("expected saved-agent rm shortcut"),
+        }
+        assert!(parse_slash_command("/agents import /tmp/critic.toml").is_err());
+        assert!(parse_slash_command("/agents delete critic").is_err());
+        assert!(parse_slash_command("/agents critic").is_err());
     }
 
     #[test]

@@ -466,7 +466,7 @@ export default function App() {
   const [toolOutputInterpretationModel, setToolOutputInterpretationModel] =
     useState("");
   const [stopRetentionMode, setStopRetentionMode] =
-    useState<StopRetentionMode>("discard");
+    useState<StopRetentionMode | null>(null);
   const [manualCompactedContext, setManualCompactedContext] = useState("");
   const [lastRunId, setLastRunId] = useState<string | null>(null);
   const [contextPreview, setContextPreview] = useState<ContextSnapshot | null>(
@@ -1386,7 +1386,8 @@ export default function App() {
       { command: "/scores", label: "Review quality scores" },
       { command: "/resume", label: "Resume last or selected run" },
       { command: "/resume ", label: "Resume a run by id" },
-      { command: "/stop", label: "Stop current run with selected mode" },
+      { command: "/stop", label: "Stop current run" },
+      { command: "/stop default", label: "Use configured stop mode" },
       { command: "/stop discard", label: "Stop without retaining context" },
       { command: "/stop summarise", label: "Stop and retain a summary" },
       { command: "/stop status", label: "Show stop retention mode" },
@@ -2712,13 +2713,14 @@ export default function App() {
         return;
       }
       const requestedMode = parseStopRetentionMode(value);
-      if (requestedMode) {
+      if (requestedMode !== null) {
         setInput("");
-        setStopRetentionMode(requestedMode);
+        const nextMode = requestedMode === "default" ? null : requestedMode;
+        setStopRetentionMode(nextMode);
         appendLine("user", prompt);
-        appendEvent(`Stop mode set to ${stopRetentionLabel(requestedMode)}.`);
+        appendEvent(`Stop mode set to ${stopRetentionLabel(nextMode)}.`);
         if (running && lastRunId) {
-          await cancelLastRun(requestedMode);
+          await cancelLastRun(nextMode);
         }
         return;
       }
@@ -2732,7 +2734,7 @@ export default function App() {
         await cancelLastRun();
         return;
       }
-      appendLine("error", "Stop shortcut needs discard, summarise, status, or an active run.");
+      appendLine("error", "Stop shortcut needs default, discard, summarise, status, or an active run.");
       return;
     }
 
@@ -5668,9 +5670,9 @@ export default function App() {
     }
   }
 
-  async function cancelLastRun(mode = stopRetentionMode) {
+  async function cancelLastRun(mode: StopRetentionMode | null = stopRetentionMode) {
     if (!lastRunId) return;
-    const reason = `user requested stop; mode=${mode}`;
+    const reason = mode ? `user requested stop; mode=${mode}` : "user requested stop";
     try {
       let result: CancelResult;
       if (transport === "daemon") {
@@ -7336,11 +7338,13 @@ export default function App() {
     return cost === null ? "n/a" : `$${cost.toFixed(6)}`;
   }
 
-  function stopRetentionLabel(mode: StopRetentionMode) {
+  function stopRetentionLabel(mode: StopRetentionMode | null) {
+    if (mode === null) return "use configured stopped-context default";
     return mode === "discard" ? "discard stopped context" : "summarise stopped context";
   }
 
-  function parseStopRetentionMode(value: string): StopRetentionMode | null {
+  function parseStopRetentionMode(value: string): StopRetentionMode | "default" | null {
+    if (value === "default" || value === "config" || value === "auto") return "default";
     if (value === "discard" || value === "off") return "discard";
     if (value === "summarise" || value === "summarize" || value === "on") {
       return "summarise";
@@ -12914,7 +12918,15 @@ export default function App() {
           ) : null}
           <fieldset className="operation-group">
             <legend>Stop mode</legend>
-            <div className="segmented-control two" role="group" aria-label="Stop mode">
+            <div className="segmented-control" role="group" aria-label="Stop mode">
+              <button
+                type="button"
+                className={stopRetentionMode === null ? "selected" : ""}
+                title="Use the resolved agent, profile, or global stopped-run retention policy."
+                onClick={() => setStopRetentionMode(null)}
+              >
+                Default
+              </button>
               <button
                 type="button"
                 className={stopRetentionMode === "discard" ? "selected" : ""}
@@ -12933,9 +12945,11 @@ export default function App() {
               </button>
             </div>
             <div className="mode-note">
-              {stopRetentionMode === "discard"
-                ? "Stopped tasks keep no attempted context."
-                : "Stopped tasks retain only a summary artifact."}
+              {stopRetentionMode === null
+                ? "Stopped tasks follow the resolved policy."
+                : stopRetentionMode === "discard"
+                  ? "Stopped tasks keep no attempted context."
+                  : "Stopped tasks retain only a summary artifact."}
             </div>
           </fieldset>
           <div className="button-grid">

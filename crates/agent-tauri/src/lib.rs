@@ -159,6 +159,7 @@ struct RunOptions {
     load_skills: bool,
     include_ingest: Vec<String>,
     allow_unsafe_ingest: bool,
+    ingestion_guardrail: Option<IngestionGuardrailMode>,
     enable_prompt_refinement: bool,
     prompt_refinement_instructions: Option<String>,
     prompt_refinement_model: Option<String>,
@@ -209,6 +210,7 @@ impl Default for RunOptions {
             load_skills: false,
             include_ingest: Vec::new(),
             allow_unsafe_ingest: false,
+            ingestion_guardrail: None,
             enable_prompt_refinement: false,
             prompt_refinement_instructions: None,
             prompt_refinement_model: None,
@@ -627,15 +629,17 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
         .as_ref()
         .ok()
         .is_some_and(|resolved| config_bool(&resolved.values, "agent.skill_policy.load"));
-    let ingestion_guardrail = if options.allow_unsafe_ingest {
-        IngestionGuardrailMode::Allow
-    } else {
-        resolved
-            .as_ref()
-            .ok()
-            .map(|resolved| config_ingestion_guardrail(&resolved.values))
-            .unwrap_or(IngestionGuardrailMode::Block)
-    };
+    let ingestion_guardrail = options.ingestion_guardrail.unwrap_or_else(|| {
+        if options.allow_unsafe_ingest {
+            IngestionGuardrailMode::Allow
+        } else {
+            resolved
+                .as_ref()
+                .ok()
+                .map(|resolved| config_ingestion_guardrail(&resolved.values))
+                .unwrap_or(IngestionGuardrailMode::Block)
+        }
+    });
     let mut agent = resolved
         .map(|resolved| resolved.agent)
         .unwrap_or_else(|_| AgentConfig {
@@ -3809,9 +3813,10 @@ async fn ingest_add(
     backend: Option<String>,
     vision_model: Option<String>,
     guardrail_model: Option<String>,
+    agent_id: Option<String>,
 ) -> Result<IngestionArtifact, String> {
     let backend = backend.unwrap_or_else(|| "local-v0".into());
-    ingest_with_trace(app, path, backend, vision_model, guardrail_model).await
+    ingest_with_trace(app, path, backend, vision_model, guardrail_model, agent_id).await
 }
 
 #[tauri::command]
@@ -3821,6 +3826,7 @@ async fn ingest_rerun(
     backend: Option<String>,
     vision_model: Option<String>,
     guardrail_model: Option<String>,
+    agent_id: Option<String>,
 ) -> Result<IngestionArtifact, String> {
     let source = IngestionStore::from_env()
         .show(&id)
@@ -3833,6 +3839,7 @@ async fn ingest_rerun(
         backend,
         vision_model,
         guardrail_model,
+        agent_id,
     )
     .await
 }
@@ -3843,6 +3850,7 @@ async fn ingest_with_trace(
     backend: String,
     vision_model: Option<String>,
     guardrail_model: Option<String>,
+    agent_id: Option<String>,
 ) -> Result<IngestionArtifact, String> {
     let trace_run_id = RunId::new();
     let store = open_event_store()?;
@@ -3855,9 +3863,10 @@ async fn ingest_with_trace(
         },
     );
     let _ = app.emit("run-event", &started);
-    let artifact = ingest_with_optional_models(path, &backend, vision_model, guardrail_model)
-        .await
-        .map_err(|e| e.to_string())?;
+    let artifact =
+        ingest_with_optional_models(path, &backend, vision_model, guardrail_model, agent_id)
+            .await
+            .map_err(|e| e.to_string())?;
     let completed = store.append(
         trace_run_id,
         Some(started.id),
@@ -3872,11 +3881,12 @@ async fn ingest_with_optional_models(
     backend: &str,
     vision_model: Option<String>,
     guardrail_model: Option<String>,
+    agent_id: Option<String>,
 ) -> Result<IngestionArtifact, Box<dyn std::error::Error + Send + Sync>> {
     let store = IngestionStore::from_env();
     let vision_model = clean_optional_string(vision_model);
-    let guardrail_model =
-        clean_optional_string(guardrail_model).or_else(configured_ingestion_guardrail_model);
+    let guardrail_model = clean_optional_string(guardrail_model)
+        .or_else(|| configured_ingestion_guardrail_model(agent_id.as_deref()));
     let vision_provider = match vision_model.as_deref() {
         Some(model) => {
             ensure_model_supports_vision(model, &path)?;
@@ -3991,9 +4001,13 @@ fn ingestion_provider_for_runtime(
     }
 }
 
-fn configured_ingestion_guardrail_model() -> Option<String> {
+fn configured_ingestion_guardrail_model(agent_id: Option<&str>) -> Option<String> {
+    let agent_id = agent_id
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("fake-agent");
     ConfigResolver::from_env()
-        .resolve_agent("fake-agent")
+        .resolve_agent(agent_id)
         .ok()
         .and_then(|resolved| {
             resolved

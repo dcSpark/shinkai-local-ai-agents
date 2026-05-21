@@ -29,6 +29,7 @@ import type {
   IngestionArtifact,
   IngestionBackendDescriptor,
   IngestionFindingReviewDecision,
+  IngestionGuardrailMode,
   IngestionResult,
   MemoryAccessReport,
   MemoryBackendDescriptor,
@@ -475,6 +476,9 @@ export default function App() {
   const [loadSkills, setLoadSkills] = useState(false);
   const [includeIngestIds, setIncludeIngestIds] = useState<string[]>([]);
   const [allowUnsafeIngest, setAllowUnsafeIngest] = useState(false);
+  const [ingestionGuardrailMode, setIngestionGuardrailMode] = useState<
+    IngestionGuardrailMode | ""
+  >("");
   const [enablePromptRefinement, setEnablePromptRefinement] = useState(false);
   const [promptRefinementInstructions, setPromptRefinementInstructions] =
     useState("");
@@ -1005,6 +1009,14 @@ export default function App() {
     return items.length ? items : null;
   }
 
+  function runIngestionGuardrailMode(): IngestionGuardrailMode | null {
+    return ingestionGuardrailMode || (allowUnsafeIngest ? "allow" : null);
+  }
+
+  function activeIngestionGuardrailMode(): IngestionGuardrailMode {
+    return runIngestionGuardrailMode() ?? "block";
+  }
+
   function runtimeOptions(): RunOptions {
     return {
       provider,
@@ -1049,6 +1061,7 @@ export default function App() {
       load_skills: loadSkills,
       include_ingest: includeIngestIds,
       allow_unsafe_ingest: allowUnsafeIngest,
+      ingestion_guardrail: runIngestionGuardrailMode(),
       enable_prompt_refinement: enablePromptRefinement,
       prompt_refinement_instructions:
         promptRefinementInstructions.trim() || null,
@@ -1520,6 +1533,8 @@ export default function App() {
       { command: "/conversation delete ", label: "Delete conversation branch" },
       { command: "/conversation range-delete ", label: "Delete conversation message range" },
       { command: "/guardrails", label: "Review ingestion guardrails" },
+      { command: "/guardrails mode warn", label: "Warn on flagged ingestion" },
+      { command: "/guardrails mode block", label: "Block flagged ingestion" },
       { command: "/guardrails unsafe on", label: "Allow flagged ingestion content" },
       { command: "/guardrails unsafe off", label: "Block flagged ingestion content" },
       { command: "/guardrails status", label: "Show guardrail status" },
@@ -3914,16 +3929,38 @@ export default function App() {
         return;
       }
       if (value === "unsafe on") {
+        setIngestionGuardrailMode("allow");
         setAllowUnsafeIngest(true);
         appendEvent("Unsafe ingest override enabled for this run.");
         return;
       }
       if (value === "unsafe off") {
+        if (ingestionGuardrailMode === "allow") {
+          setIngestionGuardrailMode("");
+        }
         setAllowUnsafeIngest(false);
         appendEvent("Unsafe ingest override disabled.");
         return;
       }
-      appendLine("error", "Guardrails shortcut needs review, status, unsafe on, or unsafe off.");
+      if (value.startsWith("mode ")) {
+        const mode = value.slice("mode ".length).trim();
+        if (mode === "config") {
+          setIngestionGuardrailMode("");
+          setAllowUnsafeIngest(false);
+          appendEvent("Ingestion guardrail mode set to config.");
+          return;
+        }
+        if (mode === "block" || mode === "warn" || mode === "allow") {
+          setIngestionGuardrailMode(mode);
+          setAllowUnsafeIngest(mode === "allow");
+          appendEvent(`Ingestion guardrail mode set to ${mode}.`);
+          return;
+        }
+      }
+      appendLine(
+        "error",
+        "Guardrails shortcut needs review, status, mode block|warn|allow|config, unsafe on, or unsafe off.",
+      );
       return;
     }
 
@@ -4040,6 +4077,7 @@ export default function App() {
       setLoadSkills(false);
       setIncludeIngestIds([]);
       setAllowUnsafeIngest(false);
+      setIngestionGuardrailMode("");
       setEnablePromptRefinement(false);
       appendLine("user", prompt);
       appendEvent(
@@ -7012,6 +7050,9 @@ export default function App() {
     setMemoryBackend(doc.memory_backend ?? "");
     setMemoryModel(doc.memory_model ?? "");
     setLoadSkills(doc.load_skills === true);
+    setIngestionGuardrailMode(doc.ingestion_guardrail ?? "");
+    setAllowUnsafeIngest(doc.ingestion_guardrail === "allow");
+    setIngestGuardrailModel(doc.ingestion_guardrail_model ?? "");
     setAllowedTools((doc.allowed_tools ?? []).join(", "));
     setAllowedToolCategories((doc.allowed_tool_categories ?? []).join(", "));
     setAllowedSkillCategories((doc.allowed_skill_categories ?? []).join(", "));
@@ -7076,6 +7117,8 @@ export default function App() {
       memory_backend: memoryBackend.trim() || null,
       memory_model: memoryModel.trim() || null,
       load_skills: loadSkills || null,
+      ingestion_guardrail: runIngestionGuardrailMode(),
+      ingestion_guardrail_model: ingestGuardrailModel.trim() || null,
       allowed_tools: optionalList(parsedCategoryList(allowedTools)),
       allowed_tool_categories: optionalList(
         parsedCategoryList(allowedToolCategories),
@@ -9520,6 +9563,7 @@ export default function App() {
           backend,
           vision_model: visionModel,
           guardrail_model: guardrailModel,
+          agent_id: agentId.trim() || null,
         }),
       );
     }
@@ -9528,6 +9572,7 @@ export default function App() {
       backend,
       visionModel,
       guardrailModel,
+      agentId: agentId.trim() || null,
     });
   }
 
@@ -9575,6 +9620,7 @@ export default function App() {
               backend,
               visionModel,
               guardrailModel,
+              agentId: agentId.trim() || null,
             });
       setIngestionArtifacts((artifacts) => upsertArtifact(artifacts, artifact));
       appendJson(`Ingestion artifact rerun with ${backend}`, artifact);
@@ -9593,7 +9639,12 @@ export default function App() {
     return normalizeIngestionResponse(
       await daemonJson<IngestionArtifact | IngestionResult>(
         `/ingest/${id}/rerun`,
-        { backend, vision_model: visionModel, guardrail_model: guardrailModel },
+        {
+          backend,
+          vision_model: visionModel,
+          guardrail_model: guardrailModel,
+          agent_id: agentId.trim() || null,
+        },
       ),
     );
   }
@@ -9778,6 +9829,7 @@ export default function App() {
       appendEvent("Unsafe ingest override cancelled.");
       return;
     }
+    setIngestionGuardrailMode(checked ? "allow" : "");
     setAllowUnsafeIngest(checked);
     appendEvent(
       checked
@@ -9786,9 +9838,28 @@ export default function App() {
     );
   }
 
+  function updateIngestionGuardrailMode(mode: IngestionGuardrailMode | "") {
+    if (
+      mode === "allow" &&
+      activeIngestionGuardrailMode() !== "allow" &&
+      !window.confirm(
+        "Allow flagged ingestion content into model context? Review the artifact first.",
+      )
+    ) {
+      appendEvent("Ingestion guardrail mode change cancelled.");
+      return;
+    }
+    setIngestionGuardrailMode(mode);
+    setAllowUnsafeIngest(mode === "allow");
+    appendEvent(`Ingestion guardrail mode set to ${mode || "config"}.`);
+  }
+
   function clearIncludedIngest() {
     setIncludeIngestIds([]);
     setAllowUnsafeIngest(false);
+    if (ingestionGuardrailMode === "allow") {
+      setIngestionGuardrailMode("");
+    }
     appendEvent("Cleared ingestion artifacts from run context.");
   }
 
@@ -10435,14 +10506,15 @@ export default function App() {
 
   function runReadinessCards(): ContextReviewCard[] {
     const modelName = model.trim() || defaultModelForProvider(provider);
+    const guardrailMode = activeIngestionGuardrailMode();
     const includedHighRisk = includeIngestIds.filter((id) => {
       const artifact = ingestionArtifacts.find((item) => item.id === id);
       return artifact ? hasHighRiskFindings(artifact) : false;
     }).length;
     const externalTone =
-      includedHighRisk && allowUnsafeIngest
+      includedHighRisk && guardrailMode === "allow"
         ? "danger"
-        : allowUnsafeIngest || includedHighRisk
+        : guardrailMode === "allow" || guardrailMode === "warn" || includedHighRisk
           ? "warning"
           : includeIngestIds.length
             ? "ok"
@@ -10501,8 +10573,8 @@ export default function App() {
           ? `${includeIngestIds.length} artifacts`
           : "No artifacts",
         detail: includedHighRisk
-          ? `${includedHighRisk} high-risk artifacts; unsafe override ${allowUnsafeIngest ? "on" : "off"}.`
-          : "Prompt-injection guardrail is blocking unsafe content by default.",
+          ? `${includedHighRisk} high-risk artifacts; guardrail ${guardrailMode}.`
+          : `Prompt-injection guardrail ${guardrailMode}.`,
         tone: externalTone,
       },
       {
@@ -11007,16 +11079,23 @@ export default function App() {
     if (!hasUnapprovedHighRiskFindings(artifact)) {
       return "allowed; high-risk findings approved";
     }
-    return allowUnsafeIngest
-      ? "unsafe override enabled; flagged content will be included"
-      : "blocked; flagged content will be withheld";
+    const mode = activeIngestionGuardrailMode();
+    if (mode === "allow") {
+      return "unsafe override enabled; flagged content will be included";
+    }
+    if (mode === "warn") {
+      return "warning; flagged content will be included";
+    }
+    return "blocked; flagged content will be withheld";
   }
 
   function guardrailReport() {
+    const mode = activeIngestionGuardrailMode();
     if (!ingestionArtifacts.length) {
       return [
         "Guardrails: no ingestion artifacts loaded.",
-        `Unsafe ingest override: ${allowUnsafeIngest ? "on" : "off"}`,
+        `Ingestion guardrail mode: ${mode}`,
+        `Guardrail model: ${ingestGuardrailModel.trim() || "profile/default"}`,
         "Use /ingest to list or create artifacts before including external content.",
       ].join("\n");
     }
@@ -11030,7 +11109,8 @@ export default function App() {
     });
     const lines = [
       `Guardrails: ${ingestionArtifacts.length} artifacts, ${highRisk.length} high-risk, ${unapprovedHighRisk.length} unapproved, ${includeIngestIds.length} included.`,
-      `Unsafe ingest override: ${allowUnsafeIngest ? "on" : "off"}`,
+      `Ingestion guardrail mode: ${mode}`,
+      `Guardrail model: ${ingestGuardrailModel.trim() || "profile/default"}`,
       `Included unapproved high-risk artifacts: ${includedHighRisk.length}`,
     ];
     for (const artifact of ingestionArtifacts) {
@@ -11187,6 +11267,7 @@ export default function App() {
   function contextReviewCards(snapshot: ContextSnapshot): ContextReviewCard[] {
     const draftStatus = contextPreviewDraftStatus();
     const highRiskFindings = highRiskPreviewFindings(snapshot);
+    const guardrailMode = activeIngestionGuardrailMode();
     const cost = estimatedPreviewInputCost(snapshot);
     const compaction = compactionMetrics(snapshot);
     const costText = cost === null ? "Cost rate not set" : `Est ${formatCost(cost)}`;
@@ -11197,7 +11278,7 @@ export default function App() {
     const promptTone =
       draftStatus?.className.includes("stale") ? "warning" : "ok";
     const artifactTone = highRiskFindings.length
-      ? allowUnsafeIngest
+      ? guardrailMode === "allow" || guardrailMode === "warn"
         ? "warning"
         : "danger"
       : snapshot.loaded_artifacts.length
@@ -11245,7 +11326,7 @@ export default function App() {
           ? `${snapshot.loaded_artifacts.length} artifacts included`
           : "No artifacts included",
         detail: highRiskFindings.length
-          ? `${highRiskFindings.length} high-risk findings; ${allowUnsafeIngest ? "unsafe override is on" : "flagged content will be withheld"}.`
+          ? `${highRiskFindings.length} high-risk findings; guardrail ${guardrailMode}.`
           : "Prompt-injection guardrails found no high-risk included content.",
         tone: artifactTone,
       },
@@ -12109,6 +12190,23 @@ export default function App() {
               disabled={running || !includeIngestIds.length}
             />
             <span>Unsafe ingest</span>
+          </label>
+          <label>
+            Ingest guardrail
+            <select
+              value={ingestionGuardrailMode || (allowUnsafeIngest ? "allow" : "")}
+              onChange={(e) =>
+                updateIngestionGuardrailMode(
+                  e.target.value as IngestionGuardrailMode | "",
+                )
+              }
+              disabled={running}
+            >
+              <option value="">config</option>
+              <option value="block">block</option>
+              <option value="warn">warn</option>
+              <option value="allow">allow</option>
+            </select>
           </label>
           <label className="switch">
             <input
@@ -15324,6 +15422,14 @@ export default function App() {
                               ?.length ? (
                               <span>
                                 {`controller scope tools ${doc.approval_controller_allowed_tools?.join(", ") || "default"} / categories ${doc.approval_controller_allowed_tool_categories?.join(", ") || "default"}`}
+                              </span>
+                            ) : null}
+                            {doc.ingestion_guardrail ? (
+                              <span>ingest guardrail {doc.ingestion_guardrail}</span>
+                            ) : null}
+                            {doc.ingestion_guardrail_model ? (
+                              <span>
+                                guardrail model {doc.ingestion_guardrail_model}
                               </span>
                             ) : null}
                             <span>

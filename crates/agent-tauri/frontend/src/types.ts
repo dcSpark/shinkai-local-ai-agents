@@ -272,6 +272,7 @@ export type ModelMetadataCatalog = {
 export type ToolVisibility = "full_schema" | "name_and_description" | "name_only";
 export type ToolOutputMode = "interpreted" | "raw";
 export type StopRetentionMode = "discard" | "summarise";
+export type IngestionGuardrailMode = "block" | "warn" | "allow";
 
 export type AgentToolOverrideConfig = {
   id: string;
@@ -319,6 +320,8 @@ export type AgentConfigFile = {
   memory_backend?: string | null;
   memory_model?: string | null;
   load_skills?: boolean | null;
+  ingestion_guardrail?: IngestionGuardrailMode | null;
+  ingestion_guardrail_model?: string | null;
   max_tokens_before_compaction?: number | null;
   max_compaction_output_tokens?: number | null;
   compaction_guidance?: string | null;
@@ -562,6 +565,7 @@ export type RunOptions = {
   load_skills: boolean;
   include_ingest: string[];
   allow_unsafe_ingest: boolean;
+  ingestion_guardrail: IngestionGuardrailMode | null;
   enable_prompt_refinement: boolean;
   prompt_refinement_instructions: string | null;
   prompt_refinement_model: string | null;

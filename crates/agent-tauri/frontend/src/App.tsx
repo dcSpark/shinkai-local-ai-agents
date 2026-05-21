@@ -1575,6 +1575,7 @@ export default function App() {
       { command: "/compare ", label: "Compare loaded trace to a run id" },
       { command: "/compare clear", label: "Clear comparison trace" },
       { command: "/replay", label: "Replay loaded trace prompt" },
+      { command: "/replay ", label: "Replay a run trace by id" },
       { command: "/replay --no-hooks", label: "Replay loaded trace without hooks" },
       { command: "/approvals", label: "Review current run approvals" },
       { command: "/batch ", label: "Run lines as deterministic batch" },
@@ -3349,23 +3350,47 @@ export default function App() {
   }
 
   async function replayTracePrompt() {
-    const prompt = traceOriginalPrompt(traceEvents);
-    if (!prompt) {
-      appendLine("error", "Replay needs a trace with a RunStarted event.");
-      return;
-    }
-    await runAgentPrompt(prompt, "replay trace prompt");
+    await replayTracePromptWithOptions();
   }
 
   async function replayTracePromptWithoutHooks() {
-    const prompt = traceOriginalPrompt(traceEvents);
+    await replayTracePromptWithOptions({ skipHooks: true });
+  }
+
+  async function replayTracePromptWithOptions(options?: {
+    runId?: string;
+    skipHooks?: boolean;
+  }) {
+    let events = traceEvents;
+    const runId = options?.runId?.trim();
+    if (runId) {
+      try {
+        const loaded = await loadTraceFor(runId);
+        events = loaded.events;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        appendLine("error", `Trace load failed: ${msg}`);
+        return;
+      }
+    }
+    const prompt = traceOriginalPrompt(events);
     if (!prompt) {
-      appendLine("error", "Hook override needs a trace with a RunStarted event.");
+      appendLine(
+        "error",
+        options?.skipHooks
+          ? "Hook override needs a trace with a RunStarted event."
+          : "Replay needs a trace with a RunStarted event.",
+      );
       return;
     }
-    await runAgentPrompt(prompt, "replay trace prompt (hooks skipped once)", {
-      disable_lifecycle_hooks: true,
-    });
+    const label = runId
+      ? `replay trace ${runId} prompt${options?.skipHooks ? " (hooks skipped once)" : ""}`
+      : `replay trace prompt${options?.skipHooks ? " (hooks skipped once)" : ""}`;
+    await runAgentPrompt(
+      prompt,
+      label,
+      options?.skipHooks ? { disable_lifecycle_hooks: true } : undefined,
+    );
   }
 
   async function refreshHookPolicy(announce = true) {
@@ -3560,7 +3585,8 @@ export default function App() {
     appendEvent(
       `Trace tree: ${traceTreeNodeCount(tree)} run(s), ${traceTreeChildCount(tree)} child link(s)`,
     );
-    return applyTraceEvents(events);
+    const summary = applyTraceEvents(events);
+    return { events, summary };
   }
 
   async function loadTraceById(runId: string) {
@@ -3663,7 +3689,7 @@ export default function App() {
           return;
         }
         try {
-          const summary = await loadTraceFor(lastRunId);
+          const { summary } = await loadTraceFor(lastRunId);
           if (summary) {
             appendEvent(traceUsageSummary(summary));
           }
@@ -5558,45 +5584,44 @@ export default function App() {
     if (prompt === "/replay" || prompt.startsWith("/replay ")) {
       const rest = prompt === "/replay" ? "" : prompt.slice("/replay ".length).trim();
       const args = rest.split(/\s+/).filter(Boolean);
+      const replayFlags = [
+        "--no-hooks",
+        "--skip-hooks",
+        "no-hooks",
+        "skip-hooks",
+        "help",
+        "--help",
+      ];
       const skipHooks =
         args.includes("--no-hooks") ||
         args.includes("--skip-hooks") ||
         args.includes("no-hooks") ||
         args.includes("skip-hooks");
       const help = args.includes("help") || args.includes("--help");
-      const unknown = args.filter(
-        (arg) =>
-          ![
-            "--no-hooks",
-            "--skip-hooks",
-            "no-hooks",
-            "skip-hooks",
-            "help",
-            "--help",
-          ].includes(arg),
-      );
+      const runIds = args.filter((arg) => !replayFlags.includes(arg));
+      const unknownFlags = runIds.filter((arg) => arg.startsWith("--"));
       setInput("");
       setActiveSection("trace");
       appendLine("user", prompt);
       if (help) {
         appendLine(
           "assistant",
-          "Use /replay to run the loaded trace prompt again, or /replay --no-hooks to skip lifecycle hooks once.",
+          "Use /replay [run-id] to run a trace prompt again, or add --no-hooks to skip lifecycle hooks once.",
         );
         return;
       }
-      if (unknown.length) {
+      if (unknownFlags.length) {
+        appendLine("error", `Replay shortcut does not support ${unknownFlags[0]}.`);
+        return;
+      }
+      if (runIds.length > 1) {
         appendLine(
           "error",
-          "Replay shortcut accepts only --no-hooks or --skip-hooks.",
+          "Replay shortcut accepts at most one run id plus optional --no-hooks or --skip-hooks.",
         );
         return;
       }
-      if (skipHooks) {
-        await replayTracePromptWithoutHooks();
-        return;
-      }
-      await replayTracePrompt();
+      await replayTracePromptWithOptions({ runId: runIds[0], skipHooks });
       return;
     }
 

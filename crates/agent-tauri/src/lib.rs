@@ -72,9 +72,9 @@ use agent_tools::{
     show_generated_artifact_from_env,
 };
 use agent_tracing::{
-    EventId, EventStore, PublishingEventStore, RunEvent, RunEventKind, RunId, SqliteEventStore,
-    TraceTreeNode, build_resume_plan, build_trace_tree, is_terminal_run_event, latest_event_id,
-    validate_guidance_content, validate_quality_score,
+    EventId, EventStore, PublishingEventStore, ResumePlan, RunEvent, RunEventKind, RunId,
+    SqliteEventStore, TraceTreeNode, build_resume_plan, build_trace_tree, is_terminal_run_event,
+    latest_event_id, validate_guidance_content, validate_quality_score,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -1619,6 +1619,16 @@ async fn run_agent(
         }),
         Err(e) => Err(e),
     }
+}
+
+#[tauri::command]
+async fn resume_plan(run_id: String, from_event: Option<u64>) -> Result<ResumePlan, String> {
+    let source_run_id = RunId(uuid::Uuid::parse_str(&run_id).map_err(|e| e.to_string())?);
+    let source_events = open_event_store()?
+        .try_events(source_run_id)
+        .map_err(|e| e.to_string())?;
+    build_resume_plan(source_run_id, &source_events, from_event.map(EventId))
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -4223,6 +4233,7 @@ pub fn run() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             run_agent,
+            resume_plan,
             resume_run,
             preview_context,
             explain_config,

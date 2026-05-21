@@ -45,6 +45,7 @@ import type {
   ProfileGrantKind,
   ProfileSummary,
   Provider,
+  ResumePlan,
   RunEvent,
   RunOptions,
   RunSummary,
@@ -1458,6 +1459,7 @@ export default function App() {
       { command: "/scores", label: "Review quality scores" },
       { command: "/resume", label: "Resume last or selected run" },
       { command: "/resume ", label: "Resume a run by id" },
+      { command: "/resume plan ", label: "Preview resume prompt" },
       { command: "/stop", label: "Stop current run" },
       { command: "/stop default", label: "Use configured stop mode" },
       { command: "/stop discard", label: "Stop without retaining context" },
@@ -2513,6 +2515,18 @@ export default function App() {
       return null;
     }
     return { runId: selectedRunId, fromEvent };
+  }
+
+  function parseResumePlanShortcut(text: string) {
+    const trimmed = text.trim();
+    if (trimmed !== "/resume plan" && !trimmed.startsWith("/resume plan ")) {
+      return null;
+    }
+    const rest =
+      trimmed === "/resume plan"
+        ? ""
+        : trimmed.slice("/resume plan ".length).trim();
+    return parseResumeShortcut(rest ? `/resume ${rest}` : "/resume");
   }
 
   function appendJson(label: string, value: unknown) {
@@ -4565,6 +4579,14 @@ export default function App() {
     }
     if (prompt === "/score") {
       appendLine("error", "Score shortcut needs a number from 0 to 10.");
+      return;
+    }
+
+    const resumePlanShortcut = parseResumePlanShortcut(prompt);
+    if (resumePlanShortcut) {
+      setInput("");
+      appendLine("user", prompt);
+      await reviewResumePlan(resumePlanShortcut.runId, resumePlanShortcut.fromEvent);
       return;
     }
 
@@ -8207,6 +8229,31 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Cancel failed: ${msg}`);
+    }
+  }
+
+  async function reviewResumePlan(sourceRunId: string, fromEvent: number | null = null) {
+    if (!sourceRunId) return;
+    try {
+      const plan =
+        transport === "daemon"
+          ? await daemonJson<ResumePlan>("/resume/plan", {
+              run_id: sourceRunId,
+              from_event: fromEvent,
+            })
+          : await invoke<ResumePlan>("resume_plan", {
+              runId: sourceRunId,
+              fromEvent,
+            });
+      setOpsId(plan.source_run_id);
+      setOpsValue(plan.prompt);
+      appendEvent(
+        `Resume plan for ${plan.source_run_id}: event ${plan.selected_event_id}, agent ${plan.agent_id}, omitted ${plan.omitted_events}.`,
+      );
+      appendJson("Resume plan", plan);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Resume plan failed: ${msg}`);
     }
   }
 

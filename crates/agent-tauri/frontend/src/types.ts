@@ -162,6 +162,15 @@ export type RunSummary = {
   final_output: string;
 };
 
+export type ResumePlan = {
+  source_run_id: Uuid;
+  agent_id: string;
+  original_input: string;
+  selected_event_id: EventId;
+  omitted_events: number;
+  prompt: string;
+};
+
 export type TraceTreeNode = {
   run_id: Uuid;
   agent_id?: string | null;

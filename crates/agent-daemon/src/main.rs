@@ -210,6 +210,7 @@ async fn route_inner(
             daemon_run_events(id, query_param_u64(query, "after")).map(|value| (200, value))
         }
         ("POST", "/resume") => daemon_resume(&request.body).await.map(|value| (200, value)),
+        ("POST", "/resume/plan") => daemon_resume_plan(&request.body).map(|value| (200, value)),
         ("POST", "/resume/start") => daemon_resume_start(&request.body, state)
             .await
             .map(|value| (200, value)),
@@ -798,6 +799,7 @@ async fn route_inner(
                     "GET /run/status/<run_id>",
                     "GET /run/events/<run_id>?after=<event_id>",
                     "POST /resume",
+                    "POST /resume/plan",
                     "POST /preview-context",
                     "POST /explain-config",
                     "POST /explain-tools",
@@ -1045,6 +1047,14 @@ async fn daemon_resume(body: &str) -> anyhow::Result<serde_json::Value> {
         "retained_compaction": retained_compaction,
         "final_output": result.final_output,
     }))
+}
+
+fn daemon_resume_plan(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: DaemonResumeInput = serde_json::from_str(body)?;
+    let source_run_id = RunId(uuid::Uuid::parse_str(&input.run_id)?);
+    let events = open_event_store()?.try_events(source_run_id)?;
+    let plan = build_resume_plan(source_run_id, &events, input.from_event.map(EventId))?;
+    Ok(serde_json::to_value(plan)?)
 }
 
 async fn daemon_resume_start(
@@ -6803,6 +6813,77 @@ mod tests {
         );
 
         restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn resume_plan_route_returns_prompt_without_starting_run() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("resume-plan-route");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        let previous_daemon_x402 = std::env::var_os("AGENT_DAEMON_X402_ACCEPTS");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+            std::env::remove_var("AGENT_DAEMON_X402_ACCEPTS");
+        }
+
+        let run_id = RunId::new();
+        let store = open_event_store().unwrap();
+        let started = store.append(
+            run_id,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "planner".into(),
+                input: "assemble briefing".into(),
+            },
+        );
+        let proposed = store.append(
+            run_id,
+            Some(started.id),
+            RunEventKind::ToolCallProposed {
+                call_id: "tool-1".into(),
+                tool_id: "echo".into(),
+                input: serde_json::json!({"text": "draft"}),
+                model: None,
+                permissions: None,
+            },
+        );
+        store.append(
+            run_id,
+            Some(proposed.id),
+            RunEventKind::RunCancelled {
+                reason: "user requested stop".into(),
+            },
+        );
+
+        let run_id_text = run_id.0.to_string();
+        let (status, plan) = route(
+            HttpRequest {
+                method: "POST".into(),
+                path: "/resume/plan".into(),
+                headers: HashMap::new(),
+                body: serde_json::json!({
+                    "run_id": run_id_text.clone(),
+                    "from_event": proposed.id.0,
+                })
+                .to_string(),
+            },
+            Arc::new(DaemonState::default()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(status, 200);
+        assert_eq!(plan["source_run_id"].as_str(), Some(run_id_text.as_str()));
+        assert_eq!(plan["agent_id"], "planner");
+        assert_eq!(plan["selected_event_id"].as_u64(), Some(proposed.id.0));
+        let prompt = plan["prompt"].as_str().unwrap();
+        assert!(prompt.contains("assemble briefing"));
+        assert!(prompt.contains("ToolCallProposed"));
+        assert!(!prompt.contains("RunCancelled"));
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        restore_env("AGENT_DAEMON_X402_ACCEPTS", previous_daemon_x402);
         let _ = std::fs::remove_dir_all(dir);
     }
 

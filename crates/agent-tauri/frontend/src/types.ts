@@ -537,6 +537,12 @@ export type BundleManifest = {
   schema_version: number;
   exported_at: string;
   profile: string;
+  credential_reminders?: BundleCredentialReminder[];
+};
+
+export type BundleCredentialReminder = {
+  path: string;
+  reason: string;
 };
 
 export type Message =

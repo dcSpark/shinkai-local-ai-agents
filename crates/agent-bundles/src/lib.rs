@@ -33,6 +33,14 @@ pub struct BundleManifest {
     pub schema_version: u32,
     pub exported_at: DateTime<Utc>,
     pub profile: String,
+    #[serde(default)]
+    pub credential_reminders: Vec<BundleCredentialReminder>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BundleCredentialReminder {
+    pub path: String,
+    pub reason: String,
 }
 
 pub fn export_bundle(destination: impl AsRef<Path>) -> Result<BundleManifest, BundleError> {
@@ -50,10 +58,23 @@ pub fn export_bundle_from(
     destination: impl AsRef<Path>,
 ) -> Result<BundleManifest, BundleError> {
     paths.ensure_base_dirs()?;
+    let mut credential_reminders = Vec::new();
+    collect_credential_reminders(
+        paths.profiles_dir(),
+        Path::new("profiles"),
+        &mut credential_reminders,
+    )?;
+    collect_credential_reminders(
+        paths.cache_dir(),
+        Path::new("cache"),
+        &mut credential_reminders,
+    )?;
+    credential_reminders.sort_by(|left, right| left.path.cmp(&right.path));
     let manifest = BundleManifest {
         schema_version: BUNDLE_SCHEMA_VERSION,
         exported_at: Utc::now(),
         profile: paths.active_profile_id().into(),
+        credential_reminders,
     };
 
     let file = File::create(destination)?;
@@ -153,9 +174,82 @@ fn append_dir_if_exists(
     archive_path: &Path,
 ) -> Result<(), BundleError> {
     if source.exists() {
-        builder.append_dir_all(archive_path, source)?;
+        append_dir_filtered(builder, &source, archive_path)?;
     }
     Ok(())
+}
+
+fn append_dir_filtered(
+    builder: &mut tar::Builder<File>,
+    source: &Path,
+    archive_path: &Path,
+) -> Result<(), BundleError> {
+    builder.append_dir(archive_path, source)?;
+    for entry in std::fs::read_dir(source)? {
+        let entry = entry?;
+        let entry_source = entry.path();
+        let entry_archive_path = archive_path.join(entry.file_name());
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            append_dir_filtered(builder, &entry_source, &entry_archive_path)?;
+        } else if file_type.is_file() {
+            if is_credential_bundle_path(&entry_archive_path) {
+                continue;
+            }
+            builder.append_path_with_name(entry_source, entry_archive_path)?;
+        } else {
+            return Err(BundleError::UnsafePath(format!(
+                "unsupported bundle source entry: {}",
+                entry_source.display()
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn collect_credential_reminders(
+    source: PathBuf,
+    archive_path: &Path,
+    reminders: &mut Vec<BundleCredentialReminder>,
+) -> Result<(), BundleError> {
+    if !source.exists() {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(source)? {
+        let entry = entry?;
+        let entry_source = entry.path();
+        let entry_archive_path = archive_path.join(entry.file_name());
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            collect_credential_reminders(entry_source, &entry_archive_path, reminders)?;
+        } else if file_type.is_file() && is_credential_bundle_path(&entry_archive_path) {
+            reminders.push(BundleCredentialReminder {
+                path: archive_path_label(&entry_archive_path),
+                reason: "secret credential file omitted; recreate matching secrets after import"
+                    .into(),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn is_credential_bundle_path(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .is_some_and(|name| matches!(name, "secrets.json" | "secrets-keychain.json"))
+}
+
+fn archive_path_label(path: &Path) -> String {
+    path.components()
+        .filter_map(|component| match component {
+            Component::Normal(part) => Some(part.to_string_lossy().into_owned()),
+            Component::CurDir => None,
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                Some(component.as_os_str().to_string_lossy().into_owned())
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn ensure_safe_relative(path: &Path) -> Result<(), BundleError> {
@@ -185,6 +279,7 @@ mod tests {
         let manifest = export_bundle_from(src, &bundle).unwrap();
         assert_eq!(manifest.schema_version, BUNDLE_SCHEMA_VERSION);
         assert_eq!(manifest.profile, "research");
+        assert!(manifest.credential_reminders.is_empty());
 
         let dst = StoragePaths::new_with_profile(base.join("dst"), "research");
         let imported = import_bundle_into(dst.clone(), &bundle).unwrap();
@@ -203,6 +298,7 @@ mod tests {
             schema_version: BUNDLE_SCHEMA_VERSION,
             exported_at: Utc::now(),
             profile: "main".into(),
+            credential_reminders: Vec::new(),
         };
 
         let file = File::create(&bundle).unwrap();
@@ -228,6 +324,51 @@ mod tests {
         let dst = StoragePaths::new(base.join("dst"));
         let err = import_bundle_into(dst, &bundle).unwrap_err();
         assert!(matches!(err, BundleError::UnsafePath(_)));
+        let _ = std::fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn export_bundle_omits_secret_files_and_records_reminders() {
+        let base = std::env::temp_dir().join(format!(
+            "bundle-secret-redaction-test-{}",
+            std::process::id()
+        ));
+        let src = StoragePaths::new_with_profile(base.join("src"), "main");
+        src.ensure_base_dirs().unwrap();
+        std::fs::write(
+            src.secrets_file(),
+            r#"{"entries":[{"id":"api.key","versions":[{"version":1,"value":"sk-secret"}]}]}"#,
+        )
+        .unwrap();
+        let bundle = base.join("bundle.tar");
+
+        let manifest = export_bundle_from(src.clone(), &bundle).unwrap();
+
+        assert_eq!(manifest.credential_reminders.len(), 1);
+        assert_eq!(
+            manifest.credential_reminders[0].path,
+            "profiles/main/secrets.json"
+        );
+
+        let file = File::open(&bundle).unwrap();
+        let mut archive = tar::Archive::new(file);
+        let mut entry_names = Vec::new();
+        let mut contents = String::new();
+        for entry in archive.entries().unwrap() {
+            let mut entry = entry.unwrap();
+            entry_names.push(entry.path().unwrap().display().to_string());
+            if entry.header().entry_type().is_file() {
+                let _ = std::io::Read::read_to_string(&mut entry, &mut contents);
+            }
+        }
+
+        assert!(
+            !entry_names
+                .iter()
+                .any(|name| name.ends_with("secrets.json"))
+        );
+        assert!(!contents.contains("sk-secret"));
+        assert!(contents.contains("credential_reminders"));
         let _ = std::fs::remove_dir_all(base);
     }
 }

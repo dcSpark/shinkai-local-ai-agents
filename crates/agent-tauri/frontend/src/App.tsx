@@ -358,6 +358,27 @@ interface BundleStatus {
   manifest: BundleManifest;
 }
 
+function bundleCredentialReminderRows(manifest: BundleManifest) {
+  const reminders = manifest.credential_reminders ?? [];
+  if (reminders.length === 0) {
+    return null;
+  }
+  const visible = reminders.slice(0, 3);
+  return (
+    <>
+      <span>{reminders.length} credential file(s) omitted</span>
+      {visible.map((reminder) => (
+        <span key={reminder.path} title={reminder.reason}>
+          {reminder.path}
+        </span>
+      ))}
+      {reminders.length > visible.length ? (
+        <span>+{reminders.length - visible.length} more</span>
+      ) : null}
+    </>
+  );
+}
+
 interface CompactionExportResult {
   path: string;
   record: CompactionRecord;
@@ -14278,6 +14299,7 @@ export default function App() {
                   <span title={bundleStatus.path}>{bundleStatus.path}</span>
                   <span>profile {bundleStatus.manifest.profile}</span>
                   <span>{bundleStatus.manifest.exported_at}</span>
+                  {bundleCredentialReminderRows(bundleStatus.manifest)}
                 </div>
               ) : null}
             </div>
@@ -16455,6 +16477,7 @@ export default function App() {
                   <span title={bundleStatus.path}>{bundleStatus.path}</span>
                   <span>profile {bundleStatus.manifest.profile}</span>
                   <span>{bundleStatus.manifest.exported_at}</span>
+                  {bundleCredentialReminderRows(bundleStatus.manifest)}
                 </div>
               ) : (
                 <div className="empty-note">

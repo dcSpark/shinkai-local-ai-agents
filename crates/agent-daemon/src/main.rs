@@ -800,6 +800,7 @@ async fn route_inner(
                     "GET /run/events/<run_id>?after=<event_id>",
                     "POST /resume",
                     "POST /resume/plan",
+                    "POST /resume/start",
                     "POST /preview-context",
                     "POST /explain-config",
                     "POST /explain-tools",
@@ -6885,6 +6886,27 @@ mod tests {
         restore_env("AGENT_HARNESS_HOME", previous_home);
         restore_env("AGENT_DAEMON_X402_ACCEPTS", previous_daemon_x402);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn route_index_lists_resume_start_routes() {
+        let (status, body) = route(
+            HttpRequest {
+                method: "GET".into(),
+                path: "/missing".into(),
+                headers: HashMap::new(),
+                body: String::new(),
+            },
+            Arc::new(DaemonState::default()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(status, 404);
+        let available = body["available"].as_array().unwrap();
+        assert!(available.contains(&serde_json::json!("POST /resume")));
+        assert!(available.contains(&serde_json::json!("POST /resume/plan")));
+        assert!(available.contains(&serde_json::json!("POST /resume/start")));
     }
 
     #[tokio::test]

@@ -286,6 +286,14 @@ export type AgentSkillOverrideConfig = {
   visibility: ToolVisibility;
 };
 
+export type AgentPromptRefinementConfig = {
+  id?: string | null;
+  when?: string | null;
+  instructions: string;
+  model?: string | null;
+  agent_awareness?: boolean | null;
+};
+
 export type AgentConfigFile = {
   id: string;
   name: string;
@@ -293,27 +301,29 @@ export type AgentConfigFile = {
   profile?: string | null;
   shared_from_profile?: string | null;
   grant_id?: string | null;
+  prompt_refinement?: AgentPromptRefinementConfig | null;
+  prompt_refinements?: AgentPromptRefinementConfig[];
+  tool_overrides?: AgentToolOverrideConfig[];
+  skill_overrides?: AgentSkillOverrideConfig[];
   model?: string | null;
   max_tool_calls?: number | null;
-  max_tokens_before_compaction?: number | null;
-  max_compaction_output_tokens?: number | null;
-  compaction_guidance?: string | null;
   stop_retention_mode?: StopRetentionMode | null;
   capability_drafts_enabled?: boolean | null;
   capability_draft_guidance?: string | null;
   tool_output_mode?: ToolOutputMode | null;
   tool_routing_model?: string | null;
   tool_output_interpretation_model?: string | null;
-  prompt_refinement?: unknown | null;
-  prompt_refinements?: unknown[];
-  tool_overrides?: AgentToolOverrideConfig[];
-  skill_overrides?: AgentSkillOverrideConfig[];
   tool_visibility?: ToolVisibility | null;
   skill_visibility?: ToolVisibility | null;
   load_memory?: boolean | null;
   memory_backend?: string | null;
   memory_model?: string | null;
   load_skills?: boolean | null;
+  max_tokens_before_compaction?: number | null;
+  max_compaction_output_tokens?: number | null;
+  compaction_guidance?: string | null;
+  input_cost_per_million?: number | null;
+  output_cost_per_million?: number | null;
   allowed_tools?: string[] | null;
   allowed_tool_categories?: string[] | null;
   allowed_skill_categories?: string[] | null;

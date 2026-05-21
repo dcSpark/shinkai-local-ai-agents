@@ -4535,8 +4535,7 @@ export default function App() {
         if (!id) {
           appendLine("error", "Agents use shortcut needs an agent id.");
         } else {
-          setAgentId(id);
-          appendEvent(`Selected configured agent ${id}`);
+          await useAgent(id);
         }
       } else if (rest.startsWith("delete ")) {
         const id = rest.slice("delete ".length).trim();
@@ -6922,7 +6921,28 @@ export default function App() {
     await showAgent(id);
   }
 
-  async function showAgent(id: string) {
+  async function useAgentFromOps() {
+    const id = requireOpsId("Agent use");
+    if (!id) return;
+    await useAgent(id);
+  }
+
+  async function useAgent(id: string) {
+    const existing = agentConfigs.find(
+      (doc): doc is AgentConfigFile =>
+        doc.id === id && "system_prompt" in doc,
+    );
+    if (existing) {
+      applyAgentConfigToControls(existing);
+      return;
+    }
+    await showAgent(id, { applyToControls: true });
+  }
+
+  async function showAgent(
+    id: string,
+    options: { applyToControls?: boolean } = {},
+  ) {
     try {
       const doc =
         transport === "daemon"
@@ -6931,6 +6951,9 @@ export default function App() {
       setAgentConfigs((docs) =>
         upsertAgentConfig(docs, withExistingAgentMetadata(docs, doc)),
       );
+      if (options.applyToControls) {
+        applyAgentConfigToControls(doc);
+      }
       appendJson("Agent", doc);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -6938,12 +6961,68 @@ export default function App() {
     }
   }
 
+  function applyAgentConfigToControls(doc: AgentConfigFile) {
+    const refinement = firstPromptRefinement(doc);
+    setAgentId(doc.id);
+    setOpsId(doc.id);
+    setOpsValue(doc.system_prompt);
+    setModel(doc.model ?? "");
+    setInputCostPerMillion(numberControlValue(doc.input_cost_per_million));
+    setOutputCostPerMillion(numberControlValue(doc.output_cost_per_million));
+    setMaxToolCalls(numberControlValue(doc.max_tool_calls));
+    setMaxTokensBeforeCompaction(
+      numberControlValue(doc.max_tokens_before_compaction),
+    );
+    setMaxCompactionOutputTokens(
+      numberControlValue(doc.max_compaction_output_tokens),
+    );
+    setCompactionGuidance(doc.compaction_guidance ?? "");
+    setStopRetentionMode(doc.stop_retention_mode ?? null);
+    setEnableCapabilityDrafts(doc.capability_drafts_enabled === true);
+    setCapabilityDraftGuidance(doc.capability_draft_guidance ?? "");
+    setRawToolOutput(doc.tool_output_mode === "raw");
+    setToolRoutingModel(doc.tool_routing_model ?? "");
+    setToolOutputInterpretationModel(
+      doc.tool_output_interpretation_model ?? "",
+    );
+    setToolVisibility(doc.tool_visibility ?? "");
+    setLoadMemory(doc.load_memory === true);
+    setMemoryBackend(doc.memory_backend ?? "");
+    setMemoryModel(doc.memory_model ?? "");
+    setLoadSkills(doc.load_skills === true);
+    setAllowedToolCategories((doc.allowed_tool_categories ?? []).join(", "));
+    setAllowedSkillCategories((doc.allowed_skill_categories ?? []).join(", "));
+    setEnablePromptRefinement(refinement != null);
+    setPromptRefinementInstructions(refinement?.instructions ?? "");
+    setPromptRefinementModel(refinement?.model ?? "");
+    appendEvent(`Applied saved agent ${doc.id} to run controls.`);
+  }
+
+  function firstPromptRefinement(doc: AgentConfigFile) {
+    return doc.prompt_refinement ?? doc.prompt_refinements?.[0] ?? null;
+  }
+
+  function numberControlValue(value: number | null | undefined) {
+    return value == null ? "" : String(value);
+  }
+
   function agentConfigFromCurrentControls(id: string, systemPrompt: string): AgentConfigFile {
     return {
       id,
       name: id,
       system_prompt: systemPrompt,
+      prompt_refinement:
+        enablePromptRefinement && promptRefinementInstructions.trim()
+          ? {
+              instructions: promptRefinementInstructions.trim(),
+              model: promptRefinementModel.trim() || null,
+            }
+          : null,
       model: model.trim() || null,
+      input_cost_per_million: parseOptionalNonNegativeFloat(inputCostPerMillion),
+      output_cost_per_million: parseOptionalNonNegativeFloat(
+        outputCostPerMillion,
+      ),
       max_tool_calls: parseOptionalNonNegativeInt(maxToolCalls),
       max_tokens_before_compaction: parseOptionalPositiveInt(
         maxTokensBeforeCompaction,
@@ -6977,6 +7056,13 @@ export default function App() {
     const id = requireOpsId("Agent save");
     const systemPrompt = requireOpsValue("Agent save system prompt");
     if (!id || !systemPrompt) return;
+    if (enablePromptRefinement && !promptRefinementInstructions.trim()) {
+      appendLine(
+        "error",
+        "Agent save needs refinement instructions when prompt refinement is enabled.",
+      );
+      return;
+    }
     const doc = agentConfigFromCurrentControls(id, systemPrompt);
     try {
       const saved =
@@ -15011,8 +15097,8 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Use agent Id for future runs."
-                  onClick={() => setAgentId(opsId.trim())}
+                  title="Use agent Id and apply its saved setup to the visible controls."
+                  onClick={() => void useAgentFromOps()}
                   disabled={running || !opsId.trim()}
                 >
                   Use Agent
@@ -15087,6 +15173,12 @@ export default function App() {
                                 ? "default tool budget"
                                 : `${doc.max_tool_calls} tool calls`}
                             </span>
+                            {doc.input_cost_per_million != null ||
+                            doc.output_cost_per_million != null ? (
+                              <span>
+                                {`cost ${doc.input_cost_per_million ?? "default"}/${doc.output_cost_per_million ?? "default"} $/M`}
+                              </span>
+                            ) : null}
                             <span>
                               {doc.memory_backend
                                 ? `memory ${doc.memory_backend}`
@@ -15111,8 +15203,8 @@ export default function App() {
                           </button>
                           <button
                             type="button"
-                            title="Use this saved agent for future runs."
-                            onClick={() => setAgentId(doc.id)}
+                            title="Use this saved agent and apply its saved setup to the visible controls."
+                            onClick={() => void useAgent(doc.id)}
                             disabled={running}
                           >
                             Use

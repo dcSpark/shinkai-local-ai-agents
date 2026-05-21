@@ -936,6 +936,7 @@ fn global_slash_help_text() -> &'static str {
      - /tool!<name> <json> - call a tool directly with manual JSON input\n\
      - /python <code>, /typescript <code>, /ts <code> - call native code tools directly\n\
      - /voice transcribe <path>, /voice speak <text> - call native voice tools directly\n\
+     - /x402 request|required|settle ... - call native x402 payment tools directly\n\
      - /preview <prompt> - inspect context before running\n\
      - /guide <text> - steer the active run at the next checkpoint\n\
      - /stop [--summarise|--discard] [reason] - stop the active run\n\
@@ -983,6 +984,10 @@ fn handle_slash_command(
     }
     if let Some(rest) = voice_slash_rest(trimmed) {
         handle_voice_slash(app, rest, registry, agent, publish_tx);
+        return true;
+    }
+    if let Some(rest) = x402_slash_rest(trimmed) {
+        handle_x402_slash(app, rest, registry, agent, publish_tx);
         return true;
     }
     if let Some(rest) = trimmed.strip_prefix("/tool ").map(str::trim) {
@@ -7454,6 +7459,295 @@ fn handle_voice_slash(
     }
 }
 
+fn x402_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/x402" || trimmed == "/payment" {
+        Some("")
+    } else if let Some(rest) = trimmed.strip_prefix("/x402 ") {
+        Some(rest.trim())
+    } else {
+        trimmed.strip_prefix("/payment ").map(str::trim)
+    }
+}
+
+fn x402_slash_help_text() -> &'static str {
+    "x402 shortcuts:\n\
+     - /x402 request <url> [--method GET|POST] [--max-amount n] [--auto-pay] [--signature-secret id]\n\
+     - /x402 required --resource <url> --amount <n> --pay-to <addr> --asset <asset> --network <name>\n\
+     - /x402 settle <payment-signature> --facilitator <url> --resource <url> --amount <n> --pay-to <addr> --asset <asset> --network <name> [--mode verify|settle|verify-and-settle]\n\
+     /payment x402-request, /payment x402-required, and /payment x402-settle are aliases."
+}
+
+fn handle_x402_slash(
+    app: &mut App,
+    rest: &str,
+    registry: &Arc<ToolRegistry>,
+    agent: &AgentConfig,
+    publish_tx: &UnboundedSender<RunEvent>,
+) {
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "help" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: x402_slash_help_text().into(),
+        });
+        return;
+    }
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    let parsed = match command {
+        "request" | "x402-request" => {
+            parse_x402_request_slash(args).map(|input| ("payment_x402_request", input))
+        }
+        "required" | "x402-required" => {
+            parse_x402_required_slash(args).map(|input| ("payment_x402_required", input))
+        }
+        "settle" | "x402-settle" => {
+            parse_x402_settle_slash(args).map(|input| ("payment_x402_settle", input))
+        }
+        _ => Err(anyhow::anyhow!(
+            "x402 command needs request, required, settle, or help"
+        )),
+    };
+    let (tool_name, input) = match parsed {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            });
+            return;
+        }
+    };
+    start_manual_tool_call_with_input(app, tool_name.into(), input, registry, agent, publish_tx);
+}
+
+fn parse_x402_request_slash(rest: &str) -> anyhow::Result<serde_json::Value> {
+    let mut parts = rest.split_whitespace().peekable();
+    let url = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("x402 request shortcut needs a URL"))?;
+    let mut input = serde_json::Map::new();
+    input.insert("url".into(), serde_json::Value::String(url.into()));
+    while let Some(part) = parts.next() {
+        if part == "--auto-pay" {
+            input.insert("auto_pay".into(), serde_json::Value::Bool(true));
+            continue;
+        }
+        if let Some((flag, value)) = x402_option_value(part, &mut parts)? {
+            match flag {
+                "--method" => {
+                    let method = value.to_ascii_uppercase();
+                    if !matches!(method.as_str(), "GET" | "POST") {
+                        anyhow::bail!("x402 request --method must be GET or POST");
+                    }
+                    input.insert("method".into(), serde_json::Value::String(method));
+                }
+                "--max-amount" => {
+                    let amount = parse_non_negative_number(value, "x402 request --max-amount")?;
+                    input.insert("max_amount".into(), amount);
+                }
+                "--signature-secret" => {
+                    input.insert(
+                        "payment_signature_secret".into(),
+                        serde_json::Value::String(value.into()),
+                    );
+                }
+                _ => anyhow::bail!("unknown x402 request option: {flag}"),
+            }
+        } else {
+            anyhow::bail!("unknown x402 request option: {part}");
+        }
+    }
+    Ok(serde_json::Value::Object(input))
+}
+
+fn parse_x402_required_slash(rest: &str) -> anyhow::Result<serde_json::Value> {
+    let mut parts = rest.split_whitespace().peekable();
+    let mut input = serde_json::Map::new();
+    let mut accept = x402_default_accept();
+    while let Some(part) = parts.next() {
+        let Some((flag, value)) = x402_option_value(part, &mut parts)? else {
+            anyhow::bail!("unknown x402 required option: {part}");
+        };
+        match flag {
+            "--version" => {
+                let version = parse_positive_u64(value, "x402 required --version")?;
+                input.insert(
+                    "x402_version".into(),
+                    serde_json::Value::Number(version.into()),
+                );
+            }
+            "--error" => {
+                input.insert("error".into(), serde_json::Value::String(value.into()));
+            }
+            "--body" => {
+                input.insert("body".into(), serde_json::Value::String(value.into()));
+            }
+            "--scheme" | "--network" | "--amount" | "--max-amount" | "--pay-to" | "--asset"
+            | "--resource" => set_x402_accept_option(&mut accept, flag, value),
+            _ => anyhow::bail!("unknown x402 required option: {flag}"),
+        }
+    }
+    validate_x402_accept(&accept, "x402 required")?;
+    input.insert(
+        "accepts".into(),
+        serde_json::Value::Array(vec![serde_json::Value::Object(accept)]),
+    );
+    Ok(serde_json::Value::Object(input))
+}
+
+fn parse_x402_settle_slash(rest: &str) -> anyhow::Result<serde_json::Value> {
+    let mut parts = rest.split_whitespace().peekable();
+    let signature = parts
+        .next()
+        .filter(|value| !value.starts_with("--"))
+        .ok_or_else(|| anyhow::anyhow!("x402 settle shortcut needs a PAYMENT-SIGNATURE value"))?;
+    let mut input = serde_json::Map::new();
+    input.insert(
+        "payment_signature".into(),
+        serde_json::Value::String(signature.into()),
+    );
+    let mut accept = x402_default_accept();
+    while let Some(part) = parts.next() {
+        let Some((flag, value)) = x402_option_value(part, &mut parts)? else {
+            anyhow::bail!("unknown x402 settle option: {part}");
+        };
+        match flag {
+            "--facilitator" | "--facilitator-url" => {
+                input.insert(
+                    "facilitator_url".into(),
+                    serde_json::Value::String(value.into()),
+                );
+            }
+            "--mode" => {
+                let mode = value.replace('-', "_");
+                if !matches!(mode.as_str(), "verify" | "settle" | "verify_and_settle") {
+                    anyhow::bail!(
+                        "x402 settle --mode must be verify, settle, or verify-and-settle"
+                    );
+                }
+                input.insert("mode".into(), serde_json::Value::String(mode));
+            }
+            "--version" => {
+                let version = parse_positive_u64(value, "x402 settle --version")?;
+                input.insert(
+                    "x402_version".into(),
+                    serde_json::Value::Number(version.into()),
+                );
+            }
+            "--scheme" | "--network" | "--amount" | "--max-amount" | "--pay-to" | "--asset"
+            | "--resource" => set_x402_accept_option(&mut accept, flag, value),
+            _ => anyhow::bail!("unknown x402 settle option: {flag}"),
+        }
+    }
+    if !input.contains_key("facilitator_url") {
+        anyhow::bail!("x402 settle needs --facilitator <url>");
+    }
+    validate_x402_accept(&accept, "x402 settle")?;
+    input.insert(
+        "payment_requirements".into(),
+        serde_json::Value::Object(accept),
+    );
+    Ok(serde_json::Value::Object(input))
+}
+
+fn x402_option_value<'a, I>(
+    part: &'a str,
+    parts: &mut std::iter::Peekable<I>,
+) -> anyhow::Result<Option<(&'a str, &'a str)>>
+where
+    I: Iterator<Item = &'a str>,
+{
+    if let Some((flag, value)) = part.split_once('=') {
+        if value.trim().is_empty() {
+            anyhow::bail!("{flag} needs a value");
+        }
+        return Ok(Some((flag, value.trim())));
+    }
+    if !part.starts_with("--") {
+        return Ok(None);
+    }
+    let value = parts
+        .next()
+        .filter(|value| !value.starts_with("--"))
+        .ok_or_else(|| anyhow::anyhow!("{part} needs a value"))?;
+    Ok(Some((part, value)))
+}
+
+fn x402_default_accept() -> serde_json::Map<String, serde_json::Value> {
+    let mut accept = serde_json::Map::new();
+    accept.insert("scheme".into(), serde_json::Value::String("exact".into()));
+    accept
+}
+
+fn set_x402_accept_option(
+    accept: &mut serde_json::Map<String, serde_json::Value>,
+    flag: &str,
+    value: &str,
+) {
+    let key = match flag {
+        "--scheme" => "scheme",
+        "--network" => "network",
+        "--amount" | "--max-amount" => "maxAmountRequired",
+        "--pay-to" => "payTo",
+        "--asset" => "asset",
+        "--resource" => "resource",
+        _ => return,
+    };
+    accept.insert(key.into(), serde_json::Value::String(value.into()));
+}
+
+fn validate_x402_accept(
+    accept: &serde_json::Map<String, serde_json::Value>,
+    label: &str,
+) -> anyhow::Result<()> {
+    let missing = [
+        ("--resource", "resource"),
+        ("--amount", "maxAmountRequired"),
+        ("--pay-to", "payTo"),
+        ("--asset", "asset"),
+        ("--network", "network"),
+    ]
+    .into_iter()
+    .filter_map(|(flag, key)| {
+        let present = accept
+            .get(key)
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty());
+        (!present).then_some(flag)
+    })
+    .collect::<Vec<_>>();
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        anyhow::bail!("{label} needs {}", missing.join(", "))
+    }
+}
+
+fn parse_non_negative_number(value: &str, label: &str) -> anyhow::Result<serde_json::Value> {
+    let amount = value
+        .parse::<f64>()
+        .map_err(|_| anyhow::anyhow!("{label} needs a non-negative number"))?;
+    if !amount.is_finite() || amount < 0.0 {
+        anyhow::bail!("{label} needs a non-negative number");
+    }
+    let number = serde_json::Number::from_f64(amount)
+        .ok_or_else(|| anyhow::anyhow!("{label} needs a non-negative number"))?;
+    Ok(serde_json::Value::Number(number))
+}
+
+fn parse_positive_u64(value: &str, label: &str) -> anyhow::Result<u64> {
+    let parsed = value
+        .parse::<u64>()
+        .map_err(|_| anyhow::anyhow!("{label} needs a positive integer"))?;
+    if parsed == 0 {
+        anyhow::bail!("{label} needs a positive integer");
+    }
+    Ok(parsed)
+}
+
 fn start_manual_tool_call(
     app: &mut App,
     rest: &str,
@@ -9013,6 +9307,15 @@ mod tests {
             Some("transcribe ./sample.wav")
         );
         assert_eq!(voice_slash_rest("/voices"), None);
+        assert_eq!(
+            x402_slash_rest("/x402 request https://example.test"),
+            Some("request https://example.test")
+        );
+        assert_eq!(
+            x402_slash_rest("/payment x402-request https://example.test"),
+            Some("x402-request https://example.test")
+        );
+        assert_eq!(x402_slash_rest("/payments"), None);
         assert_eq!(score_slash_rest("/score 7"), Some("7"));
         assert_eq!(score_slash_rest("/score"), Some(""));
         assert_eq!(score_slash_rest("/scoreboard 7"), None);
@@ -9284,6 +9587,7 @@ mod tests {
         assert!(help.contains("/tool!<name> <json>"));
         assert!(help.contains("/python <code>"));
         assert!(help.contains("/voice transcribe <path>"));
+        assert!(help.contains("/x402 request"));
         assert!(help.contains("manual JSON input"));
         assert!(help.contains("/guide <text>"));
         assert!(help.contains("/conversation"));
@@ -9295,6 +9599,62 @@ mod tests {
         assert!(help.contains("/voice transcribe <path>"));
         assert!(help.contains("/voice speak <text>"));
         assert!(help.contains("saved audio paths"));
+    }
+
+    #[test]
+    fn x402_shortcuts_build_native_tool_inputs() {
+        assert_eq!(
+            parse_x402_request_slash(
+                "https://example.test --method post --max-amount=5 --auto-pay --signature-secret sig"
+            )
+            .unwrap(),
+            json!({
+                "url": "https://example.test",
+                "method": "POST",
+                "max_amount": 5.0,
+                "auto_pay": true,
+                "payment_signature_secret": "sig"
+            })
+        );
+        assert_eq!(
+            parse_x402_required_slash(
+                "--resource https://example.test --amount 5 --pay-to 0xabc --asset USDC --network base-sepolia --version=2"
+            )
+            .unwrap(),
+            json!({
+                "x402_version": 2,
+                "accepts": [{
+                    "scheme": "exact",
+                    "resource": "https://example.test",
+                    "maxAmountRequired": "5",
+                    "payTo": "0xabc",
+                    "asset": "USDC",
+                    "network": "base-sepolia"
+                }]
+            })
+        );
+        assert_eq!(
+            parse_x402_settle_slash(
+                "signature --facilitator http://127.0.0.1:8787 --resource https://example.test --amount 5 --pay-to 0xabc --asset USDC --network base-sepolia --mode verify-and-settle"
+            )
+            .unwrap(),
+            json!({
+                "payment_signature": "signature",
+                "facilitator_url": "http://127.0.0.1:8787",
+                "mode": "verify_and_settle",
+                "payment_requirements": {
+                    "scheme": "exact",
+                    "resource": "https://example.test",
+                    "maxAmountRequired": "5",
+                    "payTo": "0xabc",
+                    "asset": "USDC",
+                    "network": "base-sepolia"
+                }
+            })
+        );
+        assert!(parse_x402_request_slash("").is_err());
+        assert!(parse_x402_required_slash("--resource only").is_err());
+        assert!(parse_x402_settle_slash("signature").is_err());
     }
 
     #[test]

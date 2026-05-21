@@ -996,6 +996,9 @@ enum AgentCommand {
         /// Whether tool outputs are interpreted by the LLM or returned raw.
         #[arg(long, value_enum)]
         tool_output_mode: Option<ToolOutputModeArg>,
+        /// Agent-level model id used for tool-call selection.
+        #[arg(long = "tool-routing-model")]
+        tool_routing_model: Option<String>,
         /// Agent-level model id used for interpreted tool outputs.
         #[arg(long = "tool-output-interpretation-model")]
         tool_output_interpretation_model: Option<String>,
@@ -2930,6 +2933,8 @@ enum RemoteAgentCommand {
         skill_visibility: Option<ToolVisibility>,
         #[arg(long, value_enum)]
         tool_output_mode: Option<ToolOutputModeArg>,
+        #[arg(long = "tool-routing-model")]
+        tool_routing_model: Option<String>,
         #[arg(long = "tool-output-interpretation-model")]
         tool_output_interpretation_model: Option<String>,
         #[arg(long = "tool-output-override")]
@@ -3659,6 +3664,8 @@ mod cli_parse_tests {
             "name-and-description",
             "--tool-output-mode",
             "raw",
+            "--tool-routing-model",
+            "router-model",
             "--tool-output-interpretation-model",
             "general-interpreter",
             "--tool-output-override",
@@ -3711,6 +3718,7 @@ mod cli_parse_tests {
                     capability_drafts_enabled,
                     capability_draft_guidance,
                     tool_output_mode,
+                    tool_routing_model,
                     tool_output_interpretation_model,
                     tool_output_overrides,
                     tool_interpretation_model_overrides,
@@ -3764,6 +3772,7 @@ mod cli_parse_tests {
             Some("Draft narrow reusable capabilities.")
         );
         assert!(matches!(tool_output_mode, Some(ToolOutputModeArg::Raw)));
+        assert_eq!(tool_routing_model.as_deref(), Some("router-model"));
         assert_eq!(
             tool_output_interpretation_model.as_deref(),
             Some("general-interpreter")
@@ -3832,6 +3841,8 @@ mod cli_parse_tests {
             "review=full-schema",
             "--skill-visibility",
             "name-only",
+            "--tool-routing-model",
+            "router-model",
             "--tool-output-override",
             "echo=interpreted",
             "--tool-interpretation-model",
@@ -3870,6 +3881,7 @@ mod cli_parse_tests {
                     approval_controller_allowed_tools,
                     capability_drafts_enabled,
                     capability_draft_guidance,
+                    tool_routing_model,
                     tool_output_overrides,
                     tool_interpretation_model_overrides,
                     tool_visibility_overrides,
@@ -3907,6 +3919,7 @@ mod cli_parse_tests {
             capability_draft_guidance.as_deref(),
             Some("Draft narrow reusable capabilities.")
         );
+        assert_eq!(tool_routing_model.as_deref(), Some("router-model"));
         assert_eq!(tool_output_overrides, vec!["echo=interpreted"]);
         assert_eq!(
             tool_interpretation_model_overrides,
@@ -5972,6 +5985,7 @@ async fn main() -> anyhow::Result<()> {
                 skill_visibility_overrides,
                 skill_visibility,
                 tool_output_mode,
+                tool_routing_model,
                 tool_output_interpretation_model,
                 tool_output_overrides,
                 tool_interpretation_model_overrides,
@@ -6012,6 +6026,7 @@ async fn main() -> anyhow::Result<()> {
                     skill_visibility_overrides,
                     skill_visibility.map(VisibilityLevel::from),
                     tool_output_mode.map(ToolOutputMode::from),
+                    tool_routing_model,
                     tool_output_interpretation_model,
                     tool_output_overrides,
                     tool_interpretation_model_overrides,
@@ -6773,6 +6788,7 @@ async fn main() -> anyhow::Result<()> {
                     skill_visibility_overrides,
                     skill_visibility,
                     tool_output_mode,
+                    tool_routing_model,
                     tool_output_interpretation_model,
                     tool_output_overrides,
                     tool_interpretation_model_overrides,
@@ -6814,6 +6830,7 @@ async fn main() -> anyhow::Result<()> {
                         skill_visibility_overrides,
                         skill_visibility.map(VisibilityLevel::from),
                         tool_output_mode.map(ToolOutputMode::from),
+                        tool_routing_model,
                         tool_output_interpretation_model,
                         tool_output_overrides,
                         tool_interpretation_model_overrides,

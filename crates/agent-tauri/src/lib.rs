@@ -166,6 +166,7 @@ struct RunOptions {
     require_approval: bool,
     auto_approve: bool,
     raw_tool_output: bool,
+    tool_routing_model: Option<String>,
     tool_output_interpretation_model: Option<String>,
     disable_lifecycle_hooks: bool,
     compacted_context: Option<String>,
@@ -207,6 +208,7 @@ impl Default for RunOptions {
             require_approval: false,
             auto_approve: false,
             raw_tool_output: false,
+            tool_routing_model: None,
             tool_output_interpretation_model: None,
             disable_lifecycle_hooks: false,
             compacted_context: None,
@@ -689,6 +691,14 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
     }
     if options.raw_tool_output {
         agent.tool_policy.output_mode = ToolOutputMode::Raw;
+    }
+    if let Some(model) = options
+        .tool_routing_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+    {
+        agent.tool_policy.routing_model = Some(ModelRef::from(model.to_string()));
     }
     if let Some(model) = options
         .tool_output_interpretation_model
@@ -1219,8 +1229,17 @@ mod tauri_slash_tests {
     #[test]
     fn build_agent_applies_runtime_tool_output_interpreter_model() {
         let mut options = RunOptions::default();
+        options.tool_routing_model = Some("router-model".into());
         options.tool_output_interpretation_model = Some("interpreter-model".into());
         let agent = build_agent(&options);
+        assert_eq!(
+            agent
+                .tool_policy
+                .routing_model
+                .as_ref()
+                .map(|model| model.0.as_str()),
+            Some("router-model")
+        );
         assert_eq!(
             agent
                 .tool_policy

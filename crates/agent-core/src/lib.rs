@@ -578,6 +578,8 @@ pub struct ToolPolicy {
     pub capability_draft_guidance: Option<String>,
     /// Whether tool outputs are returned raw or fed back to the LLM.
     pub output_mode: ToolOutputMode,
+    /// Optional model used for tool-call selection instead of the agent model.
+    pub routing_model: Option<ModelRef>,
     /// Optional model used for interpreted tool outputs instead of the agent model.
     pub output_interpretation_model: Option<ModelRef>,
     /// Per-tool overrides for output interpretation mode.
@@ -602,6 +604,7 @@ impl Default for ToolPolicy {
             capability_drafts_enabled: false,
             capability_draft_guidance: None,
             output_mode: ToolOutputMode::Interpreted,
+            routing_model: None,
             output_interpretation_model: None,
             per_tool_output_modes: HashMap::new(),
             per_tool_output_interpretation_models: HashMap::new(),
@@ -1319,7 +1322,7 @@ impl Harness {
         messages.push(Message::system(&snapshot.system_prompt));
         messages.extend(snapshot.conversation.clone());
 
-        let tools = snapshot
+        let tools: Vec<ToolSchema> = snapshot
             .visible_tools
             .iter()
             .filter_map(|t| {
@@ -1332,7 +1335,15 @@ impl Harness {
             .collect();
 
         LlmRequest {
-            model: agent.model.clone(),
+            model: if tools.is_empty() {
+                agent.model.clone()
+            } else {
+                agent
+                    .tool_policy
+                    .routing_model
+                    .clone()
+                    .unwrap_or_else(|| agent.model.clone())
+            },
             messages,
             tools,
         }
@@ -4656,6 +4667,16 @@ impl HarnessApi for Harness {
                     source: "agent/default".into(),
                 },
                 ConfigValueExplanation {
+                    key: "agent.tool_policy.routing_model".into(),
+                    value: agent
+                        .tool_policy
+                        .routing_model
+                        .as_ref()
+                        .map(|model| Value::String(model.0.clone()))
+                        .unwrap_or(Value::Null),
+                    source: "agent/default".into(),
+                },
+                ConfigValueExplanation {
                     key: "agent.tool_policy.output_interpretation_model".into(),
                     value: agent
                         .tool_policy
@@ -4764,6 +4785,7 @@ mod tests {
                 capability_drafts_enabled: false,
                 capability_draft_guidance: None,
                 output_mode: ToolOutputMode::Interpreted,
+                routing_model: None,
                 output_interpretation_model: None,
                 per_tool_output_modes: HashMap::new(),
                 per_tool_output_interpretation_models: HashMap::new(),
@@ -6881,6 +6903,42 @@ JSON
             })
             .collect::<Vec<_>>();
         assert_eq!(request_models, vec!["fake-model", "interp-model"]);
+    }
+
+    #[tokio::test]
+    async fn tool_routing_model_controls_tool_selection_llm_call() {
+        let provider = FakeProvider::sequence(vec![
+            FakeStep::CallTool {
+                id: "c1".into(),
+                tool: "echo".into(),
+                input: json!({"text": "ping"}),
+            },
+            FakeStep::Reply("interpreted".into()),
+        ]);
+        let h = Harness::new(
+            Arc::new(provider),
+            Arc::new(InMemoryEventStore::new()),
+            registry_with_echo(),
+        );
+        let mut agent = agent_with_tools(vec![], 5);
+        agent.tool_policy.routing_model = Some(ModelRef::from("router-model"));
+        agent.tool_policy.output_interpretation_model = Some(ModelRef::from("interp-model"));
+
+        let result = h
+            .run(&agent, UserInput { text: "go".into() })
+            .await
+            .unwrap();
+        let events = h.events(result.run_id);
+        let request_models = events
+            .iter()
+            .filter_map(|event| match &event.kind {
+                RunEventKind::LlmRequestStarted { model, .. } => Some(model.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(result.final_output, "interpreted");
+        assert_eq!(request_models, vec!["router-model", "interp-model"]);
     }
 
     #[tokio::test]

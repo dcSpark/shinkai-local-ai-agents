@@ -84,6 +84,8 @@ struct PolicyLayerToml {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tool_output_mode: Option<ToolOutputMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    tool_routing_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     tool_output_interpretation_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     tool_visibility: Option<VisibilityLevel>,
@@ -259,6 +261,8 @@ pub struct AgentConfigFile {
     pub disabled_lifecycle_hooks: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_output_mode: Option<ToolOutputMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_routing_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_output_interpretation_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1153,6 +1157,7 @@ impl Default for AgentToml {
                 allowed_skill_categories: None,
                 disabled_lifecycle_hooks: None,
                 tool_output_mode: Some(default_tool_output_mode()),
+                tool_routing_model: None,
                 tool_output_interpretation_model: None,
                 tool_visibility: Some(default_tool_visibility()),
                 skill_visibility: Some(default_skill_visibility()),
@@ -1199,6 +1204,7 @@ impl From<AgentToml> for AgentConfigFile {
             allowed_skill_categories: value.policy.allowed_skill_categories,
             disabled_lifecycle_hooks: value.policy.disabled_lifecycle_hooks,
             tool_output_mode: value.policy.tool_output_mode,
+            tool_routing_model: value.policy.tool_routing_model,
             tool_output_interpretation_model: value.policy.tool_output_interpretation_model,
             tool_visibility: value.policy.tool_visibility,
             skill_visibility: value.policy.skill_visibility,
@@ -1244,6 +1250,7 @@ impl From<AgentConfigFile> for AgentToml {
                 allowed_skill_categories: value.allowed_skill_categories,
                 disabled_lifecycle_hooks: value.disabled_lifecycle_hooks,
                 tool_output_mode: value.tool_output_mode,
+                tool_routing_model: value.tool_routing_model,
                 tool_output_interpretation_model: value.tool_output_interpretation_model,
                 tool_visibility: value.tool_visibility,
                 skill_visibility: value.skill_visibility,
@@ -3811,6 +3818,21 @@ fn resolve_agent(
             (parsed.policy.tool_output_mode, source.clone()),
         ],
     );
+    let tool_routing_model = resolve_layered(
+        None::<String>,
+        "default:agent model".into(),
+        vec![
+            (
+                global.policy.tool_routing_model.map(Some),
+                global_source.clone(),
+            ),
+            (
+                profile.policy.tool_routing_model.map(Some),
+                profile_source.clone(),
+            ),
+            (parsed.policy.tool_routing_model.map(Some), source.clone()),
+        ],
+    );
     let tool_output_interpretation_model = resolve_layered(
         None::<String>,
         "default:agent model".into(),
@@ -4257,6 +4279,7 @@ fn resolve_agent(
             capability_drafts_enabled: capability_drafts_enabled.value,
             capability_draft_guidance: capability_draft_guidance.value.clone(),
             output_mode: tool_output_mode.value,
+            routing_model: tool_routing_model.value.clone().map(ModelRef::from),
             output_interpretation_model: tool_output_interpretation_model
                 .value
                 .clone()
@@ -4472,6 +4495,11 @@ fn resolve_agent(
             "agent.tool_policy.output_interpretation_model",
             tool_output_interpretation_model.value,
             &tool_output_interpretation_model.source,
+        ),
+        config_value(
+            "agent.tool_policy.routing_model",
+            tool_routing_model.value,
+            &tool_routing_model.source,
         ),
         config_value(
             "agent.tool_policy.per_tool_output_modes",
@@ -4968,6 +4996,9 @@ fn validate_agent_config(agent: &AgentConfigFile) -> Result<(), ConfigError> {
     if let Some(model) = &agent.model {
         validate_model_id(model)?;
     }
+    if let Some(model) = &agent.tool_routing_model {
+        validate_model_id(model)?;
+    }
     if let Some(model) = &agent.tool_output_interpretation_model {
         validate_model_id(model)?;
     }
@@ -5352,6 +5383,7 @@ system_prompt = "Review carefully."
             allowed_skill_categories: Some(vec!["review".into()]),
             disabled_lifecycle_hooks: Some(vec!["adapter:demo:audit".into()]),
             tool_output_mode: Some(ToolOutputMode::Raw),
+            tool_routing_model: Some("router-model".into()),
             tool_output_interpretation_model: Some("general-interpreter".into()),
             tool_visibility: Some(VisibilityLevel::NameOnly),
             skill_visibility: Some(VisibilityLevel::NameAndDescription),
@@ -5508,6 +5540,15 @@ system_prompt = "Review carefully."
                 .get(&ToolId::from("echo"))
                 .map(String::as_str),
             Some("Return exact echo JSON.")
+        );
+        assert_eq!(
+            resolved
+                .agent
+                .tool_policy
+                .routing_model
+                .as_ref()
+                .map(|model| model.0.as_str()),
+            Some("router-model")
         );
         assert_eq!(
             resolved

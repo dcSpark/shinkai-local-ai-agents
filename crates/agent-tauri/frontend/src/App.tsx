@@ -462,6 +462,7 @@ export default function App() {
   const [promptRefinementModel, setPromptRefinementModel] = useState("");
   const [requireApproval, setRequireApproval] = useState(true);
   const [rawToolOutput, setRawToolOutput] = useState(false);
+  const [toolRoutingModel, setToolRoutingModel] = useState("");
   const [toolOutputInterpretationModel, setToolOutputInterpretationModel] =
     useState("");
   const [stopRetentionMode, setStopRetentionMode] =
@@ -1011,6 +1012,7 @@ export default function App() {
       require_approval: requireApproval,
       auto_approve: !requireApproval,
       raw_tool_output: rawToolOutput,
+      tool_routing_model: toolRoutingModel.trim() || null,
       tool_output_interpretation_model:
         toolOutputInterpretationModel.trim() || null,
       disable_lifecycle_hooks: false,
@@ -1400,6 +1402,9 @@ export default function App() {
       { command: "/interpret ", label: "Set interpreter model" },
       { command: "/interpret clear", label: "Use configured interpreter model" },
       { command: "/interpret status", label: "Show interpreter model" },
+      { command: "/router-model ", label: "Set tool routing model" },
+      { command: "/router-model clear", label: "Use configured routing model" },
+      { command: "/router-model status", label: "Show routing model" },
       { command: "/export", label: "Export backup bundle" },
       { command: "/config", label: "Explain effective config" },
       { command: "/tools", label: "Show visible tools" },
@@ -2838,6 +2843,26 @@ export default function App() {
         appendEvent(`Interpreter model set to ${interpreterModel}.`);
       } else {
         appendEvent("Output mode set to interpreted tool results.");
+      }
+      return;
+    }
+
+    if (prompt === "/router-model" || prompt.startsWith("/router-model ")) {
+      setInput("");
+      appendLine("user", prompt);
+      const routingModel = prompt.startsWith("/router-model ")
+        ? prompt.slice("/router-model ".length).trim()
+        : "";
+      if (routingModel === "clear") {
+        setToolRoutingModel("");
+        appendEvent("Routing model cleared.");
+      } else if (routingModel === "status" || !routingModel) {
+        appendEvent(
+          `Routing model: ${toolRoutingModel.trim() || "configured default"}.`,
+        );
+      } else {
+        setToolRoutingModel(routingModel);
+        appendEvent(`Routing model set to ${routingModel}.`);
       }
       return;
     }
@@ -9122,6 +9147,16 @@ export default function App() {
               Raw output preserves original tool results and skips interpretation.
             </div>
           ) : null}
+          <label>
+            Router model
+            <input
+              value={toolRoutingModel}
+              onChange={(e) => setToolRoutingModel(e.target.value)}
+              placeholder="agent default"
+              disabled={running}
+              title="Use a different model for tool-call selection."
+            />
+          </label>
           {!rawToolOutput ? (
             <label>
               Interpreter model

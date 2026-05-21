@@ -5619,6 +5619,7 @@ struct DaemonRuntimeOptions {
     auto_approve: bool,
     #[serde(default)]
     raw_tool_output: bool,
+    tool_routing_model: Option<String>,
     tool_output_interpretation_model: Option<String>,
     #[serde(default)]
     disable_lifecycle_hooks: bool,
@@ -6340,6 +6341,14 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
         agent.tool_policy.output_mode = ToolOutputMode::Raw;
     }
     if let Some(model) = options
+        .tool_routing_model
+        .as_deref()
+        .map(str::trim)
+        .filter(|model| !model.is_empty())
+    {
+        agent.tool_policy.routing_model = Some(ModelRef::from(model.to_string()));
+    }
+    if let Some(model) = options
         .tool_output_interpretation_model
         .as_deref()
         .map(str::trim)
@@ -6661,10 +6670,19 @@ mod tests {
     #[test]
     fn build_agent_applies_runtime_tool_output_interpreter_model() {
         let options = DaemonRuntimeOptions {
+            tool_routing_model: Some("router-model".into()),
             tool_output_interpretation_model: Some("interpreter-model".into()),
             ..DaemonRuntimeOptions::default()
         };
         let agent = build_agent(&options);
+        assert_eq!(
+            agent
+                .tool_policy
+                .routing_model
+                .as_ref()
+                .map(|model| model.0.as_str()),
+            Some("router-model")
+        );
         assert_eq!(
             agent
                 .tool_policy

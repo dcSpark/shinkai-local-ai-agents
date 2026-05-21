@@ -1426,7 +1426,12 @@ export default function App() {
       { command: "/capabilities", label: "List capability drafts" },
       { command: "/profiles", label: "List profiles" },
       { command: "/profiles current", label: "Show current profile" },
+      { command: "/profiles show ", label: "Show a profile" },
+      { command: "/profiles create ", label: "Create a profile" },
+      { command: "/profiles delete ", label: "Delete a profile" },
       { command: "/profiles grants", label: "List profile grants" },
+      { command: "/profiles grant ", label: "Grant profile access" },
+      { command: "/profiles revoke ", label: "Revoke profile grant" },
       { command: "/secrets backends", label: "List secret backends" },
       { command: "/secrets list", label: "List secret metadata" },
       { command: "/secrets show ", label: "Show secret metadata" },
@@ -3374,20 +3379,71 @@ export default function App() {
       return;
     }
 
-    if (
-      prompt === "/profiles" ||
-      prompt === "/profiles current" ||
-      prompt === "/profiles grants"
-    ) {
+    if (prompt === "/profiles" || prompt.startsWith("/profiles ")) {
       setInput("");
       setActiveSection("profiles");
       appendLine("user", prompt);
-      if (prompt === "/profiles current") {
-        await showCurrentProfileFromOps();
-      } else if (prompt === "/profiles grants") {
-        await listProfileGrantsFromOps();
-      } else {
+      const rest = prompt === "/profiles" ? "" : prompt.slice("/profiles ".length).trim();
+      if (!rest) {
         await listProfilesFromOps();
+      } else if (rest === "current") {
+        await showCurrentProfileFromOps();
+      } else if (rest === "grants" || rest.startsWith("grants ")) {
+        const fromProfile =
+          rest === "grants" ? "" : rest.slice("grants ".length).trim();
+        await listProfileGrantsFromOps(fromProfile || undefined);
+      } else if (rest.startsWith("show ")) {
+        const id = rest.slice("show ".length).trim();
+        if (!id) {
+          appendLine("error", "Profiles show shortcut needs a profile id.");
+        } else {
+          await showProfileFromOps(id);
+        }
+      } else if (rest.startsWith("create ")) {
+        const args = rest.slice("create ".length).trim().split(/\s+/);
+        const id = args.shift()?.trim() ?? "";
+        const name = args.join(" ").trim() || null;
+        if (!id) {
+          appendLine("error", "Profiles create shortcut needs a profile id.");
+        } else {
+          await createProfile(id, name);
+        }
+      } else if (rest.startsWith("delete ")) {
+        const id = rest.slice("delete ".length).trim();
+        if (!id) {
+          appendLine("error", "Profiles delete shortcut needs a profile id.");
+        } else {
+          await deleteProfileFromOps(id);
+        }
+      } else if (rest.startsWith("revoke ")) {
+        const id = rest.slice("revoke ".length).trim();
+        if (!id) {
+          appendLine("error", "Profiles revoke shortcut needs a grant id.");
+        } else {
+          await revokeProfileGrantFromOps(id);
+        }
+      } else if (rest.startsWith("grant ")) {
+        const args = rest.slice("grant ".length).trim().split(/\s+/).filter(Boolean);
+        let fromProfile: string | null = null;
+        const fromIndex = args.indexOf("--from");
+        if (fromIndex >= 0) {
+          fromProfile = args[fromIndex + 1] ?? null;
+          args.splice(fromIndex, fromProfile ? 2 : 1);
+        }
+        const [toProfile, kind, resource] = args;
+        if (!toProfile || !isProfileGrantKind(kind) || !resource || args.length !== 3) {
+          appendLine(
+            "error",
+            "Profiles grant shortcut needs: /profiles grant <to-profile> <agent|memory|tool|skill|category> <resource> [--from <profile>].",
+          );
+        } else {
+          await grantProfile(toProfile, kind, resource, fromProfile);
+        }
+      } else {
+        appendLine(
+          "error",
+          "Profiles shortcut needs current, show, create, delete, grants, grant, or revoke.",
+        );
       }
       return;
     }
@@ -4784,6 +4840,10 @@ export default function App() {
     const id = requireOpsId("Profile create");
     if (!id) return;
     const name = opsValue.trim() || null;
+    await createProfile(id, name);
+  }
+
+  async function createProfile(id: string, name: string | null = null) {
     try {
       const profile =
         transport === "daemon"
@@ -4876,6 +4936,15 @@ export default function App() {
       );
       return;
     }
+    await grantProfile(toProfile, kind, resource, fromProfile);
+  }
+
+  async function grantProfile(
+    toProfile: string,
+    kind: ProfileGrantKind,
+    resource: string,
+    fromProfile: string | null = null,
+  ) {
     try {
       const grant =
         transport === "daemon"

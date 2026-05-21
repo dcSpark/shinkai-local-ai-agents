@@ -7570,6 +7570,9 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
             target,
         }));
     }
+    if let Some((name, input)) = parse_code_slash_command(trimmed)? {
+        return Ok(Some(SlashCommand::ToolManual { name, input }));
+    }
     if let Some(rest) = trimmed.strip_prefix("/tool!").map(str::trim) {
         let (name, input) = parse_tool_slash_rest(rest)?;
         return Ok(Some(SlashCommand::ToolManual { name, input }));
@@ -7592,6 +7595,33 @@ fn parse_tool_slash_rest(rest: &str) -> anyhow::Result<(String, String)> {
     }
     let _: serde_json::Value = serde_json::from_str(&input)?;
     Ok((name, input))
+}
+
+fn parse_code_slash_command(text: &str) -> anyhow::Result<Option<(String, String)>> {
+    let Some((name, code)) = code_slash_command(text) else {
+        return Ok(None);
+    };
+    if code.trim().is_empty() {
+        anyhow::bail!("code shortcut needs code text");
+    }
+    let input = serde_json::json!({ "code": code }).to_string();
+    Ok(Some((name.into(), input)))
+}
+
+fn code_slash_command(trimmed: &str) -> Option<(&'static str, &str)> {
+    if trimmed == "/python" {
+        Some(("code_python", ""))
+    } else if let Some(rest) = trimmed.strip_prefix("/python ") {
+        Some(("code_python", rest.trim()))
+    } else if trimmed == "/typescript" || trimmed == "/ts" {
+        Some(("code_typescript", ""))
+    } else if let Some(rest) = trimmed.strip_prefix("/typescript ") {
+        Some(("code_typescript", rest.trim()))
+    } else {
+        trimmed
+            .strip_prefix("/ts ")
+            .map(|rest| ("code_typescript", rest.trim()))
+    }
 }
 
 fn parse_forced_tool_slash_rest(rest: &str) -> anyhow::Result<(String, String)> {
@@ -7643,6 +7673,7 @@ fn parse_score_slash_rest(rest: &str) -> anyhow::Result<(String, f32, String)> {
 #[cfg(test)]
 mod slash_tests {
     use super::*;
+    use serde_json::json;
 
     struct HarnessHomeGuard {
         _lock: std::sync::MutexGuard<'static, ()>,
@@ -8234,6 +8265,38 @@ mod slash_tests {
             }
             _ => panic!("expected forced tool command"),
         }
+    }
+
+    #[test]
+    fn parses_code_shortcuts_as_direct_tool_calls() {
+        let parsed = parse_slash_command("/python print(1)").unwrap();
+        match parsed {
+            Some(SlashCommand::ToolManual { name, input }) => {
+                assert_eq!(name, "code_python");
+                assert_eq!(
+                    serde_json::from_str::<serde_json::Value>(&input).unwrap(),
+                    json!({ "code": "print(1)" })
+                );
+            }
+            _ => panic!("expected direct code tool command"),
+        }
+        let parsed = parse_slash_command("/ts console.log(1)").unwrap();
+        match parsed {
+            Some(SlashCommand::ToolManual { name, input }) => {
+                assert_eq!(name, "code_typescript");
+                assert_eq!(
+                    serde_json::from_str::<serde_json::Value>(&input).unwrap(),
+                    json!({ "code": "console.log(1)" })
+                );
+            }
+            _ => panic!("expected direct code tool command"),
+        }
+        assert!(parse_slash_command("/python").is_err());
+        assert!(
+            parse_slash_command("/pythonista print(1)")
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

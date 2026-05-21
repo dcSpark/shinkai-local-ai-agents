@@ -114,6 +114,43 @@ pub async fn run(
                 PromptSlashCommand::Delete { name, agent } => prompt_delete(name, agent).await,
             };
         }
+        Some(SlashCommand::Approval(command)) => {
+            return match command {
+                ApprovalSlashCommand::List { run_id } => approval_list(run_id, json).await,
+                ApprovalSlashCommand::Assess {
+                    run_id,
+                    approval_id,
+                    controller_agent,
+                } => approval_assess(run_id, approval_id, controller_agent, json).await,
+                ApprovalSlashCommand::Approve {
+                    run_id,
+                    approval_id,
+                    unlock_env,
+                    signature_env,
+                    controller_agent,
+                } => {
+                    approval_decide(
+                        run_id,
+                        approval_id,
+                        true,
+                        unlock_env,
+                        signature_env,
+                        controller_agent,
+                    )
+                    .await
+                }
+                ApprovalSlashCommand::Reject {
+                    run_id,
+                    approval_id,
+                } => approval_decide(run_id, approval_id, false, None, None, None).await,
+                ApprovalSlashCommand::Execute {
+                    run_id,
+                    approval_id,
+                    unlock_env,
+                    signature_env,
+                } => approval_execute(run_id, approval_id, json, unlock_env, signature_env).await,
+            };
+        }
         Some(SlashCommand::ToolManual { name, input }) => {
             return call_tool(
                 name,
@@ -7945,6 +7982,7 @@ enum SlashCommand {
     Agents(AgentsSlashCommand),
     Skill(SkillSlashCommand),
     Prompt(PromptSlashCommand),
+    Approval(ApprovalSlashCommand),
     ToolManual {
         name: String,
         input: String,
@@ -8041,6 +8079,34 @@ enum PromptSlashCommand {
     Delete {
         name: String,
         agent: Option<String>,
+    },
+}
+
+enum ApprovalSlashCommand {
+    List {
+        run_id: String,
+    },
+    Assess {
+        run_id: String,
+        approval_id: String,
+        controller_agent: Option<String>,
+    },
+    Approve {
+        run_id: String,
+        approval_id: String,
+        unlock_env: Option<String>,
+        signature_env: Option<String>,
+        controller_agent: Option<String>,
+    },
+    Reject {
+        run_id: String,
+        approval_id: String,
+    },
+    Execute {
+        run_id: String,
+        approval_id: String,
+        unlock_env: Option<String>,
+        signature_env: Option<String>,
     },
 }
 
@@ -8358,6 +8424,10 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         let command = parse_prompt_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Prompt(command)));
     }
+    if let Some(rest) = approval_slash_rest(trimmed) {
+        let command = parse_approval_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Approval(command)));
+    }
     if let Some(rest) = trimmed.strip_prefix("/run ") {
         return Ok(Some(SlashCommand::Run(rest.trim().to_string())));
     }
@@ -8542,6 +8612,7 @@ fn headless_slash_help_text() -> &'static str {
      - /agents list|show|export|import|delete - manage saved agent configs\n\
      - /skills list|show|inspect|import-openclaw|import-doc|export|allow|quarantine\n\
      - /prompts list|show|save|delete - manage global or agent-scoped saved prompts\n\
+     - /approval list|assess|approve|reject|execute <run-id> ...\n\
      - /tool <name> [request] - force the model to call one visible tool\n\
      - /tool! <name> <json> - call one native tool directly with manual JSON input\n\
      - /python <code>, /typescript <code>, /ts <code> - call native code execution tools directly\n\
@@ -9211,6 +9282,137 @@ fn parse_prompt_agent_equals<'a>(value: &'a str, command: &str) -> anyhow::Resul
         anyhow::bail!("prompts {command} --agent needs a value");
     }
     Ok(agent)
+}
+
+fn approval_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/approval" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/approval ").map(str::trim)
+    }
+}
+
+fn parse_approval_slash_rest(rest: &str) -> anyhow::Result<ApprovalSlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let command = parts.next().unwrap_or_default();
+    match command {
+        "list" => {
+            let run_id = next_required(&mut parts, "approval list needs a run id")?;
+            ensure_no_extra(parts, "usage: /approval list <run-id>")?;
+            validate_approval_run_id(&run_id)?;
+            Ok(ApprovalSlashCommand::List { run_id })
+        }
+        "assess" => {
+            let (run_id, approval_id, options) = parse_approval_action_args(parts, "assess")?;
+            if options.unlock_env.is_some() || options.signature_env.is_some() {
+                anyhow::bail!("approval assess does not accept approval secret options");
+            }
+            Ok(ApprovalSlashCommand::Assess {
+                run_id,
+                approval_id,
+                controller_agent: options.controller_agent,
+            })
+        }
+        "approve" => {
+            let (run_id, approval_id, options) = parse_approval_action_args(parts, "approve")?;
+            Ok(ApprovalSlashCommand::Approve {
+                run_id,
+                approval_id,
+                unlock_env: options.unlock_env,
+                signature_env: options.signature_env,
+                controller_agent: options.controller_agent,
+            })
+        }
+        "reject" => {
+            let (run_id, approval_id, options) = parse_approval_action_args(parts, "reject")?;
+            if options.unlock_env.is_some()
+                || options.signature_env.is_some()
+                || options.controller_agent.is_some()
+            {
+                anyhow::bail!(
+                    "approval reject does not accept approval secret or controller options"
+                );
+            }
+            Ok(ApprovalSlashCommand::Reject {
+                run_id,
+                approval_id,
+            })
+        }
+        "execute" => {
+            let (run_id, approval_id, options) = parse_approval_action_args(parts, "execute")?;
+            if options.controller_agent.is_some() {
+                anyhow::bail!("approval execute does not accept --controller-agent");
+            }
+            Ok(ApprovalSlashCommand::Execute {
+                run_id,
+                approval_id,
+                unlock_env: options.unlock_env,
+                signature_env: options.signature_env,
+            })
+        }
+        _ => anyhow::bail!("approval shortcut needs list, assess, approve, reject, or execute"),
+    }
+}
+
+struct ApprovalSlashOptions {
+    unlock_env: Option<String>,
+    signature_env: Option<String>,
+    controller_agent: Option<String>,
+}
+
+fn parse_approval_action_args<'a>(
+    parts: impl Iterator<Item = &'a str>,
+    command: &str,
+) -> anyhow::Result<(String, String, ApprovalSlashOptions)> {
+    let mut positionals = Vec::new();
+    let mut options = ApprovalSlashOptions {
+        unlock_env: None,
+        signature_env: None,
+        controller_agent: None,
+    };
+    let mut parts = parts.peekable();
+    while let Some(part) = parts.next() {
+        if let Some(option) = part.strip_prefix("--") {
+            let (name, inline_value) = option
+                .split_once('=')
+                .map(|(name, value)| (name, Some(value)))
+                .unwrap_or((option, None));
+            let value = match inline_value {
+                Some("") => anyhow::bail!("approval {command} --{name} needs a value"),
+                Some(value) => value,
+                None => next_approval_option_value(&mut parts, command, name)?,
+            };
+            match name {
+                "unlock-env" => options.unlock_env = Some(value.to_string()),
+                "signature-env" => options.signature_env = Some(value.to_string()),
+                "controller-agent" => options.controller_agent = Some(value.to_string()),
+                _ => anyhow::bail!("unknown approval {command} option: --{name}"),
+            }
+        } else {
+            positionals.push(part);
+        }
+    }
+    let [run_id, approval_id] = positionals.as_slice() else {
+        anyhow::bail!("approval {command} accepts a run id and approval id");
+    };
+    validate_approval_run_id(run_id)?;
+    Ok(((*run_id).to_string(), (*approval_id).to_string(), options))
+}
+
+fn next_approval_option_value<'a>(
+    parts: &mut std::iter::Peekable<impl Iterator<Item = &'a str>>,
+    command: &str,
+    name: &str,
+) -> anyhow::Result<&'a str> {
+    parts
+        .next()
+        .filter(|value| !value.starts_with("--"))
+        .ok_or_else(|| anyhow::anyhow!("approval {command} --{name} needs a value"))
+}
+
+fn validate_approval_run_id(run_id: &str) -> anyhow::Result<()> {
+    let _ = uuid::Uuid::parse_str(run_id)?;
+    Ok(())
 }
 
 fn profile_slash_rest(trimmed: &str) -> Option<&str> {
@@ -10774,6 +10976,7 @@ mod slash_tests {
             "/skills list|show|inspect|import-openclaw|import-doc|export|allow|quarantine"
         ));
         assert!(help.contains("/prompts list|show|save|delete"));
+        assert!(help.contains("/approval list|assess|approve|reject|execute"));
         assert!(help.contains("/hooks list|available|review|disable|enable"));
     }
 
@@ -11017,6 +11220,100 @@ mod slash_tests {
         assert!(parse_slash_command("/prompts delete daily").is_err());
         assert!(parse_slash_command("/prompts save daily").is_err());
         assert!(parse_slash_command("/promptx list").unwrap().is_none());
+    }
+
+    #[test]
+    fn parses_approval_shortcuts() {
+        let run_id = uuid::Uuid::new_v4().to_string();
+        match parse_slash_command(&format!("/approval list {run_id}")).unwrap() {
+            Some(SlashCommand::Approval(ApprovalSlashCommand::List { run_id: parsed })) => {
+                assert_eq!(parsed, run_id);
+            }
+            _ => panic!("expected approval list shortcut"),
+        }
+        match parse_slash_command(&format!(
+            "/approval assess {run_id} approval-1 --controller-agent critic"
+        ))
+        .unwrap()
+        {
+            Some(SlashCommand::Approval(ApprovalSlashCommand::Assess {
+                run_id: parsed,
+                approval_id,
+                controller_agent,
+            })) => {
+                assert_eq!(parsed, run_id);
+                assert_eq!(approval_id, "approval-1");
+                assert_eq!(controller_agent.as_deref(), Some("critic"));
+            }
+            _ => panic!("expected approval assess shortcut"),
+        }
+        match parse_slash_command(&format!(
+            "/approval approve {run_id} approval-1 --unlock-env APPROVAL_UNLOCK --signature-env=APPROVAL_SIG --controller-agent critic"
+        ))
+        .unwrap()
+        {
+            Some(SlashCommand::Approval(ApprovalSlashCommand::Approve {
+                run_id: parsed,
+                approval_id,
+                unlock_env,
+                signature_env,
+                controller_agent,
+            })) => {
+                assert_eq!(parsed, run_id);
+                assert_eq!(approval_id, "approval-1");
+                assert_eq!(unlock_env.as_deref(), Some("APPROVAL_UNLOCK"));
+                assert_eq!(signature_env.as_deref(), Some("APPROVAL_SIG"));
+                assert_eq!(controller_agent.as_deref(), Some("critic"));
+            }
+            _ => panic!("expected approval approve shortcut"),
+        }
+        match parse_slash_command(&format!("/approval reject {run_id} approval-1")).unwrap() {
+            Some(SlashCommand::Approval(ApprovalSlashCommand::Reject {
+                run_id: parsed,
+                approval_id,
+            })) => {
+                assert_eq!(parsed, run_id);
+                assert_eq!(approval_id, "approval-1");
+            }
+            _ => panic!("expected approval reject shortcut"),
+        }
+        match parse_slash_command(&format!(
+            "/approval execute {run_id} approval-1 --unlock-env APPROVAL_UNLOCK --signature-env APPROVAL_SIG"
+        ))
+        .unwrap()
+        {
+            Some(SlashCommand::Approval(ApprovalSlashCommand::Execute {
+                run_id: parsed,
+                approval_id,
+                unlock_env,
+                signature_env,
+            })) => {
+                assert_eq!(parsed, run_id);
+                assert_eq!(approval_id, "approval-1");
+                assert_eq!(unlock_env.as_deref(), Some("APPROVAL_UNLOCK"));
+                assert_eq!(signature_env.as_deref(), Some("APPROVAL_SIG"));
+            }
+            _ => panic!("expected approval execute shortcut"),
+        }
+        assert!(parse_slash_command("/approval list").is_err());
+        assert!(parse_slash_command("/approval list not-a-run").is_err());
+        assert!(
+            parse_slash_command(&format!(
+                "/approval assess {run_id} approval-1 --unlock-env X"
+            ))
+            .is_err()
+        );
+        assert!(
+            parse_slash_command(&format!(
+                "/approval execute {run_id} approval-1 --controller-agent critic"
+            ))
+            .is_err()
+        );
+        assert!(
+            parse_slash_command(&format!("/approvals list {run_id}"))
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

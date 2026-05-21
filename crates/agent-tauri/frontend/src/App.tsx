@@ -1391,6 +1391,8 @@ export default function App() {
       { command: "/adapters", label: "List adapter manifests" },
       { command: "/adapters doctor", label: "Check adapter operability" },
       { command: "/adapters install-skill ", label: "Install adapter as skill" },
+      { command: "/hooks", label: "List lifecycle hooks" },
+      { command: "/hooks policy", label: "Show lifecycle hook policy" },
       { command: "/trace", label: "Load last run trace" },
       { command: "/trace ", label: "Load a run trace by id" },
       { command: "/compare ", label: "Compare loaded trace to a run id" },
@@ -3323,6 +3325,18 @@ export default function App() {
         return;
       }
       await installAdapterSkillFromOps(id);
+      return;
+    }
+
+    if (prompt === "/hooks" || prompt === "/hooks policy") {
+      setInput("");
+      setActiveSection("trace");
+      appendLine("user", prompt);
+      if (prompt === "/hooks policy") {
+        await refreshHookPolicy();
+        return;
+      }
+      await refreshHookCatalog();
       return;
     }
 

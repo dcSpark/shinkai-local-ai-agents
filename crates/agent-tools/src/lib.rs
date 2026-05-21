@@ -5537,6 +5537,95 @@ mod tests {
     }
 
     #[test]
+    fn promoted_agent_created_mcp_package_registers_runtime_tools() {
+        let dir = temp_dir("agent-created-mcp-register");
+        let registry = AdapterRegistry::new(StoragePaths::new(dir.join("home")));
+        let package = registry
+            .promote_agent_created_tool(
+                "draft-weather-tool",
+                "Weather Tool",
+                r#"{
+                  "mcpServers": {
+                    "weather-cli": {
+                      "command": "fake-weather-mcp",
+                      "args": ["--stdio", "--city", "Santiago"],
+                      "env": { "WEATHER_API_KEY": "secret://mcp.weather_api" }
+                    },
+                    "weather-http": {
+                      "url": "https://example.invalid/mcp",
+                      "headers": { "Authorization": "secret://mcp.weather_auth" }
+                    }
+                  }
+                }"#,
+                "agent",
+                "test:capability",
+            )
+            .unwrap();
+
+        assert!(!package.quarantined);
+        let specs = mcp_specs_from_package(&package).unwrap();
+        let cli = specs
+            .iter()
+            .find(|spec| spec.id == ToolId::from("mcp-weather-cli"))
+            .unwrap();
+        assert_eq!(cli.command.as_deref(), Some("fake-weather-mcp"));
+        assert_eq!(
+            cli.args,
+            vec![
+                "--stdio".to_string(),
+                "--city".to_string(),
+                "Santiago".to_string()
+            ]
+        );
+        assert_eq!(
+            cli.env.get("WEATHER_API_KEY").map(String::as_str),
+            Some("secret://mcp.weather_api")
+        );
+        let http = specs
+            .iter()
+            .find(|spec| spec.id == ToolId::from("mcp-weather-http"))
+            .unwrap();
+        assert_eq!(http.url.as_deref(), Some("https://example.invalid/mcp"));
+        assert_eq!(
+            http.headers.get("Authorization").map(String::as_str),
+            Some("secret://mcp.weather_auth")
+        );
+
+        let mut tool_registry = ToolRegistry::new();
+        assert_eq!(
+            register_allowed_mcp_tools_with_provenance(
+                &mut tool_registry,
+                [package],
+                Some("conversation=weather-demo"),
+            ),
+            2
+        );
+        let cli_descriptor = tool_registry
+            .descriptor(&ToolId::from("mcp-weather-cli"))
+            .unwrap();
+        assert!(cli_descriptor.requires_approval);
+        assert!(cli_descriptor.permissions.shell);
+        assert!(cli_descriptor.permissions.secrets);
+        assert!(
+            cli_descriptor
+                .provenance
+                .as_deref()
+                .is_some_and(|provenance| {
+                    provenance.contains("adapter_package=agent-tool-draft-weather-tool")
+                        && provenance.contains("draft_id=draft-weather-tool")
+                        && provenance.contains("conversation=weather-demo")
+                })
+        );
+        let http_descriptor = tool_registry
+            .descriptor(&ToolId::from("mcp-weather-http"))
+            .unwrap();
+        assert!(http_descriptor.permissions.network);
+        assert!(http_descriptor.permissions.secrets);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn mcp_package_registration_can_be_limited_to_one_granted_resource() {
         let dir = temp_dir("mcp-grant-resource");
         std::fs::create_dir_all(&dir).unwrap();

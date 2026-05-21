@@ -1844,6 +1844,17 @@ impl ConfigResolver {
         if !dir.exists() {
             return Ok(false);
         }
+        for profile in self.list_profiles()? {
+            if profile.id == id {
+                continue;
+            }
+            let mut grants = self.list_profile_grants_from(&profile.id)?;
+            let before = grants.len();
+            grants.retain(|grant| grant.to_profile != id);
+            if grants.len() != before {
+                write_profile_grants(&self.paths, &profile.id, &grants)?;
+            }
+        }
         std::fs::remove_dir_all(dir)?;
         Ok(true)
     }
@@ -6861,6 +6872,33 @@ system_prompt = "Review carefully."
             ConfigError::InvalidInput(_)
         ));
         assert!(resolver.delete_profile("research").unwrap());
+        assert!(matches!(
+            resolver.show_profile("research").unwrap_err(),
+            ConfigError::ProfileNotFound(_)
+        ));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn deleting_profile_removes_incoming_grants_only() {
+        let dir = std::env::temp_dir().join(format!("agent-profile-grant-delete-{}", uuid_like()));
+        let resolver = ConfigResolver::new(StoragePaths::new(&dir));
+        resolver.create_profile("research", None).unwrap();
+        resolver.create_profile("design", None).unwrap();
+
+        resolver
+            .grant_profile_access("main", "research", ProfileGrantKind::Agent, "critic")
+            .unwrap();
+        let preserved = resolver
+            .grant_profile_access("main", "design", ProfileGrantKind::Memory, "notes")
+            .unwrap();
+        resolver
+            .grant_profile_access("research", "design", ProfileGrantKind::Skill, "review")
+            .unwrap();
+
+        assert!(resolver.delete_profile("research").unwrap());
+        let grants = resolver.list_profile_grants().unwrap();
+        assert_eq!(grants, vec![preserved]);
         assert!(matches!(
             resolver.show_profile("research").unwrap_err(),
             ConfigError::ProfileNotFound(_)

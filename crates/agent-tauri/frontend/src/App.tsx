@@ -455,6 +455,7 @@ export default function App() {
   const [maxCompactionOutputTokens, setMaxCompactionOutputTokens] =
     useState("");
   const [compactionGuidance, setCompactionGuidance] = useState("");
+  const [allowedTools, setAllowedTools] = useState("");
   const [allowedToolCategories, setAllowedToolCategories] = useState("");
   const [allowedSkillCategories, setAllowedSkillCategories] = useState("");
   const [toolVisibility, setToolVisibility] = useState<ToolVisibility | "">("");
@@ -1017,6 +1018,7 @@ export default function App() {
         maxCompactionOutputTokens,
       ),
       compaction_guidance: compactionGuidance.trim() || null,
+      allowed_tools: parsedCategoryList(allowedTools),
       allowed_tool_categories: parsedCategoryList(allowedToolCategories),
       allowed_skill_categories: parsedCategoryList(allowedSkillCategories),
       tool_visibility: toolVisibility || null,
@@ -6992,6 +6994,7 @@ export default function App() {
     setMemoryBackend(doc.memory_backend ?? "");
     setMemoryModel(doc.memory_model ?? "");
     setLoadSkills(doc.load_skills === true);
+    setAllowedTools((doc.allowed_tools ?? []).join(", "));
     setAllowedToolCategories((doc.allowed_tool_categories ?? []).join(", "));
     setAllowedSkillCategories((doc.allowed_skill_categories ?? []).join(", "));
     setEnablePromptRefinement(refinement != null);
@@ -7046,6 +7049,7 @@ export default function App() {
       memory_backend: memoryBackend.trim() || null,
       memory_model: memoryModel.trim() || null,
       load_skills: loadSkills || null,
+      allowed_tools: optionalList(parsedCategoryList(allowedTools)),
       allowed_tool_categories: optionalList(
         parsedCategoryList(allowedToolCategories),
       ),
@@ -11930,6 +11934,15 @@ export default function App() {
             </select>
           </label>
           <label>
+            Tool allowlist
+            <input
+              value={allowedTools}
+              onChange={(e) => setAllowedTools(e.target.value)}
+              placeholder="all tools"
+              disabled={running}
+            />
+          </label>
+          <label>
             Tool categories
             <input
               value={allowedToolCategories}
@@ -15203,6 +15216,9 @@ export default function App() {
                               <span>
                                 {`visibility tools ${doc.tool_visibility ?? "default"} / skills ${doc.skill_visibility ?? "default"}`}
                               </span>
+                            ) : null}
+                            {doc.allowed_tools?.length ? (
+                              <span>allowed tools {doc.allowed_tools.join(", ")}</span>
                             ) : null}
                             <span>
                               {doc.memory_backend

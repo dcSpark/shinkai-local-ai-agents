@@ -5676,6 +5676,8 @@ struct DaemonRuntimeOptions {
     max_compaction_output_tokens: Option<u32>,
     compaction_guidance: Option<String>,
     #[serde(default)]
+    allowed_tools: Vec<String>,
+    #[serde(default)]
     allowed_tool_categories: Vec<String>,
     #[serde(default)]
     allowed_skill_categories: Vec<String>,
@@ -6430,6 +6432,16 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
     {
         agent.context_policy.compaction.guidance = Some(guidance.to_string());
     }
+    let allowed_tools = options
+        .allowed_tools
+        .iter()
+        .map(|tool| tool.trim())
+        .filter(|tool| !tool.is_empty())
+        .map(ToolId::from)
+        .collect::<Vec<_>>();
+    if !allowed_tools.is_empty() {
+        agent.tool_policy.allowed_tools = allowed_tools;
+    }
     if !options.allowed_tool_categories.is_empty() {
         agent.tool_policy.allowed_categories = options.allowed_tool_categories.clone();
     }
@@ -6814,6 +6826,19 @@ mod tests {
                 .as_ref()
                 .map(|model| model.0.as_str()),
             Some("interpreter-model")
+        );
+    }
+
+    #[test]
+    fn build_agent_applies_runtime_allowed_tools() {
+        let options = DaemonRuntimeOptions {
+            allowed_tools: vec!["echo".into(), "shell".into()],
+            ..DaemonRuntimeOptions::default()
+        };
+        let agent = build_agent(&options);
+        assert_eq!(
+            agent.tool_policy.allowed_tools,
+            vec![ToolId::from("echo"), ToolId::from("shell")]
         );
     }
 

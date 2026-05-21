@@ -132,6 +132,8 @@ struct RunOptions {
     max_compaction_output_tokens: Option<u32>,
     compaction_guidance: Option<String>,
     #[serde(default)]
+    allowed_tools: Vec<String>,
+    #[serde(default)]
     allowed_tool_categories: Vec<String>,
     #[serde(default)]
     allowed_skill_categories: Vec<String>,
@@ -177,6 +179,7 @@ impl Default for RunOptions {
             max_tokens_before_compaction: None,
             max_compaction_output_tokens: None,
             compaction_guidance: None,
+            allowed_tools: Vec::new(),
             allowed_tool_categories: Vec::new(),
             allowed_skill_categories: Vec::new(),
             tool_visibility: None,
@@ -683,6 +686,16 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
         .filter(|guidance| !guidance.is_empty())
     {
         agent.context_policy.compaction.guidance = Some(guidance.to_string());
+    }
+    let allowed_tools = options
+        .allowed_tools
+        .iter()
+        .map(|tool| tool.trim())
+        .filter(|tool| !tool.is_empty())
+        .map(ToolId::from)
+        .collect::<Vec<_>>();
+    if !allowed_tools.is_empty() {
+        agent.tool_policy.allowed_tools = allowed_tools;
     }
     if !options.allowed_tool_categories.is_empty() {
         agent.tool_policy.allowed_categories = options.allowed_tool_categories.clone();
@@ -1275,6 +1288,19 @@ mod tauri_slash_tests {
                 .as_ref()
                 .map(|model| model.0.as_str()),
             Some("interpreter-model")
+        );
+    }
+
+    #[test]
+    fn build_agent_applies_runtime_allowed_tools() {
+        let options = RunOptions {
+            allowed_tools: vec!["echo".into(), "shell".into()],
+            ..RunOptions::default()
+        };
+        let agent = build_agent(&options);
+        assert_eq!(
+            agent.tool_policy.allowed_tools,
+            vec![ToolId::from("echo"), ToolId::from("shell")]
         );
     }
 

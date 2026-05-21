@@ -537,6 +537,7 @@ export type RunOptions = {
   max_tokens_before_compaction: number | null;
   max_compaction_output_tokens: number | null;
   compaction_guidance: string | null;
+  allowed_tools: string[];
   allowed_tool_categories: string[];
   allowed_skill_categories: string[];
   tool_visibility: ToolVisibility | null;

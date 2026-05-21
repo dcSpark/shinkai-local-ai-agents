@@ -27,7 +27,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::task::AbortHandle;
 use tokio::time::MissedTickBehavior;
 
-use agent_adapters::{AdapterRegistry, NormalizedPackage, inspect_source};
+use agent_adapters::{AdapterRegistry, ClawHubProvider, NormalizedPackage, inspect_source};
 use agent_bundles::{export_bundle, import_bundle};
 use agent_capabilities::{
     CapabilityDraft, CapabilityDraftDoctorReport, CapabilityDraftStatus, CapabilityDraftStore,
@@ -6162,6 +6162,10 @@ fn handle_adapters_slash(app: &mut App, rest: &str) {
                 "/adapters export <id> <path>",
                 "/adapters quarantine <id>",
                 "/adapters allow <id> --confirm",
+                "/adapters clawhub search <catalog> [query]",
+                "/adapters clawhub inspect <catalog> <id>",
+                "/adapters clawhub pin <catalog> <id>",
+                "/adapters clawhub install <catalog> <id>",
             ]
             .join("\n"),
         });
@@ -6340,9 +6344,10 @@ fn handle_adapters_slash(app: &mut App, rest: &str) {
             }),
         },
         "allow" => handle_adapter_allow_slash(app, args),
+        "clawhub" => handle_adapter_clawhub_slash(app, args),
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Adapters command needs list, doctor, show, inspect, install-skill, import, import-manifest, export, quarantine, allow, or help.".into(),
+            text: "Adapters command needs list, doctor, show, inspect, install-skill, import, import-manifest, export, quarantine, allow, clawhub, or help.".into(),
         }),
     }
 }
@@ -6365,6 +6370,143 @@ fn adapter_export_args(args: &str) -> anyhow::Result<(&str, &str)> {
         anyhow::bail!("adapters export accepts exactly an adapter id and path");
     }
     Ok((id, path))
+}
+
+fn handle_adapter_clawhub_slash(app: &mut App, rest: &str) {
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "help" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: [
+                "/adapters clawhub search <catalog> [query]",
+                "/adapters clawhub inspect <catalog> <id>",
+                "/adapters clawhub pin <catalog> <id>",
+                "/adapters clawhub install <catalog> <id>",
+            ]
+            .join("\n"),
+        });
+        return;
+    }
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "search" => match clawhub_search_args(args) {
+            Ok((catalog, query)) => match ClawHubProvider::from_catalog(catalog) {
+                Ok(provider) => {
+                    let entries = provider.search(query);
+                    push_event(app, format!("Loaded {} ClawHub entries.", entries.len()));
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&entries)
+                            .unwrap_or_else(|_| "<unserializable ClawHub entries>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("ClawHub search failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "inspect" => match clawhub_entry_args(args, "inspect") {
+            Ok((catalog, id)) => match ClawHubProvider::from_catalog(catalog)
+                .and_then(|provider| provider.inspect(id))
+            {
+                Ok(inspection) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&inspection)
+                        .unwrap_or_else(|_| "<unserializable ClawHub inspection>".into()),
+                }),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("ClawHub inspect failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "pin" => match clawhub_entry_args(args, "pin") {
+            Ok((catalog, id)) => {
+                match ClawHubProvider::from_catalog(catalog).and_then(|provider| provider.pin(id)) {
+                    Ok(pin) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&pin)
+                            .unwrap_or_else(|_| "<unserializable ClawHub pin>".into()),
+                    }),
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("ClawHub pin failed: {err}"),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "install" => match clawhub_entry_args(args, "install") {
+            Ok((catalog, id)) => match ClawHubProvider::from_catalog(catalog)
+                .and_then(|provider| provider.install(id, &AdapterRegistry::from_env()))
+            {
+                Ok(package) => {
+                    push_event(
+                        app,
+                        format!("Installed ClawHub adapter {} into quarantine.", package.id),
+                    );
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&adapter_package_summary(&package))
+                            .unwrap_or_else(|_| "<unserializable adapter manifest>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("ClawHub install failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Adapters clawhub command needs search, inspect, pin, install, or help.".into(),
+        }),
+    }
+}
+
+fn clawhub_search_args(args: &str) -> anyhow::Result<(&str, Option<&str>)> {
+    let trimmed = args.trim();
+    let (catalog, query) = trimmed
+        .split_once(char::is_whitespace)
+        .map(|(catalog, query)| (catalog.trim(), query.trim()))
+        .unwrap_or((trimmed, ""));
+    if catalog.is_empty() {
+        anyhow::bail!("adapters clawhub search needs a catalog path");
+    }
+    Ok((catalog, (!query.is_empty()).then_some(query)))
+}
+
+fn clawhub_entry_args<'a>(args: &'a str, command: &str) -> anyhow::Result<(&'a str, &'a str)> {
+    let mut parts = args.split_whitespace();
+    let catalog = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("adapters clawhub {command} needs a catalog path"))?;
+    let id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("adapters clawhub {command} needs an entry id"))?;
+    if parts.next().is_some() {
+        anyhow::bail!("adapters clawhub {command} accepts exactly a catalog path and entry id");
+    }
+    Ok((catalog, id))
 }
 
 fn handle_adapter_allow_slash(app: &mut App, args: &str) {
@@ -8670,6 +8812,10 @@ mod tests {
             adapters_slash_rest("/adapters import ./adapter"),
             Some("import ./adapter")
         );
+        assert_eq!(
+            adapters_slash_rest("/adapters clawhub search ./clawhub.json"),
+            Some("clawhub search ./clawhub.json")
+        );
         assert_eq!(adapters_slash_rest("/adapters"), Some(""));
         assert_eq!(adapters_slash_rest("/adapter"), None);
         assert_eq!(compact_slash_rest("/compact keep"), Some("keep"));
@@ -8879,8 +9025,23 @@ mod tests {
             adapter_export_args("adapter-1 ./adapter.json").unwrap(),
             ("adapter-1", "./adapter.json")
         );
+        assert_eq!(
+            clawhub_search_args("./clawhub.json qwen tools").unwrap(),
+            ("./clawhub.json", Some("qwen tools"))
+        );
+        assert_eq!(
+            clawhub_search_args("./clawhub.json").unwrap(),
+            ("./clawhub.json", None)
+        );
+        assert_eq!(
+            clawhub_entry_args("./clawhub.json adapter-1", "install").unwrap(),
+            ("./clawhub.json", "adapter-1")
+        );
         assert!(adapter_export_args("adapter-1").is_err());
         assert!(adapter_export_args("adapter-1 ./adapter.json extra").is_err());
+        assert!(clawhub_search_args("").is_err());
+        assert!(clawhub_entry_args("./clawhub.json", "inspect").is_err());
+        assert!(clawhub_entry_args("./clawhub.json adapter-1 extra", "pin").is_err());
     }
 
     #[test]

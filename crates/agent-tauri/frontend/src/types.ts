@@ -857,6 +857,11 @@ export type AdapterDoctorReport = {
 
 export type CapabilityKind = "tool" | "skill" | "agent" | "subagent";
 export type CapabilityDraftStatus = "quarantined" | "allowed" | "rejected";
+export type CapabilityDraftDoctorStatus = "ok" | "warning";
+export type CapabilityDraftPromotionTarget =
+  | "adapter_package"
+  | "skill_doc"
+  | "agent_config";
 
 export type CapabilityDraft = {
   id: string;
@@ -869,6 +874,33 @@ export type CapabilityDraft = {
   updated_at: string;
   status: CapabilityDraftStatus;
   provenance: string;
+};
+
+export type CapabilityDraftDoctorEntry = {
+  id: string;
+  name: string;
+  kind: CapabilityKind;
+  status: CapabilityDraftStatus;
+  promotion_target: CapabilityDraftPromotionTarget;
+  needs_review: boolean;
+  notes: string[];
+};
+
+export type CapabilityDraftDoctorReport = {
+  status: CapabilityDraftDoctorStatus;
+  draft_count: number;
+  quarantined_count: number;
+  allowed_count: number;
+  rejected_count: number;
+  tool_count: number;
+  skill_count: number;
+  agent_count: number;
+  adapter_pack_candidate_count: number;
+  skill_candidate_count: number;
+  agent_candidate_count: number;
+  review_needed_count: number;
+  drafts: CapabilityDraftDoctorEntry[];
+  warnings: string[];
 };
 
 export type CapabilityReviewResult =

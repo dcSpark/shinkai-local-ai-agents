@@ -305,6 +305,7 @@ async fn route_inner(
             daemon_skill_import_doc(&request.body).map(|value| (200, value))
         }
         ("GET", "/capabilities") => daemon_capability_list().map(|value| (200, value)),
+        ("GET", "/capabilities/doctor") => daemon_capability_doctor().map(|value| (200, value)),
         ("POST", "/capabilities/propose") => {
             daemon_capability_propose(&request.body).map(|value| (200, value))
         }
@@ -849,6 +850,7 @@ async fn route_inner(
                     "POST /skills/<id>/allow",
                     "POST /skills/<id>/export",
                     "GET /capabilities",
+                    "GET /capabilities/doctor",
                     "POST /capabilities/propose",
                     "POST /capabilities/import",
                     "GET /capabilities/<id>",
@@ -4561,6 +4563,12 @@ fn daemon_capability_list() -> anyhow::Result<serde_json::Value> {
     )?)
 }
 
+fn daemon_capability_doctor() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(
+        CapabilityDraftStore::from_env().doctor_report()?,
+    )?)
+}
+
 fn daemon_capability_propose(body: &str) -> anyhow::Result<serde_json::Value> {
     let input: CapabilityProposeInput = serde_json::from_str(body)?;
     let draft = CapabilityDraftStore::from_env().propose(CapabilityDraftInput {
@@ -8232,6 +8240,51 @@ mod tests {
         let deleted = daemon_profile_delete("research").unwrap();
         assert_eq!(deleted["deleted"], true);
         assert_eq!(daemon_profile_list().unwrap().as_array().unwrap().len(), 1);
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        restore_env("AGENT_HARNESS_PROFILE", previous_profile);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn capability_doctor_route_reports_before_dynamic_show() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("capability-doctor-route");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        let previous_profile = std::env::var_os("AGENT_HARNESS_PROFILE");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+            std::env::remove_var("AGENT_HARNESS_PROFILE");
+        }
+        CapabilityDraftStore::from_env()
+            .propose(CapabilityDraftInput {
+                id: Some("review-tool".into()),
+                kind: CapabilityKind::Tool,
+                name: "Review Tool".into(),
+                body: r#"{"mcpServers":{}}"#.into(),
+                guidance: None,
+                created_by: "agent".into(),
+                provenance: "test".into(),
+            })
+            .unwrap();
+
+        let (status, report) = route(
+            HttpRequest {
+                method: "GET".into(),
+                path: "/capabilities/doctor".into(),
+                headers: HashMap::new(),
+                body: String::new(),
+            },
+            Arc::new(DaemonState::default()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(status, 200);
+        assert_eq!(report["draft_count"], 1);
+        assert_eq!(report["review_needed_count"], 1);
+        assert_eq!(report["drafts"][0]["id"], "review-tool");
+        assert_eq!(report["drafts"][0]["promotion_target"], "adapter_package");
 
         restore_env("AGENT_HARNESS_HOME", previous_home);
         restore_env("AGENT_HARNESS_PROFILE", previous_profile);

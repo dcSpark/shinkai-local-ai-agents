@@ -17,8 +17,8 @@ use agent_adapters::{AdapterDoctorReport, AdapterRegistry, NormalizedPackage, in
 use agent_batch::{BatchItemState, BatchPlan};
 use agent_bundles::{BundleManifest, export_bundle, import_bundle};
 use agent_capabilities::{
-    CapabilityDraft, CapabilityDraftInput, CapabilityDraftStatus, CapabilityDraftStore,
-    CapabilityDraftTool, CapabilityKind,
+    CapabilityDraft, CapabilityDraftDoctorReport, CapabilityDraftInput, CapabilityDraftStatus,
+    CapabilityDraftStore, CapabilityDraftTool, CapabilityKind,
 };
 use agent_compaction::{CompactionRecord, CompactionStore};
 use agent_config::{
@@ -3148,6 +3148,13 @@ async fn capability_list() -> Result<Vec<CapabilityDraft>, String> {
 }
 
 #[tauri::command]
+async fn capability_doctor() -> Result<CapabilityDraftDoctorReport, String> {
+    CapabilityDraftStore::from_env()
+        .doctor_report()
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn capability_show(id: String) -> Result<CapabilityDraft, String> {
     CapabilityDraftStore::from_env()
         .show(&id)
@@ -4272,6 +4279,7 @@ pub fn run() {
             skill_quarantine,
             capability_propose,
             capability_list,
+            capability_doctor,
             capability_show,
             capability_export,
             capability_import,

@@ -58,6 +58,50 @@ pub enum CapabilityDraftStatus {
     Rejected,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CapabilityDraftDoctorStatus {
+    Ok,
+    Warning,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CapabilityDraftPromotionTarget {
+    AdapterPackage,
+    SkillDoc,
+    AgentConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CapabilityDraftDoctorEntry {
+    pub id: String,
+    pub name: String,
+    pub kind: CapabilityKind,
+    pub status: CapabilityDraftStatus,
+    pub promotion_target: CapabilityDraftPromotionTarget,
+    pub needs_review: bool,
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CapabilityDraftDoctorReport {
+    pub status: CapabilityDraftDoctorStatus,
+    pub draft_count: usize,
+    pub quarantined_count: usize,
+    pub allowed_count: usize,
+    pub rejected_count: usize,
+    pub tool_count: usize,
+    pub skill_count: usize,
+    pub agent_count: usize,
+    pub adapter_pack_candidate_count: usize,
+    pub skill_candidate_count: usize,
+    pub agent_candidate_count: usize,
+    pub review_needed_count: usize,
+    pub drafts: Vec<CapabilityDraftDoctorEntry>,
+    pub warnings: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CapabilityDraft {
     pub id: String,
@@ -153,6 +197,10 @@ impl CapabilityDraftStore {
         Ok(drafts)
     }
 
+    pub fn doctor_report(&self) -> Result<CapabilityDraftDoctorReport, CapabilityError> {
+        Ok(capability_draft_doctor_report_from_drafts(self.list()?))
+    }
+
     pub fn show(&self, id: &str) -> Result<CapabilityDraft, CapabilityError> {
         read_draft(self.path_for(id)?)
     }
@@ -237,6 +285,114 @@ impl CapabilityDraftStore {
     fn path_for(&self, id: &str) -> Result<PathBuf, CapabilityError> {
         let id = validate_id(id.to_string())?;
         Ok(self.dir.join(format!("{id}.json")))
+    }
+}
+
+pub fn capability_draft_doctor_report_from_drafts(
+    drafts: Vec<CapabilityDraft>,
+) -> CapabilityDraftDoctorReport {
+    let draft_count = drafts.len();
+    let quarantined_count = drafts
+        .iter()
+        .filter(|draft| draft.status == CapabilityDraftStatus::Quarantined)
+        .count();
+    let allowed_count = drafts
+        .iter()
+        .filter(|draft| draft.status == CapabilityDraftStatus::Allowed)
+        .count();
+    let rejected_count = drafts
+        .iter()
+        .filter(|draft| draft.status == CapabilityDraftStatus::Rejected)
+        .count();
+    let tool_count = drafts
+        .iter()
+        .filter(|draft| draft.kind == CapabilityKind::Tool)
+        .count();
+    let skill_count = drafts
+        .iter()
+        .filter(|draft| draft.kind == CapabilityKind::Skill)
+        .count();
+    let agent_count = drafts
+        .iter()
+        .filter(|draft| draft.kind == CapabilityKind::Agent)
+        .count();
+
+    let entries = drafts
+        .into_iter()
+        .map(capability_draft_doctor_entry)
+        .collect::<Vec<_>>();
+    let review_needed_count = entries.iter().filter(|entry| entry.needs_review).count();
+
+    let mut warnings = Vec::new();
+    if review_needed_count > 0 {
+        warnings.push(format!(
+            "{review_needed_count} quarantined capability draft(s) need human review"
+        ));
+    }
+
+    CapabilityDraftDoctorReport {
+        status: if warnings.is_empty() {
+            CapabilityDraftDoctorStatus::Ok
+        } else {
+            CapabilityDraftDoctorStatus::Warning
+        },
+        draft_count,
+        quarantined_count,
+        allowed_count,
+        rejected_count,
+        tool_count,
+        skill_count,
+        agent_count,
+        adapter_pack_candidate_count: tool_count,
+        skill_candidate_count: skill_count,
+        agent_candidate_count: agent_count,
+        review_needed_count,
+        drafts: entries,
+        warnings,
+    }
+}
+
+fn capability_draft_doctor_entry(draft: CapabilityDraft) -> CapabilityDraftDoctorEntry {
+    let promotion_target = match draft.kind {
+        CapabilityKind::Tool => CapabilityDraftPromotionTarget::AdapterPackage,
+        CapabilityKind::Skill => CapabilityDraftPromotionTarget::SkillDoc,
+        CapabilityKind::Agent => CapabilityDraftPromotionTarget::AgentConfig,
+    };
+    let needs_review = draft.status == CapabilityDraftStatus::Quarantined;
+    let mut notes = Vec::new();
+    if needs_review {
+        notes.push("needs human review before promotion".into());
+    }
+    match draft.status {
+        CapabilityDraftStatus::Allowed => {
+            notes.push("allowed draft is treated as reviewed for promotion".into());
+        }
+        CapabilityDraftStatus::Rejected => {
+            notes.push("rejected draft is retained as a disabled audit record".into());
+        }
+        CapabilityDraftStatus::Quarantined => {}
+    }
+    match draft.kind {
+        CapabilityKind::Tool => notes.push(
+            "allow promotes this draft into the adapter package registry; run adapter doctor after review"
+                .into(),
+        ),
+        CapabilityKind::Skill => notes.push(
+            "allow promotes this draft into the skill registry for explicit loading".into(),
+        ),
+        CapabilityKind::Agent => {
+            notes.push("allow promotes this draft into an agent config".into());
+        }
+    }
+
+    CapabilityDraftDoctorEntry {
+        id: draft.id,
+        name: draft.name,
+        kind: draft.kind,
+        status: draft.status,
+        promotion_target,
+        needs_review,
+        notes,
     }
 }
 
@@ -511,6 +667,72 @@ mod tests {
         assert_eq!(imported.kind, CapabilityKind::Agent);
         assert_eq!(imported.status, CapabilityDraftStatus::Quarantined);
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn doctor_report_counts_review_state_and_promotion_targets() {
+        let store = temp_store("doctor");
+        store
+            .propose(CapabilityDraftInput {
+                id: Some("review-tool".into()),
+                kind: CapabilityKind::Tool,
+                name: "Review Tool".into(),
+                body: r#"{"mcpServers":{}}"#.into(),
+                guidance: None,
+                created_by: "agent".into(),
+                provenance: "test".into(),
+            })
+            .unwrap();
+        store
+            .propose(CapabilityDraftInput {
+                id: Some("allowed-skill".into()),
+                kind: CapabilityKind::Skill,
+                name: "Allowed Skill".into(),
+                body: "Use this checklist.".into(),
+                guidance: None,
+                created_by: "agent".into(),
+                provenance: "test".into(),
+            })
+            .unwrap();
+        store
+            .set_status("allowed-skill", CapabilityDraftStatus::Allowed)
+            .unwrap();
+        store
+            .propose(CapabilityDraftInput {
+                id: Some("rejected-agent".into()),
+                kind: CapabilityKind::Agent,
+                name: "Rejected Agent".into(),
+                body: "system_prompt = 'Research carefully.'".into(),
+                guidance: None,
+                created_by: "agent".into(),
+                provenance: "test".into(),
+            })
+            .unwrap();
+        store
+            .set_status("rejected-agent", CapabilityDraftStatus::Rejected)
+            .unwrap();
+
+        let report = store.doctor_report().unwrap();
+
+        assert_eq!(report.status, CapabilityDraftDoctorStatus::Warning);
+        assert_eq!(report.draft_count, 3);
+        assert_eq!(report.quarantined_count, 1);
+        assert_eq!(report.allowed_count, 1);
+        assert_eq!(report.rejected_count, 1);
+        assert_eq!(report.adapter_pack_candidate_count, 1);
+        assert_eq!(report.skill_candidate_count, 1);
+        assert_eq!(report.agent_candidate_count, 1);
+        assert_eq!(report.review_needed_count, 1);
+        let tool = report
+            .drafts
+            .iter()
+            .find(|draft| draft.id == "review-tool")
+            .unwrap();
+        assert_eq!(
+            tool.promotion_target,
+            CapabilityDraftPromotionTarget::AdapterPackage
+        );
+        assert!(tool.needs_review);
     }
 
     #[test]

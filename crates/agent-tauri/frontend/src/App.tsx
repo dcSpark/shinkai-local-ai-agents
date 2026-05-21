@@ -10,6 +10,7 @@ import type {
   AgentSummary,
   BundleManifest,
   CapabilityDraft,
+  CapabilityDraftDoctorReport,
   CapabilityKind,
   CapabilityReviewResult,
   CompactionRecord,
@@ -563,6 +564,8 @@ export default function App() {
   const [secretLabel, setSecretLabel] = useState("");
   const [secretStatus, setSecretStatus] = useState<JsonValue | null>(null);
   const [capabilityDrafts, setCapabilityDrafts] = useState<CapabilityDraft[]>([]);
+  const [capabilityDoctorReport, setCapabilityDoctorReport] =
+    useState<CapabilityDraftDoctorReport | null>(null);
   const [adapterPackages, setAdapterPackages] = useState<AdapterPackage[]>([]);
   const [adapterDoctorReport, setAdapterDoctorReport] =
     useState<AdapterDoctorReport | null>(null);
@@ -1529,6 +1532,7 @@ export default function App() {
       { command: "/skills", label: "List imported skills" },
       { command: "/capabilities", label: "List capability drafts" },
       { command: "/capabilities list", label: "List capability drafts" },
+      { command: "/capabilities doctor", label: "Summarize capability drafts" },
       { command: "/capabilities show ", label: "Show capability draft" },
       { command: "/capabilities export ", label: "Export capability draft" },
       { command: "/capabilities import ", label: "Import capability draft" },
@@ -4942,6 +4946,7 @@ export default function App() {
           "assistant",
           [
             "/capabilities list",
+            "/capabilities doctor",
             "/capabilities show <id>",
             "/capabilities export <id> <path>",
             "/capabilities import <path>",
@@ -4950,6 +4955,8 @@ export default function App() {
             "/capabilities delete <id>",
           ].join("\n"),
         );
+      } else if (command === "doctor") {
+        await capabilityDoctorFromOps();
       } else if (command === "show") {
         if (args.length !== 1) {
           appendLine("error", "Capabilities show shortcut needs a draft id.");
@@ -4997,7 +5004,7 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Capabilities shortcut needs list, show, export, import, allow, reject, delete, or help.",
+          "Capabilities shortcut needs list, doctor, show, export, import, allow, reject, delete, or help.",
         );
       }
       return;
@@ -7177,6 +7184,23 @@ export default function App() {
     }
   }
 
+  async function capabilityDoctorFromOps() {
+    try {
+      const report =
+        transport === "daemon"
+          ? await daemonJson<CapabilityDraftDoctorReport>("/capabilities/doctor")
+          : await invoke<CapabilityDraftDoctorReport>("capability_doctor");
+      setCapabilityDoctorReport(report);
+      appendEvent(
+        `Capability doctor: ${report.status} (${report.review_needed_count} review needed)`,
+      );
+      appendJson("Capability doctor", report);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Capability doctor failed: ${msg}`);
+    }
+  }
+
   async function proposeCapabilityFromOps() {
     const name = requireOpsId("Capability propose");
     const body = requireOpsValue("Capability propose");
@@ -7198,6 +7222,7 @@ export default function App() {
               createdBy: "user",
             });
       setCapabilityDrafts((drafts) => upsertCapabilityDraft(drafts, draft));
+      setCapabilityDoctorReport(null);
       appendJson("Capability draft proposed", draft);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -7249,6 +7274,7 @@ export default function App() {
           ? await daemonJson<CapabilityDraft>("/capabilities/import", { path })
           : await invoke<CapabilityDraft>("capability_import", { path });
       setCapabilityDrafts((drafts) => upsertCapabilityDraft(drafts, draft));
+      setCapabilityDoctorReport(null);
       appendJson("Capability draft imported", draft);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -7273,6 +7299,7 @@ export default function App() {
             );
       const draft = capabilityDraftFromReviewResult(result);
       setCapabilityDrafts((drafts) => upsertCapabilityDraft(drafts, draft));
+      setCapabilityDoctorReport(null);
       const skill = skillFromCapabilityReviewResult(result);
       if (skill) {
         setSkillDocs((docs) => upsertSkillDoc(docs, skill));
@@ -7300,6 +7327,7 @@ export default function App() {
           ? await daemonJson<unknown>(`/capabilities/${id}/delete`, {})
           : await invoke<unknown>("capability_delete", { id });
       setCapabilityDrafts((drafts) => drafts.filter((draft) => draft.id !== id));
+      setCapabilityDoctorReport(null);
       appendJson("Capability draft deleted", result);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -13677,6 +13705,14 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  title="Summarize draft review state and promotion targets."
+                  onClick={() => void capabilityDoctorFromOps()}
+                  disabled={running}
+                >
+                  Doctor
+                </button>
+                <button
+                  type="button"
                   title="Create a quarantined draft from Id as name and Value as body."
                   onClick={() => void proposeCapabilityFromOps()}
                   disabled={running || !opsId.trim() || !opsValue.trim()}
@@ -13733,6 +13769,35 @@ export default function App() {
                   Delete Draft
                 </button>
               </div>
+              {capabilityDoctorReport ? (
+                <div className="ingestion-review">
+                  <div className="ingestion-card">
+                    <div className="ingestion-card-head">
+                      <strong>Capability doctor</strong>
+                      <span>{capabilityDoctorReport.status}</span>
+                    </div>
+                    <span>
+                      {capabilityDoctorReport.draft_count} drafts /{" "}
+                      {capabilityDoctorReport.review_needed_count} review needed
+                    </span>
+                    <span>
+                      {capabilityDoctorReport.adapter_pack_candidate_count} adapter pack /{" "}
+                      {capabilityDoctorReport.skill_candidate_count} skill /{" "}
+                      {capabilityDoctorReport.agent_candidate_count} agent
+                    </span>
+                    <span>
+                      {capabilityDoctorReport.quarantined_count} quarantined /{" "}
+                      {capabilityDoctorReport.allowed_count} allowed /{" "}
+                      {capabilityDoctorReport.rejected_count} rejected
+                    </span>
+                    {capabilityDoctorReport.warnings.map((warning) => (
+                      <span className="finding warning" key={warning}>
+                        {warning}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               {capabilityDrafts.length ? (
                 <div className="ingestion-review">
                   {capabilityDrafts.map((draft) => (

@@ -15,8 +15,8 @@ use agent_api_client::DaemonHttpClient;
 use agent_batch::{BatchItemState, BatchPlan};
 use agent_bundles::{export_bundle, import_bundle};
 use agent_capabilities::{
-    CapabilityDraft, CapabilityDraftInput, CapabilityDraftStatus, CapabilityDraftStore,
-    CapabilityKind,
+    CapabilityDraft, CapabilityDraftDoctorReport, CapabilityDraftInput, CapabilityDraftStatus,
+    CapabilityDraftStore, CapabilityKind,
 };
 use agent_compaction::{CompactionRecord, CompactionStore};
 use agent_config::{
@@ -486,6 +486,16 @@ pub async fn capability_list(json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn capability_doctor(json: bool) -> anyhow::Result<()> {
+    let report = CapabilityDraftStore::from_env().doctor_report()?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print_capability_doctor_report(&report);
+    }
+    Ok(())
+}
+
 pub async fn capability_show(id: String, json: bool) -> anyhow::Result<()> {
     let draft = CapabilityDraftStore::from_env().show(&id)?;
     print_capability_draft(&draft, json)
@@ -640,6 +650,34 @@ fn print_capability_draft(draft: &CapabilityDraft, json: bool) -> anyhow::Result
         print_capability_draft_line(draft);
     }
     Ok(())
+}
+
+fn print_capability_doctor_report(report: &CapabilityDraftDoctorReport) {
+    println!(
+        "capability_doctor status={:?} drafts={} quarantined={} allowed={} rejected={} tools={} skills={} agents={} adapter_pack_candidates={} review_needed={}",
+        report.status,
+        report.draft_count,
+        report.quarantined_count,
+        report.allowed_count,
+        report.rejected_count,
+        report.tool_count,
+        report.skill_count,
+        report.agent_count,
+        report.adapter_pack_candidate_count,
+        report.review_needed_count
+    );
+    for warning in &report.warnings {
+        println!("warning: {warning}");
+    }
+    for draft in &report.drafts {
+        println!(
+            "- {} kind={:?} status={:?} target={:?} review_needed={}",
+            draft.id, draft.kind, draft.status, draft.promotion_target, draft.needs_review
+        );
+        for note in &draft.notes {
+            println!("  note: {note}");
+        }
+    }
 }
 
 fn capability_review_result(
@@ -5794,6 +5832,10 @@ pub async fn remote_capability_propose(
 
 pub async fn remote_capability_list(url: String) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).get_json("/capabilities")?)
+}
+
+pub async fn remote_capability_doctor(url: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).get_json("/capabilities/doctor")?)
 }
 
 pub async fn remote_capability_show(url: String, id: String) -> anyhow::Result<()> {

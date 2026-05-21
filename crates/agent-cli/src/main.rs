@@ -1629,6 +1629,12 @@ enum CapabilityCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Summarize drafts, review state, and promotion targets.
+    Doctor {
+        /// Emit JSON metadata.
+        #[arg(long)]
+        json: bool,
+    },
     /// Show one capability draft.
     Show {
         id: String,
@@ -2893,6 +2899,8 @@ enum RemoteCapabilityCommand {
     },
     /// List daemon capability drafts.
     List,
+    /// Summarize daemon drafts, review state, and promotion targets.
+    Doctor,
     /// Show one daemon capability draft.
     Show { id: String },
     /// Mark a daemon capability draft allowed after review.
@@ -4841,6 +4849,15 @@ mod cli_parse_tests {
         assert_eq!(created_by, "agent");
         assert!(json);
 
+        let cli = parse_cli(["agent", "capability", "doctor", "--json"]).unwrap();
+        let Command::Capability {
+            command: CapabilityCommand::Doctor { json },
+        } = into_command(cli)
+        else {
+            panic!("expected capability doctor command");
+        };
+        assert!(json);
+
         let cli = parse_cli([
             "agent",
             "remote",
@@ -4858,6 +4875,22 @@ mod cli_parse_tests {
             panic!("expected remote capability allow command");
         };
         assert_eq!(id, "draft-review");
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "--url",
+            "http://127.0.0.1:7878",
+            "capability",
+            "doctor",
+        ])
+        .unwrap();
+        let RemoteCommand::Capability {
+            command: RemoteCapabilityCommand::Doctor,
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote capability doctor command");
+        };
 
         let cli = parse_cli([
             "agent",
@@ -5860,6 +5893,7 @@ async fn main() -> anyhow::Result<()> {
                 json,
             } => headless::capability_propose(kind, name, body, guidance, created_by, json).await,
             CapabilityCommand::List { json } => headless::capability_list(json).await,
+            CapabilityCommand::Doctor { json } => headless::capability_doctor(json).await,
             CapabilityCommand::Show { id, json } => headless::capability_show(id, json).await,
             CapabilityCommand::Allow { id, json } => {
                 headless::capability_review(
@@ -6910,6 +6944,7 @@ async fn main() -> anyhow::Result<()> {
                         .await
                 }
                 RemoteCapabilityCommand::List => headless::remote_capability_list(url).await,
+                RemoteCapabilityCommand::Doctor => headless::remote_capability_doctor(url).await,
                 RemoteCapabilityCommand::Show { id } => {
                     headless::remote_capability_show(url, id).await
                 }

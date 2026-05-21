@@ -1501,8 +1501,15 @@ export default function App() {
       { command: "/secrets delete ", label: "Delete secret metadata" },
       { command: "/bundles backup", label: "Export profile backup bundle" },
       { command: "/adapters", label: "List adapter manifests" },
+      { command: "/adapters list", label: "List adapter manifests" },
       { command: "/adapters doctor", label: "Check adapter operability" },
+      { command: "/adapters show ", label: "Show adapter manifest" },
+      { command: "/adapters import ", label: "Import adapter package" },
+      { command: "/adapters import-manifest ", label: "Import adapter manifest" },
+      { command: "/adapters export ", label: "Export adapter manifest" },
       { command: "/adapters install-skill ", label: "Install adapter as skill" },
+      { command: "/adapters allow ", label: "Allow adapter manifest" },
+      { command: "/adapters quarantine ", label: "Quarantine adapter manifest" },
       { command: "/hooks", label: "List lifecycle hooks" },
       { command: "/hooks policy", label: "Show lifecycle hook policy" },
       { command: "/trace", label: "Load last run trace" },
@@ -1672,6 +1679,20 @@ export default function App() {
       "/skills export <id> <path>",
       "/skills allow <id> --confirm",
       "/skills quarantine <id> --confirm",
+    ].join("\n");
+  }
+
+  function adapterShortcutHelpText() {
+    return [
+      "/adapters list",
+      "/adapters doctor",
+      "/adapters show <id>",
+      "/adapters import <path>",
+      "/adapters import-manifest <path>",
+      "/adapters export <id> <path>",
+      "/adapters install-skill <id>",
+      "/adapters allow <id> --confirm",
+      "/adapters quarantine <id>",
     ].join("\n");
   }
 
@@ -4223,32 +4244,77 @@ export default function App() {
       return;
     }
 
-    if (prompt === "/adapters") {
-      setInput("");
-      setActiveSection("adapters");
-      appendLine("user", "/adapters");
-      await reviewAdapters();
-      return;
-    }
-
-    if (prompt === "/adapters doctor") {
-      setInput("");
-      setActiveSection("adapters");
-      appendLine("user", "/adapters doctor");
-      await adapterDoctorFromOps();
-      return;
-    }
-
-    if (prompt.startsWith("/adapters install-skill ")) {
-      const id = prompt.slice("/adapters install-skill ".length).trim();
+    if (prompt === "/adapters" || prompt.startsWith("/adapters ")) {
       setInput("");
       setActiveSection("adapters");
       appendLine("user", prompt);
-      if (!id) {
-        appendLine("error", "Adapter install-skill needs an adapter id.");
-        return;
+      const rest = prompt === "/adapters" ? "" : prompt.slice("/adapters ".length).trim();
+      const [command = "", ...args] = rest.split(/\s+/).filter(Boolean);
+      if (!rest || command === "list") {
+        await reviewAdapters();
+      } else if (command === "help") {
+        appendLine("assistant", adapterShortcutHelpText());
+      } else if (command === "doctor") {
+        await adapterDoctorFromOps();
+      } else if (command === "show") {
+        if (args.length !== 1) {
+          appendLine("error", "Adapters show shortcut needs an adapter id.");
+        } else {
+          await showAdapterFromOps(args[0]);
+        }
+      } else if (command === "import") {
+        if (args.length !== 1) {
+          appendLine("error", "Adapters import shortcut needs a path.");
+        } else {
+          await importAdapterFromOps(args[0]);
+        }
+      } else if (command === "import-manifest") {
+        if (args.length !== 1) {
+          appendLine("error", "Adapters import-manifest shortcut needs a path.");
+        } else {
+          await importAdapterManifestFromOps(args[0]);
+        }
+      } else if (command === "export") {
+        if (args.length !== 2) {
+          appendLine("error", "Adapters export shortcut needs an adapter id and path.");
+        } else {
+          await exportAdapterFromOps(args[0], args[1]);
+        }
+      } else if (command === "install-skill") {
+        if (args.length !== 1) {
+          appendLine("error", "Adapters install-skill shortcut needs an adapter id.");
+        } else {
+          await installAdapterSkillFromOps(args[0]);
+        }
+      } else if (command === "allow") {
+        const ids = args.filter((arg) => arg !== "--confirm");
+        const confirmed = args.includes("--confirm");
+        if (ids.length !== 1) {
+          appendLine(
+            "error",
+            "Adapters allow shortcut needs an adapter id and optional --confirm.",
+          );
+        } else if (!confirmed) {
+          appendLine("error", "Adapters allow shortcut requires --confirm.");
+        } else {
+          await setAdapterQuarantine(true, ids[0]);
+        }
+      } else if (command === "quarantine") {
+        const ids = args.filter((arg) => arg !== "--confirm");
+        if (ids.length !== 1) {
+          appendLine(
+            "error",
+            "Adapters quarantine shortcut needs an adapter id and optional --confirm.",
+          );
+        } else {
+          await setAdapterQuarantine(false, ids[0]);
+        }
+      } else {
+        appendLine(
+          "error",
+          "Adapters shortcut needs list, doctor, show, import, import-manifest, export, install-skill, allow, quarantine, or help.",
+        );
       }
-      await installAdapterSkillFromOps(id);
       return;
     }
 
@@ -7929,8 +7995,8 @@ export default function App() {
     appendEvent("Cleared ingestion artifacts from run context.");
   }
 
-  async function importAdapterFromOps() {
-    const path = requireOpsValue("Adapter import");
+  async function importAdapterFromOps(explicitPath?: string) {
+    const path = explicitPath ?? requireOpsValue("Adapter import");
     if (!path) return;
     try {
       const manifest =
@@ -7945,8 +8011,8 @@ export default function App() {
     }
   }
 
-  async function importAdapterManifestFromOps() {
-    const path = requireOpsValue("Adapter manifest import");
+  async function importAdapterManifestFromOps(explicitPath?: string) {
+    const path = explicitPath ?? requireOpsValue("Adapter manifest import");
     if (!path) return;
     try {
       const manifest =
@@ -7961,8 +8027,8 @@ export default function App() {
     }
   }
 
-  async function showAdapterFromOps() {
-    const id = requireOpsId("Adapter show");
+  async function showAdapterFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Adapter show");
     if (!id) return;
     try {
       const manifest =
@@ -7977,11 +8043,10 @@ export default function App() {
     }
   }
 
-  async function exportAdapterFromOps() {
-    const id = requireOpsId("Adapter export");
-    if (!id) return;
-    const path = requireOpsValue("Adapter export");
-    if (!path) return;
+  async function exportAdapterFromOps(explicitId?: string, explicitPath?: string) {
+    const id = explicitId ?? requireOpsId("Adapter export");
+    const path = explicitPath ?? requireOpsValue("Adapter export");
+    if (!id || !path) return;
     try {
       const manifest =
         transport === "daemon"

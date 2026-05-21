@@ -127,6 +127,49 @@ pub async fn run(
             prune_cache_days,
             apply,
         }) => return storage_report(json, prune_cache_days, apply).await,
+        Some(SlashCommand::Memory(command)) => {
+            return match command {
+                MemorySlashCommand::List => memory_list(json).await,
+                MemorySlashCommand::Access { topics } => memory_access(topics, json).await,
+                MemorySlashCommand::Backends => memory_backends(json).await,
+                MemorySlashCommand::Create {
+                    content,
+                    user,
+                    conversation,
+                    agent,
+                    topics,
+                } => memory_create(content, user, conversation, agent, topics).await,
+                MemorySlashCommand::Generate {
+                    text,
+                    user,
+                    range,
+                    conversation,
+                    agent,
+                    topics,
+                } => memory_generate(text, user, range, conversation, agent, topics).await,
+                MemorySlashCommand::GenerateConversation {
+                    id,
+                    from,
+                    to,
+                    user,
+                    agent,
+                    topics,
+                } => memory_generate_conversation(id, from, to, user, agent, topics).await,
+                MemorySlashCommand::Classify {
+                    id,
+                    model,
+                    agent,
+                    apply,
+                } => memory_classify(id, model, agent, apply).await,
+                MemorySlashCommand::Edit { id, content } => memory_edit(id, content).await,
+                MemorySlashCommand::Delete { id } => memory_delete(id).await,
+                MemorySlashCommand::Rollback { user } => memory_rollback(user).await,
+                MemorySlashCommand::Export { path, user } => memory_export(path, user, json).await,
+                MemorySlashCommand::Import { path, user, agent } => {
+                    memory_import(path, user, agent, json).await
+                }
+            };
+        }
         Some(SlashCommand::Compact(command)) => {
             return match command {
                 CompactSlashCommand::List => compact_list(json).await,
@@ -7731,6 +7774,7 @@ enum SlashCommand {
         prune_cache_days: Option<u64>,
         apply: bool,
     },
+    Memory(MemorySlashCommand),
     Compact(CompactSlashCommand),
     Guide {
         run_id: String,
@@ -7740,6 +7784,62 @@ enum SlashCommand {
         run_id: String,
         score: f32,
         target: String,
+    },
+}
+
+enum MemorySlashCommand {
+    List,
+    Access {
+        topics: Vec<String>,
+    },
+    Backends,
+    Create {
+        content: String,
+        user: bool,
+        conversation: Option<String>,
+        agent: Option<String>,
+        topics: Vec<String>,
+    },
+    Generate {
+        text: String,
+        user: bool,
+        range: Option<String>,
+        conversation: Option<String>,
+        agent: Option<String>,
+        topics: Vec<String>,
+    },
+    GenerateConversation {
+        id: String,
+        from: Option<usize>,
+        to: Option<usize>,
+        user: bool,
+        agent: Option<String>,
+        topics: Vec<String>,
+    },
+    Classify {
+        id: String,
+        model: Option<String>,
+        agent: Option<String>,
+        apply: bool,
+    },
+    Edit {
+        id: String,
+        content: String,
+    },
+    Delete {
+        id: String,
+    },
+    Rollback {
+        user: bool,
+    },
+    Export {
+        path: String,
+        user: bool,
+    },
+    Import {
+        path: String,
+        user: bool,
+        agent: Option<String>,
     },
 }
 
@@ -7841,6 +7941,13 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
             apply,
         }));
     }
+    if trimmed == "/memory" {
+        return Ok(Some(SlashCommand::Memory(MemorySlashCommand::List)));
+    }
+    if let Some(rest) = trimmed.strip_prefix("/memory ").map(str::trim) {
+        let command = parse_memory_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Memory(command)));
+    }
     if trimmed == "/compact" || trimmed == "/compactions" {
         return Ok(Some(SlashCommand::Compact(CompactSlashCommand::List)));
     }
@@ -7910,6 +8017,7 @@ fn headless_slash_help_text() -> &'static str {
      - /resume <run-id> [--from-event N], /resume plan <run-id> [--from-event N]\n\
      - /trace [summary|tree|hooks] <run-id>, /compare <run-id> <run-id>, /replay <run-id>\n\
      - /storage report, /storage prune-cache <days> [--apply]\n\
+     - /memory list|access|backends|create|generate|generate-conversation|classify|edit|delete|rollback|export|import\n\
      - /compact list|show|export|import|delete|keep-run, /compactions ...\n\
      - /guide <run-id> <text> - inject guidance into an active run\n\
      - /score <run-id> <0-10> [target] - record a quality score\n\
@@ -8133,6 +8241,342 @@ fn parse_storage_slash_rest(rest: &str) -> anyhow::Result<(Option<u64>, bool)> {
         }
         _ => anyhow::bail!("storage shortcut needs report or prune-cache"),
     }
+}
+
+#[derive(Default)]
+struct MemoryTextOptions {
+    user: bool,
+    conversation: Option<String>,
+    agent: Option<String>,
+    range: Option<String>,
+    topics: Vec<String>,
+}
+
+fn parse_memory_slash_rest(rest: &str) -> anyhow::Result<MemorySlashCommand> {
+    let rest = rest.trim();
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command.trim(), args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "" | "list" => {
+            ensure_no_extra(args.split_whitespace(), "usage: /memory list")?;
+            Ok(MemorySlashCommand::List)
+        }
+        "access" => Ok(MemorySlashCommand::Access {
+            topics: parse_memory_topic_options(args)?,
+        }),
+        "backends" => {
+            ensure_no_extra(args.split_whitespace(), "usage: /memory backends")?;
+            Ok(MemorySlashCommand::Backends)
+        }
+        "create" => {
+            let (content, options) =
+                parse_memory_text_options(args, false, "memory create needs content")?;
+            Ok(MemorySlashCommand::Create {
+                content,
+                user: options.user,
+                conversation: options.conversation,
+                agent: options.agent,
+                topics: options.topics,
+            })
+        }
+        "generate" => {
+            let (text, options) =
+                parse_memory_text_options(args, true, "memory generate needs text")?;
+            Ok(MemorySlashCommand::Generate {
+                text,
+                user: options.user,
+                range: options.range,
+                conversation: options.conversation,
+                agent: options.agent,
+                topics: options.topics,
+            })
+        }
+        "generate-conversation" | "generate-conv" => parse_memory_generate_conversation_args(args),
+        "classify" => parse_memory_classify_args(args),
+        "edit" => parse_memory_edit_args(args),
+        "delete" | "rm" => parse_memory_delete_args(args),
+        "rollback" => parse_memory_rollback_args(args),
+        "export" => parse_memory_export_args(args),
+        "import" => parse_memory_import_args(args),
+        _ => anyhow::bail!(
+            "memory shortcut needs list, access, backends, create, generate, generate-conversation, classify, edit, delete, rollback, export, or import"
+        ),
+    }
+}
+
+fn parse_memory_topic_options(rest: &str) -> anyhow::Result<Vec<String>> {
+    let mut parts = rest.split_whitespace();
+    let mut topics = Vec::new();
+    while let Some(part) = parts.next() {
+        match part {
+            "--topic" => topics.push(next_required(&mut parts, "--topic needs a value")?),
+            _ if part.starts_with("--topic=") => {
+                topics.push(required_option_value(part, "--topic")?);
+            }
+            _ => anyhow::bail!("unknown memory access option: {part}"),
+        }
+    }
+    Ok(topics)
+}
+
+fn parse_memory_text_options(
+    rest: &str,
+    allow_range: bool,
+    missing_text: &str,
+) -> anyhow::Result<(String, MemoryTextOptions)> {
+    let mut parts = rest.split_whitespace();
+    let mut options = MemoryTextOptions::default();
+    let mut text_parts = Vec::new();
+    while let Some(part) = parts.next() {
+        match part {
+            "--" => {
+                text_parts.extend(parts);
+                break;
+            }
+            "--user" => options.user = true,
+            "--conversation" => {
+                options.conversation =
+                    Some(next_required(&mut parts, "--conversation needs an id")?);
+            }
+            _ if part.starts_with("--conversation=") => {
+                options.conversation = Some(required_option_value(part, "--conversation")?);
+            }
+            "--agent" => options.agent = Some(next_required(&mut parts, "--agent needs an id")?),
+            _ if part.starts_with("--agent=") => {
+                options.agent = Some(required_option_value(part, "--agent")?);
+            }
+            "--topic" => options
+                .topics
+                .push(next_required(&mut parts, "--topic needs a value")?),
+            _ if part.starts_with("--topic=") => {
+                options.topics.push(required_option_value(part, "--topic")?);
+            }
+            "--range" if allow_range => {
+                options.range = Some(next_required(&mut parts, "--range needs a value")?);
+            }
+            _ if allow_range && part.starts_with("--range=") => {
+                options.range = Some(required_option_value(part, "--range")?);
+            }
+            _ if part.starts_with("--") => anyhow::bail!("unknown memory option: {part}"),
+            _ => {
+                text_parts.push(part);
+                text_parts.extend(parts);
+                break;
+            }
+        }
+    }
+    let text = text_parts.join(" ");
+    if text.trim().is_empty() {
+        anyhow::bail!("{}", missing_text);
+    }
+    Ok((text, options))
+}
+
+fn parse_memory_generate_conversation_args(rest: &str) -> anyhow::Result<MemorySlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let id = next_required(
+        &mut parts,
+        "usage: /memory generate-conversation <id> [from:to] [--user] [--agent <id>] [--topic <topic>]",
+    )?;
+    let mut from = None;
+    let mut to = None;
+    let mut user = false;
+    let mut agent = None;
+    let mut topics = Vec::new();
+    while let Some(part) = parts.next() {
+        match part {
+            "--user" => user = true,
+            "--agent" => agent = Some(next_required(&mut parts, "--agent needs an id")?),
+            _ if part.starts_with("--agent=") => {
+                agent = Some(required_option_value(part, "--agent")?);
+            }
+            "--topic" => topics.push(next_required(&mut parts, "--topic needs a value")?),
+            _ if part.starts_with("--topic=") => {
+                topics.push(required_option_value(part, "--topic")?);
+            }
+            "--from" => {
+                from = Some(parse_nonnegative_usize(
+                    &next_required(&mut parts, "--from needs an index")?,
+                    "--from",
+                )?);
+            }
+            _ if part.starts_with("--from=") => {
+                from = Some(parse_nonnegative_usize(
+                    &required_option_value(part, "--from")?,
+                    "--from",
+                )?);
+            }
+            "--to" => {
+                to = Some(parse_nonnegative_usize(
+                    &next_required(&mut parts, "--to needs an index")?,
+                    "--to",
+                )?);
+            }
+            _ if part.starts_with("--to=") => {
+                to = Some(parse_nonnegative_usize(
+                    &required_option_value(part, "--to")?,
+                    "--to",
+                )?);
+            }
+            _ if !part.starts_with("--") && part.contains(':') => {
+                if from.is_some() || to.is_some() {
+                    anyhow::bail!("memory generate-conversation range specified twice");
+                }
+                let (range_from, range_to) = parse_memory_message_range(part)?;
+                from = Some(range_from);
+                to = Some(range_to);
+            }
+            _ => anyhow::bail!("unknown memory generate-conversation option: {part}"),
+        }
+    }
+    Ok(MemorySlashCommand::GenerateConversation {
+        id,
+        from,
+        to,
+        user,
+        agent,
+        topics,
+    })
+}
+
+fn parse_memory_classify_args(rest: &str) -> anyhow::Result<MemorySlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let id = next_required(
+        &mut parts,
+        "usage: /memory classify <id> [--model <id>] [--agent <id>] [--no-apply]",
+    )?;
+    let mut model = None;
+    let mut agent = None;
+    let mut apply = true;
+    while let Some(part) = parts.next() {
+        match part {
+            "--model" => model = Some(next_required(&mut parts, "--model needs an id")?),
+            _ if part.starts_with("--model=") => {
+                model = Some(required_option_value(part, "--model")?);
+            }
+            "--agent" => agent = Some(next_required(&mut parts, "--agent needs an id")?),
+            _ if part.starts_with("--agent=") => {
+                agent = Some(required_option_value(part, "--agent")?);
+            }
+            "--no-apply" => apply = false,
+            _ => anyhow::bail!("unknown memory classify option: {part}"),
+        }
+    }
+    Ok(MemorySlashCommand::Classify {
+        id,
+        model,
+        agent,
+        apply,
+    })
+}
+
+fn parse_memory_edit_args(rest: &str) -> anyhow::Result<MemorySlashCommand> {
+    let (id, content) = rest
+        .trim()
+        .split_once(char::is_whitespace)
+        .map(|(id, content)| (id.trim().to_string(), content.trim().to_string()))
+        .ok_or_else(|| anyhow::anyhow!("usage: /memory edit <id> <content>"))?;
+    if id.is_empty() || content.is_empty() {
+        anyhow::bail!("usage: /memory edit <id> <content>");
+    }
+    Ok(MemorySlashCommand::Edit { id, content })
+}
+
+fn parse_memory_delete_args(rest: &str) -> anyhow::Result<MemorySlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let id = next_required(&mut parts, "usage: /memory delete <id> --confirm")?;
+    let mut confirmed = false;
+    for part in parts {
+        match part {
+            "--confirm" => confirmed = true,
+            _ => anyhow::bail!("unknown memory delete option: {part}"),
+        }
+    }
+    if !confirmed {
+        anyhow::bail!("memory delete requires --confirm");
+    }
+    Ok(MemorySlashCommand::Delete { id })
+}
+
+fn parse_memory_rollback_args(rest: &str) -> anyhow::Result<MemorySlashCommand> {
+    let mut user = false;
+    let mut confirmed = false;
+    for part in rest.split_whitespace() {
+        match part {
+            "--user" => user = true,
+            "--confirm" => confirmed = true,
+            _ => anyhow::bail!("unknown memory rollback option: {part}"),
+        }
+    }
+    if !confirmed {
+        anyhow::bail!("memory rollback requires --confirm");
+    }
+    Ok(MemorySlashCommand::Rollback { user })
+}
+
+fn parse_memory_export_args(rest: &str) -> anyhow::Result<MemorySlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let path = next_required(&mut parts, "usage: /memory export <path> [--user]")?;
+    let mut user = false;
+    for part in parts {
+        match part {
+            "--user" => user = true,
+            _ => anyhow::bail!("unknown memory export option: {part}"),
+        }
+    }
+    Ok(MemorySlashCommand::Export { path, user })
+}
+
+fn parse_memory_import_args(rest: &str) -> anyhow::Result<MemorySlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let path = next_required(
+        &mut parts,
+        "usage: /memory import <path> [--user] [--agent <id>]",
+    )?;
+    let mut user = false;
+    let mut agent = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--user" => user = true,
+            "--agent" => agent = Some(next_required(&mut parts, "--agent needs an id")?),
+            _ if part.starts_with("--agent=") => {
+                agent = Some(required_option_value(part, "--agent")?);
+            }
+            _ => anyhow::bail!("unknown memory import option: {part}"),
+        }
+    }
+    Ok(MemorySlashCommand::Import { path, user, agent })
+}
+
+fn parse_memory_message_range(value: &str) -> anyhow::Result<(usize, usize)> {
+    let (from, to) = value
+        .split_once(':')
+        .ok_or_else(|| anyhow::anyhow!("memory range needs from:to"))?;
+    let from = parse_nonnegative_usize(from, "memory range start")?;
+    let to = parse_nonnegative_usize(to, "memory range end")?;
+    if to < from {
+        anyhow::bail!("memory range end must be greater than or equal to start");
+    }
+    Ok((from, to))
+}
+
+fn parse_nonnegative_usize(value: &str, label: &str) -> anyhow::Result<usize> {
+    value
+        .parse::<usize>()
+        .map_err(|_| anyhow::anyhow!("{label} needs a non-negative integer"))
+}
+
+fn required_option_value(part: &str, option: &str) -> anyhow::Result<String> {
+    let value = part
+        .split_once('=')
+        .map(|(_, value)| value.trim())
+        .unwrap_or_default();
+    if value.is_empty() {
+        anyhow::bail!("{option} needs a value");
+    }
+    Ok(value.into())
 }
 
 fn compact_slash_rest(trimmed: &str) -> Option<&str> {
@@ -8592,6 +9036,141 @@ mod slash_tests {
         assert!(parse_slash_command("/storage prune-cache 0").is_err());
         assert!(parse_slash_command("/storage prune-cache 30 --force").is_err());
         assert!(parse_slash_command("/storagex report").unwrap().is_none());
+    }
+
+    #[test]
+    fn parses_memory_shortcuts() {
+        assert!(matches!(
+            parse_slash_command("/memory").unwrap(),
+            Some(SlashCommand::Memory(MemorySlashCommand::List))
+        ));
+        assert!(matches!(
+            parse_slash_command("/memory list").unwrap(),
+            Some(SlashCommand::Memory(MemorySlashCommand::List))
+        ));
+        match parse_slash_command("/memory access --topic rust --topic=agents").unwrap() {
+            Some(SlashCommand::Memory(MemorySlashCommand::Access { topics })) => {
+                assert_eq!(topics, vec!["rust", "agents"]);
+            }
+            _ => panic!("expected memory access shortcut"),
+        }
+        assert!(matches!(
+            parse_slash_command("/memory backends").unwrap(),
+            Some(SlashCommand::Memory(MemorySlashCommand::Backends))
+        ));
+        match parse_slash_command(
+            "/memory create --user --agent critic --conversation conv-1 --topic prefs remember this",
+        )
+        .unwrap()
+        {
+            Some(SlashCommand::Memory(MemorySlashCommand::Create {
+                content,
+                user,
+                conversation,
+                agent,
+                topics,
+            })) => {
+                assert_eq!(content, "remember this");
+                assert!(user);
+                assert_eq!(conversation.as_deref(), Some("conv-1"));
+                assert_eq!(agent.as_deref(), Some("critic"));
+                assert_eq!(topics, vec!["prefs"]);
+            }
+            _ => panic!("expected memory create shortcut"),
+        }
+        match parse_slash_command(
+            "/memory generate --range messages:0..2 --topic project learned fact",
+        )
+        .unwrap()
+        {
+            Some(SlashCommand::Memory(MemorySlashCommand::Generate {
+                text,
+                range,
+                topics,
+                ..
+            })) => {
+                assert_eq!(text, "learned fact");
+                assert_eq!(range.as_deref(), Some("messages:0..2"));
+                assert_eq!(topics, vec!["project"]);
+            }
+            _ => panic!("expected memory generate shortcut"),
+        }
+        match parse_slash_command(
+            "/memory generate-conversation conv-1 1:3 --agent critic --topic project",
+        )
+        .unwrap()
+        {
+            Some(SlashCommand::Memory(MemorySlashCommand::GenerateConversation {
+                id,
+                from,
+                to,
+                agent,
+                topics,
+                ..
+            })) => {
+                assert_eq!(id, "conv-1");
+                assert_eq!(from, Some(1));
+                assert_eq!(to, Some(3));
+                assert_eq!(agent.as_deref(), Some("critic"));
+                assert_eq!(topics, vec!["project"]);
+            }
+            _ => panic!("expected memory generate-conversation shortcut"),
+        }
+        match parse_slash_command(
+            "/memory classify mem-1 --model memory-model --agent critic --no-apply",
+        )
+        .unwrap()
+        {
+            Some(SlashCommand::Memory(MemorySlashCommand::Classify {
+                id,
+                model,
+                agent,
+                apply,
+            })) => {
+                assert_eq!(id, "mem-1");
+                assert_eq!(model.as_deref(), Some("memory-model"));
+                assert_eq!(agent.as_deref(), Some("critic"));
+                assert!(!apply);
+            }
+            _ => panic!("expected memory classify shortcut"),
+        }
+        match parse_slash_command("/memory edit mem-1 updated content").unwrap() {
+            Some(SlashCommand::Memory(MemorySlashCommand::Edit { id, content })) => {
+                assert_eq!(id, "mem-1");
+                assert_eq!(content, "updated content");
+            }
+            _ => panic!("expected memory edit shortcut"),
+        }
+        match parse_slash_command("/memory delete mem-1 --confirm").unwrap() {
+            Some(SlashCommand::Memory(MemorySlashCommand::Delete { id })) => {
+                assert_eq!(id, "mem-1");
+            }
+            _ => panic!("expected memory delete shortcut"),
+        }
+        match parse_slash_command("/memory rollback --user --confirm").unwrap() {
+            Some(SlashCommand::Memory(MemorySlashCommand::Rollback { user })) => {
+                assert!(user);
+            }
+            _ => panic!("expected memory rollback shortcut"),
+        }
+        match parse_slash_command("/memory export /tmp/memory.md --user").unwrap() {
+            Some(SlashCommand::Memory(MemorySlashCommand::Export { path, user })) => {
+                assert_eq!(path, "/tmp/memory.md");
+                assert!(user);
+            }
+            _ => panic!("expected memory export shortcut"),
+        }
+        match parse_slash_command("/memory import /tmp/memory.md --agent critic").unwrap() {
+            Some(SlashCommand::Memory(MemorySlashCommand::Import { path, agent, .. })) => {
+                assert_eq!(path, "/tmp/memory.md");
+                assert_eq!(agent.as_deref(), Some("critic"));
+            }
+            _ => panic!("expected memory import shortcut"),
+        }
+        assert!(parse_slash_command("/memory delete mem-1").is_err());
+        assert!(parse_slash_command("/memory rollback").is_err());
+        assert!(parse_slash_command("/memory create --mystery value").is_err());
+        assert!(parse_slash_command("/memories list").unwrap().is_none());
     }
 
     #[test]

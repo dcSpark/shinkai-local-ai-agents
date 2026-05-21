@@ -147,6 +147,20 @@ scripts/verify-release-artifacts.sh --manifest-only
 scripts/verify-mobile-packaging.sh
 ```
 
+Strict native mobile packaging checks require generated Tauri mobile projects
+and platform SDKs. After installing the Android or iOS prerequisites, generate
+and verify each platform independently:
+
+```bash
+npm --prefix crates/agent-tauri/frontend run tauri -- android init
+scripts/verify-mobile-packaging.sh --strict --platform=android
+```
+
+```bash
+npm --prefix crates/agent-tauri/frontend run tauri -- ios init
+scripts/verify-mobile-packaging.sh --strict --platform=ios
+```
+
 Release binary smoke build:
 
 ```bash

@@ -6418,6 +6418,13 @@ pub async fn remote_adapter_install_skill(url: String, id: String) -> anyhow::Re
     )?)
 }
 
+pub async fn remote_adapter_inspect(url: String, path: String) -> anyhow::Result<()> {
+    print_remote(
+        DaemonHttpClient::new(url)
+            .post_json("/adapters/inspect", serde_json::json!({ "path": path }))?,
+    )
+}
+
 pub async fn remote_adapter_import(url: String, path: String) -> anyhow::Result<()> {
     print_remote(
         DaemonHttpClient::new(url)

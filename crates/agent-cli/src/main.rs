@@ -3239,6 +3239,9 @@ enum RemoteAdapterCommand {
     InstallSkill {
         id: String,
     },
+    Inspect {
+        path: String,
+    },
     Import {
         path: String,
     },
@@ -5612,6 +5615,15 @@ mod cli_parse_tests {
         };
         assert_eq!(id, "adapter-demo");
 
+        let cli = parse_cli(["agent", "remote", "adapter", "inspect", "./adapter"]).unwrap();
+        let RemoteCommand::Adapter {
+            command: RemoteAdapterCommand::Inspect { path },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote adapter inspect command");
+        };
+        assert_eq!(path, "./adapter");
+
         let cli = parse_cli([
             "agent",
             "remote",
@@ -7313,6 +7325,9 @@ async fn main() -> anyhow::Result<()> {
                 RemoteAdapterCommand::Doctor => headless::remote_adapter_doctor(url).await,
                 RemoteAdapterCommand::InstallSkill { id } => {
                     headless::remote_adapter_install_skill(url, id).await
+                }
+                RemoteAdapterCommand::Inspect { path } => {
+                    headless::remote_adapter_inspect(url, path).await
                 }
                 RemoteAdapterCommand::Import { path } => {
                     headless::remote_adapter_import(url, path).await

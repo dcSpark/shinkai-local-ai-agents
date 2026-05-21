@@ -100,6 +100,12 @@ pub async fn run(
         Some(SlashCommand::Run(prompt)) => {
             text = resolve_saved_prompt_or_literal(&prompt, options.agent_id.as_deref())?
         }
+        Some(SlashCommand::Resume { run_id, from_event }) => {
+            return resume(run_id, from_event, demo, json).await;
+        }
+        Some(SlashCommand::ResumePlan { run_id, from_event }) => {
+            return resume_plan(run_id, from_event, json).await;
+        }
         Some(SlashCommand::Guide { run_id, text }) => return guide(run_id, text).await,
         Some(SlashCommand::Score {
             run_id,
@@ -7665,6 +7671,14 @@ enum SlashCommand {
         prompt: String,
     },
     Run(String),
+    Resume {
+        run_id: String,
+        from_event: Option<u64>,
+    },
+    ResumePlan {
+        run_id: String,
+        from_event: Option<u64>,
+    },
     Guide {
         run_id: String,
         text: String,
@@ -7699,6 +7713,18 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
     }
     if let Some(rest) = trimmed.strip_prefix("/run ") {
         return Ok(Some(SlashCommand::Run(rest.trim().to_string())));
+    }
+    if let Some(rest) = trimmed.strip_prefix("/resume-plan ").map(str::trim) {
+        let (run_id, from_event) = parse_resume_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::ResumePlan { run_id, from_event }));
+    }
+    if let Some(rest) = trimmed.strip_prefix("/resume ").map(str::trim) {
+        if let Some(plan_rest) = rest.strip_prefix("plan ").map(str::trim) {
+            let (run_id, from_event) = parse_resume_slash_rest(plan_rest)?;
+            return Ok(Some(SlashCommand::ResumePlan { run_id, from_event }));
+        }
+        let (run_id, from_event) = parse_resume_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Resume { run_id, from_event }));
     }
     if let Some(rest) = trimmed.strip_prefix("/guide ").map(str::trim) {
         let (run_id, text) = parse_guide_slash_rest(rest)?;
@@ -7759,6 +7785,7 @@ fn headless_slash_help_text() -> &'static str {
      - /python <code>, /typescript <code>, /ts <code> - call native code execution tools directly\n\
      - /voice transcribe <path>, /voice speak <text> - call native voice tools directly\n\
      - /x402 request|required|settle ... - call native x402 payment tools directly\n\
+     - /resume <run-id> [--from-event N], /resume plan <run-id> [--from-event N]\n\
      - /guide <run-id> <text> - inject guidance into an active run\n\
      - /score <run-id> <0-10> [target] - record a quality score\n\
      Use --json to print this help as JSON."
@@ -7857,6 +7884,48 @@ fn parse_forced_tool_slash_rest(rest: &str) -> anyhow::Result<(String, String)> 
         anyhow::bail!("missing tool name");
     }
     Ok((name, prompt))
+}
+
+fn parse_resume_slash_rest(rest: &str) -> anyhow::Result<(String, Option<u64>)> {
+    let mut parts = rest.split_whitespace();
+    let run_id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("usage: /resume <run-id> [--from-event N]"))?
+        .to_string();
+    let _ = uuid::Uuid::parse_str(&run_id)?;
+    let mut from_event = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--from-event" => {
+                let value = parts
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--from-event needs an event id"))?;
+                from_event = Some(parse_positive_u64(value, "--from-event")?);
+            }
+            _ if part.starts_with("--from-event=") => {
+                let value = part
+                    .split_once('=')
+                    .map(|(_, value)| value)
+                    .unwrap_or_default();
+                if value.trim().is_empty() {
+                    anyhow::bail!("--from-event needs an event id");
+                }
+                from_event = Some(parse_positive_u64(value, "--from-event")?);
+            }
+            _ => anyhow::bail!("unknown resume option: {part}"),
+        }
+    }
+    Ok((run_id, from_event))
+}
+
+fn parse_positive_u64(value: &str, label: &str) -> anyhow::Result<u64> {
+    let parsed = value
+        .parse::<u64>()
+        .map_err(|_| anyhow::anyhow!("{label} needs a positive integer"))?;
+    if parsed == 0 {
+        anyhow::bail!("{label} needs a positive integer");
+    }
+    Ok(parsed)
 }
 
 fn parse_guide_slash_rest(rest: &str) -> anyhow::Result<(String, String)> {
@@ -8063,6 +8132,43 @@ mod slash_tests {
             _ => panic!("expected one-shot agent run shortcut"),
         }
         assert!(parse_slash_command("/agents critic").unwrap().is_none());
+    }
+
+    #[test]
+    fn parses_resume_shortcuts() {
+        let run_id = uuid::Uuid::new_v4().to_string();
+        match parse_slash_command(&format!("/resume {run_id} --from-event 7")).unwrap() {
+            Some(SlashCommand::Resume {
+                run_id: parsed_id,
+                from_event,
+            }) => {
+                assert_eq!(parsed_id, run_id);
+                assert_eq!(from_event, Some(7));
+            }
+            _ => panic!("expected resume shortcut"),
+        }
+        match parse_slash_command(&format!("/resume plan {run_id} --from-event=8")).unwrap() {
+            Some(SlashCommand::ResumePlan {
+                run_id: parsed_id,
+                from_event,
+            }) => {
+                assert_eq!(parsed_id, run_id);
+                assert_eq!(from_event, Some(8));
+            }
+            _ => panic!("expected resume-plan shortcut"),
+        }
+        match parse_slash_command(&format!("/resume-plan {run_id}")).unwrap() {
+            Some(SlashCommand::ResumePlan {
+                run_id: parsed_id,
+                from_event,
+            }) => {
+                assert_eq!(parsed_id, run_id);
+                assert_eq!(from_event, None);
+            }
+            _ => panic!("expected resume-plan shortcut"),
+        }
+        assert!(parse_slash_command("/resume nope").is_err());
+        assert!(parse_slash_command(&format!("/resume {run_id} --from-event 0")).is_err());
     }
 
     #[test]

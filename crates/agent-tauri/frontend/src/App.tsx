@@ -1441,6 +1441,11 @@ export default function App() {
       { command: "/memory", label: "List memory records" },
       { command: "/ingest", label: "List ingestion artifacts" },
       { command: "/artifacts", label: "List generated artifacts" },
+      { command: "/artifacts list", label: "List generated artifacts" },
+      { command: "/artifacts show ", label: "Show generated artifact" },
+      { command: "/artifacts open ", label: "Open generated artifact" },
+      { command: "/artifacts preview ", label: "Preview generated artifact" },
+      { command: "/artifacts delete ", label: "Delete generated artifact" },
       { command: "/skills", label: "List imported skills" },
       { command: "/capabilities", label: "List capability drafts" },
       { command: "/profiles", label: "List profiles" },
@@ -3444,11 +3449,46 @@ export default function App() {
       return;
     }
 
-    if (prompt === "/artifacts") {
+    if (prompt === "/artifacts" || prompt === "/artifacts list" || prompt.startsWith("/artifacts ")) {
       setInput("");
       setActiveSection("artifacts");
-      appendLine("user", "/artifacts");
-      await reviewGeneratedArtifacts();
+      appendLine("user", prompt);
+      if (prompt === "/artifacts" || prompt === "/artifacts list") {
+        await reviewGeneratedArtifacts();
+      } else if (prompt.startsWith("/artifacts show ")) {
+        const id = prompt.slice("/artifacts show ".length).trim();
+        if (!id) {
+          appendLine("error", "Artifact show shortcut needs an artifact id.");
+        } else {
+          await showGeneratedArtifactFromOps(id);
+        }
+      } else if (prompt.startsWith("/artifacts open ")) {
+        const id = prompt.slice("/artifacts open ".length).trim();
+        if (!id) {
+          appendLine("error", "Artifact open shortcut needs an artifact id.");
+        } else {
+          await openGeneratedArtifactFromOps(id);
+        }
+      } else if (prompt.startsWith("/artifacts preview ")) {
+        const id = prompt.slice("/artifacts preview ".length).trim();
+        if (!id) {
+          appendLine("error", "Artifact preview shortcut needs an artifact id.");
+        } else {
+          await previewGeneratedArtifactById(id);
+        }
+      } else if (prompt.startsWith("/artifacts delete ")) {
+        const id = prompt.slice("/artifacts delete ".length).trim();
+        if (!id) {
+          appendLine("error", "Artifact delete shortcut needs an artifact id.");
+        } else {
+          await deleteGeneratedArtifactFromOps(id);
+        }
+      } else {
+        appendLine(
+          "error",
+          "Artifacts shortcut needs list, show, open, preview, or delete.",
+        );
+      }
       return;
     }
 
@@ -4151,8 +4191,12 @@ export default function App() {
 
   async function previewGeneratedArtifact(artifact: GeneratedArtifact) {
     if (!isInlineArtifactFormat(artifact.format)) return;
+    await previewGeneratedArtifactById(artifact.id);
+  }
+
+  async function previewGeneratedArtifactById(id: string) {
     try {
-      const preview = await loadGeneratedArtifactDataUrl(artifact.id);
+      const preview = await loadGeneratedArtifactDataUrl(id);
       setArtifactPreview(preview);
       if (isAudioFormat(preview.artifact.format)) {
         setVoiceOutputArtifact(preview.artifact);
@@ -7141,8 +7185,8 @@ export default function App() {
     }
   }
 
-  async function showGeneratedArtifactFromOps() {
-    const id = requireOpsId("Artifact show");
+  async function showGeneratedArtifactFromOps(explicitId?: string) {
+    const id = explicitId?.trim() || requireOpsId("Artifact show");
     if (!id) return;
     await showGeneratedArtifact(id);
   }
@@ -7163,8 +7207,8 @@ export default function App() {
     }
   }
 
-  async function openGeneratedArtifactFromOps() {
-    const id = requireOpsId("Artifact open");
+  async function openGeneratedArtifactFromOps(explicitId?: string) {
+    const id = explicitId?.trim() || requireOpsId("Artifact open");
     if (!id) return;
     await openGeneratedArtifact(id);
   }
@@ -7188,8 +7232,8 @@ export default function App() {
     }
   }
 
-  async function deleteGeneratedArtifactFromOps() {
-    const id = requireOpsId("Artifact delete");
+  async function deleteGeneratedArtifactFromOps(explicitId?: string) {
+    const id = explicitId?.trim() || requireOpsId("Artifact delete");
     if (!id) return;
     await deleteGeneratedArtifact(id);
   }

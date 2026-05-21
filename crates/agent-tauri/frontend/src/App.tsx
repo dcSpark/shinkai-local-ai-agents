@@ -1352,6 +1352,10 @@ export default function App() {
       { command: "/prompt ", label: "Load saved prompt" },
       { command: "/prompts", label: "List saved prompts" },
       { command: "/models", label: "List model metadata" },
+      { command: "/models list", label: "List model metadata" },
+      { command: "/models show ", label: "Show model metadata" },
+      { command: "/models probe ", label: "Probe model capabilities" },
+      { command: "/models delete ", label: "Delete model metadata" },
       { command: "/models providers", label: "List model providers" },
       { command: "/models doctor", label: "Run model doctor" },
       { command: "/models provider-catalog", label: "Show provider catalog" },
@@ -3537,31 +3541,51 @@ export default function App() {
     }
 
     if (
+      prompt === "/models" ||
+      prompt === "/models list" ||
       prompt === "/models providers" ||
       prompt === "/models doctor" ||
       prompt === "/models provider-catalog" ||
-      prompt === "/models metadata-catalog"
+      prompt === "/models metadata-catalog" ||
+      prompt.startsWith("/models show ") ||
+      prompt.startsWith("/models probe ") ||
+      prompt.startsWith("/models delete ")
     ) {
       setInput("");
       setActiveSection("prompts");
       appendLine("user", prompt);
-      if (prompt === "/models providers") {
+      if (prompt === "/models" || prompt === "/models list") {
+        await listModelsFromOps();
+      } else if (prompt === "/models providers") {
         await listModelProvidersFromOps();
       } else if (prompt === "/models doctor") {
         await modelDoctorFromOps();
       } else if (prompt === "/models provider-catalog") {
         await showModelProviderCatalogFromOps();
-      } else {
+      } else if (prompt === "/models metadata-catalog") {
         await showModelMetadataCatalogFromOps();
+      } else if (prompt.startsWith("/models show ")) {
+        const id = prompt.slice("/models show ".length).trim();
+        if (!id) {
+          appendLine("error", "Models show shortcut needs a model id.");
+        } else {
+          await showModelFromOps(id);
+        }
+      } else if (prompt.startsWith("/models probe ")) {
+        const id = prompt.slice("/models probe ".length).trim();
+        if (!id) {
+          appendLine("error", "Models probe shortcut needs a model id.");
+        } else {
+          await probeModelFromOps(id);
+        }
+      } else if (prompt.startsWith("/models delete ")) {
+        const id = prompt.slice("/models delete ".length).trim();
+        if (!id) {
+          appendLine("error", "Models delete shortcut needs a model id.");
+        } else {
+          await deleteModelFromOps(id);
+        }
       }
-      return;
-    }
-
-    if (prompt === "/models") {
-      setInput("");
-      setActiveSection("prompts");
-      appendLine("user", "/models");
-      await listModelsFromOps();
       return;
     }
 
@@ -6656,8 +6680,8 @@ export default function App() {
     }
   }
 
-  async function showModelFromOps() {
-    const id = requireOpsId("Model show");
+  async function showModelFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Model show");
     if (!id) return;
     try {
       const doc =
@@ -6671,8 +6695,8 @@ export default function App() {
     }
   }
 
-  async function probeModelFromOps() {
-    const id = requireOpsId("Model probe");
+  async function probeModelFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Model probe");
     if (!id) return;
     try {
       const doc =
@@ -6836,8 +6860,8 @@ export default function App() {
     return value;
   }
 
-  async function deleteModelFromOps() {
-    const id = requireOpsId("Model delete");
+  async function deleteModelFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Model delete");
     if (!id) return;
     if (!confirmLocalChange(`Delete model ${id}`)) return;
     try {

@@ -74,6 +74,11 @@ type ActiveSection =
 type AgentMode = "answer" | "action" | "workflow" | "custom";
 type AgentConfigEntry = AgentConfigFile | AgentSummary;
 type AgentDeleteResult = { id?: string; deleted?: boolean };
+type IngestModelOptions = {
+  backend?: string;
+  visionModel?: string | null;
+  guardrailModel?: string | null;
+};
 
 function agentSharedProfile(doc: AgentConfigEntry | null | undefined) {
   return doc?.shared_from_profile?.trim() || null;
@@ -1692,6 +1697,87 @@ export default function App() {
       return null;
     }
     return { path, model };
+  }
+
+  function parseIngestModelShortcut(rest: string, command: string) {
+    const parts = rest.split(/\s+/).filter(Boolean);
+    const targetParts: string[] = [];
+    const options: IngestModelOptions = {};
+    for (let index = 0; index < parts.length; index += 1) {
+      const part = parts[index];
+      if (
+        part === "--backend" ||
+        part === "--vision-model" ||
+        part === "--guardrail-model"
+      ) {
+        const value = parts[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", `Ingest ${command} ${part} needs a value.`);
+          return null;
+        }
+        if (!setIngestModelOption(options, part, value, command)) {
+          return null;
+        }
+        index += 1;
+        continue;
+      }
+      const inline = part.match(/^(--backend|--vision-model|--guardrail-model)=(.+)$/);
+      if (inline) {
+        const [, flag, value] = inline;
+        if (!setIngestModelOption(options, flag, value.trim(), command)) {
+          return null;
+        }
+        continue;
+      }
+      if (part.startsWith("--")) {
+        appendLine("error", `Unknown ingest ${command} option: ${part}`);
+        return null;
+      }
+      targetParts.push(part);
+    }
+    const target = targetParts.join(" ").trim();
+    if (!target) {
+      appendLine(
+        "error",
+        `Ingest ${command} shortcut needs a ${command === "add" ? "file path" : "artifact id"}.`,
+      );
+      return null;
+    }
+    return { target, options };
+  }
+
+  function setIngestModelOption(
+    options: IngestModelOptions,
+    flag: string,
+    value: string,
+    command: string,
+  ) {
+    if (!value) {
+      appendLine("error", `Ingest ${command} ${flag} needs a value.`);
+      return false;
+    }
+    if (flag === "--backend") {
+      if (options.backend !== undefined) {
+        appendLine("error", `Ingest ${command} accepts one --backend value.`);
+        return false;
+      }
+      options.backend = value;
+      return true;
+    }
+    if (flag === "--vision-model") {
+      if (options.visionModel !== undefined) {
+        appendLine("error", `Ingest ${command} accepts one --vision-model value.`);
+        return false;
+      }
+      options.visionModel = value;
+      return true;
+    }
+    if (options.guardrailModel !== undefined) {
+      appendLine("error", `Ingest ${command} accepts one --guardrail-model value.`);
+      return false;
+    }
+    options.guardrailModel = value;
+    return true;
   }
 
   function bundleShortcutHelpText() {
@@ -4155,11 +4241,12 @@ export default function App() {
       } else if (prompt === "/ingest backends") {
         await reviewIngestionBackends();
       } else if (prompt.startsWith("/ingest add ")) {
-        const path = prompt.slice("/ingest add ".length).trim();
-        if (!path) {
-          appendLine("error", "Ingest add shortcut needs a file path.");
-        } else {
-          await ingestPathFromOps(path);
+        const parsed = parseIngestModelShortcut(
+          prompt.slice("/ingest add ".length).trim(),
+          "add",
+        );
+        if (parsed) {
+          await ingestPathFromOps(parsed.target, parsed.options);
         }
       } else if (
         prompt.startsWith("/ingest probe-vision ") ||
@@ -4182,11 +4269,12 @@ export default function App() {
           await showIngestFromOps(id);
         }
       } else if (prompt.startsWith("/ingest rerun ")) {
-        const id = prompt.slice("/ingest rerun ".length).trim();
-        if (!id) {
-          appendLine("error", "Ingest rerun shortcut needs an artifact id.");
-        } else {
-          await rerunIngestFromOps(id);
+        const parsed = parseIngestModelShortcut(
+          prompt.slice("/ingest rerun ".length).trim(),
+          "rerun",
+        );
+        if (parsed) {
+          await rerunIngestFromOps(parsed.target, parsed.options);
         }
       } else if (
         prompt.startsWith("/ingest use ") ||
@@ -8429,12 +8517,21 @@ export default function App() {
     }
   }
 
-  async function ingestPathFromOps(explicitPath?: string) {
+  async function ingestPathFromOps(
+    explicitPath?: string,
+    options: IngestModelOptions = {},
+  ) {
     const path = explicitPath?.trim() || requireOpsValue("Ingest add");
     if (!path) return;
-    const backend = ingestBackend.trim() || "local-v0";
-    const visionModel = ingestVisionModel.trim() || null;
-    const guardrailModel = ingestGuardrailModel.trim() || null;
+    const backend = (options.backend ?? ingestBackend.trim()) || "local-v0";
+    const visionModel =
+      options.visionModel !== undefined
+        ? options.visionModel
+        : ingestVisionModel.trim() || null;
+    const guardrailModel =
+      options.guardrailModel !== undefined
+        ? options.guardrailModel
+        : ingestGuardrailModel.trim() || null;
     try {
       const artifact = await ingestPath(path, backend, visionModel, guardrailModel);
       setIngestionArtifacts((artifacts) => upsertArtifact(artifacts, artifact));
@@ -8485,16 +8582,25 @@ export default function App() {
     }
   }
 
-  async function rerunIngestFromOps(explicitId?: string) {
+  async function rerunIngestFromOps(
+    explicitId?: string,
+    options: IngestModelOptions = {},
+  ) {
     const id = explicitId?.trim() || requireOpsId("Ingest rerun");
     if (!id) return;
-    await rerunIngestId(id);
+    await rerunIngestId(id, options);
   }
 
-  async function rerunIngestId(id: string) {
-    const backend = ingestBackend.trim() || "local-v0";
-    const visionModel = ingestVisionModel.trim() || null;
-    const guardrailModel = ingestGuardrailModel.trim() || null;
+  async function rerunIngestId(id: string, options: IngestModelOptions = {}) {
+    const backend = (options.backend ?? ingestBackend.trim()) || "local-v0";
+    const visionModel =
+      options.visionModel !== undefined
+        ? options.visionModel
+        : ingestVisionModel.trim() || null;
+    const guardrailModel =
+      options.guardrailModel !== undefined
+        ? options.guardrailModel
+        : ingestGuardrailModel.trim() || null;
     try {
       const artifact =
         transport === "daemon"

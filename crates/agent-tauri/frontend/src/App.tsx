@@ -1470,6 +1470,7 @@ export default function App() {
       { command: "/compactions", label: "List compacted-context artifacts" },
       { command: "/compactions list", label: "List compacted-context artifacts" },
       { command: "/compactions keep", label: "Keep current compacted context" },
+      { command: "/compactions keep-run ", label: "Keep auto-compaction from run" },
       { command: "/compactions show ", label: "Show compacted-context artifact" },
       { command: "/compactions use ", label: "Use compacted-context artifact" },
       { command: "/compactions export ", label: "Export compacted-context artifact" },
@@ -4635,6 +4636,10 @@ export default function App() {
         await listCompactionsFromOps();
       } else if (rest === "keep") {
         await keepAvailableCompaction();
+      } else if (rest === "keep-run" || rest.startsWith("keep-run ")) {
+        const runId =
+          rest === "keep-run" ? "" : rest.slice("keep-run ".length).trim();
+        await keepRunCompaction(runId);
       } else if (rest.startsWith("show ")) {
         const id = rest.slice("show ".length).trim();
         if (!id) {
@@ -4674,7 +4679,7 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Compactions shortcut needs list, keep, show, use, export, import, or delete.",
+          "Compactions shortcut needs list, keep, keep-run, show, use, export, import, or delete.",
         );
       }
       return;
@@ -6545,6 +6550,42 @@ export default function App() {
       return;
     }
     await keepContextPreviewCompaction(null, "manual-compact", manualCompactedContext);
+  }
+
+  function latestAutoCompactionSnapshot(events: RunEvent[]) {
+    for (let index = events.length - 1; index >= 0; index -= 1) {
+      const kind = events[index].kind;
+      if (
+        kind.type === "ContextBuilt" &&
+        kind.snapshot.compacted?.trim() &&
+        isAutoCompactionSnapshot(kind.snapshot)
+      ) {
+        return kind.snapshot;
+      }
+    }
+    return null;
+  }
+
+  async function keepRunCompaction(runIdInput?: string) {
+    const runId = runIdInput?.trim() || opsId.trim() || lastRunId || "";
+    if (!runId) {
+      appendLine("error", "Compactions keep-run needs a run id or previous run.");
+      return;
+    }
+    try {
+      const events = await fetchTraceEvents(runId);
+      const snapshot = latestAutoCompactionSnapshot(events);
+      if (!snapshot) {
+        appendLine("error", `Run ${runId} has no auto-compacted context to keep.`);
+        return;
+      }
+      setContextPreview(snapshot);
+      setContextPreviewPrompt(null);
+      await keepContextPreviewCompaction(snapshot, `auto-run:${runId}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Keep run compaction failed: ${msg}`);
+    }
   }
 
   async function listCompactionsFromOps() {

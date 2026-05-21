@@ -29,7 +29,9 @@ use tokio::time::MissedTickBehavior;
 
 use agent_adapters::{AdapterRegistry, NormalizedPackage};
 use agent_bundles::{export_bundle, import_bundle};
-use agent_capabilities::{CapabilityDraft, CapabilityDraftStatus, CapabilityDraftStore};
+use agent_capabilities::{
+    CapabilityDraft, CapabilityDraftDoctorReport, CapabilityDraftStatus, CapabilityDraftStore,
+};
 use agent_compaction::{CompactionRecord, CompactionStore};
 use agent_config::{
     AgentSummary, ConfigResolver, ProfileGrantKind, ProfileSummary, configured_model_providers,
@@ -2861,6 +2863,7 @@ fn handle_capabilities_slash(app: &mut App, rest: &str) {
             kind: LineKind::Assistant,
             text: [
                 "/capabilities list",
+                "/capabilities doctor",
                 "/capabilities show <id>",
                 "/capabilities export <id> <path>",
                 "/capabilities import <path>",
@@ -2893,6 +2896,26 @@ fn handle_capabilities_slash(app: &mut App, rest: &str) {
             Err(err) => app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
                 text: format!("Capability list failed: {err}"),
+            }),
+        },
+        "doctor" => match CapabilityDraftStore::from_env().doctor_report() {
+            Ok(report) => {
+                push_event(
+                    app,
+                    format!(
+                        "Capability doctor {:?}: {} draft(s), {} review needed.",
+                        report.status, report.draft_count, report.review_needed_count
+                    ),
+                );
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&capability_doctor_summary(&report))
+                        .unwrap_or_else(|_| "<unserializable capability doctor report>".into()),
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Capability doctor failed: {err}"),
             }),
         },
         "show" => match first_capability_arg(args, "show") {
@@ -2959,7 +2982,7 @@ fn handle_capabilities_slash(app: &mut App, rest: &str) {
         }
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Capabilities command needs list, show, export, import, allow, reject, or help."
+            text: "Capabilities command needs list, doctor, show, export, import, allow, reject, or help."
                 .into(),
         }),
     }
@@ -3064,6 +3087,22 @@ fn capability_draft_summary(draft: &CapabilityDraft) -> serde_json::Value {
         "provenance": draft.provenance,
         "updated_at": draft.updated_at,
         "body_preview": compact_preview(&draft.body, 240),
+    })
+}
+
+fn capability_doctor_summary(report: &CapabilityDraftDoctorReport) -> serde_json::Value {
+    serde_json::json!({
+        "status": report.status,
+        "draft_count": report.draft_count,
+        "quarantined_count": report.quarantined_count,
+        "allowed_count": report.allowed_count,
+        "rejected_count": report.rejected_count,
+        "adapter_pack_candidate_count": report.adapter_pack_candidate_count,
+        "skill_candidate_count": report.skill_candidate_count,
+        "agent_candidate_count": report.agent_candidate_count,
+        "review_needed_count": report.review_needed_count,
+        "warnings": &report.warnings,
+        "drafts": &report.drafts,
     })
 }
 
@@ -8083,6 +8122,10 @@ mod tests {
         assert_eq!(memory_slash_rest("/memory"), Some(""));
         assert_eq!(memory_slash_rest("/memories"), None);
         assert_eq!(capabilities_slash_rest("/capabilities list"), Some("list"));
+        assert_eq!(
+            capabilities_slash_rest("/capabilities doctor"),
+            Some("doctor")
+        );
         assert_eq!(capabilities_slash_rest("/capabilities"), Some(""));
         assert_eq!(capabilities_slash_rest("/capability"), None);
         assert_eq!(artifacts_slash_rest("/artifacts list"), Some("list"));

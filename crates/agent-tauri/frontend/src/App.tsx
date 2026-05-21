@@ -1405,6 +1405,8 @@ export default function App() {
       { command: "/python ", label: "Run Python code" },
       { command: "/typescript ", label: "Run TypeScript code" },
       { command: "/ts ", label: "Run TypeScript code" },
+      { command: "/x402 request ", label: "Probe an x402 endpoint" },
+      { command: "/payment x402-request ", label: "Probe an x402 endpoint" },
       { command: "/memory on", label: "Load memory in context" },
       { command: "/memory off", label: "Stop loading memory" },
       { command: "/memory status", label: "Show memory loading status" },
@@ -1787,6 +1789,77 @@ export default function App() {
       return false;
     }
     options.guardrailModel = value;
+    return true;
+  }
+
+  function parseX402RequestShortcut(rest: string) {
+    const parts = rest.split(/\s+/).filter(Boolean);
+    const url = parts.shift();
+    if (!url) {
+      appendLine("error", "x402 request shortcut needs a URL.");
+      return null;
+    }
+    const inputBody: Record<string, unknown> = { url };
+    for (let index = 0; index < parts.length; index += 1) {
+      const part = parts[index];
+      if (part === "--auto-pay") {
+        inputBody.auto_pay = true;
+        continue;
+      }
+      if (part === "--method" || part === "--max-amount" || part === "--signature-secret") {
+        const value = parts[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", `x402 request ${part} needs a value.`);
+          return null;
+        }
+        if (!setX402RequestOption(inputBody, part, value)) {
+          return null;
+        }
+        index += 1;
+        continue;
+      }
+      const inline = part.match(/^(--method|--max-amount|--signature-secret)=(.+)$/);
+      if (inline) {
+        const [, flag, value] = inline;
+        if (!setX402RequestOption(inputBody, flag, value.trim())) {
+          return null;
+        }
+        continue;
+      }
+      if (part.startsWith("--")) {
+        appendLine("error", `Unknown x402 request option: ${part}`);
+        return null;
+      }
+      appendLine("error", "x402 request accepts one URL plus option flags.");
+      return null;
+    }
+    return inputBody;
+  }
+
+  function setX402RequestOption(
+    inputBody: Record<string, unknown>,
+    flag: string,
+    value: string,
+  ) {
+    if (flag === "--method") {
+      const method = value.toUpperCase();
+      if (method !== "GET" && method !== "POST") {
+        appendLine("error", "x402 request --method must be GET or POST.");
+        return false;
+      }
+      inputBody.method = method;
+      return true;
+    }
+    if (flag === "--max-amount") {
+      const amount = Number(value);
+      if (!Number.isFinite(amount) || amount < 0) {
+        appendLine("error", "x402 request --max-amount needs a non-negative number.");
+        return false;
+      }
+      inputBody.max_amount = amount;
+      return true;
+    }
+    inputBody.payment_signature_secret = value;
     return true;
   }
 
@@ -3851,6 +3924,34 @@ export default function App() {
         { code },
         prompt,
       );
+      return;
+    }
+
+    if (
+      prompt === "/x402" ||
+      prompt === "/payment" ||
+      prompt === "/x402 request" ||
+      prompt === "/payment x402-request"
+    ) {
+      appendLine(
+        "error",
+        "x402 shortcut needs: /x402 request <url> [--method GET|POST] [--max-amount n] [--auto-pay] [--signature-secret id].",
+      );
+      return;
+    }
+    if (
+      prompt.startsWith("/x402 request ") ||
+      prompt.startsWith("/payment x402-request ")
+    ) {
+      const prefix = prompt.startsWith("/x402 request ")
+        ? "/x402 request "
+        : "/payment x402-request ";
+      const inputBody = parseX402RequestShortcut(
+        prompt.slice(prefix.length).trim(),
+      );
+      if (!inputBody) return;
+      setInput("");
+      await callToolDirect("payment_x402_request", inputBody, prompt);
       return;
     }
 

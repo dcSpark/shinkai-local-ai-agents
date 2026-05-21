@@ -40,7 +40,7 @@ use agent_config::{
 };
 use agent_conversations::{
     ConversationMessage, ConversationPolicy, ConversationStore, ConversationTreeNode,
-    render_message_range,
+    ConversationUsageReport, build_conversation_usage_report, render_message_range,
 };
 use agent_core::{AgentConfig, ContextSnapshot, Harness, HarnessApi, StopRetentionMode, UserInput};
 use agent_ingest::{IngestionArtifact, IngestionFindingReviewDecision, IngestionStore};
@@ -1204,6 +1204,7 @@ fn handle_conversation_slash(app: &mut App, rest: &str) {
                 "/conversation delete [<id>] [--recursive]",
                 "/conversation range [<id>] <from> <to>",
                 "/conversation range [<id>] <from>:<to>",
+                "/conversation usage [<id>] [<from>:<to>|last <n>]",
                 "/conversation memory [<id>] <from>:<to> [--user] [--topic <topic>]",
                 "/conversation range-delete [<id>] <from>:<to>",
                 "/conversation confirm",
@@ -1338,6 +1339,13 @@ fn handle_conversation_slash(app: &mut App, rest: &str) {
                 text: format!("Conversation range delete failed: {err}"),
             }),
         },
+        "usage" => match show_conversation_usage(app, args) {
+            Ok(()) => {}
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Conversation usage failed: {err}"),
+            }),
+        },
         "memory" | "memory-generate" => match generate_conversation_memory_from_tui(app, args) {
             Ok(()) => {}
             Err(err) => app.transcript.push(TranscriptLine {
@@ -1358,7 +1366,7 @@ fn handle_conversation_slash(app: &mut App, rest: &str) {
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Conversation command needs recover, tree, browse, select, policy, delete-plan, delete, range, memory, range-delete, confirm, cancel, or help.".into(),
+            text: "Conversation command needs recover, tree, browse, select, policy, delete-plan, delete, range, usage, memory, range-delete, confirm, cancel, or help.".into(),
         }),
     }
 }
@@ -1775,6 +1783,43 @@ fn parse_conversation_range_args_explicit(rest: &str) -> anyhow::Result<(String,
     Ok((id.to_string(), from, to))
 }
 
+fn parse_conversation_usage_args_with_selected(
+    rest: &str,
+    selected: Option<&str>,
+) -> anyhow::Result<(String, Option<usize>, Option<usize>, Option<usize>)> {
+    let mut parts = rest.split_whitespace().collect::<Vec<_>>();
+    let mut id = selected.map(str::to_string);
+    if parts
+        .first()
+        .is_some_and(|value| *value != "last" && !value.contains(':'))
+    {
+        id = Some(parts.remove(0).to_string());
+    }
+    let id = id.ok_or_else(|| anyhow::anyhow!("usage command needs a conversation id"))?;
+    match parts.as_slice() {
+        [] => Ok((id, None, None, None)),
+        ["last", count] => {
+            let last = count.parse::<usize>()?;
+            if last == 0 {
+                anyhow::bail!("usage last count must be greater than zero");
+            }
+            Ok((id, None, None, Some(last)))
+        }
+        [range] if range.contains(':') => {
+            let (from, to) = range
+                .split_once(':')
+                .ok_or_else(|| anyhow::anyhow!("usage range must be from:to"))?;
+            let from = from.parse::<usize>()?;
+            let to = to.parse::<usize>()?;
+            if from > to {
+                anyhow::bail!("usage range start {from} is after range end {to}");
+            }
+            Ok((id, Some(from), Some(to), None))
+        }
+        _ => anyhow::bail!("usage accepts [id], [id] <from>:<to>, or [id] last <n>"),
+    }
+}
+
 fn parse_conversation_memory_args_with_selected(
     rest: &str,
     selected: Option<&str>,
@@ -1917,6 +1962,38 @@ fn prepare_conversation_range_delete(app: &mut App, args: &str) -> anyhow::Resul
         "Pending conversation range delete. Use /conversation confirm or /conversation cancel."
             .to_string(),
     );
+    Ok(())
+}
+
+fn show_conversation_usage(app: &mut App, args: &str) -> anyhow::Result<()> {
+    let (id, from, to, last) =
+        parse_conversation_usage_args_with_selected(args, app.selected_conversation_id.as_deref())?;
+    let selection = ConversationStore::from_env().run_ids_for_segment(&id, from, to, last)?;
+    let trace_store = open_event_store()?;
+    let report = build_conversation_usage_report(selection, |run_id| {
+        let Ok(uuid) = uuid::Uuid::parse_str(run_id) else {
+            return Ok::<_, anyhow::Error>(None);
+        };
+        let run_id = RunId(uuid);
+        let events = trace_store.try_events(run_id)?;
+        if events.is_empty() {
+            return Ok::<_, anyhow::Error>(None);
+        }
+        Ok(Some(summarize_trace(&events, run_id)))
+    })?;
+    push_event(
+        app,
+        format!(
+            "Conversation usage: {} message(s), {}/{} trace(s)",
+            report.message_count,
+            report.trace_count,
+            report.run_ids.len()
+        ),
+    );
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::Assistant,
+        text: format_conversation_usage_report(&report),
+    });
     Ok(())
 }
 
@@ -7660,6 +7737,46 @@ fn trace_summary_report(summary: &TraceSummary) -> String {
     .join("\n")
 }
 
+fn format_conversation_usage_report(report: &ConversationUsageReport) -> String {
+    let range = match (report.from, report.to) {
+        (Some(from), Some(to)) => format!("{from}:{to}"),
+        _ => "empty".into(),
+    };
+    let cost = report
+        .totals
+        .cost_usd
+        .map(|value| format!("${value:.6}"))
+        .unwrap_or_else(|| "n/a".into());
+    let duration = report
+        .totals
+        .duration_ms
+        .map(|value| format!("{value}ms"))
+        .unwrap_or_else(|| "n/a".into());
+    [
+        format!("Conversation usage {}", report.conversation_id),
+        format!("range {range}, messages {}", report.message_count),
+        format!("runs {}/{}", report.trace_count, report.run_ids.len()),
+        format!(
+            "tokens {}/{}, cost {}, duration {}",
+            report.totals.tokens_in, report.totals.tokens_out, cost, duration
+        ),
+        format!(
+            "events {}, llm {}, tools {}, hooks {}/{} failed",
+            report.totals.events,
+            report.totals.llm_calls,
+            report.totals.tool_calls,
+            report.totals.hooks,
+            report.totals.hook_failures
+        ),
+        format!(
+            "incomplete: {} unlinked message(s), {} missing trace(s)",
+            report.missing_run_id_messages.len(),
+            report.missing_traces.len()
+        ),
+    ]
+    .join("\n")
+}
+
 fn trace_tree_report(tree: &TraceTreeNode) -> String {
     let mut lines = vec![format!("Trace tree {}", tree.run_id.0)];
     push_trace_tree_report_node(&mut lines, tree, 0);
@@ -9624,6 +9741,24 @@ mod tests {
             ("conv-1".into(), 2, 4)
         );
         assert!(parse_conversation_range_args_with_selected("2:4", None).is_err());
+    }
+
+    #[test]
+    fn conversation_usage_args_accept_full_range_and_last_forms() {
+        assert_eq!(
+            parse_conversation_usage_args_with_selected("", Some("conv-1")).unwrap(),
+            ("conv-1".into(), None, None, None)
+        );
+        assert_eq!(
+            parse_conversation_usage_args_with_selected("conv-2 2:4", Some("conv-1")).unwrap(),
+            ("conv-2".into(), Some(2), Some(4), None)
+        );
+        assert_eq!(
+            parse_conversation_usage_args_with_selected("last 3", Some("conv-1")).unwrap(),
+            ("conv-1".into(), None, None, Some(3))
+        );
+        assert!(parse_conversation_usage_args_with_selected("", None).is_err());
+        assert!(parse_conversation_usage_args_with_selected("last 0", Some("conv-1")).is_err());
     }
 
     #[test]

@@ -367,6 +367,19 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Preview the generated prompt that would be used to resume a saved run trace.
+    ResumePlan {
+        /// Run UUID printed by `agent run`.
+        run_id: String,
+
+        /// Event id to resume from. Defaults to the last non-terminal event.
+        #[arg(long)]
+        from_event: Option<u64>,
+
+        /// Emit the full JSON resume plan.
+        #[arg(long)]
+        json: bool,
+    },
     /// Score a run output or step.
     Score {
         /// Run UUID printed by `agent run`.
@@ -2471,6 +2484,13 @@ enum RemoteCommand {
 
         #[arg(long, value_enum, default_value_t = Demo::Echo)]
         demo: Demo,
+    },
+    /// Preview the generated prompt that would be used to resume a remote run trace.
+    ResumePlan {
+        run_id: String,
+
+        #[arg(long)]
+        from_event: Option<u64>,
     },
     /// Score a remote run output or step.
     Score {
@@ -4949,6 +4969,27 @@ mod cli_parse_tests {
 
         let cli = parse_cli([
             "agent",
+            "resume-plan",
+            run_id,
+            "--from-event",
+            "8",
+            "--json",
+        ])
+        .unwrap();
+        let Command::ResumePlan {
+            run_id: parsed_id,
+            from_event,
+            json,
+        } = into_command(cli)
+        else {
+            panic!("expected resume-plan command");
+        };
+        assert_eq!(parsed_id, run_id);
+        assert_eq!(from_event, Some(8));
+        assert!(json);
+
+        let cli = parse_cli([
+            "agent",
             "remote",
             "--url",
             "http://127.0.0.1:7878",
@@ -4988,6 +5029,25 @@ mod cli_parse_tests {
         };
         assert_eq!(parsed_id, run_id);
         assert_eq!(from_event, Some(4));
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "resume-plan",
+            run_id,
+            "--from-event",
+            "5",
+        ])
+        .unwrap();
+        let RemoteCommand::ResumePlan {
+            run_id: parsed_id,
+            from_event,
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote resume-plan command");
+        };
+        assert_eq!(parsed_id, run_id);
+        assert_eq!(from_event, Some(5));
     }
 
     #[test]
@@ -5858,6 +5918,11 @@ async fn main() -> anyhow::Result<()> {
             demo,
             json,
         } => headless::resume(run_id, from_event, demo, json).await,
+        Command::ResumePlan {
+            run_id,
+            from_event,
+            json,
+        } => headless::resume_plan(run_id, from_event, json).await,
         Command::Score {
             run_id,
             score,
@@ -6645,6 +6710,9 @@ async fn main() -> anyhow::Result<()> {
                 from_event,
                 demo,
             } => headless::remote_resume_start(url, run_id, from_event, demo).await,
+            RemoteCommand::ResumePlan { run_id, from_event } => {
+                headless::remote_resume_plan(url, run_id, from_event).await
+            }
             RemoteCommand::Score {
                 run_id,
                 score,

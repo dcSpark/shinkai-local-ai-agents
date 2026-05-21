@@ -1873,6 +1873,30 @@ pub async fn resume(
     Ok(())
 }
 
+pub async fn resume_plan(
+    run_id: String,
+    from_event: Option<u64>,
+    json: bool,
+) -> anyhow::Result<()> {
+    let source_run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
+    let store = open_event_store()?;
+    let events = store.try_events(source_run_id)?;
+    let plan = build_resume_plan(source_run_id, &events, from_event.map(EventId))?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&plan)?);
+    } else {
+        println!("{}", plan.prompt);
+        eprintln!();
+        eprintln!(
+            "--- resume plan for {} from event {} as agent {} (omitted {} earlier events) ---",
+            source_run_id.0, plan.selected_event_id.0, plan.agent_id, plan.omitted_events
+        );
+    }
+
+    Ok(())
+}
+
 pub async fn score(run_id: String, target: String, score: f32) -> anyhow::Result<()> {
     validate_quality_score(score)?;
     let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
@@ -5280,6 +5304,20 @@ pub async fn remote_resume_start(
             "run_id": run_id,
             "from_event": from_event,
             "demo": demo_name(demo)
+        }),
+    )?)
+}
+
+pub async fn remote_resume_plan(
+    url: String,
+    run_id: String,
+    from_event: Option<u64>,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/resume/plan",
+        serde_json::json!({
+            "run_id": run_id,
+            "from_event": from_event,
         }),
     )?)
 }

@@ -1518,6 +1518,8 @@ export default function App() {
       { command: "/secrets show ", label: "Show secret metadata" },
       { command: "/secrets delete ", label: "Delete secret metadata" },
       { command: "/bundles backup", label: "Export profile backup bundle" },
+      { command: "/bundles export ", label: "Export profile bundle" },
+      { command: "/bundles import ", label: "Import profile bundle" },
       { command: "/adapters", label: "List adapter manifests" },
       { command: "/adapters list", label: "List adapter manifests" },
       { command: "/adapters doctor", label: "Check adapter operability" },
@@ -1635,6 +1637,14 @@ export default function App() {
       return null;
     }
     return { days, apply };
+  }
+
+  function bundleShortcutHelpText() {
+    return [
+      "/bundles backup",
+      "/bundles export <path>",
+      "/bundles import <path> --confirm",
+    ].join("\n");
   }
 
   function approvalShortcutHelpText() {
@@ -4440,11 +4450,40 @@ export default function App() {
       return;
     }
 
-    if (prompt === "/bundles backup") {
+    if (prompt === "/bundles" || prompt.startsWith("/bundles ")) {
       setInput("");
       setActiveSection("adapters");
-      appendLine("user", "/bundles backup");
-      await backupBundleNow();
+      appendLine("user", prompt);
+      const rest = prompt === "/bundles" ? "" : prompt.slice("/bundles ".length).trim();
+      const [command = "", ...args] = rest.split(/\s+/).filter(Boolean);
+      if (!rest || command === "help") {
+        appendLine("assistant", bundleShortcutHelpText());
+      } else if (command === "backup") {
+        if (args.length) {
+          appendLine("error", "Bundles backup shortcut accepts no arguments.");
+        } else {
+          await backupBundleNow();
+        }
+      } else if (command === "export") {
+        const path = rest.slice("export".length).trim();
+        if (!path) {
+          appendLine("error", "Bundles export shortcut needs a bundle path.");
+        } else {
+          await exportBundleFromOps(path);
+        }
+      } else if (command === "import") {
+        const confirmed = args.includes("--confirm");
+        const path = args.filter((arg) => arg !== "--confirm").join(" ").trim();
+        if (!path) {
+          appendLine("error", "Bundles import shortcut needs a bundle path.");
+        } else if (!confirmed) {
+          appendLine("error", "Bundles import shortcut requires --confirm.");
+        } else {
+          await importBundleFromOps(path, true);
+        }
+      } else {
+        appendLine("error", "Bundles shortcut needs backup, export, import, or help.");
+      }
       return;
     }
 
@@ -8627,8 +8666,8 @@ export default function App() {
     }
   }
 
-  async function exportBundleFromOps() {
-    const path = requireOpsValue("Bundle export");
+  async function exportBundleFromOps(explicitPath?: string) {
+    const path = explicitPath?.trim() || requireOpsValue("Bundle export");
     if (!path) return;
     await exportBundleToPath(path);
   }
@@ -8654,9 +8693,10 @@ export default function App() {
     }
   }
 
-  async function importBundleFromOps() {
-    const path = requireOpsValue("Bundle import");
+  async function importBundleFromOps(explicitPath?: string, confirmed = false) {
+    const path = explicitPath?.trim() || requireOpsValue("Bundle import");
     if (!path) return;
+    if (!confirmed && !confirmLocalChange(`Import bundle ${path}`)) return;
     try {
       const manifest =
         transport === "daemon"

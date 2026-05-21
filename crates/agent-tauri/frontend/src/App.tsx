@@ -1464,10 +1464,12 @@ export default function App() {
       { command: "/stop summarise", label: "Stop and retain a summary" },
       { command: "/stop status", label: "Show stop retention mode" },
       { command: "/compact ", label: "Create a guided compaction draft" },
+      { command: "/compact keep", label: "Keep current compacted context" },
       { command: "/compact status", label: "Show manual compacted context" },
       { command: "/compact clear", label: "Clear manual compacted context" },
       { command: "/compactions", label: "List compacted-context artifacts" },
       { command: "/compactions list", label: "List compacted-context artifacts" },
+      { command: "/compactions keep", label: "Keep current compacted context" },
       { command: "/compactions show ", label: "Show compacted-context artifact" },
       { command: "/compactions use ", label: "Use compacted-context artifact" },
       { command: "/compactions export ", label: "Export compacted-context artifact" },
@@ -3810,6 +3812,12 @@ export default function App() {
         appendEvent(compactionStatus());
         return;
       }
+      if (command === "keep") {
+        setInput("");
+        appendLine("user", prompt);
+        await keepAvailableCompaction();
+        return;
+      }
       const draft = buildCompactionDraft(guidance);
       setInput("");
       setManualCompactedContext(draft);
@@ -4625,6 +4633,8 @@ export default function App() {
           : prompt.slice("/compactions ".length).trim();
       if (!rest || rest === "list") {
         await listCompactionsFromOps();
+      } else if (rest === "keep") {
+        await keepAvailableCompaction();
       } else if (rest.startsWith("show ")) {
         const id = rest.slice("show ".length).trim();
         if (!id) {
@@ -4664,7 +4674,7 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Compactions shortcut needs list, show, use, export, import, or delete.",
+          "Compactions shortcut needs list, keep, show, use, export, import, or delete.",
         );
       }
       return;
@@ -6468,8 +6478,9 @@ export default function App() {
   async function keepContextPreviewCompaction(
     snapshot: ContextSnapshot | null = contextPreview,
     sourceBase = "auto-preview",
+    contentOverride?: string,
   ) {
-    const content = snapshot?.compacted?.trim();
+    const content = contentOverride?.trim() || snapshot?.compacted?.trim();
     if (!content) {
       appendLine("error", "No compacted context to keep.");
       return false;
@@ -6522,6 +6533,18 @@ export default function App() {
     if (kept) {
       setPostRunCompactionPrompt(null);
     }
+  }
+
+  async function keepAvailableCompaction() {
+    if (postRunCompactionPrompt) {
+      await keepPostRunCompaction();
+      return;
+    }
+    if (contextPreview?.compacted?.trim()) {
+      await keepContextPreviewCompaction();
+      return;
+    }
+    await keepContextPreviewCompaction(null, "manual-compact", manualCompactedContext);
   }
 
   async function listCompactionsFromOps() {

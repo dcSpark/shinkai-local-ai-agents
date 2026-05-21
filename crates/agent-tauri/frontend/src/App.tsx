@@ -1604,6 +1604,7 @@ export default function App() {
       { command: "/capabilities", label: "List capability drafts" },
       { command: "/capabilities list", label: "List capability drafts" },
       { command: "/capabilities doctor", label: "Summarize capability drafts" },
+      { command: "/capabilities propose ", label: "Propose capability draft" },
       { command: "/capabilities show ", label: "Show capability draft" },
       { command: "/capabilities export ", label: "Export capability draft" },
       { command: "/capabilities import ", label: "Import capability draft" },
@@ -5178,6 +5179,7 @@ export default function App() {
           [
             "/capabilities list",
             "/capabilities doctor",
+            "/capabilities propose <tool|skill|agent|subagent> <name> <body>",
             "/capabilities show <id>",
             "/capabilities export <id> <path>",
             "/capabilities import <path>",
@@ -5188,6 +5190,23 @@ export default function App() {
         );
       } else if (command === "doctor") {
         await capabilityDoctorFromOps();
+      } else if (command === "propose") {
+        const proposeInput = rest.slice("propose".length).trim();
+        const match = proposeInput.match(/^(\S+)\s+(\S+)\s+([\s\S]+)$/);
+        const kind = match ? normalizeCapabilityKind(match[1]) : null;
+        if (!match) {
+          appendLine(
+            "error",
+            "Capabilities propose shortcut needs a kind, name, and body.",
+          );
+        } else if (!kind) {
+          appendLine(
+            "error",
+            "Capabilities propose kind must be tool, skill, agent, or subagent.",
+          );
+        } else {
+          await proposeCapabilityFromOps(kind, match[2], match[3].trim());
+        }
       } else if (command === "show") {
         if (args.length !== 1) {
           appendLine("error", "Capabilities show shortcut needs a draft id.");
@@ -5235,7 +5254,7 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Capabilities shortcut needs list, doctor, show, export, import, allow, reject, delete, or help.",
+          "Capabilities shortcut needs list, doctor, propose, show, export, import, allow, reject, delete, or help.",
         );
       }
       return;
@@ -7825,21 +7844,26 @@ export default function App() {
     }
   }
 
-  async function proposeCapabilityFromOps() {
-    const name = requireOpsId("Capability propose");
-    const body = requireOpsValue("Capability propose");
+  async function proposeCapabilityFromOps(
+    explicitKind?: CapabilityKind,
+    explicitName?: string,
+    explicitBody?: string,
+  ) {
+    const kind = explicitKind ?? capabilityKind;
+    const name = explicitName ?? requireOpsId("Capability propose");
+    const body = explicitBody ?? requireOpsValue("Capability propose");
     if (!name || !body) return;
     try {
       const draft =
         transport === "daemon"
           ? await daemonJson<CapabilityDraft>("/capabilities/propose", {
-              kind: capabilityKind,
+              kind,
               name,
               body,
               created_by: "user",
             })
           : await invoke<CapabilityDraft>("capability_propose", {
-              kind: capabilityKind,
+              kind,
               name,
               body,
               guidance: null,
@@ -7852,6 +7876,19 @@ export default function App() {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Capability propose failed: ${msg}`);
     }
+  }
+
+  function normalizeCapabilityKind(value: string): CapabilityKind | null {
+    const kind = value.trim().toLowerCase();
+    if (
+      kind === "tool" ||
+      kind === "skill" ||
+      kind === "agent" ||
+      kind === "subagent"
+    ) {
+      return kind;
+    }
+    return null;
   }
 
   async function showCapabilityFromOps(explicitId?: string) {

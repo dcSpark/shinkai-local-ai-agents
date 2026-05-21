@@ -127,6 +127,20 @@ pub async fn run(
             prune_cache_days,
             apply,
         }) => return storage_report(json, prune_cache_days, apply).await,
+        Some(SlashCommand::Compact(command)) => {
+            return match command {
+                CompactSlashCommand::List => compact_list(json).await,
+                CompactSlashCommand::Show { id } => compact_show(id, json).await,
+                CompactSlashCommand::Export { id, path } => compact_export(id, path, json).await,
+                CompactSlashCommand::Import { path } => compact_import(path, json).await,
+                CompactSlashCommand::Rm { id } => compact_rm(id).await,
+                CompactSlashCommand::KeepRun {
+                    run_id,
+                    conversation,
+                    guidance,
+                } => compact_keep_run(run_id, conversation, guidance, json).await,
+            };
+        }
         Some(SlashCommand::Guide { run_id, text }) => return guide(run_id, text).await,
         Some(SlashCommand::Score {
             run_id,
@@ -7717,6 +7731,7 @@ enum SlashCommand {
         prune_cache_days: Option<u64>,
         apply: bool,
     },
+    Compact(CompactSlashCommand),
     Guide {
         run_id: String,
         text: String,
@@ -7725,6 +7740,28 @@ enum SlashCommand {
         run_id: String,
         score: f32,
         target: String,
+    },
+}
+
+enum CompactSlashCommand {
+    List,
+    Show {
+        id: String,
+    },
+    Export {
+        id: String,
+        path: String,
+    },
+    Import {
+        path: String,
+    },
+    Rm {
+        id: String,
+    },
+    KeepRun {
+        run_id: String,
+        conversation: Option<String>,
+        guidance: Option<String>,
     },
 }
 
@@ -7804,6 +7841,13 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
             apply,
         }));
     }
+    if trimmed == "/compact" || trimmed == "/compactions" {
+        return Ok(Some(SlashCommand::Compact(CompactSlashCommand::List)));
+    }
+    if let Some(rest) = compact_slash_rest(trimmed) {
+        let command = parse_compact_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Compact(command)));
+    }
     if let Some(rest) = trimmed.strip_prefix("/guide ").map(str::trim) {
         let (run_id, text) = parse_guide_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Guide { run_id, text }));
@@ -7866,6 +7910,7 @@ fn headless_slash_help_text() -> &'static str {
      - /resume <run-id> [--from-event N], /resume plan <run-id> [--from-event N]\n\
      - /trace [summary|tree|hooks] <run-id>, /compare <run-id> <run-id>, /replay <run-id>\n\
      - /storage report, /storage prune-cache <days> [--apply]\n\
+     - /compact list|show|export|import|delete|keep-run, /compactions ...\n\
      - /guide <run-id> <text> - inject guidance into an active run\n\
      - /score <run-id> <0-10> [target] - record a quality score\n\
      Use --json to print this help as JSON."
@@ -8088,6 +8133,123 @@ fn parse_storage_slash_rest(rest: &str) -> anyhow::Result<(Option<u64>, bool)> {
         }
         _ => anyhow::bail!("storage shortcut needs report or prune-cache"),
     }
+}
+
+fn compact_slash_rest(trimmed: &str) -> Option<&str> {
+    if let Some(rest) = trimmed.strip_prefix("/compact ") {
+        Some(rest.trim())
+    } else {
+        trimmed.strip_prefix("/compactions ").map(str::trim)
+    }
+}
+
+fn parse_compact_slash_rest(rest: &str) -> anyhow::Result<CompactSlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let command = parts.next().unwrap_or_default();
+    match command {
+        "" | "list" => Ok(CompactSlashCommand::List),
+        "show" => {
+            let id = next_required(&mut parts, "compact show needs an id")?;
+            ensure_no_extra(parts, "usage: /compact show <id>")?;
+            Ok(CompactSlashCommand::Show { id })
+        }
+        "export" => {
+            let id = next_required(&mut parts, "compact export needs an id")?;
+            let path = next_required(&mut parts, "compact export needs a path")?;
+            ensure_no_extra(parts, "usage: /compact export <id> <path>")?;
+            Ok(CompactSlashCommand::Export { id, path })
+        }
+        "import" => {
+            let path = next_required(&mut parts, "compact import needs a path")?;
+            ensure_no_extra(parts, "usage: /compact import <path>")?;
+            Ok(CompactSlashCommand::Import { path })
+        }
+        "delete" | "rm" => {
+            let id = next_required(&mut parts, "compact delete needs an id")?;
+            let mut confirmed = false;
+            for part in parts {
+                match part {
+                    "--confirm" => confirmed = true,
+                    _ => anyhow::bail!("unknown compact delete option: {part}"),
+                }
+            }
+            if !confirmed {
+                anyhow::bail!("compact delete requires --confirm");
+            }
+            Ok(CompactSlashCommand::Rm { id })
+        }
+        "keep-run" => {
+            let run_id = next_required(&mut parts, "compact keep-run needs a run id")?;
+            let _ = uuid::Uuid::parse_str(&run_id)?;
+            let mut conversation = None;
+            let mut guidance = None;
+            while let Some(part) = parts.next() {
+                match part {
+                    "--conversation" => {
+                        conversation =
+                            Some(next_required(&mut parts, "--conversation needs an id")?);
+                    }
+                    _ if part.starts_with("--conversation=") => {
+                        let value = part
+                            .split_once('=')
+                            .map(|(_, value)| value.trim())
+                            .unwrap_or_default();
+                        if value.is_empty() {
+                            anyhow::bail!("--conversation needs an id");
+                        }
+                        conversation = Some(value.into());
+                    }
+                    "--guidance" => {
+                        let text = parts.collect::<Vec<_>>().join(" ");
+                        if text.trim().is_empty() {
+                            anyhow::bail!("--guidance needs text");
+                        }
+                        guidance = Some(text);
+                        break;
+                    }
+                    _ if part.starts_with("--guidance=") => {
+                        let value = part
+                            .split_once('=')
+                            .map(|(_, value)| value.trim())
+                            .unwrap_or_default();
+                        if value.is_empty() {
+                            anyhow::bail!("--guidance needs text");
+                        }
+                        guidance = Some(value.into());
+                    }
+                    _ => anyhow::bail!("unknown compact keep-run option: {part}"),
+                }
+            }
+            Ok(CompactSlashCommand::KeepRun {
+                run_id,
+                conversation,
+                guidance,
+            })
+        }
+        _ => {
+            anyhow::bail!("compact shortcut needs list, show, export, import, delete, or keep-run")
+        }
+    }
+}
+
+fn next_required<'a>(
+    parts: &mut impl Iterator<Item = &'a str>,
+    message: &str,
+) -> anyhow::Result<String> {
+    parts
+        .next()
+        .map(str::to_string)
+        .ok_or_else(|| anyhow::anyhow!("{message}"))
+}
+
+fn ensure_no_extra<'a>(
+    mut parts: impl Iterator<Item = &'a str>,
+    message: &str,
+) -> anyhow::Result<()> {
+    if parts.next().is_some() {
+        anyhow::bail!("{message}");
+    }
+    Ok(())
 }
 
 fn parse_guide_slash_rest(rest: &str) -> anyhow::Result<(String, String)> {
@@ -8430,6 +8592,63 @@ mod slash_tests {
         assert!(parse_slash_command("/storage prune-cache 0").is_err());
         assert!(parse_slash_command("/storage prune-cache 30 --force").is_err());
         assert!(parse_slash_command("/storagex report").unwrap().is_none());
+    }
+
+    #[test]
+    fn parses_compact_shortcuts() {
+        let run_id = uuid::Uuid::new_v4().to_string();
+        assert!(matches!(
+            parse_slash_command("/compact").unwrap(),
+            Some(SlashCommand::Compact(CompactSlashCommand::List))
+        ));
+        assert!(matches!(
+            parse_slash_command("/compactions list").unwrap(),
+            Some(SlashCommand::Compact(CompactSlashCommand::List))
+        ));
+        match parse_slash_command("/compact show compact-1").unwrap() {
+            Some(SlashCommand::Compact(CompactSlashCommand::Show { id })) => {
+                assert_eq!(id, "compact-1");
+            }
+            _ => panic!("expected compact show shortcut"),
+        }
+        match parse_slash_command("/compact export compact-1 /tmp/compact.json").unwrap() {
+            Some(SlashCommand::Compact(CompactSlashCommand::Export { id, path })) => {
+                assert_eq!(id, "compact-1");
+                assert_eq!(path, "/tmp/compact.json");
+            }
+            _ => panic!("expected compact export shortcut"),
+        }
+        match parse_slash_command("/compact import /tmp/compact.json").unwrap() {
+            Some(SlashCommand::Compact(CompactSlashCommand::Import { path })) => {
+                assert_eq!(path, "/tmp/compact.json");
+            }
+            _ => panic!("expected compact import shortcut"),
+        }
+        match parse_slash_command("/compact delete compact-1 --confirm").unwrap() {
+            Some(SlashCommand::Compact(CompactSlashCommand::Rm { id })) => {
+                assert_eq!(id, "compact-1");
+            }
+            _ => panic!("expected compact delete shortcut"),
+        }
+        match parse_slash_command(&format!(
+            "/compact keep-run {run_id} --conversation branch-1 --guidance keep failures"
+        ))
+        .unwrap()
+        {
+            Some(SlashCommand::Compact(CompactSlashCommand::KeepRun {
+                run_id: parsed,
+                conversation,
+                guidance,
+            })) => {
+                assert_eq!(parsed, run_id);
+                assert_eq!(conversation.as_deref(), Some("branch-1"));
+                assert_eq!(guidance.as_deref(), Some("keep failures"));
+            }
+            _ => panic!("expected compact keep-run shortcut"),
+        }
+        assert!(parse_slash_command("/compact delete compact-1").is_err());
+        assert!(parse_slash_command("/compact keep-run nope").is_err());
+        assert!(parse_slash_command("/compaction list").unwrap().is_none());
     }
 
     #[test]

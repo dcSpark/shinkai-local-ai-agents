@@ -54,6 +54,10 @@ use agent_memory::{
     profile_memory_access_report, supported_backends as supported_memory_backends,
 };
 use agent_prompts::{PromptDoc, PromptStore};
+use agent_secrets::{
+    SecretBackendDescriptor, SecretHandle, SecretId, SecretRecord, SecretValue,
+    default_secret_store, supported_backends as supported_secret_backends,
+};
 use agent_skills::{SkillDoc, SkillRegistry};
 use agent_storage::StoragePaths;
 use agent_tools::{
@@ -1374,6 +1378,76 @@ mod tauri_slash_tests {
                 std::env::set_var("AGENT_HARNESS_PROFILE", value);
             } else {
                 std::env::remove_var("AGENT_HARNESS_PROFILE");
+            }
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn secret_commands_manage_redacted_metadata() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir =
+            std::env::temp_dir().join(format!("agent-tauri-secrets-{}", uuid::Uuid::new_v4()));
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        let previous_profile = std::env::var_os("AGENT_HARNESS_PROFILE");
+        let previous_backend = std::env::var_os("AGENT_SECRET_BACKEND");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+            std::env::remove_var("AGENT_HARNESS_PROFILE");
+            std::env::set_var("AGENT_SECRET_BACKEND", "file_dev");
+        }
+
+        let backends = secret_backend_list().await.unwrap();
+        assert!(
+            backends
+                .iter()
+                .any(|backend| { backend.id == "file_dev" && backend.supported && backend.active })
+        );
+
+        let stored = secret_set(
+            "smoke.secret".into(),
+            "super-secret-value".into(),
+            Some("Smoke secret".into()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(stored.handle.id.0, "smoke.secret");
+        assert_eq!(stored.record.id.0, "smoke.secret");
+        assert_eq!(stored.record.label.as_deref(), Some("Smoke secret"));
+        assert_eq!(stored.record.current_version, 1);
+
+        let listed = secret_list().await.unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id.0, "smoke.secret");
+
+        let shown = secret_show("smoke.secret".into()).await.unwrap();
+        assert_eq!(shown.id.0, "smoke.secret");
+
+        let rotated = secret_rotate("smoke.secret".into(), "super-secret-value-2".into())
+            .await
+            .unwrap();
+        assert_eq!(rotated.handle.version, 2);
+        assert_eq!(rotated.record.current_version, 2);
+
+        let deleted = secret_delete("smoke.secret".into()).await.unwrap();
+        assert_eq!(deleted["deleted"], true);
+        assert!(secret_list().await.unwrap().is_empty());
+
+        unsafe {
+            if let Some(value) = previous_home {
+                std::env::set_var("AGENT_HARNESS_HOME", value);
+            } else {
+                std::env::remove_var("AGENT_HARNESS_HOME");
+            }
+            if let Some(value) = previous_profile {
+                std::env::set_var("AGENT_HARNESS_PROFILE", value);
+            } else {
+                std::env::remove_var("AGENT_HARNESS_PROFILE");
+            }
+            if let Some(value) = previous_backend {
+                std::env::set_var("AGENT_SECRET_BACKEND", value);
+            } else {
+                std::env::remove_var("AGENT_SECRET_BACKEND");
             }
         }
         let _ = std::fs::remove_dir_all(dir);
@@ -3198,6 +3272,67 @@ async fn profile_grant_revoke(id: String) -> Result<ProfileGrant, String> {
         .map_err(|e| e.to_string())
 }
 
+#[derive(Serialize)]
+struct SecretWriteResult {
+    handle: SecretHandle,
+    record: SecretRecord,
+}
+
+#[tauri::command]
+async fn secret_backend_list() -> Result<Vec<SecretBackendDescriptor>, String> {
+    Ok(supported_secret_backends())
+}
+
+#[tauri::command]
+async fn secret_list() -> Result<Vec<SecretRecord>, String> {
+    default_secret_store().list().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn secret_show(id: String) -> Result<SecretRecord, String> {
+    let id = SecretId::new(id.trim()).map_err(|e| e.to_string())?;
+    default_secret_store().show(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn secret_set(
+    id: String,
+    value: String,
+    label: Option<String>,
+) -> Result<SecretWriteResult, String> {
+    let id = SecretId::new(id.trim()).map_err(|e| e.to_string())?;
+    let store = default_secret_store();
+    let label = label.and_then(|label| {
+        let label = label.trim().to_string();
+        if label.is_empty() { None } else { Some(label) }
+    });
+    let handle = store
+        .set(id.clone(), SecretValue::new(value), label)
+        .map_err(|e| e.to_string())?;
+    let record = store.show(&id).map_err(|e| e.to_string())?;
+    Ok(SecretWriteResult { handle, record })
+}
+
+#[tauri::command]
+async fn secret_rotate(id: String, value: String) -> Result<SecretWriteResult, String> {
+    let id = SecretId::new(id.trim()).map_err(|e| e.to_string())?;
+    let store = default_secret_store();
+    let handle = store
+        .rotate(&id, SecretValue::new(value))
+        .map_err(|e| e.to_string())?;
+    let record = store.show(&id).map_err(|e| e.to_string())?;
+    Ok(SecretWriteResult { handle, record })
+}
+
+#[tauri::command]
+async fn secret_delete(id: String) -> Result<serde_json::Value, String> {
+    let id = SecretId::new(id.trim()).map_err(|e| e.to_string())?;
+    let deleted = default_secret_store()
+        .delete(&id)
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({ "id": id.0, "deleted": deleted }))
+}
+
 fn clean_tauri_input_string(value: Option<String>) -> Option<String> {
     value
         .map(|value| value.trim().to_string())
@@ -3990,6 +4125,12 @@ pub fn run() {
             profile_grant_list,
             profile_grant,
             profile_grant_revoke,
+            secret_backend_list,
+            secret_list,
+            secret_show,
+            secret_set,
+            secret_rotate,
+            secret_delete,
             prompt_save,
             prompt_list,
             prompt_show,

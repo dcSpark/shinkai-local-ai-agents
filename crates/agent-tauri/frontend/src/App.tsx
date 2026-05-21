@@ -46,6 +46,9 @@ import type {
   RunEvent,
   RunOptions,
   RunSummary,
+  SecretBackendDescriptor,
+  SecretRecord,
+  SecretWriteResult,
   SkillDoc,
   TraceTreeNode,
   ToolVisibility,
@@ -539,6 +542,12 @@ export default function App() {
   const [profileSummaries, setProfileSummaries] = useState<ProfileSummary[]>([]);
   const [currentProfile, setCurrentProfile] = useState<ProfileSummary | null>(null);
   const [profileGrants, setProfileGrants] = useState<ProfileGrant[]>([]);
+  const [secretBackends, setSecretBackends] = useState<SecretBackendDescriptor[]>(
+    [],
+  );
+  const [secretRecords, setSecretRecords] = useState<SecretRecord[]>([]);
+  const [secretLabel, setSecretLabel] = useState("");
+  const [secretStatus, setSecretStatus] = useState<JsonValue | null>(null);
   const [capabilityDrafts, setCapabilityDrafts] = useState<CapabilityDraft[]>([]);
   const [adapterPackages, setAdapterPackages] = useState<AdapterPackage[]>([]);
   const [adapterDoctorReport, setAdapterDoctorReport] =
@@ -1396,6 +1405,9 @@ export default function App() {
       { command: "/profiles", label: "List profiles" },
       { command: "/profiles current", label: "Show current profile" },
       { command: "/profiles grants", label: "List profile grants" },
+      { command: "/secrets backends", label: "List secret backends" },
+      { command: "/secrets list", label: "List secret metadata" },
+      { command: "/secrets show ", label: "Show secret metadata" },
       { command: "/bundles backup", label: "Export profile backup bundle" },
       { command: "/adapters", label: "List adapter manifests" },
       { command: "/adapters doctor", label: "Check adapter operability" },
@@ -3318,6 +3330,30 @@ export default function App() {
       return;
     }
 
+    if (
+      prompt === "/secrets" ||
+      prompt === "/secrets backends" ||
+      prompt === "/secrets list" ||
+      prompt.startsWith("/secrets show ")
+    ) {
+      setInput("");
+      setActiveSection("profiles");
+      appendLine("user", prompt);
+      if (prompt === "/secrets backends") {
+        await listSecretBackendsFromOps();
+      } else if (prompt.startsWith("/secrets show ")) {
+        const id = prompt.slice("/secrets show ".length).trim();
+        if (!id) {
+          appendLine("error", "Secrets show shortcut needs a secret id.");
+        } else {
+          await showSecretFromOps(id);
+        }
+      } else {
+        await listSecretsFromOps();
+      }
+      return;
+    }
+
     if (prompt === "/bundles backup") {
       setInput("");
       setActiveSection("adapters");
@@ -4731,6 +4767,111 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Profile grant revoke failed: ${msg}`);
+    }
+  }
+
+  async function listSecretBackendsFromOps() {
+    try {
+      const backends =
+        transport === "daemon"
+          ? await daemonJson<SecretBackendDescriptor[]>("/secrets/backends")
+          : await invoke<SecretBackendDescriptor[]>("secret_backend_list");
+      setSecretBackends(backends);
+      appendJson("Secret backends", backends);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Secret backends failed: ${msg}`);
+    }
+  }
+
+  async function listSecretsFromOps() {
+    try {
+      const records =
+        transport === "daemon"
+          ? await daemonJson<SecretRecord[]>("/secrets")
+          : await invoke<SecretRecord[]>("secret_list");
+      setSecretRecords(records);
+      appendEvent(`Secrets: ${records.length}`);
+      appendJson("Secrets", records);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Secret list failed: ${msg}`);
+    }
+  }
+
+  async function showSecretFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Secret show");
+    if (!id) return;
+    try {
+      const record =
+        transport === "daemon"
+          ? await daemonJson<SecretRecord>(`/secrets/${encodeURIComponent(id)}`)
+          : await invoke<SecretRecord>("secret_show", { id });
+      setSecretRecords((records) => upsertSecretRecord(records, record));
+      appendJson("Secret", record);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Secret show failed: ${msg}`);
+    }
+  }
+
+  async function setSecretFromOps() {
+    const id = requireOpsId("Secret store");
+    const value = requireOpsValue("Secret store");
+    if (!id || value === null) return;
+    try {
+      const label = secretLabel.trim() || null;
+      const result =
+        transport === "daemon"
+          ? await daemonJson<SecretWriteResult>("/secrets", { id, value, label })
+          : await invoke<SecretWriteResult>("secret_set", { id, value, label });
+      setSecretRecords((records) => upsertSecretRecord(records, result.record));
+      setSecretStatus(result as unknown as JsonValue);
+      setOpsValue("");
+      appendJson("Secret stored", result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Secret store failed: ${msg}`);
+    }
+  }
+
+  async function rotateSecretFromOps() {
+    const id = requireOpsId("Secret rotate");
+    const value = requireOpsValue("Secret rotate");
+    if (!id || value === null) return;
+    try {
+      const result =
+        transport === "daemon"
+          ? await daemonJson<SecretWriteResult>(
+              `/secrets/${encodeURIComponent(id)}/rotate`,
+              { value },
+            )
+          : await invoke<SecretWriteResult>("secret_rotate", { id, value });
+      setSecretRecords((records) => upsertSecretRecord(records, result.record));
+      setSecretStatus(result as unknown as JsonValue);
+      setOpsValue("");
+      appendJson("Secret rotated", result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Secret rotate failed: ${msg}`);
+    }
+  }
+
+  async function deleteSecretFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Secret delete");
+    if (!id) return;
+    if (!confirmLocalChange(`Delete secret ${id}`)) return;
+    try {
+      const result =
+        transport === "daemon"
+          ? await daemonJson<JsonValue>(`/secrets/${encodeURIComponent(id)}/delete`, {})
+          : await invoke<JsonValue>("secret_delete", { id });
+      setSecretRecords((records) => records.filter((record) => record.id !== id));
+      setSecretStatus(result);
+      appendJson("Secret deleted", result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Secret delete failed: ${msg}`);
     }
   }
 
@@ -7764,6 +7905,11 @@ export default function App() {
     return [grant, ...rest].sort((a, b) => a.id.localeCompare(b.id));
   }
 
+  function upsertSecretRecord(records: SecretRecord[], record: SecretRecord) {
+    const rest = records.filter((item) => item.id !== record.id);
+    return [record, ...rest].sort((a, b) => a.id.localeCompare(b.id));
+  }
+
   function isProfileGrantKind(value: unknown): value is ProfileGrantKind {
     return (
       value === "agent" ||
@@ -10085,6 +10231,15 @@ export default function App() {
             {activeSection === "profiles" ? (
             <div className="operation-group">
               <div className="operation-title">Profiles</div>
+              <label>
+                Secret label
+                <input
+                  value={secretLabel}
+                  onChange={(e) => setSecretLabel(e.target.value)}
+                  placeholder="optional display label"
+                  disabled={running}
+                />
+              </label>
               <div className="button-grid">
                 <button
                   type="button"
@@ -10176,6 +10331,55 @@ export default function App() {
                 >
                   Import Bundle
                 </button>
+                <button
+                  type="button"
+                  title="List secret storage backends."
+                  onClick={() => void listSecretBackendsFromOps()}
+                  disabled={running}
+                >
+                  Secret Backends
+                </button>
+                <button
+                  type="button"
+                  title="List redacted secret metadata."
+                  onClick={() => void listSecretsFromOps()}
+                  disabled={running}
+                >
+                  List Secrets
+                </button>
+                <button
+                  type="button"
+                  title="Show redacted metadata for secret Id."
+                  onClick={() => void showSecretFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Show Secret
+                </button>
+                <button
+                  type="button"
+                  title="Store secret Id using Value as the secret value."
+                  onClick={() => void setSecretFromOps()}
+                  disabled={running || !opsId.trim() || !opsValue.trim()}
+                >
+                  Store Secret
+                </button>
+                <button
+                  type="button"
+                  title="Rotate secret Id using Value as the new secret value."
+                  onClick={() => void rotateSecretFromOps()}
+                  disabled={running || !opsId.trim() || !opsValue.trim()}
+                >
+                  Rotate Secret
+                </button>
+                <button
+                  type="button"
+                  className="danger"
+                  title="Delete secret Id."
+                  onClick={() => void deleteSecretFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Delete Secret
+                </button>
               </div>
               {currentProfile ? (
                 <div className="empty-note">
@@ -10228,6 +10432,75 @@ export default function App() {
                       </div>
                     </div>
                   ))}
+                </div>
+              ) : null}
+              {secretBackends.length ? (
+                <div className="ingestion-review">
+                  {secretBackends.map((backend) => (
+                    <div className="ingestion-card" key={backend.id}>
+                      <div className="ingestion-card-head">
+                        <strong>{backend.name}</strong>
+                        <span>{backend.active ? "active" : backend.id}</span>
+                      </div>
+                      <span>{backend.description}</span>
+                      <span>{backend.supported ? "supported" : "unsupported"}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {secretRecords.length ? (
+                <div className="ingestion-review">
+                  {secretRecords.map((record) => (
+                    <div className="ingestion-card" key={record.id}>
+                      <div className="ingestion-card-head">
+                        <strong>{record.label || record.id}</strong>
+                        <span>
+                          {record.backend} v{record.current_version}
+                        </span>
+                      </div>
+                      <span>{record.id}</span>
+                      <span title={record.value_fingerprint}>
+                        fingerprint {record.value_fingerprint}
+                      </span>
+                      <span>{record.updated_at}</span>
+                      <div className="mini-actions">
+                        <button
+                          type="button"
+                          title="Move this secret id into the Id field."
+                          onClick={() => setOpsId(record.id)}
+                          disabled={running}
+                        >
+                          Set Id
+                        </button>
+                        <button
+                          type="button"
+                          title="Show this secret metadata."
+                          onClick={() => void showSecretFromOps(record.id)}
+                          disabled={running}
+                        >
+                          Show
+                        </button>
+                        <button
+                          type="button"
+                          className="danger"
+                          title="Delete this secret."
+                          onClick={() => void deleteSecretFromOps(record.id)}
+                          disabled={running}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              {secretStatus ? (
+                <div className="bundle-card">
+                  <div className="bundle-card-head">
+                    <strong>Secret result</strong>
+                    <span>redacted</span>
+                  </div>
+                  <pre>{JSON.stringify(secretStatus, null, 2)}</pre>
                 </div>
               ) : null}
               {profileGrants.length ? (

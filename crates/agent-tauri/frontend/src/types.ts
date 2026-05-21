@@ -326,6 +326,34 @@ export type ProfileGrant = {
   created_at: string;
 };
 
+export type SecretBackendDescriptor = {
+  id: string;
+  name: string;
+  description: string;
+  supported: boolean;
+  active: boolean;
+};
+
+export type SecretRecord = {
+  id: string;
+  label?: string | null;
+  current_version: number;
+  created_at: string;
+  updated_at: string;
+  backend: string;
+  value_fingerprint: string;
+};
+
+export type SecretHandle = {
+  id: string;
+  version: number;
+};
+
+export type SecretWriteResult = {
+  handle: SecretHandle;
+  record: SecretRecord;
+};
+
 export type PromptDoc = {
   name: string;
   body: string;

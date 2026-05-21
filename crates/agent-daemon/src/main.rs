@@ -45,6 +45,9 @@ use agent_memory::{
     supported_backends as supported_memory_backends,
 };
 use agent_prompts::{PromptStore, is_valid_prompt_name};
+use agent_secrets::{
+    SecretId, SecretValue, default_secret_store, supported_backends as supported_secret_backends,
+};
 use agent_skills::{SkillDoc, SkillRegistry};
 use agent_storage::StoragePaths;
 use agent_tools::{
@@ -298,6 +301,9 @@ async fn route(
         ("POST", "/hooks/policy/set") => {
             daemon_hook_policy_set(&request.body).map(|value| (200, value))
         }
+        ("GET", "/secrets/backends") => daemon_secret_backends().map(|value| (200, value)),
+        ("GET", "/secrets") => daemon_secret_list().map(|value| (200, value)),
+        ("POST", "/secrets") => daemon_secret_set(&request.body).map(|value| (200, value)),
         ("GET", "/profiles/current") => daemon_profile_current().map(|value| (200, value)),
         ("GET", "/profiles") => daemon_profile_list().map(|value| (200, value)),
         ("POST", "/profiles") => daemon_profile_create(&request.body).map(|value| (200, value)),
@@ -331,6 +337,30 @@ async fn route(
                 .trim_start_matches("/profiles/")
                 .trim_end_matches("/delete");
             daemon_profile_delete(id).map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/secrets/")
+            && request.path.ends_with("/rotate") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/secrets/")
+                .trim_end_matches("/rotate");
+            daemon_secret_rotate(id, &request.body).map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/secrets/")
+            && request.path.ends_with("/delete") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/secrets/")
+                .trim_end_matches("/delete");
+            daemon_secret_delete(id).map(|value| (200, value))
+        }
+        _ if request.method == "GET" && request.path.starts_with("/secrets/") => {
+            let id = request.path.trim_start_matches("/secrets/");
+            daemon_secret_show(id).map(|value| (200, value))
         }
         _ if request.method == "GET" && request.path.starts_with("/skills/") => {
             let id = request.path.trim_start_matches("/skills/");
@@ -806,6 +836,11 @@ async fn route(
                     "POST /hooks/policy",
                     "POST /hooks/available",
                     "POST /hooks/policy/set",
+                    "GET /secrets/backends",
+                    "GET|POST /secrets",
+                    "GET /secrets/<id>",
+                    "POST /secrets/<id>/rotate",
+                    "POST /secrets/<id>/delete",
                     "GET /profiles/current",
                     "GET|POST /profiles",
                     "GET /profiles/<id>",
@@ -4647,6 +4682,50 @@ fn daemon_profile_grant_revoke(id: &str) -> anyhow::Result<serde_json::Value> {
     )?)
 }
 
+fn daemon_secret_backends() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(supported_secret_backends())?)
+}
+
+fn daemon_secret_list() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(default_secret_store().list()?)?)
+}
+
+fn daemon_secret_show(id: &str) -> anyhow::Result<serde_json::Value> {
+    let id = SecretId::new(id.trim())?;
+    Ok(serde_json::to_value(default_secret_store().show(&id)?)?)
+}
+
+fn daemon_secret_set(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: SecretSetInput = serde_json::from_str(body)?;
+    let id = SecretId::new(input.id.trim())?;
+    let store = default_secret_store();
+    let handle = store.set(
+        id.clone(),
+        SecretValue::new(input.value),
+        input.label.and_then(|label| {
+            let label = label.trim().to_string();
+            if label.is_empty() { None } else { Some(label) }
+        }),
+    )?;
+    let record = store.show(&id)?;
+    Ok(serde_json::json!({ "handle": handle, "record": record }))
+}
+
+fn daemon_secret_rotate(id: &str, body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: SecretRotateInput = serde_json::from_str(body)?;
+    let id = SecretId::new(id.trim())?;
+    let store = default_secret_store();
+    let handle = store.rotate(&id, SecretValue::new(input.value))?;
+    let record = store.show(&id)?;
+    Ok(serde_json::json!({ "handle": handle, "record": record }))
+}
+
+fn daemon_secret_delete(id: &str) -> anyhow::Result<serde_json::Value> {
+    let id = SecretId::new(id.trim())?;
+    let deleted = default_secret_store().delete(&id)?;
+    Ok(serde_json::json!({ "id": id.0, "deleted": deleted }))
+}
+
 fn clean_input_string(value: Option<String>) -> Option<String> {
     value
         .map(|value| value.trim().to_string())
@@ -5255,6 +5334,18 @@ struct DaemonOptionsInput {
 struct ProfileCreateInput {
     id: String,
     name: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct SecretSetInput {
+    id: String,
+    value: String,
+    label: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct SecretRotateInput {
+    value: String,
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -7706,6 +7797,59 @@ mod tests {
 
         restore_env("AGENT_HARNESS_HOME", previous_home);
         restore_env("AGENT_HARNESS_PROFILE", previous_profile);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn secret_routes_store_rotate_delete_redacted_metadata() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("secret-routes");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        let previous_profile = std::env::var_os("AGENT_HARNESS_PROFILE");
+        let previous_backend = std::env::var_os("AGENT_SECRET_BACKEND");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+            std::env::remove_var("AGENT_HARNESS_PROFILE");
+            std::env::set_var("AGENT_SECRET_BACKEND", "file_dev");
+        }
+
+        let backends = daemon_secret_backends().unwrap();
+        assert!(backends.as_array().unwrap().iter().any(|item| {
+            item["id"] == "file_dev" && item["supported"] == true && item["active"] == true
+        }));
+
+        let stored = daemon_secret_set(
+            r#"{"id":"smoke.secret","value":"super-secret-value","label":"Smoke secret"}"#,
+        )
+        .unwrap();
+        assert_eq!(stored["handle"]["id"], "smoke.secret");
+        assert_eq!(stored["record"]["id"], "smoke.secret");
+        assert_eq!(stored["record"]["label"], "Smoke secret");
+        assert_eq!(stored["record"]["current_version"], 1);
+        assert!(!stored.to_string().contains("super-secret-value"));
+
+        let listed = daemon_secret_list().unwrap();
+        assert_eq!(listed.as_array().unwrap().len(), 1);
+        assert_eq!(listed[0]["id"], "smoke.secret");
+        assert!(!listed.to_string().contains("super-secret-value"));
+
+        let shown = daemon_secret_show("smoke.secret").unwrap();
+        assert_eq!(shown["id"], "smoke.secret");
+        assert!(!shown.to_string().contains("super-secret-value"));
+
+        let rotated =
+            daemon_secret_rotate("smoke.secret", r#"{"value":"super-secret-value-2"}"#).unwrap();
+        assert_eq!(rotated["handle"]["version"], 2);
+        assert_eq!(rotated["record"]["current_version"], 2);
+        assert!(!rotated.to_string().contains("super-secret-value-2"));
+
+        let deleted = daemon_secret_delete("smoke.secret").unwrap();
+        assert_eq!(deleted["deleted"], true);
+        assert!(daemon_secret_list().unwrap().as_array().unwrap().is_empty());
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        restore_env("AGENT_HARNESS_PROFILE", previous_profile);
+        restore_env("AGENT_SECRET_BACKEND", previous_backend);
         let _ = std::fs::remove_dir_all(dir);
     }
 

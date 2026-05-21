@@ -295,6 +295,19 @@ export type AgentPromptRefinementConfig = {
   agent_awareness?: boolean | null;
 };
 
+export type AgentVoiceConfigFile = {
+  input_enabled?: boolean | null;
+  output_enabled?: boolean | null;
+  input_backend?: string | null;
+  input_provider?: string | null;
+  input_model?: string | null;
+  output_backend?: string | null;
+  tts_provider?: string | null;
+  tts_model?: string | null;
+  voice?: string | null;
+  tone?: string | null;
+};
+
 export type AgentConfigFile = {
   id: string;
   name: string;
@@ -306,6 +319,7 @@ export type AgentConfigFile = {
   prompt_refinements?: AgentPromptRefinementConfig[];
   tool_overrides?: AgentToolOverrideConfig[];
   skill_overrides?: AgentSkillOverrideConfig[];
+  voice?: AgentVoiceConfigFile | null;
   model?: string | null;
   max_tool_calls?: number | null;
   stop_retention_mode?: StopRetentionMode | null;

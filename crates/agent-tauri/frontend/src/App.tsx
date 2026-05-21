@@ -427,6 +427,16 @@ export default function App() {
   const [memorySourceRange, setMemorySourceRange] = useState("");
   const [memoryTopics, setMemoryTopics] = useState("");
   const [memoryClassificationModel, setMemoryClassificationModel] = useState("");
+  const [voiceInputEnabled, setVoiceInputEnabled] = useState<"" | "on" | "off">("");
+  const [voiceOutputEnabled, setVoiceOutputEnabled] = useState<"" | "on" | "off">("");
+  const [voiceInputBackend, setVoiceInputBackend] = useState("");
+  const [voiceInputProvider, setVoiceInputProvider] = useState("");
+  const [voiceInputModel, setVoiceInputModel] = useState("");
+  const [voiceOutputBackend, setVoiceOutputBackend] = useState("");
+  const [voiceTtsProvider, setVoiceTtsProvider] = useState("");
+  const [voiceTtsModel, setVoiceTtsModel] = useState("");
+  const [voiceName, setVoiceName] = useState("");
+  const [voiceTone, setVoiceTone] = useState("");
   const [opsUserMemory, setOpsUserMemory] = useState(false);
   const [ingestBackend, setIngestBackend] = useState("local-v0");
   const [ingestVisionModel, setIngestVisionModel] = useState("");
@@ -7037,6 +7047,16 @@ export default function App() {
     setOpsId(doc.id);
     setOpsValue(doc.system_prompt);
     setModel(doc.model ?? "");
+    setVoiceInputEnabled(triStateBoolValue(doc.voice?.input_enabled));
+    setVoiceOutputEnabled(triStateBoolValue(doc.voice?.output_enabled));
+    setVoiceInputBackend(doc.voice?.input_backend ?? "");
+    setVoiceInputProvider(doc.voice?.input_provider ?? "");
+    setVoiceInputModel(doc.voice?.input_model ?? "");
+    setVoiceOutputBackend(doc.voice?.output_backend ?? "");
+    setVoiceTtsProvider(doc.voice?.tts_provider ?? "");
+    setVoiceTtsModel(doc.voice?.tts_model ?? "");
+    setVoiceName(doc.voice?.voice ?? "");
+    setVoiceTone(doc.voice?.tone ?? "");
     setInputCostPerMillion(numberControlValue(doc.input_cost_per_million));
     setOutputCostPerMillion(numberControlValue(doc.output_cost_per_million));
     setMaxToolCalls(numberControlValue(doc.max_tool_calls));
@@ -7091,11 +7111,36 @@ export default function App() {
     return value == null ? "" : String(value);
   }
 
+  function triStateBoolValue(value: boolean | null | undefined) {
+    return value == null ? "" : value ? "on" : "off";
+  }
+
+  function optionalTriStateBool(value: "" | "on" | "off") {
+    return value === "" ? null : value === "on";
+  }
+
+  function voiceConfigFromCurrentControls(): AgentConfigFile["voice"] {
+    const voice = {
+      input_enabled: optionalTriStateBool(voiceInputEnabled),
+      output_enabled: optionalTriStateBool(voiceOutputEnabled),
+      input_backend: voiceInputBackend.trim() || null,
+      input_provider: voiceInputProvider.trim() || null,
+      input_model: voiceInputModel.trim() || null,
+      output_backend: voiceOutputBackend.trim() || null,
+      tts_provider: voiceTtsProvider.trim() || null,
+      tts_model: voiceTtsModel.trim() || null,
+      voice: voiceName.trim() || null,
+      tone: voiceTone.trim() || null,
+    };
+    return Object.values(voice).some((value) => value !== null) ? voice : null;
+  }
+
   function agentConfigFromCurrentControls(id: string, systemPrompt: string): AgentConfigFile {
     return {
       id,
       name: id,
       system_prompt: systemPrompt,
+      voice: voiceConfigFromCurrentControls(),
       prompt_refinement:
         enablePromptRefinement && promptRefinementInstructions.trim()
           ? {
@@ -12200,6 +12245,106 @@ export default function App() {
               <option value="off">off</option>
             </select>
           </label>
+          <label>
+            Voice input
+            <select
+              value={voiceInputEnabled}
+              onChange={(e) =>
+                setVoiceInputEnabled(e.target.value as "" | "on" | "off")
+              }
+              disabled={running}
+            >
+              <option value="">config</option>
+              <option value="on">on</option>
+              <option value="off">off</option>
+            </select>
+          </label>
+          <label>
+            Voice output
+            <select
+              value={voiceOutputEnabled}
+              onChange={(e) =>
+                setVoiceOutputEnabled(e.target.value as "" | "on" | "off")
+              }
+              disabled={running}
+            >
+              <option value="">config</option>
+              <option value="on">on</option>
+              <option value="off">off</option>
+            </select>
+          </label>
+          <label>
+            STT backend
+            <input
+              value={voiceInputBackend}
+              onChange={(e) => setVoiceInputBackend(e.target.value)}
+              placeholder="profile default"
+              disabled={running}
+            />
+          </label>
+          <label>
+            STT provider
+            <input
+              value={voiceInputProvider}
+              onChange={(e) => setVoiceInputProvider(e.target.value)}
+              placeholder="profile default"
+              disabled={running}
+            />
+          </label>
+          <label>
+            STT model
+            <input
+              value={voiceInputModel}
+              onChange={(e) => setVoiceInputModel(e.target.value)}
+              placeholder="profile default"
+              disabled={running}
+            />
+          </label>
+          <label>
+            TTS backend
+            <input
+              value={voiceOutputBackend}
+              onChange={(e) => setVoiceOutputBackend(e.target.value)}
+              placeholder="profile default"
+              disabled={running}
+            />
+          </label>
+          <label>
+            TTS provider
+            <input
+              value={voiceTtsProvider}
+              onChange={(e) => setVoiceTtsProvider(e.target.value)}
+              placeholder="profile default"
+              disabled={running}
+            />
+          </label>
+          <label>
+            TTS model
+            <input
+              value={voiceTtsModel}
+              onChange={(e) => setVoiceTtsModel(e.target.value)}
+              placeholder="profile default"
+              disabled={running}
+            />
+          </label>
+          <label>
+            Voice
+            <input
+              value={voiceName}
+              onChange={(e) => setVoiceName(e.target.value)}
+              placeholder="voice id"
+              disabled={running}
+            />
+          </label>
+          <label>
+            Voice tone
+            <input
+              value={voiceTone}
+              onChange={(e) => setVoiceTone(e.target.value)}
+              placeholder="default tone"
+              disabled={running}
+            />
+          </label>
           <label className="switch">
             <input
               type="checkbox"
@@ -15471,6 +15616,16 @@ export default function App() {
                             </span>
                             {doc.memory_model ? (
                               <span>memory model {doc.memory_model}</span>
+                            ) : null}
+                            {doc.voice ? (
+                              <span>
+                                {`voice in ${doc.voice.input_enabled ?? "default"} / out ${doc.voice.output_enabled ?? "default"}`}
+                              </span>
+                            ) : null}
+                            {doc.voice?.tts_model || doc.voice?.voice ? (
+                              <span>
+                                {`tts ${doc.voice.tts_model ?? "default"} / voice ${doc.voice.voice ?? "default"}`}
+                              </span>
                             ) : null}
                             <p>{previewText(doc.system_prompt, 220)}</p>
                           </>

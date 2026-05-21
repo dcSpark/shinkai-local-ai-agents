@@ -1460,6 +1460,7 @@ export default function App() {
       { command: "/resume", label: "Resume last or selected run" },
       { command: "/resume ", label: "Resume a run by id" },
       { command: "/resume plan ", label: "Preview resume prompt" },
+      { command: "/resume-plan ", label: "Preview resume prompt" },
       { command: "/stop", label: "Stop current run" },
       { command: "/stop default", label: "Use configured stop mode" },
       { command: "/stop discard", label: "Stop without retaining context" },
@@ -2519,13 +2520,15 @@ export default function App() {
 
   function parseResumePlanShortcut(text: string) {
     const trimmed = text.trim();
-    if (trimmed !== "/resume plan" && !trimmed.startsWith("/resume plan ")) {
+    const spaced = "/resume plan";
+    const hyphenated = "/resume-plan";
+    const matched = [spaced, hyphenated].find(
+      (command) => trimmed === command || trimmed.startsWith(`${command} `),
+    );
+    if (!matched) {
       return null;
     }
-    const rest =
-      trimmed === "/resume plan"
-        ? ""
-        : trimmed.slice("/resume plan ".length).trim();
+    const rest = trimmed === matched ? "" : trimmed.slice(matched.length).trim();
     return parseResumeShortcut(rest ? `/resume ${rest}` : "/resume");
   }
 

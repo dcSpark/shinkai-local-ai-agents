@@ -1514,7 +1514,12 @@ export default function App() {
       { command: "/bridge-deliveries retry ", label: "Retry bridge delivery" },
       { command: "/bridge-deliveries retry-all", label: "Retry all bridge deliveries" },
       { command: "/hooks", label: "List lifecycle hooks" },
+      { command: "/hooks available", label: "List lifecycle hooks" },
+      { command: "/hooks list", label: "Show lifecycle hook policy" },
       { command: "/hooks policy", label: "Show lifecycle hook policy" },
+      { command: "/hooks review", label: "Review hook failures" },
+      { command: "/hooks disable ", label: "Disable lifecycle hook" },
+      { command: "/hooks enable ", label: "Enable lifecycle hook" },
       { command: "/trace", label: "Load last run trace" },
       { command: "/trace ", label: "Load a run trace by id" },
       { command: "/compare ", label: "Compare loaded trace to a run id" },
@@ -1704,6 +1709,16 @@ export default function App() {
       "/bridge-deliveries list",
       "/bridge-deliveries retry <id>",
       "/bridge-deliveries retry-all",
+    ].join("\n");
+  }
+
+  function hookShortcutHelpText() {
+    return [
+      "/hooks available",
+      "/hooks list",
+      "/hooks review [run-id]",
+      "/hooks disable <hook-id> [--agent] --confirm",
+      "/hooks enable <hook-id> [--agent] --confirm",
     ].join("\n");
   }
 
@@ -2718,14 +2733,33 @@ export default function App() {
     }
   }
 
+  async function reviewHooksFromOps(explicitRunId?: string) {
+    const runId =
+      explicitRunId?.trim() || traceEvents[0]?.run_id || lastRunId || "";
+    if (!runId) {
+      appendLine("error", "Hook review shortcut needs a run id or previous run.");
+      return;
+    }
+    try {
+      const events = await fetchTraceEvents(runId);
+      const plan = hookRemediationsFromEvents(events);
+      appendEvent(`Hook review: ${plan.length} issue(s) for ${runId}.`);
+      appendJson("Hook review", plan);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      appendLine("error", `Hook review failed: ${msg}`);
+    }
+  }
+
   async function setPersistentHookDisabled(
     hookId: string,
     disabled: boolean,
     scope: "profile" | "agent" = "profile",
+    confirmed = false,
   ) {
     const action = disabled ? "Disable lifecycle hook" : "Enable lifecycle hook";
     const agent = agentId.trim() || "fake-agent";
-    if (!confirmLocalChange(`${action} ${hookId}`)) {
+    if (!confirmed && !confirmLocalChange(`${action} ${hookId}`)) {
       return;
     }
     try {
@@ -4363,15 +4397,49 @@ export default function App() {
       return;
     }
 
-    if (prompt === "/hooks" || prompt === "/hooks policy") {
+    if (prompt === "/hooks" || prompt.startsWith("/hooks ")) {
       setInput("");
       setActiveSection("trace");
       appendLine("user", prompt);
-      if (prompt === "/hooks policy") {
+      const rest = prompt === "/hooks" ? "" : prompt.slice("/hooks ".length).trim();
+      const [command = "", ...args] = rest.split(/\s+/).filter(Boolean);
+      if (!rest || command === "available") {
+        await refreshHookCatalog();
+      } else if (command === "help") {
+        appendLine("assistant", hookShortcutHelpText());
+      } else if (command === "list" || command === "policy") {
         await refreshHookPolicy();
-        return;
+      } else if (command === "review") {
+        if (args.length > 1) {
+          appendLine("error", "Hooks review shortcut accepts at most one run id.");
+        } else {
+          await reviewHooksFromOps(args[0]);
+        }
+      } else if (command === "disable" || command === "enable") {
+        const hookIds = args.filter((arg) => arg !== "--confirm" && arg !== "--agent");
+        const confirmed = args.includes("--confirm");
+        const scope = args.includes("--agent") ? "agent" : "profile";
+        if (hookIds.length !== 1) {
+          appendLine(
+            "error",
+            `Hooks ${command} shortcut needs a hook id plus optional --agent and required --confirm.`,
+          );
+        } else if (!confirmed) {
+          appendLine("error", `Hooks ${command} shortcut requires --confirm.`);
+        } else {
+          await setPersistentHookDisabled(
+            hookIds[0],
+            command === "disable",
+            scope,
+            true,
+          );
+        }
+      } else {
+        appendLine(
+          "error",
+          "Hooks shortcut needs available, list, review, disable, enable, policy, or help.",
+        );
       }
-      await refreshHookCatalog();
       return;
     }
 

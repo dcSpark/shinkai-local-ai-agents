@@ -2483,10 +2483,34 @@ fn daemon_x402_protected_request(request: &HttpRequest) -> bool {
     if request.method != "POST" {
         return false;
     }
+    if let Some(paths) = std::env::var("AGENT_DAEMON_X402_PATHS")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+    {
+        return daemon_x402_path_list_matches(&paths, &request.path);
+    }
     matches!(
         request.path.as_str(),
         "/run" | "/run/start" | "/resume" | "/resume/start" | "/batch" | "/batch/resume"
     ) || request.path.starts_with("/tool/")
+}
+
+fn daemon_x402_path_list_matches(paths: &str, request_path: &str) -> bool {
+    paths
+        .split([',', '\n'])
+        .map(str::trim)
+        .filter(|path| !path.is_empty())
+        .any(|path| daemon_x402_path_matches(path, request_path))
+}
+
+fn daemon_x402_path_matches(configured_path: &str, request_path: &str) -> bool {
+    if configured_path == "*" {
+        return true;
+    }
+    if let Some(prefix) = configured_path.strip_suffix("/*") {
+        return request_path == prefix || request_path.starts_with(&format!("{prefix}/"));
+    }
+    configured_path == request_path
 }
 
 enum BridgeX402Decision {
@@ -7116,6 +7140,7 @@ mod tests {
         let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
         let previous_accepts = std::env::var_os("AGENT_DAEMON_X402_ACCEPTS");
         let previous_facilitator = std::env::var_os("AGENT_DAEMON_X402_FACILITATOR_URL");
+        let previous_paths = std::env::var_os("AGENT_DAEMON_X402_PATHS");
         let accepts = serde_json::json!([{
             "scheme": "exact",
             "network": "base-sepolia",
@@ -7128,6 +7153,7 @@ mod tests {
             std::env::set_var("AGENT_HARNESS_HOME", &dir);
             std::env::set_var("AGENT_DAEMON_X402_ACCEPTS", accepts.to_string());
             std::env::remove_var("AGENT_DAEMON_X402_FACILITATOR_URL");
+            std::env::remove_var("AGENT_DAEMON_X402_PATHS");
         }
 
         let (health_status, health) = route(
@@ -7209,6 +7235,68 @@ mod tests {
         restore_env("AGENT_HARNESS_HOME", previous_home);
         restore_env("AGENT_DAEMON_X402_ACCEPTS", previous_accepts);
         restore_env("AGENT_DAEMON_X402_FACILITATOR_URL", previous_facilitator);
+        restore_env("AGENT_DAEMON_X402_PATHS", previous_paths);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn daemon_x402_custom_paths_override_default_protected_routes() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("daemon-x402-paths");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        let previous_accepts = std::env::var_os("AGENT_DAEMON_X402_ACCEPTS");
+        let previous_paths = std::env::var_os("AGENT_DAEMON_X402_PATHS");
+        let accepts = serde_json::json!([{
+            "scheme": "exact",
+            "network": "base-sepolia",
+            "maxAmountRequired": "3",
+            "payTo": "0x0000000000000000000000000000000000000007",
+            "asset": "0x0000000000000000000000000000000000000008",
+            "resource": "http://localhost/custom/paid"
+        }]);
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+            std::env::set_var("AGENT_DAEMON_X402_ACCEPTS", accepts.to_string());
+            std::env::set_var("AGENT_DAEMON_X402_PATHS", "/run/start,/custom/*");
+        }
+
+        let (open_status, open) = route(
+            HttpRequest {
+                method: "POST".into(),
+                path: "/tool/echo".into(),
+                headers: HashMap::new(),
+                body: r#"{"text":"free daemon tool"}"#.into(),
+            },
+            Arc::new(DaemonState::default()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(open_status, 200);
+        assert_eq!(open["output"]["text"], "free daemon tool");
+
+        for path in ["/run/start", "/custom/paid"] {
+            let (status, challenge) = route(
+                HttpRequest {
+                    method: "POST".into(),
+                    path: path.into(),
+                    headers: HashMap::new(),
+                    body: "{}".into(),
+                },
+                Arc::new(DaemonState::default()),
+            )
+            .await
+            .unwrap();
+            assert_eq!(status, 402);
+            assert_eq!(challenge["status"], "payment_required");
+            let payment_required_header =
+                challenge["headers"]["PAYMENT-REQUIRED"].as_str().unwrap();
+            let decoded_challenge = decode_x402_header(payment_required_header).unwrap();
+            assert_eq!(decoded_challenge["accepts"], accepts);
+        }
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        restore_env("AGENT_DAEMON_X402_ACCEPTS", previous_accepts);
+        restore_env("AGENT_DAEMON_X402_PATHS", previous_paths);
         let _ = std::fs::remove_dir_all(dir);
     }
 

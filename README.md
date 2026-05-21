@@ -120,7 +120,9 @@ available as shared fallbacks.
 Daemon execution endpoints can also be paid-gated independently. Setting
 `AGENT_DAEMON_X402_ACCEPTS` protects `/run`, `/run/start`, `/resume`,
 `/resume/start`, `/batch`, `/batch/resume`, and `/tool/...`; health and
-inspection endpoints stay open.
+inspection endpoints stay open. Set `AGENT_DAEMON_X402_PATHS` to a comma- or
+newline-separated list of exact paths or `/prefix/*` patterns to override that
+default protected route set.
 
 ## Verification
 

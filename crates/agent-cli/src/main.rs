@@ -1915,6 +1915,26 @@ enum ConversationCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Aggregate tokens, cost, and time for a conversation segment.
+    Usage {
+        id: String,
+
+        /// First expanded message index to include. Defaults to the first message.
+        #[arg(long)]
+        from: Option<usize>,
+
+        /// Last expanded message index to include. Defaults to the final message.
+        #[arg(long)]
+        to: Option<usize>,
+
+        /// Use only the last N expanded messages.
+        #[arg(long)]
+        last: Option<usize>,
+
+        /// Emit JSON instead of a human-readable summary.
+        #[arg(long)]
+        json: bool,
+    },
     /// Show or update conversation-level context policy overrides.
     Policy {
         id: String,
@@ -2780,6 +2800,15 @@ enum RemoteConversationCommand {
     Tree,
     Show {
         id: String,
+    },
+    Usage {
+        id: String,
+        #[arg(long)]
+        from: Option<usize>,
+        #[arg(long)]
+        to: Option<usize>,
+        #[arg(long)]
+        last: Option<usize>,
     },
     Recover {
         id: String,
@@ -4827,6 +4856,61 @@ mod cli_parse_tests {
     }
 
     #[test]
+    fn conversation_usage_command_parses() {
+        let cli = parse_cli([
+            "agent",
+            "conversation",
+            "usage",
+            "conversation-1",
+            "--from",
+            "2",
+            "--to",
+            "4",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Conversation {
+            command:
+                ConversationCommand::Usage {
+                    id,
+                    from,
+                    to,
+                    last,
+                    json,
+                },
+        } = into_command(cli)
+        else {
+            panic!("expected conversation usage command");
+        };
+        assert_eq!(id, "conversation-1");
+        assert_eq!(from, Some(2));
+        assert_eq!(to, Some(4));
+        assert_eq!(last, None);
+        assert!(json);
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "conversation",
+            "usage",
+            "conversation-1",
+            "--last",
+            "6",
+        ])
+        .unwrap();
+        let RemoteCommand::Conversation {
+            command: RemoteConversationCommand::Usage { id, from, to, last },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote conversation usage command");
+        };
+        assert_eq!(id, "conversation-1");
+        assert_eq!(from, None);
+        assert_eq!(to, None);
+        assert_eq!(last, Some(6));
+    }
+
+    #[test]
     fn conversation_policy_command_parses() {
         let cli = parse_cli([
             "agent",
@@ -6476,6 +6560,13 @@ async fn main() -> anyhow::Result<()> {
                 json,
             } => headless::conversation_branch(id, at, title, reason, json).await,
             ConversationCommand::Show { id, json } => headless::conversation_show(id, json).await,
+            ConversationCommand::Usage {
+                id,
+                from,
+                to,
+                last,
+                json,
+            } => headless::conversation_usage(id, from, to, last, json).await,
             ConversationCommand::Policy {
                 id,
                 load_memory,
@@ -7289,6 +7380,9 @@ async fn main() -> anyhow::Result<()> {
                 RemoteConversationCommand::Tree => headless::remote_conversation_tree(url).await,
                 RemoteConversationCommand::Show { id } => {
                     headless::remote_conversation_show(url, id).await
+                }
+                RemoteConversationCommand::Usage { id, from, to, last } => {
+                    headless::remote_conversation_usage(url, id, from, to, last).await
                 }
                 RemoteConversationCommand::Recover { id } => {
                     headless::remote_conversation_recover(url, id).await

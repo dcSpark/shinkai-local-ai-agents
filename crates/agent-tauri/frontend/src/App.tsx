@@ -183,6 +183,21 @@ interface TraceSummary {
   duration_ms: number | null;
 }
 
+type TraceSummaryTotals = Omit<TraceSummary, "run_id">;
+
+interface ConversationUsageReport {
+  conversation_id: string;
+  from?: number | null;
+  to?: number | null;
+  message_count: number;
+  run_ids: string[];
+  missing_run_id_messages: number[];
+  missing_traces: string[];
+  trace_count: number;
+  totals: TraceSummaryTotals;
+  traces: TraceSummary[];
+}
+
 interface QualityScoreRecord {
   event_id: number;
   run_id: string;
@@ -1344,6 +1359,13 @@ export default function App() {
     return { from, to } satisfies ConversationRange;
   }
 
+  function optionalConversationRangeFromOps(label = "Conversation usage") {
+    if (!opsValue.trim()) {
+      return {};
+    }
+    return parseConversationRangeFromOps(label);
+  }
+
   function parseDirectToolShortcut(text: string) {
     const trimmed = text.trim();
     const rest = trimmed.startsWith("/tool!")
@@ -1534,6 +1556,8 @@ export default function App() {
       { command: "/usage trace", label: "Load last trace usage totals" },
       { command: "/usage trace ", label: "Load run trace usage totals by id" },
       { command: "/usage run ", label: "Load run usage totals by id" },
+      { command: "/usage conversation", label: "Load selected conversation usage totals" },
+      { command: "/usage conversation ", label: "Load conversation usage by id or range" },
       { command: "/score 10", label: "Score last answer" },
       { command: "/score conversation 10", label: "Score the full conversation" },
       { command: "/score range:important 8", label: "Score a selected range" },
@@ -3798,6 +3822,54 @@ export default function App() {
     await loadTraceById(runId);
   }
 
+  function parseConversationUsageShortcut(args: string[]) {
+    const remaining = [...args];
+    let id = conversationId.trim() || expandedConversation?.conversation.id || "";
+    const range: { from?: number | null; to?: number | null; last?: number | null } = {};
+
+    const first = remaining[0];
+    if (first && first !== "last" && !first.includes(":")) {
+      id = remaining.shift() ?? id;
+    }
+    if (!id) {
+      appendLine("error", "Usage conversation shortcut needs a conversation id or selected conversation.");
+      return null;
+    }
+    if (remaining.length === 0) {
+      return { id, range };
+    }
+    if (remaining[0] === "last") {
+      if (remaining.length !== 2) {
+        appendLine("error", "Usage conversation last needs: /usage conversation [id] last <n>.");
+        return null;
+      }
+      const last = Number(remaining[1]);
+      if (!Number.isInteger(last) || last <= 0) {
+        appendLine("error", "Usage conversation last count must be a positive whole number.");
+        return null;
+      }
+      return { id, range: { last } };
+    }
+    if (remaining.length === 1 && remaining[0].includes(":")) {
+      const [fromText, toText] = remaining[0].split(":", 2);
+      const from = Number(fromText);
+      const to = Number(toText);
+      if (
+        !Number.isInteger(from) ||
+        !Number.isInteger(to) ||
+        from < 0 ||
+        to < 0 ||
+        from > to
+      ) {
+        appendLine("error", "Usage conversation range must look like 2:4.");
+        return null;
+      }
+      return { id, range: { from, to } };
+    }
+    appendLine("error", "Usage conversation accepts [id], [id] <from>:<to>, or [id] last <n>.");
+    return null;
+  }
+
   async function submit() {
     let prompt = input.trim();
     if (!prompt) return;
@@ -3873,7 +3945,15 @@ export default function App() {
         }
         return;
       }
-      appendLine("error", "Usage shortcut needs current, trace, or run.");
+      if (usageCommand === "conversation" || usageCommand === "conv") {
+        setInput("");
+        appendLine("user", prompt);
+        const parsed = parseConversationUsageShortcut(usageArgs.slice(1));
+        if (!parsed) return;
+        await loadConversationUsage(parsed.id, parsed.range);
+        return;
+      }
+      appendLine("error", "Usage shortcut needs current, trace, run, or conversation.");
       return;
     }
 
@@ -8148,6 +8228,28 @@ export default function App() {
       : await invoke<ExpandedConversation>("conversation_show", { id });
   }
 
+  async function fetchConversationUsage(
+    id: string,
+    range: { from?: number | null; to?: number | null; last?: number | null } = {},
+  ) {
+    const body = {
+      from: range.from ?? null,
+      to: range.to ?? null,
+      last: range.last ?? null,
+    };
+    return transport === "daemon"
+      ? await daemonJson<ConversationUsageReport>(
+          `/conversations/${encodeURIComponent(id)}/usage`,
+          body,
+        )
+      : await invoke<ConversationUsageReport>("conversation_usage", {
+          id,
+          from: body.from,
+          to: body.to,
+          last: body.last,
+        });
+  }
+
   async function fetchConversationRecovery(id: string) {
     return transport === "daemon"
       ? await daemonJson<ConversationRecoveryPlan>(
@@ -8218,6 +8320,28 @@ export default function App() {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Conversation show failed: ${msg}`);
     }
+  }
+
+  async function loadConversationUsage(
+    id: string,
+    range: { from?: number | null; to?: number | null; last?: number | null } = {},
+  ) {
+    try {
+      const report = await fetchConversationUsage(id, range);
+      appendJson("Conversation usage", report);
+      appendEvent(conversationUsageSummary(report));
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Conversation usage failed: ${msg}`);
+    }
+  }
+
+  async function loadConversationUsageFromOps() {
+    const id = requireOpsId("Conversation usage");
+    if (!id) return;
+    const range = optionalConversationRangeFromOps();
+    if (range === null) return;
+    await loadConversationUsage(id, range);
   }
 
   async function recoverConversationFromOps() {
@@ -10858,6 +10982,25 @@ export default function App() {
     ].join(", ");
   }
 
+  function conversationUsageSummary(report: ConversationUsageReport) {
+    const range =
+      report.from === null || report.from === undefined || report.to === null || report.to === undefined
+        ? "empty"
+        : `${report.from}:${report.to}`;
+    const missing =
+      report.missing_run_id_messages.length || report.missing_traces.length
+        ? `, incomplete ${report.missing_run_id_messages.length} unlinked message(s), ${report.missing_traces.length} missing trace(s)`
+        : "";
+    return [
+      `Conversation usage ${report.conversation_id} ${range}`,
+      `tokens ${report.totals.tokens_in}/${report.totals.tokens_out}`,
+      `cost ${formatCost(report.totals.cost_usd)}`,
+      `time ${report.totals.duration_ms === null ? "n/a" : formatDuration(report.totals.duration_ms)}`,
+      `runs ${report.trace_count}/${report.run_ids.length}`,
+      `${report.message_count} messages${missing}`,
+    ].join(", ");
+  }
+
   function formatBytes(bytes: number) {
     if (bytes < 1024) {
       return `${bytes} B`;
@@ -11285,7 +11428,8 @@ export default function App() {
   }
 
   function conversationMessageTitle(message: ConversationMessage, index: number) {
-    return `${index + 1}. ${message.role} / ${message.created_at}`;
+    const run = message.run_id ? ` / run ${message.run_id}` : "";
+    return `${index + 1}. ${message.role} / ${message.created_at}${run}`;
   }
 
   function upsertArtifact(
@@ -13620,6 +13764,14 @@ export default function App() {
                   disabled={running || !opsId.trim()}
                 >
                   Show
+                </button>
+                <button
+                  type="button"
+                  title='Show usage totals for conversation Id. Optional Value: { "from": 2, "to": 4 }.'
+                  onClick={() => void loadConversationUsageFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Usage
                 </button>
                 <button
                   type="button"

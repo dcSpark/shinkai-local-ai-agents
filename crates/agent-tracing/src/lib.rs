@@ -684,6 +684,33 @@ pub struct TraceSummary {
     pub duration_ms: Option<u64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TraceSummaryTotals {
+    pub events: usize,
+    pub context_snapshots: u32,
+    pub llm_calls: u32,
+    pub tool_calls: u32,
+    pub approvals: u32,
+    pub guidance_injections: u32,
+    pub quality_scores: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality_score_average: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality_score_min: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub quality_score_max: Option<f32>,
+    pub memory_fragments: u32,
+    pub artifact_refs: u32,
+    #[serde(default)]
+    pub hooks: u32,
+    #[serde(default)]
+    pub hook_failures: u32,
+    pub tokens_in: u32,
+    pub tokens_out: u32,
+    pub cost_usd: Option<f64>,
+    pub duration_ms: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct HookRemediation {
     pub event_id: EventId,
@@ -723,6 +750,98 @@ impl TraceSummary {
             duration_ms: None,
         }
     }
+}
+
+impl TraceSummaryTotals {
+    pub fn empty() -> Self {
+        Self {
+            events: 0,
+            context_snapshots: 0,
+            llm_calls: 0,
+            tool_calls: 0,
+            approvals: 0,
+            guidance_injections: 0,
+            quality_scores: 0,
+            quality_score_average: None,
+            quality_score_min: None,
+            quality_score_max: None,
+            memory_fragments: 0,
+            artifact_refs: 0,
+            hooks: 0,
+            hook_failures: 0,
+            tokens_in: 0,
+            tokens_out: 0,
+            cost_usd: None,
+            duration_ms: None,
+        }
+    }
+}
+
+pub fn aggregate_trace_summaries<'a>(
+    summaries: impl IntoIterator<Item = &'a TraceSummary>,
+) -> TraceSummaryTotals {
+    let mut totals = TraceSummaryTotals::empty();
+    let mut quality_score_total = 0.0f32;
+    let mut total_cost_usd = 0.0f64;
+    let mut has_cost = false;
+    let mut total_duration_ms = 0u64;
+    let mut has_duration = false;
+
+    for summary in summaries {
+        totals.events = totals.events.saturating_add(summary.events);
+        totals.context_snapshots = totals
+            .context_snapshots
+            .saturating_add(summary.context_snapshots);
+        totals.llm_calls = totals.llm_calls.saturating_add(summary.llm_calls);
+        totals.tool_calls = totals.tool_calls.saturating_add(summary.tool_calls);
+        totals.approvals = totals.approvals.saturating_add(summary.approvals);
+        totals.guidance_injections = totals
+            .guidance_injections
+            .saturating_add(summary.guidance_injections);
+        totals.quality_scores = totals.quality_scores.saturating_add(summary.quality_scores);
+        if let Some(average) = summary.quality_score_average {
+            quality_score_total += average * summary.quality_scores as f32;
+        }
+        if let Some(min) = summary.quality_score_min {
+            totals.quality_score_min = Some(
+                totals
+                    .quality_score_min
+                    .map(|current| current.min(min))
+                    .unwrap_or(min),
+            );
+        }
+        if let Some(max) = summary.quality_score_max {
+            totals.quality_score_max = Some(
+                totals
+                    .quality_score_max
+                    .map(|current| current.max(max))
+                    .unwrap_or(max),
+            );
+        }
+        totals.memory_fragments = totals
+            .memory_fragments
+            .saturating_add(summary.memory_fragments);
+        totals.artifact_refs = totals.artifact_refs.saturating_add(summary.artifact_refs);
+        totals.hooks = totals.hooks.saturating_add(summary.hooks);
+        totals.hook_failures = totals.hook_failures.saturating_add(summary.hook_failures);
+        totals.tokens_in = totals.tokens_in.saturating_add(summary.tokens_in);
+        totals.tokens_out = totals.tokens_out.saturating_add(summary.tokens_out);
+        if let Some(cost) = summary.cost_usd {
+            total_cost_usd += cost;
+            has_cost = true;
+        }
+        if let Some(duration) = summary.duration_ms {
+            total_duration_ms = total_duration_ms.saturating_add(duration);
+            has_duration = true;
+        }
+    }
+
+    if totals.quality_scores > 0 {
+        totals.quality_score_average = Some(quality_score_total / totals.quality_scores as f32);
+    }
+    totals.cost_usd = has_cost.then_some(total_cost_usd);
+    totals.duration_ms = has_duration.then_some(total_duration_ms);
+    totals
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -2220,6 +2339,46 @@ mod tests {
         assert_eq!(summary.quality_score_average, Some(8.0));
         assert_eq!(summary.quality_score_min, Some(8.0));
         assert_eq!(summary.quality_score_max, Some(8.0));
+    }
+
+    #[test]
+    fn aggregates_trace_summaries_for_segments() {
+        let mut first = TraceSummary::empty(RunId::new());
+        first.events = 3;
+        first.llm_calls = 1;
+        first.tokens_in = 10;
+        first.tokens_out = 5;
+        first.cost_usd = Some(0.01);
+        first.duration_ms = Some(100);
+        first.quality_scores = 1;
+        first.quality_score_average = Some(8.0);
+        first.quality_score_min = Some(8.0);
+        first.quality_score_max = Some(8.0);
+
+        let mut second = TraceSummary::empty(RunId::new());
+        second.events = 2;
+        second.tool_calls = 1;
+        second.tokens_in = 7;
+        second.tokens_out = 9;
+        second.cost_usd = Some(0.02);
+        second.duration_ms = Some(250);
+        second.quality_scores = 2;
+        second.quality_score_average = Some(6.0);
+        second.quality_score_min = Some(5.0);
+        second.quality_score_max = Some(7.0);
+
+        let totals = aggregate_trace_summaries([&first, &second]);
+        assert_eq!(totals.events, 5);
+        assert_eq!(totals.llm_calls, 1);
+        assert_eq!(totals.tool_calls, 1);
+        assert_eq!(totals.tokens_in, 17);
+        assert_eq!(totals.tokens_out, 14);
+        assert!((totals.cost_usd.unwrap() - 0.03).abs() < f64::EPSILON);
+        assert_eq!(totals.duration_ms, Some(350));
+        assert_eq!(totals.quality_scores, 3);
+        assert_eq!(totals.quality_score_average, Some(20.0 / 3.0));
+        assert_eq!(totals.quality_score_min, Some(5.0));
+        assert_eq!(totals.quality_score_max, Some(8.0));
     }
 
     #[test]

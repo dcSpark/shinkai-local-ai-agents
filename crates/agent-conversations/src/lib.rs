@@ -7,6 +7,7 @@
 use std::path::PathBuf;
 
 use agent_storage::{StorageError, StoragePaths};
+use agent_tracing::{TraceSummary, TraceSummaryTotals, aggregate_trace_summaries};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -108,6 +109,8 @@ pub struct ConversationMessage {
     pub role: ConversationRole,
     pub content: String,
     pub created_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -131,6 +134,40 @@ pub struct RenderedMessageRange {
     pub to: usize,
     pub source_range: String,
     pub text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConversationRunSelection {
+    pub conversation_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<usize>,
+    pub message_count: usize,
+    #[serde(default)]
+    pub run_ids: Vec<String>,
+    #[serde(default)]
+    pub missing_run_id_messages: Vec<usize>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ConversationUsageReport {
+    pub conversation_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<usize>,
+    pub message_count: usize,
+    #[serde(default)]
+    pub run_ids: Vec<String>,
+    #[serde(default)]
+    pub missing_run_id_messages: Vec<usize>,
+    #[serde(default)]
+    pub missing_traces: Vec<String>,
+    pub trace_count: usize,
+    pub totals: TraceSummaryTotals,
+    #[serde(default)]
+    pub traces: Vec<TraceSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -190,6 +227,33 @@ pub fn render_message_range(
     })
 }
 
+pub fn build_conversation_usage_report<E>(
+    selection: ConversationRunSelection,
+    mut load_summary: impl FnMut(&str) -> Result<Option<TraceSummary>, E>,
+) -> Result<ConversationUsageReport, E> {
+    let mut traces = Vec::new();
+    let mut missing_traces = Vec::new();
+    for run_id in &selection.run_ids {
+        match load_summary(run_id)? {
+            Some(summary) => traces.push(summary),
+            None => missing_traces.push(run_id.clone()),
+        }
+    }
+    let totals = aggregate_trace_summaries(traces.iter());
+    Ok(ConversationUsageReport {
+        conversation_id: selection.conversation_id,
+        from: selection.from,
+        to: selection.to,
+        message_count: selection.message_count,
+        run_ids: selection.run_ids,
+        missing_run_id_messages: selection.missing_run_id_messages,
+        missing_traces,
+        trace_count: traces.len(),
+        totals,
+        traces,
+    })
+}
+
 impl ConversationStore {
     pub fn new(paths: StoragePaths) -> Self {
         Self { paths }
@@ -227,18 +291,30 @@ impl ConversationStore {
         role: ConversationRole,
         content: &str,
     ) -> Result<ConversationDoc, ConversationError> {
+        self.append_message_with_run(id, role, content, None)
+    }
+
+    pub fn append_message_with_run(
+        &self,
+        id: &str,
+        role: ConversationRole,
+        content: &str,
+        run_id: Option<&str>,
+    ) -> Result<ConversationDoc, ConversationError> {
         let content = content.trim();
         if content.is_empty() {
             return Err(ConversationError::InvalidInput(
                 "message content must not be empty".into(),
             ));
         }
+        let run_id = clean_run_id(run_id)?;
         let mut doc = self.show(id)?;
         let now = Utc::now();
         doc.messages.push(ConversationMessage {
             role,
             content: content.into(),
             created_at: now,
+            run_id,
         });
         doc.updated_at = now;
         self.write(&doc)?;
@@ -412,6 +488,91 @@ impl ConversationStore {
         Ok(doc)
     }
 
+    pub fn run_ids_for_range(
+        &self,
+        id: &str,
+        from: Option<usize>,
+        to: Option<usize>,
+    ) -> Result<ConversationRunSelection, ConversationError> {
+        validate_id(id)?;
+        let expanded = self.expanded(id)?;
+        if expanded.messages.is_empty() {
+            if from.is_some() || to.is_some() {
+                return Err(ConversationError::InvalidInput(
+                    "conversation has no messages".into(),
+                ));
+            }
+            return Ok(ConversationRunSelection {
+                conversation_id: id.into(),
+                from: None,
+                to: None,
+                message_count: 0,
+                run_ids: Vec::new(),
+                missing_run_id_messages: Vec::new(),
+            });
+        }
+
+        let start = from.unwrap_or(0);
+        let end = to.unwrap_or(expanded.messages.len() - 1);
+        validate_message_range(expanded.messages.len(), start, end)?;
+
+        let mut run_ids = Vec::new();
+        let mut missing_run_id_messages = Vec::new();
+        for (offset, message) in expanded.messages[start..=end].iter().enumerate() {
+            let index = start + offset;
+            match message
+                .run_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+            {
+                Some(run_id) if !run_ids.iter().any(|existing| existing == run_id) => {
+                    run_ids.push(run_id.to_string());
+                }
+                Some(_) => {}
+                None => missing_run_id_messages.push(index),
+            }
+        }
+
+        Ok(ConversationRunSelection {
+            conversation_id: id.into(),
+            from: Some(start),
+            to: Some(end),
+            message_count: end - start + 1,
+            run_ids,
+            missing_run_id_messages,
+        })
+    }
+
+    pub fn run_ids_for_segment(
+        &self,
+        id: &str,
+        from: Option<usize>,
+        to: Option<usize>,
+        last: Option<usize>,
+    ) -> Result<ConversationRunSelection, ConversationError> {
+        if last.is_some() && (from.is_some() || to.is_some()) {
+            return Err(ConversationError::InvalidInput(
+                "last cannot be combined with from or to".into(),
+            ));
+        }
+        let Some(last) = last else {
+            return self.run_ids_for_range(id, from, to);
+        };
+        if last == 0 {
+            return Err(ConversationError::InvalidInput(
+                "last must be greater than zero".into(),
+            ));
+        }
+        let expanded = self.expanded(id)?;
+        if expanded.messages.is_empty() {
+            return self.run_ids_for_range(id, None, None);
+        }
+        let end = expanded.messages.len() - 1;
+        let start = expanded.messages.len().saturating_sub(last);
+        self.run_ids_for_range(id, Some(start), Some(end))
+    }
+
     pub fn delete_many(
         &self,
         ids: &[String],
@@ -567,6 +728,15 @@ fn clean_optional(value: Option<String>) -> Option<String> {
     value
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
+}
+
+fn clean_run_id(value: Option<&str>) -> Result<Option<String>, ConversationError> {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    uuid::Uuid::parse_str(value)
+        .map_err(|_| ConversationError::InvalidInput(format!("run id {value:?} is not a UUID")))?;
+    Ok(Some(value.to_string()))
 }
 
 fn clean_string_list(value: Option<Vec<String>>) -> Option<Vec<String>> {
@@ -891,6 +1061,73 @@ mod tests {
     }
 
     #[test]
+    fn run_selection_deduplicates_run_ids_across_expanded_ranges() {
+        let dir = std::env::temp_dir().join(format!("conversation-runs-test-{}", uuid_like()));
+        let store = ConversationStore::new(StoragePaths::new(&dir));
+        let root = store.create(Some("Root".into()), None).unwrap();
+        let root_run = uuid::Uuid::new_v4().to_string();
+        let branch_run = uuid::Uuid::new_v4().to_string();
+        store
+            .append_message_with_run(&root.id, ConversationRole::User, "first", Some(&root_run))
+            .unwrap();
+        store
+            .append_message_with_run(
+                &root.id,
+                ConversationRole::Assistant,
+                "second",
+                Some(&root_run),
+            )
+            .unwrap();
+        let branch = store
+            .branch(&root.id, 2, Some("Branch".into()), None)
+            .unwrap();
+        store
+            .append_message(&branch.id, ConversationRole::User, "unlinked")
+            .unwrap();
+        store
+            .append_message_with_run(
+                &branch.id,
+                ConversationRole::Assistant,
+                "linked",
+                Some(&branch_run),
+            )
+            .unwrap();
+
+        let full = store.run_ids_for_range(&branch.id, None, None).unwrap();
+        assert_eq!(full.from, Some(0));
+        assert_eq!(full.to, Some(3));
+        assert_eq!(full.message_count, 4);
+        assert_eq!(full.run_ids, vec![root_run.clone(), branch_run.clone()]);
+        assert_eq!(full.missing_run_id_messages, vec![2]);
+
+        let selected = store
+            .run_ids_for_range(&branch.id, Some(1), Some(3))
+            .unwrap();
+        assert_eq!(selected.run_ids, vec![root_run.clone(), branch_run.clone()]);
+        assert_eq!(selected.missing_run_id_messages, vec![2]);
+
+        let last = store
+            .run_ids_for_segment(&branch.id, None, None, Some(1))
+            .unwrap();
+        assert_eq!(last.from, Some(3));
+        assert_eq!(last.to, Some(3));
+        assert_eq!(last.run_ids, vec![branch_run]);
+
+        let report = build_conversation_usage_report(selected, |run_id| {
+            let parsed = uuid::Uuid::parse_str(run_id).unwrap();
+            let mut summary = agent_tracing::TraceSummary::empty(agent_tracing::RunId(parsed));
+            summary.tokens_in = 2;
+            summary.tokens_out = 1;
+            Ok::<_, ()>(Some(summary))
+        })
+        .unwrap();
+        assert_eq!(report.trace_count, 2);
+        assert_eq!(report.totals.tokens_in, 4);
+        assert_eq!(report.totals.tokens_out, 2);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn rejects_invalid_branch_points_and_empty_messages() {
         let dir = std::env::temp_dir().join(format!("conversation-invalid-test-{}", uuid_like()));
         let store = ConversationStore::new(StoragePaths::new(&dir));
@@ -922,6 +1159,7 @@ mod tests {
                 role: ConversationRole::User,
                 content: "this conversation document exceeds the test quota".into(),
                 created_at: now,
+                run_id: None,
             }],
             created_at: now,
             updated_at: now,

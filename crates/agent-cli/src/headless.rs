@@ -27,7 +27,7 @@ use agent_config::{
 };
 use agent_conversations::{
     ConversationPolicy, ConversationRole, ConversationStore, ConversationTreeNode,
-    render_message_range,
+    build_conversation_usage_report, render_message_range,
 };
 use agent_core::{
     ContextSnapshot, Harness, HarnessApi, StopRetentionMode, ToolOutputMode, UserInput,
@@ -2227,6 +2227,92 @@ pub async fn conversation_show(id: String, json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn conversation_usage(
+    id: String,
+    from: Option<usize>,
+    to: Option<usize>,
+    last: Option<usize>,
+    json: bool,
+) -> anyhow::Result<()> {
+    let report = conversation_usage_report(&id, from, to, last)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print_conversation_usage_report(&report);
+    }
+    Ok(())
+}
+
+fn conversation_usage_report(
+    id: &str,
+    from: Option<usize>,
+    to: Option<usize>,
+    last: Option<usize>,
+) -> anyhow::Result<serde_json::Value> {
+    let selection = ConversationStore::from_env().run_ids_for_segment(id, from, to, last)?;
+    let trace_store = open_event_store()?;
+    let report = build_conversation_usage_report(selection, |run_id| {
+        let Ok(uuid) = uuid::Uuid::parse_str(run_id) else {
+            return Ok::<_, anyhow::Error>(None);
+        };
+        let run_id_value = RunId(uuid);
+        let events = trace_store.try_events(run_id_value)?;
+        if events.is_empty() {
+            return Ok::<_, anyhow::Error>(None);
+        }
+        Ok(Some(summarize_trace(&events, run_id_value)))
+    })?;
+    Ok(serde_json::to_value(report)?)
+}
+
+fn print_conversation_usage_report(report: &serde_json::Value) {
+    let conversation_id = report["conversation_id"].as_str().unwrap_or("(unknown)");
+    let range = match (report["from"].as_u64(), report["to"].as_u64()) {
+        (Some(from), Some(to)) => format!("{from}:{to}"),
+        _ => "empty".into(),
+    };
+    let totals = &report["totals"];
+    let cost = totals["cost_usd"]
+        .as_f64()
+        .map(|value| format!("${value:.6}"))
+        .unwrap_or_else(|| "n/a".into());
+    let duration = totals["duration_ms"]
+        .as_u64()
+        .map(|value| format!("{value}ms"))
+        .unwrap_or_else(|| "n/a".into());
+    println!("conversation: {conversation_id}");
+    println!("range: {range}");
+    println!(
+        "messages: {}",
+        report["message_count"].as_u64().unwrap_or(0)
+    );
+    println!(
+        "runs: {}/{}",
+        report["trace_count"].as_u64().unwrap_or(0),
+        report["run_ids"].as_array().map(Vec::len).unwrap_or(0)
+    );
+    println!(
+        "tokens: {}/{}",
+        totals["tokens_in"].as_u64().unwrap_or(0),
+        totals["tokens_out"].as_u64().unwrap_or(0)
+    );
+    println!("cost: {cost}");
+    println!("time: {duration}");
+    let missing_links = report["missing_run_id_messages"]
+        .as_array()
+        .map(Vec::len)
+        .unwrap_or(0);
+    let missing_traces = report["missing_traces"]
+        .as_array()
+        .map(Vec::len)
+        .unwrap_or(0);
+    if missing_links > 0 || missing_traces > 0 {
+        println!(
+            "incomplete: {missing_links} unlinked message(s), {missing_traces} missing trace(s)"
+        );
+    }
+}
+
 #[derive(Default)]
 pub struct ConversationPolicyOptions {
     pub load_memory: Option<bool>,
@@ -2731,8 +2817,19 @@ fn persist_conversation_turn(
         })
         .ok_or_else(|| anyhow::anyhow!("run {run_id} has no RunStarted event"))?;
     let store = ConversationStore::from_env();
-    store.append_message(conversation_id, ConversationRole::User, &input)?;
-    store.append_message(conversation_id, ConversationRole::Assistant, final_output)?;
+    let run_id = run_id.0.to_string();
+    store.append_message_with_run(
+        conversation_id,
+        ConversationRole::User,
+        &input,
+        Some(&run_id),
+    )?;
+    store.append_message_with_run(
+        conversation_id,
+        ConversationRole::Assistant,
+        final_output,
+        Some(&run_id),
+    )?;
     Ok(())
 }
 
@@ -5736,6 +5833,19 @@ pub async fn remote_conversation_tree(url: String) -> anyhow::Result<()> {
 
 pub async fn remote_conversation_show(url: String, id: String) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).get_json(&format!("/conversations/{id}"))?)
+}
+
+pub async fn remote_conversation_usage(
+    url: String,
+    id: String,
+    from: Option<usize>,
+    to: Option<usize>,
+    last: Option<usize>,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        &format!("/conversations/{id}/usage"),
+        serde_json::json!({ "from": from, "to": to, "last": last }),
+    )?)
 }
 
 pub async fn remote_conversation_recover(url: String, id: String) -> anyhow::Result<()> {

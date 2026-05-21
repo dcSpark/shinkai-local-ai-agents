@@ -135,6 +135,7 @@ name = "agent-conversations"
 version = "0.1.0"
 dependencies = [
  "agent-storage",
+ "agent-tracing",
  "chrono",
  "serde",
  "serde_json",

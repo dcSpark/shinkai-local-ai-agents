@@ -19,7 +19,7 @@ use agent_config::{
 };
 use agent_conversations::{
     ConversationMessage, ConversationPolicy, ConversationRole, ConversationStore,
-    render_message_range,
+    build_conversation_usage_report, render_message_range,
 };
 use agent_core::{
     AgentConfig, ApprovalControllerPolicy, ApprovalMode, ConfigValueExplanation, CostPolicy,
@@ -448,6 +448,17 @@ async fn route_inner(
                 .trim_end_matches("/policy")
                 .trim_end_matches('/');
             daemon_conversation_set_policy(id, &request.body).map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/conversations/")
+            && request.path.ends_with("/usage") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/conversations/")
+                .trim_end_matches("/usage")
+                .trim_end_matches('/');
+            daemon_conversation_usage(id, &request.body).map(|value| (200, value))
         }
         ("POST", "/conversations/delete-agent-plan") => {
             daemon_conversation_delete_agent_plan(&request.body).map(|value| (200, value))
@@ -1321,7 +1332,23 @@ async fn execute_prepared_daemon_run(
                 &options.disabled_lifecycle_hooks,
                 options.agent_id.as_deref(),
             );
-            Ok(harness.run(&agent, UserInput { text: input }).await?)
+            let result = harness
+                .run(
+                    &agent,
+                    UserInput {
+                        text: input.clone(),
+                    },
+                )
+                .await?;
+            if let Some(conversation_id) = options.conversation_id.as_deref() {
+                persist_conversation_turn(
+                    conversation_id,
+                    &input,
+                    &result.final_output,
+                    result.run_id,
+                )?;
+            }
+            Ok(result)
         }
         PreparedDaemonRun::DirectTool {
             name,
@@ -1511,6 +1538,37 @@ fn daemon_conversation_show(id: &str) -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(
         ConversationStore::from_env().expanded(id)?,
     )?)
+}
+
+fn daemon_conversation_usage(id: &str, body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: ConversationUsageInput = if body.trim().is_empty() {
+        ConversationUsageInput::default()
+    } else {
+        serde_json::from_str(body)?
+    };
+    conversation_usage_report(id, input.from, input.to, input.last)
+}
+
+fn conversation_usage_report(
+    id: &str,
+    from: Option<usize>,
+    to: Option<usize>,
+    last: Option<usize>,
+) -> anyhow::Result<serde_json::Value> {
+    let selection = ConversationStore::from_env().run_ids_for_segment(id, from, to, last)?;
+    let trace_store = open_event_store()?;
+    let report = build_conversation_usage_report(selection, |run_id| {
+        let Ok(uuid) = uuid::Uuid::parse_str(run_id) else {
+            return Ok::<_, anyhow::Error>(None);
+        };
+        let run_id_value = RunId(uuid);
+        let events = trace_store.try_events(run_id_value)?;
+        if events.is_empty() {
+            return Ok::<_, anyhow::Error>(None);
+        }
+        Ok(Some(summarize_trace(&events, run_id_value)))
+    })?;
+    Ok(serde_json::to_value(report)?)
 }
 
 fn daemon_conversation_recover(id: &str) -> anyhow::Result<serde_json::Value> {
@@ -5775,6 +5833,13 @@ struct ConversationRangeInput {
     to: usize,
 }
 
+#[derive(Default, serde::Deserialize)]
+struct ConversationUsageInput {
+    from: Option<usize>,
+    to: Option<usize>,
+    last: Option<usize>,
+}
+
 #[derive(serde::Deserialize)]
 struct GuideInput {
     run_id: String,
@@ -6688,6 +6753,29 @@ fn conversation_message_to_llm(message: agent_conversations::ConversationMessage
             Message::system(format!("Persisted tool result: {}", message.content))
         }
     }
+}
+
+fn persist_conversation_turn(
+    conversation_id: &str,
+    input: &str,
+    final_output: &str,
+    run_id: RunId,
+) -> anyhow::Result<()> {
+    let store = ConversationStore::from_env();
+    let run_id = run_id.0.to_string();
+    store.append_message_with_run(
+        conversation_id,
+        ConversationRole::User,
+        input,
+        Some(&run_id),
+    )?;
+    store.append_message_with_run(
+        conversation_id,
+        ConversationRole::Assistant,
+        final_output,
+        Some(&run_id),
+    )?;
+    Ok(())
 }
 
 fn apply_conversation_policy(agent: &mut AgentConfig, policy: &ConversationPolicy) {

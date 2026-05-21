@@ -423,6 +423,7 @@ export type ConversationMessage = {
   role: ConversationRole;
   content: string;
   created_at: string;
+  run_id?: string | null;
 };
 
 export type ConversationPolicy = {

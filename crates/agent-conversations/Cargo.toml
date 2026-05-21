@@ -9,6 +9,7 @@ description = "Branchable conversation graph storage for Shinkai."
 
 [dependencies]
 agent-storage = { path = "../agent-storage" }
+agent-tracing = { path = "../agent-tracing" }
 chrono.workspace = true
 serde.workspace = true
 serde_json.workspace = true

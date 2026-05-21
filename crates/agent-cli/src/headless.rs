@@ -156,6 +156,24 @@ pub async fn run(
                 IngestSlashCommand::Delete { id } => ingest_rm(id).await,
             };
         }
+        Some(SlashCommand::Capability(command)) => {
+            return match command {
+                CapabilitySlashCommand::List => capability_list(json).await,
+                CapabilitySlashCommand::Doctor => capability_doctor(json).await,
+                CapabilitySlashCommand::Show { id } => capability_show(id, json).await,
+                CapabilitySlashCommand::Allow { id } => {
+                    capability_review(id, CapabilityDraftStatus::Allowed, json).await
+                }
+                CapabilitySlashCommand::Reject { id } => {
+                    capability_review(id, CapabilityDraftStatus::Rejected, json).await
+                }
+                CapabilitySlashCommand::Delete { id } => capability_delete(id).await,
+                CapabilitySlashCommand::Export { id, path } => {
+                    capability_export(id, path, json).await
+                }
+                CapabilitySlashCommand::Import { path } => capability_import(path, json).await,
+            };
+        }
         Some(SlashCommand::Memory(command)) => {
             return match command {
                 MemorySlashCommand::List => memory_list(json).await,
@@ -7804,6 +7822,7 @@ enum SlashCommand {
         apply: bool,
     },
     Ingest(IngestSlashCommand),
+    Capability(CapabilitySlashCommand),
     Memory(MemorySlashCommand),
     Compact(CompactSlashCommand),
     Guide {
@@ -7815,6 +7834,17 @@ enum SlashCommand {
         score: f32,
         target: String,
     },
+}
+
+enum CapabilitySlashCommand {
+    List,
+    Doctor,
+    Show { id: String },
+    Allow { id: String },
+    Reject { id: String },
+    Delete { id: String },
+    Export { id: String, path: String },
+    Import { path: String },
 }
 
 enum IngestSlashCommand {
@@ -8011,6 +8041,13 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         let command = parse_ingest_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Ingest(command)));
     }
+    if trimmed == "/capability" || trimmed == "/capabilities" {
+        return Ok(Some(SlashCommand::Capability(CapabilitySlashCommand::List)));
+    }
+    if let Some(rest) = capability_slash_rest(trimmed) {
+        let command = parse_capability_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Capability(command)));
+    }
     if trimmed == "/memory" {
         return Ok(Some(SlashCommand::Memory(MemorySlashCommand::List)));
     }
@@ -8088,6 +8125,7 @@ fn headless_slash_help_text() -> &'static str {
      - /trace [summary|tree|hooks] <run-id>, /compare <run-id> <run-id>, /replay <run-id>\n\
      - /storage report, /storage prune-cache <days> [--apply]\n\
      - /ingest list|backends|add|probe-vision|rerun|show|review|delete\n\
+     - /capabilities list|doctor|show|allow|reject|delete|export|import\n\
      - /memory list|access|backends|create|generate|generate-conversation|classify|edit|delete|rollback|export|import\n\
      - /compact list|show|export|import|delete|keep-run, /compactions ...\n\
      - /guide <run-id> <text> - inject guidance into an active run\n\
@@ -8312,6 +8350,80 @@ fn parse_storage_slash_rest(rest: &str) -> anyhow::Result<(Option<u64>, bool)> {
         }
         _ => anyhow::bail!("storage shortcut needs report or prune-cache"),
     }
+}
+
+fn capability_slash_rest(trimmed: &str) -> Option<&str> {
+    if let Some(rest) = trimmed.strip_prefix("/capabilities ") {
+        Some(rest.trim())
+    } else {
+        trimmed.strip_prefix("/capability ").map(str::trim)
+    }
+}
+
+fn parse_capability_slash_rest(rest: &str) -> anyhow::Result<CapabilitySlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let command = parts.next().unwrap_or_default();
+    match command {
+        "" | "list" => {
+            ensure_no_extra(parts, "usage: /capabilities list")?;
+            Ok(CapabilitySlashCommand::List)
+        }
+        "doctor" => {
+            ensure_no_extra(parts, "usage: /capabilities doctor")?;
+            Ok(CapabilitySlashCommand::Doctor)
+        }
+        "show" => {
+            let id = next_required(&mut parts, "capabilities show needs an id")?;
+            ensure_no_extra(parts, "usage: /capabilities show <id>")?;
+            Ok(CapabilitySlashCommand::Show { id })
+        }
+        "allow" => {
+            let id = next_required(&mut parts, "capabilities allow needs an id")?;
+            parse_capability_confirm(parts, "allow")?;
+            Ok(CapabilitySlashCommand::Allow { id })
+        }
+        "reject" => {
+            let id = next_required(&mut parts, "capabilities reject needs an id")?;
+            parse_capability_confirm(parts, "reject")?;
+            Ok(CapabilitySlashCommand::Reject { id })
+        }
+        "delete" | "rm" => {
+            let id = next_required(&mut parts, "capabilities delete needs an id")?;
+            parse_capability_confirm(parts, "delete")?;
+            Ok(CapabilitySlashCommand::Delete { id })
+        }
+        "export" => {
+            let id = next_required(&mut parts, "capabilities export needs an id")?;
+            let path = next_required(&mut parts, "capabilities export needs a path")?;
+            ensure_no_extra(parts, "usage: /capabilities export <id> <path>")?;
+            Ok(CapabilitySlashCommand::Export { id, path })
+        }
+        "import" => {
+            let path = next_required(&mut parts, "capabilities import needs a path")?;
+            ensure_no_extra(parts, "usage: /capabilities import <path>")?;
+            Ok(CapabilitySlashCommand::Import { path })
+        }
+        _ => anyhow::bail!(
+            "capabilities shortcut needs list, doctor, show, allow, reject, delete, export, or import"
+        ),
+    }
+}
+
+fn parse_capability_confirm<'a>(
+    parts: impl Iterator<Item = &'a str>,
+    action: &str,
+) -> anyhow::Result<()> {
+    let mut confirmed = false;
+    for part in parts {
+        match part {
+            "--confirm" => confirmed = true,
+            _ => anyhow::bail!("unknown capabilities {action} option: {part}"),
+        }
+    }
+    if !confirmed {
+        anyhow::bail!("capabilities {action} requires --confirm");
+    }
+    Ok(())
 }
 
 struct IngestModelOptions {
@@ -9371,6 +9483,67 @@ mod slash_tests {
         assert!(parse_slash_command("/ingest delete artifact-1").is_err());
         assert!(parse_slash_command("/ingest probe-vision ./image.png").is_err());
         assert!(parse_slash_command("/ingester list").unwrap().is_none());
+    }
+
+    #[test]
+    fn parses_capability_shortcuts() {
+        assert!(matches!(
+            parse_slash_command("/capabilities").unwrap(),
+            Some(SlashCommand::Capability(CapabilitySlashCommand::List))
+        ));
+        assert!(matches!(
+            parse_slash_command("/capability list").unwrap(),
+            Some(SlashCommand::Capability(CapabilitySlashCommand::List))
+        ));
+        assert!(matches!(
+            parse_slash_command("/capabilities doctor").unwrap(),
+            Some(SlashCommand::Capability(CapabilitySlashCommand::Doctor))
+        ));
+        match parse_slash_command("/capabilities show draft-1").unwrap() {
+            Some(SlashCommand::Capability(CapabilitySlashCommand::Show { id })) => {
+                assert_eq!(id, "draft-1");
+            }
+            _ => panic!("expected capability show shortcut"),
+        }
+        match parse_slash_command("/capabilities allow draft-1 --confirm").unwrap() {
+            Some(SlashCommand::Capability(CapabilitySlashCommand::Allow { id })) => {
+                assert_eq!(id, "draft-1");
+            }
+            _ => panic!("expected capability allow shortcut"),
+        }
+        match parse_slash_command("/capabilities reject draft-1 --confirm").unwrap() {
+            Some(SlashCommand::Capability(CapabilitySlashCommand::Reject { id })) => {
+                assert_eq!(id, "draft-1");
+            }
+            _ => panic!("expected capability reject shortcut"),
+        }
+        match parse_slash_command("/capabilities delete draft-1 --confirm").unwrap() {
+            Some(SlashCommand::Capability(CapabilitySlashCommand::Delete { id })) => {
+                assert_eq!(id, "draft-1");
+            }
+            _ => panic!("expected capability delete shortcut"),
+        }
+        match parse_slash_command("/capabilities export draft-1 /tmp/draft.json").unwrap() {
+            Some(SlashCommand::Capability(CapabilitySlashCommand::Export { id, path })) => {
+                assert_eq!(id, "draft-1");
+                assert_eq!(path, "/tmp/draft.json");
+            }
+            _ => panic!("expected capability export shortcut"),
+        }
+        match parse_slash_command("/capabilities import /tmp/draft.json").unwrap() {
+            Some(SlashCommand::Capability(CapabilitySlashCommand::Import { path })) => {
+                assert_eq!(path, "/tmp/draft.json");
+            }
+            _ => panic!("expected capability import shortcut"),
+        }
+        assert!(parse_slash_command("/capabilities allow draft-1").is_err());
+        assert!(parse_slash_command("/capabilities reject draft-1").is_err());
+        assert!(parse_slash_command("/capabilities delete draft-1").is_err());
+        assert!(
+            parse_slash_command("/capabilitiesx list")
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]

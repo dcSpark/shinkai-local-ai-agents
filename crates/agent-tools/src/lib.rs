@@ -4935,6 +4935,9 @@ fn mcp_spec_uses_sse(spec: &McpServerSpec) -> bool {
 }
 
 fn mcp_spec_has_supported_runtime(spec: &McpServerSpec) -> bool {
+    if spec.command.is_some() && spec.url.is_some() {
+        return false;
+    }
     if spec.command.is_some() {
         return true;
     }
@@ -6305,6 +6308,10 @@ mod tests {
                   "transport": "websocket",
                   "url": "https://example.invalid/ws"
                 },
+                "ambiguous": {
+                  "command": "fake-mcp",
+                  "url": "https://example.invalid/mcp"
+                },
                 "search": { "url": "https://example.invalid/mcp" }
               }
             }"#,
@@ -6321,6 +6328,11 @@ mod tests {
         assert!(registry.descriptor(&ToolId::from("mcp-search")).is_some());
         assert!(registry.descriptor(&ToolId::from("mcp-metadata")).is_none());
         assert!(registry.descriptor(&ToolId::from("mcp-socket")).is_none());
+        assert!(
+            registry
+                .descriptor(&ToolId::from("mcp-ambiguous"))
+                .is_none()
+        );
 
         let _ = std::fs::remove_dir_all(dir);
     }

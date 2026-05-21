@@ -802,17 +802,24 @@ fn mcp_capability_support(
             vec!["MCP server entry has no command or HTTP(S) endpoint runtime".into()],
         );
     };
-    if runtime
+    let has_command = runtime
         .command
         .as_deref()
-        .is_some_and(|command| !command.trim().is_empty())
-    {
+        .is_some_and(|command| !command.trim().is_empty());
+    let endpoint = runtime.endpoint.as_deref().map(str::trim);
+    if has_command && endpoint.is_some() {
+        return (
+            AdapterCapabilitySupport::Unsupported,
+            vec!["MCP server declares both command and HTTP(S) endpoint runtimes".into()],
+        );
+    }
+    if has_command {
         return (
             AdapterCapabilitySupport::Executable,
             vec!["stdio MCP tools register as approval-gated tools when allowed".into()],
         );
     }
-    let Some(endpoint) = runtime.endpoint.as_deref().map(str::trim) else {
+    let Some(endpoint) = endpoint else {
         return (
             AdapterCapabilitySupport::MetadataOnly,
             vec!["MCP server entry has no command or HTTP(S) endpoint runtime".into()],
@@ -3176,6 +3183,26 @@ description: trailing metadata is not an env secret
                     hook_triggers: Vec::new(),
                     hook_handler: None,
                 },
+                NormalizedCapability {
+                    id: "ambiguous".into(),
+                    kind: CapabilityKind::Tool,
+                    name: "ambiguous".into(),
+                    description: String::new(),
+                    quarantined: false,
+                    runtime: Some(NormalizedRuntime {
+                        transport: "stdio".into(),
+                        endpoint: Some("https://example.invalid/mcp".into()),
+                        command: Some("fake-mcp".into()),
+                        args: Vec::new(),
+                        env_keys: Vec::new(),
+                        header_keys: Vec::new(),
+                        input_modes: Vec::new(),
+                        output_modes: Vec::new(),
+                        auth_schemes: Vec::new(),
+                    }),
+                    hook_triggers: Vec::new(),
+                    hook_handler: None,
+                },
             ],
             permissions: PermissionManifest::default(),
             secret_requirements: Vec::new(),
@@ -3186,7 +3213,7 @@ description: trailing metadata is not an env secret
         assert_eq!(report.status, AdapterDoctorStatus::Warning);
         assert_eq!(report.executable_capability_count, 1);
         assert_eq!(report.metadata_only_capability_count, 1);
-        assert_eq!(report.unsupported_capability_count, 1);
+        assert_eq!(report.unsupported_capability_count, 2);
         let package = &report.packages[0];
         assert_eq!(
             package
@@ -3202,6 +3229,15 @@ description: trailing metadata is not an env secret
                 .capabilities
                 .iter()
                 .find(|capability| capability.id == "socket")
+                .unwrap()
+                .support,
+            AdapterCapabilitySupport::Unsupported
+        );
+        assert_eq!(
+            package
+                .capabilities
+                .iter()
+                .find(|capability| capability.id == "ambiguous")
                 .unwrap()
                 .support,
             AdapterCapabilitySupport::Unsupported

@@ -561,6 +561,10 @@ enum TraceCommand {
         #[arg(long = "no-hooks")]
         no_hooks: bool,
 
+        /// Compare the replayed run against the source trace after it completes.
+        #[arg(long = "compare-source")]
+        compare_source: bool,
+
         /// Emit JSON metadata.
         #[arg(long)]
         json: bool,
@@ -3594,6 +3598,7 @@ mod cli_parse_tests {
             "--demo",
             "echo",
             "--no-hooks",
+            "--compare-source",
             "--json",
         ])
         .unwrap();
@@ -3603,6 +3608,7 @@ mod cli_parse_tests {
                     run_id: parsed_id,
                     demo,
                     no_hooks,
+                    compare_source,
                     json,
                 },
         } = into_command(cli)
@@ -3612,6 +3618,7 @@ mod cli_parse_tests {
         assert_eq!(parsed_id, run_id);
         assert!(matches!(demo, Demo::Echo));
         assert!(no_hooks);
+        assert!(compare_source);
         assert!(json);
     }
 
@@ -5726,9 +5733,10 @@ async fn main() -> anyhow::Result<()> {
                     run_id,
                     demo,
                     no_hooks,
+                    compare_source,
                     json,
                 },
-        } => headless::trace_replay(run_id, demo, no_hooks, json).await,
+        } => headless::trace_replay(run_id, demo, no_hooks, compare_source, json).await,
         Command::Trace {
             command: TraceCommand::Hooks { run_id, json },
         } => headless::trace_hooks(run_id, json).await,

@@ -974,6 +974,7 @@ pub async fn trace_replay(
     run_id: String,
     demo: Demo,
     no_hooks: bool,
+    compare_source: bool,
     json: bool,
 ) -> anyhow::Result<()> {
     let source_run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
@@ -1005,18 +1006,29 @@ pub async fn trace_replay(
     };
     let agent = setup::build_agent(&options);
     let result = harness.run(&agent, UserInput { text: prompt }).await?;
+    let comparison = if compare_source {
+        let comparison_store = open_event_store()?;
+        Some(build_trace_comparison(
+            source_run_id,
+            result.run_id,
+            |id| comparison_store.try_events(id),
+        )?)
+    } else {
+        None
+    };
 
     if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&serde_json::json!({
-                "source_run_id": source_run_id.0,
-                "replayed_run_id": result.run_id.0,
-                "agent_id": agent_id,
-                "lifecycle_hooks_disabled": no_hooks,
-                "final_output": result.final_output,
-            }))?
-        );
+        let mut payload = serde_json::json!({
+            "source_run_id": source_run_id.0,
+            "replayed_run_id": result.run_id.0,
+            "agent_id": agent_id,
+            "lifecycle_hooks_disabled": no_hooks,
+            "final_output": result.final_output,
+        });
+        if let Some(comparison) = comparison {
+            payload["comparison"] = serde_json::to_value(comparison)?;
+        }
+        println!("{}", serde_json::to_string_pretty(&payload)?);
     } else {
         println!("{}", result.final_output);
         eprintln!();
@@ -1026,6 +1038,10 @@ pub async fn trace_replay(
             result.run_id.0,
             if no_hooks { " with hooks disabled" } else { "" }
         );
+        if let Some(comparison) = comparison {
+            eprintln!();
+            print_trace_comparison(&comparison);
+        }
     }
 
     Ok(())

@@ -3114,10 +3114,8 @@ hooks:
 
     #[test]
     fn static_scan_flags_install_auto_update_and_browser_credential_paths() {
-        let dir = std::env::temp_dir().join(format!(
-            "adapter-scan-install-test-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("adapter-scan-install-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let source = dir.join("SKILL.md");
         std::fs::write(

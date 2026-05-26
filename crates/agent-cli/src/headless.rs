@@ -11374,7 +11374,7 @@ fn parse_hooks_slash_rest(rest: &str) -> anyhow::Result<HookSlashCommand> {
             agent: parse_hook_agent_option(parts, "available")?,
         }),
         "review" => {
-            let run_id = next_required(&mut parts, "hooks review needs last or a run id")?;
+            let run_id = parts.next().unwrap_or("last").to_string();
             ensure_no_extra(parts, "usage: /hooks review [last|run-id]")?;
             if run_id != "last" {
                 let _ = uuid::Uuid::parse_str(&run_id)?;
@@ -15614,6 +15614,12 @@ mod slash_tests {
             _ => panic!("expected hook review shortcut"),
         }
         match parse_slash_command("/hooks review last").unwrap() {
+            Some(SlashCommand::Hooks(HookSlashCommand::Review { run_id: parsed })) => {
+                assert_eq!(parsed, "last");
+            }
+            _ => panic!("expected hook review shortcut"),
+        }
+        match parse_slash_command("/hooks review").unwrap() {
             Some(SlashCommand::Hooks(HookSlashCommand::Review { run_id: parsed })) => {
                 assert_eq!(parsed, "last");
             }

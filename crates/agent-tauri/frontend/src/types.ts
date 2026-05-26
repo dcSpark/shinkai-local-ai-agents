@@ -482,6 +482,18 @@ export type ConversationTreeNode = {
   children: ConversationTreeNode[];
 };
 
+export type ConversationDeletePlan = {
+  requested: string;
+  recursive: boolean;
+  delete_count: number;
+  delete_ids: string[];
+  linked_compactions: string[];
+  linked_memories: string[];
+  linked_generated_artifacts: string[];
+  confirm_hint?: string;
+  agent_id?: string;
+};
+
 export type ConversationDeleteResult = {
   requested: string;
   recursive: boolean;

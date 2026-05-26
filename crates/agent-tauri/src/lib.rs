@@ -2072,10 +2072,18 @@ async fn conversation_set_policy(
 }
 
 #[tauri::command]
-async fn conversation_delete_plan(id: String, recursive: bool) -> Result<Vec<String>, String> {
-    ConversationStore::from_env()
-        .deletion_plan(std::slice::from_ref(&id), recursive)
-        .map_err(|e| e.to_string())
+async fn conversation_delete_plan(
+    id: String,
+    recursive: bool,
+) -> Result<serde_json::Value, String> {
+    conversation_delete_plan_value(&id, recursive).map_err(|e| e.to_string())
+}
+
+fn conversation_delete_plan_value(id: &str, recursive: bool) -> anyhow::Result<serde_json::Value> {
+    let store = ConversationStore::from_env();
+    let requested = id.to_string();
+    let delete_ids = store.deletion_plan(std::slice::from_ref(&requested), recursive)?;
+    conversation_delete_plan_summary(&store, id, recursive, delete_ids)
 }
 
 #[tauri::command]
@@ -2102,10 +2110,17 @@ async fn conversation_delete(id: String, recursive: bool) -> Result<serde_json::
 async fn conversation_delete_agent_plan(
     agent_id: String,
     recursive: bool,
-) -> Result<Vec<String>, String> {
-    ConversationStore::from_env()
+) -> Result<serde_json::Value, String> {
+    let store = ConversationStore::from_env();
+    let delete_ids = store
         .deletion_plan_by_agent(&agent_id, recursive)
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    let mut plan = conversation_delete_plan_summary(&store, &agent_id, recursive, delete_ids)
+        .map_err(|e| e.to_string())?;
+    if let Some(object) = plan.as_object_mut() {
+        object.insert("agent_id".into(), serde_json::Value::String(agent_id));
+    }
+    Ok(plan)
 }
 
 #[tauri::command]
@@ -2141,6 +2156,13 @@ struct ConversationDeletionCleanup {
 }
 
 #[derive(Debug, Default)]
+struct ConversationDeletionSideEffects {
+    compactions: Vec<String>,
+    memories: Vec<String>,
+    artifacts: Vec<String>,
+}
+
+#[derive(Debug, Default)]
 struct ConversationRangePreserveOptions {
     compact_first: bool,
     compact_guidance: Option<String>,
@@ -2154,6 +2176,65 @@ struct ConversationRangePreserveOptions {
 struct ConversationRangePreservedArtifacts {
     compactions: Vec<String>,
     memories: Vec<String>,
+}
+
+fn conversation_delete_plan_summary(
+    store: &ConversationStore,
+    requested: &str,
+    recursive: bool,
+    delete_ids: Vec<String>,
+) -> anyhow::Result<serde_json::Value> {
+    let side_effects = planned_conversation_side_effects(store, &delete_ids)?;
+    Ok(serde_json::json!({
+        "requested": requested,
+        "recursive": recursive,
+        "delete_count": delete_ids.len(),
+        "delete_ids": delete_ids,
+        "linked_compactions": side_effects.compactions,
+        "linked_memories": side_effects.memories,
+        "linked_generated_artifacts": side_effects.artifacts,
+        "confirm_hint": "call delete with the same id/recursive flag to apply this plan"
+    }))
+}
+
+fn planned_conversation_side_effects(
+    store: &ConversationStore,
+    delete_ids: &[String],
+) -> anyhow::Result<ConversationDeletionSideEffects> {
+    let mut compactions = CompactionStore::from_env()
+        .list()?
+        .into_iter()
+        .filter(|record| {
+            record
+                .conversation_id
+                .as_ref()
+                .is_some_and(|id| delete_ids.iter().any(|deleted| deleted == id))
+        })
+        .map(|record| record.id)
+        .collect::<Vec<_>>();
+    compactions.sort();
+
+    let mut memories = list_records_for_active_backend()?
+        .into_iter()
+        .filter(|record| {
+            record
+                .source_conversation_id
+                .as_ref()
+                .is_some_and(|id| delete_ids.iter().any(|deleted| deleted == id))
+        })
+        .map(|record| record.id)
+        .collect::<Vec<_>>();
+    memories.sort();
+
+    let run_ids = conversation_run_ids_for_docs(store, delete_ids)?;
+    let mut artifacts = existing_generated_artifact_ids_for_run_ids(&run_ids)?;
+    artifacts.sort();
+
+    Ok(ConversationDeletionSideEffects {
+        compactions,
+        memories,
+        artifacts,
+    })
 }
 
 fn cleanup_conversation_side_data(
@@ -2240,6 +2321,16 @@ fn generated_artifacts_for_run_ids(run_ids: &[String]) -> anyhow::Result<Vec<ser
         }
     }
     Ok(artifacts)
+}
+
+fn existing_generated_artifact_ids_for_run_ids(run_ids: &[String]) -> anyhow::Result<Vec<String>> {
+    let mut artifact_ids = Vec::new();
+    for artifact_id in generated_artifact_ids_for_run_ids(run_ids)? {
+        if show_generated_artifact_from_env(&artifact_id).is_ok() {
+            artifact_ids.push(artifact_id);
+        }
+    }
+    Ok(artifact_ids)
 }
 
 fn generated_artifact_ids_for_run_ids(run_ids: &[String]) -> anyhow::Result<Vec<String>> {

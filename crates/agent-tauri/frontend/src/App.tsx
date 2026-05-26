@@ -15,6 +15,7 @@ import type {
   CapabilityReviewResult,
   CompactionRecord,
   ContextSnapshot,
+  ConversationDeletePlan,
   ConversationDeleteResult,
   ConversationDeleteRangeResult,
   ConversationDoc,
@@ -670,9 +671,8 @@ export default function App() {
   );
   const [expandedConversation, setExpandedConversation] =
     useState<ExpandedConversation | null>(null);
-  const [conversationDeletePlan, setConversationDeletePlan] = useState<string[]>(
-    [],
-  );
+  const [conversationDeletePlan, setConversationDeletePlan] =
+    useState<ConversationDeletePlan | null>(null);
   const [skillDocs, setSkillDocs] = useState<SkillDoc[]>([]);
   const [agentConfigs, setAgentConfigs] = useState<AgentConfigEntry[]>([]);
   const [profileSummaries, setProfileSummaries] = useState<ProfileSummary[]>([]);
@@ -11361,7 +11361,7 @@ export default function App() {
       ]);
       setConversationDocs(conversations);
       setConversationTree(tree);
-      setConversationDeletePlan([]);
+      setConversationDeletePlan(null);
       appendEvent(
         `Conversations: ${conversations.length} total, ${tree.length} root branches`,
       );
@@ -11592,13 +11592,16 @@ export default function App() {
     try {
       const plan =
         transport === "daemon"
-          ? await daemonJson<string[]>(
+          ? await daemonJson<ConversationDeletePlan>(
               `/conversations/${encodeURIComponent(id)}/delete-plan`,
               { recursive },
             )
-          : await invoke<string[]>("conversation_delete_plan", { id, recursive });
+          : await invoke<ConversationDeletePlan>("conversation_delete_plan", {
+              id,
+              recursive,
+            });
       setConversationDeletePlan(plan);
-      appendJson("Conversation delete plan", { id, recursive, plan });
+      appendJson("Conversation delete plan", plan);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Conversation delete preview failed: ${msg}`);
@@ -11623,7 +11626,7 @@ export default function App() {
       docs.filter((conversation) => !deleted.has(conversation.id)),
     );
     setConversationTree((tree) => filterConversationTree(tree, deleted));
-    setConversationDeletePlan([]);
+    setConversationDeletePlan(null);
   }
 
   async function deleteConversation(
@@ -11668,16 +11671,16 @@ export default function App() {
     try {
       const plan =
         transport === "daemon"
-          ? await daemonJson<string[]>("/conversations/delete-agent-plan", {
+          ? await daemonJson<ConversationDeletePlan>("/conversations/delete-agent-plan", {
               agent_id: agent,
               recursive,
             })
-          : await invoke<string[]>("conversation_delete_agent_plan", {
+          : await invoke<ConversationDeletePlan>("conversation_delete_agent_plan", {
               agentId: agent,
               recursive,
             });
       setConversationDeletePlan(plan);
-      appendJson("Agent conversation delete plan", { agent_id: agent, recursive, plan });
+      appendJson("Agent conversation delete plan", plan);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Agent conversation delete preview failed: ${msg}`);
@@ -17544,15 +17547,20 @@ export default function App() {
                   Loaded {conversationDocs.length} conversation records.
                 </div>
               ) : null}
-              {conversationDeletePlan.length ? (
+              {conversationDeletePlan ? (
                 <div className="ingestion-review">
                   <div className="ingestion-card high-risk">
                     <div className="ingestion-card-head">
                       <strong>Delete impact</strong>
-                      <span>{conversationDeletePlan.length} conversations</span>
+                      <span>{conversationDeletePlan.delete_count} conversations</span>
+                    </div>
+                    <div className="empty-note">
+                      {conversationDeletePlan.linked_compactions.length} compactions,{" "}
+                      {conversationDeletePlan.linked_memories.length} memories,{" "}
+                      {conversationDeletePlan.linked_generated_artifacts.length} generated artifacts
                     </div>
                     <div className="finding-list">
-                      {conversationDeletePlan.map((id) => (
+                      {conversationDeletePlan.delete_ids.map((id) => (
                         <span className="finding warning" key={id}>
                           {id}
                         </span>

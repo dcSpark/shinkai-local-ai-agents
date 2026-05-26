@@ -2330,9 +2330,23 @@ fn parse_conversation_delete_plan_args_with_selected(
 fn push_conversation_delete_plan(app: &mut App, plan: &serde_json::Value) {
     let delete_count = plan["delete_count"].as_u64().unwrap_or_default();
     let recursive = plan["recursive"].as_bool() == Some(true);
+    let compactions = plan["linked_compactions"]
+        .as_array()
+        .map(Vec::len)
+        .unwrap_or_default();
+    let memories = plan["linked_memories"]
+        .as_array()
+        .map(Vec::len)
+        .unwrap_or_default();
+    let artifacts = plan["linked_generated_artifacts"]
+        .as_array()
+        .map(Vec::len)
+        .unwrap_or_default();
     push_event(
         app,
-        format!("Conversation delete plan: {delete_count} conversations, recursive={recursive}"),
+        format!(
+            "Conversation delete plan: {delete_count} conversations, recursive={recursive}, side effects: {compactions} compaction(s), {memories} memory record(s), {artifacts} generated artifact(s)"
+        ),
     );
     app.transcript.push(TranscriptLine {
         kind: LineKind::Assistant,
@@ -2642,6 +2656,54 @@ fn generated_artifact_ids_for_run_ids_from_tui(run_ids: &[String]) -> anyhow::Re
     Ok(artifact_ids)
 }
 
+fn existing_generated_artifact_ids_for_run_ids_from_tui(
+    run_ids: &[String],
+) -> anyhow::Result<Vec<String>> {
+    let mut artifact_ids = Vec::new();
+    for artifact_id in generated_artifact_ids_for_run_ids_from_tui(run_ids)? {
+        if show_generated_artifact_from_env(&artifact_id).is_ok() {
+            artifact_ids.push(artifact_id);
+        }
+    }
+    Ok(artifact_ids)
+}
+
+fn planned_conversation_side_effects_from_tui(
+    store: &ConversationStore,
+    delete_ids: &[String],
+) -> anyhow::Result<(Vec<String>, Vec<String>, Vec<String>)> {
+    let mut compactions = CompactionStore::from_env()
+        .list()?
+        .into_iter()
+        .filter(|record| {
+            record
+                .conversation_id
+                .as_ref()
+                .is_some_and(|id| delete_ids.iter().any(|deleted| deleted == id))
+        })
+        .map(|record| record.id)
+        .collect::<Vec<_>>();
+    compactions.sort();
+
+    let mut memories = list_records_for_active_backend()?
+        .into_iter()
+        .filter(|record| {
+            record
+                .source_conversation_id
+                .as_ref()
+                .is_some_and(|id| delete_ids.iter().any(|deleted| deleted == id))
+        })
+        .map(|record| record.id)
+        .collect::<Vec<_>>();
+    memories.sort();
+
+    let run_ids = conversation_run_ids_for_docs_from_tui(store, delete_ids)?;
+    let mut artifacts = existing_generated_artifact_ids_for_run_ids_from_tui(&run_ids)?;
+    artifacts.sort();
+
+    Ok((compactions, memories, artifacts))
+}
+
 fn confirm_conversation_action(app: &mut App) -> anyhow::Result<()> {
     let Some(action) = app.pending_conversation_action.take() else {
         anyhow::bail!("no pending conversation action");
@@ -2743,11 +2805,16 @@ fn conversation_delete_plan_review_value(
 ) -> anyhow::Result<serde_json::Value> {
     let store = ConversationStore::from_env();
     let delete_ids = store.deletion_plan(&[id.to_string()], recursive)?;
+    let (linked_compactions, linked_memories, linked_generated_artifacts) =
+        planned_conversation_side_effects_from_tui(&store, &delete_ids)?;
     Ok(serde_json::json!({
         "conversation_id": id,
         "recursive": recursive,
         "delete_count": delete_ids.len(),
         "delete_ids": delete_ids,
+        "linked_compactions": linked_compactions,
+        "linked_memories": linked_memories,
+        "linked_generated_artifacts": linked_generated_artifacts,
         "confirm_command": "/conversation confirm",
         "cancel_command": "/conversation cancel",
     }))

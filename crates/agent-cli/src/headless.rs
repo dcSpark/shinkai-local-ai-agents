@@ -108,6 +108,7 @@ pub async fn run(
         }
         Some(SlashCommand::Skill(command)) => {
             return match command {
+                SkillSlashCommand::Status => skill_context_status(&options, json),
                 SkillSlashCommand::List => skill_list(json).await,
                 SkillSlashCommand::Inspect { id } => skill_inspect(id).await,
                 SkillSlashCommand::ImportOpenclaw { path } => skill_import_openclaw(path).await,
@@ -439,6 +440,7 @@ pub async fn run(
         }
         Some(SlashCommand::Memory(command)) => {
             return match command {
+                MemorySlashCommand::Status => memory_context_status(&options, json),
                 MemorySlashCommand::List => memory_list(json).await,
                 MemorySlashCommand::Access { topics } => memory_access(topics, json).await,
                 MemorySlashCommand::Backends => memory_backends(json).await,
@@ -9111,6 +9113,7 @@ enum AgentsSlashCommand {
 }
 
 enum SkillSlashCommand {
+    Status,
     List,
     Inspect { id: String },
     ImportOpenclaw { path: String },
@@ -9391,6 +9394,7 @@ enum IngestSlashCommand {
 }
 
 enum MemorySlashCommand {
+    Status,
     List,
     Access {
         topics: Vec<String>,
@@ -9950,13 +9954,63 @@ fn shell_status(options: &setup::RuntimeOptions, json: bool) -> anyhow::Result<(
     Ok(())
 }
 
+fn memory_context_status(options: &setup::RuntimeOptions, json: bool) -> anyhow::Result<()> {
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "load_memory": options.load_memory,
+                "shortcut": "/memory status",
+                "enable_flag": "--load-memory"
+            }))?
+        );
+        return Ok(());
+    }
+    println!(
+        "runtime memory loading: {}",
+        if options.load_memory {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
+    println!("enable for a run with: --load-memory");
+    println!("omit --load-memory to leave the runtime flag off");
+    Ok(())
+}
+
+fn skill_context_status(options: &setup::RuntimeOptions, json: bool) -> anyhow::Result<()> {
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "load_skills": options.load_skills,
+                "shortcut": "/skills status",
+                "enable_flag": "--load-skills"
+            }))?
+        );
+        return Ok(());
+    }
+    println!(
+        "runtime skill loading: {}",
+        if options.load_skills {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
+    println!("enable for a run with: --load-skills");
+    println!("omit --load-skills to leave the runtime flag off");
+    Ok(())
+}
+
 fn headless_slash_help_text() -> &'static str {
     "Headless slash commands:\n\
      - /run <prompt-name> - use a saved prompt when available, otherwise run the literal text\n\
      - /agent [id] [prompt] - inspect config, or run a prompt with a specific saved agent\n\
      - /batch <line-delimited prompts>, /batch files <paths>, /batch folder <path>, /resume-batch <batch-id> - run or resume deterministic batches\n\
      - /agents list|show|save|export|import|delete - manage saved agent configs\n\
-     - /skills list|show|inspect|import-openclaw|import-doc|export|allow|quarantine\n\
+     - /skills status|list|show|inspect|import-openclaw|import-doc|export|allow|quarantine\n\
      - /prompts (/prompt) list|show|save|use|preview|export|import|delete - manage global or agent-scoped saved prompts\n\
      - /approval (/approvals) list|assess|approve|reject|execute <run-id> ...\n\
      - /tool <name> [request] - force the model to call one visible tool\n\
@@ -9979,7 +10033,7 @@ fn headless_slash_help_text() -> &'static str {
      - /capabilities list|doctor|propose|show|allow|reject|delete|export|import\n\
      - /adapters list|doctor|inspect|import|import-manifest|show|export|install-skill|allow|quarantine|clawhub\n\
      - /models list|providers|doctor|show|probe|save|export|import|delete|provider-catalog|metadata-catalog\n\
-     - /memory list|access|backends|create|generate|generate-conversation|classify|edit|delete|rollback|export|import\n\
+     - /memory status|list|access|backends|create|generate|generate-conversation|classify|edit|delete|rollback|export|import\n\
      - /compact list|show|export|import|delete|keep-run, /compactions ...\n\
      - /guide <run-id> <text> - inject guidance into an active run\n\
      - /score <run-id> <0-10> [target] - record a quality score\n\
@@ -10697,6 +10751,13 @@ fn parse_skill_slash_rest(rest: &str) -> anyhow::Result<SkillSlashCommand> {
     let mut parts = rest.split_whitespace();
     let command = parts.next().unwrap_or_default();
     match command {
+        "status" => {
+            ensure_no_extra(parts, "usage: /skills status")?;
+            Ok(SkillSlashCommand::Status)
+        }
+        "on" | "off" | "enable" | "disable" | "enabled" | "disabled" => anyhow::bail!(
+            "headless skills shortcut supports status/help; use --load-skills to enable runtime skill loading for a run"
+        ),
         "" | "list" => {
             ensure_no_extra(parts, "usage: /skills list")?;
             Ok(SkillSlashCommand::List)
@@ -12312,6 +12373,13 @@ fn parse_memory_slash_rest(rest: &str) -> anyhow::Result<MemorySlashCommand> {
         .map(|(command, args)| (command.trim(), args.trim()))
         .unwrap_or((rest, ""));
     match command {
+        "status" => {
+            ensure_no_extra(args.split_whitespace(), "usage: /memory status")?;
+            Ok(MemorySlashCommand::Status)
+        }
+        "on" | "off" | "enable" | "disable" | "enabled" | "disabled" => anyhow::bail!(
+            "headless memory shortcut supports status/help; use --load-memory to enable runtime memory loading for a run"
+        ),
         "" | "list" => {
             ensure_no_extra(args.split_whitespace(), "usage: /memory list")?;
             Ok(MemorySlashCommand::List)
@@ -13100,13 +13168,14 @@ mod slash_tests {
         assert!(help.contains("/agent [id] [prompt]"));
         assert!(help.contains("/agents list|show|save|export|import|delete"));
         assert!(help.contains(
-            "/skills list|show|inspect|import-openclaw|import-doc|export|allow|quarantine"
+            "/skills status|list|show|inspect|import-openclaw|import-doc|export|allow|quarantine"
         ));
         assert!(
             help.contains("/prompts (/prompt) list|show|save|use|preview|export|import|delete")
         );
         assert!(help.contains("/approval (/approvals) list|assess|approve|reject|execute"));
         assert!(help.contains("/models list|providers|doctor|show|probe|save|export|import"));
+        assert!(help.contains("/memory status|list|access|backends"));
         assert!(help.contains("/hooks list|policy|available|review|disable|enable"));
     }
 
@@ -13357,6 +13426,10 @@ mod slash_tests {
             parse_slash_command("/skill list").unwrap(),
             Some(SlashCommand::Skill(SkillSlashCommand::List))
         ));
+        assert!(matches!(
+            parse_slash_command("/skills status").unwrap(),
+            Some(SlashCommand::Skill(SkillSlashCommand::Status))
+        ));
         match parse_slash_command("/skills show review").unwrap() {
             Some(SlashCommand::Skill(SkillSlashCommand::Inspect { id })) => {
                 assert_eq!(id, "review");
@@ -13414,6 +13487,7 @@ mod slash_tests {
         }
         assert!(parse_slash_command("/skills allow review").is_err());
         assert!(parse_slash_command("/skills export review").is_err());
+        assert!(parse_slash_command("/skills on").is_err());
         assert!(parse_slash_command("/skillsx list").unwrap().is_none());
     }
 
@@ -14670,6 +14744,10 @@ mod slash_tests {
             parse_slash_command("/memory list").unwrap(),
             Some(SlashCommand::Memory(MemorySlashCommand::List))
         ));
+        assert!(matches!(
+            parse_slash_command("/memory status").unwrap(),
+            Some(SlashCommand::Memory(MemorySlashCommand::Status))
+        ));
         match parse_slash_command("/memory access --topic rust --topic=agents").unwrap() {
             Some(SlashCommand::Memory(MemorySlashCommand::Access { topics })) => {
                 assert_eq!(topics, vec!["rust", "agents"]);
@@ -14804,6 +14882,7 @@ mod slash_tests {
         assert!(parse_slash_command("/memory delete mem-1").is_err());
         assert!(parse_slash_command("/memory rollback").is_err());
         assert!(parse_slash_command("/memory create --mystery value").is_err());
+        assert!(parse_slash_command("/memory off").is_err());
         assert!(parse_slash_command("/memories list").unwrap().is_none());
     }
 

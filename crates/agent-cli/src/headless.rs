@@ -98,6 +98,9 @@ pub async fn run(
             return match command {
                 AgentsSlashCommand::List => agent_list(json).await,
                 AgentsSlashCommand::Show { id } => agent_show(id, json).await,
+                AgentsSlashCommand::Save { id, system_prompt } => {
+                    agent_save_minimal(id, system_prompt, json).await
+                }
                 AgentsSlashCommand::Delete { id } => agent_delete(id).await,
                 AgentsSlashCommand::Export { id, path } => agent_export(id, path, json).await,
                 AgentsSlashCommand::Import { path } => agent_import(path, json).await,
@@ -4449,6 +4452,26 @@ pub async fn agent_show(id: String, json: bool) -> anyhow::Result<()> {
         println!("{}", serde_json::to_string_pretty(&agent)?);
     } else {
         println!("{}", toml::to_string_pretty(&agent)?);
+    }
+    Ok(())
+}
+
+pub async fn agent_save_minimal(
+    id: String,
+    system_prompt: String,
+    json: bool,
+) -> anyhow::Result<()> {
+    let agent = AgentConfigFile {
+        id: id.clone(),
+        name: id,
+        system_prompt,
+        ..AgentConfigFile::default()
+    };
+    let saved = ConfigResolver::from_env().save_agent_config(&agent)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&saved)?);
+    } else {
+        println!("saved agent {}", saved.id);
     }
     Ok(())
 }
@@ -9070,6 +9093,7 @@ enum BundleSlashCommand {
 enum AgentsSlashCommand {
     List,
     Show { id: String },
+    Save { id: String, system_prompt: String },
     Delete { id: String },
     Export { id: String, path: String },
     Import { path: String },
@@ -9919,7 +9943,7 @@ fn headless_slash_help_text() -> &'static str {
      - /run <prompt-name> - use a saved prompt when available, otherwise run the literal text\n\
      - /agent [id] [prompt] - inspect config, or run a prompt with a specific saved agent\n\
      - /batch <line-delimited prompts>, /batch files <paths>, /batch folder <path>, /resume-batch <batch-id> - run or resume deterministic batches\n\
-     - /agents list|show|export|import|delete - manage saved agent configs\n\
+     - /agents list|show|save|export|import|delete - manage saved agent configs\n\
      - /skills list|show|inspect|import-openclaw|import-doc|export|allow|quarantine\n\
      - /prompts (/prompt) list|show|save|use|preview|export|import|delete - manage global or agent-scoped saved prompts\n\
      - /approval (/approvals) list|assess|approve|reject|execute <run-id> ...\n\
@@ -10586,6 +10610,15 @@ fn parse_agents_slash_rest(rest: &str) -> anyhow::Result<AgentsSlashCommand> {
             ensure_no_extra(parts, "usage: /agents show <id>")?;
             Ok(AgentsSlashCommand::Show { id })
         }
+        "save" => {
+            let trimmed = rest.trim();
+            let args = trimmed
+                .strip_prefix("save")
+                .map(str::trim)
+                .unwrap_or_default();
+            let (id, system_prompt) = parse_agent_save_slash_args(args)?;
+            Ok(AgentsSlashCommand::Save { id, system_prompt })
+        }
         "delete" | "rm" => {
             let id = next_required(&mut parts, "agents delete needs an agent id")?;
             parse_agents_confirm(parts, "delete")?;
@@ -10602,8 +10635,23 @@ fn parse_agents_slash_rest(rest: &str) -> anyhow::Result<AgentsSlashCommand> {
             parse_agents_confirm(parts, "import")?;
             Ok(AgentsSlashCommand::Import { path })
         }
-        _ => anyhow::bail!("agents shortcut needs list, show, export, import, or delete"),
+        _ => anyhow::bail!("agents shortcut needs list, show, save, export, import, or delete"),
     }
+}
+
+fn parse_agent_save_slash_args(args: &str) -> anyhow::Result<(String, String)> {
+    let trimmed = args.trim();
+    let (id, system_prompt) = trimmed
+        .split_once(char::is_whitespace)
+        .map(|(id, system_prompt)| (id.trim(), system_prompt.trim()))
+        .unwrap_or((trimmed, ""));
+    if id.is_empty() {
+        anyhow::bail!("agents save needs an agent id");
+    }
+    if system_prompt.is_empty() {
+        anyhow::bail!("agents save needs a system prompt");
+    }
+    Ok((id.to_string(), system_prompt.to_string()))
 }
 
 fn parse_agents_confirm<'a>(
@@ -13006,7 +13054,7 @@ mod slash_tests {
         assert!(help.contains("/scores <run-id>"));
         assert!(help.contains("/usage trace|run <run-id>"));
         assert!(help.contains("/agent [id] [prompt]"));
-        assert!(help.contains("/agents list|show|export|import|delete"));
+        assert!(help.contains("/agents list|show|save|export|import|delete"));
         assert!(help.contains(
             "/skills list|show|inspect|import-openclaw|import-doc|export|allow|quarantine"
         ));
@@ -13216,6 +13264,13 @@ mod slash_tests {
             }
             _ => panic!("expected saved-agent show shortcut"),
         }
+        match parse_slash_command("/agents save critic You are careful").unwrap() {
+            Some(SlashCommand::Agents(AgentsSlashCommand::Save { id, system_prompt })) => {
+                assert_eq!(id, "critic");
+                assert_eq!(system_prompt, "You are careful");
+            }
+            _ => panic!("expected saved-agent save shortcut"),
+        }
         match parse_slash_command("/agents export critic /tmp/critic.toml").unwrap() {
             Some(SlashCommand::Agents(AgentsSlashCommand::Export { id, path })) => {
                 assert_eq!(id, "critic");
@@ -13242,6 +13297,7 @@ mod slash_tests {
             _ => panic!("expected saved-agent rm shortcut"),
         }
         assert!(parse_slash_command("/agents import /tmp/critic.toml").is_err());
+        assert!(parse_slash_command("/agents save critic").is_err());
         assert!(parse_slash_command("/agents delete critic").is_err());
         assert!(parse_slash_command("/agents critic").is_err());
     }

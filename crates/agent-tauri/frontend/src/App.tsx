@@ -5672,7 +5672,7 @@ export default function App() {
       "/profiles current",
       "/profiles list",
       "/profiles show <id>",
-      "/profiles create <id> [name]",
+      "/profiles create <id> [--name <name>|name]",
       "/profiles delete <id> --confirm",
       "/profiles grants [from-profile|--from <profile>]",
       "/profiles grant [--from <profile>] --to <profile> --kind <agent|memory|tool|skill|category> <resource>",
@@ -5697,6 +5697,52 @@ export default function App() {
       return null;
     }
     return { id: ids[0], confirmed };
+  }
+
+  function parseProfileCreateShortcut(args: string[]) {
+    const id = args[0]?.trim() ?? "";
+    if (!id) {
+      appendLine("error", "Profiles create shortcut needs a profile id.");
+      return null;
+    }
+    let name: string | null = null;
+    const positionalName: string[] = [];
+    for (let index = 1; index < args.length; index += 1) {
+      const arg = args[index];
+      if (arg === "--name") {
+        if (positionalName.length) {
+          appendLine("error", "Profiles create accepts either a positional name or --name.");
+          return null;
+        }
+        const value = args.slice(index + 1).join(" ").trim();
+        if (!value) {
+          appendLine("error", "Profiles --name needs a value.");
+          return null;
+        }
+        name = value;
+        break;
+      }
+      if (arg.startsWith("--name=")) {
+        if (positionalName.length || index + 1 < args.length) {
+          appendLine("error", "Profiles create accepts either a positional name or --name.");
+          return null;
+        }
+        const value = arg.slice("--name=".length).trim();
+        if (!value) {
+          appendLine("error", "Profiles --name needs a value.");
+          return null;
+        }
+        name = value;
+        continue;
+      }
+      if (arg.startsWith("--")) {
+        appendLine("error", `Profiles create received unexpected argument: ${arg}`);
+        return null;
+      }
+      positionalName.push(arg);
+    }
+    const positional = positionalName.join(" ").trim();
+    return { id, name: name ?? (positional || null) };
   }
 
   function profileFlagValue(args: string[], index: number, flag: string) {
@@ -8151,14 +8197,14 @@ export default function App() {
         } else {
           await showProfileFromOps(id);
         }
-      } else if (rest.startsWith("create ")) {
-        const args = rest.slice("create ".length).trim().split(/\s+/);
-        const id = args.shift()?.trim() ?? "";
-        const name = args.join(" ").trim() || null;
-        if (!id) {
-          appendLine("error", "Profiles create shortcut needs a profile id.");
-        } else {
-          await createProfile(id, name);
+      } else if (rest === "create" || rest.startsWith("create ")) {
+        const args =
+          rest === "create"
+            ? []
+            : rest.slice("create ".length).trim().split(/\s+/).filter(Boolean);
+        const parsed = parseProfileCreateShortcut(args);
+        if (parsed) {
+          await createProfile(parsed.id, parsed.name);
         }
       } else if (rest.startsWith("delete ") || rest.startsWith("rm ")) {
         const prefix = rest.startsWith("delete ") ? "delete " : "rm ";

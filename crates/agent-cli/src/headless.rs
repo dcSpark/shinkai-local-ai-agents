@@ -109,6 +109,10 @@ pub async fn run(
         Some(SlashCommand::Skill(command)) => {
             return match command {
                 SkillSlashCommand::Status => skill_context_status(&options, json),
+                SkillSlashCommand::Preview { prompt } => {
+                    options.load_skills = true;
+                    preview_context_text(prompt, json, options).await
+                }
                 SkillSlashCommand::List => skill_list(json).await,
                 SkillSlashCommand::Inspect { id } => skill_inspect(id).await,
                 SkillSlashCommand::ImportOpenclaw { path } => skill_import_openclaw(path).await,
@@ -187,6 +191,9 @@ pub async fn run(
         }
         Some(SlashCommand::ToolForced { name, prompt }) => {
             return force_tool(name, prompt, json, demo, options).await;
+        }
+        Some(SlashCommand::Preview { prompt }) => {
+            return preview_context_text(prompt, json, options).await;
         }
         Some(SlashCommand::ShellStatus) => return shell_status(&options, json),
         Some(SlashCommand::SubagentStatus) => return subagent_status(&options, json),
@@ -442,6 +449,10 @@ pub async fn run(
         Some(SlashCommand::Memory(command)) => {
             return match command {
                 MemorySlashCommand::Status => memory_context_status(&options, json),
+                MemorySlashCommand::Preview { prompt } => {
+                    options.load_memory = true;
+                    preview_context_text(prompt, json, options).await
+                }
                 MemorySlashCommand::List => memory_list(json).await,
                 MemorySlashCommand::Access { topics } => memory_access(topics, json).await,
                 MemorySlashCommand::Backends => memory_backends(json).await,
@@ -9037,6 +9048,9 @@ enum SlashCommand {
         name: String,
         prompt: String,
     },
+    Preview {
+        prompt: String,
+    },
     ShellStatus,
     SubagentStatus,
     VoiceStatus,
@@ -9116,6 +9130,7 @@ enum AgentsSlashCommand {
 
 enum SkillSlashCommand {
     Status,
+    Preview { prompt: String },
     List,
     Inspect { id: String },
     ImportOpenclaw { path: String },
@@ -9397,6 +9412,9 @@ enum IngestSlashCommand {
 
 enum MemorySlashCommand {
     Status,
+    Preview {
+        prompt: String,
+    },
     List,
     Access {
         topics: Vec<String>,
@@ -9633,6 +9651,14 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
             run_id,
             no_hooks,
             compare_source,
+        }));
+    }
+    if preview_help_slash_command(trimmed) {
+        return Ok(Some(SlashCommand::Help));
+    }
+    if let Some(rest) = preview_slash_rest(trimmed) {
+        return Ok(Some(SlashCommand::Preview {
+            prompt: preview_prompt_from_rest(rest),
         }));
     }
     if trimmed == "/usage" || trimmed.starts_with("/usage ") {
@@ -10047,7 +10073,7 @@ fn headless_slash_help_text() -> &'static str {
      - /agent [id] [prompt] - inspect config, or run a prompt with a specific saved agent\n\
      - /batch <line-delimited prompts>, /batch files <paths>, /batch folder <path>, /resume-batch <batch-id> - run or resume deterministic batches\n\
      - /agents list|show|save|export|import|delete - manage saved agent configs\n\
-     - /skills status|list|show|inspect|import-openclaw|import-doc|export|allow|quarantine\n\
+     - /skills status|preview|list|show|inspect|import-openclaw|import-doc|export|allow|quarantine\n\
      - /prompts (/prompt) list|show|save|use|preview|export|import|delete - manage global or agent-scoped saved prompts\n\
      - /approval (/approvals) list|assess|approve|reject|execute <run-id> ...\n\
      - /tool <name> [request] - force the model to call one visible tool\n\
@@ -10059,6 +10085,7 @@ fn headless_slash_help_text() -> &'static str {
      - /subagent status - inspect whether this run enables saved-agent-as-tool access; use --enable-subagent to enable it\n\
      - /resume <run-id> [--from-event N], /resume plan <run-id> [--from-event N]\n\
      - /trace list [limit|--limit N], /trace [summary|tree|hooks|scores|prompt] <run-id>, /scores <run-id>, /compare <run-id> <run-id>, /replay <run-id>\n\
+     - /preview [prompt] - inspect context before running\n\
      - /usage trace|run <run-id>, /usage conversation <id> [from:to|last N|--from N --to N|--last N]\n\
      - /hooks list|policy|available|review|disable|enable\n\
      - /storage report, /storage prune-cache <days> [--apply]\n\
@@ -10071,7 +10098,7 @@ fn headless_slash_help_text() -> &'static str {
      - /capabilities list|doctor|propose|show|allow|reject|delete|export|import\n\
      - /adapters list|doctor|inspect|import|import-manifest|show|export|install-skill|allow|quarantine|clawhub\n\
      - /models list|providers|doctor|show|probe|save|export|import|delete|provider-catalog|metadata-catalog\n\
-     - /memory status|list|access|backends|create|generate|generate-conversation|classify|edit|delete|rollback|export|import\n\
+     - /memory status|preview|list|access|backends|create|generate|generate-conversation|classify|edit|delete|rollback|export|import\n\
      - /compact list|show|export|import|delete|keep-run, /compactions ...\n\
      - /guide <run-id> <text> - inject guidance into an active run\n\
      - /score <run-id> <0-10> [target] - record a quality score\n\
@@ -10116,6 +10143,27 @@ fn compare_help_slash_command(trimmed: &str) -> bool {
 
 fn replay_help_slash_command(trimmed: &str) -> bool {
     matches!(trimmed, "/replay help" | "/replay --help")
+}
+
+fn preview_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/preview help" | "/preview --help")
+}
+
+fn preview_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/preview" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/preview ").map(str::trim)
+    }
+}
+
+fn preview_prompt_from_rest(rest: &str) -> String {
+    let prompt = rest.trim();
+    if prompt.is_empty() {
+        "preview".into()
+    } else {
+        prompt.into()
+    }
 }
 
 fn guide_help_slash_command(trimmed: &str) -> bool {
@@ -10802,6 +10850,16 @@ fn skill_slash_rest(trimmed: &str) -> Option<&str> {
 }
 
 fn parse_skill_slash_rest(rest: &str) -> anyhow::Result<SkillSlashCommand> {
+    let rest = rest.trim();
+    if rest == "preview" || rest.starts_with("preview ") {
+        return Ok(SkillSlashCommand::Preview {
+            prompt: preview_prompt_from_rest(
+                rest.get("preview".len()..)
+                    .map(str::trim)
+                    .unwrap_or_default(),
+            ),
+        });
+    }
     let mut parts = rest.split_whitespace();
     let command = parts.next().unwrap_or_default();
     match command {
@@ -10848,7 +10906,7 @@ fn parse_skill_slash_rest(rest: &str) -> anyhow::Result<SkillSlashCommand> {
             Ok(SkillSlashCommand::Quarantine { id })
         }
         _ => anyhow::bail!(
-            "skills shortcut needs list, show, inspect, import-openclaw, import-doc, export, allow, or quarantine"
+            "skills shortcut needs status, preview, list, show, inspect, import-openclaw, import-doc, export, allow, or quarantine"
         ),
     }
 }
@@ -12431,6 +12489,9 @@ fn parse_memory_slash_rest(rest: &str) -> anyhow::Result<MemorySlashCommand> {
             ensure_no_extra(args.split_whitespace(), "usage: /memory status")?;
             Ok(MemorySlashCommand::Status)
         }
+        "preview" => Ok(MemorySlashCommand::Preview {
+            prompt: preview_prompt_from_rest(args),
+        }),
         "on" | "off" | "enable" | "disable" | "enabled" | "disabled" => anyhow::bail!(
             "headless memory shortcut supports status/help; use --load-memory to enable runtime memory loading for a run"
         ),
@@ -12481,7 +12542,7 @@ fn parse_memory_slash_rest(rest: &str) -> anyhow::Result<MemorySlashCommand> {
         "export" => parse_memory_export_args(args),
         "import" => parse_memory_import_args(args),
         _ => anyhow::bail!(
-            "memory shortcut needs list, access, backends, probe, create, generate, generate-conversation, classify, edit, delete, rollback, export, or import"
+            "memory shortcut needs status, preview, list, access, backends, probe, create, generate, generate-conversation, classify, edit, delete, rollback, export, or import"
         ),
     }
 }
@@ -13136,6 +13197,8 @@ mod slash_tests {
             "/compare --help",
             "/replay help",
             "/replay --help",
+            "/preview help",
+            "/preview --help",
             "/usage",
             "/usage help",
             "/usage --help",
@@ -13196,6 +13259,7 @@ mod slash_tests {
         assert!(!trace_help_slash_command("/trace helper"));
         assert!(!compare_help_slash_command("/compare helper"));
         assert!(!replay_help_slash_command("/replay helper"));
+        assert!(!preview_help_slash_command("/preview helper"));
         assert!(!guide_help_slash_command("/guide helper"));
         assert!(!score_help_slash_command("/score helper"));
         assert!(!score_help_slash_command("/scores helper"));
@@ -13225,20 +13289,21 @@ mod slash_tests {
         assert!(help.contains("/batch files <paths>, /batch folder <path>"));
         assert!(help.contains("/x402 request"));
         assert!(help.contains("/subagent status"));
+        assert!(help.contains("/preview [prompt]"));
         assert!(help.contains("/trace [summary|tree|hooks|scores|prompt] <run-id>"));
         assert!(help.contains("/scores <run-id>"));
         assert!(help.contains("/usage trace|run <run-id>"));
         assert!(help.contains("/agent [id] [prompt]"));
         assert!(help.contains("/agents list|show|save|export|import|delete"));
         assert!(help.contains(
-            "/skills status|list|show|inspect|import-openclaw|import-doc|export|allow|quarantine"
+            "/skills status|preview|list|show|inspect|import-openclaw|import-doc|export|allow|quarantine"
         ));
         assert!(
             help.contains("/prompts (/prompt) list|show|save|use|preview|export|import|delete")
         );
         assert!(help.contains("/approval (/approvals) list|assess|approve|reject|execute"));
         assert!(help.contains("/models list|providers|doctor|show|probe|save|export|import"));
-        assert!(help.contains("/memory status|list|access|backends"));
+        assert!(help.contains("/memory status|preview|list|access|backends"));
         assert!(help.contains("/hooks list|policy|available|review|disable|enable"));
     }
 
@@ -13493,6 +13558,12 @@ mod slash_tests {
             parse_slash_command("/skills status").unwrap(),
             Some(SlashCommand::Skill(SkillSlashCommand::Status))
         ));
+        match parse_slash_command("/skills preview inspect skills").unwrap() {
+            Some(SlashCommand::Skill(SkillSlashCommand::Preview { prompt })) => {
+                assert_eq!(prompt, "inspect skills");
+            }
+            _ => panic!("expected skills preview shortcut"),
+        }
         match parse_slash_command("/skills show review").unwrap() {
             Some(SlashCommand::Skill(SkillSlashCommand::Inspect { id })) => {
                 assert_eq!(id, "review");
@@ -13872,6 +13943,21 @@ mod slash_tests {
         assert!(parse_slash_command(&format!("/compare {primary}")).is_err());
         assert!(parse_slash_command(&format!("/compare {primary} {primary}")).is_err());
         assert!(parse_slash_command(&format!("/replay {primary} --mystery")).is_err());
+    }
+
+    #[test]
+    fn parses_preview_shortcuts() {
+        match parse_slash_command("/preview").unwrap() {
+            Some(SlashCommand::Preview { prompt }) => assert_eq!(prompt, "preview"),
+            _ => panic!("expected preview shortcut"),
+        }
+        match parse_slash_command("/preview inspect this context").unwrap() {
+            Some(SlashCommand::Preview { prompt }) => {
+                assert_eq!(prompt, "inspect this context");
+            }
+            _ => panic!("expected preview shortcut with prompt"),
+        }
+        assert!(parse_slash_command("/previewer context").unwrap().is_none());
     }
 
     #[test]
@@ -14811,6 +14897,12 @@ mod slash_tests {
             parse_slash_command("/memory status").unwrap(),
             Some(SlashCommand::Memory(MemorySlashCommand::Status))
         ));
+        match parse_slash_command("/memory preview inspect memory").unwrap() {
+            Some(SlashCommand::Memory(MemorySlashCommand::Preview { prompt })) => {
+                assert_eq!(prompt, "inspect memory");
+            }
+            _ => panic!("expected memory preview shortcut"),
+        }
         match parse_slash_command("/memory access --topic rust --topic=agents").unwrap() {
             Some(SlashCommand::Memory(MemorySlashCommand::Access { topics })) => {
                 assert_eq!(topics, vec!["rust", "agents"]);

@@ -320,6 +320,7 @@ pub async fn run(
         }
         Some(SlashCommand::Ingest(command)) => {
             return match command {
+                IngestSlashCommand::Status => ingest_context_status(&options, json),
                 IngestSlashCommand::List => ingest_list(json).await,
                 IngestSlashCommand::Backends => ingest_backends(json).await,
                 IngestSlashCommand::Add {
@@ -9377,6 +9378,7 @@ enum ModelSlashCommand {
 }
 
 enum IngestSlashCommand {
+    Status,
     List,
     Backends,
     Add {
@@ -10074,6 +10076,31 @@ fn skill_context_status(options: &setup::RuntimeOptions, json: bool) -> anyhow::
     Ok(())
 }
 
+fn ingest_context_status(options: &setup::RuntimeOptions, json: bool) -> anyhow::Result<()> {
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "include_ingest": &options.include_ingest,
+                "included_count": options.include_ingest.len(),
+                "shortcut": "/ingest status",
+                "enable_flag": "--include-ingest <id>"
+            }))?
+        );
+        return Ok(());
+    }
+    println!(
+        "runtime ingestion artifacts included: {}",
+        options.include_ingest.len()
+    );
+    for id in &options.include_ingest {
+        println!("  {id}");
+    }
+    println!("include for a run with: --include-ingest <id>");
+    println!("omit --include-ingest to leave document-derived context out");
+    Ok(())
+}
+
 fn headless_slash_help_text() -> &'static str {
     "Headless slash commands:\n\
      - /run <prompt-name> - use a saved prompt when available, otherwise run the literal text\n\
@@ -10100,7 +10127,7 @@ fn headless_slash_help_text() -> &'static str {
      - /profiles current|list|show|create|delete|grants|grant|revoke\n\
      - /conversation list|tree|show|recover|usage|delete|range-delete|delete-agent\n\
      - /secrets backends|list|show|delete\n\
-     - /ingest list|backends|add|probe-source|probe-vision|rerun|preview|show|review|delete\n\
+     - /ingest status|list|backends|add|probe-source|probe-vision|rerun|preview|show|review|delete\n\
      - /artifacts list|generate|show|open|export|download|delete\n\
      - /capabilities list|doctor|propose|show|allow|reject|delete|export|import\n\
      - /adapters list|doctor|inspect|import|import-manifest|show|export|install-skill|allow|quarantine|clawhub\n\
@@ -12281,6 +12308,10 @@ fn parse_ingest_slash_rest(rest: &str) -> anyhow::Result<IngestSlashCommand> {
             ensure_no_extra(args.split_whitespace(), "usage: /ingest list")?;
             Ok(IngestSlashCommand::List)
         }
+        "status" => {
+            ensure_no_extra(args.split_whitespace(), "usage: /ingest status")?;
+            Ok(IngestSlashCommand::Status)
+        }
         "backends" => {
             ensure_no_extra(args.split_whitespace(), "usage: /ingest backends")?;
             Ok(IngestSlashCommand::Backends)
@@ -13344,7 +13375,11 @@ mod slash_tests {
         assert!(help.contains("/approval (/approvals) list|assess|approve|reject|execute"));
         assert!(help.contains("/models list|providers|doctor|show|probe|save|export|import"));
         assert!(help.contains("/memory status|preview|list|access|backends"));
-        assert!(help.contains("/ingest list|backends|add|probe-source|probe-vision|rerun|preview"));
+        assert!(
+            help.contains(
+                "/ingest status|list|backends|add|probe-source|probe-vision|rerun|preview"
+            )
+        );
         assert!(help.contains("/hooks list|policy|available|review|disable|enable"));
     }
 
@@ -14453,6 +14488,10 @@ mod slash_tests {
             Some(SlashCommand::Ingest(IngestSlashCommand::List))
         ));
         assert!(matches!(
+            parse_slash_command("/ingest status").unwrap(),
+            Some(SlashCommand::Ingest(IngestSlashCommand::Status))
+        ));
+        assert!(matches!(
             parse_slash_command("/ingest backends").unwrap(),
             Some(SlashCommand::Ingest(IngestSlashCommand::Backends))
         ));
@@ -14539,6 +14578,7 @@ mod slash_tests {
         }
         assert!(parse_slash_command("/ingest delete artifact-1").is_err());
         assert!(parse_slash_command("/ingest preview").is_err());
+        assert!(parse_slash_command("/ingest status extra").is_err());
         assert!(parse_slash_command("/ingest probe-vision ./image.png").is_err());
         assert!(parse_slash_command("/ingester list").unwrap().is_none());
     }

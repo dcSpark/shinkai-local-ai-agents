@@ -2412,6 +2412,39 @@ enum ConversationCommand {
         #[arg(long)]
         memory_user: bool,
     },
+    /// Delete multiple conversation branches in one operation.
+    DeleteMany {
+        /// Conversation branch ids to delete.
+        #[arg(required = true)]
+        ids: Vec<String>,
+
+        #[arg(long)]
+        recursive: bool,
+
+        /// Compact each deleted conversation before deleting and keep those artifacts.
+        #[arg(long)]
+        compact_first: bool,
+
+        /// Guidance for --compact-first.
+        #[arg(long)]
+        compact_guidance: Option<String>,
+
+        /// Approximate max output tokens for --compact-first.
+        #[arg(long, default_value_t = 512)]
+        compact_max_output_tokens: u32,
+
+        /// Generate memory from each deleted conversation before deleting and keep it.
+        #[arg(long)]
+        memory_first: bool,
+
+        /// Guidance for --memory-first.
+        #[arg(long)]
+        memory_guidance: Option<String>,
+
+        /// Store --memory-first output in user.md instead of memory.md.
+        #[arg(long)]
+        memory_user: bool,
+    },
     /// Delete an inclusive expanded message-index range from a leaf branch.
     DeleteRange {
         id: String,
@@ -3329,6 +3362,18 @@ enum RemoteConversationCommand {
     },
     Delete {
         id: String,
+        #[arg(long)]
+        recursive: bool,
+    },
+    DeleteManyPlan {
+        #[arg(required = true)]
+        ids: Vec<String>,
+        #[arg(long)]
+        recursive: bool,
+    },
+    DeleteMany {
+        #[arg(required = true)]
+        ids: Vec<String>,
         #[arg(long)]
         recursive: bool,
     },
@@ -8271,6 +8316,27 @@ async fn main() -> anyhow::Result<()> {
                 };
                 headless::conversation_delete(id, options).await
             }
+            ConversationCommand::DeleteMany {
+                ids,
+                recursive,
+                compact_first,
+                compact_guidance,
+                compact_max_output_tokens,
+                memory_first,
+                memory_guidance,
+                memory_user,
+            } => {
+                let options = headless::ConversationDeleteOptions {
+                    recursive,
+                    compact_first,
+                    compact_guidance,
+                    compact_max_output_tokens,
+                    memory_first,
+                    memory_guidance,
+                    memory_user,
+                };
+                headless::conversation_delete_many(ids, options).await
+            }
             ConversationCommand::DeleteRange {
                 id,
                 from,
@@ -9170,6 +9236,12 @@ async fn main() -> anyhow::Result<()> {
                 }
                 RemoteConversationCommand::Delete { id, recursive } => {
                     headless::remote_conversation_delete(url, id, recursive).await
+                }
+                RemoteConversationCommand::DeleteManyPlan { ids, recursive } => {
+                    headless::remote_conversation_delete_many_plan(url, ids, recursive).await
+                }
+                RemoteConversationCommand::DeleteMany { ids, recursive } => {
+                    headless::remote_conversation_delete_many(url, ids, recursive).await
                 }
                 RemoteConversationCommand::DeleteAgentPlan { agent, recursive } => {
                     headless::remote_conversation_delete_agent_plan(url, agent, recursive).await

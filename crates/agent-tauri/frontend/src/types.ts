@@ -484,6 +484,7 @@ export type ConversationTreeNode = {
 
 export type ConversationDeletePlan = {
   requested: string;
+  requested_ids?: string[];
   recursive: boolean;
   delete_count: number;
   delete_ids: string[];
@@ -496,6 +497,7 @@ export type ConversationDeletePlan = {
 
 export type ConversationDeleteResult = {
   requested: string;
+  requested_ids?: string[];
   recursive: boolean;
   planned: string[];
   deleted: string[];

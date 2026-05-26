@@ -2088,6 +2088,36 @@ fn conversation_delete_plan_value(id: &str, recursive: bool) -> anyhow::Result<s
     conversation_delete_plan_summary(&store, id, recursive, delete_ids)
 }
 
+fn normalize_conversation_delete_ids(ids: Vec<String>) -> anyhow::Result<Vec<String>> {
+    let ids = ids
+        .into_iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect::<Vec<_>>();
+    if ids.is_empty() {
+        anyhow::bail!("ids must not be empty");
+    }
+    Ok(ids)
+}
+
+#[tauri::command]
+async fn conversation_delete_many_plan(
+    ids: Vec<String>,
+    recursive: bool,
+) -> Result<serde_json::Value, String> {
+    let ids = normalize_conversation_delete_ids(ids).map_err(|e| e.to_string())?;
+    let store = ConversationStore::from_env();
+    let delete_ids = store
+        .deletion_plan(&ids, recursive)
+        .map_err(|e| e.to_string())?;
+    let mut plan = conversation_delete_plan_summary(&store, "multiple", recursive, delete_ids)
+        .map_err(|e| e.to_string())?;
+    if let Some(object) = plan.as_object_mut() {
+        object.insert("requested_ids".into(), serde_json::json!(ids));
+    }
+    Ok(plan)
+}
+
 #[tauri::command]
 async fn conversation_delete(id: String, recursive: bool) -> Result<serde_json::Value, String> {
     let store = ConversationStore::from_env();
@@ -2099,6 +2129,33 @@ async fn conversation_delete(id: String, recursive: bool) -> Result<serde_json::
     let cleanup = cleanup_conversation_side_data(&deleted, &run_ids).map_err(|e| e.to_string())?;
     Ok(serde_json::json!({
         "requested": id,
+        "recursive": recursive,
+        "planned": planned,
+        "deleted": deleted,
+        "deleted_compactions": cleanup.compactions,
+        "deleted_memories": cleanup.memories,
+        "deleted_artifacts": cleanup.artifacts
+    }))
+}
+
+#[tauri::command]
+async fn conversation_delete_many(
+    ids: Vec<String>,
+    recursive: bool,
+) -> Result<serde_json::Value, String> {
+    let ids = normalize_conversation_delete_ids(ids).map_err(|e| e.to_string())?;
+    let store = ConversationStore::from_env();
+    let planned = store
+        .deletion_plan(&ids, recursive)
+        .map_err(|e| e.to_string())?;
+    let run_ids = conversation_run_ids_for_docs(&store, &planned).map_err(|e| e.to_string())?;
+    let deleted = store
+        .delete_many(&planned, false)
+        .map_err(|e| e.to_string())?;
+    let cleanup = cleanup_conversation_side_data(&deleted, &run_ids).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "requested": "multiple",
+        "requested_ids": ids,
         "recursive": recursive,
         "planned": planned,
         "deleted": deleted,
@@ -5192,6 +5249,8 @@ pub fn run() {
             conversation_set_policy,
             conversation_delete_plan,
             conversation_delete,
+            conversation_delete_many_plan,
+            conversation_delete_many,
             conversation_delete_agent_plan,
             conversation_delete_agent,
             conversation_range_review,

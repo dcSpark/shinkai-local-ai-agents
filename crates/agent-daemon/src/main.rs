@@ -534,6 +534,12 @@ async fn route_inner(
         ("POST", "/conversations/delete-agent") => {
             daemon_conversation_delete_agent(&request.body).map(|value| (200, value))
         }
+        ("POST", "/conversations/delete-many-plan") => {
+            daemon_conversation_delete_many_plan(&request.body).map(|value| (200, value))
+        }
+        ("POST", "/conversations/delete-many") => {
+            daemon_conversation_delete_many(&request.body).map(|value| (200, value))
+        }
         _ if request.method == "GET" && request.path.starts_with("/conversations/") => {
             let id = request.path.trim_start_matches("/conversations/");
             daemon_conversation_show(id).map(|value| (200, value))
@@ -976,6 +982,8 @@ async fn route_inner(
                     "POST /conversations/<id>/range-review",
                     "POST /conversations/<id>/delete-range",
                     "POST /conversations/<id>/delete",
+                    "POST /conversations/delete-many-plan",
+                    "POST /conversations/delete-many",
                     "POST /conversations/delete-agent-plan",
                     "POST /conversations/delete-agent",
                     "GET /approvals/<run_id>",
@@ -1769,6 +1777,18 @@ fn conversation_delete_plan_value(id: &str, recursive: bool) -> anyhow::Result<s
     conversation_delete_plan_summary(&store, id, recursive, delete_ids)
 }
 
+fn daemon_conversation_delete_many_plan(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input = parse_conversation_many_delete_input(body)?;
+    let store = ConversationStore::from_env();
+    let delete_ids = store.deletion_plan(&input.ids, input.recursive)?;
+    let mut plan =
+        conversation_delete_plan_summary(&store, "multiple", input.recursive, delete_ids)?;
+    if let Some(object) = plan.as_object_mut() {
+        object.insert("requested_ids".into(), serde_json::json!(input.ids));
+    }
+    Ok(plan)
+}
+
 fn daemon_conversation_delete(id: &str, body: &str) -> anyhow::Result<serde_json::Value> {
     let input = parse_recursive_input(body)?;
     let store = ConversationStore::from_env();
@@ -1779,6 +1799,25 @@ fn daemon_conversation_delete(id: &str, body: &str) -> anyhow::Result<serde_json
     let cleanup = cleanup_conversation_side_data(&deleted, &run_ids)?;
     Ok(serde_json::json!({
         "requested": id,
+        "recursive": input.recursive,
+        "planned": planned,
+        "deleted": deleted,
+        "deleted_compactions": cleanup.compactions,
+        "deleted_memories": cleanup.memories,
+        "deleted_artifacts": cleanup.artifacts
+    }))
+}
+
+fn daemon_conversation_delete_many(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input = parse_conversation_many_delete_input(body)?;
+    let store = ConversationStore::from_env();
+    let planned = store.deletion_plan(&input.ids, input.recursive)?;
+    let run_ids = conversation_run_ids_for_docs(&store, &planned)?;
+    let deleted = store.delete_many(&planned, false)?;
+    let cleanup = cleanup_conversation_side_data(&deleted, &run_ids)?;
+    Ok(serde_json::json!({
+        "requested": "multiple",
+        "requested_ids": input.ids,
         "recursive": input.recursive,
         "planned": planned,
         "deleted": deleted,
@@ -1990,6 +2029,20 @@ fn parse_conversation_agent_delete_input(
     let input: ConversationAgentDeleteInput = serde_json::from_str(body)?;
     if input.agent_id.trim().is_empty() {
         anyhow::bail!("agent_id must not be empty");
+    }
+    Ok(input)
+}
+
+fn parse_conversation_many_delete_input(body: &str) -> anyhow::Result<ConversationManyDeleteInput> {
+    let mut input: ConversationManyDeleteInput = serde_json::from_str(body)?;
+    input.ids = input
+        .ids
+        .into_iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty())
+        .collect();
+    if input.ids.is_empty() {
+        anyhow::bail!("ids must not be empty");
     }
     Ok(input)
 }
@@ -7095,6 +7148,14 @@ struct ConversationAgentDeleteInput {
 }
 
 #[derive(serde::Deserialize)]
+struct ConversationManyDeleteInput {
+    #[serde(default)]
+    ids: Vec<String>,
+    #[serde(default)]
+    recursive: bool,
+}
+
+#[derive(serde::Deserialize)]
 struct ConversationRangeInput {
     from: usize,
     to: usize,
@@ -10534,6 +10595,93 @@ mod tests {
         assert!(CompactionStore::from_env().show(&compaction.id).is_ok());
         assert!(MemoryStore::from_env().get(&memory.id).is_ok());
         assert!(show_generated_artifact_from_env(&artifact_id).is_ok());
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn conversation_delete_many_plans_and_removes_side_effects() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("conversation-delete-many-side-effects");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+
+        let conversation_store = ConversationStore::from_env();
+        let first = conversation_store
+            .create(Some("Delete many first".into()), Some("fake-agent".into()))
+            .unwrap();
+        let second = conversation_store
+            .create(Some("Delete many second".into()), Some("fake-agent".into()))
+            .unwrap();
+        let keep = conversation_store
+            .create(Some("Keep".into()), Some("fake-agent".into()))
+            .unwrap();
+        let (artifact_id, run_id) =
+            generated_artifact_with_trace("delete-many-artifact", "bulk artifact");
+        let run_id_text = run_id.0.to_string();
+        conversation_store
+            .append_message_with_run(
+                &first.id,
+                ConversationRole::Assistant,
+                "Created artifact.",
+                Some(&run_id_text),
+            )
+            .unwrap();
+        let compaction = CompactionStore::from_env()
+            .create_from_text_for_conversation(
+                "bulk compaction cleanup",
+                None,
+                None,
+                Some("manual".into()),
+                Some(second.id.clone()),
+            )
+            .unwrap();
+        let memory = MemoryStore::from_env()
+            .create_for_conversation(
+                MemoryTarget::Agent,
+                "bulk memory cleanup",
+                MemoryAuthor::Model,
+                Some("messages:0..1".into()),
+                Some(second.id.clone()),
+            )
+            .unwrap();
+
+        let body = serde_json::json!({
+            "ids": [first.id.clone(), second.id.clone()],
+            "recursive": false
+        })
+        .to_string();
+        let plan = daemon_conversation_delete_many_plan(&body).unwrap();
+        assert_eq!(
+            plan["requested_ids"],
+            serde_json::json!([first.id.clone(), second.id.clone()])
+        );
+        assert_eq!(plan["delete_count"], 2);
+        assert_eq!(
+            plan["linked_compactions"],
+            serde_json::json!([compaction.id.clone()])
+        );
+        assert_eq!(
+            plan["linked_memories"],
+            serde_json::json!([memory.id.clone()])
+        );
+        assert_eq!(
+            plan["linked_generated_artifacts"],
+            serde_json::json!([artifact_id.clone()])
+        );
+
+        let deleted = daemon_conversation_delete_many(&body).unwrap();
+        let deleted_ids: Vec<String> = serde_json::from_value(deleted["deleted"].clone()).unwrap();
+        assert_eq!(deleted_ids, vec![first.id.clone(), second.id.clone()]);
+        assert!(ConversationStore::from_env().show(&first.id).is_err());
+        assert!(ConversationStore::from_env().show(&second.id).is_err());
+        assert!(ConversationStore::from_env().show(&keep.id).is_ok());
+        assert!(CompactionStore::from_env().show(&compaction.id).is_err());
+        assert!(MemoryStore::from_env().get(&memory.id).is_err());
+        assert!(show_generated_artifact_from_env(&artifact_id).is_err());
 
         restore_env("AGENT_HARNESS_HOME", previous_home);
         let _ = std::fs::remove_dir_all(dir);

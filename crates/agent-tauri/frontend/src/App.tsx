@@ -1805,6 +1805,10 @@ export default function App() {
       { command: "/conversations delete-plan ", label: "Preview conversation deletion" },
       { command: "/conversation delete ", label: "Delete conversation branch" },
       { command: "/conversations delete ", label: "Delete conversation branch" },
+      { command: "/conversation delete-many-plan ", label: "Preview bulk conversation deletion" },
+      { command: "/conversations delete-many-plan ", label: "Preview bulk conversation deletion" },
+      { command: "/conversation delete-many ", label: "Delete multiple conversations" },
+      { command: "/conversations delete-many ", label: "Delete multiple conversations" },
       { command: "/conversation delete-agent-plan ", label: "Preview agent conversation deletion" },
       { command: "/conversations delete-agent-plan ", label: "Preview agent conversation deletion" },
       { command: "/conversation delete-agent ", label: "Delete agent conversations" },
@@ -3308,6 +3312,8 @@ export default function App() {
       "/conversation policy clear [id]",
       "/conversation delete-plan [id] [--recursive]",
       "/conversation delete [id] [--recursive] --confirm",
+      "/conversation delete-many-plan <id> <id>... [--recursive]",
+      "/conversation delete-many <id> <id>... [--recursive] --confirm",
       "/conversation delete-agent-plan [agent] [--recursive]",
       "/conversation delete-agent [agent] [--recursive] --confirm",
       "/conversation range [id] <from>:<to>",
@@ -3368,6 +3374,35 @@ export default function App() {
       return null;
     }
     return { id, recursive };
+  }
+
+  function parseConversationManyShortcut(
+    command: string,
+    args: string[],
+    requireConfirm: boolean,
+  ) {
+    const recursive = args.includes("--recursive");
+    const confirmed = args.includes("--confirm");
+    const unknownFlags = args.filter(
+      (arg) => arg.startsWith("--") && arg !== "--recursive" && arg !== "--confirm",
+    );
+    const ids = args.filter((arg) => !arg.startsWith("--"));
+    if (unknownFlags.length || ids.length < 1) {
+      appendLine(
+        "error",
+        `Conversation ${command} shortcut needs one or more ids, optional --recursive, and${requireConfirm ? " required" : " no"} --confirm.`,
+      );
+      return null;
+    }
+    if (requireConfirm && !confirmed) {
+      appendLine("error", `Conversation ${command} shortcut requires --confirm.`);
+      return null;
+    }
+    if (!requireConfirm && confirmed) {
+      appendLine("error", `Conversation ${command} shortcut does not use --confirm.`);
+      return null;
+    }
+    return { ids, recursive };
   }
 
   function parseConversationAgentShortcut(
@@ -8603,6 +8638,24 @@ export default function App() {
         if (parsed) {
           await deleteConversation(parsed.id, parsed.recursive, true);
         }
+      } else if (
+        command === "delete-many-plan" ||
+        command === "delete-bulk-plan" ||
+        command === "bulk-delete-plan"
+      ) {
+        const parsed = parseConversationManyShortcut("delete-many-plan", args, false);
+        if (parsed) {
+          await previewConversationDeleteMany(parsed.ids, parsed.recursive);
+        }
+      } else if (
+        command === "delete-many" ||
+        command === "delete-bulk" ||
+        command === "bulk-delete"
+      ) {
+        const parsed = parseConversationManyShortcut("delete-many", args, true);
+        if (parsed) {
+          await deleteConversationsMany(parsed.ids, parsed.recursive, true);
+        }
       } else if (command === "delete-agent-plan" || command === "agent-delete-plan") {
         const parsed = parseConversationAgentShortcut("delete-agent-plan", args, false);
         if (parsed) {
@@ -8636,7 +8689,7 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Conversation shortcut needs list, tree, select, show, recover, usage, memory, policy, delete-plan, delete, delete-agent-plan, delete-agent, range, range-delete, or help.",
+          "Conversation shortcut needs list, tree, select, show, recover, usage, memory, policy, delete-plan, delete, delete-many-plan, delete-many, delete-agent-plan, delete-agent, range, range-delete, or help.",
         );
       }
       return;
@@ -11690,6 +11743,26 @@ export default function App() {
     }
   }
 
+  async function previewConversationDeleteMany(ids: string[], recursive: boolean) {
+    try {
+      const plan =
+        transport === "daemon"
+          ? await daemonJson<ConversationDeletePlan>("/conversations/delete-many-plan", {
+              ids,
+              recursive,
+            })
+          : await invoke<ConversationDeletePlan>("conversation_delete_many_plan", {
+              ids,
+              recursive,
+            });
+      setConversationDeletePlan(plan);
+      appendJson("Conversation bulk delete plan", plan);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Conversation bulk delete preview failed: ${msg}`);
+    }
+  }
+
   async function deleteConversationFromOps(recursive: boolean) {
     const id = requireOpsId("Conversation delete");
     if (!id) return;
@@ -11738,6 +11811,38 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Conversation delete failed: ${msg}`);
+    }
+  }
+
+  async function deleteConversationsMany(
+    ids: string[],
+    recursive: boolean,
+    confirmed = false,
+  ) {
+    if (
+      !confirmed &&
+      !confirmLocalChange(
+        `Delete ${ids.length} conversation${ids.length === 1 ? "" : "s"}${recursive ? " recursively" : ""}`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const result =
+        transport === "daemon"
+          ? await daemonJson<ConversationDeleteResult>("/conversations/delete-many", {
+              ids,
+              recursive,
+            })
+          : await invoke<ConversationDeleteResult>("conversation_delete_many", {
+              ids,
+              recursive,
+            });
+      applyConversationDeleteResult(result);
+      appendJson("Conversations deleted", result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Conversation bulk delete failed: ${msg}`);
     }
   }
 

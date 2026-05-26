@@ -300,6 +300,9 @@ pub async fn run(
                 ConversationSlashCommand::Delete { id, options } => {
                     conversation_delete(id, options).await
                 }
+                ConversationSlashCommand::DeleteMany { ids, options } => {
+                    conversation_delete_many(ids, options).await
+                }
                 ConversationSlashCommand::DeleteRange {
                     id,
                     from,
@@ -3272,6 +3275,19 @@ pub async fn conversation_delete(
 ) -> anyhow::Result<()> {
     let store = ConversationStore::from_env();
     let planned = store.deletion_plan(&[id], options.recursive)?;
+    let run_ids = conversation_run_ids_for_docs(&store, &planned)?;
+    let preserved = preserve_conversation_artifacts(&store, &planned, &options)?;
+    let deleted = store.delete_many(&planned, false)?;
+    print_conversation_deletion(deleted, preserved, run_ids)?;
+    Ok(())
+}
+
+pub async fn conversation_delete_many(
+    ids: Vec<String>,
+    options: ConversationDeleteOptions,
+) -> anyhow::Result<()> {
+    let store = ConversationStore::from_env();
+    let planned = store.deletion_plan(&ids, options.recursive)?;
     let run_ids = conversation_run_ids_for_docs(&store, &planned)?;
     let preserved = preserve_conversation_artifacts(&store, &planned, &options)?;
     let deleted = store.delete_many(&planned, false)?;
@@ -7257,6 +7273,28 @@ pub async fn remote_conversation_delete(
     )?)
 }
 
+pub async fn remote_conversation_delete_many_plan(
+    url: String,
+    ids: Vec<String>,
+    recursive: bool,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/conversations/delete-many-plan",
+        serde_json::json!({ "ids": ids, "recursive": recursive }),
+    )?)
+}
+
+pub async fn remote_conversation_delete_many(
+    url: String,
+    ids: Vec<String>,
+    recursive: bool,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/conversations/delete-many",
+        serde_json::json!({ "ids": ids, "recursive": recursive }),
+    )?)
+}
+
 pub async fn remote_conversation_delete_agent_plan(
     url: String,
     agent: String,
@@ -9339,6 +9377,10 @@ enum ConversationSlashCommand {
         id: String,
         options: ConversationDeleteOptions,
     },
+    DeleteMany {
+        ids: Vec<String>,
+        options: ConversationDeleteOptions,
+    },
     DeleteRange {
         id: String,
         from: usize,
@@ -10261,7 +10303,7 @@ fn headless_slash_help_text() -> &'static str {
      - /storage report, /storage prune-cache <days> [--apply]\n\
      - /bundles export <path>, /bundles import <path> --confirm\n\
      - /profiles current|list|show|create|delete|grants|grant|revoke\n\
-     - /conversation list|tree|show|recover|usage|delete|range-delete|delete-agent\n\
+     - /conversation list|tree|show|recover|usage|delete|delete-many|range-delete|delete-agent\n\
      - /secrets backends|list|show|delete\n\
      - /ingest status|list|backends|add|probe-source|probe-vision|rerun|preview|show|review|delete|remove\n\
      - /artifacts list|generate|show|preview|open|export|download|delete\n\
@@ -11695,10 +11737,11 @@ fn parse_conversation_slash_rest(rest: &str) -> anyhow::Result<ConversationSlash
         }
         "usage" => parse_conversation_usage_args(parts),
         "delete" | "rm" => parse_conversation_delete_args(parts),
+        "delete-many" | "delete-bulk" | "bulk-delete" => parse_conversation_delete_many_args(parts),
         "range-delete" | "delete-range" => parse_conversation_delete_range_args(parts),
         "delete-agent" => parse_conversation_delete_agent_args(parts),
         _ => anyhow::bail!(
-            "conversation shortcut needs list, tree, show, recover, usage, delete, range-delete, or delete-agent"
+            "conversation shortcut needs list, tree, show, recover, usage, delete, delete-many, range-delete, or delete-agent"
         ),
     }
 }
@@ -11792,6 +11835,29 @@ fn parse_conversation_delete_args<'a>(
     let id = next_required(&mut parts, "usage: /conversation delete <id> --confirm")?;
     let options = parse_conversation_delete_options(parts, "delete")?;
     Ok(ConversationSlashCommand::Delete { id, options })
+}
+
+fn parse_conversation_delete_many_args<'a>(
+    parts: impl Iterator<Item = &'a str>,
+) -> anyhow::Result<ConversationSlashCommand> {
+    let mut ids = Vec::new();
+    let mut option_parts = Vec::new();
+    let mut parsing_options = false;
+    for part in parts {
+        if part.starts_with("--") {
+            parsing_options = true;
+        }
+        if parsing_options {
+            option_parts.push(part);
+        } else {
+            ids.push(part.to_string());
+        }
+    }
+    if ids.is_empty() {
+        anyhow::bail!("usage: /conversation delete-many <id> <id>... --confirm");
+    }
+    let options = parse_conversation_delete_options(option_parts.into_iter(), "delete-many")?;
+    Ok(ConversationSlashCommand::DeleteMany { ids, options })
 }
 
 fn parse_conversation_delete_agent_args<'a>(
@@ -14990,6 +15056,21 @@ mod slash_tests {
             _ => panic!("expected conversation delete shortcut"),
         }
         match parse_slash_command(
+            "/conversation delete-many convo-1 convo-2 --recursive --memory-first --confirm",
+        )
+        .unwrap()
+        {
+            Some(SlashCommand::Conversation(ConversationSlashCommand::DeleteMany {
+                ids,
+                options,
+            })) => {
+                assert_eq!(ids, vec!["convo-1", "convo-2"]);
+                assert!(options.recursive);
+                assert!(options.memory_first);
+            }
+            _ => panic!("expected conversation delete-many shortcut"),
+        }
+        match parse_slash_command(
             "/conversation range-delete convo-1 1:3 --compact-first --compact-guidance keep-range --memory-first --memory-guidance stable-range --memory-user --confirm",
         )
         .unwrap()
@@ -15027,6 +15108,8 @@ mod slash_tests {
             _ => panic!("expected conversation delete-agent shortcut"),
         }
         assert!(parse_slash_command("/conversation delete convo-1").is_err());
+        assert!(parse_slash_command("/conversation delete-many --confirm").is_err());
+        assert!(parse_slash_command("/conversation delete-many convo-1").is_err());
         assert!(parse_slash_command("/conversation range-delete convo-1 3:1 --confirm").is_err());
         assert!(parse_slash_command("/conversation delete-agent critic").is_err());
     }

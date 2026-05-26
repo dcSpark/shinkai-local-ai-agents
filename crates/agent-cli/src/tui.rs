@@ -8202,6 +8202,7 @@ fn handle_bundles_slash(app: &mut App, rest: &str) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
+                "/bundles backup <path>",
                 "/bundles export <path>",
                 "/bundles import <path> --confirm",
                 "/bundle is accepted as an alias for /bundles.",
@@ -8215,7 +8216,7 @@ fn handle_bundles_slash(app: &mut App, rest: &str) {
         .map(|(command, args)| (command, args.trim()))
         .unwrap_or((rest, ""));
     match command {
-        "export" => match bundle_path_arg(args, "export") {
+        "export" | "backup" => match bundle_path_arg(args, command) {
             Ok(path) => match export_bundle(path) {
                 Ok(manifest) => {
                     push_event(
@@ -8277,7 +8278,7 @@ fn handle_bundles_slash(app: &mut App, rest: &str) {
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Bundles command needs export, import, or help.".into(),
+            text: "Bundles command needs backup, export, import, or help.".into(),
         }),
     }
 }
@@ -12913,6 +12914,10 @@ mod tests {
             bundles_slash_rest("/bundle import ./bundle.tar --confirm"),
             Some("import ./bundle.tar --confirm")
         );
+        assert_eq!(
+            bundles_slash_rest("/bundle backup ./bundle.tar"),
+            Some("backup ./bundle.tar")
+        );
         assert_eq!(bundles_slash_rest("/bundles"), Some(""));
         assert_eq!(bundles_slash_rest("/bundle"), Some(""));
         assert_eq!(bundles_slash_rest("/bundlex"), None);
@@ -14156,6 +14161,10 @@ mod tests {
     fn bundle_args_require_paths_and_import_confirmation() {
         assert_eq!(
             bundle_path_arg("./bundle.tar", "export").unwrap(),
+            "./bundle.tar"
+        );
+        assert_eq!(
+            bundle_path_arg("./bundle.tar", "backup").unwrap(),
             "./bundle.tar"
         );
         assert!(bundle_path_arg("", "export").is_err());

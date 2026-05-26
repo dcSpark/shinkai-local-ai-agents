@@ -50,7 +50,7 @@ use agent_memory::{
     list_record_ids_by_source_conversation_message_range_for_active_backend,
     list_records_for_active_backend, load_fragments_with_profile_grants,
     memory_classification_from_model_output, probe_backend as probe_memory_backend,
-    profile_memory_access_report, rollback_active_backend,
+    profile_memory_access_report_filtered, rollback_active_backend,
     supported_backends as supported_memory_backends,
 };
 use agent_prompts::{PromptStore, is_valid_prompt_name};
@@ -5314,10 +5314,13 @@ fn daemon_memory_access(body: &str) -> anyhow::Result<serde_json::Value> {
     } else {
         serde_json::from_str(body)?
     };
-    Ok(serde_json::to_value(profile_memory_access_report(
-        StoragePaths::from_env(),
-        input.topics,
-    )?)?)
+    Ok(serde_json::to_value(
+        profile_memory_access_report_filtered(
+            StoragePaths::from_env(),
+            input.topics,
+            input.agents,
+        )?,
+    )?)
 }
 
 fn daemon_memory_backends() -> anyhow::Result<serde_json::Value> {
@@ -7239,6 +7242,8 @@ struct MemoryCreateInput {
 struct MemoryAccessInput {
     #[serde(default)]
     topics: Vec<String>,
+    #[serde(default)]
+    agents: Vec<String>,
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -10988,6 +10993,16 @@ mod tests {
                 .iter()
                 .any(|entry| entry["record"]["content"] == "Private daemon fact.")
         );
+
+        let filtered = daemon_memory_access(r#"{"topics":["team"],"agents":["critic"]}"#).unwrap();
+        let filtered_records = filtered["records"].as_array().unwrap();
+        assert_eq!(filtered["agents"], serde_json::json!(["critic"]));
+        assert_eq!(filtered["local_records"], 0);
+        assert_eq!(filtered["granted_records"], 1);
+        assert!(filtered_records.iter().any(|entry| {
+            entry["access"] == "profile_grant"
+                && entry["record"]["content"] == "Shared daemon fact."
+        }));
 
         restore_env("AGENT_HARNESS_HOME", previous_home);
         restore_env("AGENT_HARNESS_PROFILE", previous_profile);

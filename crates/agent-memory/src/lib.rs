@@ -144,6 +144,8 @@ pub struct MemoryAccessEntry {
 pub struct MemoryAccessReport {
     pub active_profile: String,
     pub topics: Vec<String>,
+    #[serde(default)]
+    pub agents: Vec<String>,
     pub local_records: usize,
     pub granted_records: usize,
     pub grants: Vec<MemoryAccessGrant>,
@@ -2250,13 +2252,24 @@ pub fn profile_memory_access_report(
     active_paths: StoragePaths,
     topics: Vec<String>,
 ) -> Result<MemoryAccessReport, MemoryError> {
+    profile_memory_access_report_filtered(active_paths, topics, Vec::new())
+}
+
+pub fn profile_memory_access_report_filtered(
+    active_paths: StoragePaths,
+    topics: Vec<String>,
+    agents: Vec<String>,
+) -> Result<MemoryAccessReport, MemoryError> {
     let active_profile = active_paths.active_profile_id().to_string();
+    let agents = normalize_agent_filters(agents);
     let mut records = Vec::new();
     let mut local_records = 0usize;
     let mut granted_records = 0usize;
 
     for (backend, record) in list_records_with_supported_backend_ids(active_paths.clone())? {
-        if !memory_record_matches_topics(&record, &topics) {
+        if !memory_record_matches_topics(&record, &topics)
+            || !memory_record_matches_agents(&record, &agents)
+        {
             continue;
         }
         local_records += 1;
@@ -2280,6 +2293,7 @@ pub fn profile_memory_access_report(
         for (backend, record) in list_records_with_supported_backend_ids(source_paths.clone())? {
             if !memory_record_matches_grant_resource(&record, &grant.resource)
                 || !memory_record_matches_topics(&record, &topics)
+                || !memory_record_matches_agents(&record, &agents)
             {
                 continue;
             }
@@ -2313,6 +2327,7 @@ pub fn profile_memory_access_report(
     Ok(MemoryAccessReport {
         active_profile,
         topics,
+        agents,
         local_records,
         granted_records,
         grants,
@@ -2621,6 +2636,25 @@ pub fn memory_record_matches_topics(record: &MemoryRecord, topics: &[String]) ->
         .filter_map(|topic| normalize_topic(topic))
         .collect::<std::collections::HashSet<_>>();
     topics.iter().any(|topic| record_topics.contains(topic))
+}
+
+pub fn memory_record_matches_agents(record: &MemoryRecord, agents: &[String]) -> bool {
+    if agents.is_empty() {
+        return true;
+    }
+    let Some(owning_agent) = record.owning_agent.as_deref() else {
+        return false;
+    };
+    agents.iter().any(|agent| agent == owning_agent)
+}
+
+fn normalize_agent_filters(agents: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::BTreeSet::new();
+    agents
+        .into_iter()
+        .filter_map(|agent| clean_optional(Some(agent)))
+        .filter(|agent| seen.insert(agent.clone()))
+        .collect()
 }
 
 fn normalize_topics(topics: Vec<String>) -> Vec<String> {
@@ -4160,6 +4194,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(report.active_profile, "research");
+        assert!(report.agents.is_empty());
         assert_eq!(report.local_records, 1);
         assert_eq!(report.granted_records, 1);
         assert_eq!(report.records.len(), 2);
@@ -4177,6 +4212,19 @@ mod tests {
                 .iter()
                 .any(|entry| entry.record.content == "Private memory fact.")
         );
+
+        let filtered = profile_memory_access_report_filtered(
+            StoragePaths::new_with_profile(&dir, "research"),
+            vec!["team".into()],
+            vec!["critic".into()],
+        )
+        .unwrap();
+        assert_eq!(filtered.agents, vec!["critic"]);
+        assert_eq!(filtered.local_records, 0);
+        assert_eq!(filtered.granted_records, 1);
+        assert!(filtered.records.iter().any(|entry| {
+            entry.access == "profile_grant" && entry.record.content == "Shared memory fact."
+        }));
 
         let fragments = load_fragments_with_profile_grants(
             StoragePaths::new_with_profile(&dir, "research"),
@@ -4270,6 +4318,7 @@ mod tests {
             vec!["team".into()],
         )
         .unwrap();
+        assert!(report.agents.is_empty());
         assert_eq!(report.local_records, 0);
         assert_eq!(report.granted_records, 2);
         assert!(report.records.iter().any(|entry| {

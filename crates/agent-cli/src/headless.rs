@@ -52,7 +52,7 @@ use agent_memory::{
     generate_records_for_active_backend_with_topics_for_agent_and_guidance,
     import_file_for_active_backend_for_agent, list_records_for_active_backend,
     memory_classification_from_model_output, probe_backend as probe_memory_backend,
-    profile_memory_access_report, rollback_active_backend,
+    profile_memory_access_report_filtered, rollback_active_backend,
     supported_backends as supported_memory_backends,
 };
 use agent_prompts::{PromptStore, is_valid_prompt_name};
@@ -472,7 +472,9 @@ pub async fn run(
                     preview_context_text(prompt, json, options).await
                 }
                 MemorySlashCommand::List => memory_list(json).await,
-                MemorySlashCommand::Access { topics } => memory_access(topics, json).await,
+                MemorySlashCommand::Access { topics, agents } => {
+                    memory_access(topics, agents, json).await
+                }
                 MemorySlashCommand::Backends => memory_backends(json).await,
                 MemorySlashCommand::Probe { backend, topics } => {
                     memory_backend_probe(backend, topics, json).await
@@ -4024,8 +4026,12 @@ pub async fn memory_list(json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn memory_access(topics: Vec<String>, json: bool) -> anyhow::Result<()> {
-    let report = memory_access_result(topics)?;
+pub async fn memory_access(
+    topics: Vec<String>,
+    agents: Vec<String>,
+    json: bool,
+) -> anyhow::Result<()> {
+    let report = memory_access_result(topics, agents)?;
     if json {
         println!("{}", serde_json::to_string_pretty(&report)?);
     } else {
@@ -4034,18 +4040,21 @@ pub async fn memory_access(topics: Vec<String>, json: bool) -> anyhow::Result<()
     Ok(())
 }
 
-pub(crate) fn memory_access_result(topics: Vec<String>) -> anyhow::Result<serde_json::Value> {
-    memory_access_result_for_paths(StoragePaths::from_env(), topics)
+pub(crate) fn memory_access_result(
+    topics: Vec<String>,
+    agents: Vec<String>,
+) -> anyhow::Result<serde_json::Value> {
+    memory_access_result_for_paths(StoragePaths::from_env(), topics, agents)
 }
 
 fn memory_access_result_for_paths(
     active_paths: StoragePaths,
     topics: Vec<String>,
+    agents: Vec<String>,
 ) -> anyhow::Result<serde_json::Value> {
-    Ok(serde_json::to_value(profile_memory_access_report(
-        active_paths,
-        topics,
-    )?)?)
+    Ok(serde_json::to_value(
+        profile_memory_access_report_filtered(active_paths, topics, agents)?,
+    )?)
 }
 
 fn print_memory_access_report(report: &serde_json::Value) {
@@ -4064,8 +4073,19 @@ fn print_memory_access_report(report: &serde_json::Value) {
         })
         .filter(|topics| !topics.is_empty())
         .unwrap_or_else(|| "*".into());
+    let agents = report["agents"]
+        .as_array()
+        .map(|agents| {
+            agents
+                .iter()
+                .filter_map(|agent| agent.as_str())
+                .collect::<Vec<_>>()
+                .join(",")
+        })
+        .filter(|agents| !agents.is_empty())
+        .unwrap_or_else(|| "*".into());
     println!(
-        "active_profile={active_profile} topics={topics} local_records={local_records} granted_records={granted_records} memory_grants={grants}"
+        "active_profile={active_profile} topics={topics} agents={agents} local_records={local_records} granted_records={granted_records} memory_grants={grants}"
     );
     for entry in report["records"].as_array().into_iter().flatten() {
         let record = &entry["record"];
@@ -7352,11 +7372,15 @@ pub async fn remote_memory_list(url: String) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).get_json("/memory")?)
 }
 
-pub async fn remote_memory_access(url: String, topics: Vec<String>) -> anyhow::Result<()> {
-    print_remote(
-        DaemonHttpClient::new(url)
-            .post_json("/memory/access", serde_json::json!({ "topics": topics }))?,
-    )
+pub async fn remote_memory_access(
+    url: String,
+    topics: Vec<String>,
+    agents: Vec<String>,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/memory/access",
+        serde_json::json!({ "topics": topics, "agents": agents }),
+    )?)
 }
 
 pub async fn remote_memory_backends(url: String) -> anyhow::Result<()> {
@@ -9571,6 +9595,7 @@ enum MemorySlashCommand {
     List,
     Access {
         topics: Vec<String>,
+        agents: Vec<String>,
     },
     Backends,
     Probe {
@@ -10690,7 +10715,7 @@ fn headless_slash_help_text() -> &'static str {
      - /capabilities list|doctor|propose|show|allow|reject|delete|export|import\n\
      - /adapters list|doctor|inspect|import|import-manifest|show|export|install-skill|allow|quarantine|clawhub\n\
      - /models list|providers|doctor|show|probe|save|export|import|delete|provider-catalog|metadata-catalog\n\
-     - /memory status|preview|list|access|backends|create|generate|generate-conversation|classify|edit|delete|rollback|export|import\n\
+     - /memory status|preview|list|access [--topic <topic>] [--agent <agent>]|backends|create|generate|generate-conversation|classify|edit|delete|rollback|export|import\n\
      - /compact list|show|export|import|delete|keep-run [last|run-id], /compactions ...\n\
      - /guide <last|run-id> <text> - inject guidance into an active run\n\
      - /score <last|run-id> <0-10> [target] - record a quality score\n\
@@ -13227,6 +13252,12 @@ struct MemoryTextOptions {
     guidance: Option<String>,
 }
 
+#[derive(Default)]
+struct MemoryAccessOptions {
+    topics: Vec<String>,
+    agents: Vec<String>,
+}
+
 fn parse_memory_slash_rest(rest: &str) -> anyhow::Result<MemorySlashCommand> {
     let rest = rest.trim();
     let (command, args) = rest
@@ -13248,9 +13279,13 @@ fn parse_memory_slash_rest(rest: &str) -> anyhow::Result<MemorySlashCommand> {
             ensure_no_extra(args.split_whitespace(), "usage: /memory list")?;
             Ok(MemorySlashCommand::List)
         }
-        "access" => Ok(MemorySlashCommand::Access {
-            topics: parse_memory_topic_options(args)?,
-        }),
+        "access" => {
+            let options = parse_memory_access_options(args)?;
+            Ok(MemorySlashCommand::Access {
+                topics: options.topics,
+                agents: options.agents,
+            })
+        }
         "backends" => {
             ensure_no_extra(args.split_whitespace(), "usage: /memory backends")?;
             Ok(MemorySlashCommand::Backends)
@@ -13296,19 +13331,27 @@ fn parse_memory_slash_rest(rest: &str) -> anyhow::Result<MemorySlashCommand> {
     }
 }
 
-fn parse_memory_topic_options(rest: &str) -> anyhow::Result<Vec<String>> {
+fn parse_memory_access_options(rest: &str) -> anyhow::Result<MemoryAccessOptions> {
     let mut parts = rest.split_whitespace();
-    let mut topics = Vec::new();
+    let mut options = MemoryAccessOptions::default();
     while let Some(part) = parts.next() {
         match part {
-            "--topic" => topics.push(next_required(&mut parts, "--topic needs a value")?),
+            "--topic" => options
+                .topics
+                .push(next_required(&mut parts, "--topic needs a value")?),
             _ if part.starts_with("--topic=") => {
-                topics.push(required_option_value(part, "--topic")?);
+                options.topics.push(required_option_value(part, "--topic")?);
+            }
+            "--agent" => options
+                .agents
+                .push(next_required(&mut parts, "--agent needs an id")?),
+            _ if part.starts_with("--agent=") => {
+                options.agents.push(required_option_value(part, "--agent")?);
             }
             _ => anyhow::bail!("unknown memory access option: {part}"),
         }
     }
-    Ok(topics)
+    Ok(options)
 }
 
 fn parse_memory_probe_options(rest: &str) -> anyhow::Result<(Option<String>, Vec<String>)> {
@@ -14119,7 +14162,9 @@ mod slash_tests {
             )
         );
         assert!(help.contains("/models list|providers|doctor|show|probe|save|export|import"));
-        assert!(help.contains("/memory status|preview|list|access|backends"));
+        assert!(
+            help.contains("/memory status|preview|list|access [--topic <topic>] [--agent <agent>]")
+        );
         assert!(
             help.contains(
                 "/ingest status|list|backends|add|probe-source|probe-vision|rerun|preview"
@@ -16263,9 +16308,12 @@ mod slash_tests {
             }
             _ => panic!("expected memory preview shortcut"),
         }
-        match parse_slash_command("/memory access --topic rust --topic=agents").unwrap() {
-            Some(SlashCommand::Memory(MemorySlashCommand::Access { topics })) => {
+        match parse_slash_command("/memory access --topic rust --topic=agents --agent critic")
+            .unwrap()
+        {
+            Some(SlashCommand::Memory(MemorySlashCommand::Access { topics, agents })) => {
                 assert_eq!(topics, vec!["rust", "agents"]);
+                assert_eq!(agents, vec!["critic"]);
             }
             _ => panic!("expected memory access shortcut"),
         }
@@ -16701,6 +16749,7 @@ mod slash_tests {
         let report = memory_access_result_for_paths(
             StoragePaths::new_with_profile(&dir, "research"),
             vec!["team".into()],
+            Vec::new(),
         )
         .unwrap();
         let records = report["records"].as_array().unwrap();
@@ -16721,6 +16770,21 @@ mod slash_tests {
                 .iter()
                 .any(|entry| entry["record"]["content"] == "Private main fact.")
         );
+
+        let filtered = memory_access_result_for_paths(
+            StoragePaths::new_with_profile(&dir, "research"),
+            vec!["team".into()],
+            vec!["critic".into()],
+        )
+        .unwrap();
+        let filtered_records = filtered["records"].as_array().unwrap();
+        assert_eq!(filtered["agents"], serde_json::json!(["critic"]));
+        assert_eq!(filtered["local_records"], 0);
+        assert_eq!(filtered["granted_records"], 1);
+        assert!(filtered_records.iter().any(|entry| {
+            entry["access"] == "profile_grant"
+                && entry["record"]["content"] == "Shared research fact."
+        }));
 
         let _ = std::fs::remove_dir_all(dir);
     }

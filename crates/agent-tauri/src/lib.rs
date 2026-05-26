@@ -62,7 +62,7 @@ use agent_memory::{
     list_record_ids_by_source_conversation_message_range_for_active_backend,
     list_records_for_active_backend, load_fragments_with_profile_grants,
     memory_classification_from_model_output, probe_backend as probe_memory_backend,
-    profile_memory_access_report, rollback_active_backend,
+    profile_memory_access_report_filtered, rollback_active_backend,
     supported_backends as supported_memory_backends,
 };
 use agent_prompts::{PromptDoc, PromptStore};
@@ -3837,8 +3837,12 @@ async fn memory_list() -> Result<Vec<MemoryRecord>, String> {
 }
 
 #[tauri::command]
-async fn memory_access(topics: Vec<String>) -> Result<MemoryAccessReport, String> {
-    profile_memory_access_report(StoragePaths::from_env(), topics).map_err(|e| e.to_string())
+async fn memory_access(
+    topics: Vec<String>,
+    agents: Vec<String>,
+) -> Result<MemoryAccessReport, String> {
+    profile_memory_access_report_filtered(StoragePaths::from_env(), topics, agents)
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]

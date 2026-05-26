@@ -3639,7 +3639,7 @@ fn handle_memory_slash(
                 "/memory create [--user] [--agent <agent>] [--conversation <id>] [--topic <topic>] <content>",
                 "/memory generate [--user] [--agent <agent>] [--conversation <id>] [--range <range>] [--topic <topic>] <text> [--guidance <text>]",
                 "/memory list",
-                "/memory access [--topic <topic>]",
+                "/memory access [--topic <topic>] [--agent <agent>]",
                 "/memory show <id>",
                 "/memory edit <id> <content>",
                 "/memory delete <id> --confirm",
@@ -3808,7 +3808,7 @@ fn handle_memory_slash(
             }),
         },
         "access" => match memory_access_args(args) {
-            Ok(topics) => match crate::headless::memory_access_result(topics) {
+            Ok((topics, agents)) => match crate::headless::memory_access_result(topics, agents) {
                 Ok(report) => {
                     let count = report["records"].as_array().map(Vec::len).unwrap_or(0);
                     push_event(app, format!("Loaded {count} accessible memory record(s)."));
@@ -4094,19 +4094,24 @@ fn first_memory_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str>
         .ok_or_else(|| anyhow::anyhow!("memory {command} needs an argument"))
 }
 
-fn memory_access_args(args: &str) -> anyhow::Result<Vec<String>> {
+fn memory_access_args(args: &str) -> anyhow::Result<(Vec<String>, Vec<String>)> {
     let mut parts = args.split_whitespace();
     let mut topics = Vec::new();
+    let mut agents = Vec::new();
     while let Some(part) = parts.next() {
         match part {
             "--topic" => topics.push(next_memory_option_value(&mut parts, "--topic")?.to_string()),
             value if value.starts_with("--topic=") => {
                 topics.push(value.trim_start_matches("--topic=").to_string());
             }
+            "--agent" => agents.push(next_memory_option_value(&mut parts, "--agent")?.to_string()),
+            value if value.starts_with("--agent=") => {
+                agents.push(value.trim_start_matches("--agent=").to_string());
+            }
             other => anyhow::bail!("unexpected memory access argument: {other}"),
         }
     }
-    Ok(topics)
+    Ok((topics, agents))
 }
 
 fn memory_probe_args(args: &str) -> anyhow::Result<(Option<String>, Vec<String>)> {
@@ -14123,12 +14128,17 @@ mod tests {
     }
 
     #[test]
-    fn memory_access_args_parse_topic_filters() {
+    fn memory_access_args_parse_topic_and_agent_filters() {
         assert_eq!(
-            memory_access_args("--topic finance --topic=ops").unwrap(),
-            vec!["finance".to_string(), "ops".to_string()]
+            memory_access_args("--topic finance --topic=ops --agent critic --agent=writer")
+                .unwrap(),
+            (
+                vec!["finance".to_string(), "ops".to_string()],
+                vec!["critic".to_string(), "writer".to_string()]
+            )
         );
         assert!(memory_access_args("--topic").is_err());
+        assert!(memory_access_args("--agent").is_err());
         assert!(memory_access_args("extra").is_err());
     }
 

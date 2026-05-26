@@ -740,6 +740,7 @@ export type MemoryAccessEntry = {
 export type MemoryAccessReport = {
   active_profile: string;
   topics: string[];
+  agents: string[];
   local_records: number;
   granted_records: number;
   grants: MemoryAccessGrant[];

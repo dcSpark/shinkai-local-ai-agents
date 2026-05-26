@@ -889,6 +889,10 @@ enum MemoryCommand {
         #[arg(long = "topic")]
         topics: Vec<String>,
 
+        /// Owning agent id to filter by. Repeat for multiple agents.
+        #[arg(long = "agent")]
+        agents: Vec<String>,
+
         #[arg(long)]
         json: bool,
     },
@@ -3414,6 +3418,8 @@ enum RemoteMemoryCommand {
     Access {
         #[arg(long = "topic")]
         topics: Vec<String>,
+        #[arg(long = "agent")]
+        agents: Vec<String>,
     },
     Backends,
     Probe {
@@ -7023,16 +7029,23 @@ mod cli_parse_tests {
         assert_eq!(topics, vec!["finance"]);
 
         let cli = parse_cli([
-            "agent", "memory", "access", "--topic", "finance", "--topic", "ops", "--json",
+            "agent", "memory", "access", "--topic", "finance", "--topic", "ops", "--agent",
+            "critic", "--json",
         ])
         .unwrap();
         let Command::Memory {
-            command: MemoryCommand::Access { topics, json },
+            command:
+                MemoryCommand::Access {
+                    topics,
+                    agents,
+                    json,
+                },
         } = into_command(cli)
         else {
             panic!("expected memory access command");
         };
         assert_eq!(topics, vec!["finance", "ops"]);
+        assert_eq!(agents, vec!["critic"]);
         assert!(json);
 
         let cli = parse_cli([
@@ -7137,15 +7150,17 @@ mod cli_parse_tests {
 
         let cli = parse_cli([
             "agent", "remote", "memory", "access", "--topic", "finance", "--topic", "ops",
+            "--agent", "critic",
         ])
         .unwrap();
         let RemoteCommand::Memory {
-            command: RemoteMemoryCommand::Access { topics },
+            command: RemoteMemoryCommand::Access { topics, agents },
         } = into_remote_command(cli)
         else {
             panic!("expected remote memory access command");
         };
         assert_eq!(topics, vec!["finance", "ops"]);
+        assert_eq!(agents, vec!["critic"]);
 
         let cli = parse_cli([
             "agent",
@@ -8413,7 +8428,11 @@ async fn main() -> anyhow::Result<()> {
                     .await
             }
             MemoryCommand::List { json } => headless::memory_list(json).await,
-            MemoryCommand::Access { topics, json } => headless::memory_access(topics, json).await,
+            MemoryCommand::Access {
+                topics,
+                agents,
+                json,
+            } => headless::memory_access(topics, agents, json).await,
             MemoryCommand::Backends { json } => headless::memory_backends(json).await,
             MemoryCommand::Probe {
                 backend,
@@ -9273,8 +9292,8 @@ async fn main() -> anyhow::Result<()> {
             },
             RemoteCommand::Memory { command } => match command {
                 RemoteMemoryCommand::List => headless::remote_memory_list(url).await,
-                RemoteMemoryCommand::Access { topics } => {
-                    headless::remote_memory_access(url, topics).await
+                RemoteMemoryCommand::Access { topics, agents } => {
+                    headless::remote_memory_access(url, topics, agents).await
                 }
                 RemoteMemoryCommand::Backends => headless::remote_memory_backends(url).await,
                 RemoteMemoryCommand::Probe { backend, topics } => {

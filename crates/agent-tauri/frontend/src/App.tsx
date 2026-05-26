@@ -1667,6 +1667,7 @@ export default function App() {
       { command: "/memory status", label: "Show memory loading status" },
       { command: "/memory list", label: "List memory records" },
       { command: "/memory access", label: "Show visible memory access" },
+      { command: "/memory access --agent ", label: "Filter memory by agent" },
       { command: "/memory backends", label: "List memory backends" },
       { command: "/memory probe ", label: "Probe a memory backend" },
       { command: "/memory preview", label: "Preview context with memory" },
@@ -3682,7 +3683,7 @@ export default function App() {
   function memoryShortcutHelpText() {
     return [
       "/memory list",
-      "/memory access [--topic <topic>]",
+      "/memory access [--topic <topic>] [--agent <agent>]",
       "/memory backends",
       "/memory probe [backend]",
       "/memory preview",
@@ -3756,6 +3757,7 @@ export default function App() {
 
   function parseMemoryTopicShortcut(args: string[], command: string) {
     const topics: string[] = [];
+    const agents: string[] = [];
     for (let index = 0; index < args.length; index += 1) {
       const arg = args[index];
       if (arg === "--topic") {
@@ -3773,12 +3775,30 @@ export default function App() {
           return null;
         }
         topics.push(value);
+      } else if (arg === "--agent") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", `Memory ${command} shortcut needs an agent id after --agent.`);
+          return null;
+        }
+        agents.push(value);
+        index += 1;
+      } else if (arg.startsWith("--agent=")) {
+        const value = arg.slice("--agent=".length).trim();
+        if (!value) {
+          appendLine("error", `Memory ${command} shortcut needs an agent id after --agent=.`);
+          return null;
+        }
+        agents.push(value);
       } else {
         appendLine("error", `Memory ${command} shortcut does not accept ${arg}.`);
         return null;
       }
     }
-    return { topics: topics.length ? topics : undefined };
+    return {
+      topics: topics.length ? topics : undefined,
+      agents: agents.length ? agents : undefined,
+    };
   }
 
   function parseMemoryRollbackShortcut(args: string[]) {
@@ -7483,7 +7503,7 @@ export default function App() {
       } else if (command === "access") {
         const parsed = parseMemoryTopicShortcut(args, "access");
         if (parsed) {
-          await reviewMemoryAccess(parsed.topics);
+          await reviewMemoryAccess(parsed.topics, parsed.agents);
         }
       } else if (command === "backends") {
         await reviewMemoryBackends();
@@ -10245,16 +10265,21 @@ export default function App() {
     }
   }
 
-  async function reviewMemoryAccess(explicitTopics?: string[]) {
+  async function reviewMemoryAccess(explicitTopics?: string[], explicitAgents?: string[]) {
     const topics = explicitTopics ?? parsedMemoryTopics();
+    const agents = explicitAgents ?? [];
     try {
       const report =
         transport === "daemon"
-          ? await daemonJson<MemoryAccessReport>("/memory/access", { topics })
-          : await invoke<MemoryAccessReport>("memory_access", { topics });
+          ? await daemonJson<MemoryAccessReport>("/memory/access", { topics, agents })
+          : await invoke<MemoryAccessReport>("memory_access", { topics, agents });
       setMemoryRecords(report.records.map((entry) => entry.record));
+      const reportAgents = report.agents ?? [];
+      const agentScope = reportAgents.length
+        ? `, agents: ${reportAgents.join(",")}`
+        : "";
       appendEvent(
-        `Memory access: ${report.local_records} local, ${report.granted_records} granted`,
+        `Memory access: ${report.local_records} local, ${report.granted_records} granted${agentScope}`,
       );
       appendJson("Memory access", report);
     } catch (err: unknown) {

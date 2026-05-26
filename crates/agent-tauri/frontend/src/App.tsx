@@ -14182,7 +14182,7 @@ export default function App() {
     try {
       const result = await daemonJson<BridgeStatusResponse>("/bridges/status");
       setBridgeStatus(result);
-      appendEvent(`Bridge status: ${result.bridges?.length ?? 0} surfaces`);
+      appendEvent(bridgeStatusEventSummary(result));
       appendJson("Bridge status", result);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -14385,6 +14385,42 @@ export default function App() {
     const auth = configuredLabel(bridge.auth);
     const x402 = jsonObject(bridge.x402)?.enabled === true ? "x402 on" : "x402 off";
     return `auth ${auth}; ${x402}`;
+  }
+
+  function bridgeStatusEventSummary(status: BridgeStatusResponse) {
+    const bridges = status.bridges ?? [];
+    const authConfigured = bridges.filter(
+      (bridge) => jsonObject(bridge.auth)?.configured === true,
+    ).length;
+    const x402Enabled = bridges.filter(
+      (bridge) => jsonObject(bridge.x402)?.enabled === true,
+    ).length;
+    const runtimeOverrides = bridges.filter((bridge) =>
+      bridgeRuntimeHasOverride(bridge.runtime),
+    ).length;
+    const workerEnabled = jsonObject(status.delivery_worker)?.enabled === true;
+    return [
+      `Bridge status: ${bridges.length} surfaces`,
+      `${authConfigured} auth configured`,
+      `${x402Enabled} x402 enabled`,
+      `${runtimeOverrides} runtime overrides`,
+      `delivery worker ${workerEnabled ? "on" : "off"}`,
+    ].join(", ");
+  }
+
+  function bridgeRuntimeHasOverride(runtime: JsonValue | undefined) {
+    const record = jsonObject(runtime);
+    if (!record) {
+      return false;
+    }
+    return Object.entries(record).some(([key, value]) => {
+      if (key.endsWith("_configured")) {
+        return value === true;
+      }
+      return key === "load_memory" || key === "load_skills"
+        ? value === true
+        : false;
+    });
   }
 
   function formatCost(cost: number | null) {

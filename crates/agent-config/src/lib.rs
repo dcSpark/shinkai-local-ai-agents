@@ -954,8 +954,50 @@ fn validate_model_provider_catalog(catalog: &ModelProviderCatalog) -> Result<(),
                 "model provider catalog entry {id} requires default_model"
             )));
         }
+        validate_model_provider_option_schema(&id, &provider.option_schema)?;
     }
     Ok(())
+}
+
+fn validate_model_provider_option_schema(
+    provider_id: &str,
+    options: &[ModelProviderOptionDescriptor],
+) -> Result<(), ConfigError> {
+    let mut keys = BTreeSet::new();
+    for option in options {
+        let key = option.key.trim();
+        if key.is_empty() {
+            return Err(ConfigError::InvalidInput(format!(
+                "model provider catalog entry {provider_id} has option_schema entry without key"
+            )));
+        }
+        if option.label.trim().is_empty() {
+            return Err(ConfigError::InvalidInput(format!(
+                "model provider catalog entry {provider_id} option {key} requires label"
+            )));
+        }
+        let target = model_provider_option_target_label(&option.target);
+        if !keys.insert((target, key.to_string())) {
+            return Err(ConfigError::InvalidInput(format!(
+                "model provider catalog entry {provider_id} has duplicate option_schema entry: {target}.{key}"
+            )));
+        }
+        if let (Some(min), Some(max)) = (option.min, option.max) {
+            if min > max {
+                return Err(ConfigError::InvalidInput(format!(
+                    "model provider catalog entry {provider_id} option {target}.{key} has min greater than max"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn model_provider_option_target_label(target: &ModelProviderOptionTarget) -> &'static str {
+    match target {
+        ModelProviderOptionTarget::Runtime => "runtime",
+        ModelProviderOptionTarget::ProviderOptions => "provider_options",
+    }
 }
 
 fn normalize_model_provider_catalog(
@@ -6692,6 +6734,100 @@ system_prompt = "Review carefully."
                 .iter()
                 .any(|provider| provider.id == "custom-openai")
         );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn model_provider_catalog_rejects_invalid_option_schema() {
+        let dir = std::env::temp_dir().join(format!(
+            "agent-provider-catalog-schema-test-{}",
+            uuid_like()
+        ));
+        let duplicate_path = dir.join("duplicate-options.json");
+        let invalid_range_path = dir.join("invalid-range-options.json");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            &duplicate_path,
+            r#"{
+              "schema_version": 1,
+              "providers": [
+                {
+                  "id": "custom-openai",
+                  "name": "Custom OpenAI Compatible",
+                  "default_model": "custom-default",
+                  "supports_api_base_url": true,
+                  "local": false,
+                  "native": false,
+                  "available_modalities": ["text"],
+                  "reasoning_modes": [],
+                  "settings": ["provider_options"],
+                  "option_schema": [
+                    {
+                      "key": "top_p",
+                      "target": "provider_options",
+                      "label": "Top P",
+                      "kind": "number",
+                      "min": 0.0,
+                      "max": 1.0
+                    },
+                    {
+                      "key": "top_p",
+                      "target": "provider_options",
+                      "label": "Duplicate Top P",
+                      "kind": "number"
+                    }
+                  ]
+                }
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        let resolver = ConfigResolver::new(StoragePaths::new(&dir));
+        let err = resolver
+            .import_model_provider_catalog(&duplicate_path)
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("duplicate option_schema entry: provider_options.top_p")
+        );
+
+        std::fs::write(
+            &invalid_range_path,
+            r#"{
+              "schema_version": 1,
+              "providers": [
+                {
+                  "id": "custom-openai",
+                  "name": "Custom OpenAI Compatible",
+                  "default_model": "custom-default",
+                  "supports_api_base_url": true,
+                  "local": false,
+                  "native": false,
+                  "available_modalities": ["text"],
+                  "reasoning_modes": [],
+                  "settings": ["provider_options"],
+                  "option_schema": [
+                    {
+                      "key": "temperature",
+                      "target": "provider_options",
+                      "label": "Temperature",
+                      "kind": "number",
+                      "min": 2.0,
+                      "max": 1.0
+                    }
+                  ]
+                }
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        let err = resolver
+            .import_model_provider_catalog(&invalid_range_path)
+            .unwrap_err();
+        assert!(err.to_string().contains("min greater than max"));
 
         let _ = std::fs::remove_dir_all(dir);
     }

@@ -252,7 +252,7 @@ pub async fn run(
             text = resolve_saved_prompt_or_literal(&prompt, options.agent_id.as_deref())?
         }
         Some(SlashCommand::Resume { run_id, from_event }) => {
-            return resume(run_id, from_event, demo, json).await;
+            return resume(run_id, from_event, demo, json, options.clone()).await;
         }
         Some(SlashCommand::ResumePlan { run_id, from_event }) => {
             return resume_plan(run_id, from_event, json).await;
@@ -2448,17 +2448,23 @@ pub async fn resume(
     from_event: Option<u64>,
     demo: Demo,
     json: bool,
+    mut options: setup::RuntimeOptions,
 ) -> anyhow::Result<()> {
     let store = open_event_store()?;
     let source_run_id = resolve_local_run_selector(&run_id, &store)?;
     let events = store.try_events(source_run_id)?;
     let plan = build_resume_plan(source_run_id, &events, from_event.map(EventId))?;
-    let retained_compaction = stop_compaction_for_run(source_run_id)?;
-    let options = setup::RuntimeOptions {
-        agent_id: Some(plan.agent_id.clone()),
-        include_compact: retained_compaction.clone(),
-        ..setup::RuntimeOptions::default()
+    if options.agent_id.is_none() {
+        options.agent_id = Some(plan.agent_id.clone());
+    }
+    let retained_compaction = if options.include_compact.is_none() {
+        stop_compaction_for_run(source_run_id)?
+    } else {
+        None
     };
+    if options.include_compact.is_none() {
+        options.include_compact = retained_compaction.clone();
+    }
     let provider = setup::build_provider(demo, &plan.prompt, &options)?;
     let events = Arc::new(open_event_store()?);
     let registry = setup::build_registry(
@@ -6765,6 +6771,7 @@ pub async fn remote_resume(
     run_id: String,
     from_event: Option<u64>,
     demo: Demo,
+    options: setup::RuntimeOptions,
 ) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
     let run_id = remote_run_selector(&client, &run_id)?;
@@ -6773,7 +6780,41 @@ pub async fn remote_resume(
         serde_json::json!({
             "run_id": run_id,
             "from_event": from_event,
-            "demo": demo_name(demo)
+            "demo": demo_name(demo),
+            "provider": setup::selected_provider_id(&options),
+            "agent_id": options.agent_id.clone(),
+            "model": options.model,
+            "api_base_url": options.api_base_url,
+            "api_key_env": options.api_key_env,
+            "max_output_tokens": options.max_output_tokens,
+            "temperature": options.temperature,
+            "input_cost_per_million": options.input_cost_per_million,
+            "output_cost_per_million": options.output_cost_per_million,
+            "max_tool_calls": options.max_tool_calls,
+            "max_tokens_before_compaction": options.max_tokens_before_compaction,
+            "max_compaction_output_tokens": options.max_compaction_output_tokens,
+            "compaction_guidance": options.compaction_guidance,
+            "allowed_tool_categories": options.allowed_tool_categories,
+            "allowed_skill_categories": options.allowed_skill_categories,
+            "tool_visibility": options.tool_visibility,
+            "skill_visibility": options.skill_visibility,
+            "enable_shell": options.enable_shell,
+            "enable_subagent": options.enable_subagent,
+            "enable_capability_drafts": options.enable_capability_drafts,
+            "raw_tool_output": options.raw_tool_output,
+            "load_memory": options.load_memory,
+            "memory_topics": options.memory_topics,
+            "load_skills": options.load_skills,
+            "compacted_context": included_compacted_context(&options)?,
+            "conversation_id": options.conversation_id,
+            "include_ingest": options.include_ingest,
+            "allow_unsafe_ingest": options.allow_unsafe_ingest,
+            "enable_prompt_refinement": options.enable_prompt_refinement,
+            "prompt_refinement_instructions": options.prompt_refinement_instructions,
+            "prompt_refinement_model": options.prompt_refinement_model,
+            "prompt_refinement_agent_awareness": options.prompt_refinement_agent_awareness,
+            "require_approval": options.require_approval,
+            "auto_approve": options.auto_approve
         }),
     )?)
 }
@@ -6783,6 +6824,7 @@ pub async fn remote_resume_start(
     run_id: String,
     from_event: Option<u64>,
     demo: Demo,
+    options: setup::RuntimeOptions,
 ) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
     let run_id = remote_run_selector(&client, &run_id)?;
@@ -6791,7 +6833,41 @@ pub async fn remote_resume_start(
         serde_json::json!({
             "run_id": run_id,
             "from_event": from_event,
-            "demo": demo_name(demo)
+            "demo": demo_name(demo),
+            "provider": setup::selected_provider_id(&options),
+            "agent_id": options.agent_id.clone(),
+            "model": options.model,
+            "api_base_url": options.api_base_url,
+            "api_key_env": options.api_key_env,
+            "max_output_tokens": options.max_output_tokens,
+            "temperature": options.temperature,
+            "input_cost_per_million": options.input_cost_per_million,
+            "output_cost_per_million": options.output_cost_per_million,
+            "max_tool_calls": options.max_tool_calls,
+            "max_tokens_before_compaction": options.max_tokens_before_compaction,
+            "max_compaction_output_tokens": options.max_compaction_output_tokens,
+            "compaction_guidance": options.compaction_guidance,
+            "allowed_tool_categories": options.allowed_tool_categories,
+            "allowed_skill_categories": options.allowed_skill_categories,
+            "tool_visibility": options.tool_visibility,
+            "skill_visibility": options.skill_visibility,
+            "enable_shell": options.enable_shell,
+            "enable_subagent": options.enable_subagent,
+            "enable_capability_drafts": options.enable_capability_drafts,
+            "raw_tool_output": options.raw_tool_output,
+            "load_memory": options.load_memory,
+            "memory_topics": options.memory_topics,
+            "load_skills": options.load_skills,
+            "compacted_context": included_compacted_context(&options)?,
+            "conversation_id": options.conversation_id,
+            "include_ingest": options.include_ingest,
+            "allow_unsafe_ingest": options.allow_unsafe_ingest,
+            "enable_prompt_refinement": options.enable_prompt_refinement,
+            "prompt_refinement_instructions": options.prompt_refinement_instructions,
+            "prompt_refinement_model": options.prompt_refinement_model,
+            "prompt_refinement_agent_awareness": options.prompt_refinement_agent_awareness,
+            "require_approval": options.require_approval,
+            "auto_approve": options.auto_approve
         }),
     )?)
 }

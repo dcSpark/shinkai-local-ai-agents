@@ -390,6 +390,10 @@ enum Command {
         /// Emit JSON metadata.
         #[arg(long)]
         json: bool,
+
+        /// Runtime options applied to the resumed run.
+        #[command(flatten)]
+        runtime: BatchRuntimeArgs,
     },
     /// Preview the generated prompt that would be used to resume a saved run trace.
     ResumePlan {
@@ -2988,6 +2992,10 @@ enum RemoteCommand {
 
         #[arg(long, value_enum, default_value_t = Demo::Echo)]
         demo: Demo,
+
+        /// Runtime options applied by the daemon to the resumed run.
+        #[command(flatten)]
+        runtime: BatchRuntimeArgs,
     },
     /// Start a resumed remote run asynchronously and return its run id immediately.
     ResumeStart {
@@ -2999,6 +3007,10 @@ enum RemoteCommand {
 
         #[arg(long, value_enum, default_value_t = Demo::Echo)]
         demo: Demo,
+
+        /// Runtime options applied by the daemon to the resumed run.
+        #[command(flatten)]
+        runtime: BatchRuntimeArgs,
     },
     /// Preview the generated prompt that would be used to resume a remote run trace.
     ResumePlan {
@@ -6974,6 +6986,30 @@ mod cli_parse_tests {
 
         let cli = parse_cli([
             "agent",
+            "resume",
+            run_id,
+            "--agent",
+            "critic",
+            "--model",
+            "qwen3.5",
+            "--max-tool-calls",
+            "8",
+            "--enable-shell",
+            "--refinement-aware",
+        ])
+        .unwrap();
+        let Command::Resume { runtime, .. } = into_command(cli) else {
+            panic!("expected resume command");
+        };
+        let options = runtime.into_runtime_options();
+        assert_eq!(options.agent_id.as_deref(), Some("critic"));
+        assert_eq!(options.model.as_deref(), Some("qwen3.5"));
+        assert_eq!(options.max_tool_calls, Some(8));
+        assert!(options.enable_shell);
+        assert!(options.prompt_refinement_agent_awareness);
+
+        let cli = parse_cli([
+            "agent",
             "resume-plan",
             run_id,
             "--from-event",
@@ -7057,11 +7093,19 @@ mod cli_parse_tests {
             run_id,
             "--from-event",
             "4",
+            "--agent",
+            "critic",
+            "--model",
+            "qwen3.5",
+            "--max-tool-calls",
+            "8",
+            "--enable-shell",
         ])
         .unwrap();
         let RemoteCommand::ResumeStart {
             run_id: parsed_id,
             from_event,
+            runtime,
             ..
         } = into_remote_command(cli)
         else {
@@ -7069,6 +7113,11 @@ mod cli_parse_tests {
         };
         assert_eq!(parsed_id, run_id);
         assert_eq!(from_event, Some(4));
+        let options = runtime.into_runtime_options();
+        assert_eq!(options.agent_id.as_deref(), Some("critic"));
+        assert_eq!(options.model.as_deref(), Some("qwen3.5"));
+        assert_eq!(options.max_tool_calls, Some(8));
+        assert!(options.enable_shell);
         assert!(
             parse_cli([
                 "agent",
@@ -8340,7 +8389,17 @@ async fn main() -> anyhow::Result<()> {
             from_event,
             demo,
             json,
-        } => headless::resume(run_id, from_event, demo, json).await,
+            runtime,
+        } => {
+            headless::resume(
+                run_id,
+                from_event,
+                demo,
+                json,
+                runtime.into_runtime_options(),
+            )
+            .await
+        }
         Command::ResumePlan {
             run_id,
             from_event,
@@ -9295,12 +9354,32 @@ async fn main() -> anyhow::Result<()> {
                 run_id,
                 from_event,
                 demo,
-            } => headless::remote_resume(url, run_id, from_event, demo).await,
+                runtime,
+            } => {
+                headless::remote_resume(
+                    url,
+                    run_id,
+                    from_event,
+                    demo,
+                    runtime.into_runtime_options(),
+                )
+                .await
+            }
             RemoteCommand::ResumeStart {
                 run_id,
                 from_event,
                 demo,
-            } => headless::remote_resume_start(url, run_id, from_event, demo).await,
+                runtime,
+            } => {
+                headless::remote_resume_start(
+                    url,
+                    run_id,
+                    from_event,
+                    demo,
+                    runtime.into_runtime_options(),
+                )
+                .await
+            }
             RemoteCommand::ResumePlan { run_id, from_event } => {
                 headless::remote_resume_plan(url, run_id, from_event).await
             }

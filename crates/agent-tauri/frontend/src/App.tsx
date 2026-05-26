@@ -2208,6 +2208,7 @@ export default function App() {
   function shellShortcutHelpText() {
     return [
       "Shell shortcuts:",
+      "- /shell - show shell access state",
       "- /shell on - enable shell tool access",
       "- /shell off - disable shell tool access",
       "- /shell status - show shell access state",
@@ -6714,7 +6715,9 @@ export default function App() {
     }
 
     if (prompt === "/shell") {
-      appendLine("error", "Shell shortcut needs on, off, or status.");
+      setInput("");
+      appendLine("user", "/shell");
+      appendEvent(`Shell tool access is ${enableShell ? "enabled" : "disabled"}.`);
       return;
     }
     if (prompt.startsWith("/shell ")) {

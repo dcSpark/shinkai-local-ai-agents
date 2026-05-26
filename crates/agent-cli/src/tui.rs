@@ -62,7 +62,7 @@ use agent_secrets::{
     SecretId, SecretValue, default_secret_store, supported_backends as supported_secret_backends,
 };
 use agent_skills::{SkillDoc, SkillRegistry};
-use agent_storage::StoragePaths;
+use agent_storage::{StoragePaths, StorageReport};
 use agent_tools::{
     ArtifactGenerateInput, GeneratedArtifact, ToolId, ToolRegistry,
     delete_generated_artifact_from_env, delete_generated_artifacts_by_ids_from_env,
@@ -7366,13 +7366,7 @@ fn handle_storage_slash(app: &mut App, rest: &str) {
     match command {
         "report" => match StoragePaths::from_env().storage_report() {
             Ok(report) => {
-                push_event(
-                    app,
-                    format!(
-                        "Storage: {} bytes across {} file(s).",
-                        report.total_bytes, report.total_files
-                    ),
-                );
+                push_event(app, storage_report_event_text(&report));
                 app.transcript.push(TranscriptLine {
                     kind: LineKind::Assistant,
                     text: serde_json::to_string_pretty(&report)
@@ -7418,6 +7412,24 @@ fn handle_storage_slash(app: &mut App, rest: &str) {
             text: "Storage command needs report, prune-cache, or help.".into(),
         }),
     }
+}
+
+fn storage_report_event_text(report: &StorageReport) -> String {
+    let quota = report.quota_bytes.map(|quota| {
+        let remaining = report.quota_remaining_bytes.unwrap_or_default();
+        let status = if report.quota_exceeded {
+            "over quota"
+        } else {
+            "within quota"
+        };
+        format!(" Quota: {quota} bytes, remaining {remaining} bytes ({status}).")
+    });
+    format!(
+        "Storage: {} bytes across {} file(s).{}",
+        report.total_bytes,
+        report.total_files,
+        quota.unwrap_or_default()
+    )
 }
 
 fn storage_prune_cache_args(args: &str) -> anyhow::Result<(u64, bool)> {
@@ -12356,6 +12368,36 @@ mod tests {
         assert!(storage_prune_cache_args("").is_err());
         assert!(storage_prune_cache_args("abc").is_err());
         assert!(storage_prune_cache_args("7 8").is_err());
+    }
+
+    #[test]
+    fn storage_report_event_surfaces_quota_status() {
+        let mut report = StorageReport {
+            root: std::path::PathBuf::from("/tmp/harness"),
+            total_bytes: 120,
+            total_files: 3,
+            total_directories: 1,
+            largest_file: None,
+            largest_file_bytes: 0,
+            quota_bytes: None,
+            quota_remaining_bytes: None,
+            quota_exceeded: false,
+            buckets: Vec::new(),
+        };
+
+        assert_eq!(
+            storage_report_event_text(&report),
+            "Storage: 120 bytes across 3 file(s)."
+        );
+
+        report.quota_bytes = Some(100);
+        report.quota_remaining_bytes = Some(-20);
+        report.quota_exceeded = true;
+
+        assert_eq!(
+            storage_report_event_text(&report),
+            "Storage: 120 bytes across 3 file(s). Quota: 100 bytes, remaining -20 bytes (over quota)."
+        );
     }
 
     #[test]

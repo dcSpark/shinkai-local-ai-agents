@@ -348,7 +348,7 @@ fn handle_terminal_event(
                     app.transcript.push(TranscriptLine {
                         kind: LineKind::Error,
                         text:
-                            "Run in progress. Use /guide <text>, /stop status, or /stop [default|--summarise|--discard] [reason]."
+                            "Run in progress. Use /guide <text>, /guide <last|run-id> <text>, /stop status, or /stop [default|--summarise|--discard] [reason]."
                                 .into(),
                     });
                 }
@@ -994,7 +994,7 @@ fn global_slash_help_text() -> &'static str {
      - /memory on|off|status|preview, /skills on|off|status|preview - toggle or preview runtime memory/skill context loading\n\
      - /ingest preview <id> [prompt] - inspect context with an explicit ingestion artifact\n\
      - /preview <prompt> - inspect context before running\n\
-     - /guide <text> - steer the active run at the next checkpoint\n\
+     - /guide <text>, /guide <last|run-id> <text> - steer a run at the next checkpoint\n\
      - /stop [default|--summarise|--discard] [reason], /stop status - stop or inspect the active run\n\
      - /resume [last|run-id] [--from-event N] - resume a saved run\n\
      - /batch <line-delimited prompts>, /batch files <paths>, /batch folder <path>, /resume-batch <batch-id> - run or resume deterministic batches\n\
@@ -1218,7 +1218,7 @@ fn guide_help_slash_command(trimmed: &str) -> bool {
 }
 
 fn guide_slash_help_text() -> &'static str {
-    "/guide <text>"
+    "/guide <text>\n/guide <last|run-id> <text>"
 }
 
 fn score_help_slash_command(trimmed: &str) -> bool {
@@ -1612,8 +1612,18 @@ fn handle_slash_command(
         });
         return true;
     }
-    if let Some(text) = guide_slash_rest(trimmed) {
-        let Some(run_id) = app.last_run_id else {
+    if let Some(rest) = guide_slash_rest(trimmed) {
+        let request = match parse_guide_slash_args(rest, app.last_run_id) {
+            Ok(request) => request,
+            Err(err) => {
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Guide failed: {err}"),
+                });
+                return true;
+            }
+        };
+        let Some(run_id) = request.run_id else {
             app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
                 text: "No run to guide yet.".into(),
@@ -1621,7 +1631,7 @@ fn handle_slash_command(
             return true;
         };
         match open_event_store() {
-            Ok(store) => match append_guidance_event(&store, run_id, text) {
+            Ok(store) => match append_guidance_event(&store, run_id, &request.text) {
                 Ok(()) => {
                     app.transcript.push(TranscriptLine {
                         kind: LineKind::Event,
@@ -9285,6 +9295,48 @@ fn guide_slash_rest(trimmed: &str) -> Option<&str> {
     }
 }
 
+#[derive(Debug, PartialEq)]
+struct GuideSlashRequest {
+    run_id: Option<RunId>,
+    text: String,
+}
+
+fn parse_guide_slash_args(
+    rest: &str,
+    last_run_id: Option<RunId>,
+) -> anyhow::Result<GuideSlashRequest> {
+    let rest = rest.trim();
+    if rest.is_empty() {
+        anyhow::bail!("guide needs guidance text");
+    }
+    let (first, text_after_selector) = rest
+        .split_once(char::is_whitespace)
+        .map(|(first, text)| (first, Some(text.trim())))
+        .unwrap_or((rest, None));
+    if first == "last" {
+        let text = text_after_selector
+            .filter(|text| !text.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("guide needs guidance text"))?;
+        return Ok(GuideSlashRequest {
+            run_id: last_run_id,
+            text: text.to_string(),
+        });
+    }
+    if let Ok(uuid) = uuid::Uuid::parse_str(first) {
+        let text = text_after_selector
+            .filter(|text| !text.is_empty())
+            .ok_or_else(|| anyhow::anyhow!("guide needs guidance text"))?;
+        return Ok(GuideSlashRequest {
+            run_id: Some(RunId(uuid)),
+            text: text.to_string(),
+        });
+    }
+    Ok(GuideSlashRequest {
+        run_id: last_run_id,
+        text: rest.to_string(),
+    })
+}
+
 fn stop_slash_rest(trimmed: &str) -> Option<&str> {
     if trimmed == "/stop" {
         Some("")
@@ -12529,6 +12581,31 @@ mod tests {
         assert!(!guide_help_slash_command("/guide helper"));
         assert!(!guide_help_slash_command("/guidance help"));
         assert!(guide_slash_help_text().contains("/guide <text>"));
+        assert!(guide_slash_help_text().contains("/guide <last|run-id> <text>"));
+        let guide_run_id = RunId(uuid::Uuid::new_v4());
+        assert_eq!(
+            parse_guide_slash_args("steer this run", Some(guide_run_id)).unwrap(),
+            GuideSlashRequest {
+                run_id: Some(guide_run_id),
+                text: "steer this run".into(),
+            }
+        );
+        assert_eq!(
+            parse_guide_slash_args("last steer this run", Some(guide_run_id)).unwrap(),
+            GuideSlashRequest {
+                run_id: Some(guide_run_id),
+                text: "steer this run".into(),
+            }
+        );
+        assert_eq!(
+            parse_guide_slash_args(&format!("{} steer this run", guide_run_id.0), None).unwrap(),
+            GuideSlashRequest {
+                run_id: Some(guide_run_id),
+                text: "steer this run".into(),
+            }
+        );
+        assert!(parse_guide_slash_args("", Some(guide_run_id)).is_err());
+        assert!(parse_guide_slash_args("last", Some(guide_run_id)).is_err());
         assert!(score_help_slash_command("/score help"));
         assert!(score_help_slash_command("/score --help"));
         assert!(score_help_slash_command("/scores help"));

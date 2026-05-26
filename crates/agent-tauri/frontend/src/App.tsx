@@ -2054,10 +2054,11 @@ export default function App() {
       { command: "/resume-batch help", label: "Show batch shortcuts" },
       { command: "/resume-batch ", label: "Resume deterministic batch" },
     ];
+    if (activeGuidanceRunId()) {
+      commands.push({ command: "/guide ", label: "Guide current run" });
+    }
     if (lastRunId) {
-      commands.push(
-        { command: "/guide ", label: "Guide current run" },
-      );
+      commands.push({ command: "/guide last ", label: "Guide latest run" });
     }
     for (const prompt of promptDocs.slice(0, 5)) {
       commands.push({
@@ -2302,6 +2303,8 @@ export default function App() {
     return [
       "Guide shortcuts:",
       "- /guide <text> - steer the active run at the next safe checkpoint",
+      "- /guide last <text> - steer the latest run if it is still active",
+      "- /guide <run-id> <text> - steer a specific non-terminal run",
       "- /guide help - show guidance shortcut usage",
     ].join("\n");
   }
@@ -6108,6 +6111,34 @@ export default function App() {
     return null;
   }
 
+  function parseGuideShortcut(rest: string) {
+    const trimmed = rest.trim();
+    if (!trimmed) {
+      appendLine("error", "Guide shortcut needs guidance text.");
+      return null;
+    }
+    const [first = "", ...tail] = trimmed.split(/\s+/);
+    const textAfterSelector = tail.join(" ").trim();
+    if (first === "last" || isUuid(first)) {
+      if (!textAfterSelector) {
+        appendLine("error", "Guide shortcut needs guidance text.");
+        return null;
+      }
+      const runId = first === "last" ? lastRunId || "" : first;
+      if (!runId) {
+        appendLine("error", "Guide shortcut needs a completed or active run.");
+        return null;
+      }
+      return { runId, guidance: textAfterSelector };
+    }
+    const runId = activeGuidanceRunId();
+    if (!runId) {
+      appendLine("error", "Guide shortcut needs an active run.");
+      return null;
+    }
+    return { runId, guidance: trimmed };
+  }
+
   async function submit() {
     let prompt = input.trim();
     if (!prompt) return;
@@ -6120,17 +6151,10 @@ export default function App() {
     }
 
     if (prompt.startsWith("/guide ")) {
-      const guidance = prompt.slice("/guide ".length).trim();
-      if (!activeGuidanceRunId()) {
-        appendLine("error", "Guide shortcut needs an active run.");
-        return;
-      }
-      if (!guidance) {
-        appendLine("error", "Guide shortcut needs guidance text.");
-        return;
-      }
+      const parsed = parseGuideShortcut(prompt.slice("/guide ".length));
+      if (!parsed) return;
       setInput("");
-      await guideLastRun(guidance, false);
+      await guideRun(parsed.runId, parsed.guidance, false);
       return;
     }
     if (prompt === "/guide") {
@@ -12133,6 +12157,10 @@ export default function App() {
       appendLine("error", "Guide needs an active run.");
       return;
     }
+    await guideRun(runId, text, clearComposer);
+  }
+
+  async function guideRun(runId: string, text = input.trim(), clearComposer = true) {
     if (!text.trim()) {
       appendLine("error", "Guide needs guidance text.");
       return;

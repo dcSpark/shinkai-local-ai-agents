@@ -6540,7 +6540,7 @@ fn handle_agents_slash(
             text: [
                 "/agents list",
                 "/agents show <id>",
-                "/agents save [--refinement-rules-json <json-array>] <id> <system prompt>",
+                "/agents save [--disable-lifecycle-hook <hook-id>] [--refinement-rules-json <json-array>] <id> <system prompt>",
                 "/agents use <id>",
                 "/agents export <id> <path>",
                 "/agents import <path> --confirm",
@@ -6600,6 +6600,8 @@ fn handle_agents_slash(
                     name: agent_id,
                     system_prompt: parsed.system_prompt,
                     prompt_refinements: parsed.prompt_refinements,
+                    disabled_lifecycle_hooks: (!parsed.disabled_lifecycle_hooks.is_empty())
+                        .then_some(parsed.disabled_lifecycle_hooks),
                     ..AgentConfigFile::default()
                 };
                 match ConfigResolver::from_env().save_agent_config(&agent) {
@@ -13625,8 +13627,9 @@ mod tests {
         assert_eq!(saved.id, "research");
         assert_eq!(saved.system_prompt, "You are a careful researcher.");
         assert!(saved.prompt_refinements.is_empty());
+        assert!(saved.disabled_lifecycle_hooks.is_empty());
         let saved = agent_save_args(
-            r#"--refinement-rules-json [{"id":"support","when":"support request","instructions":"Ask first.","agent_awareness":true}] research You are a careful researcher."#,
+            r#"--disable-lifecycle-hook adapter:pkg:audit --refinement-rules-json [{"id":"support","when":"support request","instructions":"Ask first.","agent_awareness":true}] research You are a careful researcher."#,
         )
         .unwrap();
         assert_eq!(saved.id, "research");
@@ -13634,6 +13637,10 @@ mod tests {
         assert_eq!(saved.prompt_refinements.len(), 1);
         assert_eq!(saved.prompt_refinements[0].id.as_deref(), Some("support"));
         assert!(saved.prompt_refinements[0].agent_awareness);
+        assert_eq!(
+            saved.disabled_lifecycle_hooks,
+            vec!["adapter:pkg:audit".to_string()]
+        );
         assert!(agent_save_args("").is_err());
         assert!(agent_save_args("research").is_err());
         assert_eq!(

@@ -1122,6 +1122,9 @@ enum AgentCommand {
         /// Restrict loaded skills to one category/pack. Repeat for multiple categories.
         #[arg(long = "allow-skill-category")]
         allowed_skill_categories: Vec<String>,
+        /// Persistently skip one lifecycle hook for this saved agent. Repeat for multiple hooks.
+        #[arg(long = "disable-lifecycle-hook")]
+        disabled_lifecycle_hooks: Vec<String>,
         /// Override one skill's visibility, as SKILL=full-schema, SKILL=name-and-description, or SKILL=name-only. Repeat for multiple skills.
         #[arg(long = "skill-visibility-override")]
         skill_visibility_overrides: Vec<String>,
@@ -3737,6 +3740,8 @@ enum RemoteAgentCommand {
         capability_draft_guidance: Option<String>,
         #[arg(long = "allow-skill-category")]
         allowed_skill_categories: Vec<String>,
+        #[arg(long = "disable-lifecycle-hook")]
+        disabled_lifecycle_hooks: Vec<String>,
         #[arg(long = "skill-visibility-override")]
         skill_visibility_overrides: Vec<String>,
         #[arg(long, value_enum)]
@@ -4940,6 +4945,8 @@ mod cli_parse_tests {
             "Draft narrow reusable capabilities.",
             "--allow-skill-category",
             "review",
+            "--disable-lifecycle-hook",
+            "adapter:pkg:audit",
             "--skill-visibility-override",
             "review=name-only",
             "--skill-visibility",
@@ -4995,6 +5002,7 @@ mod cli_parse_tests {
                     stop_retention_mode,
                     allowed_tools,
                     allowed_skill_categories,
+                    disabled_lifecycle_hooks,
                     skill_visibility_overrides,
                     skill_visibility,
                     approval_controller_agent,
@@ -5042,6 +5050,7 @@ mod cli_parse_tests {
         ));
         assert_eq!(allowed_tools, vec!["echo"]);
         assert_eq!(allowed_skill_categories, vec!["review"]);
+        assert_eq!(disabled_lifecycle_hooks, vec!["adapter:pkg:audit"]);
         assert_eq!(skill_visibility_overrides, vec!["review=name-only"]);
         assert!(matches!(
             skill_visibility,
@@ -5135,6 +5144,8 @@ mod cli_parse_tests {
             "Draft narrow reusable capabilities.",
             "--allow-skill-category",
             "review",
+            "--disable-lifecycle-hook",
+            "adapter:pkg:audit",
             "--skill-visibility-override",
             "review=full-schema",
             "--skill-visibility",
@@ -5176,6 +5187,7 @@ mod cli_parse_tests {
                     stop_retention_mode,
                     allowed_tools,
                     allowed_skill_categories,
+                    disabled_lifecycle_hooks,
                     skill_visibility_overrides,
                     skill_visibility,
                     approval_controller_agent,
@@ -5213,6 +5225,7 @@ mod cli_parse_tests {
         ));
         assert_eq!(allowed_tools, vec!["echo"]);
         assert_eq!(allowed_skill_categories, vec!["review"]);
+        assert_eq!(disabled_lifecycle_hooks, vec!["adapter:pkg:audit"]);
         assert_eq!(skill_visibility_overrides, vec!["review=full-schema"]);
         assert!(matches!(skill_visibility, Some(ToolVisibility::NameOnly)));
         assert_eq!(
@@ -8558,6 +8571,7 @@ async fn main() -> anyhow::Result<()> {
                 capability_drafts_enabled,
                 capability_draft_guidance,
                 allowed_skill_categories,
+                disabled_lifecycle_hooks,
                 skill_visibility_overrides,
                 skill_visibility,
                 tool_output_mode,
@@ -8601,6 +8615,7 @@ async fn main() -> anyhow::Result<()> {
                     capability_drafts_enabled,
                     capability_draft_guidance,
                     allowed_skill_categories,
+                    disabled_lifecycle_hooks,
                     skill_visibility_overrides,
                     skill_visibility.map(VisibilityLevel::from),
                     tool_output_mode.map(ToolOutputMode::from),
@@ -9547,6 +9562,7 @@ async fn main() -> anyhow::Result<()> {
                     capability_drafts_enabled,
                     capability_draft_guidance,
                     allowed_skill_categories,
+                    disabled_lifecycle_hooks,
                     skill_visibility_overrides,
                     skill_visibility,
                     tool_output_mode,
@@ -9591,6 +9607,7 @@ async fn main() -> anyhow::Result<()> {
                         capability_drafts_enabled,
                         capability_draft_guidance,
                         allowed_skill_categories,
+                        disabled_lifecycle_hooks,
                         skill_visibility_overrides,
                         skill_visibility.map(VisibilityLevel::from),
                         tool_output_mode.map(ToolOutputMode::from),

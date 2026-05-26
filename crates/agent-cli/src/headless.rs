@@ -102,7 +102,17 @@ pub async fn run(
                     id,
                     system_prompt,
                     prompt_refinements,
-                } => agent_save_minimal(id, system_prompt, prompt_refinements, json).await,
+                    disabled_lifecycle_hooks,
+                } => {
+                    agent_save_minimal(
+                        id,
+                        system_prompt,
+                        prompt_refinements,
+                        disabled_lifecycle_hooks,
+                        json,
+                    )
+                    .await
+                }
                 AgentsSlashCommand::Delete { id } => agent_delete(id).await,
                 AgentsSlashCommand::Export { id, path } => agent_export(id, path, json).await,
                 AgentsSlashCommand::Import { path } => agent_import(path, json).await,
@@ -4543,6 +4553,7 @@ pub async fn agent_save_minimal(
     id: String,
     system_prompt: String,
     prompt_refinements: Vec<AgentPromptRefinementConfig>,
+    disabled_lifecycle_hooks: Vec<String>,
     json: bool,
 ) -> anyhow::Result<()> {
     let agent = AgentConfigFile {
@@ -4550,6 +4561,8 @@ pub async fn agent_save_minimal(
         name: id,
         system_prompt,
         prompt_refinements,
+        disabled_lifecycle_hooks: (!disabled_lifecycle_hooks.is_empty())
+            .then_some(disabled_lifecycle_hooks),
         ..AgentConfigFile::default()
     };
     let saved = ConfigResolver::from_env().save_agent_config(&agent)?;
@@ -4582,6 +4595,7 @@ pub async fn agent_save(
     capability_drafts_enabled: Option<bool>,
     capability_draft_guidance: Option<String>,
     allowed_skill_categories: Vec<String>,
+    disabled_lifecycle_hooks: Vec<String>,
     skill_visibility_overrides: Vec<String>,
     skill_visibility: Option<VisibilityLevel>,
     tool_output_mode: Option<ToolOutputMode>,
@@ -4625,6 +4639,7 @@ pub async fn agent_save(
         capability_drafts_enabled,
         capability_draft_guidance,
         allowed_skill_categories,
+        disabled_lifecycle_hooks,
         skill_visibility_overrides,
         skill_visibility,
         tool_output_mode,
@@ -4711,6 +4726,7 @@ fn agent_config_from_parts(
     capability_drafts_enabled: Option<bool>,
     capability_draft_guidance: Option<String>,
     allowed_skill_categories: Vec<String>,
+    disabled_lifecycle_hooks: Vec<String>,
     skill_visibility_overrides: Vec<String>,
     skill_visibility: Option<VisibilityLevel>,
     tool_output_mode: Option<ToolOutputMode>,
@@ -4772,7 +4788,8 @@ fn agent_config_from_parts(
         capability_draft_guidance: clean_optional_string(capability_draft_guidance),
         allowed_skill_categories: (!allowed_skill_categories.is_empty())
             .then_some(allowed_skill_categories),
-        disabled_lifecycle_hooks: None,
+        disabled_lifecycle_hooks: (!disabled_lifecycle_hooks.is_empty())
+            .then_some(disabled_lifecycle_hooks),
         tool_output_mode,
         tool_routing_model: clean_optional_string(tool_routing_model),
         tool_output_interpretation_model,
@@ -7819,6 +7836,7 @@ pub async fn remote_agent_save(
     capability_drafts_enabled: Option<bool>,
     capability_draft_guidance: Option<String>,
     allowed_skill_categories: Vec<String>,
+    disabled_lifecycle_hooks: Vec<String>,
     skill_visibility_overrides: Vec<String>,
     skill_visibility: Option<VisibilityLevel>,
     tool_output_mode: Option<ToolOutputMode>,
@@ -7862,6 +7880,7 @@ pub async fn remote_agent_save(
         capability_drafts_enabled,
         capability_draft_guidance,
         allowed_skill_categories,
+        disabled_lifecycle_hooks,
         skill_visibility_overrides,
         skill_visibility,
         tool_output_mode,
@@ -9322,6 +9341,7 @@ enum AgentsSlashCommand {
         id: String,
         system_prompt: String,
         prompt_refinements: Vec<AgentPromptRefinementConfig>,
+        disabled_lifecycle_hooks: Vec<String>,
     },
     Delete {
         id: String,
@@ -9340,6 +9360,7 @@ pub(crate) struct AgentSaveSlashArgs {
     pub id: String,
     pub system_prompt: String,
     pub prompt_refinements: Vec<AgentPromptRefinementConfig>,
+    pub disabled_lifecycle_hooks: Vec<String>,
 }
 
 enum SkillSlashCommand {
@@ -10757,7 +10778,7 @@ fn headless_slash_help_text() -> &'static str {
      - /run <prompt-name> - use a saved prompt when available, otherwise run the literal text\n\
      - /agent [id] [prompt] - inspect config, or run a prompt with a specific saved agent\n\
      - /batch <line-delimited prompts>, /batch files <paths>, /batch folder <path>, /resume-batch <batch-id> - run or resume deterministic batches\n\
-     - /agents list|show|save [--refinement-rules-json <json-array>]|export|import|delete - manage saved agent configs\n\
+     - /agents list|show|save [--disable-lifecycle-hook <hook-id>] [--refinement-rules-json <json-array>]|export|import|delete - manage saved agent configs\n\
      - /skills status|preview|list|show|inspect|import-openclaw|import-doc|export|allow|quarantine\n\
      - /prompts (/prompt) list|show|save|use|preview|export|import|delete - manage global or agent-scoped saved prompts\n\
      - /approval (/approvals) list|assess|approve|reject|execute [last|run-id] ...\n\
@@ -11609,6 +11630,7 @@ fn parse_agents_slash_rest(rest: &str) -> anyhow::Result<AgentsSlashCommand> {
                 id: parsed.id,
                 system_prompt: parsed.system_prompt,
                 prompt_refinements: parsed.prompt_refinements,
+                disabled_lifecycle_hooks: parsed.disabled_lifecycle_hooks,
             })
         }
         "delete" | "rm" => {
@@ -11634,6 +11656,7 @@ fn parse_agents_slash_rest(rest: &str) -> anyhow::Result<AgentsSlashCommand> {
 pub(crate) fn parse_agent_save_slash_args(args: &str) -> anyhow::Result<AgentSaveSlashArgs> {
     let mut rest = args.trim();
     let mut refinement_rules_json = None;
+    let mut disabled_lifecycle_hooks = Vec::new();
     loop {
         if let Some(after_flag) = save_flag_rest(rest, "--refinement-rules-json") {
             if refinement_rules_json.is_some() {
@@ -11641,6 +11664,12 @@ pub(crate) fn parse_agent_save_slash_args(args: &str) -> anyhow::Result<AgentSav
             }
             let (json_value, tail) = take_refinement_rules_json(after_flag)?;
             refinement_rules_json = Some(json_value);
+            rest = tail.trim_start();
+            continue;
+        }
+        if let Some(after_flag) = save_flag_rest(rest, "--disable-lifecycle-hook") {
+            let (hook_id, tail) = take_save_option_value(after_flag, "--disable-lifecycle-hook")?;
+            disabled_lifecycle_hooks.push(hook_id);
             rest = tail.trim_start();
             continue;
         }
@@ -11665,6 +11694,7 @@ pub(crate) fn parse_agent_save_slash_args(args: &str) -> anyhow::Result<AgentSav
         id: id.to_string(),
         system_prompt: system_prompt.to_string(),
         prompt_refinements,
+        disabled_lifecycle_hooks,
     })
 }
 
@@ -11696,6 +11726,18 @@ fn take_refinement_rules_json(input: &str) -> anyhow::Result<(String, &str)> {
         }
         None => anyhow::bail!("--refinement-rules-json needs a JSON array"),
     }
+}
+
+fn take_save_option_value<'a>(input: &'a str, flag: &str) -> anyhow::Result<(String, &'a str)> {
+    let trimmed = input.trim_start();
+    let (value, tail) = trimmed
+        .split_once(char::is_whitespace)
+        .map(|(value, tail)| (value.trim(), tail))
+        .unwrap_or((trimmed, ""));
+    if value.is_empty() || value.starts_with("--") {
+        anyhow::bail!("{flag} needs a value");
+    }
+    Ok((value.to_string(), tail))
 }
 
 fn parse_agents_confirm<'a>(
@@ -14314,7 +14356,9 @@ mod slash_tests {
         assert!(help.contains("/scores [last|run-id]"));
         assert!(help.contains("/usage last, /usage trace|run [last|run-id]"));
         assert!(help.contains("/agent [id] [prompt]"));
-        assert!(help.contains("/agents list|show|save [--refinement-rules-json <json-array>]"));
+        assert!(help.contains(
+            "/agents list|show|save [--disable-lifecycle-hook <hook-id>] [--refinement-rules-json <json-array>]"
+        ));
         assert!(help.contains(
             "/skills status|preview|list|show|inspect|import-openclaw|import-doc|export|allow|quarantine"
         ));
@@ -14668,15 +14712,17 @@ mod slash_tests {
                 id,
                 system_prompt,
                 prompt_refinements,
+                disabled_lifecycle_hooks,
             })) => {
                 assert_eq!(id, "critic");
                 assert_eq!(system_prompt, "You are careful");
                 assert!(prompt_refinements.is_empty());
+                assert!(disabled_lifecycle_hooks.is_empty());
             }
             _ => panic!("expected saved-agent save shortcut"),
         }
         match parse_slash_command(
-            r#"/agents save --refinement-rules-json [{"id":"support","when":"support request","instructions":"Ask for account context first.","agent_awareness":true}] critic You are careful"#,
+            r#"/agents save --disable-lifecycle-hook adapter:pkg:audit --refinement-rules-json [{"id":"support","when":"support request","instructions":"Ask for account context first.","agent_awareness":true}] critic You are careful"#,
         )
         .unwrap()
         {
@@ -14684,6 +14730,7 @@ mod slash_tests {
                 id,
                 system_prompt,
                 prompt_refinements,
+                disabled_lifecycle_hooks,
             })) => {
                 assert_eq!(id, "critic");
                 assert_eq!(system_prompt, "You are careful");
@@ -14698,6 +14745,7 @@ mod slash_tests {
                     "Ask for account context first."
                 );
                 assert!(prompt_refinements[0].agent_awareness);
+                assert_eq!(disabled_lifecycle_hooks, vec!["adapter:pkg:audit"]);
             }
             _ => panic!("expected saved-agent save shortcut with refinement rules"),
         }
@@ -17165,6 +17213,7 @@ mod slash_tests {
             Some(true),
             Some(" draft narrow reusable capabilities ".into()),
             Vec::new(),
+            vec!["adapter:pkg:audit".into()],
             Vec::new(),
             None,
             None,
@@ -17204,6 +17253,10 @@ mod slash_tests {
         );
         assert_eq!(agent.memory_backend.as_deref(), Some("local-markdown-v0"));
         assert_eq!(agent.memory_model.as_deref(), Some("memory-classifier"));
+        assert_eq!(
+            agent.disabled_lifecycle_hooks,
+            Some(vec!["adapter:pkg:audit".into()])
+        );
     }
 
     #[test]
@@ -17243,6 +17296,7 @@ mod slash_tests {
             Vec::new(),
             None,
             None,
+            Vec::new(),
             Vec::new(),
             Vec::new(),
             None,
@@ -17298,6 +17352,7 @@ mod slash_tests {
             Vec::new(),
             None,
             None,
+            Vec::new(),
             Vec::new(),
             vec!["review=name_only".into()],
             Some(VisibilityLevel::NameAndDescription),

@@ -48,6 +48,7 @@ use agent_ingest::{IngestionArtifact, IngestionFindingReviewDecision, IngestionS
 use agent_memory::{
     MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget,
     create_record_for_active_backend_with_topics_for_agent, delete_record_for_active_backend,
+    delete_records_by_source_conversation_message_range_for_active_backend,
     edit_record_for_active_backend, export_target_for_active_backend,
     generate_records_for_active_backend_with_topics_for_agent_and_guidance,
     import_file_for_active_backend_for_agent, list_records_for_active_backend,
@@ -2542,6 +2543,25 @@ fn preserve_conversation_range_artifacts_from_tui(
     Ok(preserved)
 }
 
+fn cleanup_conversation_range_side_data_from_tui(
+    id: &str,
+    from: usize,
+    to: usize,
+    preserved: &PreservedRangeArtifacts,
+) -> anyhow::Result<(usize, usize)> {
+    let compactions = CompactionStore::from_env()
+        .remove_by_conversation_message_range(id, from, to, &preserved.compaction_ids)?
+        .len();
+    let memories = delete_records_by_source_conversation_message_range_for_active_backend(
+        id,
+        from,
+        to,
+        &preserved.memory_ids,
+    )?
+    .len();
+    Ok((compactions, memories))
+}
+
 fn confirm_conversation_action(app: &mut App) -> anyhow::Result<()> {
     let Some(action) = app.pending_conversation_action.take() else {
         anyhow::bail!("no pending conversation action");
@@ -2590,6 +2610,8 @@ fn confirm_conversation_action(app: &mut App) -> anyhow::Result<()> {
             let preserved =
                 preserve_conversation_range_artifacts_from_tui(&store, &id, from, to, &options)?;
             let doc = store.delete_message_range(&id, from, to)?;
+            let (deleted_compactions, deleted_memories) =
+                cleanup_conversation_range_side_data_from_tui(&id, from, to, &preserved)?;
             let after = store.expanded(&id)?.messages.len();
             push_event(
                 app,
@@ -2605,6 +2627,14 @@ fn confirm_conversation_action(app: &mut App) -> anyhow::Result<()> {
                         "Preserved {} compaction artifact(s) and {} memory record(s).",
                         preserved.compaction_ids.len(),
                         preserved.memory_ids.len()
+                    ),
+                });
+            }
+            if deleted_compactions > 0 || deleted_memories > 0 {
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Event,
+                    text: format!(
+                        "Deleted {deleted_compactions} linked compaction artifact(s) and {deleted_memories} linked memory record(s)."
                     ),
                 });
             }

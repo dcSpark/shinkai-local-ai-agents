@@ -271,6 +271,38 @@ impl CompactionStore {
         Ok(removed)
     }
 
+    pub fn remove_by_conversation_message_range(
+        &self,
+        conversation_id: &str,
+        from: usize,
+        to: usize,
+        preserved_ids: &[String],
+    ) -> Result<Vec<String>, CompactionError> {
+        if from > to {
+            return Ok(Vec::new());
+        }
+        let records = self.list()?;
+        let mut removed = Vec::new();
+        for record in records {
+            let linked_to_conversation = record.conversation_id.as_deref() == Some(conversation_id);
+            let preserved = preserved_ids.iter().any(|id| id == &record.id);
+            if linked_to_conversation
+                && !preserved
+                && compaction_source_overlaps_message_range(
+                    &record.source,
+                    conversation_id,
+                    from,
+                    to,
+                )
+            {
+                self.remove(&record.id)?;
+                removed.push(record.id);
+            }
+        }
+        removed.sort();
+        Ok(removed)
+    }
+
     fn write(&self, record: &CompactionRecord) -> Result<(), CompactionError> {
         self.write_with_quota(record, None)
     }
@@ -373,6 +405,56 @@ fn validate_id(id: &str) -> Result<(), CompactionError> {
             "invalid compaction id: {id}"
         )))
     }
+}
+
+fn compaction_source_overlaps_message_range(
+    source: &str,
+    conversation_id: &str,
+    from: usize,
+    to: usize,
+) -> bool {
+    let bounds = parse_embedded_message_source_range(source)
+        .or_else(|| parse_legacy_conversation_source_range(source, conversation_id));
+    bounds.is_some_and(|(start, end)| ranges_overlap(start, end, from, to))
+}
+
+fn parse_embedded_message_source_range(source: &str) -> Option<(usize, usize)> {
+    let (_, rest) = source.split_once("messages:")?;
+    let (start, rest) = parse_leading_usize(rest)?;
+    let rest = rest.strip_prefix("..")?;
+    let (end, _) = parse_leading_usize(rest)?;
+    (start < end).then_some((start, end))
+}
+
+fn parse_legacy_conversation_source_range(
+    source: &str,
+    conversation_id: &str,
+) -> Option<(usize, usize)> {
+    let prefix = format!("conversation:{conversation_id}:");
+    let rest = source.strip_prefix(&prefix)?;
+    let (start, rest) = parse_leading_usize(rest)?;
+    let rest = rest.strip_prefix(':')?;
+    let (end_inclusive, _) = parse_leading_usize(rest)?;
+    let end = end_inclusive.checked_add(1)?;
+    (start < end).then_some((start, end))
+}
+
+fn parse_leading_usize(value: &str) -> Option<(usize, &str)> {
+    let end = value
+        .find(|ch: char| !ch.is_ascii_digit())
+        .unwrap_or(value.len());
+    if end == 0 {
+        return None;
+    }
+    let (digits, rest) = value.split_at(end);
+    Some((digits.parse().ok()?, rest))
+}
+
+fn ranges_overlap(source_start: usize, source_end: usize, from: usize, to: usize) -> bool {
+    let Some(delete_end) = to.checked_add(1) else {
+        return false;
+    };
+    source_start < delete_end && from < source_end
 }
 
 fn compact_text(text: &str, guidance: Option<&str>, source: &str, max_tokens: u32) -> String {
@@ -514,6 +596,74 @@ mod tests {
             .unwrap();
         assert_eq!(removed, vec![remove.id]);
         assert!(store.show(&keep.id).is_ok());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn removes_only_overlapping_conversation_range_compactions() {
+        let dir = std::env::temp_dir().join(format!("compaction-range-test-{}", uuid_like()));
+        let store = CompactionStore::new(StoragePaths::new(&dir));
+        let remove_messages = store
+            .create_from_text_for_conversation(
+                "remove messages source",
+                None,
+                None,
+                Some("pre-delete-range:conv-1:messages:1..3".into()),
+                Some("conv-1".into()),
+            )
+            .unwrap();
+        let remove_legacy = store
+            .create_from_text_for_conversation(
+                "remove legacy source",
+                None,
+                None,
+                Some("conversation:conv-1:2:2".into()),
+                Some("conv-1".into()),
+            )
+            .unwrap();
+        let preserved = store
+            .create_from_text_for_conversation(
+                "preserve this one",
+                None,
+                None,
+                Some("messages:1..3".into()),
+                Some("conv-1".into()),
+            )
+            .unwrap();
+        let keep_later = store
+            .create_from_text_for_conversation(
+                "keep later source",
+                None,
+                None,
+                Some("messages:3..4".into()),
+                Some("conv-1".into()),
+            )
+            .unwrap();
+        let keep_other = store
+            .create_from_text_for_conversation(
+                "keep other conversation",
+                None,
+                None,
+                Some("messages:1..3".into()),
+                Some("conv-2".into()),
+            )
+            .unwrap();
+
+        let removed = store
+            .remove_by_conversation_message_range(
+                "conv-1",
+                1,
+                2,
+                std::slice::from_ref(&preserved.id),
+            )
+            .unwrap();
+
+        assert_eq!(removed.len(), 2);
+        assert!(removed.contains(&remove_messages.id));
+        assert!(removed.contains(&remove_legacy.id));
+        assert!(store.show(&preserved.id).is_ok());
+        assert!(store.show(&keep_later.id).is_ok());
+        assert!(store.show(&keep_other.id).is_ok());
         let _ = std::fs::remove_dir_all(dir);
     }
 

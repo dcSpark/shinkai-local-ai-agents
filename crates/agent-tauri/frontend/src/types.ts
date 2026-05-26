@@ -499,6 +499,8 @@ export type ConversationDeleteRangeResult = {
   expanded_message_count: number;
   preserved_compactions?: string[];
   preserved_memories?: string[];
+  deleted_compactions?: string[];
+  deleted_memories?: string[];
   conversation: ConversationDoc;
 };
 

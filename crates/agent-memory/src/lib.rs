@@ -589,6 +589,42 @@ impl MemoryStore {
         Ok(deleted)
     }
 
+    pub fn delete_by_source_conversation_message_range(
+        &self,
+        conversation_id: &str,
+        from: usize,
+        to: usize,
+        preserved_ids: &[String],
+    ) -> Result<Vec<String>, MemoryError> {
+        if from > to {
+            return Ok(Vec::new());
+        }
+        let mut deleted = Vec::new();
+        for target in [MemoryTarget::Agent, MemoryTarget::User] {
+            let mut records = self.list_target(target)?;
+            let before = records.len();
+            records.retain(|record| {
+                let linked_to_conversation =
+                    record.source_conversation_id.as_deref() == Some(conversation_id);
+                let preserved = preserved_ids.iter().any(|id| id == &record.id);
+                let overlaps = record
+                    .source_range
+                    .as_deref()
+                    .is_some_and(|source| message_source_range_overlaps(source, from, to));
+                let should_delete = linked_to_conversation && !preserved && overlaps;
+                if should_delete {
+                    deleted.push(record.id.clone());
+                }
+                !should_delete
+            });
+            if records.len() != before {
+                self.write_target(target, &records)?;
+            }
+        }
+        deleted.sort();
+        Ok(deleted)
+    }
+
     pub fn delete(&self, id: &str) -> Result<(), MemoryError> {
         for target in [MemoryTarget::Agent, MemoryTarget::User] {
             let mut records = self.list_target(target)?;
@@ -1903,6 +1939,50 @@ pub fn delete_records_by_source_conversation_ids_for_active_backend(
     }
 }
 
+pub fn delete_records_by_source_conversation_message_range_for_active_backend(
+    conversation_id: &str,
+    from: usize,
+    to: usize,
+    preserved_ids: &[String],
+) -> Result<Vec<String>, MemoryError> {
+    if from > to {
+        return Ok(Vec::new());
+    }
+    let paths = StoragePaths::from_env();
+    let backend = active_memory_backend_id();
+    match backend.as_str() {
+        DEFAULT_MEMORY_BACKEND_ID | LOCAL_JSONL_MEMORY_BACKEND_ID => MemoryStore::for_backend(
+            paths, &backend,
+        )?
+        .delete_by_source_conversation_message_range(conversation_id, from, to, preserved_ids),
+        EXTERNAL_COMMAND_MEMORY_BACKEND_ID => {
+            let adapter = ExternalCommandMemoryBackend::from_env(paths)?;
+            let records = adapter.load_records()?;
+            delete_matching_external_range_records(
+                records,
+                conversation_id,
+                from,
+                to,
+                preserved_ids,
+                |id| adapter.delete_record(id),
+            )
+        }
+        EXTERNAL_HTTP_MEMORY_BACKEND_ID => {
+            let adapter = ExternalHttpMemoryBackend::from_env(paths)?;
+            let records = adapter.load_records()?;
+            delete_matching_external_range_records(
+                records,
+                conversation_id,
+                from,
+                to,
+                preserved_ids,
+                |id| adapter.delete_record(id),
+            )
+        }
+        other => Err(MemoryError::UnsupportedBackend(other.into())),
+    }
+}
+
 pub fn rollback_active_backend(target: MemoryTarget) -> Result<(), MemoryError> {
     let paths = StoragePaths::from_env();
     let backend = active_memory_backend_id();
@@ -2282,6 +2362,71 @@ where
     }
     deleted.sort();
     Ok(deleted)
+}
+
+fn delete_matching_external_range_records<F>(
+    records: Vec<MemoryRecord>,
+    conversation_id: &str,
+    from: usize,
+    to: usize,
+    preserved_ids: &[String],
+    mut delete_record: F,
+) -> Result<Vec<String>, MemoryError>
+where
+    F: FnMut(&str) -> Result<(), MemoryError>,
+{
+    let mut deleted = Vec::new();
+    for record in records {
+        let linked_to_conversation =
+            record.source_conversation_id.as_deref() == Some(conversation_id);
+        let preserved = preserved_ids.iter().any(|id| id == &record.id);
+        let overlaps = record
+            .source_range
+            .as_deref()
+            .is_some_and(|source| message_source_range_overlaps(source, from, to));
+        if linked_to_conversation && !preserved && overlaps {
+            delete_record(&record.id)?;
+            deleted.push(record.id);
+        }
+    }
+    deleted.sort();
+    Ok(deleted)
+}
+
+fn message_source_range_overlaps(source_range: &str, from: usize, to: usize) -> bool {
+    parse_message_source_range(source_range)
+        .is_some_and(|(start, end)| source_start_end_overlaps(start, end, from, to))
+}
+
+fn parse_message_source_range(source_range: &str) -> Option<(usize, usize)> {
+    let (_, rest) = source_range.split_once("messages:")?;
+    let (start, rest) = parse_leading_usize(rest)?;
+    let rest = rest.strip_prefix("..")?;
+    let (end, _) = parse_leading_usize(rest)?;
+    (start < end).then_some((start, end))
+}
+
+fn parse_leading_usize(value: &str) -> Option<(usize, &str)> {
+    let end = value
+        .find(|ch: char| !ch.is_ascii_digit())
+        .unwrap_or(value.len());
+    if end == 0 {
+        return None;
+    }
+    let (digits, rest) = value.split_at(end);
+    Some((digits.parse().ok()?, rest))
+}
+
+fn source_start_end_overlaps(
+    source_start: usize,
+    source_end: usize,
+    from: usize,
+    to: usize,
+) -> bool {
+    let Some(delete_end) = to.checked_add(1) else {
+        return false;
+    };
+    source_start < delete_end && from < source_end
 }
 
 fn memory_record_matches_grant_resource(record: &MemoryRecord, resource: &str) -> bool {
@@ -4262,6 +4407,73 @@ mod tests {
             store.load_fragments().unwrap()[0].provenance,
             "Agent memory; Human; profile=main; agent=fake-agent; conversation=conv-keep"
         );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn deletes_only_overlapping_conversation_range_memories() {
+        let dir = std::env::temp_dir().join(format!(
+            "memory-range-test-{}-{}",
+            std::process::id(),
+            Utc::now().timestamp_nanos_opt().unwrap_or_default()
+        ));
+        let store = MemoryStore::new(StoragePaths::new(&dir));
+        let remove = store
+            .create_for_conversation(
+                MemoryTarget::Agent,
+                "remove",
+                MemoryAuthor::Human,
+                Some("messages:1..3".into()),
+                Some("conv-1".into()),
+            )
+            .unwrap();
+        let preserved = store
+            .create_for_conversation(
+                MemoryTarget::User,
+                "preserve",
+                MemoryAuthor::Model,
+                Some("messages:1..3".into()),
+                Some("conv-1".into()),
+            )
+            .unwrap();
+        let keep_later = store
+            .create_for_conversation(
+                MemoryTarget::Agent,
+                "keep later",
+                MemoryAuthor::Human,
+                Some("messages:3..4".into()),
+                Some("conv-1".into()),
+            )
+            .unwrap();
+        let keep_other = store
+            .create_for_conversation(
+                MemoryTarget::Agent,
+                "keep other",
+                MemoryAuthor::Human,
+                Some("messages:1..3".into()),
+                Some("conv-2".into()),
+            )
+            .unwrap();
+
+        let deleted = store
+            .delete_by_source_conversation_message_range(
+                "conv-1",
+                1,
+                2,
+                std::slice::from_ref(&preserved.id),
+            )
+            .unwrap();
+
+        assert_eq!(deleted, vec![remove.id]);
+        let remaining_ids = store
+            .list()
+            .unwrap()
+            .into_iter()
+            .map(|record| record.id)
+            .collect::<Vec<_>>();
+        assert!(remaining_ids.contains(&preserved.id));
+        assert!(remaining_ids.contains(&keep_later.id));
+        assert!(remaining_ids.contains(&keep_other.id));
         let _ = std::fs::remove_dir_all(dir);
     }
 

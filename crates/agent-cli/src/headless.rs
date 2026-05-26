@@ -47,6 +47,7 @@ use agent_llm::{
 use agent_memory::{
     MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget,
     create_record_for_active_backend_with_topics_for_agent, delete_record_for_active_backend,
+    delete_records_by_source_conversation_message_range_for_active_backend,
     edit_record_for_active_backend, export_target_for_active_backend,
     generate_records_for_active_backend_with_topics_for_agent_and_guidance,
     import_file_for_active_backend_for_agent, list_records_for_active_backend,
@@ -3229,6 +3230,7 @@ pub async fn conversation_delete_range(
     let before = store.expanded(&id)?.messages.len();
     let preserved = preserve_conversation_range_artifacts(&store, &id, from, to, &options)?;
     let doc = store.delete_message_range(&id, from, to)?;
+    let cleanup = cleanup_conversation_range_side_data(&id, from, to, &preserved)?;
     let after = store.expanded(&id)?.messages.len();
     println!(
         "deleted {} message(s) from {id}",
@@ -3236,6 +3238,11 @@ pub async fn conversation_delete_range(
     );
     println!("own messages remaining: {}", doc.messages.len());
     print_preserved_conversation_artifacts(&preserved);
+    println!(
+        "deleted {} linked compaction artifact(s)",
+        cleanup.compactions
+    );
+    println!("deleted {} linked memory record(s)", cleanup.memories);
     Ok(())
 }
 
@@ -3335,6 +3342,28 @@ fn cleanup_conversation_side_data(
         }
     }
 
+    Ok(ConversationDeletionCleanup {
+        compactions,
+        memories,
+    })
+}
+
+fn cleanup_conversation_range_side_data(
+    id: &str,
+    from: usize,
+    to: usize,
+    preserved: &PreservedConversationArtifacts,
+) -> anyhow::Result<ConversationDeletionCleanup> {
+    let compactions = CompactionStore::from_env()
+        .remove_by_conversation_message_range(id, from, to, &preserved.compaction_ids)?
+        .len();
+    let memories = delete_records_by_source_conversation_message_range_for_active_backend(
+        id,
+        from,
+        to,
+        &preserved.memory_ids,
+    )?
+    .len();
     Ok(ConversationDeletionCleanup {
         compactions,
         memories,

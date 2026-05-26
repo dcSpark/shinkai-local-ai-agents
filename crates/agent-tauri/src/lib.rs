@@ -54,8 +54,9 @@ use agent_memory::{
     MemoryAccessReport, MemoryAuthor, MemoryBackendDescriptor, MemoryBackendProbeReport,
     MemoryRecord, MemoryStore, MemoryTarget,
     create_record_for_active_backend_with_topics_for_agent, delete_record_for_active_backend,
-    delete_records_by_source_conversation_ids_for_active_backend, edit_record_for_active_backend,
-    export_target_for_active_backend,
+    delete_records_by_source_conversation_ids_for_active_backend,
+    delete_records_by_source_conversation_message_range_for_active_backend,
+    edit_record_for_active_backend, export_target_for_active_backend,
     generate_records_for_active_backend_with_topics_for_agent_and_guidance,
     import_file_for_active_backend_for_agent, list_records_for_active_backend,
     load_fragments_with_profile_grants, memory_classification_from_model_output,
@@ -2158,6 +2159,28 @@ fn cleanup_conversation_side_data(
     })
 }
 
+fn cleanup_conversation_range_side_data(
+    id: &str,
+    from: usize,
+    to: usize,
+    preserved: &ConversationRangePreservedArtifacts,
+) -> anyhow::Result<ConversationDeletionCleanup> {
+    Ok(ConversationDeletionCleanup {
+        compactions: CompactionStore::from_env().remove_by_conversation_message_range(
+            id,
+            from,
+            to,
+            &preserved.compactions,
+        )?,
+        memories: delete_records_by_source_conversation_message_range_for_active_backend(
+            id,
+            from,
+            to,
+            &preserved.memories,
+        )?,
+    })
+}
+
 fn preserve_conversation_range_artifacts(
     store: &ConversationStore,
     id: &str,
@@ -2238,6 +2261,8 @@ async fn conversation_delete_range(
     let conversation = store
         .delete_message_range(&id, from, to)
         .map_err(|e| e.to_string())?;
+    let cleanup = cleanup_conversation_range_side_data(&id, from, to, &preserved)
+        .map_err(|e| e.to_string())?;
     let after = store
         .expanded(&id)
         .map_err(|e| e.to_string())?
@@ -2251,6 +2276,8 @@ async fn conversation_delete_range(
         "expanded_message_count": after,
         "preserved_compactions": preserved.compactions,
         "preserved_memories": preserved.memories,
+        "deleted_compactions": cleanup.compactions,
+        "deleted_memories": cleanup.memories,
         "conversation": conversation
     }))
 }

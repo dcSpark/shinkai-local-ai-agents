@@ -42,8 +42,9 @@ use agent_llm::{
 use agent_memory::{
     MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget,
     create_record_for_active_backend_with_topics_for_agent, delete_record_for_active_backend,
-    delete_records_by_source_conversation_ids_for_active_backend, edit_record_for_active_backend,
-    export_target_for_active_backend,
+    delete_records_by_source_conversation_ids_for_active_backend,
+    delete_records_by_source_conversation_message_range_for_active_backend,
+    edit_record_for_active_backend, export_target_for_active_backend,
     generate_records_for_active_backend_with_topics_for_agent_and_guidance,
     import_file_for_active_backend_for_agent, list_records_for_active_backend,
     load_fragments_with_profile_grants, memory_classification_from_model_output,
@@ -1797,6 +1798,7 @@ fn daemon_conversation_delete_range(id: &str, body: &str) -> anyhow::Result<serd
     let before = store.expanded(id)?.messages.len();
     let preserved = preserve_conversation_range_artifacts(&store, id, &input)?;
     let conversation = store.delete_message_range(id, input.from, input.to)?;
+    let cleanup = cleanup_conversation_range_side_data(id, input.from, input.to, &preserved)?;
     let after = store.expanded(id)?.messages.len();
     Ok(serde_json::json!({
         "id": id,
@@ -1806,6 +1808,8 @@ fn daemon_conversation_delete_range(id: &str, body: &str) -> anyhow::Result<serd
         "expanded_message_count": after,
         "preserved_compactions": preserved.compactions,
         "preserved_memories": preserved.memories,
+        "deleted_compactions": cleanup.compactions,
+        "deleted_memories": cleanup.memories,
         "conversation": conversation
     }))
 }
@@ -2012,6 +2016,28 @@ fn cleanup_conversation_side_data(
     Ok(ConversationDeletionCleanup {
         compactions: CompactionStore::from_env().remove_by_conversation_ids(deleted)?,
         memories: delete_records_by_source_conversation_ids_for_active_backend(deleted)?,
+    })
+}
+
+fn cleanup_conversation_range_side_data(
+    id: &str,
+    from: usize,
+    to: usize,
+    preserved: &ConversationRangePreservedArtifacts,
+) -> anyhow::Result<ConversationDeletionCleanup> {
+    Ok(ConversationDeletionCleanup {
+        compactions: CompactionStore::from_env().remove_by_conversation_message_range(
+            id,
+            from,
+            to,
+            &preserved.compactions,
+        )?,
+        memories: delete_records_by_source_conversation_message_range_for_active_backend(
+            id,
+            from,
+            to,
+            &preserved.memories,
+        )?,
     })
 }
 
@@ -9846,6 +9872,52 @@ mod tests {
                 "Remember: range deletion keeps this fact",
             )
             .unwrap();
+        conversation_store
+            .append_message(
+                &conversation.id,
+                ConversationRole::Assistant,
+                "This later message stays in the thread.",
+            )
+            .unwrap();
+        let stale_compaction = CompactionStore::from_env()
+            .create_from_text_for_conversation(
+                "stale compacted range",
+                None,
+                None,
+                Some(format!(
+                    "pre-delete-range:{}:messages:0..1",
+                    conversation.id
+                )),
+                Some(conversation.id.clone()),
+            )
+            .unwrap();
+        let keep_compaction = CompactionStore::from_env()
+            .create_from_text_for_conversation(
+                "later compacted range",
+                None,
+                None,
+                Some("messages:1..2".into()),
+                Some(conversation.id.clone()),
+            )
+            .unwrap();
+        let stale_memory = MemoryStore::from_env()
+            .create_for_conversation(
+                MemoryTarget::Agent,
+                "Remember stale range",
+                MemoryAuthor::Model,
+                Some("messages:0..1".into()),
+                Some(conversation.id.clone()),
+            )
+            .unwrap();
+        let keep_memory = MemoryStore::from_env()
+            .create_for_conversation(
+                MemoryTarget::Agent,
+                "Remember later range",
+                MemoryAuthor::Model,
+                Some("messages:1..2".into()),
+                Some(conversation.id.clone()),
+            )
+            .unwrap();
 
         let body = serde_json::json!({
             "from": 0,
@@ -9859,6 +9931,12 @@ mod tests {
         .to_string();
         let deleted = daemon_conversation_delete_range(&conversation.id, &body).unwrap();
         assert_eq!(deleted["deleted_messages"], 1);
+        let deleted_compactions: Vec<String> =
+            serde_json::from_value(deleted["deleted_compactions"].clone()).unwrap();
+        let deleted_memories: Vec<String> =
+            serde_json::from_value(deleted["deleted_memories"].clone()).unwrap();
+        assert_eq!(deleted_compactions, vec![stale_compaction.id.clone()]);
+        assert_eq!(deleted_memories, vec![stale_memory.id.clone()]);
         assert_eq!(
             deleted["preserved_compactions"].as_array().map(Vec::len),
             Some(1)
@@ -9873,8 +9951,20 @@ mod tests {
                 .unwrap()
                 .messages
                 .len(),
-            0
+            1
         );
+        assert!(
+            CompactionStore::from_env()
+                .show(&stale_compaction.id)
+                .is_err()
+        );
+        assert!(
+            CompactionStore::from_env()
+                .show(&keep_compaction.id)
+                .is_ok()
+        );
+        assert!(MemoryStore::from_env().get(&stale_memory.id).is_err());
+        assert!(MemoryStore::from_env().get(&keep_memory.id).is_ok());
 
         restore_env("AGENT_HARNESS_HOME", previous_home);
         let _ = std::fs::remove_dir_all(dir);

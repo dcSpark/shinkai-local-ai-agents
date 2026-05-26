@@ -87,6 +87,8 @@ pub async fn run(
 
     match parse_slash_command(&text)? {
         Some(SlashCommand::Help) => return print_slash_help(json),
+        Some(SlashCommand::Config) => return explain_runtime_config(&options, json).await,
+        Some(SlashCommand::Tools) => return explain_tools_for_options(json, &options).await,
         Some(SlashCommand::Agent(agent_id)) => {
             return explain_config(agent_id.or(options.agent_id.clone()), json).await;
         }
@@ -701,6 +703,28 @@ pub async fn explain_config(agent_id: Option<String>, json: bool) -> anyhow::Res
     Ok(())
 }
 
+async fn explain_runtime_config(options: &setup::RuntimeOptions, json: bool) -> anyhow::Result<()> {
+    let harness = inspection_harness(
+        options.enable_shell,
+        options.enable_subagent,
+        options.enable_capability_drafts,
+        options.agent_id.as_deref(),
+    );
+    let agent = setup::build_agent(options);
+    let explanation = harness.explain_config(&agent);
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&explanation)?);
+    } else {
+        println!("effective runtime config for {}", explanation.agent_id);
+        for value in explanation.values {
+            println!("{:<52} {:<18} {}", value.key, value.source, value.value);
+        }
+    }
+
+    Ok(())
+}
+
 pub async fn storage_report(
     json: bool,
     prune_cache_days: Option<u64>,
@@ -1274,13 +1298,20 @@ pub async fn explain_tools(
         tool_visibility,
         ..setup::RuntimeOptions::default()
     };
+    explain_tools_for_options(json, &options).await
+}
+
+async fn explain_tools_for_options(
+    json: bool,
+    options: &setup::RuntimeOptions,
+) -> anyhow::Result<()> {
     let harness = inspection_harness(
-        enable_shell,
-        enable_subagent,
-        enable_capability_drafts,
+        options.enable_shell,
+        options.enable_subagent,
+        options.enable_capability_drafts,
         options.agent_id.as_deref(),
     );
-    let agent = setup::build_agent(&options);
+    let agent = setup::build_agent(options);
     let tools = harness.explain_tools(&agent);
 
     if json {
@@ -9243,6 +9274,8 @@ pub(crate) fn record_memory_operation(
 
 enum SlashCommand {
     Help,
+    Config,
+    Tools,
     Agent(Option<String>),
     AgentRun {
         agent_id: String,
@@ -9790,6 +9823,26 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
     let trimmed = text.trim();
     if matches!(trimmed, "/help" | "/?") {
         return Ok(Some(SlashCommand::Help));
+    }
+    if let Some(rest) = config_slash_rest(trimmed) {
+        let rest = rest.trim();
+        if rest.is_empty() {
+            return Ok(Some(SlashCommand::Config));
+        }
+        if slash_family_help_rest(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
+        anyhow::bail!("config shortcut supports /config or /config help");
+    }
+    if let Some(rest) = tools_slash_rest(trimmed) {
+        let rest = rest.trim();
+        if rest.is_empty() {
+            return Ok(Some(SlashCommand::Tools));
+        }
+        if slash_family_help_rest(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
+        anyhow::bail!("tools shortcut supports /tools or /tools help");
     }
     if agent_help_slash_command(trimmed) {
         return Ok(Some(SlashCommand::Help));
@@ -10801,6 +10854,8 @@ fn headless_slash_help_text() -> &'static str {
      - /approval (/approvals) list|assess|approve|reject|execute [last|run-id] ...\n\
      - /tool <name> [request] - force the model to call one visible tool\n\
      - /tool! <name> <json> - call one native tool directly with manual JSON input\n\
+     - /config - explain the effective runtime config for this run setup\n\
+     - /tools - show visible tools for this run setup\n\
      - /python <code>, /typescript <code>, /ts <code> - call native code execution tools directly\n\
      - /voice status, /voice transcribe <path>, /voice speak <text> - inspect voice config or call native voice tools directly\n\
      - /x402 request|required|settle ... - call native x402 payment tools directly\n\
@@ -10833,6 +10888,22 @@ fn headless_slash_help_text() -> &'static str {
 
 fn slash_family_help_rest(rest: &str) -> bool {
     matches!(rest.trim(), "help" | "--help")
+}
+
+fn config_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/config" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/config ").map(str::trim)
+    }
+}
+
+fn tools_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/tools" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/tools ").map(str::trim)
+    }
 }
 
 fn batch_help_slash_command(trimmed: &str) -> bool {
@@ -17676,6 +17747,28 @@ mod slash_tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("--top-p"));
+    }
+
+    #[test]
+    fn parses_config_and_tools_inspection_shortcuts() {
+        assert!(matches!(
+            parse_slash_command("/config").unwrap(),
+            Some(SlashCommand::Config)
+        ));
+        assert!(matches!(
+            parse_slash_command("/config help").unwrap(),
+            Some(SlashCommand::Help)
+        ));
+        assert!(matches!(
+            parse_slash_command("/tools").unwrap(),
+            Some(SlashCommand::Tools)
+        ));
+        assert!(matches!(
+            parse_slash_command("/tools --help").unwrap(),
+            Some(SlashCommand::Help)
+        ));
+        assert!(parse_slash_command("/config extra").is_err());
+        assert!(parse_slash_command("/tooling").unwrap().is_none());
     }
 
     #[test]

@@ -986,6 +986,8 @@ fn global_slash_help_text() -> &'static str {
      - /x402 request|required|settle ... - call native x402 payment tools directly\n\
      - /bridges status - inspect messaging bridge readiness without printing secrets\n\
      - /bridge-deliveries [list], /bridge-deliveries delete <id> --confirm - inspect or remove local bridge delivery dead letters\n\
+     - /config - explain the effective runtime config\n\
+     - /tools - show visible tools for the current run setup\n\
      - /shell status|on|off - inspect or toggle shell tool access\n\
      - /subagent status|on|off - inspect or toggle subagent tool access\n\
      - /budget <n> - set the max tool-call budget for future TUI runs\n\
@@ -1131,6 +1133,30 @@ fn tool_slash_help_text() -> &'static str {
     "/tool <name> <request>\n/tool!<name> <json>"
 }
 
+fn config_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/config" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/config ").map(str::trim)
+    }
+}
+
+fn config_slash_help_text() -> &'static str {
+    "/config\n/config help"
+}
+
+fn tools_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/tools" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/tools ").map(str::trim)
+    }
+}
+
+fn tools_slash_help_text() -> &'static str {
+    "/tools\n/tools help"
+}
+
 fn preview_help_slash_command(trimmed: &str) -> bool {
     matches!(trimmed, "/preview help" | "/preview --help")
 }
@@ -1170,6 +1196,52 @@ fn push_context_preview(
         kind: LineKind::Assistant,
         text: serde_json::to_string_pretty(&snapshot)
             .unwrap_or_else(|_| "<unserializable context>".into()),
+    });
+}
+
+fn push_config_explanation(app: &mut App, registry: &Arc<ToolRegistry>, agent: &AgentConfig) {
+    let harness = setup::build_harness(
+        Arc::new(agent_llm::FakeProvider::echo()),
+        Arc::new(agent_tracing::InMemoryEventStore::new()),
+        registry.clone(),
+    );
+    let explanation = harness.explain_config(agent);
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::Event,
+        text: format!(
+            "Config: {} values for {} ({})",
+            explanation.values.len(),
+            agent.name,
+            agent.id
+        ),
+    });
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::Assistant,
+        text: serde_json::to_string_pretty(&explanation)
+            .unwrap_or_else(|_| "<unserializable config>".into()),
+    });
+}
+
+fn push_tools_explanation(app: &mut App, registry: &Arc<ToolRegistry>, agent: &AgentConfig) {
+    let harness = setup::build_harness(
+        Arc::new(agent_llm::FakeProvider::echo()),
+        Arc::new(agent_tracing::InMemoryEventStore::new()),
+        registry.clone(),
+    );
+    let tools = harness.explain_tools(agent);
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::Event,
+        text: format!(
+            "Tools: {} visible tools for {} ({})",
+            tools.len(),
+            agent.name,
+            agent.id
+        ),
+    });
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::Assistant,
+        text: serde_json::to_string_pretty(&tools)
+            .unwrap_or_else(|_| "<unserializable tools>".into()),
     });
 }
 
@@ -1297,6 +1369,34 @@ fn handle_slash_command(
             kind: LineKind::Assistant,
             text: tool_slash_help_text().into(),
         });
+        return true;
+    }
+    if let Some(rest) = config_slash_rest(trimmed) {
+        match rest.trim() {
+            "" => push_config_explanation(app, registry, agent),
+            "help" | "--help" => app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: config_slash_help_text().into(),
+            }),
+            _ => app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: "Config shortcut supports /config or /config help.".into(),
+            }),
+        }
+        return true;
+    }
+    if let Some(rest) = tools_slash_rest(trimmed) {
+        match rest.trim() {
+            "" => push_tools_explanation(app, registry, agent),
+            "help" | "--help" => app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: tools_slash_help_text().into(),
+            }),
+            _ => app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: "Tools shortcut supports /tools or /tools help.".into(),
+            }),
+        }
         return true;
     }
     if let Some(rest) = agent_slash_rest(trimmed) {
@@ -12574,6 +12674,8 @@ mod tests {
         assert!(global_slash_help_text().contains("/skills on|off|status|preview"));
         assert!(global_slash_help_text().contains("/ingest preview <id>"));
         assert!(global_slash_help_text().contains("/batch <line-delimited prompts>"));
+        assert!(global_slash_help_text().contains("/config"));
+        assert!(global_slash_help_text().contains("/tools"));
         assert!(global_slash_help_text().contains("/bridges status"));
         assert!(global_slash_help_text().contains("/bridge-deliveries [list]"));
         assert_eq!(memory_slash_rest("/memory --help"), Some("--help"));
@@ -12641,6 +12743,14 @@ mod tests {
         assert!(!tool_help_slash_command("/tools help"));
         assert!(!tool_help_slash_command("/tool helper"));
         assert!(tool_slash_help_text().contains("/tool!<name> <json>"));
+        assert_eq!(config_slash_rest("/config"), Some(""));
+        assert_eq!(config_slash_rest("/config help"), Some("help"));
+        assert_eq!(config_slash_rest("/configs"), None);
+        assert!(config_slash_help_text().contains("/config help"));
+        assert_eq!(tools_slash_rest("/tools"), Some(""));
+        assert_eq!(tools_slash_rest("/tools --help"), Some("--help"));
+        assert_eq!(tools_slash_rest("/tool"), None);
+        assert!(tools_slash_help_text().contains("/tools help"));
         assert!(preview_help_slash_command("/preview help"));
         assert!(preview_help_slash_command("/preview --help"));
         assert!(!preview_help_slash_command("/preview helper"));
@@ -14060,6 +14170,71 @@ mod tests {
             app.transcript
                 .iter()
                 .any(|line| line.text.contains("Shell tool access disabled."))
+        );
+    }
+
+    #[test]
+    fn config_and_tools_slashes_explain_current_runtime_setup() {
+        let _home = HarnessHomeGuard::new();
+        let mut app = App::default();
+        let mut options = setup::RuntimeOptions::default();
+        let mut registry = setup::build_registry(
+            options.enable_shell,
+            options.enable_subagent,
+            options.enable_capability_drafts,
+            options.agent_id.as_deref(),
+            options.conversation_id.as_deref(),
+        );
+        let mut agent = setup::build_agent(&options);
+        let (publish_tx, _publish_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (line_tx, _line_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        assert!(handle_slash_command(
+            &mut app,
+            "/config",
+            Demo::Echo,
+            &mut registry,
+            &mut agent,
+            &publish_tx,
+            &line_tx,
+            &mut options,
+        ));
+        assert!(
+            app.transcript
+                .iter()
+                .any(|line| line.text.contains("agent.model.default"))
+        );
+
+        assert!(handle_slash_command(
+            &mut app,
+            "/tools",
+            Demo::Echo,
+            &mut registry,
+            &mut agent,
+            &publish_tx,
+            &line_tx,
+            &mut options,
+        ));
+        assert!(
+            app.transcript
+                .iter()
+                .any(|line| line.text.contains("\"id\": \"echo\""))
+        );
+
+        assert!(handle_slash_command(
+            &mut app,
+            "/tools help",
+            Demo::Echo,
+            &mut registry,
+            &mut agent,
+            &publish_tx,
+            &line_tx,
+            &mut options,
+        ));
+        assert!(
+            app.transcript
+                .last()
+                .is_some_and(|line| line.text.contains("/tools help"))
         );
     }
 

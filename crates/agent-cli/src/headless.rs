@@ -10127,7 +10127,7 @@ fn headless_slash_help_text() -> &'static str {
      - /profiles current|list|show|create|delete|grants|grant|revoke\n\
      - /conversation list|tree|show|recover|usage|delete|range-delete|delete-agent\n\
      - /secrets backends|list|show|delete\n\
-     - /ingest status|list|backends|add|probe-source|probe-vision|rerun|preview|show|review|delete\n\
+     - /ingest status|list|backends|add|probe-source|probe-vision|rerun|preview|show|review|delete|remove\n\
      - /artifacts list|generate|show|open|export|download|delete\n\
      - /capabilities list|doctor|propose|show|allow|reject|delete|export|import\n\
      - /adapters list|doctor|inspect|import|import-manifest|show|export|install-skill|allow|quarantine|clawhub\n\
@@ -12328,9 +12328,9 @@ fn parse_ingest_slash_rest(rest: &str) -> anyhow::Result<IngestSlashCommand> {
             Ok(IngestSlashCommand::Show { id })
         }
         "review" => parse_ingest_review_args(args),
-        "delete" | "rm" => parse_ingest_delete_args(args),
+        "delete" | "remove" | "rm" => parse_ingest_delete_args(args),
         _ => anyhow::bail!(
-            "ingest shortcut needs list, backends, add, probe-source, probe-vision, rerun, preview, show, review, or delete"
+            "ingest shortcut needs status, list, backends, add, probe-source, probe-vision, rerun, preview, show, review, delete, or remove"
         ),
     }
 }
@@ -13378,7 +13378,7 @@ mod slash_tests {
         assert!(
             help.contains(
                 "/ingest status|list|backends|add|probe-source|probe-vision|rerun|preview"
-            )
+            ) && help.contains("show|review|delete|remove")
         );
         assert!(help.contains("/hooks list|policy|available|review|disable|enable"));
     }
@@ -14576,7 +14576,14 @@ mod slash_tests {
             }
             _ => panic!("expected ingest delete shortcut"),
         }
+        match parse_slash_command("/ingest remove artifact-1 --confirm").unwrap() {
+            Some(SlashCommand::Ingest(IngestSlashCommand::Delete { id })) => {
+                assert_eq!(id, "artifact-1");
+            }
+            _ => panic!("expected ingest remove shortcut"),
+        }
         assert!(parse_slash_command("/ingest delete artifact-1").is_err());
+        assert!(parse_slash_command("/ingest remove artifact-1").is_err());
         assert!(parse_slash_command("/ingest preview").is_err());
         assert!(parse_slash_command("/ingest status extra").is_err());
         assert!(parse_slash_command("/ingest probe-vision ./image.png").is_err());

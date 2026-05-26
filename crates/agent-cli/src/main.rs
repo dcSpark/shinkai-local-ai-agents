@@ -372,7 +372,7 @@ enum Command {
     },
     /// Restart a saved run trace from an event boundary.
     Resume {
-        /// Run UUID printed by `agent run`.
+        /// Run UUID printed by `agent run`, or `last`.
         run_id: String,
 
         /// Event id to resume from. Defaults to the last non-terminal event.
@@ -389,7 +389,7 @@ enum Command {
     },
     /// Preview the generated prompt that would be used to resume a saved run trace.
     ResumePlan {
-        /// Run UUID printed by `agent run`.
+        /// Run UUID printed by `agent run`, or `last`.
         run_id: String,
 
         /// Event id to resume from. Defaults to the last non-terminal event.

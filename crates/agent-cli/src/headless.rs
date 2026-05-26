@@ -1496,6 +1496,18 @@ fn print_trace_run_records(records: &[TraceRunRecord]) {
     }
 }
 
+fn resolve_local_run_selector(selector: &str, store: &SqliteEventStore) -> anyhow::Result<RunId> {
+    if selector == "last" {
+        return store
+            .try_run_records(1)?
+            .into_iter()
+            .next()
+            .map(|record| record.run_id)
+            .ok_or_else(|| anyhow::anyhow!("no trace runs found for selector `last`"));
+    }
+    Ok(RunId(uuid::Uuid::parse_str(selector)?))
+}
+
 pub async fn trace_tree(run_id: String, json: bool) -> anyhow::Result<()> {
     let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
@@ -2371,8 +2383,8 @@ pub async fn resume(
     demo: Demo,
     json: bool,
 ) -> anyhow::Result<()> {
-    let source_run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
+    let source_run_id = resolve_local_run_selector(&run_id, &store)?;
     let events = store.try_events(source_run_id)?;
     let plan = build_resume_plan(source_run_id, &events, from_event.map(EventId))?;
     let retained_compaction = stop_compaction_for_run(source_run_id)?;
@@ -2426,8 +2438,8 @@ pub async fn resume_plan(
     from_event: Option<u64>,
     json: bool,
 ) -> anyhow::Result<()> {
-    let source_run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
+    let source_run_id = resolve_local_run_selector(&run_id, &store)?;
     let events = store.try_events(source_run_id)?;
     let plan = build_resume_plan(source_run_id, &events, from_event.map(EventId))?;
 
@@ -10138,7 +10150,7 @@ fn headless_slash_help_text() -> &'static str {
      - /x402 request|required|settle ... - call native x402 payment tools directly\n\
      - /shell status - inspect whether this run enables the shell tool; use --enable-shell to enable it\n\
      - /subagent status - inspect whether this run enables saved-agent-as-tool access; use --enable-subagent to enable it\n\
-     - /resume <run-id> [--from-event N], /resume plan <run-id> [--from-event N]\n\
+     - /resume [last|run-id] [--from-event N], /resume plan [last|run-id] [--from-event N]\n\
      - /trace list [limit|--limit N], /trace [summary|tree|hooks|scores|prompt] <run-id>, /scores <run-id>, /compare <run-id> <run-id>, /replay <run-id>\n\
      - /preview [prompt] - inspect context before running\n\
      - /usage trace|run <run-id>, /usage conversation <id> [from:to|last N|--from N --to N|--last N]\n\
@@ -10485,9 +10497,11 @@ fn parse_resume_slash_rest(rest: &str) -> anyhow::Result<(String, Option<u64>)> 
     let mut parts = rest.split_whitespace();
     let run_id = parts
         .next()
-        .ok_or_else(|| anyhow::anyhow!("usage: /resume <run-id> [--from-event N]"))?
+        .ok_or_else(|| anyhow::anyhow!("usage: /resume [last|run-id] [--from-event N]"))?
         .to_string();
-    let _ = uuid::Uuid::parse_str(&run_id)?;
+    if run_id != "last" {
+        let _ = uuid::Uuid::parse_str(&run_id)?;
+    }
     let mut from_event = None;
     while let Some(part) = parts.next() {
         match part {
@@ -13942,8 +13956,63 @@ mod slash_tests {
             }
             _ => panic!("expected resume-plan shortcut"),
         }
+        match parse_slash_command("/resume last --from-event=9").unwrap() {
+            Some(SlashCommand::Resume {
+                run_id: parsed_id,
+                from_event,
+            }) => {
+                assert_eq!(parsed_id, "last");
+                assert_eq!(from_event, Some(9));
+            }
+            _ => panic!("expected resume last shortcut"),
+        }
+        match parse_slash_command("/resume-plan last").unwrap() {
+            Some(SlashCommand::ResumePlan {
+                run_id: parsed_id,
+                from_event,
+            }) => {
+                assert_eq!(parsed_id, "last");
+                assert_eq!(from_event, None);
+            }
+            _ => panic!("expected resume-plan last shortcut"),
+        }
         assert!(parse_slash_command("/resume nope").is_err());
         assert!(parse_slash_command(&format!("/resume {run_id} --from-event 0")).is_err());
+    }
+
+    #[test]
+    fn local_run_selector_resolves_last_trace_record() {
+        let dir = std::env::temp_dir().join(format!(
+            "headless-resume-last-selector-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let _home = HarnessHomeGuard::set(&dir);
+        let store = open_event_store().unwrap();
+        let first = RunId::new();
+        let second = RunId::new();
+        store.append(
+            first,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "first-agent".into(),
+                input: "first prompt".into(),
+            },
+        );
+        store.append(
+            second,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "second-agent".into(),
+                input: "second prompt".into(),
+            },
+        );
+
+        assert_eq!(resolve_local_run_selector("last", &store).unwrap(), second);
+        assert_eq!(
+            resolve_local_run_selector(&first.0.to_string(), &store).unwrap(),
+            first
+        );
     }
 
     #[test]

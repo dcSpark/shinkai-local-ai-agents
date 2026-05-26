@@ -164,6 +164,11 @@ enum PendingConversationAction {
         recursive: bool,
         delete_ids: Vec<String>,
     },
+    DeleteMany {
+        ids: Vec<String>,
+        recursive: bool,
+        delete_ids: Vec<String>,
+    },
     DeleteRange {
         id: String,
         from: usize,
@@ -1671,6 +1676,8 @@ fn handle_conversation_slash(app: &mut App, rest: &str) {
                 "/conversation policy [<id>] [--load-memory true|false|clear] [--generate-memory true|false|clear]",
                 "/conversation delete-plan [<id>] [--recursive]",
                 "/conversation delete [<id>] [--recursive]",
+                "/conversation delete-many-plan <id> <id>... [--recursive]",
+                "/conversation delete-many <id> <id>... [--recursive]",
                 "/conversation range [<id>] <from> <to>",
                 "/conversation range [<id>] <from>:<to>",
                 "/conversation usage [<id>] [<from>:<to>|last <n>]",
@@ -1790,6 +1797,26 @@ fn handle_conversation_slash(app: &mut App, rest: &str) {
                 text: format!("Conversation delete failed: {err}"),
             }),
         },
+        "delete-many-plan" | "delete-bulk-plan" | "bulk-delete-plan" => {
+            match parse_conversation_delete_many_args(args)
+                .and_then(|(ids, recursive)| conversation_delete_many_plan_review_value(&ids, recursive))
+            {
+                Ok(plan) => push_conversation_delete_plan(app, &plan),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Conversation bulk delete plan failed: {err}"),
+                }),
+            }
+        }
+        "delete-many" | "delete-bulk" | "bulk-delete" => {
+            match prepare_conversation_delete_many(app, args) {
+                Ok(()) => {}
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Conversation bulk delete failed: {err}"),
+                }),
+            }
+        }
         "range" | "range-preview" => match parse_conversation_range_args_with_selected(
             args,
             app.selected_conversation_id.as_deref(),
@@ -1836,7 +1863,7 @@ fn handle_conversation_slash(app: &mut App, rest: &str) {
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Conversation command needs recover, tree, browse, select, policy, delete-plan, delete, range, usage, memory, range-delete, confirm, cancel, or help.".into(),
+            text: "Conversation command needs recover, tree, browse, select, policy, delete-plan, delete, delete-many-plan, delete-many, range, usage, memory, range-delete, confirm, cancel, or help.".into(),
         }),
     }
 }
@@ -2436,6 +2463,24 @@ fn parse_conversation_delete_plan_args_with_selected(
     Ok((id, recursive))
 }
 
+fn parse_conversation_delete_many_args(rest: &str) -> anyhow::Result<(Vec<String>, bool)> {
+    let mut ids = Vec::new();
+    let mut recursive = false;
+    for part in rest.split_whitespace() {
+        match part {
+            "--recursive" | "-r" => recursive = true,
+            other if other.starts_with("--") => {
+                anyhow::bail!("unexpected delete-many argument: {other}");
+            }
+            id => ids.push(id.to_string()),
+        }
+    }
+    if ids.is_empty() {
+        anyhow::bail!("delete-many command needs at least one conversation id");
+    }
+    Ok((ids, recursive))
+}
+
 fn push_conversation_delete_plan(app: &mut App, plan: &serde_json::Value) {
     let delete_count = plan["delete_count"].as_u64().unwrap_or_default();
     let recursive = plan["recursive"].as_bool() == Some(true);
@@ -2514,6 +2559,31 @@ fn prepare_conversation_delete(app: &mut App, args: &str) -> anyhow::Result<()> 
     push_event(
         app,
         "Pending conversation delete. Use /conversation confirm or /conversation cancel."
+            .to_string(),
+    );
+    Ok(())
+}
+
+fn prepare_conversation_delete_many(app: &mut App, args: &str) -> anyhow::Result<()> {
+    let (ids, recursive) = parse_conversation_delete_many_args(args)?;
+    let plan = conversation_delete_many_plan_review_value(&ids, recursive)?;
+    let delete_ids = plan["delete_ids"]
+        .as_array()
+        .map(|ids| {
+            ids.iter()
+                .filter_map(|id| id.as_str().map(str::to_string))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    push_conversation_delete_plan(app, &plan);
+    app.pending_conversation_action = Some(PendingConversationAction::DeleteMany {
+        ids,
+        recursive,
+        delete_ids,
+    });
+    push_event(
+        app,
+        "Pending bulk conversation delete. Use /conversation confirm or /conversation cancel."
             .to_string(),
     );
     Ok(())
@@ -2893,6 +2963,51 @@ fn confirm_conversation_action(app: &mut App) -> anyhow::Result<()> {
                 });
             }
         }
+        PendingConversationAction::DeleteMany {
+            ids,
+            recursive,
+            delete_ids,
+        } => {
+            let store = ConversationStore::from_env();
+            let planned = store.deletion_plan(&ids, recursive)?;
+            let run_ids = conversation_run_ids_for_docs_from_tui(&store, &planned)?;
+            let deleted = store.delete_many(&ids, recursive)?;
+            if app
+                .selected_conversation_id
+                .as_ref()
+                .is_some_and(|selected| deleted.contains(selected))
+            {
+                app.selected_conversation_id = None;
+            }
+            let (deleted_compactions, deleted_memories, deleted_artifacts) =
+                cleanup_deleted_conversation_side_data_from_tui(&deleted, &run_ids)?;
+            push_event(
+                app,
+                format!(
+                    "Deleted {} conversation branch(es): {}",
+                    deleted.len(),
+                    deleted.join(", ")
+                ),
+            );
+            if deleted != delete_ids {
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Event,
+                    text: format!(
+                        "Delete plan changed before confirmation; planned {}, deleted {}.",
+                        delete_ids.len(),
+                        deleted.len()
+                    ),
+                });
+            }
+            if deleted_compactions > 0 || deleted_memories > 0 || deleted_artifacts > 0 {
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Event,
+                    text: format!(
+                        "Deleted {deleted_compactions} linked compaction artifact(s), {deleted_memories} linked memory record(s), and {deleted_artifacts} linked generated artifact(s)."
+                    ),
+                });
+            }
+        }
         PendingConversationAction::DeleteRange {
             id,
             from,
@@ -2948,6 +3063,28 @@ fn conversation_delete_plan_review_value(
         planned_conversation_side_effects_from_tui(&store, &delete_ids)?;
     Ok(serde_json::json!({
         "conversation_id": id,
+        "recursive": recursive,
+        "delete_count": delete_ids.len(),
+        "delete_ids": delete_ids,
+        "linked_compactions": linked_compactions,
+        "linked_memories": linked_memories,
+        "linked_generated_artifacts": linked_generated_artifacts,
+        "confirm_command": "/conversation confirm",
+        "cancel_command": "/conversation cancel",
+    }))
+}
+
+fn conversation_delete_many_plan_review_value(
+    ids: &[String],
+    recursive: bool,
+) -> anyhow::Result<serde_json::Value> {
+    let store = ConversationStore::from_env();
+    let delete_ids = store.deletion_plan(ids, recursive)?;
+    let (linked_compactions, linked_memories, linked_generated_artifacts) =
+        planned_conversation_side_effects_from_tui(&store, &delete_ids)?;
+    Ok(serde_json::json!({
+        "requested": "multiple",
+        "requested_ids": ids,
         "recursive": recursive,
         "delete_count": delete_ids.len(),
         "delete_ids": delete_ids,
@@ -14128,6 +14265,20 @@ mod tests {
     }
 
     #[test]
+    fn conversation_delete_many_args_accept_multiple_ids() {
+        assert_eq!(
+            parse_conversation_delete_many_args("conv-1 conv-2 --recursive").unwrap(),
+            (vec!["conv-1".into(), "conv-2".into()], true)
+        );
+        assert_eq!(
+            parse_conversation_delete_many_args("conv-1 -r").unwrap(),
+            (vec!["conv-1".into()], true)
+        );
+        assert!(parse_conversation_delete_many_args("").is_err());
+        assert!(parse_conversation_delete_many_args("conv-1 --force").is_err());
+    }
+
+    #[test]
     fn conversation_confirm_delete_cleans_linked_side_data() {
         let _home = HarnessHomeGuard::new();
         let store = ConversationStore::from_env();
@@ -14169,6 +14320,64 @@ mod tests {
                 .show(&conversation.id)
                 .is_err()
         );
+        assert!(CompactionStore::from_env().show(&compaction.id).is_err());
+        assert!(MemoryStore::from_env().get(&memory.id).is_err());
+        assert_eq!(app.selected_conversation_id, None);
+        assert!(app.transcript.iter().any(|line| {
+            matches!(line.kind, LineKind::Event)
+                && line
+                    .text
+                    .contains("Deleted 1 linked compaction artifact(s)")
+                && line.text.contains("1 linked memory record(s)")
+        }));
+    }
+
+    #[test]
+    fn conversation_confirm_delete_many_cleans_linked_side_data() {
+        let _home = HarnessHomeGuard::new();
+        let store = ConversationStore::from_env();
+        let first = store
+            .create(Some("Delete first".into()), Some("agent-a".into()))
+            .unwrap();
+        let second = store
+            .create(Some("Delete second".into()), Some("agent-a".into()))
+            .unwrap();
+        let keep = store
+            .create(Some("Keep".into()), Some("agent-a".into()))
+            .unwrap();
+        let compaction = CompactionStore::from_env()
+            .create_from_text_for_conversation(
+                "linked compacted context",
+                None,
+                None,
+                Some("test".into()),
+                Some(first.id.clone()),
+            )
+            .unwrap();
+        let memory = MemoryStore::from_env()
+            .create_for_conversation(
+                MemoryTarget::Agent,
+                "Remember linked context",
+                MemoryAuthor::Model,
+                None,
+                Some(second.id.clone()),
+            )
+            .unwrap();
+        let mut app = App {
+            selected_conversation_id: Some(first.id.clone()),
+            pending_conversation_action: Some(PendingConversationAction::DeleteMany {
+                ids: vec![first.id.clone(), second.id.clone()],
+                recursive: false,
+                delete_ids: vec![first.id.clone(), second.id.clone()],
+            }),
+            ..App::default()
+        };
+
+        confirm_conversation_action(&mut app).unwrap();
+
+        assert!(ConversationStore::from_env().show(&first.id).is_err());
+        assert!(ConversationStore::from_env().show(&second.id).is_err());
+        assert!(ConversationStore::from_env().show(&keep.id).is_ok());
         assert!(CompactionStore::from_env().show(&compaction.id).is_err());
         assert!(MemoryStore::from_env().get(&memory.id).is_err());
         assert_eq!(app.selected_conversation_id, None);

@@ -1372,7 +1372,7 @@ fn handle_slash_command(
         return true;
     }
     if let Some(rest) = ingest_slash_rest(trimmed) {
-        handle_ingest_slash(app, rest, registry, line_tx, options);
+        handle_ingest_slash(app, rest, registry, agent, line_tx, options);
         return true;
     }
     if let Some(rest) = approval_slash_rest(trimmed) {
@@ -4472,8 +4472,9 @@ fn handle_ingest_slash(
     app: &mut App,
     rest: &str,
     registry: &Arc<ToolRegistry>,
+    agent: &mut AgentConfig,
     line_tx: &UnboundedSender<TranscriptLine>,
-    options: &setup::RuntimeOptions,
+    options: &mut setup::RuntimeOptions,
 ) {
     let rest = rest.trim();
     if slash_help_rest(rest) {
@@ -4482,6 +4483,10 @@ fn handle_ingest_slash(
             text: [
                 "/ingest list",
                 "/ingest backends",
+                "/ingest status",
+                "/ingest use <id>",
+                "/ingest include <id>",
+                "/ingest exclude <id>",
                 "/ingest show <id>",
                 "/ingest add <path> [--backend <backend>] [--vision-model <model>] [--guardrail-model <model>]",
                 "/ingest rerun <id> [--backend <backend>] [--vision-model <model>] [--guardrail-model <model>]",
@@ -4489,7 +4494,7 @@ fn handle_ingest_slash(
                 "/ingest probe-vision <path> --model <model>",
                 "/ingest preview <id> [prompt]",
                 "/ingest review <id> <finding-index> <acknowledge|approve|reject> [note]",
-                "/ingest delete <id> --confirm",
+                "/ingest delete|remove|rm <id> --confirm",
             ]
             .join("\n"),
         });
@@ -4541,6 +4546,79 @@ fn handle_ingest_slash(
                     .unwrap_or_else(|_| "<unserializable ingestion backends>".into()),
             });
         }
+        "status" => {
+            if !args.is_empty() {
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: "ingest status accepts no arguments".into(),
+                });
+                return;
+            }
+            push_event(
+                app,
+                format!(
+                    "Runtime ingestion includes {} artifact(s).",
+                    options.include_ingest.len()
+                ),
+            );
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: serde_json::to_string_pretty(&serde_json::json!({
+                    "include_ingest": &options.include_ingest,
+                }))
+                .unwrap_or_else(|_| "<unserializable ingestion status>".into()),
+            });
+        }
+        "use" | "include" => match single_ingest_id_arg(args, command) {
+            Ok(id) => match IngestionStore::from_env().show(id) {
+                Ok(artifact) => {
+                    if !options.include_ingest.iter().any(|existing| existing == id) {
+                        options.include_ingest.push(id.to_string());
+                    }
+                    refresh_agent_runtime_policy(app, agent, options);
+                    if artifact.has_unapproved_high_risk_findings() {
+                        push_event(
+                            app,
+                            format!(
+                                "Ingestion artifact {id} selected; guardrail policy may withhold high-risk content."
+                            ),
+                        );
+                    } else {
+                        push_event(
+                            app,
+                            format!("Ingestion artifact will be included in future TUI context: {id}"),
+                        );
+                    }
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Ingest include failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "exclude" => match single_ingest_id_arg(args, "exclude") {
+            Ok(id) => {
+                let before = options.include_ingest.len();
+                options.include_ingest.retain(|existing| existing != id);
+                refresh_agent_runtime_policy(app, agent, options);
+                if options.include_ingest.len() == before {
+                    push_event(app, format!("Ingestion artifact was not included: {id}"));
+                } else {
+                    push_event(
+                        app,
+                        format!("Ingestion artifact excluded from future TUI context: {id}"),
+                    );
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
         "show" => match first_ingest_arg(args, "show") {
             Ok(id) => match IngestionStore::from_env().show(id) {
                 Ok(artifact) => app.transcript.push(TranscriptLine {
@@ -4731,9 +4809,16 @@ fn handle_ingest_slash(
                 text: err.to_string(),
             }),
         },
-        "delete" | "rm" => match ingest_delete_args(args) {
+        "delete" | "remove" | "rm" => match ingest_delete_args(args) {
             Ok((id, true)) => match IngestionStore::from_env().remove(id) {
-                Ok(()) => push_event(app, format!("Removed ingestion artifact {id}")),
+                Ok(()) => {
+                    let before = options.include_ingest.len();
+                    options.include_ingest.retain(|existing| existing != id);
+                    if options.include_ingest.len() != before {
+                        refresh_agent_runtime_policy(app, agent, options);
+                    }
+                    push_event(app, format!("Removed ingestion artifact {id}"));
+                }
                 Err(err) => app.transcript.push(TranscriptLine {
                     kind: LineKind::Error,
                     text: format!("Ingest delete failed: {err}"),
@@ -4755,7 +4840,7 @@ fn handle_ingest_slash(
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Ingest command needs list, backends, show, preview, add, rerun, probe-source, probe-vision, review, delete, or help.".into(),
+            text: "Ingest command needs list, backends, status, use, include, exclude, show, preview, add, rerun, probe-source, probe-vision, review, delete, or help.".into(),
         }),
     }
 }
@@ -4764,6 +4849,17 @@ fn first_ingest_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str>
     args.split_whitespace()
         .next()
         .ok_or_else(|| anyhow::anyhow!("ingest {command} needs an argument"))
+}
+
+fn single_ingest_id_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
+    let mut parts = args.split_whitespace();
+    let id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("usage: /ingest {command} <id>"))?;
+    if let Some(extra) = parts.next() {
+        anyhow::bail!("usage: /ingest {command} <id>, unexpected {extra:?}");
+    }
+    Ok(id)
 }
 
 fn ingest_preview_args(args: &str) -> anyhow::Result<(&str, &str)> {
@@ -12136,8 +12232,18 @@ mod tests {
         assert_eq!(artifacts_slash_rest("/artifactx"), None);
         assert_eq!(ingest_slash_rest("/ingest list"), Some("list"));
         assert_eq!(ingest_slash_rest("/ingest backends"), Some("backends"));
+        assert_eq!(
+            ingest_slash_rest("/ingest include artifact-1"),
+            Some("include artifact-1")
+        );
         assert_eq!(ingest_slash_rest("/ingest"), Some(""));
         assert_eq!(ingest_slash_rest("/ingester"), None);
+        assert_eq!(
+            single_ingest_id_arg("artifact-1", "include").unwrap(),
+            "artifact-1"
+        );
+        assert!(single_ingest_id_arg("", "include").is_err());
+        assert!(single_ingest_id_arg("artifact-1 extra", "include").is_err());
         assert_eq!(
             ingest_preview_args("artifact-1 summarize the doc").unwrap(),
             ("artifact-1", "summarize the doc")

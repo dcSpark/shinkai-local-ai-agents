@@ -195,6 +195,7 @@ pub async fn run(
         Some(SlashCommand::Preview { prompt }) => {
             return preview_context_text(prompt, json, options).await;
         }
+        Some(SlashCommand::StopStatus) => return stop_status(&options, json),
         Some(SlashCommand::ShellStatus) => return shell_status(&options, json),
         Some(SlashCommand::SubagentStatus) => return subagent_status(&options, json),
         Some(SlashCommand::VoiceStatus) => return voice_status(&options, json),
@@ -9138,6 +9139,7 @@ enum SlashCommand {
     Preview {
         prompt: String,
     },
+    StopStatus,
     ShellStatus,
     SubagentStatus,
     VoiceStatus,
@@ -9760,6 +9762,17 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         )
         .map(Some);
     }
+    if stop_status_slash_command(trimmed) {
+        return Ok(Some(SlashCommand::StopStatus));
+    }
+    if stop_help_slash_command(trimmed) {
+        return Ok(Some(SlashCommand::Help));
+    }
+    if stop_slash_rest(trimmed).is_some() {
+        anyhow::bail!(
+            "headless stop shortcut supports status/help; use `agent cancel <run-id|last>` to stop persisted runs"
+        );
+    }
     if let Some(rest) = hooks_slash_rest(trimmed) {
         if slash_family_help_rest(rest) {
             return Ok(Some(SlashCommand::Help));
@@ -9996,6 +10009,44 @@ fn print_slash_help(json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn stop_status(options: &setup::RuntimeOptions, json: bool) -> anyhow::Result<()> {
+    let configured = options
+        .agent_id
+        .as_deref()
+        .and_then(configured_stop_retention_mode);
+    let effective = configured.unwrap_or(StopRetentionMode::Discard);
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "agent_id": options.agent_id.as_deref(),
+                "configured_stop_retention_mode": configured.map(StopRetentionMode::as_str),
+                "effective_stop_retention_mode": effective.as_str(),
+                "active_run_available": false,
+                "shortcut": "/stop status",
+                "cancel_command": "agent cancel <run-id|last> [--mode discard|summarise]"
+            }))?
+        );
+        return Ok(());
+    }
+    println!("stop retention: {}", effective.as_str());
+    if let Some(agent_id) = options.agent_id.as_deref() {
+        println!(
+            "agent: {agent_id}{}",
+            if configured.is_some() {
+                " (configured)"
+            } else {
+                " (default)"
+            }
+        );
+    } else {
+        println!("agent: none (default)");
+    }
+    println!("headless slash input cannot stop an active in-process run");
+    println!("stop persisted runs with: agent cancel <run-id|last> [--mode discard|summarise]");
+    Ok(())
+}
+
 fn voice_status(options: &setup::RuntimeOptions, json: bool) -> anyhow::Result<()> {
     let agent = setup::build_agent(options);
     let voice = agent.voice;
@@ -10205,6 +10256,7 @@ fn headless_slash_help_text() -> &'static str {
      - /trace list [limit|--limit N], /trace [summary|tree|hooks|scores|prompt] [last|run-id], /scores [last|run-id], /compare <last|run-id> <last|run-id>, /replay <last|run-id>\n\
      - /preview [prompt] - inspect context before running\n\
      - /usage last, /usage trace|run [last|run-id], /usage conversation <id> [from:to|last N|--from N --to N|--last N]\n\
+     - /stop status - inspect stopped-run summary retention; use `agent cancel` to stop persisted runs\n\
      - /hooks list|policy|available|review|disable|enable\n\
      - /storage report, /storage prune-cache <days> [--apply]\n\
      - /bundles export <path>, /bundles import <path> --confirm\n\
@@ -10310,6 +10362,22 @@ fn score_help_slash_command(trimmed: &str) -> bool {
         trimmed,
         "/score" | "/score help" | "/score --help" | "/scores help" | "/scores --help"
     )
+}
+
+fn stop_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/stop" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/stop ").map(str::trim)
+    }
+}
+
+fn stop_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/stop help" | "/stop --help")
+}
+
+fn stop_status_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/stop status")
 }
 
 fn voice_help_slash_command(trimmed: &str) -> bool {
@@ -13400,6 +13468,8 @@ mod slash_tests {
             "/usage",
             "/usage help",
             "/usage --help",
+            "/stop help",
+            "/stop --help",
             "/guide help",
             "/guide --help",
             "/score",
@@ -13461,6 +13531,18 @@ mod slash_tests {
         assert!(!guide_help_slash_command("/guide helper"));
         assert!(!score_help_slash_command("/score helper"));
         assert!(!score_help_slash_command("/scores helper"));
+        assert!(stop_status_slash_command("/stop status"));
+        assert!(!stop_status_slash_command("/stop status now"));
+        assert!(stop_help_slash_command("/stop help"));
+        assert!(stop_help_slash_command("/stop --help"));
+        assert!(!stop_help_slash_command("/stop helper"));
+        assert!(stop_slash_rest("/stopped").is_none());
+        assert!(matches!(
+            parse_slash_command("/stop status").unwrap(),
+            Some(SlashCommand::StopStatus)
+        ));
+        assert!(parse_slash_command("/stop").is_err());
+        assert!(parse_slash_command("/stop changed my mind").is_err());
         assert!(!voice_help_slash_command("/voice helper"));
         assert!(shell_status_slash_command("/shell"));
         assert!(shell_status_slash_command("/shell status"));
@@ -13483,6 +13565,7 @@ mod slash_tests {
         let help = headless_slash_help_text();
         assert!(help.contains("/tool! <name> <json>"));
         assert!(help.contains("/python <code>"));
+        assert!(help.contains("/stop status"));
         assert!(help.contains("/voice status, /voice transcribe <path>"));
         assert!(help.contains("/batch files <paths>, /batch folder <path>"));
         assert!(help.contains("/x402 request"));

@@ -1182,6 +1182,9 @@ enum AgentCommand {
         /// Optional model id used for prompt refinement.
         #[arg(long = "refinement-model")]
         refinement_model: Option<String>,
+        /// JSON array of additional id/when prompt refinement rules.
+        #[arg(long = "refinement-rules-json")]
+        refinement_rules_json: Option<String>,
         /// Include prompt refinement guidance in the agent's system prompt.
         #[arg(long = "refinement-aware")]
         refinement_aware: bool,
@@ -3774,6 +3777,8 @@ enum RemoteAgentCommand {
         refinement_instructions: Option<String>,
         #[arg(long = "refinement-model")]
         refinement_model: Option<String>,
+        #[arg(long = "refinement-rules-json")]
+        refinement_rules_json: Option<String>,
         #[arg(long = "refinement-aware")]
         refinement_aware: bool,
     },
@@ -4969,6 +4974,8 @@ mod cli_parse_tests {
             "Clarify first.",
             "--refinement-model",
             "fake-refiner",
+            "--refinement-rules-json",
+            r#"[{"id":"support","when":"support request","instructions":"Ask for account context first.","agent_awareness":true}]"#,
             "--refinement-aware",
         ])
         .unwrap();
@@ -5011,6 +5018,7 @@ mod cli_parse_tests {
                     ingestion_guardrail_model,
                     refinement_instructions,
                     refinement_model,
+                    refinement_rules_json,
                     refinement_aware,
                     ..
                 },
@@ -5083,6 +5091,12 @@ mod cli_parse_tests {
             Some("guardrail-model")
         );
         assert_eq!(refinement_instructions.as_deref(), Some("Clarify first."));
+        assert_eq!(
+            refinement_rules_json.as_deref(),
+            Some(
+                r#"[{"id":"support","when":"support request","instructions":"Ask for account context first.","agent_awareness":true}]"#
+            )
+        );
         assert_eq!(refinement_model.as_deref(), Some("fake-refiner"));
         assert!(refinement_aware);
     }
@@ -5144,6 +5158,8 @@ mod cli_parse_tests {
             "guardrail-model",
             "--refinement-instructions",
             "Clarify first.",
+            "--refinement-rules-json",
+            r#"[{"id":"support","when":"support request","instructions":"Ask for account context first.","agent_awareness":true}]"#,
             "--refinement-aware",
         ])
         .unwrap();
@@ -5176,6 +5192,7 @@ mod cli_parse_tests {
                     ingestion_guardrail,
                     ingestion_guardrail_model,
                     refinement_instructions,
+                    refinement_rules_json,
                     refinement_aware,
                     ..
                 },
@@ -5227,6 +5244,12 @@ mod cli_parse_tests {
             Some("guardrail-model")
         );
         assert_eq!(refinement_instructions.as_deref(), Some("Clarify first."));
+        assert_eq!(
+            refinement_rules_json.as_deref(),
+            Some(
+                r#"[{"id":"support","when":"support request","instructions":"Ask for account context first.","agent_awareness":true}]"#
+            )
+        );
         assert!(refinement_aware);
     }
 
@@ -8555,6 +8578,7 @@ async fn main() -> anyhow::Result<()> {
                 output_cost_per_million,
                 refinement_instructions,
                 refinement_model,
+                refinement_rules_json,
                 refinement_aware,
             } => {
                 headless::agent_save(
@@ -8597,6 +8621,7 @@ async fn main() -> anyhow::Result<()> {
                     output_cost_per_million,
                     refinement_instructions,
                     refinement_model,
+                    refinement_rules_json,
                     refinement_aware,
                 )
                 .await
@@ -9542,6 +9567,7 @@ async fn main() -> anyhow::Result<()> {
                     output_cost_per_million,
                     refinement_instructions,
                     refinement_model,
+                    refinement_rules_json,
                     refinement_aware,
                 } => {
                     headless::remote_agent_save(
@@ -9585,6 +9611,7 @@ async fn main() -> anyhow::Result<()> {
                         output_cost_per_million,
                         refinement_instructions,
                         refinement_model,
+                        refinement_rules_json,
                         refinement_aware,
                     )
                     .await

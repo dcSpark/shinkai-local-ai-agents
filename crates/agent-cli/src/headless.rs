@@ -4598,6 +4598,7 @@ pub async fn agent_save(
     output_cost_per_million: Option<f64>,
     refinement_instructions: Option<String>,
     refinement_model: Option<String>,
+    refinement_rules_json: Option<String>,
     refinement_aware: bool,
 ) -> anyhow::Result<()> {
     let agent = agent_config_from_parts(
@@ -4640,6 +4641,7 @@ pub async fn agent_save(
         output_cost_per_million,
         refinement_instructions,
         refinement_model,
+        refinement_rules_json,
         refinement_aware,
     )?;
     println!(
@@ -4725,10 +4727,12 @@ fn agent_config_from_parts(
     output_cost_per_million: Option<f64>,
     refinement_instructions: Option<String>,
     refinement_model: Option<String>,
+    refinement_rules_json: Option<String>,
     refinement_aware: bool,
 ) -> anyhow::Result<AgentConfigFile> {
     let prompt_refinement =
         prompt_refinement_config(refinement_instructions, refinement_model, refinement_aware)?;
+    let prompt_refinements = prompt_refinements_config(refinement_rules_json)?;
     let tool_overrides = parse_tool_output_overrides(
         tool_output_overrides,
         tool_interpretation_model_overrides,
@@ -4744,7 +4748,7 @@ fn agent_config_from_parts(
         name: name.unwrap_or(id),
         system_prompt,
         prompt_refinement,
-        prompt_refinements: Vec::new(),
+        prompt_refinements,
         tool_overrides,
         skill_overrides,
         voice: None,
@@ -4807,6 +4811,21 @@ fn prompt_refinement_config(
         model: refinement_model,
         agent_awareness: refinement_aware,
     }))
+}
+
+fn prompt_refinements_config(
+    refinement_rules_json: Option<String>,
+) -> anyhow::Result<Vec<AgentPromptRefinementConfig>> {
+    let Some(value) = refinement_rules_json else {
+        return Ok(Vec::new());
+    };
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("--refinement-rules-json cannot be empty");
+    }
+    let rules = serde_json::from_str::<Vec<AgentPromptRefinementConfig>>(trimmed)
+        .map_err(|err| anyhow::anyhow!("--refinement-rules-json must be a JSON array: {err}"))?;
+    Ok(rules)
 }
 
 fn parse_tool_output_overrides(
@@ -7816,6 +7835,7 @@ pub async fn remote_agent_save(
     output_cost_per_million: Option<f64>,
     refinement_instructions: Option<String>,
     refinement_model: Option<String>,
+    refinement_rules_json: Option<String>,
     refinement_aware: bool,
 ) -> anyhow::Result<()> {
     let agent = agent_config_from_parts(
@@ -7858,6 +7878,7 @@ pub async fn remote_agent_save(
         output_cost_per_million,
         refinement_instructions,
         refinement_model,
+        refinement_rules_json,
         refinement_aware,
     )?;
     print_remote(DaemonHttpClient::new(url).post_json("/agents", serde_json::to_value(agent)?)?)
@@ -17053,6 +17074,7 @@ mod slash_tests {
             None,
             None,
             None,
+            None,
             false,
         )
         .unwrap();
@@ -17071,6 +17093,22 @@ mod slash_tests {
         );
         assert_eq!(agent.memory_backend.as_deref(), Some("local-markdown-v0"));
         assert_eq!(agent.memory_model.as_deref(), Some("memory-classifier"));
+    }
+
+    #[test]
+    fn prompt_refinements_config_parses_json_rules() {
+        let rules = prompt_refinements_config(Some(
+            r#"[{"id":"support","when":"support request","instructions":"Ask for account context first.","model":"small-refiner","agent_awareness":true}]"#
+                .into(),
+        ))
+        .unwrap();
+
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].id.as_deref(), Some("support"));
+        assert_eq!(rules[0].when.as_deref(), Some("support request"));
+        assert_eq!(rules[0].instructions, "Ask for account context first.");
+        assert_eq!(rules[0].model.as_deref(), Some("small-refiner"));
+        assert!(rules[0].agent_awareness);
     }
 
     #[test]
@@ -17109,6 +17147,7 @@ mod slash_tests {
             None,
             None,
             false,
+            None,
             None,
             None,
             None,
@@ -17163,6 +17202,7 @@ mod slash_tests {
             None,
             None,
             false,
+            None,
             None,
             None,
             None,

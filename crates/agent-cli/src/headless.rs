@@ -10075,10 +10075,13 @@ fn parse_code_slash_command(text: &str) -> anyhow::Result<Option<(String, String
 fn code_help_slash_command(trimmed: &str) -> bool {
     matches!(
         trimmed,
-        "/python help"
+        "/python"
+            | "/python help"
             | "/python --help"
+            | "/typescript"
             | "/typescript help"
             | "/typescript --help"
+            | "/ts"
             | "/ts help"
             | "/ts --help"
     )
@@ -12840,10 +12843,13 @@ mod slash_tests {
             "/batch --help",
             "/resume-batch help",
             "/resume-batch --help",
+            "/python",
             "/python help",
             "/python --help",
+            "/typescript",
             "/typescript help",
             "/typescript --help",
+            "/ts",
             "/ts help",
             "/ts --help",
             "/tool help",
@@ -15299,7 +15305,10 @@ mod slash_tests {
             }
             _ => panic!("expected direct code tool command"),
         }
-        assert!(parse_slash_command("/python").is_err());
+        assert!(matches!(
+            parse_slash_command("/python").unwrap(),
+            Some(SlashCommand::Help)
+        ));
         assert!(
             parse_slash_command("/pythonista print(1)")
                 .unwrap()

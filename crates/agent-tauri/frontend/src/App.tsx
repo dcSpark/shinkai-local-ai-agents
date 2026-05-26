@@ -6750,7 +6750,9 @@ export default function App() {
     }
 
     if (prompt === "/python" || prompt === "/typescript" || prompt === "/ts") {
-      appendLine("error", "Code shortcut needs code text.");
+      setInput("");
+      appendLine("user", prompt);
+      appendLine("assistant", codeShortcutHelpText());
       return;
     }
     if (

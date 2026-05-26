@@ -1010,10 +1010,13 @@ fn agent_switch_slash_help_text() -> &'static str {
 fn code_help_slash_command(trimmed: &str) -> bool {
     matches!(
         trimmed,
-        "/python help"
+        "/python"
+            | "/python help"
             | "/python --help"
+            | "/typescript"
             | "/typescript help"
             | "/typescript --help"
+            | "/ts"
             | "/ts help"
             | "/ts --help"
     )
@@ -11211,10 +11214,13 @@ mod tests {
         assert!(!agent_help_slash_command("/agents help"));
         assert!(!agent_help_slash_command("/agent helpful"));
         assert!(agent_switch_slash_help_text().contains("/agent <saved-agent-id>"));
+        assert!(code_help_slash_command("/python"));
         assert!(code_help_slash_command("/python help"));
         assert!(code_help_slash_command("/python --help"));
+        assert!(code_help_slash_command("/typescript"));
         assert!(code_help_slash_command("/typescript help"));
         assert!(code_help_slash_command("/typescript --help"));
+        assert!(code_help_slash_command("/ts"));
         assert!(code_help_slash_command("/ts help"));
         assert!(code_help_slash_command("/ts --help"));
         assert!(!code_help_slash_command("/python helpful"));

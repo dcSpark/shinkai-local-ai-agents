@@ -297,6 +297,13 @@ The init helper preflights platform SDK tools and Rust mobile targets before it
 generates Tauri mobile projects, so install any reported prerequisite before
 rerunning it.
 
+To check prerequisites without creating or updating generated mobile project
+files, add `--preflight-only`:
+
+```bash
+scripts/init-mobile-packaging.sh --platform=android --preflight-only
+```
+
 Signed mobile builds also run `scripts/prepare-mobile-signing.sh` in CI after
 initialization. Android uses the `ANDROID_KEYSTORE_BASE64`,
 `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`

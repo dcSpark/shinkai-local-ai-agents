@@ -198,6 +198,7 @@ assert(fs.existsSync("scripts/init-mobile-packaging.sh"), "mobile packaging init
 const initScript = fs.readFileSync("scripts/init-mobile-packaging.sh", "utf8");
 assert(initScript.includes('run tauri -- "$target" init'), "mobile init helper must call Tauri mobile init");
 assert(initScript.includes("preflight_platform"), "mobile init helper must preflight platform prerequisites");
+assert(initScript.includes("--preflight-only"), "mobile init helper must expose a preflight-only mode");
 assert(initScript.includes("--ci --skip-targets-install"), "mobile init helper must run Tauri init non-interactively after target preflight");
 assert(initScript.includes("init_platform android"), "mobile init helper must initialize Android");
 assert(initScript.includes("init_platform ios"), "mobile init helper must initialize iOS");

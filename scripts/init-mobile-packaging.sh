@@ -5,18 +5,25 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 platform="all"
+preflight_only=false
 
 for arg in "$@"; do
   case "$arg" in
     --platform=android|--platform=ios|--platform=all)
       platform="${arg#--platform=}"
       ;;
+    --preflight-only)
+      preflight_only=true
+      ;;
     -h|--help)
       cat <<'EOF'
-usage: scripts/init-mobile-packaging.sh [--platform=android|ios|all]
+usage: scripts/init-mobile-packaging.sh [--platform=android|ios|all] [--preflight-only]
 
 Initializes the generated Tauri mobile project(s), then runs strict packaging
 verification for each selected platform.
+
+With --preflight-only, checks platform SDK tools and Rust mobile targets without
+running Tauri init or writing generated project files.
 EOF
       exit 0
       ;;
@@ -88,6 +95,11 @@ init_platform() {
 
   echo "preflighting ${target} mobile packaging prerequisites"
   preflight_platform "$target"
+
+  if [[ "$preflight_only" == true ]]; then
+    echo "${target} mobile packaging prerequisites are ready"
+    return
+  fi
 
   echo "initializing ${target} Tauri mobile project"
   npm --prefix crates/agent-tauri/frontend run tauri -- "$target" init --ci --skip-targets-install

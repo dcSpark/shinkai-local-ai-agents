@@ -8097,6 +8097,10 @@ pub async fn remote_artifact_show(url: String, id: String) -> anyhow::Result<()>
     print_remote(DaemonHttpClient::new(url).get_json(&format!("/artifacts/{id}"))?)
 }
 
+pub async fn remote_artifact_preview(url: String, id: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).get_json(&format!("/artifacts/{id}/data-url"))?)
+}
+
 pub async fn remote_artifact_open(url: String, id: String) -> anyhow::Result<()> {
     print_remote(
         DaemonHttpClient::new(url)

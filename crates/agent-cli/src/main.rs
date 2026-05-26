@@ -3854,6 +3854,9 @@ enum RemoteArtifactCommand {
     Show {
         id: String,
     },
+    Preview {
+        id: String,
+    },
     Open {
         id: String,
     },
@@ -7282,6 +7285,15 @@ mod cli_parse_tests {
         };
         assert_eq!(id, "report.pdf");
 
+        let cli = parse_cli(["agent", "remote", "artifact", "preview", "report.pdf"]).unwrap();
+        let RemoteCommand::Artifact {
+            command: RemoteArtifactCommand::Preview { id },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote artifact preview command");
+        };
+        assert_eq!(id, "report.pdf");
+
         let cli = parse_cli([
             "agent",
             "remote",
@@ -9356,6 +9368,9 @@ async fn main() -> anyhow::Result<()> {
                     .await
                 }
                 RemoteArtifactCommand::Show { id } => headless::remote_artifact_show(url, id).await,
+                RemoteArtifactCommand::Preview { id } => {
+                    headless::remote_artifact_preview(url, id).await
+                }
                 RemoteArtifactCommand::Open { id } => headless::remote_artifact_open(url, id).await,
                 RemoteArtifactCommand::Export { id, path } => {
                     headless::remote_artifact_export(url, id, path).await

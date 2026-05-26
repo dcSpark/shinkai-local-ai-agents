@@ -2150,7 +2150,7 @@ enum CompactCommand {
     },
     /// Keep the auto-compacted context emitted by a completed run.
     KeepRun {
-        /// Run id that emitted an auto-compacted ContextBuilt event.
+        /// Run id that emitted an auto-compacted ContextBuilt event, or `last`.
         run_id: String,
 
         /// Conversation this compaction should be linked to.
@@ -3473,7 +3473,7 @@ enum RemoteCompactCommand {
     },
     /// Keep the auto-compacted context emitted by a completed daemon run.
     KeepRun {
-        /// Run id that emitted an auto-compacted ContextBuilt event.
+        /// Run id that emitted an auto-compacted ContextBuilt event, or `last`.
         run_id: String,
 
         /// Conversation this compaction should be linked to.
@@ -5170,6 +5170,15 @@ mod cli_parse_tests {
         assert_eq!(conversation.as_deref(), Some("conv-1"));
         assert_eq!(guidance.as_deref(), Some("Keep decisions."));
         assert!(json);
+
+        let cli = parse_cli(["agent", "compact", "keep-run", "last"]).unwrap();
+        let Command::Compact {
+            command: CompactCommand::KeepRun { run_id, .. },
+        } = into_command(cli)
+        else {
+            panic!("expected compact keep-run command");
+        };
+        assert_eq!(run_id, "last");
     }
 
     #[test]
@@ -5202,6 +5211,24 @@ mod cli_parse_tests {
         assert_eq!(run_id, "00000000-0000-0000-0000-000000000001");
         assert_eq!(conversation.as_deref(), Some("conv-1"));
         assert_eq!(guidance.as_deref(), Some("Keep decisions."));
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "--url",
+            "http://127.0.0.1:7878",
+            "compact",
+            "keep-run",
+            "last",
+        ])
+        .unwrap();
+        let RemoteCommand::Compact {
+            command: RemoteCompactCommand::KeepRun { run_id, .. },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote compact keep-run command");
+        };
+        assert_eq!(run_id, "last");
     }
 
     #[test]

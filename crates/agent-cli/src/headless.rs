@@ -2665,8 +2665,10 @@ pub async fn compact_keep_run(
     guidance: Option<String>,
     json: bool,
 ) -> anyhow::Result<()> {
-    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
-    let record = keep_auto_compaction_for_run(run_id, conversation, guidance)?;
+    let store = open_event_store()?;
+    let run_id = resolve_local_run_selector(&run_id, &store)?;
+    let events = store.try_events(run_id)?;
+    let record = keep_auto_compaction_from_events(run_id, &events, conversation, guidance)?;
     if json {
         println!(
             "{}",
@@ -7450,19 +7452,19 @@ pub async fn remote_compact_keep_run(
     conversation: Option<String>,
     guidance: Option<String>,
 ) -> anyhow::Result<()> {
-    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let client = DaemonHttpClient::new(url);
+    let run_id = remote_run_selector(&client, &run_id)?;
     let events: Vec<RunEvent> =
-        serde_json::from_value(client.get_json(&format!("/trace/{}", run_id.0))?)?;
+        serde_json::from_value(client.get_json(&format!("/trace/{run_id}"))?)?;
     let Some(snapshot) = latest_auto_compaction_snapshot(&events) else {
         return print_remote(serde_json::json!({
-            "run_id": run_id.0,
+            "run_id": run_id,
             "record": null
         }));
     };
     let Some(content) = snapshot.compacted else {
         return print_remote(serde_json::json!({
-            "run_id": run_id.0,
+            "run_id": run_id,
             "record": null
         }));
     };
@@ -7471,13 +7473,13 @@ pub async fn remote_compact_keep_run(
         serde_json::json!({
             "content": content,
             "guidance": guidance,
-            "source": format!("auto-run:{}", run_id.0),
+            "source": format!("auto-run:{run_id}"),
             "conversation_id": conversation,
             "max_output_tokens": null
         }),
     )?;
     print_remote(serde_json::json!({
-        "run_id": run_id.0,
+        "run_id": run_id,
         "record": record
     }))
 }
@@ -10199,7 +10201,7 @@ fn headless_slash_help_text() -> &'static str {
      - /adapters list|doctor|inspect|import|import-manifest|show|export|install-skill|allow|quarantine|clawhub\n\
      - /models list|providers|doctor|show|probe|save|export|import|delete|provider-catalog|metadata-catalog\n\
      - /memory status|preview|list|access|backends|create|generate|generate-conversation|classify|edit|delete|rollback|export|import\n\
-     - /compact list|show|export|import|delete|keep-run, /compactions ...\n\
+     - /compact list|show|export|import|delete|keep-run [last|run-id], /compactions ...\n\
      - /guide <run-id> <text> - inject guidance into an active run\n\
      - /score <run-id> <0-10> [target] - record a quality score\n\
      Use --json to print this help as JSON."
@@ -13101,8 +13103,10 @@ fn parse_compact_slash_rest(rest: &str) -> anyhow::Result<CompactSlashCommand> {
             Ok(CompactSlashCommand::Rm { id })
         }
         "keep-run" => {
-            let run_id = next_required(&mut parts, "compact keep-run needs a run id")?;
-            let _ = uuid::Uuid::parse_str(&run_id)?;
+            let run_id = next_required(&mut parts, "compact keep-run needs last or a run id")?;
+            if run_id != "last" {
+                let _ = uuid::Uuid::parse_str(&run_id)?;
+            }
             let mut conversation = None;
             let mut guidance = None;
             while let Some(part) = parts.next() {
@@ -13468,6 +13472,7 @@ mod slash_tests {
         );
         assert!(help.contains("/artifacts list|generate|show|preview|open|export"));
         assert!(help.contains("/hooks list|policy|available|review|disable|enable"));
+        assert!(help.contains("/compact list|show|export|import|delete|keep-run [last|run-id]"));
     }
 
     #[test]
@@ -14058,6 +14063,78 @@ mod slash_tests {
         assert_eq!(
             resolve_local_run_selector(&first.0.to_string(), &store).unwrap(),
             first
+        );
+    }
+
+    #[tokio::test]
+    async fn compact_keep_run_resolves_last_trace_record() {
+        let dir = std::env::temp_dir().join(format!(
+            "headless-compact-keep-last-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let _home = HarnessHomeGuard::set(&dir);
+        let store = open_event_store().unwrap();
+        let first = RunId::new();
+        let second = RunId::new();
+        store.append(
+            first,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "first-agent".into(),
+                input: "first prompt".into(),
+            },
+        );
+        store.append(
+            second,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "second-agent".into(),
+                input: "second prompt".into(),
+            },
+        );
+        store.append(
+            second,
+            None,
+            RunEventKind::ContextBuilt {
+                snapshot: serde_json::json!({
+                    "system_prompt": "system",
+                    "conversation": [],
+                    "compacted": "<auto-compaction>latest summary</auto-compaction>",
+                    "loaded_memory": [],
+                    "loaded_artifacts": [],
+                    "visible_tools": [],
+                    "visible_skills": [],
+                    "limits": {
+                        "max_tool_calls": 5,
+                        "remaining_tool_calls": 5
+                    },
+                    "estimated_input_tokens": 12,
+                    "provenance": [{
+                        "fragment": "compacted_context",
+                        "source": "agent.context_policy.auto_compaction"
+                    }]
+                }),
+            },
+        );
+
+        compact_keep_run(
+            "last".into(),
+            Some("branch-1".into()),
+            Some("Keep latest.".into()),
+            true,
+        )
+        .await
+        .unwrap();
+
+        let records = CompactionStore::from_env().list().unwrap();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].source, format!("auto-run:{}", second.0));
+        assert_eq!(records[0].conversation_id.as_deref(), Some("branch-1"));
+        assert_eq!(records[0].guidance.as_deref(), Some("Keep latest."));
+        assert_eq!(
+            records[0].content,
+            "<auto-compaction>latest summary</auto-compaction>"
         );
     }
 
@@ -15399,6 +15476,12 @@ mod slash_tests {
                 assert_eq!(parsed, run_id);
                 assert_eq!(conversation.as_deref(), Some("branch-1"));
                 assert_eq!(guidance.as_deref(), Some("keep failures"));
+            }
+            _ => panic!("expected compact keep-run shortcut"),
+        }
+        match parse_slash_command("/compact keep-run last").unwrap() {
+            Some(SlashCommand::Compact(CompactSlashCommand::KeepRun { run_id, .. })) => {
+                assert_eq!(run_id, "last");
             }
             _ => panic!("expected compact keep-run shortcut"),
         }

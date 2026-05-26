@@ -954,6 +954,18 @@ fn validate_model_provider_catalog(catalog: &ModelProviderCatalog) -> Result<(),
                 "model provider catalog entry {id} requires default_model"
             )));
         }
+        validate_catalog_string_list(
+            &provider.available_modalities,
+            &format!("model provider catalog entry {id} available_modalities"),
+        )?;
+        validate_catalog_string_list(
+            &provider.reasoning_modes,
+            &format!("model provider catalog entry {id} reasoning_modes"),
+        )?;
+        validate_catalog_string_list(
+            &provider.settings,
+            &format!("model provider catalog entry {id} settings"),
+        )?;
         validate_model_provider_option_schema(&id, &provider.option_schema)?;
     }
     Ok(())
@@ -1022,6 +1034,9 @@ fn normalize_model_provider_catalog(
         provider.id = normalized_provider(Some(&provider.id)).ok_or_else(|| {
             ConfigError::InvalidInput("model provider catalog entries require provider id".into())
         })?;
+        normalize_catalog_string_list(&mut provider.available_modalities);
+        normalize_catalog_string_list(&mut provider.reasoning_modes);
+        normalize_catalog_string_list(&mut provider.settings);
         normalize_model_provider_option_schema(&mut provider.option_schema);
     }
     catalog.providers.sort_by(|a, b| a.id.cmp(&b.id));
@@ -1037,6 +1052,30 @@ fn normalize_model_provider_option_schema(options: &mut [ModelProviderOptionDesc
             .iter()
             .map(|value| value.trim().to_string())
             .collect();
+    }
+}
+
+fn validate_catalog_string_list(values: &[String], field: &str) -> Result<(), ConfigError> {
+    let mut seen = BTreeSet::new();
+    for value in values {
+        let value = value.trim();
+        if value.is_empty() {
+            return Err(ConfigError::InvalidInput(format!(
+                "{field} contains empty value"
+            )));
+        }
+        if !seen.insert(value.to_string()) {
+            return Err(ConfigError::InvalidInput(format!(
+                "{field} contains duplicate value: {value}"
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn normalize_catalog_string_list(values: &mut [String]) {
+    for value in values {
+        *value = value.trim().to_string();
     }
 }
 
@@ -2772,35 +2811,14 @@ fn validate_model_metadata_catalog(catalog: &ModelMetadataCatalog) -> Result<(),
                 "duplicate model metadata catalog entry: {provider}/{model_id}"
             )));
         }
-        validate_model_metadata_catalog_string_list(
+        validate_catalog_string_list(
             &model.modalities,
             &format!("model metadata catalog entry {provider}/{model_id} modalities"),
         )?;
-        validate_model_metadata_catalog_string_list(
+        validate_catalog_string_list(
             &model.capabilities,
             &format!("model metadata catalog entry {provider}/{model_id} capabilities"),
         )?;
-    }
-    Ok(())
-}
-
-fn validate_model_metadata_catalog_string_list(
-    values: &[String],
-    field: &str,
-) -> Result<(), ConfigError> {
-    let mut seen = BTreeSet::new();
-    for value in values {
-        let value = value.trim();
-        if value.is_empty() {
-            return Err(ConfigError::InvalidInput(format!(
-                "{field} contains empty value"
-            )));
-        }
-        if !seen.insert(value.to_string()) {
-            return Err(ConfigError::InvalidInput(format!(
-                "{field} contains duplicate value: {value}"
-            )));
-        }
     }
     Ok(())
 }
@@ -2814,8 +2832,8 @@ fn normalize_model_metadata_catalog(
             ConfigError::InvalidInput("model metadata catalog entries require provider".into())
         })?;
         model.model_id = model.model_id.trim().to_string();
-        normalize_model_metadata_catalog_string_list(&mut model.modalities);
-        normalize_model_metadata_catalog_string_list(&mut model.capabilities);
+        normalize_catalog_string_list(&mut model.modalities);
+        normalize_catalog_string_list(&mut model.capabilities);
     }
     catalog.models.sort_by(|a, b| {
         a.provider
@@ -2823,12 +2841,6 @@ fn normalize_model_metadata_catalog(
             .then_with(|| a.model_id.cmp(&b.model_id))
     });
     Ok(catalog)
-}
-
-fn normalize_model_metadata_catalog_string_list(values: &mut [String]) {
-    for value in values {
-        *value = value.trim().to_string();
-    }
 }
 
 fn bundled_model_metadata_catalog() -> Option<LoadedModelMetadataCatalog> {
@@ -6761,10 +6773,10 @@ system_prompt = "Review carefully."
                   "supports_api_base_url": true,
                   "local": false,
                   "native": false,
-                  "available_modalities": ["text", "image"],
+                  "available_modalities": [" text ", "image"],
                   "tool_support": true,
-                  "reasoning_modes": ["model-default"],
-                  "settings": ["api_base_url", "api_key_env", "provider_options"],
+                  "reasoning_modes": [" model-default "],
+                  "settings": [" api_base_url ", "api_key_env", "provider_options"],
                   "option_schema": [
                     {
                       "key": " custom_flag ",
@@ -6785,6 +6797,15 @@ system_prompt = "Review carefully."
             .import_model_provider_catalog(&import_path)
             .unwrap();
         assert_eq!(imported.providers[0].id, "custom-openai");
+        assert_eq!(
+            imported.providers[0].available_modalities,
+            vec!["text", "image"]
+        );
+        assert_eq!(imported.providers[0].reasoning_modes, vec!["model-default"]);
+        assert_eq!(
+            imported.providers[0].settings,
+            vec!["api_base_url", "api_key_env", "provider_options"]
+        );
         let option = &imported.providers[0].option_schema[0];
         assert_eq!(option.key, "custom_flag");
         assert_eq!(option.label, "Custom Flag");
@@ -6810,6 +6831,75 @@ system_prompt = "Review carefully."
             providers
                 .iter()
                 .any(|provider| provider.id == "custom-openai")
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn model_provider_catalog_rejects_invalid_descriptor_lists() {
+        let dir =
+            std::env::temp_dir().join(format!("agent-provider-catalog-list-test-{}", uuid_like()));
+        let duplicate_list_path = dir.join("duplicate-provider-list.json");
+        let empty_list_path = dir.join("empty-provider-list.json");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            &duplicate_list_path,
+            r#"{
+              "schema_version": 1,
+              "providers": [
+                {
+                  "id": "custom-openai",
+                  "name": "Custom OpenAI Compatible",
+                  "default_model": "custom-default",
+                  "supports_api_base_url": true,
+                  "local": false,
+                  "native": false,
+                  "available_modalities": ["text", " text "],
+                  "reasoning_modes": [],
+                  "settings": ["provider_options"]
+                }
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        let resolver = ConfigResolver::new(StoragePaths::new(&dir));
+        let err = resolver
+            .import_model_provider_catalog(&duplicate_list_path)
+            .unwrap_err();
+        assert!(err.to_string().contains(
+            "model provider catalog entry custom-openai available_modalities contains duplicate value: text"
+        ));
+
+        std::fs::write(
+            &empty_list_path,
+            r#"{
+              "schema_version": 1,
+              "providers": [
+                {
+                  "id": "custom-openai",
+                  "name": "Custom OpenAI Compatible",
+                  "default_model": "custom-default",
+                  "supports_api_base_url": true,
+                  "local": false,
+                  "native": false,
+                  "available_modalities": ["text"],
+                  "reasoning_modes": [],
+                  "settings": ["provider_options", " "]
+                }
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        let err = resolver
+            .import_model_provider_catalog(&empty_list_path)
+            .unwrap_err();
+        assert!(
+            err.to_string().contains(
+                "model provider catalog entry custom-openai settings contains empty value"
+            )
         );
 
         let _ = std::fs::remove_dir_all(dir);

@@ -1695,6 +1695,7 @@ export default function App() {
       { command: "/memory generate ", label: "Generate memory from text" },
       { command: "/memory generate-conversation ", label: "Generate memory from conversation range" },
       { command: "/memory classify ", label: "Classify memory record" },
+      { command: "/memory show ", label: "Show memory record" },
       { command: "/memory edit ", label: "Edit memory record" },
       { command: "/memory delete ", label: "Delete memory record" },
       { command: "/memory rollback --confirm", label: "Rollback memory file" },
@@ -3747,6 +3748,7 @@ export default function App() {
       "/memory generate [--user] [--agent <agent>] [--conversation <id>] [--range <range>] [--topic <topic>] <text> [--guidance <text>]",
       "/memory generate-conversation [id] [from:to] [--user] [--agent <agent>] [--topic <topic>] [--guidance <text>]",
       "/memory classify <id> [--model <model>] [--agent <agent>] [--no-apply]",
+      "/memory show <id>",
       "/memory edit <id> <content>",
       "/memory delete <id> --confirm",
       "/memory rollback [--user] --confirm",
@@ -7904,6 +7906,12 @@ export default function App() {
             apply: parsed.apply,
           });
         }
+      } else if (command === "show") {
+        if (args.length !== 1) {
+          appendLine("error", "Memory show shortcut needs a memory id.");
+        } else {
+          await showMemoryFromOps(args[0]);
+        }
       } else if (command === "edit") {
         const match = rest.slice("edit".length).trim().match(/^(\S+)\s+([\s\S]+)$/);
         if (!match) {
@@ -7944,7 +7952,7 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Memory shortcut needs on, off, status, list, access, backends, probe, preview, create, generate, generate-conversation, classify, edit, delete, rollback, export, import, or help.",
+          "Memory shortcut needs on, off, status, list, access, backends, probe, preview, create, generate, generate-conversation, classify, show, edit, delete, rollback, export, import, or help.",
         );
       }
       return;
@@ -10656,6 +10664,30 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Memory review failed: ${msg}`);
+    }
+  }
+
+  async function showMemoryFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Memory show");
+    if (!id) return;
+    try {
+      let record = memoryRecords.find((entry) => entry.id === id);
+      if (!record) {
+        const records =
+          transport === "daemon"
+            ? await daemonJson<MemoryRecord[]>("/memory")
+            : await invoke<MemoryRecord[]>("memory_list");
+        setMemoryRecords(records);
+        record = records.find((entry) => entry.id === id);
+      }
+      if (!record) {
+        appendLine("error", `Memory show failed: ${id} was not found.`);
+        return;
+      }
+      appendJson("Memory record", record);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Memory show failed: ${msg}`);
     }
   }
 

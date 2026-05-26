@@ -1762,8 +1762,13 @@ export default function App() {
       { command: "/stop help", label: "Show stop shortcuts" },
       { command: "/stop default", label: "Use configured stop mode" },
       { command: "/stop discard", label: "Stop without retaining context" },
+      { command: "/stop --discard ", label: "Stop, discard context, add reason" },
       { command: "/stop summarise", label: "Stop and retain a summary" },
+      { command: "/stop summarize", label: "Stop and retain a summary" },
+      { command: "/stop summary", label: "Stop and retain a summary" },
       { command: "/stop --summarise ", label: "Stop, retain summary, add reason" },
+      { command: "/stop --summarize ", label: "Stop, retain summary, add reason" },
+      { command: "/stop --summary ", label: "Stop, retain summary, add reason" },
       { command: "/stop status", label: "Show stop retention mode" },
       { command: "/compact help", label: "Show compact shortcuts" },
       { command: "/compact ", label: "Create a guided compaction draft" },
@@ -2303,9 +2308,9 @@ export default function App() {
       "Stop shortcuts:",
       "- /stop - stop the active run with the current retention mode",
       "- /stop status - show the current stop retention mode",
-      "- /stop default|discard|summarise - set the idle default retention mode",
+      "- /stop default|discard|summarise|summarize|summary - set the idle default retention mode",
       "- /stop --discard [reason] - stop the active run without retaining context",
-      "- /stop --summarise [reason] - stop the active run and retain a summary",
+      "- /stop --summarise|--summarize|--summary [reason] - stop the active run and retain a summary",
     ].join("\n");
   }
 
@@ -15030,7 +15035,12 @@ export default function App() {
   function parseStopRetentionMode(value: string): StopRetentionMode | "default" | null {
     if (value === "default" || value === "config" || value === "auto") return "default";
     if (value === "discard" || value === "off") return "discard";
-    if (value === "summarise" || value === "summarize" || value === "on") {
+    if (
+      value === "summarise" ||
+      value === "summarize" ||
+      value === "summary" ||
+      value === "on"
+    ) {
       return "summarise";
     }
     return null;

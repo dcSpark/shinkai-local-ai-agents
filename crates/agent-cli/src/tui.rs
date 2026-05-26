@@ -975,6 +975,7 @@ fn global_slash_help_text() -> &'static str {
      - /budget <n> - set the max tool-call budget for future TUI runs\n\
      - /visibility full|descriptions|names|config - set tool visibility for future TUI runs\n\
      - /cost input|output|both|clear|status - set token cost overrides for future TUI runs\n\
+     - /memory on|off|status, /skills on|off|status - toggle runtime memory or skill context loading\n\
      - /preview <prompt> - inspect context before running\n\
      - /guide <text> - steer the active run at the next checkpoint\n\
      - /stop [default|--summarise|--discard] [reason], /stop status - stop or inspect the active run\n\
@@ -1355,7 +1356,7 @@ fn handle_slash_command(
         return true;
     }
     if let Some(rest) = memory_slash_rest(trimmed) {
-        handle_memory_slash(app, rest, agent, line_tx);
+        handle_memory_slash(app, rest, agent, line_tx, options);
         return true;
     }
     if let Some(rest) = capabilities_slash_rest(trimmed) {
@@ -1410,7 +1411,7 @@ fn handle_slash_command(
         return true;
     }
     if let Some(rest) = skills_slash_rest(trimmed) {
-        handle_skills_slash(app, rest);
+        handle_skills_slash(app, rest, agent, options);
         return true;
     }
     if let Some(rest) = storage_slash_rest(trimmed) {
@@ -3324,14 +3325,16 @@ fn adapters_slash_rest(trimmed: &str) -> Option<&str> {
 fn handle_memory_slash(
     app: &mut App,
     rest: &str,
-    agent: &AgentConfig,
+    agent: &mut AgentConfig,
     line_tx: &UnboundedSender<TranscriptLine>,
+    options: &mut setup::RuntimeOptions,
 ) {
     let rest = rest.trim();
     if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
+                "/memory on|off|status",
                 "/memory create [--user] [--agent <agent>] [--conversation <id>] [--topic <topic>] <content>",
                 "/memory generate [--user] [--agent <agent>] [--conversation <id>] [--range <range>] [--topic <topic>] <text> [--guidance <text>]",
                 "/memory list",
@@ -3349,6 +3352,41 @@ fn handle_memory_slash(
             .join("\n"),
         });
         return;
+    }
+    match rest.to_lowercase().as_str() {
+        "on" | "enable" | "enabled" => {
+            options.load_memory = true;
+            refresh_agent_runtime_policy(app, agent, options);
+            push_event(
+                app,
+                "Runtime memory loading enabled for future TUI runs.".into(),
+            );
+            return;
+        }
+        "off" | "disable" | "disabled" => {
+            options.load_memory = false;
+            refresh_agent_runtime_policy(app, agent, options);
+            push_event(
+                app,
+                "Runtime memory loading disabled for future TUI runs.".into(),
+            );
+            return;
+        }
+        "status" => {
+            push_event(
+                app,
+                format!(
+                    "Runtime memory loading is {}.",
+                    if options.load_memory {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    }
+                ),
+            );
+            return;
+        }
+        _ => {}
     }
     let (command, args) = rest
         .split_once(char::is_whitespace)
@@ -7222,12 +7260,18 @@ fn prompt_summary(prompt: &PromptDoc) -> serde_json::Value {
     })
 }
 
-fn handle_skills_slash(app: &mut App, rest: &str) {
+fn handle_skills_slash(
+    app: &mut App,
+    rest: &str,
+    agent: &mut AgentConfig,
+    options: &mut setup::RuntimeOptions,
+) {
     let rest = rest.trim();
     if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
+                "/skills on|off|status",
                 "/skills list",
                 "/skills show <id>",
                 "/skills inspect <id>",
@@ -7241,6 +7285,41 @@ fn handle_skills_slash(app: &mut App, rest: &str) {
             .join("\n"),
         });
         return;
+    }
+    match rest.to_lowercase().as_str() {
+        "on" | "enable" | "enabled" => {
+            options.load_skills = true;
+            refresh_agent_runtime_policy(app, agent, options);
+            push_event(
+                app,
+                "Runtime skill loading enabled for future TUI runs.".into(),
+            );
+            return;
+        }
+        "off" | "disable" | "disabled" => {
+            options.load_skills = false;
+            refresh_agent_runtime_policy(app, agent, options);
+            push_event(
+                app,
+                "Runtime skill loading disabled for future TUI runs.".into(),
+            );
+            return;
+        }
+        "status" => {
+            push_event(
+                app,
+                format!(
+                    "Runtime skill loading is {}.",
+                    if options.load_skills {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    }
+                ),
+            );
+            return;
+        }
+        _ => {}
     }
     let (command, args) = rest
         .split_once(char::is_whitespace)
@@ -11672,6 +11751,8 @@ mod tests {
         assert!(global_slash_help_text().contains("/budget <n>"));
         assert!(global_slash_help_text().contains("/visibility full|descriptions|names|config"));
         assert!(global_slash_help_text().contains("/cost input|output|both|clear|status"));
+        assert!(global_slash_help_text().contains("/memory on|off|status"));
+        assert!(global_slash_help_text().contains("/skills on|off|status"));
         assert!(global_slash_help_text().contains("/batch <line-delimited prompts>"));
         assert_eq!(memory_slash_rest("/memory --help"), Some("--help"));
         assert_eq!(agents_slash_rest("/agents --help"), Some("--help"));
@@ -12461,6 +12542,8 @@ mod tests {
         assert!(help.contains("/budget <n>"));
         assert!(help.contains("/visibility full|descriptions|names|config"));
         assert!(help.contains("/cost input|output|both|clear|status"));
+        assert!(help.contains("/memory on|off|status"));
+        assert!(help.contains("/skills on|off|status"));
         assert!(help.contains("/conversation"));
     }
 
@@ -13044,6 +13127,61 @@ mod tests {
                 .contains("Visibility command needs full, descriptions, names, or config.")
         }));
         assert_eq!(options.tool_visibility, None);
+    }
+
+    #[test]
+    fn memory_and_skill_slash_toggle_context_loading() {
+        let _home = HarnessHomeGuard::new();
+        let mut app = App::default();
+        let mut options = setup::RuntimeOptions::default();
+        let mut agent = setup::build_agent(&options);
+        let (line_tx, _line_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        handle_memory_slash(&mut app, "status", &mut agent, &line_tx, &mut options);
+        assert!(
+            app.transcript
+                .iter()
+                .any(|line| line.text.contains("Runtime memory loading is disabled."))
+        );
+
+        handle_memory_slash(&mut app, "on", &mut agent, &line_tx, &mut options);
+        assert!(options.load_memory);
+        assert!(
+            app.transcript
+                .iter()
+                .any(|line| line.text.contains("Runtime memory loading enabled"))
+        );
+
+        handle_memory_slash(&mut app, "off", &mut agent, &line_tx, &mut options);
+        assert!(!options.load_memory);
+        assert!(
+            app.transcript
+                .iter()
+                .any(|line| line.text.contains("Runtime memory loading disabled"))
+        );
+
+        handle_skills_slash(&mut app, "status", &mut agent, &mut options);
+        assert!(
+            app.transcript
+                .iter()
+                .any(|line| line.text.contains("Runtime skill loading is disabled."))
+        );
+
+        handle_skills_slash(&mut app, "on", &mut agent, &mut options);
+        assert!(options.load_skills);
+        assert!(
+            app.transcript
+                .iter()
+                .any(|line| line.text.contains("Runtime skill loading enabled"))
+        );
+
+        handle_skills_slash(&mut app, "off", &mut agent, &mut options);
+        assert!(!options.load_skills);
+        assert!(
+            app.transcript
+                .iter()
+                .any(|line| line.text.contains("Runtime skill loading disabled"))
+        );
     }
 
     #[test]

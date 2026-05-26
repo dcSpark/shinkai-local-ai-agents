@@ -6465,7 +6465,9 @@ pub async fn remote_run_start(
 }
 
 pub async fn remote_run_status(url: String, run_id: String) -> anyhow::Result<()> {
-    print_remote(DaemonHttpClient::new(url).get_json(&format!("/run/status/{run_id}"))?)
+    let client = DaemonHttpClient::new(url);
+    let run_id = remote_run_selector(&client, &run_id)?;
+    print_remote(client.get_json(&format!("/run/status/{run_id}"))?)
 }
 
 pub async fn remote_run_events(
@@ -6473,8 +6475,10 @@ pub async fn remote_run_events(
     run_id: String,
     after: Option<u64>,
 ) -> anyhow::Result<()> {
+    let client = DaemonHttpClient::new(url);
+    let run_id = remote_run_selector(&client, &run_id)?;
     let path = remote_run_events_path(&run_id, after);
-    print_remote(DaemonHttpClient::new(url).get_json(&path)?)
+    print_remote(client.get_json(&path)?)
 }
 
 pub async fn remote_run_wait(
@@ -6486,6 +6490,7 @@ pub async fn remote_run_wait(
 ) -> anyhow::Result<()> {
     validate_remote_wait_options(poll_ms, timeout_ms)?;
     let client = DaemonHttpClient::new(url);
+    let run_id = remote_run_selector(&client, &run_id)?;
     let started = Instant::now();
     let mut last_event_id = 0;
     let mut collected_events = Vec::new();

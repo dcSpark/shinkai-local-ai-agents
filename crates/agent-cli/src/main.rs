@@ -2759,9 +2759,13 @@ enum RemoteCommand {
         raw_tool_output: bool,
     },
     /// Show async daemon run status.
-    RunStatus { run_id: String },
+    RunStatus {
+        /// Remote run UUID, or `last`.
+        run_id: String,
+    },
     /// Show daemon run events after an optional event id.
     RunEvents {
+        /// Remote run UUID, or `last`.
         run_id: String,
 
         #[arg(long)]
@@ -2769,6 +2773,7 @@ enum RemoteCommand {
     },
     /// Poll a daemon async run until it reaches a terminal status.
     RunWait {
+        /// Remote run UUID, or `last`.
         run_id: String,
 
         /// Poll interval in milliseconds.
@@ -5969,6 +5974,29 @@ mod cli_parse_tests {
         };
         assert_eq!(run_id, "00000000-0000-0000-0000-000000000000");
         assert_eq!(after, Some(4));
+    }
+
+    #[test]
+    fn remote_async_run_commands_accept_last_selector() {
+        let cli = parse_cli(["agent", "remote", "run-status", "last"]).unwrap();
+        let RemoteCommand::RunStatus { run_id } = into_remote_command(cli) else {
+            panic!("expected remote run-status command");
+        };
+        assert_eq!(run_id, "last");
+
+        let cli = parse_cli(["agent", "remote", "run-events", "last", "--after", "4"]).unwrap();
+        let RemoteCommand::RunEvents { run_id, after } = into_remote_command(cli) else {
+            panic!("expected remote run-events command");
+        };
+        assert_eq!(run_id, "last");
+        assert_eq!(after, Some(4));
+
+        let cli = parse_cli(["agent", "remote", "run-wait", "last", "--events"]).unwrap();
+        let RemoteCommand::RunWait { run_id, events, .. } = into_remote_command(cli) else {
+            panic!("expected remote run-wait command");
+        };
+        assert_eq!(run_id, "last");
+        assert!(events);
     }
 
     #[test]

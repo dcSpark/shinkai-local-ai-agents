@@ -989,6 +989,20 @@ fn validate_model_provider_option_schema(
                 )));
             }
         }
+        let mut allowed_values = BTreeSet::new();
+        for value in &option.allowed_values {
+            let value = value.trim();
+            if value.is_empty() {
+                return Err(ConfigError::InvalidInput(format!(
+                    "model provider catalog entry {provider_id} option {target}.{key} has empty allowed value"
+                )));
+            }
+            if !allowed_values.insert(value.to_string()) {
+                return Err(ConfigError::InvalidInput(format!(
+                    "model provider catalog entry {provider_id} option {target}.{key} has duplicate allowed value: {value}"
+                )));
+            }
+        }
     }
     Ok(())
 }
@@ -1008,9 +1022,22 @@ fn normalize_model_provider_catalog(
         provider.id = normalized_provider(Some(&provider.id)).ok_or_else(|| {
             ConfigError::InvalidInput("model provider catalog entries require provider id".into())
         })?;
+        normalize_model_provider_option_schema(&mut provider.option_schema);
     }
     catalog.providers.sort_by(|a, b| a.id.cmp(&b.id));
     Ok(catalog)
+}
+
+fn normalize_model_provider_option_schema(options: &mut [ModelProviderOptionDescriptor]) {
+    for option in options {
+        option.key = option.key.trim().to_string();
+        option.label = option.label.trim().to_string();
+        option.allowed_values = option
+            .allowed_values
+            .iter()
+            .map(|value| value.trim().to_string())
+            .collect();
+    }
 }
 
 fn merge_model_provider_catalog(
@@ -6700,7 +6727,16 @@ system_prompt = "Review carefully."
                   "available_modalities": ["text", "image"],
                   "tool_support": true,
                   "reasoning_modes": ["model-default"],
-                  "settings": ["api_base_url", "api_key_env", "provider_options"]
+                  "settings": ["api_base_url", "api_key_env", "provider_options"],
+                  "option_schema": [
+                    {
+                      "key": " custom_flag ",
+                      "target": "provider_options",
+                      "label": " Custom Flag ",
+                      "kind": "string",
+                      "allowed_values": [" enabled ", "disabled"]
+                    }
+                  ]
                 }
               ]
             }"#,
@@ -6712,6 +6748,10 @@ system_prompt = "Review carefully."
             .import_model_provider_catalog(&import_path)
             .unwrap();
         assert_eq!(imported.providers[0].id, "custom-openai");
+        let option = &imported.providers[0].option_schema[0];
+        assert_eq!(option.key, "custom_flag");
+        assert_eq!(option.label, "Custom Flag");
+        assert_eq!(option.allowed_values, vec!["enabled", "disabled"]);
         assert_eq!(
             resolver
                 .show_model_provider_catalog()
@@ -6746,6 +6786,7 @@ system_prompt = "Review carefully."
         ));
         let duplicate_path = dir.join("duplicate-options.json");
         let invalid_range_path = dir.join("invalid-range-options.json");
+        let duplicate_allowed_path = dir.join("duplicate-allowed-values.json");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             &duplicate_path,
@@ -6828,6 +6869,41 @@ system_prompt = "Review carefully."
             .import_model_provider_catalog(&invalid_range_path)
             .unwrap_err();
         assert!(err.to_string().contains("min greater than max"));
+
+        std::fs::write(
+            &duplicate_allowed_path,
+            r#"{
+              "schema_version": 1,
+              "providers": [
+                {
+                  "id": "custom-openai",
+                  "name": "Custom OpenAI Compatible",
+                  "default_model": "custom-default",
+                  "supports_api_base_url": true,
+                  "local": false,
+                  "native": false,
+                  "available_modalities": ["text"],
+                  "reasoning_modes": [],
+                  "settings": ["provider_options"],
+                  "option_schema": [
+                    {
+                      "key": "reasoning_effort",
+                      "target": "provider_options",
+                      "label": "Reasoning Effort",
+                      "kind": "string",
+                      "allowed_values": ["high", " high "]
+                    }
+                  ]
+                }
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        let err = resolver
+            .import_model_provider_catalog(&duplicate_allowed_path)
+            .unwrap_err();
+        assert!(err.to_string().contains("duplicate allowed value: high"));
 
         let _ = std::fs::remove_dir_all(dir);
     }

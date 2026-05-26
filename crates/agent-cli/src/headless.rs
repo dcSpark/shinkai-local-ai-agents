@@ -184,6 +184,7 @@ pub async fn run(
         Some(SlashCommand::ToolForced { name, prompt }) => {
             return force_tool(name, prompt, json, demo, options).await;
         }
+        Some(SlashCommand::ShellStatus) => return shell_status(&options, json),
         Some(SlashCommand::VoiceStatus) => return voice_status(&options, json),
         Some(SlashCommand::BatchRun {
             items,
@@ -8999,6 +9000,7 @@ enum SlashCommand {
         name: String,
         prompt: String,
     },
+    ShellStatus,
     VoiceStatus,
     BatchRun {
         items: Vec<String>,
@@ -9764,6 +9766,17 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
     if let Some((name, input)) = parse_code_slash_command(trimmed)? {
         return Ok(Some(SlashCommand::ToolManual { name, input }));
     }
+    if shell_status_slash_command(trimmed) {
+        return Ok(Some(SlashCommand::ShellStatus));
+    }
+    if shell_help_slash_command(trimmed) {
+        return Ok(Some(SlashCommand::Help));
+    }
+    if shell_slash_rest(trimmed).is_some() {
+        anyhow::bail!(
+            "headless shell shortcut supports status/help; use --enable-shell to enable shell access for a run"
+        );
+    }
     if voice_status_slash_command(trimmed) {
         return Ok(Some(SlashCommand::VoiceStatus));
     }
@@ -9877,6 +9890,30 @@ fn voice_status(options: &setup::RuntimeOptions, json: bool) -> anyhow::Result<(
     Ok(())
 }
 
+fn shell_status(options: &setup::RuntimeOptions, json: bool) -> anyhow::Result<()> {
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "enable_shell": options.enable_shell,
+                "shortcut": "/shell status",
+                "enable_flag": "--enable-shell"
+            }))?
+        );
+        return Ok(());
+    }
+    println!(
+        "shell: {}",
+        if options.enable_shell {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
+    println!("enable for a run with: --enable-shell");
+    Ok(())
+}
+
 fn headless_slash_help_text() -> &'static str {
     "Headless slash commands:\n\
      - /run <prompt-name> - use a saved prompt when available, otherwise run the literal text\n\
@@ -9891,6 +9928,7 @@ fn headless_slash_help_text() -> &'static str {
      - /python <code>, /typescript <code>, /ts <code> - call native code execution tools directly\n\
      - /voice status, /voice transcribe <path>, /voice speak <text> - inspect voice config or call native voice tools directly\n\
      - /x402 request|required|settle ... - call native x402 payment tools directly\n\
+     - /shell status - inspect whether this run enables the shell tool; use --enable-shell to enable it\n\
      - /resume <run-id> [--from-event N], /resume plan <run-id> [--from-event N]\n\
      - /trace list [limit|--limit N], /trace [summary|tree|hooks|scores|prompt] <run-id>, /scores <run-id>, /compare <run-id> <run-id>, /replay <run-id>\n\
      - /usage trace|run <run-id>, /usage conversation <id> [from:to|last N|--from N --to N|--last N]\n\
@@ -9965,6 +10003,22 @@ fn score_help_slash_command(trimmed: &str) -> bool {
 
 fn voice_help_slash_command(trimmed: &str) -> bool {
     matches!(trimmed, "/voice help" | "/voice --help")
+}
+
+fn shell_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/shell" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/shell ").map(str::trim)
+    }
+}
+
+fn shell_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/shell help" | "/shell --help")
+}
+
+fn shell_status_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/shell" | "/shell status")
 }
 
 fn voice_status_slash_command(trimmed: &str) -> bool {
@@ -12880,6 +12934,8 @@ mod slash_tests {
             "/scores --help",
             "/voice help",
             "/voice --help",
+            "/shell help",
+            "/shell --help",
             "/x402 --help",
             "/payment --help",
             "/hooks help",
@@ -12928,6 +12984,12 @@ mod slash_tests {
         assert!(!score_help_slash_command("/score helper"));
         assert!(!score_help_slash_command("/scores helper"));
         assert!(!voice_help_slash_command("/voice helper"));
+        assert!(shell_status_slash_command("/shell"));
+        assert!(shell_status_slash_command("/shell status"));
+        assert!(shell_help_slash_command("/shell help"));
+        assert!(shell_help_slash_command("/shell --help"));
+        assert!(!shell_status_slash_command("/shell status extra"));
+        assert!(shell_slash_rest("/shells").is_none());
         assert!(!batch_help_slash_command("/batch helper"));
         assert!(!resume_batch_help_slash_command("/resume-batch helper"));
         assert!(voice_status_slash_command("/voice"));
@@ -15354,6 +15416,24 @@ mod slash_tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn parses_shell_status_shortcut() {
+        assert!(matches!(
+            parse_slash_command("/shell").unwrap(),
+            Some(SlashCommand::ShellStatus)
+        ));
+        assert!(matches!(
+            parse_slash_command("/shell status").unwrap(),
+            Some(SlashCommand::ShellStatus)
+        ));
+        assert!(matches!(
+            parse_slash_command("/shell help").unwrap(),
+            Some(SlashCommand::Help)
+        ));
+        assert!(parse_slash_command("/shell on").is_err());
+        assert!(parse_slash_command("/shells status").unwrap().is_none());
     }
 
     #[test]

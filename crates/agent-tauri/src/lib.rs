@@ -10,6 +10,7 @@
 //! - Mirrors the CLI's `/tool` forced-call and `/tool!` manual-call shortcuts.
 
 use std::collections::{HashMap, HashSet};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -29,8 +30,9 @@ use agent_config::{
     ModelRuntimeConfig, ProfileGrant, ProfileGrantKind, ProfileSummary, configured_model_providers,
 };
 use agent_conversations::{
-    ConversationDoc, ConversationPolicy, ConversationRole, ConversationStore, ConversationTreeNode,
-    ExpandedConversation, build_conversation_usage_report, render_message_range,
+    ConversationDoc, ConversationMessage, ConversationPolicy, ConversationRole, ConversationStore,
+    ConversationTreeNode, ExpandedConversation, build_conversation_usage_report,
+    render_message_range,
 };
 use agent_core::{
     AgentConfig, ApprovalControllerPolicy, ApprovalMode, ConfigExplanation, ConfigValueExplanation,
@@ -3793,6 +3795,31 @@ async fn memory_generate_conversation(
 }
 
 #[tauri::command]
+async fn memory_generate_pending(
+    user: Option<bool>,
+    limit: Option<usize>,
+    topics: Option<Vec<String>>,
+    guidance: Option<String>,
+) -> Result<Value, String> {
+    let target = user
+        .map(|user| {
+            if user {
+                MemoryTarget::User
+            } else {
+                MemoryTarget::Agent
+            }
+        })
+        .unwrap_or_else(memory_generation_worker_target);
+    let topics = topics
+        .map(normalize_memory_worker_topics)
+        .unwrap_or_else(memory_generation_worker_topics);
+    let limit = limit
+        .filter(|limit| *limit > 0)
+        .unwrap_or_else(memory_generation_worker_batch_limit);
+    generate_pending_memories_once(target, topics, limit, guidance).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn memory_classify(
     id: String,
     model: Option<String>,
@@ -3956,6 +3983,233 @@ fn record_memory_operation(
         },
     );
     Ok(())
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct MemoryGenerationCheckpoint {
+    #[serde(default)]
+    conversations: HashMap<String, usize>,
+}
+
+fn generate_pending_memories_once(
+    target: MemoryTarget,
+    topics: Vec<String>,
+    limit: usize,
+    generation_guidance: Option<String>,
+) -> anyhow::Result<Value> {
+    let paths = StoragePaths::from_env();
+    paths.ensure_base_dirs()?;
+    let conversation_store = ConversationStore::new(paths.clone());
+    let memory_store = MemoryStore::new(paths.clone());
+    let mut checkpoint = load_memory_generation_checkpoint(&paths)?;
+    let existing_records = memory_store.list()?;
+    let mut generated = Vec::new();
+    let mut errors = Vec::new();
+    let mut attempted = 0usize;
+    let mut up_to_date = 0usize;
+    let mut policy_skipped = 0usize;
+    let mut checkpoint_changed = false;
+
+    for conversation in conversation_store.list()? {
+        if !conversation.policy.allows_memory_generation() {
+            policy_skipped += 1;
+            continue;
+        }
+        let expanded = conversation_store.expanded(&conversation.id)?;
+        let message_count = expanded.messages.len();
+        let checkpoint_key = memory_generation_checkpoint_key(target, &conversation.id);
+        let processed = checkpoint
+            .conversations
+            .get(&checkpoint_key)
+            .copied()
+            .unwrap_or_default()
+            .max(max_generated_message_end(
+                &existing_records,
+                &conversation.id,
+                target,
+            ))
+            .min(message_count);
+        if processed >= message_count {
+            up_to_date += 1;
+            continue;
+        }
+        if attempted >= limit {
+            break;
+        }
+        attempted += 1;
+        let text = conversation_memory_text(&expanded.messages[processed..]);
+        let range = format!("messages:{processed}..{message_count}");
+        match memory_store.generate_from_conversation_text_with_topics_for_agent_and_guidance(
+            target,
+            &text,
+            Some(range.clone()),
+            Some(conversation.id.clone()),
+            topics.clone(),
+            Some(conversation.agent_id.clone()),
+            generation_guidance.clone(),
+        ) {
+            Ok(records) => {
+                for record in &records {
+                    record_memory_written(record, "generated_async").map_err(anyhow::Error::msg)?;
+                }
+                generated.extend(records);
+                if checkpoint
+                    .conversations
+                    .insert(checkpoint_key.clone(), message_count)
+                    != Some(message_count)
+                {
+                    checkpoint_changed = true;
+                }
+            }
+            Err(err) => {
+                errors.push(serde_json::json!({
+                    "conversation_id": conversation.id,
+                    "range": range,
+                    "error": err.to_string()
+                }));
+            }
+        }
+    }
+
+    if checkpoint_changed {
+        save_memory_generation_checkpoint(&paths, &checkpoint)?;
+    }
+
+    let generated_count = generated.len();
+    Ok(serde_json::json!({
+        "attempted": attempted,
+        "generated": generated,
+        "generated_count": generated_count,
+        "up_to_date": up_to_date,
+        "policy_skipped": policy_skipped,
+        "errors": errors,
+        "target": target,
+        "topics": topics
+    }))
+}
+
+fn load_memory_generation_checkpoint(
+    paths: &StoragePaths,
+) -> anyhow::Result<MemoryGenerationCheckpoint> {
+    let path = memory_generation_checkpoint_path(paths);
+    if !path.exists() {
+        return Ok(MemoryGenerationCheckpoint::default());
+    }
+    Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
+}
+
+fn save_memory_generation_checkpoint(
+    paths: &StoragePaths,
+    checkpoint: &MemoryGenerationCheckpoint,
+) -> anyhow::Result<()> {
+    let path = memory_generation_checkpoint_path(paths);
+    let body = serde_json::to_string_pretty(checkpoint)?;
+    paths.write_quota_checked(path, body.as_bytes())?;
+    Ok(())
+}
+
+fn memory_generation_checkpoint_path(paths: &StoragePaths) -> PathBuf {
+    paths.cache_dir().join("memory-generation-checkpoints.json")
+}
+
+fn memory_generation_checkpoint_key(target: MemoryTarget, conversation_id: &str) -> String {
+    let target = match target {
+        MemoryTarget::Agent => "agent",
+        MemoryTarget::User => "user",
+    };
+    format!("{target}:{conversation_id}")
+}
+
+fn max_generated_message_end(
+    records: &[MemoryRecord],
+    conversation_id: &str,
+    target: MemoryTarget,
+) -> usize {
+    records
+        .iter()
+        .filter(|record| record.target == target)
+        .filter(|record| record.source_conversation_id.as_deref() == Some(conversation_id))
+        .filter_map(|record| parse_memory_message_range_end(record.source_range.as_deref()?))
+        .max()
+        .unwrap_or_default()
+}
+
+fn parse_memory_message_range_end(source_range: &str) -> Option<usize> {
+    let range = source_range.strip_prefix("messages:")?;
+    let (_, end) = range.split_once("..")?;
+    end.parse::<usize>().ok()
+}
+
+fn conversation_memory_text(messages: &[ConversationMessage]) -> String {
+    messages
+        .iter()
+        .filter_map(|message| {
+            let content = message.content.trim();
+            if content.is_empty() {
+                None
+            } else {
+                Some(format!(
+                    "{}: {content}",
+                    conversation_role_label(message.role)
+                ))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn conversation_role_label(role: ConversationRole) -> &'static str {
+    match role {
+        ConversationRole::System => "system",
+        ConversationRole::User => "user",
+        ConversationRole::Assistant => "assistant",
+        ConversationRole::Tool => "tool",
+    }
+}
+
+fn memory_generation_worker_batch_limit() -> usize {
+    std::env::var("AGENT_MEMORY_GENERATION_WORKER_BATCH")
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(10)
+}
+
+fn memory_generation_worker_target() -> MemoryTarget {
+    match std::env::var("AGENT_MEMORY_GENERATION_WORKER_TARGET")
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "user" | "user.md" => MemoryTarget::User,
+        _ => MemoryTarget::Agent,
+    }
+}
+
+fn memory_generation_worker_topics() -> Vec<String> {
+    std::env::var("AGENT_MEMORY_GENERATION_WORKER_TOPICS")
+        .ok()
+        .map(|value| {
+            normalize_memory_worker_topics(
+                value
+                    .split(',')
+                    .map(|topic| topic.to_string())
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .unwrap_or_default()
+}
+
+fn normalize_memory_worker_topics(topics: Vec<String>) -> Vec<String> {
+    let mut normalized = Vec::new();
+    for topic in topics {
+        let topic = topic.trim().to_ascii_lowercase();
+        if !topic.is_empty() && !normalized.iter().any(|existing| existing == &topic) {
+            normalized.push(topic);
+        }
+    }
+    normalized
 }
 
 #[tauri::command]
@@ -5289,6 +5543,7 @@ pub fn run() {
             memory_create,
             memory_generate,
             memory_generate_conversation,
+            memory_generate_pending,
             memory_classify,
             memory_list,
             memory_access,

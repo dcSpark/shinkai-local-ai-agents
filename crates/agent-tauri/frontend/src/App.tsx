@@ -39,6 +39,7 @@ import type {
   MemoryBackendDescriptor,
   MemoryBackendProbeReport,
   MemoryClassifyResult,
+  MemoryGeneratePendingResult,
   MemoryRecord,
   ModelDoctorReport,
   ModelMetadataCatalog,
@@ -1698,6 +1699,7 @@ export default function App() {
       { command: "/memory generate ", label: "Generate memory from text" },
       { command: "/memory generate-conversation ", label: "Generate memory from conversation range" },
       { command: "/memory generate-conv ", label: "Generate memory from conversation range" },
+      { command: "/memory generate-pending", label: "Generate pending conversation memory" },
       { command: "/memory classify ", label: "Classify memory record" },
       { command: "/memory show ", label: "Show memory record" },
       { command: "/memory edit ", label: "Edit memory record" },
@@ -3785,6 +3787,7 @@ export default function App() {
       "/memory create [--user] [--agent <agent>] [--conversation <id>] [--topic <topic>] <content>",
       "/memory generate [--user] [--agent <agent>] [--conversation <id>] [--range <range>] [--topic <topic>] <text> [--guidance <text>]",
       "/memory generate-conversation|generate-conv [id] [from:to] [--user] [--agent <agent>] [--topic <topic>] [--guidance <text>]",
+      "/memory generate-pending [--user|--agent] [--limit <n>] [--topic <topic>] [--guidance <text>]",
       "/memory classify <id> [--model <model>] [--agent <agent>] [--no-apply]",
       "/memory show <id>",
       "/memory edit <id> <content>",
@@ -3894,6 +3897,79 @@ export default function App() {
     return {
       topics: topics.length ? topics : undefined,
       agents: agents.length ? agents : undefined,
+    };
+  }
+
+  function parseMemoryGeneratePendingShortcut(args: string[]) {
+    let user = opsUserMemory;
+    let limit: number | null = null;
+    let guidance: string | null | undefined;
+    const topics: string[] = [];
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (arg === "--user") {
+        user = true;
+      } else if (arg === "--agent") {
+        user = false;
+      } else if (arg === "--limit") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", "Memory generate-pending shortcut needs a limit after --limit.");
+          return null;
+        }
+        limit = Number(value);
+        index += 1;
+      } else if (arg.startsWith("--limit=")) {
+        const value = arg.slice("--limit=".length).trim();
+        if (!value) {
+          appendLine("error", "Memory generate-pending shortcut needs a limit after --limit=.");
+          return null;
+        }
+        limit = Number(value);
+      } else if (arg === "--topic") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", "Memory generate-pending shortcut needs a topic after --topic.");
+          return null;
+        }
+        topics.push(value);
+        index += 1;
+      } else if (arg.startsWith("--topic=")) {
+        const value = arg.slice("--topic=".length).trim();
+        if (!value) {
+          appendLine("error", "Memory generate-pending shortcut needs a topic after --topic=.");
+          return null;
+        }
+        topics.push(value);
+      } else if (arg === "--guidance") {
+        const value = args.slice(index + 1).join(" ").trim();
+        if (!value) {
+          appendLine("error", "Memory generate-pending shortcut needs guidance after --guidance.");
+          return null;
+        }
+        guidance = value;
+        break;
+      } else if (arg.startsWith("--guidance=")) {
+        const value = arg.slice("--guidance=".length).trim();
+        if (!value) {
+          appendLine("error", "Memory generate-pending shortcut needs guidance after --guidance=.");
+          return null;
+        }
+        guidance = value;
+      } else {
+        appendLine("error", `Memory generate-pending shortcut does not accept ${arg}.`);
+        return null;
+      }
+    }
+    if (limit !== null && (!Number.isInteger(limit) || limit <= 0)) {
+      appendLine("error", "Memory generate-pending limit must be a positive integer.");
+      return null;
+    }
+    return {
+      user,
+      limit,
+      topics: topics.length ? topics : undefined,
+      guidance,
     };
   }
 
@@ -7996,6 +8072,11 @@ export default function App() {
         if (parsed) {
           await generateConversationMemoryFromOps(parsed);
         }
+      } else if (command === "generate-pending") {
+        const parsed = parseMemoryGeneratePendingShortcut(args);
+        if (parsed) {
+          await generatePendingMemoryFromOps(parsed);
+        }
       } else if (command === "classify") {
         const parsed = parseMemoryClassifyShortcut(args);
         if (parsed) {
@@ -8051,7 +8132,7 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Memory shortcut needs on, off, status, list, access, backends, probe, preview, create, generate, generate-conversation, generate-conv, classify, show, edit, delete, rm, rollback, export, import, or help.",
+          "Memory shortcut needs on, off, status, list, access, backends, probe, preview, create, generate, generate-conversation, generate-conv, generate-pending, classify, show, edit, delete, rm, rollback, export, import, or help.",
         );
       }
       return;
@@ -13330,6 +13411,49 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Conversation memory generation failed: ${msg}`);
+    }
+  }
+
+  async function generatePendingMemoryFromOps(
+    options: {
+      user?: boolean;
+      limit?: number | null;
+      topics?: string[];
+      guidance?: string | null;
+    } = {},
+  ) {
+    const user = options.user ?? opsUserMemory;
+    const topics = options.topics ?? parsedMemoryTopics();
+    const guidance =
+      options.guidance !== undefined
+        ? options.guidance
+        : memoryGenerationGuidance.trim() || null;
+    const limit = options.limit ?? null;
+    try {
+      const result =
+        transport === "daemon"
+          ? await daemonJson<MemoryGeneratePendingResult>(
+              "/memory/generate-pending",
+              {
+                user,
+                limit,
+                topics,
+                guidance,
+              },
+            )
+          : await invoke<MemoryGeneratePendingResult>("memory_generate_pending", {
+              user,
+              limit,
+              topics,
+              guidance,
+            });
+      setMemoryRecords((current) =>
+        result.generated.reduce(upsertMemoryRecord, current),
+      );
+      appendJson("Pending memory generated", result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Pending memory generation failed: ${msg}`);
     }
   }
 
@@ -19059,6 +19183,14 @@ export default function App() {
                   }
                 >
                   Generate Range
+                </button>
+                <button
+                  type="button"
+                  title="Generate memory for conversation ranges not yet processed."
+                  onClick={() => void generatePendingMemoryFromOps()}
+                  disabled={running}
+                >
+                  Generate Pending
                 </button>
                 <button
                   type="button"

@@ -755,6 +755,21 @@ export type MemoryClassifyResult = {
   applied: boolean;
 };
 
+export type MemoryGeneratePendingResult = {
+  attempted: number;
+  generated: MemoryRecord[];
+  generated_count: number;
+  up_to_date: number;
+  policy_skipped: number;
+  errors: Array<{
+    conversation_id: string;
+    range: string;
+    error: string;
+  }>;
+  target: MemoryTarget;
+  topics: string[];
+};
+
 export type MemoryBackendDescriptor = {
   id: string;
   name: string;

@@ -2933,6 +2933,34 @@ enum RemoteCommand {
         #[arg(long)]
         allow_unsafe_ingest: bool,
     },
+    /// Explain the daemon's effective runtime config for a run setup.
+    ExplainConfig {
+        /// Agent id to explain. Can refer to a daemon active-profile agent or granted agent.
+        #[arg(long)]
+        agent: Option<String>,
+    },
+    /// Explain which tools are visible to a daemon run setup.
+    ExplainTools {
+        /// Agent id whose daemon tool policy should be used.
+        #[arg(long)]
+        agent: Option<String>,
+
+        /// Include the shell tool in the explanation.
+        #[arg(long)]
+        enable_shell: bool,
+
+        /// Include the subagent tool in the explanation.
+        #[arg(long)]
+        enable_subagent: bool,
+
+        /// Include the quarantined capability-draft creation tool in the explanation.
+        #[arg(long)]
+        enable_capability_drafts: bool,
+
+        /// Override how much tool detail is shown in the explanation.
+        #[arg(long, value_enum)]
+        tool_visibility: Option<ToolVisibility>,
+    },
     /// Record remote guidance against a run.
     Guide {
         /// Remote run UUID, or `last`.
@@ -4264,6 +4292,44 @@ mod cli_parse_tests {
         else {
             panic!("expected remote bridge delivery retry-all command");
         };
+    }
+
+    #[test]
+    fn remote_explain_commands_parse() {
+        let cli = parse_cli(["agent", "remote", "explain-config", "--agent", "critic"]).unwrap();
+        let RemoteCommand::ExplainConfig { agent } = into_remote_command(cli) else {
+            panic!("expected remote explain-config command");
+        };
+        assert_eq!(agent.as_deref(), Some("critic"));
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "explain-tools",
+            "--agent",
+            "critic",
+            "--enable-shell",
+            "--enable-subagent",
+            "--enable-capability-drafts",
+            "--tool-visibility",
+            "name-only",
+        ])
+        .unwrap();
+        let RemoteCommand::ExplainTools {
+            agent,
+            enable_shell,
+            enable_subagent,
+            enable_capability_drafts,
+            tool_visibility,
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote explain-tools command");
+        };
+        assert_eq!(agent.as_deref(), Some("critic"));
+        assert!(enable_shell);
+        assert!(enable_subagent);
+        assert!(enable_capability_drafts);
+        assert!(matches!(tool_visibility, Some(ToolVisibility::NameOnly)));
     }
 
     #[test]
@@ -9043,6 +9109,30 @@ async fn main() -> anyhow::Result<()> {
                     ..setup::RuntimeOptions::default()
                 };
                 headless::remote_preview_context(url, input, options).await
+            }
+            RemoteCommand::ExplainConfig { agent } => {
+                let options = setup::RuntimeOptions {
+                    agent_id: agent,
+                    ..setup::RuntimeOptions::default()
+                };
+                headless::remote_explain_config(url, options).await
+            }
+            RemoteCommand::ExplainTools {
+                agent,
+                enable_shell,
+                enable_subagent,
+                enable_capability_drafts,
+                tool_visibility,
+            } => {
+                let options = setup::RuntimeOptions {
+                    agent_id: agent,
+                    enable_shell,
+                    enable_subagent,
+                    enable_capability_drafts,
+                    tool_visibility: tool_visibility.map(VisibilityLevel::from),
+                    ..setup::RuntimeOptions::default()
+                };
+                headless::remote_explain_tools(url, options).await
             }
             RemoteCommand::Guide { run_id, text } => {
                 headless::remote_guide(url, run_id, text).await

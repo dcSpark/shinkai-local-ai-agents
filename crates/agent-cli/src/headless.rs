@@ -6514,10 +6514,13 @@ pub async fn remote_run(
             "max_tokens_before_compaction": options.max_tokens_before_compaction,
             "max_compaction_output_tokens": options.max_compaction_output_tokens,
             "compaction_guidance": options.compaction_guidance,
+            "allowed_tool_categories": options.allowed_tool_categories,
+            "allowed_skill_categories": options.allowed_skill_categories,
             "tool_visibility": options.tool_visibility,
             "skill_visibility": options.skill_visibility,
             "enable_shell": options.enable_shell,
             "enable_subagent": options.enable_subagent,
+            "enable_capability_drafts": options.enable_capability_drafts,
             "raw_tool_output": options.raw_tool_output,
             "load_memory": options.load_memory,
             "memory_topics": options.memory_topics,
@@ -6568,10 +6571,13 @@ pub async fn remote_run_start(
             "max_tokens_before_compaction": options.max_tokens_before_compaction,
             "max_compaction_output_tokens": options.max_compaction_output_tokens,
             "compaction_guidance": options.compaction_guidance,
+            "allowed_tool_categories": options.allowed_tool_categories,
+            "allowed_skill_categories": options.allowed_skill_categories,
             "tool_visibility": options.tool_visibility,
             "skill_visibility": options.skill_visibility,
             "enable_shell": options.enable_shell,
             "enable_subagent": options.enable_subagent,
+            "enable_capability_drafts": options.enable_capability_drafts,
             "raw_tool_output": options.raw_tool_output,
             "load_memory": options.load_memory,
             "memory_topics": options.memory_topics,
@@ -6684,8 +6690,11 @@ pub async fn remote_preview_context(
             "max_tokens_before_compaction": options.max_tokens_before_compaction,
             "max_compaction_output_tokens": options.max_compaction_output_tokens,
             "compaction_guidance": options.compaction_guidance,
+            "allowed_tool_categories": options.allowed_tool_categories,
+            "allowed_skill_categories": options.allowed_skill_categories,
             "tool_visibility": options.tool_visibility,
             "skill_visibility": options.skill_visibility,
+            "enable_capability_drafts": options.enable_capability_drafts,
             "raw_tool_output": options.raw_tool_output,
             "load_memory": options.load_memory,
             "memory_topics": options.memory_topics,
@@ -6694,6 +6703,34 @@ pub async fn remote_preview_context(
             "conversation_id": options.conversation_id,
             "include_ingest": options.include_ingest,
             "allow_unsafe_ingest": options.allow_unsafe_ingest
+        }),
+    )?)
+}
+
+pub async fn remote_explain_config(
+    url: String,
+    options: setup::RuntimeOptions,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/explain-config",
+        serde_json::json!({
+            "agent_id": options.agent_id,
+        }),
+    )?)
+}
+
+pub async fn remote_explain_tools(
+    url: String,
+    options: setup::RuntimeOptions,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/explain-tools",
+        serde_json::json!({
+            "agent_id": options.agent_id,
+            "enable_shell": options.enable_shell,
+            "enable_subagent": options.enable_subagent,
+            "enable_capability_drafts": options.enable_capability_drafts,
+            "tool_visibility": options.tool_visibility,
         }),
     )?)
 }

@@ -11928,7 +11928,7 @@ fn parse_approval_slash_rest(rest: &str) -> anyhow::Result<ApprovalSlashCommand>
     let command = parts.next().unwrap_or_default();
     match command {
         "list" => {
-            let run_id = next_required(&mut parts, "approval list needs last or a run id")?;
+            let run_id = parts.next().unwrap_or("last").to_string();
             ensure_no_extra(parts, "usage: /approval list [last|run-id]")?;
             validate_approval_run_id(&run_id)?;
             Ok(ApprovalSlashCommand::List { run_id })
@@ -12023,11 +12023,14 @@ fn parse_approval_action_args<'a>(
             positionals.push(part);
         }
     }
-    let [run_id, approval_id] = positionals.as_slice() else {
-        anyhow::bail!("approval {command} accepts last or a run id plus approval id");
+    let (run_id, approval_id) = match positionals.as_slice() {
+        [approval_id] => ("last", *approval_id),
+        [run_id, approval_id] => (*run_id, *approval_id),
+        [] => anyhow::bail!("approval {command} needs an approval id"),
+        _ => anyhow::bail!("approval {command} accepts last or a run id plus approval id"),
     };
     validate_approval_run_id(run_id)?;
-    Ok(((*run_id).to_string(), (*approval_id).to_string(), options))
+    Ok((run_id.to_string(), approval_id.to_string(), options))
 }
 
 fn next_approval_option_value<'a>(
@@ -14775,6 +14778,12 @@ mod slash_tests {
             }
             _ => panic!("expected approval list shortcut"),
         }
+        match parse_slash_command("/approval list").unwrap() {
+            Some(SlashCommand::Approval(ApprovalSlashCommand::List { run_id: parsed })) => {
+                assert_eq!(parsed, "last");
+            }
+            _ => panic!("expected approval list shortcut"),
+        }
         match parse_slash_command(&format!("/approvals list {run_id}")).unwrap() {
             Some(SlashCommand::Approval(ApprovalSlashCommand::List { run_id: parsed })) => {
                 assert_eq!(parsed, run_id);
@@ -14808,6 +14817,19 @@ mod slash_tests {
             }
             _ => panic!("expected approval assess shortcut"),
         }
+        match parse_slash_command("/approval assess approval-1 --controller-agent critic").unwrap()
+        {
+            Some(SlashCommand::Approval(ApprovalSlashCommand::Assess {
+                run_id: parsed,
+                approval_id,
+                controller_agent,
+            })) => {
+                assert_eq!(parsed, "last");
+                assert_eq!(approval_id, "approval-1");
+                assert_eq!(controller_agent.as_deref(), Some("critic"));
+            }
+            _ => panic!("expected approval assess shortcut"),
+        }
         match parse_slash_command(&format!(
             "/approval approve {run_id} approval-1 --unlock-env APPROVAL_UNLOCK --signature-env=APPROVAL_SIG --controller-agent critic"
         ))
@@ -14828,12 +14850,42 @@ mod slash_tests {
             }
             _ => panic!("expected approval approve shortcut"),
         }
+        match parse_slash_command(
+            "/approval approve approval-1 --unlock-env APPROVAL_UNLOCK --signature-env=APPROVAL_SIG --controller-agent critic",
+        )
+        .unwrap()
+        {
+            Some(SlashCommand::Approval(ApprovalSlashCommand::Approve {
+                run_id: parsed,
+                approval_id,
+                unlock_env,
+                signature_env,
+                controller_agent,
+            })) => {
+                assert_eq!(parsed, "last");
+                assert_eq!(approval_id, "approval-1");
+                assert_eq!(unlock_env.as_deref(), Some("APPROVAL_UNLOCK"));
+                assert_eq!(signature_env.as_deref(), Some("APPROVAL_SIG"));
+                assert_eq!(controller_agent.as_deref(), Some("critic"));
+            }
+            _ => panic!("expected approval approve shortcut"),
+        }
         match parse_slash_command(&format!("/approval reject {run_id} approval-1")).unwrap() {
             Some(SlashCommand::Approval(ApprovalSlashCommand::Reject {
                 run_id: parsed,
                 approval_id,
             })) => {
                 assert_eq!(parsed, run_id);
+                assert_eq!(approval_id, "approval-1");
+            }
+            _ => panic!("expected approval reject shortcut"),
+        }
+        match parse_slash_command("/approval reject approval-1").unwrap() {
+            Some(SlashCommand::Approval(ApprovalSlashCommand::Reject {
+                run_id: parsed,
+                approval_id,
+            })) => {
+                assert_eq!(parsed, "last");
                 assert_eq!(approval_id, "approval-1");
             }
             _ => panic!("expected approval reject shortcut"),
@@ -14856,7 +14908,24 @@ mod slash_tests {
             }
             _ => panic!("expected approval execute shortcut"),
         }
-        assert!(parse_slash_command("/approval list").is_err());
+        match parse_slash_command(
+            "/approval execute approval-1 --unlock-env APPROVAL_UNLOCK --signature-env APPROVAL_SIG",
+        )
+        .unwrap()
+        {
+            Some(SlashCommand::Approval(ApprovalSlashCommand::Execute {
+                run_id: parsed,
+                approval_id,
+                unlock_env,
+                signature_env,
+            })) => {
+                assert_eq!(parsed, "last");
+                assert_eq!(approval_id, "approval-1");
+                assert_eq!(unlock_env.as_deref(), Some("APPROVAL_UNLOCK"));
+                assert_eq!(signature_env.as_deref(), Some("APPROVAL_SIG"));
+            }
+            _ => panic!("expected approval execute shortcut"),
+        }
         assert!(parse_slash_command("/approval list not-a-run").is_err());
         assert!(
             parse_slash_command(&format!(

@@ -43,7 +43,10 @@ use agent_conversations::{
     ConversationMessage, ConversationPolicy, ConversationStore, ConversationTreeNode,
     ConversationUsageReport, build_conversation_usage_report, render_message_range,
 };
-use agent_core::{AgentConfig, ContextSnapshot, Harness, HarnessApi, StopRetentionMode, UserInput};
+use agent_core::{
+    AgentConfig, ContextSnapshot, Harness, HarnessApi, StopRetentionMode, UserInput,
+    VisibilityLevel,
+};
 use agent_ingest::{IngestionArtifact, IngestionFindingReviewDecision, IngestionStore};
 use agent_memory::{
     MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget,
@@ -969,6 +972,8 @@ fn global_slash_help_text() -> &'static str {
      - /x402 request|required|settle ... - call native x402 payment tools directly\n\
      - /shell status|on|off - inspect or toggle shell tool access\n\
      - /subagent status|on|off - inspect or toggle subagent tool access\n\
+     - /budget <n> - set the max tool-call budget for future TUI runs\n\
+     - /visibility full|descriptions|names|config - set tool visibility for future TUI runs\n\
      - /cost input|output|both|clear|status - set token cost overrides for future TUI runs\n\
      - /preview <prompt> - inspect context before running\n\
      - /guide <text> - steer the active run at the next checkpoint\n\
@@ -1051,6 +1056,30 @@ fn subagent_slash_rest(trimmed: &str) -> Option<&str> {
 
 fn subagent_slash_help_text() -> &'static str {
     "/subagent status\n/subagent on\n/subagent off"
+}
+
+fn budget_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/budget" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/budget ").map(str::trim)
+    }
+}
+
+fn budget_slash_help_text() -> &'static str {
+    "/budget <n>\n/budget 0\n/budget help"
+}
+
+fn visibility_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/visibility" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/visibility ").map(str::trim)
+    }
+}
+
+fn visibility_slash_help_text() -> &'static str {
+    "/visibility full\n/visibility descriptions\n/visibility names\n/visibility config"
 }
 
 fn cost_help_slash_command(trimmed: &str) -> bool {
@@ -1281,6 +1310,14 @@ fn handle_slash_command(
     }
     if let Some(rest) = subagent_slash_rest(trimmed) {
         handle_subagent_slash(app, rest, registry, options);
+        return true;
+    }
+    if let Some(rest) = budget_slash_rest(trimmed) {
+        handle_budget_slash(app, rest, agent, options);
+        return true;
+    }
+    if let Some(rest) = visibility_slash_rest(trimmed) {
+        handle_visibility_slash(app, rest, agent, options);
         return true;
     }
     if cost_help_slash_command(trimmed) {
@@ -9314,6 +9351,106 @@ fn handle_subagent_slash(
     }
 }
 
+fn handle_budget_slash(
+    app: &mut App,
+    rest: &str,
+    agent: &mut AgentConfig,
+    options: &mut setup::RuntimeOptions,
+) {
+    let rest = rest.trim();
+    if rest == "help" || rest == "--help" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: budget_slash_help_text().into(),
+        });
+        return;
+    }
+    match parse_budget_slash_rest(rest) {
+        Ok(max_tool_calls) => {
+            options.max_tool_calls = Some(max_tool_calls);
+            refresh_agent_runtime_policy(app, agent, options);
+            push_event(app, format!("Tool-call budget set to {max_tool_calls}."));
+        }
+        Err(err) => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: err.to_string(),
+        }),
+    }
+}
+
+fn parse_budget_slash_rest(rest: &str) -> anyhow::Result<u32> {
+    let mut parts = rest.split_whitespace();
+    let value = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("Budget command needs a non-negative tool-call limit."))?;
+    if let Some(extra) = parts.next() {
+        anyhow::bail!("usage: /budget <n>, unexpected {extra:?}");
+    }
+    let parsed = value
+        .parse::<u32>()
+        .map_err(|_| anyhow::anyhow!("Budget command needs a non-negative integer."))?;
+    Ok(parsed)
+}
+
+fn handle_visibility_slash(
+    app: &mut App,
+    rest: &str,
+    agent: &mut AgentConfig,
+    options: &mut setup::RuntimeOptions,
+) {
+    let rest = rest.trim().to_lowercase();
+    if rest == "help" || rest == "--help" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: visibility_slash_help_text().into(),
+        });
+        return;
+    }
+    match parse_visibility_slash_rest(&rest) {
+        Ok(visibility) => {
+            options.tool_visibility = visibility;
+            refresh_agent_runtime_policy(app, agent, options);
+            push_event(
+                app,
+                visibility
+                    .map(|value| format!("Tool visibility set to {}.", visibility_label(value)))
+                    .unwrap_or_else(|| "Tool visibility set to config default.".into()),
+            );
+        }
+        Err(err) => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: err.to_string(),
+        }),
+    }
+}
+
+fn parse_visibility_slash_rest(rest: &str) -> anyhow::Result<Option<VisibilityLevel>> {
+    let mut parts = rest.split_whitespace();
+    let value = parts.next().ok_or_else(|| {
+        anyhow::anyhow!("Visibility command needs full, descriptions, names, or config.")
+    })?;
+    if let Some(extra) = parts.next() {
+        anyhow::bail!("usage: /visibility full|descriptions|names|config, unexpected {extra:?}");
+    }
+    match value {
+        "full" | "full-schema" | "full_schema" => Ok(Some(VisibilityLevel::FullSchema)),
+        "descriptions" | "name-and-description" | "name_and_description" => {
+            Ok(Some(VisibilityLevel::NameAndDescription))
+        }
+        "names" | "name-only" | "name_only" => Ok(Some(VisibilityLevel::NameOnly)),
+        "config" => Ok(None),
+        _ => anyhow::bail!("Visibility command needs full, descriptions, names, or config."),
+    }
+}
+
+fn visibility_label(value: VisibilityLevel) -> &'static str {
+    match value {
+        VisibilityLevel::FullSchema => "full schema",
+        VisibilityLevel::NameAndDescription => "name and description",
+        VisibilityLevel::NameOnly => "name only",
+    }
+}
+
 fn handle_cost_slash(
     app: &mut App,
     rest: &str,
@@ -9339,7 +9476,7 @@ fn handle_cost_slash(
         "input" => match single_cost_value(parts, "usage: /cost input <usd-per-million>") {
             Ok(value) => {
                 options.input_cost_per_million = Some(value);
-                refresh_agent_cost_policy(app, agent, options);
+                refresh_agent_runtime_policy(app, agent, options);
                 push_event(
                     app,
                     format!("Input token cost override set to {value} $/M."),
@@ -9350,7 +9487,7 @@ fn handle_cost_slash(
         "output" => match single_cost_value(parts, "usage: /cost output <usd-per-million>") {
             Ok(value) => {
                 options.output_cost_per_million = Some(value);
-                refresh_agent_cost_policy(app, agent, options);
+                refresh_agent_runtime_policy(app, agent, options);
                 push_event(
                     app,
                     format!("Output token cost override set to {value} $/M."),
@@ -9362,7 +9499,7 @@ fn handle_cost_slash(
             Ok((input, output)) => {
                 options.input_cost_per_million = Some(input);
                 options.output_cost_per_million = Some(output);
-                refresh_agent_cost_policy(app, agent, options);
+                refresh_agent_runtime_policy(app, agent, options);
                 push_event(
                     app,
                     format!(
@@ -9379,7 +9516,7 @@ fn handle_cost_slash(
             }
             options.input_cost_per_million = None;
             options.output_cost_per_million = None;
-            refresh_agent_cost_policy(app, agent, options);
+            refresh_agent_runtime_policy(app, agent, options);
             push_event(
                 app,
                 "Token cost overrides cleared; configured model costs will be used.".into(),
@@ -9392,7 +9529,7 @@ fn handle_cost_slash(
     }
 }
 
-fn refresh_agent_cost_policy(
+fn refresh_agent_runtime_policy(
     app: &mut App,
     agent: &mut AgentConfig,
     options: &setup::RuntimeOptions,
@@ -11532,6 +11669,8 @@ mod tests {
         assert!(!slash_help_rest("helper"));
         assert!(global_slash_help_text().contains("/usage [current|last|trace|run|conversation]"));
         assert!(global_slash_help_text().contains("/subagent status|on|off"));
+        assert!(global_slash_help_text().contains("/budget <n>"));
+        assert!(global_slash_help_text().contains("/visibility full|descriptions|names|config"));
         assert!(global_slash_help_text().contains("/cost input|output|both|clear|status"));
         assert!(global_slash_help_text().contains("/batch <line-delimited prompts>"));
         assert_eq!(memory_slash_rest("/memory --help"), Some("--help"));
@@ -11571,6 +11710,14 @@ mod tests {
         assert_eq!(subagent_slash_rest("/subagent status"), Some("status"));
         assert_eq!(subagent_slash_rest("/subagents status"), None);
         assert!(subagent_slash_help_text().contains("/subagent status"));
+        assert_eq!(budget_slash_rest("/budget"), Some(""));
+        assert_eq!(budget_slash_rest("/budget 3"), Some("3"));
+        assert_eq!(budget_slash_rest("/budgeting 3"), None);
+        assert!(budget_slash_help_text().contains("/budget <n>"));
+        assert_eq!(visibility_slash_rest("/visibility"), Some(""));
+        assert_eq!(visibility_slash_rest("/visibility names"), Some("names"));
+        assert_eq!(visibility_slash_rest("/visibilityx names"), None);
+        assert!(visibility_slash_help_text().contains("/visibility names"));
         assert!(cost_help_slash_command("/cost help"));
         assert!(cost_help_slash_command("/cost --help"));
         assert!(!cost_help_slash_command("/cost helper"));
@@ -12311,6 +12458,8 @@ mod tests {
         assert!(help.contains("manual JSON input"));
         assert!(help.contains("/guide <text>"));
         assert!(help.contains("/subagent status|on|off"));
+        assert!(help.contains("/budget <n>"));
+        assert!(help.contains("/visibility full|descriptions|names|config"));
         assert!(help.contains("/cost input|output|both|clear|status"));
         assert!(help.contains("/conversation"));
     }
@@ -12831,6 +12980,70 @@ mod tests {
                 .iter()
                 .any(|line| line.text.contains("Subagent tool access disabled."))
         );
+    }
+
+    #[test]
+    fn budget_slash_updates_runtime_tool_budget() {
+        let _home = HarnessHomeGuard::new();
+        let mut app = App::default();
+        let mut options = setup::RuntimeOptions::default();
+        let mut agent = setup::build_agent(&options);
+
+        handle_budget_slash(&mut app, "3", &mut agent, &mut options);
+        assert_eq!(options.max_tool_calls, Some(3));
+        assert_eq!(agent.tool_policy.max_calls, 3);
+        assert_eq!(app.calls_max, 3);
+        assert_eq!(app.calls_remaining, 3);
+
+        handle_budget_slash(&mut app, "0", &mut agent, &mut options);
+        assert_eq!(options.max_tool_calls, Some(0));
+        assert_eq!(agent.tool_policy.max_calls, 0);
+        assert_eq!(app.calls_max, 0);
+
+        handle_budget_slash(&mut app, "-1", &mut agent, &mut options);
+        assert!(
+            app.transcript
+                .iter()
+                .any(|line| line.text.contains("non-negative integer"))
+        );
+        assert_eq!(options.max_tool_calls, Some(0));
+    }
+
+    #[test]
+    fn visibility_slash_updates_runtime_tool_visibility() {
+        let _home = HarnessHomeGuard::new();
+        let mut app = App::default();
+        let mut options = setup::RuntimeOptions::default();
+        let mut agent = setup::build_agent(&options);
+
+        handle_visibility_slash(&mut app, "names", &mut agent, &mut options);
+        assert_eq!(options.tool_visibility, Some(VisibilityLevel::NameOnly));
+        assert_eq!(agent.tool_policy.visibility, VisibilityLevel::NameOnly);
+
+        handle_visibility_slash(&mut app, "descriptions", &mut agent, &mut options);
+        assert_eq!(
+            options.tool_visibility,
+            Some(VisibilityLevel::NameAndDescription)
+        );
+        assert_eq!(
+            agent.tool_policy.visibility,
+            VisibilityLevel::NameAndDescription
+        );
+
+        handle_visibility_slash(&mut app, "full", &mut agent, &mut options);
+        assert_eq!(options.tool_visibility, Some(VisibilityLevel::FullSchema));
+        assert_eq!(agent.tool_policy.visibility, VisibilityLevel::FullSchema);
+
+        handle_visibility_slash(&mut app, "config", &mut agent, &mut options);
+        assert_eq!(options.tool_visibility, None);
+        assert_eq!(agent.tool_policy.visibility, VisibilityLevel::FullSchema);
+
+        handle_visibility_slash(&mut app, "mystery", &mut agent, &mut options);
+        assert!(app.transcript.iter().any(|line| {
+            line.text
+                .contains("Visibility command needs full, descriptions, names, or config.")
+        }));
+        assert_eq!(options.tool_visibility, None);
     }
 
     #[test]

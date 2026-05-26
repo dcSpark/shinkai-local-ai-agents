@@ -1864,6 +1864,7 @@ export default function App() {
       { command: "/ingest help", label: "Show ingestion shortcuts" },
       { command: "/ingest list", label: "List ingestion artifacts" },
       { command: "/ingest backends", label: "List ingestion backends" },
+      { command: "/ingest status", label: "Show selected ingestion context" },
       { command: "/ingest add ", label: "Ingest a file path" },
       { command: "/ingest probe-source ", label: "Probe source ingestion fit" },
       { command: "/ingest probe-vision ", label: "Probe vision ingestion" },
@@ -1872,6 +1873,7 @@ export default function App() {
       { command: "/ingest rerun ", label: "Rerun ingestion artifact" },
       { command: "/ingest use ", label: "Use ingestion artifact" },
       { command: "/ingest include ", label: "Use ingestion artifact" },
+      { command: "/ingest exclude ", label: "Exclude ingestion artifact" },
       { command: "/ingest preview ", label: "Preview context with artifact" },
       { command: "/ingest review ", label: "Review ingestion finding" },
       { command: "/ingest delete ", label: "Delete ingestion artifact" },
@@ -3286,6 +3288,7 @@ export default function App() {
     return [
       "/ingest list",
       "/ingest backends",
+      "/ingest status",
       "/ingest add <path> [--backend <backend>] [--vision-model <model>] [--guardrail-model <model>]",
       "/ingest rerun <id> [--backend <backend>] [--vision-model <model>] [--guardrail-model <model>]",
       "/ingest probe-source <path> [--vision-model <model>]",
@@ -3293,6 +3296,7 @@ export default function App() {
       "/ingest show <id>",
       "/ingest use <id>",
       "/ingest include <id>",
+      "/ingest exclude <id>",
       "/ingest preview <id>",
       "/ingest review <id> <finding-index> <acknowledge|approve|reject> [note]",
       "/ingest delete <id> --confirm",
@@ -7870,6 +7874,12 @@ export default function App() {
         appendLine("assistant", ingestShortcutHelpText());
       } else if (prompt === "/ingest backends") {
         await reviewIngestionBackends();
+      } else if (prompt === "/ingest status" || prompt.startsWith("/ingest status ")) {
+        if (prompt !== "/ingest status") {
+          appendLine("error", "Ingest status shortcut accepts no arguments.");
+        } else {
+          showIngestContextStatus();
+        }
       } else if (prompt.startsWith("/ingest add ")) {
         const parsed = parseIngestModelShortcut(
           prompt.slice("/ingest add ".length).trim(),
@@ -7926,6 +7936,16 @@ export default function App() {
         } else {
           includeIngestFromOps(id);
         }
+      } else if (prompt === "/ingest exclude" || prompt.startsWith("/ingest exclude ")) {
+        const id =
+          prompt === "/ingest exclude"
+            ? ""
+            : prompt.slice("/ingest exclude ".length).trim();
+        if (!id) {
+          appendLine("error", "Ingest exclude shortcut needs an artifact id.");
+        } else {
+          excludeIngestFromOps(id);
+        }
       } else if (prompt.startsWith("/ingest preview ")) {
         const id = prompt.slice("/ingest preview ".length).trim();
         if (!id) {
@@ -7967,7 +7987,7 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Ingest shortcut needs list, backends, add, probe-source, probe-vision, show, rerun, use, preview, review, delete, or help.",
+          "Ingest shortcut needs list, backends, status, add, probe-source, probe-vision, show, rerun, use, exclude, preview, review, delete, or help.",
         );
       }
       return;
@@ -14327,6 +14347,27 @@ export default function App() {
       return;
     }
     appendEvent(`Ingestion artifact will be included in context: ${id}`);
+  }
+
+  function excludeIngestFromOps(explicitId?: string) {
+    const id = explicitId?.trim() || requireOpsId("Exclude ingest");
+    if (!id) return;
+    const wasIncluded = includeIngestIds.includes(id);
+    setIncludeIngestIds((ids) => ids.filter((includedId) => includedId !== id));
+    appendEvent(
+      wasIncluded
+        ? `Ingestion artifact excluded from context: ${id}`
+        : `Ingestion artifact was not included: ${id}`,
+    );
+  }
+
+  function showIngestContextStatus() {
+    appendJson("Ingestion context status", {
+      include_ingest: includeIngestIds,
+      included_count: includeIngestIds.length,
+      guardrail_mode: activeIngestionGuardrailMode(),
+      shortcut: "/ingest status",
+    });
   }
 
   function toggleUnsafeIngest(checked: boolean) {

@@ -64,8 +64,9 @@ use agent_skills::{SkillDoc, SkillRegistry};
 use agent_storage::StoragePaths;
 use agent_tools::{
     ArtifactGenerateInput, GeneratedArtifact, ToolId, ToolRegistry,
-    delete_generated_artifact_from_env, export_generated_artifact_from_env,
-    generate_artifact_from_env, list_generated_artifacts_from_env,
+    delete_generated_artifact_from_env, delete_generated_artifacts_by_ids_from_env,
+    export_generated_artifact_from_env, generate_artifact_from_env,
+    generated_artifact_ids_in_value, list_generated_artifacts_from_env,
     open_generated_artifact_from_env, show_generated_artifact_from_env,
 };
 use agent_tracing::{
@@ -2549,7 +2550,8 @@ fn cleanup_conversation_range_side_data_from_tui(
     from: usize,
     to: usize,
     preserved: &PreservedRangeArtifacts,
-) -> anyhow::Result<(usize, usize)> {
+    run_ids: &[String],
+) -> anyhow::Result<(usize, usize, usize)> {
     let compactions = CompactionStore::from_env()
         .remove_by_conversation_message_range(id, from, to, &preserved.compaction_ids)?
         .len();
@@ -2560,17 +2562,84 @@ fn cleanup_conversation_range_side_data_from_tui(
         &preserved.memory_ids,
     )?
     .len();
-    Ok((compactions, memories))
+    let artifacts = cleanup_generated_artifacts_for_run_ids_from_tui(run_ids)?;
+    Ok((compactions, memories, artifacts))
 }
 
 fn cleanup_deleted_conversation_side_data_from_tui(
     deleted: &[String],
-) -> anyhow::Result<(usize, usize)> {
+    run_ids: &[String],
+) -> anyhow::Result<(usize, usize, usize)> {
     let compactions = CompactionStore::from_env()
         .remove_by_conversation_ids(deleted)?
         .len();
     let memories = delete_records_by_source_conversation_ids_for_active_backend(deleted)?.len();
-    Ok((compactions, memories))
+    let artifacts = cleanup_generated_artifacts_for_run_ids_from_tui(run_ids)?;
+    Ok((compactions, memories, artifacts))
+}
+
+fn conversation_run_ids_for_docs_from_tui(
+    store: &ConversationStore,
+    ids: &[String],
+) -> anyhow::Result<Vec<String>> {
+    let mut run_ids = Vec::new();
+    for id in ids {
+        for message in store.show(id)?.messages {
+            if let Some(run_id) = message.run_id
+                && !run_ids.iter().any(|existing| existing == &run_id)
+            {
+                run_ids.push(run_id);
+            }
+        }
+    }
+    Ok(run_ids)
+}
+
+fn conversation_run_ids_for_deletable_range_from_tui(
+    store: &ConversationStore,
+    id: &str,
+    from: usize,
+    to: usize,
+) -> anyhow::Result<Vec<String>> {
+    store.render_deletable_message_range(id, from, to)?;
+    let expanded = store.expanded(id)?;
+    let mut run_ids = Vec::new();
+    for message in &expanded.messages[from..=to] {
+        if let Some(run_id) = &message.run_id
+            && !run_ids.iter().any(|existing| existing == run_id)
+        {
+            run_ids.push(run_id.clone());
+        }
+    }
+    Ok(run_ids)
+}
+
+fn cleanup_generated_artifacts_for_run_ids_from_tui(run_ids: &[String]) -> anyhow::Result<usize> {
+    let artifact_ids = generated_artifact_ids_for_run_ids_from_tui(run_ids)?;
+    Ok(delete_generated_artifacts_by_ids_from_env(&artifact_ids)?.len())
+}
+
+fn generated_artifact_ids_for_run_ids_from_tui(run_ids: &[String]) -> anyhow::Result<Vec<String>> {
+    let store = open_event_store()?;
+    let mut artifact_ids = Vec::new();
+    for run_id in run_ids {
+        let Ok(uuid) = uuid::Uuid::parse_str(run_id) else {
+            continue;
+        };
+        let Ok(events) = store.try_events(RunId(uuid)) else {
+            continue;
+        };
+        for event in events {
+            if let RunEventKind::ToolCallCompleted { output, .. } = event.kind {
+                for artifact_id in generated_artifact_ids_in_value(&output) {
+                    if !artifact_ids.iter().any(|existing| existing == &artifact_id) {
+                        artifact_ids.push(artifact_id);
+                    }
+                }
+            }
+        }
+    }
+    Ok(artifact_ids)
 }
 
 fn confirm_conversation_action(app: &mut App) -> anyhow::Result<()> {
@@ -2583,7 +2652,10 @@ fn confirm_conversation_action(app: &mut App) -> anyhow::Result<()> {
             recursive,
             delete_ids,
         } => {
-            let deleted = ConversationStore::from_env().delete_many(&[id], recursive)?;
+            let store = ConversationStore::from_env();
+            let planned = store.deletion_plan(std::slice::from_ref(&id), recursive)?;
+            let run_ids = conversation_run_ids_for_docs_from_tui(&store, &planned)?;
+            let deleted = store.delete_many(std::slice::from_ref(&id), recursive)?;
             if app
                 .selected_conversation_id
                 .as_ref()
@@ -2591,8 +2663,8 @@ fn confirm_conversation_action(app: &mut App) -> anyhow::Result<()> {
             {
                 app.selected_conversation_id = None;
             }
-            let (deleted_compactions, deleted_memories) =
-                cleanup_deleted_conversation_side_data_from_tui(&deleted)?;
+            let (deleted_compactions, deleted_memories, deleted_artifacts) =
+                cleanup_deleted_conversation_side_data_from_tui(&deleted, &run_ids)?;
             push_event(
                 app,
                 format!(
@@ -2611,11 +2683,11 @@ fn confirm_conversation_action(app: &mut App) -> anyhow::Result<()> {
                     ),
                 });
             }
-            if deleted_compactions > 0 || deleted_memories > 0 {
+            if deleted_compactions > 0 || deleted_memories > 0 || deleted_artifacts > 0 {
                 app.transcript.push(TranscriptLine {
                     kind: LineKind::Event,
                     text: format!(
-                        "Deleted {deleted_compactions} linked compaction artifact(s) and {deleted_memories} linked memory record(s)."
+                        "Deleted {deleted_compactions} linked compaction artifact(s), {deleted_memories} linked memory record(s), and {deleted_artifacts} linked generated artifact(s)."
                     ),
                 });
             }
@@ -2628,11 +2700,12 @@ fn confirm_conversation_action(app: &mut App) -> anyhow::Result<()> {
         } => {
             let store = ConversationStore::from_env();
             let before = store.expanded(&id)?.messages.len();
+            let run_ids = conversation_run_ids_for_deletable_range_from_tui(&store, &id, from, to)?;
             let preserved =
                 preserve_conversation_range_artifacts_from_tui(&store, &id, from, to, &options)?;
             let doc = store.delete_message_range(&id, from, to)?;
-            let (deleted_compactions, deleted_memories) =
-                cleanup_conversation_range_side_data_from_tui(&id, from, to, &preserved)?;
+            let (deleted_compactions, deleted_memories, deleted_artifacts) =
+                cleanup_conversation_range_side_data_from_tui(&id, from, to, &preserved, &run_ids)?;
             let after = store.expanded(&id)?.messages.len();
             push_event(
                 app,
@@ -2651,11 +2724,11 @@ fn confirm_conversation_action(app: &mut App) -> anyhow::Result<()> {
                     ),
                 });
             }
-            if deleted_compactions > 0 || deleted_memories > 0 {
+            if deleted_compactions > 0 || deleted_memories > 0 || deleted_artifacts > 0 {
                 app.transcript.push(TranscriptLine {
                     kind: LineKind::Event,
                     text: format!(
-                        "Deleted {deleted_compactions} linked compaction artifact(s) and {deleted_memories} linked memory record(s)."
+                        "Deleted {deleted_compactions} linked compaction artifact(s), {deleted_memories} linked memory record(s), and {deleted_artifacts} linked generated artifact(s)."
                     ),
                 });
             }

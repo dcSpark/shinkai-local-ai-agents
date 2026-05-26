@@ -60,9 +60,10 @@ use agent_storage::StoragePaths;
 use agent_tools::{
     ArtifactGenerateInput, ArtifactTool, FakeTool, ShellTool, ShellToolConfig, SubagentTool,
     ToolId, ToolRegistry, VoiceRuntimeConfig, delete_generated_artifact_from_env,
-    export_generated_artifact_from_env, generate_artifact_from_env,
-    generated_artifact_data_url_from_env, generated_artifact_file_from_env,
-    is_shell_runtime_tool_id, list_generated_artifacts_from_env, open_generated_artifact_from_env,
+    delete_generated_artifacts_by_ids_from_env, export_generated_artifact_from_env,
+    generate_artifact_from_env, generated_artifact_data_url_from_env,
+    generated_artifact_file_from_env, generated_artifact_ids_in_value, is_shell_runtime_tool_id,
+    list_generated_artifacts_from_env, open_generated_artifact_from_env,
     register_allowed_adapter_tools_for_category_with_provenance,
     register_allowed_adapter_tools_for_resource_with_provenance,
     register_allowed_adapter_tools_with_provenance, register_code_execution_tools,
@@ -1757,15 +1758,17 @@ fn daemon_conversation_delete(id: &str, body: &str) -> anyhow::Result<serde_json
     let store = ConversationStore::from_env();
     let requested = id.to_string();
     let planned = store.deletion_plan(std::slice::from_ref(&requested), input.recursive)?;
+    let run_ids = conversation_run_ids_for_docs(&store, &planned)?;
     let deleted = store.delete(id, input.recursive)?;
-    let cleanup = cleanup_conversation_side_data(&deleted)?;
+    let cleanup = cleanup_conversation_side_data(&deleted, &run_ids)?;
     Ok(serde_json::json!({
         "requested": id,
         "recursive": input.recursive,
         "planned": planned,
         "deleted": deleted,
         "deleted_compactions": cleanup.compactions,
-        "deleted_memories": cleanup.memories
+        "deleted_memories": cleanup.memories,
+        "deleted_artifacts": cleanup.artifacts
     }))
 }
 
@@ -1780,15 +1783,17 @@ fn daemon_conversation_delete_agent(body: &str) -> anyhow::Result<serde_json::Va
     let input = parse_conversation_agent_delete_input(body)?;
     let store = ConversationStore::from_env();
     let planned = store.deletion_plan_by_agent(&input.agent_id, input.recursive)?;
+    let run_ids = conversation_run_ids_for_docs(&store, &planned)?;
     let deleted = store.delete_by_agent(&input.agent_id, input.recursive)?;
-    let cleanup = cleanup_conversation_side_data(&deleted)?;
+    let cleanup = cleanup_conversation_side_data(&deleted, &run_ids)?;
     Ok(serde_json::json!({
         "requested": input.agent_id,
         "recursive": input.recursive,
         "planned": planned,
         "deleted": deleted,
         "deleted_compactions": cleanup.compactions,
-        "deleted_memories": cleanup.memories
+        "deleted_memories": cleanup.memories,
+        "deleted_artifacts": cleanup.artifacts
     }))
 }
 
@@ -1796,9 +1801,11 @@ fn daemon_conversation_delete_range(id: &str, body: &str) -> anyhow::Result<serd
     let input: ConversationRangeInput = serde_json::from_str(body)?;
     let store = ConversationStore::from_env();
     let before = store.expanded(id)?.messages.len();
+    let run_ids = conversation_run_ids_for_deletable_range(&store, id, input.from, input.to)?;
     let preserved = preserve_conversation_range_artifacts(&store, id, &input)?;
     let conversation = store.delete_message_range(id, input.from, input.to)?;
-    let cleanup = cleanup_conversation_range_side_data(id, input.from, input.to, &preserved)?;
+    let cleanup =
+        cleanup_conversation_range_side_data(id, input.from, input.to, &preserved, &run_ids)?;
     let after = store.expanded(id)?.messages.len();
     Ok(serde_json::json!({
         "id": id,
@@ -1810,6 +1817,7 @@ fn daemon_conversation_delete_range(id: &str, body: &str) -> anyhow::Result<serd
         "preserved_memories": preserved.memories,
         "deleted_compactions": cleanup.compactions,
         "deleted_memories": cleanup.memories,
+        "deleted_artifacts": cleanup.artifacts,
         "conversation": conversation
     }))
 }
@@ -1951,6 +1959,7 @@ fn parse_conversation_agent_delete_input(
 struct ConversationDeletionCleanup {
     compactions: Vec<String>,
     memories: Vec<String>,
+    artifacts: Vec<String>,
 }
 
 #[derive(Debug, Default)]
@@ -2012,10 +2021,12 @@ fn preserve_conversation_range_artifacts(
 
 fn cleanup_conversation_side_data(
     deleted: &[String],
+    run_ids: &[String],
 ) -> anyhow::Result<ConversationDeletionCleanup> {
     Ok(ConversationDeletionCleanup {
         compactions: CompactionStore::from_env().remove_by_conversation_ids(deleted)?,
         memories: delete_records_by_source_conversation_ids_for_active_backend(deleted)?,
+        artifacts: cleanup_generated_artifacts_for_run_ids(run_ids)?,
     })
 }
 
@@ -2024,6 +2035,7 @@ fn cleanup_conversation_range_side_data(
     from: usize,
     to: usize,
     preserved: &ConversationRangePreservedArtifacts,
+    run_ids: &[String],
 ) -> anyhow::Result<ConversationDeletionCleanup> {
     Ok(ConversationDeletionCleanup {
         compactions: CompactionStore::from_env().remove_by_conversation_message_range(
@@ -2038,7 +2050,72 @@ fn cleanup_conversation_range_side_data(
             to,
             &preserved.memories,
         )?,
+        artifacts: cleanup_generated_artifacts_for_run_ids(run_ids)?,
     })
+}
+
+fn conversation_run_ids_for_docs(
+    store: &ConversationStore,
+    ids: &[String],
+) -> anyhow::Result<Vec<String>> {
+    let mut run_ids = Vec::new();
+    for id in ids {
+        for message in store.show(id)?.messages {
+            if let Some(run_id) = message.run_id
+                && !run_ids.iter().any(|existing| existing == &run_id)
+            {
+                run_ids.push(run_id);
+            }
+        }
+    }
+    Ok(run_ids)
+}
+
+fn conversation_run_ids_for_deletable_range(
+    store: &ConversationStore,
+    id: &str,
+    from: usize,
+    to: usize,
+) -> anyhow::Result<Vec<String>> {
+    store.render_deletable_message_range(id, from, to)?;
+    let expanded = store.expanded(id)?;
+    let mut run_ids = Vec::new();
+    for message in &expanded.messages[from..=to] {
+        if let Some(run_id) = &message.run_id
+            && !run_ids.iter().any(|existing| existing == run_id)
+        {
+            run_ids.push(run_id.clone());
+        }
+    }
+    Ok(run_ids)
+}
+
+fn cleanup_generated_artifacts_for_run_ids(run_ids: &[String]) -> anyhow::Result<Vec<String>> {
+    let artifact_ids = generated_artifact_ids_for_run_ids(run_ids)?;
+    Ok(delete_generated_artifacts_by_ids_from_env(&artifact_ids)?)
+}
+
+fn generated_artifact_ids_for_run_ids(run_ids: &[String]) -> anyhow::Result<Vec<String>> {
+    let store = open_event_store()?;
+    let mut artifact_ids = Vec::new();
+    for run_id in run_ids {
+        let Ok(uuid) = uuid::Uuid::parse_str(run_id) else {
+            continue;
+        };
+        let Ok(events) = store.try_events(RunId(uuid)) else {
+            continue;
+        };
+        for event in events {
+            if let RunEventKind::ToolCallCompleted { output, .. } = event.kind {
+                for artifact_id in generated_artifact_ids_in_value(&output) {
+                    if !artifact_ids.iter().any(|existing| existing == &artifact_id) {
+                        artifact_ids.push(artifact_id);
+                    }
+                }
+            }
+        }
+    }
+    Ok(artifact_ids)
 }
 
 fn daemon_explain_tools(body: &str) -> anyhow::Result<serde_json::Value> {
@@ -8011,6 +8088,38 @@ mod tests {
 
     static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    fn generated_artifact_with_trace(title: &str, content: &str) -> (String, RunId) {
+        let artifact = generate_artifact_from_env(ArtifactGenerateInput {
+            format: "md".into(),
+            title: Some(title.into()),
+            content: Some(content.into()),
+            rows: None,
+            filename: Some(title.into()),
+        })
+        .unwrap();
+        let run_id = RunId::new();
+        let store = open_event_store().unwrap();
+        let started = store.append(
+            run_id,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "fake-agent".into(),
+                input: format!("generate {title}"),
+            },
+        );
+        store.append(
+            run_id,
+            Some(started.id),
+            RunEventKind::ToolCallCompleted {
+                call_id: "artifact".into(),
+                output: serde_json::json!({ "artifact_id": artifact.id.clone() }),
+                cost_usd: None,
+                duration_ms: 1,
+            },
+        );
+        (artifact.id, run_id)
+    }
+
     #[test]
     fn build_agent_applies_runtime_tool_output_interpreter_model() {
         let options = DaemonRuntimeOptions {
@@ -9949,18 +10058,26 @@ mod tests {
         let conversation = conversation_store
             .create(Some("Range delete".into()), Some("fake-agent".into()))
             .unwrap();
+        let (stale_artifact_id, stale_run_id) =
+            generated_artifact_with_trace("stale-range-artifact", "range artifact");
+        let (keep_artifact_id, keep_run_id) =
+            generated_artifact_with_trace("keep-range-artifact", "kept artifact");
+        let stale_run_id_text = stale_run_id.0.to_string();
+        let keep_run_id_text = keep_run_id.0.to_string();
         conversation_store
-            .append_message(
+            .append_message_with_run(
                 &conversation.id,
                 ConversationRole::User,
                 "Remember: range deletion keeps this fact",
+                Some(&stale_run_id_text),
             )
             .unwrap();
         conversation_store
-            .append_message(
+            .append_message_with_run(
                 &conversation.id,
                 ConversationRole::Assistant,
                 "This later message stays in the thread.",
+                Some(&keep_run_id_text),
             )
             .unwrap();
         let stale_compaction = CompactionStore::from_env()
@@ -10019,8 +10136,11 @@ mod tests {
             serde_json::from_value(deleted["deleted_compactions"].clone()).unwrap();
         let deleted_memories: Vec<String> =
             serde_json::from_value(deleted["deleted_memories"].clone()).unwrap();
+        let deleted_artifacts: Vec<String> =
+            serde_json::from_value(deleted["deleted_artifacts"].clone()).unwrap();
         assert_eq!(deleted_compactions, vec![stale_compaction.id.clone()]);
         assert_eq!(deleted_memories, vec![stale_memory.id.clone()]);
+        assert_eq!(deleted_artifacts, vec![stale_artifact_id.clone()]);
         assert_eq!(
             deleted["preserved_compactions"].as_array().map(Vec::len),
             Some(1)
@@ -10049,6 +10169,61 @@ mod tests {
         );
         assert!(MemoryStore::from_env().get(&stale_memory.id).is_err());
         assert!(MemoryStore::from_env().get(&keep_memory.id).is_ok());
+        assert!(show_generated_artifact_from_env(&stale_artifact_id).is_err());
+        assert!(show_generated_artifact_from_env(&keep_artifact_id).is_ok());
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn conversation_delete_removes_only_own_linked_generated_artifacts() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("conversation-delete-artifacts");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+
+        let conversation_store = ConversationStore::from_env();
+        let root = conversation_store
+            .create(Some("Root".into()), Some("fake-agent".into()))
+            .unwrap();
+        let (root_artifact_id, root_run_id) =
+            generated_artifact_with_trace("root-artifact", "root artifact");
+        let root_run_id_text = root_run_id.0.to_string();
+        conversation_store
+            .append_message_with_run(
+                &root.id,
+                ConversationRole::Assistant,
+                "Created root artifact.",
+                Some(&root_run_id_text),
+            )
+            .unwrap();
+
+        let branch = conversation_store
+            .branch(&root.id, 1, Some("Branch".into()), None)
+            .unwrap();
+        let (branch_artifact_id, branch_run_id) =
+            generated_artifact_with_trace("branch-artifact", "branch artifact");
+        let branch_run_id_text = branch_run_id.0.to_string();
+        conversation_store
+            .append_message_with_run(
+                &branch.id,
+                ConversationRole::Assistant,
+                "Created branch artifact.",
+                Some(&branch_run_id_text),
+            )
+            .unwrap();
+
+        let deleted = daemon_conversation_delete(&branch.id, r#"{"recursive":false}"#).unwrap();
+        let deleted_artifacts: Vec<String> =
+            serde_json::from_value(deleted["deleted_artifacts"].clone()).unwrap();
+
+        assert_eq!(deleted["deleted"], serde_json::json!([branch.id.clone()]));
+        assert_eq!(deleted_artifacts, vec![branch_artifact_id.clone()]);
+        assert!(show_generated_artifact_from_env(&branch_artifact_id).is_err());
+        assert!(show_generated_artifact_from_env(&root_artifact_id).is_ok());
 
         restore_env("AGENT_HARNESS_HOME", previous_home);
         let _ = std::fs::remove_dir_all(dir);

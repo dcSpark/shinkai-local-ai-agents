@@ -63,7 +63,8 @@ use agent_skills::{SkillDoc, SkillRegistry};
 use agent_storage::StoragePaths;
 use agent_tools::{
     ArtifactGenerateInput, ToolId, delete_generated_artifact_from_env,
-    export_generated_artifact_from_env, generate_artifact_from_env, is_shell_runtime_tool_id,
+    delete_generated_artifacts_by_ids_from_env, export_generated_artifact_from_env,
+    generate_artifact_from_env, generated_artifact_ids_in_value, is_shell_runtime_tool_id,
     list_generated_artifacts_from_env, open_generated_artifact_from_env,
     show_generated_artifact_from_env,
 };
@@ -3214,9 +3215,10 @@ pub async fn conversation_delete(
 ) -> anyhow::Result<()> {
     let store = ConversationStore::from_env();
     let planned = store.deletion_plan(&[id], options.recursive)?;
+    let run_ids = conversation_run_ids_for_docs(&store, &planned)?;
     let preserved = preserve_conversation_artifacts(&store, &planned, &options)?;
     let deleted = store.delete_many(&planned, false)?;
-    print_conversation_deletion(deleted, preserved)?;
+    print_conversation_deletion(deleted, preserved, run_ids)?;
     Ok(())
 }
 
@@ -3228,9 +3230,10 @@ pub async fn conversation_delete_range(
 ) -> anyhow::Result<()> {
     let store = ConversationStore::from_env();
     let before = store.expanded(&id)?.messages.len();
+    let run_ids = conversation_run_ids_for_deletable_range(&store, &id, from, to)?;
     let preserved = preserve_conversation_range_artifacts(&store, &id, from, to, &options)?;
     let doc = store.delete_message_range(&id, from, to)?;
-    let cleanup = cleanup_conversation_range_side_data(&id, from, to, &preserved)?;
+    let cleanup = cleanup_conversation_range_side_data(&id, from, to, &preserved, &run_ids)?;
     let after = store.expanded(&id)?.messages.len();
     println!(
         "deleted {} message(s) from {id}",
@@ -3243,6 +3246,7 @@ pub async fn conversation_delete_range(
         cleanup.compactions
     );
     println!("deleted {} linked memory record(s)", cleanup.memories);
+    println!("deleted {} linked generated artifact(s)", cleanup.artifacts);
     Ok(())
 }
 
@@ -3252,9 +3256,10 @@ pub async fn conversation_delete_agent(
 ) -> anyhow::Result<()> {
     let store = ConversationStore::from_env();
     let planned = store.deletion_plan_by_agent(&agent, options.recursive)?;
+    let run_ids = conversation_run_ids_for_docs(&store, &planned)?;
     let preserved = preserve_conversation_artifacts(&store, &planned, &options)?;
     let deleted = store.delete_many(&planned, false)?;
-    print_conversation_deletion(deleted, preserved)?;
+    print_conversation_deletion(deleted, preserved, run_ids)?;
     Ok(())
 }
 
@@ -3267,8 +3272,9 @@ struct PreservedConversationArtifacts {
 fn print_conversation_deletion(
     deleted: Vec<String>,
     preserved: PreservedConversationArtifacts,
+    run_ids: Vec<String>,
 ) -> anyhow::Result<()> {
-    let cleanup = cleanup_conversation_side_data(&deleted, &preserved)?;
+    let cleanup = cleanup_conversation_side_data(&deleted, &preserved, &run_ids)?;
     println!("deleted {} conversation branch(es)", deleted.len());
     for id in &deleted {
         println!("{id}");
@@ -3279,6 +3285,7 @@ fn print_conversation_deletion(
         cleanup.compactions
     );
     println!("deleted {} linked memory record(s)", cleanup.memories);
+    println!("deleted {} linked generated artifact(s)", cleanup.artifacts);
     Ok(())
 }
 
@@ -3307,11 +3314,13 @@ fn print_preserved_conversation_artifacts(preserved: &PreservedConversationArtif
 struct ConversationDeletionCleanup {
     compactions: usize,
     memories: usize,
+    artifacts: usize,
 }
 
 fn cleanup_conversation_side_data(
     deleted: &[String],
     preserved: &PreservedConversationArtifacts,
+    run_ids: &[String],
 ) -> anyhow::Result<ConversationDeletionCleanup> {
     let deleted = deleted.iter().collect::<BTreeSet<_>>();
     let preserved_compactions = preserved.compaction_ids.iter().collect::<BTreeSet<_>>();
@@ -3342,9 +3351,12 @@ fn cleanup_conversation_side_data(
         }
     }
 
+    let artifacts = cleanup_generated_artifacts_for_run_ids(run_ids)?;
+
     Ok(ConversationDeletionCleanup {
         compactions,
         memories,
+        artifacts,
     })
 }
 
@@ -3353,6 +3365,7 @@ fn cleanup_conversation_range_side_data(
     from: usize,
     to: usize,
     preserved: &PreservedConversationArtifacts,
+    run_ids: &[String],
 ) -> anyhow::Result<ConversationDeletionCleanup> {
     let compactions = CompactionStore::from_env()
         .remove_by_conversation_message_range(id, from, to, &preserved.compaction_ids)?
@@ -3364,10 +3377,76 @@ fn cleanup_conversation_range_side_data(
         &preserved.memory_ids,
     )?
     .len();
+    let artifacts = cleanup_generated_artifacts_for_run_ids(run_ids)?;
     Ok(ConversationDeletionCleanup {
         compactions,
         memories,
+        artifacts,
     })
+}
+
+fn conversation_run_ids_for_docs(
+    store: &ConversationStore,
+    ids: &[String],
+) -> anyhow::Result<Vec<String>> {
+    let mut run_ids = Vec::new();
+    for id in ids {
+        for message in store.show(id)?.messages {
+            if let Some(run_id) = message.run_id
+                && !run_ids.iter().any(|existing| existing == &run_id)
+            {
+                run_ids.push(run_id);
+            }
+        }
+    }
+    Ok(run_ids)
+}
+
+fn conversation_run_ids_for_deletable_range(
+    store: &ConversationStore,
+    id: &str,
+    from: usize,
+    to: usize,
+) -> anyhow::Result<Vec<String>> {
+    store.render_deletable_message_range(id, from, to)?;
+    let expanded = store.expanded(id)?;
+    let mut run_ids = Vec::new();
+    for message in &expanded.messages[from..=to] {
+        if let Some(run_id) = &message.run_id
+            && !run_ids.iter().any(|existing| existing == run_id)
+        {
+            run_ids.push(run_id.clone());
+        }
+    }
+    Ok(run_ids)
+}
+
+fn cleanup_generated_artifacts_for_run_ids(run_ids: &[String]) -> anyhow::Result<usize> {
+    let artifact_ids = generated_artifact_ids_for_run_ids(run_ids)?;
+    Ok(delete_generated_artifacts_by_ids_from_env(&artifact_ids)?.len())
+}
+
+fn generated_artifact_ids_for_run_ids(run_ids: &[String]) -> anyhow::Result<Vec<String>> {
+    let store = open_event_store()?;
+    let mut artifact_ids = Vec::new();
+    for run_id in run_ids {
+        let Ok(uuid) = uuid::Uuid::parse_str(run_id) else {
+            continue;
+        };
+        let Ok(events) = store.try_events(RunId(uuid)) else {
+            continue;
+        };
+        for event in events {
+            if let RunEventKind::ToolCallCompleted { output, .. } = event.kind {
+                for artifact_id in generated_artifact_ids_in_value(&output) {
+                    if !artifact_ids.iter().any(|existing| existing == &artifact_id) {
+                        artifact_ids.push(artifact_id);
+                    }
+                }
+            }
+        }
+    }
+    Ok(artifact_ids)
 }
 
 fn preserve_conversation_range_artifacts(

@@ -489,6 +489,7 @@ export type ConversationDeleteResult = {
   deleted: string[];
   deleted_compactions?: string[];
   deleted_memories?: string[];
+  deleted_artifacts?: string[];
 };
 
 export type ConversationDeleteRangeResult = {
@@ -501,6 +502,7 @@ export type ConversationDeleteRangeResult = {
   preserved_memories?: string[];
   deleted_compactions?: string[];
   deleted_memories?: string[];
+  deleted_artifacts?: string[];
   conversation: ConversationDoc;
 };
 

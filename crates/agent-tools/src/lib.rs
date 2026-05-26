@@ -6,7 +6,7 @@
 //! minimal process environment scrubbing. Stronger OS isolation and future
 //! runtime variants such as Wasm continue to land in later slices.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -2544,6 +2544,12 @@ pub fn delete_generated_artifact_from_env(
     delete_generated_artifact(StoragePaths::from_env().artifacts_dir(), id_or_filename)
 }
 
+pub fn delete_generated_artifacts_by_ids_from_env(
+    ids: &[String],
+) -> Result<Vec<String>, ToolError> {
+    delete_generated_artifacts_by_ids(StoragePaths::from_env().artifacts_dir(), ids)
+}
+
 pub fn delete_generated_artifact(
     output_dir: impl AsRef<Path>,
     id_or_filename: &str,
@@ -2553,6 +2559,66 @@ pub fn delete_generated_artifact(
     ensure_artifact_stays_scoped(output_dir, &artifact.path)?;
     std::fs::remove_file(&artifact.path).map_err(|e| ToolError::Execution(e.to_string()))?;
     Ok(artifact)
+}
+
+pub fn delete_generated_artifacts_by_ids(
+    output_dir: impl AsRef<Path>,
+    ids: &[String],
+) -> Result<Vec<String>, ToolError> {
+    let output_dir = output_dir.as_ref();
+    let mut deleted = Vec::new();
+    for id in ids.iter().collect::<BTreeSet<_>>() {
+        if safe_artifact_reference(id).is_err() {
+            continue;
+        }
+        match delete_generated_artifact(output_dir, id) {
+            Ok(artifact) => deleted.push(artifact.id),
+            Err(ToolError::InvalidInput(message)) if message.contains("not found") => {}
+            Err(err) => return Err(err),
+        }
+    }
+    deleted.sort();
+    Ok(deleted)
+}
+
+pub fn generated_artifact_ids_in_value(value: &Value) -> Vec<String> {
+    fn collect(value: &Value, ids: &mut BTreeSet<String>) {
+        match value {
+            Value::Object(object) => {
+                if let Some(id) = object
+                    .get("artifact_id")
+                    .and_then(Value::as_str)
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                {
+                    ids.insert(id.to_string());
+                }
+                if let Some(values) = object.get("artifact_ids").and_then(Value::as_array) {
+                    for id in values
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::trim)
+                        .filter(|id| !id.is_empty())
+                    {
+                        ids.insert(id.to_string());
+                    }
+                }
+                for child in object.values() {
+                    collect(child, ids);
+                }
+            }
+            Value::Array(values) => {
+                for child in values {
+                    collect(child, ids);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut ids = BTreeSet::new();
+    collect(value, &mut ids);
+    ids.into_iter().collect()
 }
 
 pub fn generated_artifact_data_url_from_env(
@@ -5965,6 +6031,40 @@ mod tests {
         let err = delete_generated_artifact(&dir, "../notes")
             .expect_err("delete path escapes must be rejected");
         assert!(err.to_string().contains("invalid artifact id"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn generated_artifact_ids_can_be_collected_and_deleted_in_bulk() {
+        let dir = temp_dir("artifact-bulk-delete");
+        let tool = ArtifactTool::new(&dir);
+        let first = tool
+            .execute(json!({
+                "format": "txt",
+                "filename": "first",
+                "content": "one"
+            }))
+            .await
+            .unwrap();
+        let second = tool
+            .execute(json!({
+                "format": "md",
+                "filename": "second",
+                "content": "two"
+            }))
+            .await
+            .unwrap();
+        let first_id = first["artifact_id"].as_str().unwrap().to_string();
+        let second_id = second["artifact_id"].as_str().unwrap().to_string();
+        let ids = generated_artifact_ids_in_value(&json!({
+            "artifact_id": first_id,
+            "nested": [{ "artifact_ids": [second_id, "../escape", ""] }]
+        }));
+
+        let deleted = delete_generated_artifacts_by_ids(&dir, &ids).unwrap();
+
+        assert_eq!(deleted.len(), 2);
+        assert!(list_generated_artifacts(&dir).unwrap().is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }
 

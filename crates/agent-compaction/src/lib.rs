@@ -278,11 +278,26 @@ impl CompactionStore {
         to: usize,
         preserved_ids: &[String],
     ) -> Result<Vec<String>, CompactionError> {
+        let ids =
+            self.ids_by_conversation_message_range(conversation_id, from, to, preserved_ids)?;
+        for id in &ids {
+            self.remove(id)?;
+        }
+        Ok(ids)
+    }
+
+    pub fn ids_by_conversation_message_range(
+        &self,
+        conversation_id: &str,
+        from: usize,
+        to: usize,
+        preserved_ids: &[String],
+    ) -> Result<Vec<String>, CompactionError> {
         if from > to {
             return Ok(Vec::new());
         }
         let records = self.list()?;
-        let mut removed = Vec::new();
+        let mut ids = Vec::new();
         for record in records {
             let linked_to_conversation = record.conversation_id.as_deref() == Some(conversation_id);
             let preserved = preserved_ids.iter().any(|id| id == &record.id);
@@ -295,12 +310,11 @@ impl CompactionStore {
                     to,
                 )
             {
-                self.remove(&record.id)?;
-                removed.push(record.id);
+                ids.push(record.id);
             }
         }
-        removed.sort();
-        Ok(removed)
+        ids.sort();
+        Ok(ids)
     }
 
     fn write(&self, record: &CompactionRecord) -> Result<(), CompactionError> {

@@ -518,6 +518,31 @@ export type ConversationDeleteRangeResult = {
   conversation: ConversationDoc;
 };
 
+export type ConversationRangeReview = {
+  conversation_id: string;
+  title: string;
+  from: number;
+  to: number;
+  source_range: string;
+  message_count: number;
+  expanded_message_count: number;
+  own_message_start: number;
+  has_child_branches: boolean;
+  includes_inherited_messages: boolean;
+  deletable_by_delete_range: boolean;
+  warnings: string[];
+  linked_compactions: string[];
+  linked_memories: string[];
+  linked_generated_artifacts: string[];
+  messages: Array<{
+    index: number;
+    role: ConversationMessage["role"];
+    created_at: string;
+    run_id?: string | null;
+    content_preview: string;
+  }>;
+};
+
 export type ConversationRecoveryCompaction = {
   id: string;
   source: string;

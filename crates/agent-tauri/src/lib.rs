@@ -58,9 +58,11 @@ use agent_memory::{
     delete_records_by_source_conversation_message_range_for_active_backend,
     edit_record_for_active_backend, export_target_for_active_backend,
     generate_records_for_active_backend_with_topics_for_agent_and_guidance,
-    import_file_for_active_backend_for_agent, list_records_for_active_backend,
-    load_fragments_with_profile_grants, memory_classification_from_model_output,
-    probe_backend as probe_memory_backend, profile_memory_access_report, rollback_active_backend,
+    import_file_for_active_backend_for_agent,
+    list_record_ids_by_source_conversation_message_range_for_active_backend,
+    list_records_for_active_backend, load_fragments_with_profile_grants,
+    memory_classification_from_model_output, probe_backend as probe_memory_backend,
+    profile_memory_access_report, rollback_active_backend,
     supported_backends as supported_memory_backends,
 };
 use agent_prompts::{PromptDoc, PromptStore};
@@ -2148,6 +2150,15 @@ async fn conversation_delete_agent(
     }))
 }
 
+#[tauri::command]
+async fn conversation_range_review(
+    id: String,
+    from: usize,
+    to: usize,
+) -> Result<serde_json::Value, String> {
+    conversation_range_review_value(&id, from, to).map_err(|e| e.to_string())
+}
+
 #[derive(Debug, Default)]
 struct ConversationDeletionCleanup {
     compactions: Vec<String>,
@@ -2235,6 +2246,105 @@ fn planned_conversation_side_effects(
         memories,
         artifacts,
     })
+}
+
+fn planned_conversation_range_side_effects(
+    store: &ConversationStore,
+    id: &str,
+    from: usize,
+    to: usize,
+) -> anyhow::Result<ConversationDeletionSideEffects> {
+    let compactions =
+        CompactionStore::from_env().ids_by_conversation_message_range(id, from, to, &[])?;
+    let memories =
+        list_record_ids_by_source_conversation_message_range_for_active_backend(id, from, to, &[])?;
+    let run_ids = conversation_run_ids_for_deletable_range(store, id, from, to)?;
+    let mut artifacts = existing_generated_artifact_ids_for_run_ids(&run_ids)?;
+    artifacts.sort();
+    Ok(ConversationDeletionSideEffects {
+        compactions,
+        memories,
+        artifacts,
+    })
+}
+
+fn conversation_range_review_value(
+    id: &str,
+    from: usize,
+    to: usize,
+) -> anyhow::Result<serde_json::Value> {
+    let store = ConversationStore::from_env();
+    let docs = store.list()?;
+    let has_child_branches = docs.iter().any(|doc| {
+        doc.parent
+            .as_ref()
+            .is_some_and(|parent| parent.conversation_id == id)
+    });
+    let expanded = store.expanded(id)?;
+    if expanded.messages.is_empty() {
+        anyhow::bail!("conversation {id} has no expanded messages");
+    }
+    if from > to {
+        anyhow::bail!("range start {from} must be less than or equal to range end {to}");
+    }
+    if to >= expanded.messages.len() {
+        anyhow::bail!(
+            "range end {to} exceeds last expanded message index {}",
+            expanded.messages.len().saturating_sub(1)
+        );
+    }
+    let own_start = expanded
+        .messages
+        .len()
+        .saturating_sub(expanded.conversation.messages.len());
+    let includes_inherited = from < own_start;
+    let deletable = !has_child_branches && !includes_inherited;
+    let mut warnings = Vec::new();
+    if has_child_branches {
+        warnings.push("delete-range is only allowed on leaf branches".to_string());
+    }
+    if includes_inherited {
+        warnings.push(
+            "range includes inherited parent messages; delete that range on the parent branch"
+                .to_string(),
+        );
+    }
+    let side_effects = if deletable {
+        planned_conversation_range_side_effects(&store, id, from, to)?
+    } else {
+        ConversationDeletionSideEffects::default()
+    };
+    let messages = expanded.messages[from..=to]
+        .iter()
+        .enumerate()
+        .map(|(offset, message)| {
+            serde_json::json!({
+                "index": from + offset,
+                "role": message.role,
+                "created_at": message.created_at,
+                "run_id": message.run_id,
+                "content_preview": preview_for_recovery(&message.content, 240),
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(serde_json::json!({
+        "conversation_id": id,
+        "title": expanded.conversation.title,
+        "from": from,
+        "to": to,
+        "source_range": format!("messages:{from}..{}", to + 1),
+        "message_count": messages.len(),
+        "expanded_message_count": expanded.messages.len(),
+        "own_message_start": own_start,
+        "has_child_branches": has_child_branches,
+        "includes_inherited_messages": includes_inherited,
+        "deletable_by_delete_range": deletable,
+        "warnings": warnings,
+        "linked_compactions": side_effects.compactions,
+        "linked_memories": side_effects.memories,
+        "linked_generated_artifacts": side_effects.artifacts,
+        "messages": messages,
+    }))
 }
 
 fn cleanup_conversation_side_data(
@@ -5084,6 +5194,7 @@ pub fn run() {
             conversation_delete,
             conversation_delete_agent_plan,
             conversation_delete_agent,
+            conversation_range_review,
             conversation_delete_range,
             conversation_usage,
             compaction_keep,

@@ -596,33 +596,44 @@ impl MemoryStore {
         to: usize,
         preserved_ids: &[String],
     ) -> Result<Vec<String>, MemoryError> {
+        let ids = self.ids_by_source_conversation_message_range(
+            conversation_id,
+            from,
+            to,
+            preserved_ids,
+        )?;
+        for id in &ids {
+            self.delete(id)?;
+        }
+        Ok(ids)
+    }
+
+    pub fn ids_by_source_conversation_message_range(
+        &self,
+        conversation_id: &str,
+        from: usize,
+        to: usize,
+        preserved_ids: &[String],
+    ) -> Result<Vec<String>, MemoryError> {
         if from > to {
             return Ok(Vec::new());
         }
-        let mut deleted = Vec::new();
+        let mut ids = Vec::new();
         for target in [MemoryTarget::Agent, MemoryTarget::User] {
-            let mut records = self.list_target(target)?;
-            let before = records.len();
-            records.retain(|record| {
-                let linked_to_conversation =
-                    record.source_conversation_id.as_deref() == Some(conversation_id);
-                let preserved = preserved_ids.iter().any(|id| id == &record.id);
-                let overlaps = record
-                    .source_range
-                    .as_deref()
-                    .is_some_and(|source| message_source_range_overlaps(source, from, to));
-                let should_delete = linked_to_conversation && !preserved && overlaps;
-                if should_delete {
-                    deleted.push(record.id.clone());
+            for record in self.list_target(target)? {
+                if memory_record_matches_conversation_message_range(
+                    &record,
+                    conversation_id,
+                    from,
+                    to,
+                    preserved_ids,
+                ) {
+                    ids.push(record.id);
                 }
-                !should_delete
-            });
-            if records.len() != before {
-                self.write_target(target, &records)?;
             }
         }
-        deleted.sort();
-        Ok(deleted)
+        ids.sort();
+        Ok(ids)
     }
 
     pub fn delete(&self, id: &str) -> Result<(), MemoryError> {
@@ -1983,6 +1994,48 @@ pub fn delete_records_by_source_conversation_message_range_for_active_backend(
     }
 }
 
+pub fn list_record_ids_by_source_conversation_message_range_for_active_backend(
+    conversation_id: &str,
+    from: usize,
+    to: usize,
+    preserved_ids: &[String],
+) -> Result<Vec<String>, MemoryError> {
+    if from > to {
+        return Ok(Vec::new());
+    }
+    let paths = StoragePaths::from_env();
+    let backend = active_memory_backend_id();
+    match backend.as_str() {
+        DEFAULT_MEMORY_BACKEND_ID | LOCAL_JSONL_MEMORY_BACKEND_ID => MemoryStore::for_backend(
+            paths, &backend,
+        )?
+        .ids_by_source_conversation_message_range(conversation_id, from, to, preserved_ids),
+        EXTERNAL_COMMAND_MEMORY_BACKEND_ID => {
+            let adapter = ExternalCommandMemoryBackend::from_env(paths)?;
+            let records = adapter.load_records()?;
+            Ok(matching_external_range_record_ids(
+                records,
+                conversation_id,
+                from,
+                to,
+                preserved_ids,
+            ))
+        }
+        EXTERNAL_HTTP_MEMORY_BACKEND_ID => {
+            let adapter = ExternalHttpMemoryBackend::from_env(paths)?;
+            let records = adapter.load_records()?;
+            Ok(matching_external_range_record_ids(
+                records,
+                conversation_id,
+                from,
+                to,
+                preserved_ids,
+            ))
+        }
+        other => Err(MemoryError::UnsupportedBackend(other.into())),
+    }
+}
+
 pub fn rollback_active_backend(target: MemoryTarget) -> Result<(), MemoryError> {
     let paths = StoragePaths::from_env();
     let backend = active_memory_backend_id();
@@ -2377,20 +2430,59 @@ where
 {
     let mut deleted = Vec::new();
     for record in records {
-        let linked_to_conversation =
-            record.source_conversation_id.as_deref() == Some(conversation_id);
-        let preserved = preserved_ids.iter().any(|id| id == &record.id);
-        let overlaps = record
-            .source_range
-            .as_deref()
-            .is_some_and(|source| message_source_range_overlaps(source, from, to));
-        if linked_to_conversation && !preserved && overlaps {
+        if memory_record_matches_conversation_message_range(
+            &record,
+            conversation_id,
+            from,
+            to,
+            preserved_ids,
+        ) {
             delete_record(&record.id)?;
             deleted.push(record.id);
         }
     }
     deleted.sort();
     Ok(deleted)
+}
+
+fn matching_external_range_record_ids(
+    records: Vec<MemoryRecord>,
+    conversation_id: &str,
+    from: usize,
+    to: usize,
+    preserved_ids: &[String],
+) -> Vec<String> {
+    let mut ids = records
+        .into_iter()
+        .filter(|record| {
+            memory_record_matches_conversation_message_range(
+                record,
+                conversation_id,
+                from,
+                to,
+                preserved_ids,
+            )
+        })
+        .map(|record| record.id)
+        .collect::<Vec<_>>();
+    ids.sort();
+    ids
+}
+
+fn memory_record_matches_conversation_message_range(
+    record: &MemoryRecord,
+    conversation_id: &str,
+    from: usize,
+    to: usize,
+    preserved_ids: &[String],
+) -> bool {
+    let linked_to_conversation = record.source_conversation_id.as_deref() == Some(conversation_id);
+    let preserved = preserved_ids.iter().any(|id| id == &record.id);
+    let overlaps = record
+        .source_range
+        .as_deref()
+        .is_some_and(|source| message_source_range_overlaps(source, from, to));
+    linked_to_conversation && !preserved && overlaps
 }
 
 fn message_source_range_overlaps(source_range: &str, from: usize, to: usize) -> bool {

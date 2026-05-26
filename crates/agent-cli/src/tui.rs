@@ -52,9 +52,10 @@ use agent_memory::{
     delete_records_by_source_conversation_message_range_for_active_backend,
     edit_record_for_active_backend, export_target_for_active_backend,
     generate_records_for_active_backend_with_topics_for_agent_and_guidance,
-    import_file_for_active_backend_for_agent, list_records_for_active_backend,
-    probe_backend as probe_memory_backend, rollback_active_backend,
-    supported_backends as supported_memory_backends,
+    import_file_for_active_backend_for_agent,
+    list_record_ids_by_source_conversation_message_range_for_active_backend,
+    list_records_for_active_backend, probe_backend as probe_memory_backend,
+    rollback_active_backend, supported_backends as supported_memory_backends,
 };
 use agent_prompts::{PromptDoc, PromptStore, is_valid_prompt_name};
 use agent_secrets::{
@@ -2357,9 +2358,23 @@ fn push_conversation_delete_plan(app: &mut App, plan: &serde_json::Value) {
 
 fn push_conversation_range_review(app: &mut App, review: &serde_json::Value) {
     let deletable = review["deletable_by_delete_range"].as_bool() == Some(true);
+    let compactions = review["linked_compactions"]
+        .as_array()
+        .map(Vec::len)
+        .unwrap_or_default();
+    let memories = review["linked_memories"]
+        .as_array()
+        .map(Vec::len)
+        .unwrap_or_default();
+    let artifacts = review["linked_generated_artifacts"]
+        .as_array()
+        .map(Vec::len)
+        .unwrap_or_default();
     push_event(
         app,
-        format!("Conversation range review: deletable={deletable}"),
+        format!(
+            "Conversation range review: deletable={deletable}, side effects: {compactions} compaction(s), {memories} memory record(s), {artifacts} generated artifact(s)"
+        ),
     );
     app.transcript.push(TranscriptLine {
         kind: LineKind::Assistant,
@@ -2704,6 +2719,22 @@ fn planned_conversation_side_effects_from_tui(
     Ok((compactions, memories, artifacts))
 }
 
+fn planned_conversation_range_side_effects_from_tui(
+    store: &ConversationStore,
+    id: &str,
+    from: usize,
+    to: usize,
+) -> anyhow::Result<(Vec<String>, Vec<String>, Vec<String>)> {
+    let compactions =
+        CompactionStore::from_env().ids_by_conversation_message_range(id, from, to, &[])?;
+    let memories =
+        list_record_ids_by_source_conversation_message_range_for_active_backend(id, from, to, &[])?;
+    let run_ids = conversation_run_ids_for_deletable_range_from_tui(store, id, from, to)?;
+    let mut artifacts = existing_generated_artifact_ids_for_run_ids_from_tui(&run_ids)?;
+    artifacts.sort();
+    Ok((compactions, memories, artifacts))
+}
+
 fn confirm_conversation_action(app: &mut App) -> anyhow::Result<()> {
     let Some(action) = app.pending_conversation_action.take() else {
         anyhow::bail!("no pending conversation action");
@@ -2971,6 +3002,9 @@ fn conversation_range_review_value(
     if expanded.messages.is_empty() {
         anyhow::bail!("conversation {id} has no expanded messages");
     }
+    if from > to {
+        anyhow::bail!("range start {from} must be less than or equal to range end {to}");
+    }
     if to >= expanded.messages.len() {
         anyhow::bail!(
             "range end {to} exceeds last expanded message index {}",
@@ -2992,6 +3026,12 @@ fn conversation_range_review_value(
                 .to_string(),
         );
     }
+    let deletable = !has_child_branches && !includes_inherited;
+    let (linked_compactions, linked_memories, linked_generated_artifacts) = if deletable {
+        planned_conversation_range_side_effects_from_tui(&store, id, from, to)?
+    } else {
+        (Vec::new(), Vec::new(), Vec::new())
+    };
     let selected = expanded.messages[from..=to]
         .iter()
         .enumerate()
@@ -3006,8 +3046,11 @@ fn conversation_range_review_value(
         "own_message_start": own_start,
         "has_child_branches": has_child_branches,
         "includes_inherited_messages": includes_inherited,
-        "deletable_by_delete_range": !has_child_branches && !includes_inherited,
+        "deletable_by_delete_range": deletable,
         "warnings": warnings,
+        "linked_compactions": linked_compactions,
+        "linked_memories": linked_memories,
+        "linked_generated_artifacts": linked_generated_artifacts,
         "messages": selected,
     }))
 }

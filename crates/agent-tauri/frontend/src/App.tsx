@@ -21,6 +21,7 @@ import type {
   ConversationDoc,
   ConversationMessage,
   ConversationPolicy,
+  ConversationRangeReview,
   ConversationRecoveryPlan,
   ConversationTreeNode,
   Demo,
@@ -11318,6 +11319,23 @@ export default function App() {
         });
   }
 
+  async function fetchConversationRangeReview(
+    id: string,
+    range: ConversationRange,
+  ) {
+    const body = { from: range.from, to: range.to };
+    return transport === "daemon"
+      ? await daemonJson<ConversationRangeReview>(
+          `/conversations/${encodeURIComponent(id)}/range-review`,
+          body,
+        )
+      : await invoke<ConversationRangeReview>("conversation_range_review", {
+          id,
+          from: body.from,
+          to: body.to,
+        });
+  }
+
   async function fetchConversationRecovery(id: string) {
     return transport === "daemon"
       ? await daemonJson<ConversationRecoveryPlan>(
@@ -11733,36 +11751,16 @@ export default function App() {
 
   async function previewConversationRange(id: string, range: ConversationRange) {
     try {
-      const expanded = await fetchConversation(id);
+      const [expanded, review] = await Promise.all([
+        fetchConversation(id),
+        fetchConversationRangeReview(id, range),
+      ]);
       setExpandedConversation(expanded);
       setOpsId(expanded.conversation.id);
       setConversationId(expanded.conversation.id);
-      if (
-        range.from >= expanded.messages.length ||
-        range.to >= expanded.messages.length
-      ) {
-        appendLine(
-          "error",
-          `Conversation range ${range.from}:${range.to} is outside ${expanded.messages.length} message(s).`,
-        );
-        return;
-      }
-      const messages = expanded.messages
-        .slice(range.from, range.to + 1)
-        .map((message, offset) => ({
-          index: range.from + offset,
-          ...message,
-        }));
-      appendJson("Conversation message range", {
-        id: expanded.conversation.id,
-        from: range.from,
-        to: range.to,
-        source_range: `messages:${range.from}..${range.to + 1}`,
-        message_count: messages.length,
-        messages,
-      });
+      appendJson("Conversation message range", review);
       appendEvent(
-        `Conversation range ${expanded.conversation.id} ${range.from}:${range.to} (${messages.length} message(s))`,
+        `Conversation range ${review.conversation_id} ${review.from}:${review.to} (${review.message_count} message(s)); side effects: ${review.linked_compactions.length} compactions, ${review.linked_memories.length} memories, ${review.linked_generated_artifacts.length} generated artifacts`,
       );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

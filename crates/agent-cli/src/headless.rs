@@ -1958,8 +1958,9 @@ pub async fn approval_list(run_id: String, json: bool) -> anyhow::Result<()> {
 }
 
 pub fn approval_list_result(run_id: &str) -> anyhow::Result<Vec<serde_json::Value>> {
-    let run_id = RunId(uuid::Uuid::parse_str(run_id)?);
-    approvals_for_run(run_id)
+    let store = open_event_store()?;
+    let run_id = resolve_local_run_selector(run_id, &store)?;
+    Ok(approvals_from_events(store.try_events(run_id)?))
 }
 
 pub async fn approval_assess(
@@ -1990,8 +1991,8 @@ pub async fn approval_assess_result(
     approval_id: String,
     controller_agent: Option<String>,
 ) -> anyhow::Result<serde_json::Value> {
-    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
+    let run_id = resolve_local_run_selector(&run_id, &store)?;
     let events = store.try_events(run_id)?;
     let controller_agent = controller_agent
         .as_deref()
@@ -2082,8 +2083,8 @@ pub async fn approval_decide_result(
     signature_env: Option<String>,
     controller_agent: Option<String>,
 ) -> anyhow::Result<serde_json::Value> {
-    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
+    let run_id = resolve_local_run_selector(&run_id, &store)?;
     let events = store.try_events(run_id)?;
     let delegated_controller = if approved {
         verify_approval_controller_delegate(&events, &approval_id, controller_agent.as_deref())?
@@ -2143,7 +2144,8 @@ pub async fn approval_execute_result(
     unlock_env: Option<String>,
     signature_env: Option<String>,
 ) -> anyhow::Result<serde_json::Value> {
-    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
+    let store = open_event_store()?;
+    let run_id = resolve_local_run_selector(&run_id, &store)?;
     let unlock = approval_unlock_from_env(unlock_env)?;
     verify_configured_approval_unlock(unlock.as_deref())?;
     let signature = approval_signature_from_env(signature_env)?;
@@ -2152,7 +2154,6 @@ pub async fn approval_execute_result(
         &approval_id,
         signature.as_deref(),
     )?;
-    let store = open_event_store()?;
     let events = store.try_events(run_id)?;
     let approved = events.iter().rev().find_map(|event| match &event.kind {
         RunEventKind::ApprovalResolved {
@@ -7030,6 +7031,7 @@ pub async fn remote_trace_scores(url: String, run_id: String) -> anyhow::Result<
 
 pub async fn remote_approval_list(url: String, run_id: String) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
+    let run_id = remote_run_selector(&client, &run_id)?;
     print_remote(client.get_json(&format!("/approvals/{run_id}"))?)
 }
 
@@ -7040,6 +7042,7 @@ pub async fn remote_approval_assess(
     controller_agent: Option<String>,
 ) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
+    let run_id = remote_run_selector(&client, &run_id)?;
     let mut body = serde_json::json!({});
     if let Some(controller_agent) = controller_agent
         .map(|value| value.trim().to_string())
@@ -7060,6 +7063,7 @@ pub async fn remote_approval_decide(
     controller_agent: Option<String>,
 ) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
+    let run_id = remote_run_selector(&client, &run_id)?;
     let (unlock, signature) = if approved {
         (
             approval_unlock_from_env(unlock_env)?,
@@ -7092,6 +7096,7 @@ pub async fn remote_approval_execute(
     signature_env: Option<String>,
 ) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
+    let run_id = remote_run_selector(&client, &run_id)?;
     let unlock = approval_unlock_from_env(unlock_env)?;
     let signature = approval_signature_from_env(signature_env)?;
     let mut body = serde_json::json!({});
@@ -8645,9 +8650,9 @@ fn approval_request_event_id(events: &[RunEvent], approval_id: &str) -> Option<E
     })
 }
 
-fn approvals_for_run(run_id: RunId) -> anyhow::Result<Vec<serde_json::Value>> {
+fn approvals_from_events(events: Vec<RunEvent>) -> Vec<serde_json::Value> {
     let mut approvals = Vec::<serde_json::Value>::new();
-    for event in open_event_store()?.try_events(run_id)? {
+    for event in events {
         match event.kind {
             RunEventKind::ApprovalRequested {
                 approval_id,
@@ -8731,7 +8736,7 @@ fn approvals_for_run(run_id: RunId) -> anyhow::Result<Vec<serde_json::Value>> {
             _ => {}
         }
     }
-    Ok(approvals)
+    approvals
 }
 
 fn format_event(evt: &RunEvent) -> String {
@@ -10177,7 +10182,7 @@ fn headless_slash_help_text() -> &'static str {
      - /agents list|show|save|export|import|delete - manage saved agent configs\n\
      - /skills status|preview|list|show|inspect|import-openclaw|import-doc|export|allow|quarantine\n\
      - /prompts (/prompt) list|show|save|use|preview|export|import|delete - manage global or agent-scoped saved prompts\n\
-     - /approval (/approvals) list|assess|approve|reject|execute <run-id> ...\n\
+     - /approval (/approvals) list|assess|approve|reject|execute [last|run-id] ...\n\
      - /tool <name> [request] - force the model to call one visible tool\n\
      - /tool! <name> <json> - call one native tool directly with manual JSON input\n\
      - /python <code>, /typescript <code>, /ts <code> - call native code execution tools directly\n\
@@ -11287,8 +11292,8 @@ fn parse_approval_slash_rest(rest: &str) -> anyhow::Result<ApprovalSlashCommand>
     let command = parts.next().unwrap_or_default();
     match command {
         "list" => {
-            let run_id = next_required(&mut parts, "approval list needs a run id")?;
-            ensure_no_extra(parts, "usage: /approval list <run-id>")?;
+            let run_id = next_required(&mut parts, "approval list needs last or a run id")?;
+            ensure_no_extra(parts, "usage: /approval list [last|run-id]")?;
             validate_approval_run_id(&run_id)?;
             Ok(ApprovalSlashCommand::List { run_id })
         }
@@ -11383,7 +11388,7 @@ fn parse_approval_action_args<'a>(
         }
     }
     let [run_id, approval_id] = positionals.as_slice() else {
-        anyhow::bail!("approval {command} accepts a run id and approval id");
+        anyhow::bail!("approval {command} accepts last or a run id plus approval id");
     };
     validate_approval_run_id(run_id)?;
     Ok(((*run_id).to_string(), (*approval_id).to_string(), options))
@@ -11401,6 +11406,9 @@ fn next_approval_option_value<'a>(
 }
 
 fn validate_approval_run_id(run_id: &str) -> anyhow::Result<()> {
+    if run_id == "last" {
+        return Ok(());
+    }
     let _ = uuid::Uuid::parse_str(run_id)?;
     Ok(())
 }
@@ -13462,7 +13470,11 @@ mod slash_tests {
         assert!(
             help.contains("/prompts (/prompt) list|show|save|use|preview|export|import|delete")
         );
-        assert!(help.contains("/approval (/approvals) list|assess|approve|reject|execute"));
+        assert!(
+            help.contains(
+                "/approval (/approvals) list|assess|approve|reject|execute [last|run-id]"
+            )
+        );
         assert!(help.contains("/models list|providers|doctor|show|probe|save|export|import"));
         assert!(help.contains("/memory status|preview|list|access|backends"));
         assert!(
@@ -13887,6 +13899,12 @@ mod slash_tests {
             }
             _ => panic!("expected approval list shortcut"),
         }
+        match parse_slash_command("/approval list last").unwrap() {
+            Some(SlashCommand::Approval(ApprovalSlashCommand::List { run_id: parsed })) => {
+                assert_eq!(parsed, "last");
+            }
+            _ => panic!("expected approval list shortcut"),
+        }
         match parse_slash_command(&format!("/approvals list {run_id}")).unwrap() {
             Some(SlashCommand::Approval(ApprovalSlashCommand::List { run_id: parsed })) => {
                 assert_eq!(parsed, run_id);
@@ -13906,6 +13924,17 @@ mod slash_tests {
                 assert_eq!(parsed, run_id);
                 assert_eq!(approval_id, "approval-1");
                 assert_eq!(controller_agent.as_deref(), Some("critic"));
+            }
+            _ => panic!("expected approval assess shortcut"),
+        }
+        match parse_slash_command("/approval assess last approval-1").unwrap() {
+            Some(SlashCommand::Approval(ApprovalSlashCommand::Assess {
+                run_id: parsed,
+                approval_id,
+                ..
+            })) => {
+                assert_eq!(parsed, "last");
+                assert_eq!(approval_id, "approval-1");
             }
             _ => panic!("expected approval assess shortcut"),
         }
@@ -14064,6 +14093,51 @@ mod slash_tests {
             resolve_local_run_selector(&first.0.to_string(), &store).unwrap(),
             first
         );
+    }
+
+    #[test]
+    fn approval_list_resolves_last_trace_record() {
+        let dir = std::env::temp_dir().join(format!(
+            "headless-approval-last-selector-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let _home = HarnessHomeGuard::set(&dir);
+        let store = open_event_store().unwrap();
+        let first = RunId::new();
+        let second = RunId::new();
+        store.append(
+            first,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "first-agent".into(),
+                input: "first prompt".into(),
+            },
+        );
+        store.append(
+            second,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "second-agent".into(),
+                input: "second prompt".into(),
+            },
+        );
+        store.append(
+            second,
+            None,
+            RunEventKind::ApprovalRequested {
+                approval_id: "approval-latest".into(),
+                action: "tool call".into(),
+                reason: "needs review".into(),
+                controller_agent: None,
+                controller_scope: Vec::new(),
+            },
+        );
+
+        let approvals = approval_list_result("last").unwrap();
+        assert_eq!(approvals.len(), 1);
+        assert_eq!(approvals[0]["approval_id"], "approval-latest");
+        assert_eq!(approvals[0]["status"], "pending");
     }
 
     #[tokio::test]

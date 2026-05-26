@@ -703,7 +703,7 @@ enum HookCommand {
 enum ApprovalCommand {
     /// List approvals for a run.
     List {
-        /// Run UUID printed by `agent run` or an approval-required error.
+        /// Run UUID printed by `agent run` or an approval-required error, or `last`.
         run_id: String,
 
         /// Emit JSON instead of a human-readable summary.
@@ -712,7 +712,7 @@ enum ApprovalCommand {
     },
     /// Ask the configured controller agent model for a recommendation.
     Assess {
-        /// Run UUID printed by `agent run` or an approval-required error.
+        /// Run UUID printed by `agent run` or an approval-required error, or `last`.
         run_id: String,
 
         /// Approval id, for example `approval-manual-1`.
@@ -728,7 +728,7 @@ enum ApprovalCommand {
     },
     /// Record an approval decision in the run trace.
     Decide {
-        /// Run UUID printed by `agent run` or an approval-required error.
+        /// Run UUID printed by `agent run` or an approval-required error, or `last`.
         run_id: String,
 
         /// Approval id, for example `approval-manual-1`.
@@ -752,7 +752,7 @@ enum ApprovalCommand {
     },
     /// Approve an approval request without executing it.
     Approve {
-        /// Run UUID printed by `agent run` or an approval-required error.
+        /// Run UUID printed by `agent run` or an approval-required error, or `last`.
         run_id: String,
 
         /// Approval id, for example `approval-manual-1`.
@@ -772,7 +772,7 @@ enum ApprovalCommand {
     },
     /// Reject an approval request without executing it.
     Reject {
-        /// Run UUID printed by `agent run` or an approval-required error.
+        /// Run UUID printed by `agent run` or an approval-required error, or `last`.
         run_id: String,
 
         /// Approval id, for example `approval-manual-1`.
@@ -780,7 +780,7 @@ enum ApprovalCommand {
     },
     /// Execute an approved tool call from a paused run trace.
     Execute {
-        /// Run UUID printed by the approval-required error.
+        /// Run UUID printed by the approval-required error, or `last`.
         run_id: String,
 
         /// Approval id, for example `approval-manual-1`.
@@ -3113,15 +3113,18 @@ enum RemoteCommand {
 #[derive(Subcommand)]
 enum RemoteApprovalCommand {
     List {
+        /// Remote run UUID, or `last`.
         run_id: String,
     },
     Assess {
+        /// Remote run UUID, or `last`.
         run_id: String,
         approval_id: String,
         #[arg(long = "controller-agent")]
         controller_agent: Option<String>,
     },
     Decide {
+        /// Remote run UUID, or `last`.
         run_id: String,
         approval_id: String,
         #[arg(long)]
@@ -3134,6 +3137,7 @@ enum RemoteApprovalCommand {
         controller_agent: Option<String>,
     },
     Approve {
+        /// Remote run UUID, or `last`.
         run_id: String,
         approval_id: String,
         #[arg(long = "unlock-env", value_name = "ENV")]
@@ -3144,10 +3148,12 @@ enum RemoteApprovalCommand {
         controller_agent: Option<String>,
     },
     Reject {
+        /// Remote run UUID, or `last`.
         run_id: String,
         approval_id: String,
     },
     Execute {
+        /// Remote run UUID, or `last`.
         run_id: String,
         approval_id: String,
         #[arg(long = "unlock-env", value_name = "ENV")]
@@ -4666,6 +4672,16 @@ mod cli_parse_tests {
         assert_eq!(approval_id, "approval-c1");
         assert_eq!(controller_agent.as_deref(), Some("safety-controller"));
         assert!(json);
+
+        let cli = parse_cli(["agent", "approval", "list", "last", "--json"]).unwrap();
+        let Command::Approval {
+            command: ApprovalCommand::List { run_id, json },
+        } = into_command(cli)
+        else {
+            panic!("expected approval list command");
+        };
+        assert_eq!(run_id, "last");
+        assert!(json);
     }
 
     #[test]
@@ -4701,6 +4717,35 @@ mod cli_parse_tests {
         assert_eq!(run_id, "00000000-0000-0000-0000-000000000001");
         assert_eq!(approval_id, "approval-c1");
         assert_eq!(controller_agent.as_deref(), Some("safety-controller"));
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "--url",
+            "http://localhost:8080",
+            "approval",
+            "assess",
+            "last",
+            "approval-c1",
+        ])
+        .unwrap();
+        let Command::Remote {
+            command: RemoteCommand::Approval { command },
+            ..
+        } = into_command(cli)
+        else {
+            panic!("expected remote approval command");
+        };
+        let RemoteApprovalCommand::Assess {
+            run_id,
+            approval_id,
+            ..
+        } = command
+        else {
+            panic!("expected remote approval assess command");
+        };
+        assert_eq!(run_id, "last");
+        assert_eq!(approval_id, "approval-c1");
     }
 
     #[test]

@@ -5492,7 +5492,7 @@ export default function App() {
       "/agents use <id>",
       "/agents save <id> <system prompt>",
       "/agents export <id> <path>",
-      "/agents import <path>",
+      "/agents import <path> --confirm",
       "/agents delete <id> --confirm",
     ].join("\n");
   }
@@ -5504,6 +5504,22 @@ export default function App() {
       "/agent <saved-agent-id>",
       "/agents help",
     ].join("\n");
+  }
+
+  function parseAgentImportShortcut(args: string[]) {
+    const confirmed = args.includes("--confirm");
+    const unknownFlags = args.filter(
+      (arg) => arg.startsWith("--") && arg !== "--confirm",
+    );
+    const path = args.filter((arg) => arg !== "--confirm").join(" ").trim();
+    if (unknownFlags.length || !path) {
+      appendLine(
+        "error",
+        "Agents import shortcut needs a path and optional --confirm.",
+      );
+      return null;
+    }
+    return { path, confirmed };
   }
 
   function parseAgentDeleteShortcut(args: string[]) {
@@ -7088,11 +7104,19 @@ export default function App() {
           await exportAgent(id, path);
         }
       } else if (rest.startsWith("import ")) {
-        const path = rest.slice("import ".length).trim();
-        if (!path) {
-          appendLine("error", "Agents import shortcut needs a path.");
-        } else {
-          await importAgent(path);
+        const parsed = parseAgentImportShortcut(
+          rest.slice("import ".length).trim().split(/\s+/).filter(Boolean),
+        );
+        if (parsed) {
+          if (parsed.confirmed) {
+            await importAgent(parsed.path);
+          } else {
+            appendJson("Agent import confirmation", {
+              pending_action: "import_agent",
+              path: parsed.path,
+              confirm_command: `/agents import ${parsed.path} --confirm`,
+            });
+          }
         }
       } else if (rest.startsWith("delete ") || rest.startsWith("rm ")) {
         const prefix = rest.startsWith("delete ") ? "delete " : "rm ";

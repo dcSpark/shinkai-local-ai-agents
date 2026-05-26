@@ -6215,7 +6215,7 @@ fn handle_agents_slash(
                 "/agents save <id> <system prompt>",
                 "/agents use <id>",
                 "/agents export <id> <path>",
-                "/agents import <path>",
+                "/agents import <path> --confirm",
                 "/agents delete <id> --confirm",
             ]
             .join("\n"),
@@ -6306,21 +6306,35 @@ fn handle_agents_slash(
                 text: err.to_string(),
             }),
         },
-        "import" => match agent_path_arg(args, "import") {
-            Ok(path) => match ConfigResolver::from_env().import_agent_config(path) {
-                Ok(agent) => {
-                    push_event(app, format!("Imported agent {}", agent.id));
+        "import" => match agent_import_args(args) {
+            Ok((path, confirmed)) => {
+                if !confirmed {
                     app.transcript.push(TranscriptLine {
                         kind: LineKind::Assistant,
-                        text: serde_json::to_string_pretty(&agent)
-                            .unwrap_or_else(|_| "<unserializable agent config>".into()),
+                        text: serde_json::to_string_pretty(&serde_json::json!({
+                            "pending_action": "import_agent",
+                            "path": path,
+                            "confirm_command": format!("/agents import {path} --confirm"),
+                        }))
+                        .unwrap_or_else(|_| "<unserializable agent confirmation>".into()),
                     });
+                    return;
                 }
-                Err(err) => app.transcript.push(TranscriptLine {
-                    kind: LineKind::Error,
-                    text: format!("Agent import failed: {err}"),
-                }),
-            },
+                match ConfigResolver::from_env().import_agent_config(path) {
+                    Ok(agent) => {
+                        push_event(app, format!("Imported agent {}", agent.id));
+                        app.transcript.push(TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&agent)
+                                .unwrap_or_else(|_| "<unserializable agent config>".into()),
+                        });
+                    }
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Agent import failed: {err}"),
+                    }),
+                }
+            }
             Err(err) => app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
                 text: err.to_string(),
@@ -6371,17 +6385,6 @@ fn first_agent_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> 
         .ok_or_else(|| anyhow::anyhow!("agents {command} needs an argument"))
 }
 
-fn agent_path_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
-    let mut parts = args.split_whitespace();
-    let path = parts
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("agents {command} needs a path"))?;
-    if parts.next().is_some() {
-        anyhow::bail!("agents {command} accepts exactly one path");
-    }
-    Ok(path)
-}
-
 fn agent_save_args(args: &str) -> anyhow::Result<(&str, &str)> {
     let trimmed = args.trim();
     let (id, system_prompt) = trimmed
@@ -6409,6 +6412,22 @@ fn agent_export_args(args: &str) -> anyhow::Result<(&str, &str)> {
         anyhow::bail!("agents export accepts exactly an agent id and path");
     }
     Ok((id, path))
+}
+
+fn agent_import_args(args: &str) -> anyhow::Result<(&str, bool)> {
+    let mut path = None;
+    let mut confirmed = false;
+    for part in args.split_whitespace() {
+        if part == "--confirm" {
+            confirmed = true;
+        } else if path.is_none() {
+            path = Some(part);
+        } else {
+            anyhow::bail!("agents import accepts exactly one path and optional --confirm");
+        }
+    }
+    let path = path.ok_or_else(|| anyhow::anyhow!("agents import needs a path"))?;
+    Ok((path, confirmed))
 }
 
 fn agent_delete_args(args: &str) -> anyhow::Result<(&str, bool)> {
@@ -13040,11 +13059,15 @@ mod tests {
         assert!(agent_export_args("research").is_err());
         assert!(agent_export_args("research ./agent.toml extra").is_err());
         assert_eq!(
-            agent_path_arg("./agent.toml", "import").unwrap(),
-            "./agent.toml"
+            agent_import_args("./agent.toml").unwrap(),
+            ("./agent.toml", false)
         );
-        assert!(agent_path_arg("", "import").is_err());
-        assert!(agent_path_arg("./agent.toml extra", "import").is_err());
+        assert_eq!(
+            agent_import_args("./agent.toml --confirm").unwrap(),
+            ("./agent.toml", true)
+        );
+        assert!(agent_import_args("").is_err());
+        assert!(agent_import_args("./agent.toml extra").is_err());
         assert_eq!(agent_delete_args("research").unwrap(), ("research", false));
         assert_eq!(
             agent_delete_args("research --confirm").unwrap(),

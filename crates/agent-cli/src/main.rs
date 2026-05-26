@@ -554,7 +554,7 @@ enum TraceCommand {
     },
     /// Show events for a persisted run id.
     Show {
-        /// Run UUID printed by `agent run`.
+        /// Run UUID printed by `agent run`, or `last`.
         run_id: String,
 
         /// Emit one JSON RunEvent per line.
@@ -572,7 +572,7 @@ enum TraceCommand {
     },
     /// Print the original prompt from a persisted trace.
     Prompt {
-        /// Run UUID printed by `agent run`.
+        /// Run UUID printed by `agent run`, or `last`.
         run_id: String,
 
         /// Emit JSON with run id, agent id, and prompt.
@@ -581,7 +581,7 @@ enum TraceCommand {
     },
     /// Show a nested child-run tree for a persisted run id.
     Tree {
-        /// Run UUID printed by `agent run`.
+        /// Run UUID printed by `agent run`, or `last`.
         run_id: String,
 
         /// Emit a JSON tree object.
@@ -623,7 +623,7 @@ enum TraceCommand {
     },
     /// Review hook failures and suggested retry/override actions.
     Hooks {
-        /// Run UUID printed by `agent run`.
+        /// Run UUID printed by `agent run`, or `last`.
         run_id: String,
 
         /// Emit a JSON remediation plan.
@@ -632,7 +632,7 @@ enum TraceCommand {
     },
     /// List quality score records for a persisted run id.
     Scores {
-        /// Run UUID printed by `agent run`.
+        /// Run UUID printed by `agent run`, or `last`.
         run_id: String,
 
         /// Emit JSON score records with event ids.

@@ -1392,8 +1392,8 @@ fn inspection_harness(
 }
 
 pub async fn trace_show(run_id: String, json: bool) -> anyhow::Result<()> {
-    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
+    let run_id = resolve_local_run_selector(&run_id, &store)?;
     let events = store.try_events(run_id)?;
 
     if json {
@@ -1439,8 +1439,8 @@ pub async fn trace_summary(run_id: String, json: bool) -> anyhow::Result<()> {
 }
 
 pub async fn trace_prompt(run_id: String, json: bool) -> anyhow::Result<()> {
-    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
+    let run_id = resolve_local_run_selector(&run_id, &store)?;
     let events = store.try_events(run_id)?;
     let (agent_id, prompt) = trace_replay_source(run_id, &events)?;
 
@@ -1509,8 +1509,8 @@ fn resolve_local_run_selector(selector: &str, store: &SqliteEventStore) -> anyho
 }
 
 pub async fn trace_tree(run_id: String, json: bool) -> anyhow::Result<()> {
-    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
+    let run_id = resolve_local_run_selector(&run_id, &store)?;
     let tree = build_trace_tree(run_id, |id| store.try_events(id))?;
 
     if json {
@@ -1624,8 +1624,8 @@ pub async fn trace_replay(
 }
 
 pub async fn trace_hooks(run_id: String, json: bool) -> anyhow::Result<()> {
-    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
+    let run_id = resolve_local_run_selector(&run_id, &store)?;
     let events = store.try_events(run_id)?;
     let plan = hook_remediation_plan(&events);
     if json {
@@ -1834,8 +1834,8 @@ pub async fn hooks_set_disabled(
 }
 
 pub async fn trace_scores(run_id: String, json: bool) -> anyhow::Result<()> {
-    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
+    let run_id = resolve_local_run_selector(&run_id, &store)?;
     let events = store.try_events(run_id)?;
     let records = quality_score_records(&events);
     if json {
@@ -10151,7 +10151,7 @@ fn headless_slash_help_text() -> &'static str {
      - /shell status - inspect whether this run enables the shell tool; use --enable-shell to enable it\n\
      - /subagent status - inspect whether this run enables saved-agent-as-tool access; use --enable-subagent to enable it\n\
      - /resume [last|run-id] [--from-event N], /resume plan [last|run-id] [--from-event N]\n\
-     - /trace list [limit|--limit N], /trace [summary|tree|hooks|scores|prompt] <run-id>, /scores <run-id>, /compare <run-id> <run-id>, /replay <run-id>\n\
+     - /trace list [limit|--limit N], /trace [summary|tree|hooks|scores|prompt] [last|run-id], /scores [last|run-id], /compare <run-id> <run-id>, /replay <run-id>\n\
      - /preview [prompt] - inspect context before running\n\
      - /usage last, /usage trace|run [last|run-id], /usage conversation <id> [from:to|last N|--from N --to N|--last N]\n\
      - /hooks list|policy|available|review|disable|enable\n\
@@ -10552,9 +10552,11 @@ fn parse_trace_slash_rest(rest: &str) -> anyhow::Result<(String, TraceSlashView)
         _ => (TraceSlashView::Events, first),
     };
     if run_id.is_empty() {
-        anyhow::bail!("usage: /trace [summary|tree|hooks|scores|prompt] <run-id>");
+        anyhow::bail!("usage: /trace [summary|tree|hooks|scores|prompt] [last|run-id]");
     }
-    let _ = uuid::Uuid::parse_str(run_id)?;
+    if run_id != "last" {
+        let _ = uuid::Uuid::parse_str(run_id)?;
+    }
     Ok((run_id.to_string(), view))
 }
 
@@ -13177,12 +13179,14 @@ fn parse_scores_slash_rest(rest: &str) -> anyhow::Result<String> {
     let mut parts = rest.split_whitespace();
     let run_id = parts
         .next()
-        .ok_or_else(|| anyhow::anyhow!("usage: /scores <run-id>"))?
+        .ok_or_else(|| anyhow::anyhow!("usage: /scores [last|run-id]"))?
         .to_string();
     if let Some(extra) = parts.next() {
-        anyhow::bail!("usage: /scores <run-id>, unexpected {extra:?}");
+        anyhow::bail!("usage: /scores [last|run-id], unexpected {extra:?}");
     }
-    let _ = uuid::Uuid::parse_str(&run_id)?;
+    if run_id != "last" {
+        let _ = uuid::Uuid::parse_str(&run_id)?;
+    }
     Ok(run_id)
 }
 
@@ -13410,8 +13414,8 @@ mod slash_tests {
         assert!(help.contains("/x402 request"));
         assert!(help.contains("/subagent status"));
         assert!(help.contains("/preview [prompt]"));
-        assert!(help.contains("/trace [summary|tree|hooks|scores|prompt] <run-id>"));
-        assert!(help.contains("/scores <run-id>"));
+        assert!(help.contains("/trace [summary|tree|hooks|scores|prompt] [last|run-id]"));
+        assert!(help.contains("/scores [last|run-id]"));
         assert!(help.contains("/usage last, /usage trace|run [last|run-id]"));
         assert!(help.contains("/agent [id] [prompt]"));
         assert!(help.contains("/agents list|show|save|export|import|delete"));
@@ -14070,6 +14074,27 @@ mod slash_tests {
                 assert_eq!(view, TraceSlashView::Prompt);
             }
             _ => panic!("expected trace prompt shortcut"),
+        }
+        match parse_slash_command("/trace last").unwrap() {
+            Some(SlashCommand::Trace { run_id, view }) => {
+                assert_eq!(run_id, "last");
+                assert_eq!(view, TraceSlashView::Events);
+            }
+            _ => panic!("expected trace last shortcut"),
+        }
+        match parse_slash_command("/trace summary last").unwrap() {
+            Some(SlashCommand::Trace { run_id, view }) => {
+                assert_eq!(run_id, "last");
+                assert_eq!(view, TraceSlashView::Summary);
+            }
+            _ => panic!("expected trace summary last shortcut"),
+        }
+        match parse_slash_command("/trace scores last").unwrap() {
+            Some(SlashCommand::Trace { run_id, view }) => {
+                assert_eq!(run_id, "last");
+                assert_eq!(view, TraceSlashView::Scores);
+            }
+            _ => panic!("expected trace scores last shortcut"),
         }
         match parse_slash_command("/trace list").unwrap() {
             Some(SlashCommand::TraceList { limit }) => assert_eq!(limit, 20),
@@ -16158,6 +16183,14 @@ mod slash_tests {
                 assert_eq!(view, TraceSlashView::Scores);
             }
             _ => panic!("expected scores review command"),
+        }
+        let parsed = parse_slash_command("/scores last").unwrap();
+        match parsed {
+            Some(SlashCommand::Trace { run_id: got, view }) => {
+                assert_eq!(got, "last");
+                assert_eq!(view, TraceSlashView::Scores);
+            }
+            _ => panic!("expected scores last review command"),
         }
 
         assert!(parse_slash_command("/scores").is_err());

@@ -2522,7 +2522,17 @@ fn source_start_end_overlaps(
 }
 
 fn memory_record_matches_grant_resource(record: &MemoryRecord, resource: &str) -> bool {
-    resource == "*" || record.id == resource || record.owning_agent.as_deref() == Some(resource)
+    let resource = resource.trim();
+    if resource == "*" {
+        return true;
+    }
+    if let Some(agent) = resource.strip_prefix("agent:") {
+        return record.owning_agent.as_deref() == Some(agent.trim());
+    }
+    if let Some(memory_id) = resource.strip_prefix("memory:") {
+        return record.id == memory_id.trim();
+    }
+    record.id == resource || record.owning_agent.as_deref() == Some(resource)
 }
 
 fn write_memory_export(
@@ -4186,6 +4196,116 @@ mod tests {
                     .provenance
                     .contains("source_backend=local-markdown-v0")
                 && fragment.provenance.contains("grant_resource=critic")
+        }));
+        assert!(
+            !fragments
+                .iter()
+                .any(|fragment| fragment.content == "Private memory fact.")
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn profile_memory_grants_accept_qualified_resources() {
+        let dir = std::env::temp_dir().join(format!(
+            "memory-qualified-access-test-{}",
+            std::process::id()
+        ));
+        let resolver = ConfigResolver::new(StoragePaths::new(&dir));
+        resolver
+            .create_profile("research", Some("Research".into()))
+            .unwrap();
+
+        let store = MemoryStore::new(StoragePaths::new(&dir));
+        store
+            .create_for_conversation_with_topics_for_agent(
+                MemoryTarget::Agent,
+                "Agent-scoped memory fact.",
+                MemoryAuthor::Human,
+                None,
+                None,
+                vec!["team".into()],
+                Some("critic".into()),
+            )
+            .unwrap();
+        let memory_record = store
+            .create_for_conversation_with_topics_for_agent(
+                MemoryTarget::Agent,
+                "Record-scoped memory fact.",
+                MemoryAuthor::Human,
+                None,
+                None,
+                vec!["team".into()],
+                Some("writer".into()),
+            )
+            .unwrap();
+        store
+            .create_for_conversation_with_topics_for_agent(
+                MemoryTarget::Agent,
+                "Private memory fact.",
+                MemoryAuthor::Human,
+                None,
+                None,
+                vec!["team".into()],
+                Some("writer".into()),
+            )
+            .unwrap();
+
+        let memory_resource = format!("memory:{}", memory_record.id);
+        resolver
+            .grant_profile_access("main", "research", ProfileGrantKind::Memory, "agent:critic")
+            .unwrap();
+        resolver
+            .grant_profile_access(
+                "main",
+                "research",
+                ProfileGrantKind::Memory,
+                &memory_resource,
+            )
+            .unwrap();
+
+        let report = profile_memory_access_report(
+            StoragePaths::new_with_profile(&dir, "research"),
+            vec!["team".into()],
+        )
+        .unwrap();
+        assert_eq!(report.local_records, 0);
+        assert_eq!(report.granted_records, 2);
+        assert!(report.records.iter().any(|entry| {
+            entry.access == "profile_grant"
+                && entry.record.content == "Agent-scoped memory fact."
+                && entry.grant.as_ref().map(|grant| grant.resource.as_str()) == Some("agent:critic")
+        }));
+        assert!(report.records.iter().any(|entry| {
+            entry.access == "profile_grant"
+                && entry.record.content == "Record-scoped memory fact."
+                && entry.grant.as_ref().map(|grant| grant.resource.as_str())
+                    == Some(memory_resource.as_str())
+        }));
+        assert!(
+            !report
+                .records
+                .iter()
+                .any(|entry| entry.record.content == "Private memory fact.")
+        );
+
+        let fragments = load_fragments_with_profile_grants(
+            StoragePaths::new_with_profile(&dir, "research"),
+            DEFAULT_MEMORY_BACKEND_ID,
+            &["team".into()],
+        )
+        .unwrap();
+        assert_eq!(fragments.len(), 2);
+        assert!(fragments.iter().any(|fragment| {
+            fragment.content == "Agent-scoped memory fact."
+                && fragment.provenance.contains("grant_resource=agent:critic")
+        }));
+        assert!(fragments.iter().any(|fragment| {
+            fragment.content == "Record-scoped memory fact."
+                && fragment
+                    .provenance
+                    .contains(&format!("grant_resource={memory_resource}"))
         }));
         assert!(
             !fragments

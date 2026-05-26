@@ -150,7 +150,9 @@ app exposes the same portability flow through `/memory export ...` and
 `/memory import ...` shortcuts.
 When memory loading is enabled, profile-granted memory uses the same shared
 backend scan for CLI, daemon, and Tauri runs and records source profile/backend
-provenance in the loaded fragments.
+provenance in the loaded fragments. Memory grants can target `*`, a legacy raw
+owning-agent or record id, `agent:<id>` for all records owned by one agent, or
+`memory:<id>` for a single record.
 
 ## Generated Artifacts
 

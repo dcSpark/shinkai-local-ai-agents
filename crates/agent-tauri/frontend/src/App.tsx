@@ -1827,6 +1827,8 @@ export default function App() {
       { command: "/conversations memory ", label: "Generate memory from conversation range" },
       { command: "/conversation policy", label: "Show conversation policy" },
       { command: "/conversations policy", label: "Show conversation policy" },
+      { command: "/conversation policy help", label: "Show conversation shortcuts" },
+      { command: "/conversations policy help", label: "Show conversation shortcuts" },
       { command: "/conversation policy show ", label: "Show conversation policy" },
       { command: "/conversations policy show ", label: "Show conversation policy" },
       { command: "/conversation policy apply", label: "Apply conversation policy" },
@@ -3352,6 +3354,7 @@ export default function App() {
       "/conversation recover [id]",
       "/conversation usage [id] [<from>:<to>|last <n>]",
       "/conversation memory [id] [<from>:<to>] [--user] [--agent <id>] [--topic <topic>]",
+      "/conversation policy help",
       "/conversation policy [show] [id]",
       "/conversation policy apply [id]",
       "/conversation policy save [id]",
@@ -3373,6 +3376,11 @@ export default function App() {
   }
 
   function parseConversationPolicyShortcutId(args: string[], label: string) {
+    const unexpectedFlag = args.find((arg) => arg.startsWith("--"));
+    if (unexpectedFlag) {
+      appendLine("error", `${label} shortcut does not accept ${unexpectedFlag}.`);
+      return null;
+    }
     if (args.length > 1) {
       appendLine("error", `${label} shortcut accepts at most one conversation id.`);
       return null;
@@ -9024,11 +9032,16 @@ export default function App() {
           await generateConversationMemoryFromOps(parsed);
         }
       } else if (command === "policy") {
-        if (args[0] === "help") {
+        const knownPolicyCommands = ["show", "apply", "save", "clear"];
+        const policyHelp =
+          args[0] === "help" ||
+          args[0] === "--help" ||
+          (knownPolicyCommands.includes(args[0] || "") &&
+            (args[1] === "help" || args[1] === "--help"));
+        if (policyHelp) {
           appendLine("assistant", conversationShortcutHelpText());
           return;
         }
-        const knownPolicyCommands = ["show", "apply", "save", "clear"];
         const policyCommand = knownPolicyCommands.includes(args[0] || "")
           ? args[0] || "show"
           : "show";

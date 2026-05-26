@@ -47,7 +47,10 @@ use agent_core::{
     AgentConfig, ContextSnapshot, Harness, HarnessApi, StopRetentionMode, UserInput,
     VisibilityLevel,
 };
-use agent_ingest::{IngestionArtifact, IngestionFindingReviewDecision, IngestionStore};
+use agent_ingest::{
+    IngestionArtifact, IngestionFindingReviewDecision, IngestionStore,
+    supported_backends as supported_ingestion_backends,
+};
 use agent_memory::{
     MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget,
     create_record_for_active_backend_with_topics_for_agent, delete_record_for_active_backend,
@@ -4478,6 +4481,7 @@ fn handle_ingest_slash(
             kind: LineKind::Assistant,
             text: [
                 "/ingest list",
+                "/ingest backends",
                 "/ingest show <id>",
                 "/ingest add <path> [--backend <backend>] [--vision-model <model>] [--guardrail-model <model>]",
                 "/ingest rerun <id> [--backend <backend>] [--vision-model <model>] [--guardrail-model <model>]",
@@ -4518,6 +4522,25 @@ fn handle_ingest_slash(
                 text: format!("Ingest list failed: {err}"),
             }),
         },
+        "backends" => {
+            if !args.is_empty() {
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: "ingest backends accepts no arguments".into(),
+                });
+                return;
+            }
+            let backends = supported_ingestion_backends();
+            push_event(
+                app,
+                format!("Loaded {} ingestion backend descriptor(s).", backends.len()),
+            );
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: serde_json::to_string_pretty(&backends)
+                    .unwrap_or_else(|_| "<unserializable ingestion backends>".into()),
+            });
+        }
         "show" => match first_ingest_arg(args, "show") {
             Ok(id) => match IngestionStore::from_env().show(id) {
                 Ok(artifact) => app.transcript.push(TranscriptLine {
@@ -4732,7 +4755,7 @@ fn handle_ingest_slash(
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Ingest command needs list, show, preview, add, rerun, probe-source, probe-vision, review, delete, or help.".into(),
+            text: "Ingest command needs list, backends, show, preview, add, rerun, probe-source, probe-vision, review, delete, or help.".into(),
         }),
     }
 }
@@ -12112,6 +12135,7 @@ mod tests {
         );
         assert_eq!(artifacts_slash_rest("/artifactx"), None);
         assert_eq!(ingest_slash_rest("/ingest list"), Some("list"));
+        assert_eq!(ingest_slash_rest("/ingest backends"), Some("backends"));
         assert_eq!(ingest_slash_rest("/ingest"), Some(""));
         assert_eq!(ingest_slash_rest("/ingester"), None);
         assert_eq!(

@@ -11435,7 +11435,7 @@ export default function App() {
       }
       appendJson("Conversation recovery plan", plan);
       appendEvent(
-        `Recovery settings applied: conversation ${suggested.conversation_id || plan.conversation_id}, ${plan.linked_compactions.length} compactions, ${plan.linked_memories.length} memories, ${suggested.load_memory ? "memory on" : "memory off"}, ${compactedContext ? "compacted context on" : "no compacted context"}`,
+        `Recovery settings applied: conversation ${suggested.conversation_id || plan.conversation_id}, ${plan.linked_compactions.length} compactions, ${plan.linked_memories.length} memories, ${plan.linked_generated_artifacts.length} generated artifacts, ${suggested.load_memory ? "memory on" : "memory off"}, ${compactedContext ? "compacted context on" : "no compacted context"}`,
       );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

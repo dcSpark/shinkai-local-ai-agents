@@ -534,6 +534,7 @@ export type ConversationRecoveryPlan = {
   expanded_message_count: number;
   linked_compactions: ConversationRecoveryCompaction[];
   linked_memories: ConversationRecoveryMemory[];
+  linked_generated_artifacts: GeneratedArtifact[];
   suggested_run: {
     conversation_id: string;
     include_compact?: string | null;

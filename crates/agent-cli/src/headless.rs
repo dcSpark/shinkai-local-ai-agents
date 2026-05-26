@@ -3095,6 +3095,13 @@ pub async fn conversation_recover(id: String, json: bool) -> anyhow::Result<()> 
                 .map(Vec::len)
                 .unwrap_or_default()
         );
+        println!(
+            "linked generated artifacts: {}",
+            plan["linked_generated_artifacts"]
+                .as_array()
+                .map(Vec::len)
+                .unwrap_or_default()
+        );
         if let Some(compaction) = plan["suggested_run"]["include_compact"].as_str() {
             println!("suggested include compact: {compaction}");
         }
@@ -3121,6 +3128,15 @@ pub(crate) fn conversation_recovery_plan_value(id: &str) -> anyhow::Result<serde
         .collect::<Vec<_>>();
     memories.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
     let latest_compaction = compactions.first();
+    let mut run_ids = Vec::new();
+    for message in &expanded.messages {
+        if let Some(run_id) = &message.run_id
+            && !run_ids.iter().any(|existing| existing == run_id)
+        {
+            run_ids.push(run_id.clone());
+        }
+    }
+    let generated_artifacts = generated_artifacts_for_run_ids(&run_ids)?;
 
     Ok(serde_json::json!({
         "conversation_id": id,
@@ -3130,6 +3146,7 @@ pub(crate) fn conversation_recovery_plan_value(id: &str) -> anyhow::Result<serde
         "expanded_message_count": expanded.messages.len(),
         "linked_compactions": compactions.iter().map(compaction_recovery_summary).collect::<Vec<_>>(),
         "linked_memories": memories.iter().map(memory_recovery_summary).collect::<Vec<_>>(),
+        "linked_generated_artifacts": generated_artifacts,
         "suggested_run": {
             "conversation_id": id,
             "include_compact": latest_compaction.map(|record| record.id.clone()),
@@ -3424,6 +3441,16 @@ fn conversation_run_ids_for_deletable_range(
 fn cleanup_generated_artifacts_for_run_ids(run_ids: &[String]) -> anyhow::Result<usize> {
     let artifact_ids = generated_artifact_ids_for_run_ids(run_ids)?;
     Ok(delete_generated_artifacts_by_ids_from_env(&artifact_ids)?.len())
+}
+
+fn generated_artifacts_for_run_ids(run_ids: &[String]) -> anyhow::Result<Vec<serde_json::Value>> {
+    let mut artifacts = Vec::new();
+    for artifact_id in generated_artifact_ids_for_run_ids(run_ids)? {
+        if let Ok(artifact) = show_generated_artifact_from_env(&artifact_id) {
+            artifacts.push(serde_json::to_value(artifact)?);
+        }
+    }
+    Ok(artifacts)
 }
 
 fn generated_artifact_ids_for_run_ids(run_ids: &[String]) -> anyhow::Result<Vec<String>> {

@@ -1885,6 +1885,15 @@ fn conversation_recovery_plan_value(id: &str) -> anyhow::Result<serde_json::Valu
         .policy
         .load_memory
         .unwrap_or(!memories.is_empty());
+    let mut run_ids = Vec::new();
+    for message in &expanded.messages {
+        if let Some(run_id) = &message.run_id
+            && !run_ids.iter().any(|existing| existing == run_id)
+        {
+            run_ids.push(run_id.clone());
+        }
+    }
+    let generated_artifacts = generated_artifacts_for_run_ids(&run_ids)?;
     Ok(serde_json::json!({
         "conversation_id": id,
         "title": expanded.conversation.title,
@@ -1893,6 +1902,7 @@ fn conversation_recovery_plan_value(id: &str) -> anyhow::Result<serde_json::Valu
         "expanded_message_count": expanded.messages.len(),
         "linked_compactions": compactions.iter().map(compaction_recovery_summary).collect::<Vec<_>>(),
         "linked_memories": memories.iter().map(memory_recovery_summary).collect::<Vec<_>>(),
+        "linked_generated_artifacts": generated_artifacts,
         "suggested_run": {
             "conversation_id": id,
             "include_compact": latest_compaction.map(|record| record.id.clone()),
@@ -2093,6 +2103,16 @@ fn conversation_run_ids_for_deletable_range(
 fn cleanup_generated_artifacts_for_run_ids(run_ids: &[String]) -> anyhow::Result<Vec<String>> {
     let artifact_ids = generated_artifact_ids_for_run_ids(run_ids)?;
     Ok(delete_generated_artifacts_by_ids_from_env(&artifact_ids)?)
+}
+
+fn generated_artifacts_for_run_ids(run_ids: &[String]) -> anyhow::Result<Vec<serde_json::Value>> {
+    let mut artifacts = Vec::new();
+    for artifact_id in generated_artifact_ids_for_run_ids(run_ids)? {
+        if let Ok(artifact) = show_generated_artifact_from_env(&artifact_id) {
+            artifacts.push(serde_json::to_value(artifact)?);
+        }
+    }
+    Ok(artifacts)
 }
 
 fn generated_artifact_ids_for_run_ids(run_ids: &[String]) -> anyhow::Result<Vec<String>> {
@@ -10224,6 +10244,61 @@ mod tests {
         assert_eq!(deleted_artifacts, vec![branch_artifact_id.clone()]);
         assert!(show_generated_artifact_from_env(&branch_artifact_id).is_err());
         assert!(show_generated_artifact_from_env(&root_artifact_id).is_ok());
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn conversation_recovery_plan_includes_expanded_generated_artifacts() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("conversation-recovery-artifacts");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+
+        let conversation_store = ConversationStore::from_env();
+        let root = conversation_store
+            .create(Some("Root".into()), Some("fake-agent".into()))
+            .unwrap();
+        let (root_artifact_id, root_run_id) =
+            generated_artifact_with_trace("recovery-root-artifact", "root artifact");
+        let root_run_id_text = root_run_id.0.to_string();
+        conversation_store
+            .append_message_with_run(
+                &root.id,
+                ConversationRole::Assistant,
+                "Created root artifact.",
+                Some(&root_run_id_text),
+            )
+            .unwrap();
+        let branch = conversation_store
+            .branch(&root.id, 1, Some("Branch".into()), None)
+            .unwrap();
+        let (branch_artifact_id, branch_run_id) =
+            generated_artifact_with_trace("recovery-branch-artifact", "branch artifact");
+        let branch_run_id_text = branch_run_id.0.to_string();
+        conversation_store
+            .append_message_with_run(
+                &branch.id,
+                ConversationRole::Assistant,
+                "Created branch artifact.",
+                Some(&branch_run_id_text),
+            )
+            .unwrap();
+
+        let plan = conversation_recovery_plan_value(&branch.id).unwrap();
+        let artifact_ids = plan["linked_generated_artifacts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|artifact| artifact["id"].as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(artifact_ids.len(), 2);
+        assert!(artifact_ids.contains(&root_artifact_id.as_str()));
+        assert!(artifact_ids.contains(&branch_artifact_id.as_str()));
 
         restore_env("AGENT_HARNESS_HOME", previous_home);
         let _ = std::fs::remove_dir_all(dir);

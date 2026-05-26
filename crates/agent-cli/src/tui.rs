@@ -2768,6 +2768,10 @@ fn format_conversation_recovery_guidance(plan: &serde_json::Value) -> String {
         .as_array()
         .map(Vec::len)
         .unwrap_or_default();
+    let artifacts = plan["linked_generated_artifacts"]
+        .as_array()
+        .map(Vec::len)
+        .unwrap_or_default();
     let include_compact = plan["suggested_run"]["include_compact"]
         .as_str()
         .unwrap_or("none");
@@ -2775,7 +2779,9 @@ fn format_conversation_recovery_guidance(plan: &serde_json::Value) -> String {
     [
         format!("Recovery guidance for {title} ({id})"),
         format!("messages: own {own_messages}, expanded {expanded_messages}"),
-        format!("linked recovery data: {compactions} compaction(s), {memories} memory item(s)"),
+        format!(
+            "linked recovery data: {compactions} compaction(s), {memories} memory item(s), {artifacts} generated artifact(s)"
+        ),
         format!("suggested context: include compact {include_compact}, load memory {load_memory}"),
         format!("next TUI step: /conversation select {id}"),
     ]

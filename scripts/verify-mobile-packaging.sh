@@ -91,6 +91,13 @@ function commandExists(command, args = ["--version"]) {
   return result.status === 0;
 }
 
+function envDirExists(...names) {
+  return names.some((name) => {
+    const value = process.env[name];
+    return value && fs.existsSync(value);
+  });
+}
+
 function directoryHasFiles(dir) {
   if (!fs.existsSync(dir)) return false;
   const stack = [dir];
@@ -222,6 +229,10 @@ assert(initScript.includes("preflight_selected_platforms"), "mobile init helper 
 assert(initScript.includes("preflight_failures"), "mobile init helper must aggregate prerequisite failures");
 assert(initScript.includes("--preflight-only"), "mobile init helper must expose a preflight-only mode");
 assert(
+  initScript.includes("ANDROID_NDK_HOME"),
+  "mobile init helper must accept ANDROID_NDK_HOME as an Android NDK alias",
+);
+assert(
   initScript.includes("--strict --preflight-only"),
   "mobile init helper must verify strict packaging prerequisites in preflight-only mode",
 );
@@ -302,7 +313,7 @@ if (strict) {
     const androidProject = "crates/agent-tauri/gen/android";
     if (!preflightOnly) requireGeneratedProject(androidProject, "Android");
     requireStrict(process.env.ANDROID_HOME && fs.existsSync(process.env.ANDROID_HOME), "ANDROID_HOME must point at the Android SDK");
-    requireStrict(process.env.NDK_HOME && fs.existsSync(process.env.NDK_HOME), "NDK_HOME must point at the Android NDK");
+    requireStrict(envDirExists("NDK_HOME", "ANDROID_NDK_HOME"), "NDK_HOME or ANDROID_NDK_HOME must point at the Android NDK");
     requireStrict(commandExists("java"), "Java must be installed for Android packaging");
   }
   if (checkIos) {

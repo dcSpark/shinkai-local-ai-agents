@@ -302,7 +302,8 @@ The init helper preflights platform SDK tools and Rust mobile targets before it
 generates Tauri mobile projects, so install any reported prerequisite before
 rerunning it. When `--platform=all` is used, it checks both selected platforms
 first and reports the full missing-prerequisite list before writing generated
-project files.
+project files. Android checks accept `NDK_HOME` or `ANDROID_NDK_HOME` for the
+Android NDK path.
 
 To check prerequisites without creating or updating generated mobile project
 files, add `--preflight-only`:

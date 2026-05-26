@@ -66,6 +66,21 @@ check_existing_dir_env() {
   fi
 }
 
+check_existing_dir_env_any() {
+  local target="$1"
+  local label="$2"
+  shift 2
+  local name
+  local value
+  for name in "$@"; do
+    value="${!name:-}"
+    if [[ -n "$value" && -d "$value" ]]; then
+      return
+    fi
+  done
+  record_preflight_failure "$target" "$* must point at $label before initializing mobile packaging"
+}
+
 check_rust_target() {
   local target="$1"
   local rust_target="$2"
@@ -84,7 +99,7 @@ preflight_platform() {
   case "$target" in
     android)
       check_existing_dir_env "$target" ANDROID_HOME "the Android SDK"
-      check_existing_dir_env "$target" NDK_HOME "the Android NDK"
+      check_existing_dir_env_any "$target" "the Android NDK" NDK_HOME ANDROID_NDK_HOME
       check_command "$target" java "Java"
       check_rust_target "$target" aarch64-linux-android
       check_rust_target "$target" armv7-linux-androideabi

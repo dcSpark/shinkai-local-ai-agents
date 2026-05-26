@@ -48,6 +48,7 @@ use agent_ingest::{IngestionArtifact, IngestionFindingReviewDecision, IngestionS
 use agent_memory::{
     MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget,
     create_record_for_active_backend_with_topics_for_agent, delete_record_for_active_backend,
+    delete_records_by_source_conversation_ids_for_active_backend,
     delete_records_by_source_conversation_message_range_for_active_backend,
     edit_record_for_active_backend, export_target_for_active_backend,
     generate_records_for_active_backend_with_topics_for_agent_and_guidance,
@@ -2562,6 +2563,16 @@ fn cleanup_conversation_range_side_data_from_tui(
     Ok((compactions, memories))
 }
 
+fn cleanup_deleted_conversation_side_data_from_tui(
+    deleted: &[String],
+) -> anyhow::Result<(usize, usize)> {
+    let compactions = CompactionStore::from_env()
+        .remove_by_conversation_ids(deleted)?
+        .len();
+    let memories = delete_records_by_source_conversation_ids_for_active_backend(deleted)?.len();
+    Ok((compactions, memories))
+}
+
 fn confirm_conversation_action(app: &mut App) -> anyhow::Result<()> {
     let Some(action) = app.pending_conversation_action.take() else {
         anyhow::bail!("no pending conversation action");
@@ -2580,6 +2591,8 @@ fn confirm_conversation_action(app: &mut App) -> anyhow::Result<()> {
             {
                 app.selected_conversation_id = None;
             }
+            let (deleted_compactions, deleted_memories) =
+                cleanup_deleted_conversation_side_data_from_tui(&deleted)?;
             push_event(
                 app,
                 format!(
@@ -2595,6 +2608,14 @@ fn confirm_conversation_action(app: &mut App) -> anyhow::Result<()> {
                         "Delete plan changed before confirmation; planned {}, deleted {}.",
                         delete_ids.len(),
                         deleted.len()
+                    ),
+                });
+            }
+            if deleted_compactions > 0 || deleted_memories > 0 {
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Event,
+                    text: format!(
+                        "Deleted {deleted_compactions} linked compaction artifact(s) and {deleted_memories} linked memory record(s)."
                     ),
                 });
             }
@@ -12676,6 +12697,60 @@ mod tests {
             ("conv-1".into(), false)
         );
         assert!(parse_conversation_delete_plan_args_with_selected("--recursive", None).is_err());
+    }
+
+    #[test]
+    fn conversation_confirm_delete_cleans_linked_side_data() {
+        let _home = HarnessHomeGuard::new();
+        let store = ConversationStore::from_env();
+        let conversation = store
+            .create(Some("Delete side data".into()), Some("agent-a".into()))
+            .unwrap();
+        let compaction = CompactionStore::from_env()
+            .create_from_text_for_conversation(
+                "linked compacted context",
+                None,
+                None,
+                Some("test".into()),
+                Some(conversation.id.clone()),
+            )
+            .unwrap();
+        let memory = MemoryStore::from_env()
+            .create_for_conversation(
+                MemoryTarget::Agent,
+                "Remember linked context",
+                MemoryAuthor::Model,
+                None,
+                Some(conversation.id.clone()),
+            )
+            .unwrap();
+        let mut app = App {
+            selected_conversation_id: Some(conversation.id.clone()),
+            pending_conversation_action: Some(PendingConversationAction::Delete {
+                id: conversation.id.clone(),
+                recursive: false,
+                delete_ids: vec![conversation.id.clone()],
+            }),
+            ..App::default()
+        };
+
+        confirm_conversation_action(&mut app).unwrap();
+
+        assert!(
+            ConversationStore::from_env()
+                .show(&conversation.id)
+                .is_err()
+        );
+        assert!(CompactionStore::from_env().show(&compaction.id).is_err());
+        assert!(MemoryStore::from_env().get(&memory.id).is_err());
+        assert_eq!(app.selected_conversation_id, None);
+        assert!(app.transcript.iter().any(|line| {
+            matches!(line.kind, LineKind::Event)
+                && line
+                    .text
+                    .contains("Deleted 1 linked compaction artifact(s)")
+                && line.text.contains("1 linked memory record(s)")
+        }));
     }
 
     #[test]

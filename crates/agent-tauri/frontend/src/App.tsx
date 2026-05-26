@@ -1537,6 +1537,7 @@ export default function App() {
       { command: "/agents export ", label: "Export saved agent" },
       { command: "/agents import ", label: "Import saved agent" },
       { command: "/agents delete ", label: "Delete saved agent" },
+      { command: "/agents rm ", label: "Delete saved agent" },
       { command: "/tool help", label: "Show tool shortcuts" },
       { command: "/tool!help", label: "Show direct tool shortcut" },
       ...forcedToolCommands,
@@ -1553,6 +1554,7 @@ export default function App() {
       { command: "/prompt export ", label: "Export saved prompt" },
       { command: "/prompt import ", label: "Import saved prompt" },
       { command: "/prompt delete ", label: "Delete saved prompt" },
+      { command: "/prompt rm ", label: "Delete saved prompt" },
       { command: "/prompts", label: "List saved prompts" },
       { command: "/prompts help", label: "Show prompt-library shortcuts" },
       { command: "/prompts list", label: "List saved prompts" },
@@ -1563,6 +1565,7 @@ export default function App() {
       { command: "/prompts export ", label: "Export saved prompt" },
       { command: "/prompts import ", label: "Import saved prompt" },
       { command: "/prompts delete ", label: "Delete saved prompt" },
+      { command: "/prompts rm ", label: "Delete saved prompt" },
       { command: "/models", label: "List model metadata" },
       { command: "/model", label: "List model metadata" },
       { command: "/models help", label: "Show model shortcuts" },
@@ -1804,6 +1807,7 @@ export default function App() {
       { command: "/compactions export ", label: "Export compacted-context artifact" },
       { command: "/compactions import ", label: "Import compacted-context artifact" },
       { command: "/compactions delete ", label: "Delete compacted-context artifact" },
+      { command: "/compactions rm ", label: "Delete compacted-context artifact" },
       { command: "/conversation", label: "List conversation branches" },
       { command: "/conversations", label: "List conversation branches" },
       { command: "/conversation help", label: "Show conversation shortcuts" },
@@ -1931,6 +1935,8 @@ export default function App() {
       { command: "/artifact export ", label: "Export generated artifact" },
       { command: "/artifacts delete ", label: "Delete generated artifact" },
       { command: "/artifact delete ", label: "Delete generated artifact" },
+      { command: "/artifacts rm ", label: "Delete generated artifact" },
+      { command: "/artifact rm ", label: "Delete generated artifact" },
       { command: "/skills", label: "List imported skills" },
       { command: "/skill", label: "List imported skills" },
       { command: "/capabilities", label: "List capability drafts" },
@@ -1955,6 +1961,8 @@ export default function App() {
       { command: "/capability reject ", label: "Reject capability draft" },
       { command: "/capabilities delete ", label: "Delete capability draft" },
       { command: "/capability delete ", label: "Delete capability draft" },
+      { command: "/capabilities rm ", label: "Delete capability draft" },
+      { command: "/capability rm ", label: "Delete capability draft" },
       { command: "/profiles", label: "List profiles" },
       { command: "/profile", label: "List profiles" },
       { command: "/profiles help", label: "Show profile shortcuts" },
@@ -1967,6 +1975,8 @@ export default function App() {
       { command: "/profile create ", label: "Create a profile" },
       { command: "/profiles delete ", label: "Delete a profile" },
       { command: "/profile delete ", label: "Delete a profile" },
+      { command: "/profiles rm ", label: "Delete a profile" },
+      { command: "/profile rm ", label: "Delete a profile" },
       { command: "/profiles grants", label: "List profile grants" },
       { command: "/profile grants", label: "List profile grants" },
       { command: "/profiles grants --from ", label: "List grants from profile" },
@@ -2088,6 +2098,7 @@ export default function App() {
       { command: "/batch list", label: "List persisted batches" },
       { command: "/batch show ", label: "Show a persisted batch" },
       { command: "/batch delete ", label: "Delete a persisted batch" },
+      { command: "/batch rm ", label: "Delete a persisted batch" },
       { command: "/batch files ", label: "Run files as deterministic batch items" },
       { command: "/batch folder ", label: "Run a folder as deterministic batch items" },
       { command: "/batch ", label: "Run lines as deterministic batch" },
@@ -2370,7 +2381,7 @@ export default function App() {
       "- /batch folder <path> - run UTF-8 files under a folder as keyed batch items",
       "- /batch list - list persisted batch plans",
       "- /batch show <batch-id> - show persisted item accounting",
-      "- /batch delete <batch-id> --confirm - delete a persisted batch plan",
+      "- /batch delete|rm <batch-id> --confirm - delete a persisted batch plan",
       "- /resume-batch <batch-id> - resume a deterministic batch",
     ].join("\n");
   }
@@ -3307,7 +3318,7 @@ export default function App() {
       "/compactions use <id>",
       "/compactions export <id> <path>",
       "/compactions import <path>",
-      "/compactions delete <id> --confirm",
+      "/compactions delete|rm <id> --confirm",
     ].join("\n");
   }
 
@@ -3326,8 +3337,7 @@ export default function App() {
       "/ingest exclude <id>",
       "/ingest preview <id>",
       "/ingest review <id> <finding-index> <acknowledge|approve|reject> [note]",
-      "/ingest delete <id> --confirm",
-      "/ingest remove <id> --confirm",
+      "/ingest delete|remove|rm <id> --confirm",
     ].join("\n");
   }
 
@@ -3340,7 +3350,7 @@ export default function App() {
       "/artifacts preview <id>",
       "/artifacts download <id>",
       "/artifacts export <id> <path>",
-      "/artifacts delete <id> --confirm",
+      "/artifacts delete|rm <id> --confirm",
       "/artifact is accepted as an alias for /artifacts.",
     ].join("\n");
   }
@@ -5613,7 +5623,7 @@ export default function App() {
       "/agents save <id> <system prompt>",
       "/agents export <id> <path>",
       "/agents import <path> --confirm",
-      "/agents delete <id> --confirm",
+      "/agents delete|rm <id> --confirm",
     ].join("\n");
   }
 
@@ -5667,7 +5677,7 @@ export default function App() {
       "/models save-current",
       "/models export <id> <path>",
       "/models import <path> --confirm",
-      "/models delete <id> --confirm",
+      "/models delete|rm <id> --confirm",
       "/models providers",
       "/models doctor",
       "/models provider-catalog show",
@@ -5718,7 +5728,7 @@ export default function App() {
       "/profiles list",
       "/profiles show <id>",
       "/profiles create <id> [--name <name>|name]",
-      "/profiles delete <id> --confirm",
+      "/profiles delete|rm <id> --confirm",
       "/profiles grants [from-profile|--from <profile>]",
       "/profiles grant [--from <profile>] --to <profile> --kind <agent|memory|tool|skill|category> <resource>",
       "/profiles grant <to-profile> <agent|memory|tool|skill|category> <resource> [--from <profile>]",
@@ -5916,7 +5926,7 @@ export default function App() {
       "/secrets show <id>",
       "/secrets set <id> [--label <label>] - store Value as the secret value",
       "/secrets rotate <id> - rotate using Value as the new value",
-      "/secrets delete <id> --confirm",
+      "/secrets delete|rm <id> --confirm",
       "/secret is accepted as an alias for /secrets.",
     ].join("\n");
   }
@@ -5992,7 +6002,7 @@ export default function App() {
     return [
       "/run <name>",
       "/prompt <name>",
-      "/prompt mirrors /prompts for list/show/save/use/preview/export/import/delete.",
+      "/prompt mirrors /prompts for list/show/save/use/preview/export/import/delete/rm.",
       "/prompts list [--agent <agent>]",
       "/prompts show <name> [--agent <agent>]",
       "/prompts save <name> [--agent <agent>] <text>",
@@ -6000,7 +6010,7 @@ export default function App() {
       "/prompts preview <name> [--agent <agent>]",
       "/prompts export <name> <path> [--agent <agent>]",
       "/prompts import <path> [--agent <agent>]",
-      "/prompts delete <name> [--agent <agent>] --confirm",
+      "/prompts delete|rm <name> [--agent <agent>] --confirm",
     ].join("\n");
   }
 
@@ -8259,7 +8269,7 @@ export default function App() {
             "/capabilities import <path>",
             "/capabilities allow <id> --confirm",
             "/capabilities reject <id> --confirm",
-            "/capabilities delete <id> --confirm",
+            "/capabilities delete|rm <id> --confirm",
             "/capability is accepted as an alias for /capabilities.",
           ].join("\n"),
         );

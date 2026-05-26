@@ -417,6 +417,7 @@ pub async fn run(
                 ModelSlashCommand::Doctor => model_doctor(json).await,
                 ModelSlashCommand::Show { id } => model_show(id, json).await,
                 ModelSlashCommand::Probe { id } => model_probe(id, json).await,
+                ModelSlashCommand::Save { model } => model_save_config(model, json).await,
                 ModelSlashCommand::Delete { id } => model_delete(id).await,
                 ModelSlashCommand::Export { id, path } => model_export(id, path, json).await,
                 ModelSlashCommand::Import { path } => model_import(path, json).await,
@@ -5244,6 +5245,16 @@ pub async fn model_save(
     Ok(())
 }
 
+pub async fn model_save_config(model: ModelConfig, json: bool) -> anyhow::Result<()> {
+    let saved = ConfigResolver::from_env().save_model(&model)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&saved)?);
+    } else {
+        println!("saved model {}", saved.id);
+    }
+    Ok(())
+}
+
 pub async fn model_delete(id: String) -> anyhow::Result<()> {
     if ConfigResolver::from_env().delete_model(&id)? {
         println!("deleted model {id}");
@@ -9330,6 +9341,7 @@ enum ModelSlashCommand {
     Doctor,
     Show { id: String },
     Probe { id: String },
+    Save { model: ModelConfig },
     Delete { id: String },
     Export { id: String, path: String },
     Import { path: String },
@@ -9966,7 +9978,7 @@ fn headless_slash_help_text() -> &'static str {
      - /artifacts list|generate|show|open|export|download|delete\n\
      - /capabilities list|doctor|propose|show|allow|reject|delete|export|import\n\
      - /adapters list|doctor|inspect|import|import-manifest|show|export|install-skill|allow|quarantine|clawhub\n\
-     - /models list|providers|doctor|show|probe|export|import|delete|provider-catalog|metadata-catalog\n\
+     - /models list|providers|doctor|show|probe|save|export|import|delete|provider-catalog|metadata-catalog\n\
      - /memory list|access|backends|create|generate|generate-conversation|classify|edit|delete|rollback|export|import\n\
      - /compact list|show|export|import|delete|keep-run, /compactions ...\n\
      - /guide <run-id> <text> - inject guidance into an active run\n\
@@ -11941,6 +11953,15 @@ fn parse_model_slash_rest(rest: &str) -> anyhow::Result<ModelSlashCommand> {
             ensure_no_extra(parts, "usage: /models probe <id>")?;
             Ok(ModelSlashCommand::Probe { id })
         }
+        "save" => {
+            let args = rest
+                .trim()
+                .strip_prefix("save")
+                .map(str::trim)
+                .unwrap_or_default();
+            let model = parse_model_save_slash_args(args)?;
+            Ok(ModelSlashCommand::Save { model })
+        }
         "delete" | "rm" => {
             let id = next_required(&mut parts, "models delete needs an id")?;
             parse_model_confirm(parts, "delete")?;
@@ -11960,9 +11981,32 @@ fn parse_model_slash_rest(rest: &str) -> anyhow::Result<ModelSlashCommand> {
         "provider-catalog" => parse_model_catalog_args(parts, true),
         "metadata-catalog" => parse_model_catalog_args(parts, false),
         _ => anyhow::bail!(
-            "models shortcut needs list, providers, doctor, show, probe, delete, export, import, provider-catalog, or metadata-catalog"
+            "models shortcut needs list, providers, doctor, show, probe, save, delete, export, import, provider-catalog, or metadata-catalog"
         ),
     }
+}
+
+fn parse_model_save_slash_args(args: &str) -> anyhow::Result<ModelConfig> {
+    let trimmed = args.trim();
+    let (id, input) = trimmed
+        .split_once(char::is_whitespace)
+        .map(|(id, input)| (id.trim(), input.trim()))
+        .unwrap_or((trimmed, ""));
+    if id.is_empty() {
+        anyhow::bail!("models save needs a model id");
+    }
+    let mut value = if input.is_empty() {
+        serde_json::json!({})
+    } else {
+        serde_json::from_str::<serde_json::Value>(input)
+            .map_err(|err| anyhow::anyhow!("models save JSON is invalid: {err}"))?
+    };
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| anyhow::anyhow!("models save JSON must be an object"))?;
+    object.insert("id".into(), serde_json::Value::String(id.into()));
+    serde_json::from_value(value)
+        .map_err(|err| anyhow::anyhow!("models save JSON does not match ModelConfig: {err}"))
 }
 
 fn parse_model_catalog_args<'a>(
@@ -13062,6 +13106,7 @@ mod slash_tests {
             help.contains("/prompts (/prompt) list|show|save|use|preview|export|import|delete")
         );
         assert!(help.contains("/approval (/approvals) list|assess|approve|reject|execute"));
+        assert!(help.contains("/models list|providers|doctor|show|probe|save|export|import"));
         assert!(help.contains("/hooks list|policy|available|review|disable|enable"));
     }
 
@@ -14531,6 +14576,25 @@ mod slash_tests {
             }
             _ => panic!("expected model probe shortcut"),
         }
+        match parse_slash_command(
+            r#"/models save gpt {"provider":"openai-compatible","max_context_tokens":8192}"#,
+        )
+        .unwrap()
+        {
+            Some(SlashCommand::Model(ModelSlashCommand::Save { model })) => {
+                assert_eq!(model.id, "gpt");
+                assert_eq!(model.provider.as_deref(), Some("openai-compatible"));
+                assert_eq!(model.max_context_tokens, Some(8192));
+            }
+            _ => panic!("expected model save shortcut"),
+        }
+        match parse_slash_command("/models save local-gpt").unwrap() {
+            Some(SlashCommand::Model(ModelSlashCommand::Save { model })) => {
+                assert_eq!(model.id, "local-gpt");
+                assert_eq!(model.provider, None);
+            }
+            _ => panic!("expected minimal model save shortcut"),
+        }
         match parse_slash_command("/models export gpt /tmp/gpt.toml").unwrap() {
             Some(SlashCommand::Model(ModelSlashCommand::Export { id, path })) => {
                 assert_eq!(id, "gpt");
@@ -14586,6 +14650,8 @@ mod slash_tests {
             }
             _ => panic!("expected metadata catalog import shortcut"),
         }
+        assert!(parse_slash_command("/models save").is_err());
+        assert!(parse_slash_command("/models save gpt []").is_err());
         assert!(parse_slash_command("/models delete gpt").is_err());
         assert!(parse_slash_command("/models import /tmp/gpt.toml").is_err());
         assert!(

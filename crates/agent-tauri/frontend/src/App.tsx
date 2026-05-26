@@ -1794,6 +1794,12 @@ export default function App() {
       { command: "/compact keep", label: "Keep current compacted context" },
       { command: "/compact keep-run last", label: "Keep latest run auto-compaction" },
       { command: "/compact keep-run ", label: "Keep auto-compaction from run" },
+      { command: "/compact list", label: "List compacted-context artifacts" },
+      { command: "/compact show ", label: "Show compacted-context artifact" },
+      { command: "/compact export ", label: "Export compacted-context artifact" },
+      { command: "/compact import ", label: "Import compacted-context artifact" },
+      { command: "/compact delete ", label: "Delete compacted-context artifact" },
+      { command: "/compact rm ", label: "Delete compacted-context artifact" },
       { command: "/compact status", label: "Show manual compacted context" },
       { command: "/compact clear", label: "Clear manual compacted context" },
       { command: "/compactions", label: "List compacted-context artifacts" },
@@ -2368,6 +2374,7 @@ export default function App() {
       "- /compact clear - clear the active manual compacted context",
       "- /compact keep - save the current compacted context as a portable record",
       "- /compact keep-run [last|run-id] - save an auto-compaction from a run",
+      "- /compact list|show|export|import|delete - manage portable compaction records",
       "- /compactions help - list portable compaction record commands",
     ].join("\n");
   }
@@ -3314,11 +3321,17 @@ export default function App() {
       "/compactions list",
       "/compactions keep",
       "/compactions keep-run [last|run-id]",
+      "/compact list",
+      "/compact show <id>",
+      "/compact export <id> <path>",
+      "/compact import <path>",
+      "/compact delete|rm <id> --confirm",
       "/compactions show <id>",
       "/compactions use <id>",
       "/compactions export <id> <path>",
       "/compactions import <path>",
       "/compactions delete|rm <id> --confirm",
+      "/compactions is accepted as an alias for /compact record commands.",
     ].join("\n");
   }
 
@@ -6602,6 +6615,11 @@ export default function App() {
     if (prompt === "/compact" || prompt.startsWith("/compact ")) {
       const guidance = prompt === "/compact" ? "" : prompt.slice("/compact ".length).trim();
       const command = guidance.toLowerCase();
+      const [compactCommand = "", ...compactArgs] = guidance.split(/\s+/).filter(Boolean);
+      const compactAction = compactCommand.toLowerCase();
+      const compactBody = compactCommand
+        ? guidance.slice(compactCommand.length).trim()
+        : "";
       if (command === "help" || command === "--help") {
         setInput("");
         appendLine("user", prompt);
@@ -6633,6 +6651,62 @@ export default function App() {
         setInput("");
         appendLine("user", prompt);
         await keepRunCompaction(runId);
+        return;
+      }
+      if (compactAction === "list") {
+        setInput("");
+        appendLine("user", prompt);
+        if (compactArgs.length) {
+          appendLine("error", "Compact list shortcut accepts no arguments.");
+        } else {
+          await listCompactionsFromOps();
+        }
+        return;
+      }
+      if (compactAction === "show") {
+        setInput("");
+        appendLine("user", prompt);
+        if (compactArgs.length !== 1) {
+          appendLine("error", "Compact show shortcut needs a compaction id.");
+        } else {
+          await showCompactionFromOps(compactArgs[0]);
+        }
+        return;
+      }
+      if (compactAction === "export") {
+        setInput("");
+        appendLine("user", prompt);
+        const exportArgs = parseCompactionExportShortcut(compactBody);
+        if (exportArgs) {
+          await exportCompactionFromOps(exportArgs.id, exportArgs.path);
+        }
+        return;
+      }
+      if (compactAction === "import") {
+        setInput("");
+        appendLine("user", prompt);
+        if (!compactBody) {
+          appendLine("error", "Compact import shortcut needs a file path.");
+        } else {
+          await importCompactionFromOps(compactBody);
+        }
+        return;
+      }
+      if (compactAction === "delete" || compactAction === "rm") {
+        setInput("");
+        appendLine("user", prompt);
+        const parsed = parseCompactionDeleteShortcut(compactArgs);
+        if (parsed) {
+          if (parsed.confirmed) {
+            await deleteCompactionFromOps(parsed.id, true);
+          } else {
+            appendJson("Compaction delete confirmation", {
+              pending_action: "delete_compaction",
+              compaction_id: parsed.id,
+              confirm_command: `/compact delete ${parsed.id} --confirm`,
+            });
+          }
+        }
         return;
       }
       const draft = buildCompactionDraft(guidance);

@@ -98,9 +98,11 @@ pub async fn run(
             return match command {
                 AgentsSlashCommand::List => agent_list(json).await,
                 AgentsSlashCommand::Show { id } => agent_show(id, json).await,
-                AgentsSlashCommand::Save { id, system_prompt } => {
-                    agent_save_minimal(id, system_prompt, json).await
-                }
+                AgentsSlashCommand::Save {
+                    id,
+                    system_prompt,
+                    prompt_refinements,
+                } => agent_save_minimal(id, system_prompt, prompt_refinements, json).await,
                 AgentsSlashCommand::Delete { id } => agent_delete(id).await,
                 AgentsSlashCommand::Export { id, path } => agent_export(id, path, json).await,
                 AgentsSlashCommand::Import { path } => agent_import(path, json).await,
@@ -4540,12 +4542,14 @@ pub async fn agent_show(id: String, json: bool) -> anyhow::Result<()> {
 pub async fn agent_save_minimal(
     id: String,
     system_prompt: String,
+    prompt_refinements: Vec<AgentPromptRefinementConfig>,
     json: bool,
 ) -> anyhow::Result<()> {
     let agent = AgentConfigFile {
         id: id.clone(),
         name: id,
         system_prompt,
+        prompt_refinements,
         ..AgentConfigFile::default()
     };
     let saved = ConfigResolver::from_env().save_agent_config(&agent)?;
@@ -9311,11 +9315,31 @@ enum BridgeDeliverySlashCommand {
 
 enum AgentsSlashCommand {
     List,
-    Show { id: String },
-    Save { id: String, system_prompt: String },
-    Delete { id: String },
-    Export { id: String, path: String },
-    Import { path: String },
+    Show {
+        id: String,
+    },
+    Save {
+        id: String,
+        system_prompt: String,
+        prompt_refinements: Vec<AgentPromptRefinementConfig>,
+    },
+    Delete {
+        id: String,
+    },
+    Export {
+        id: String,
+        path: String,
+    },
+    Import {
+        path: String,
+    },
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct AgentSaveSlashArgs {
+    pub id: String,
+    pub system_prompt: String,
+    pub prompt_refinements: Vec<AgentPromptRefinementConfig>,
 }
 
 enum SkillSlashCommand {
@@ -10733,7 +10757,7 @@ fn headless_slash_help_text() -> &'static str {
      - /run <prompt-name> - use a saved prompt when available, otherwise run the literal text\n\
      - /agent [id] [prompt] - inspect config, or run a prompt with a specific saved agent\n\
      - /batch <line-delimited prompts>, /batch files <paths>, /batch folder <path>, /resume-batch <batch-id> - run or resume deterministic batches\n\
-     - /agents list|show|save|export|import|delete - manage saved agent configs\n\
+     - /agents list|show|save [--refinement-rules-json <json-array>]|export|import|delete - manage saved agent configs\n\
      - /skills status|preview|list|show|inspect|import-openclaw|import-doc|export|allow|quarantine\n\
      - /prompts (/prompt) list|show|save|use|preview|export|import|delete - manage global or agent-scoped saved prompts\n\
      - /approval (/approvals) list|assess|approve|reject|execute [last|run-id] ...\n\
@@ -11580,8 +11604,12 @@ fn parse_agents_slash_rest(rest: &str) -> anyhow::Result<AgentsSlashCommand> {
                 .strip_prefix("save")
                 .map(str::trim)
                 .unwrap_or_default();
-            let (id, system_prompt) = parse_agent_save_slash_args(args)?;
-            Ok(AgentsSlashCommand::Save { id, system_prompt })
+            let parsed = parse_agent_save_slash_args(args)?;
+            Ok(AgentsSlashCommand::Save {
+                id: parsed.id,
+                system_prompt: parsed.system_prompt,
+                prompt_refinements: parsed.prompt_refinements,
+            })
         }
         "delete" | "rm" => {
             let id = next_required(&mut parts, "agents delete needs an agent id")?;
@@ -11603,19 +11631,71 @@ fn parse_agents_slash_rest(rest: &str) -> anyhow::Result<AgentsSlashCommand> {
     }
 }
 
-fn parse_agent_save_slash_args(args: &str) -> anyhow::Result<(String, String)> {
-    let trimmed = args.trim();
-    let (id, system_prompt) = trimmed
+pub(crate) fn parse_agent_save_slash_args(args: &str) -> anyhow::Result<AgentSaveSlashArgs> {
+    let mut rest = args.trim();
+    let mut refinement_rules_json = None;
+    loop {
+        if let Some(after_flag) = save_flag_rest(rest, "--refinement-rules-json") {
+            if refinement_rules_json.is_some() {
+                anyhow::bail!("agents save accepts --refinement-rules-json once");
+            }
+            let (json_value, tail) = take_refinement_rules_json(after_flag)?;
+            refinement_rules_json = Some(json_value);
+            rest = tail.trim_start();
+            continue;
+        }
+        if rest.starts_with("--") {
+            let flag = rest.split_whitespace().next().unwrap_or(rest);
+            anyhow::bail!("unknown agents save option: {flag}");
+        }
+        break;
+    }
+    let (id, system_prompt) = rest
         .split_once(char::is_whitespace)
         .map(|(id, system_prompt)| (id.trim(), system_prompt.trim()))
-        .unwrap_or((trimmed, ""));
+        .unwrap_or((rest, ""));
     if id.is_empty() {
         anyhow::bail!("agents save needs an agent id");
     }
     if system_prompt.is_empty() {
         anyhow::bail!("agents save needs a system prompt");
     }
-    Ok((id.to_string(), system_prompt.to_string()))
+    let prompt_refinements = prompt_refinements_config(refinement_rules_json)?;
+    Ok(AgentSaveSlashArgs {
+        id: id.to_string(),
+        system_prompt: system_prompt.to_string(),
+        prompt_refinements,
+    })
+}
+
+fn save_flag_rest<'a>(rest: &'a str, flag: &str) -> Option<&'a str> {
+    let after = rest.strip_prefix(flag)?;
+    if after.is_empty() || after.starts_with(char::is_whitespace) {
+        Some(after.trim_start())
+    } else {
+        None
+    }
+}
+
+fn take_refinement_rules_json(input: &str) -> anyhow::Result<(String, &str)> {
+    if input.trim().is_empty() {
+        anyhow::bail!("--refinement-rules-json needs a JSON array");
+    }
+    let mut stream =
+        serde_json::Deserializer::from_str(input).into_iter::<Vec<AgentPromptRefinementConfig>>();
+    match stream.next() {
+        Some(Ok(_)) => {
+            let offset = stream.byte_offset();
+            if offset == 0 {
+                anyhow::bail!("--refinement-rules-json needs a JSON array");
+            }
+            Ok((input[..offset].trim().to_string(), &input[offset..]))
+        }
+        Some(Err(err)) => {
+            anyhow::bail!("--refinement-rules-json must be a JSON array: {err}");
+        }
+        None => anyhow::bail!("--refinement-rules-json needs a JSON array"),
+    }
 }
 
 fn parse_agents_confirm<'a>(
@@ -14234,7 +14314,7 @@ mod slash_tests {
         assert!(help.contains("/scores [last|run-id]"));
         assert!(help.contains("/usage last, /usage trace|run [last|run-id]"));
         assert!(help.contains("/agent [id] [prompt]"));
-        assert!(help.contains("/agents list|show|save|export|import|delete"));
+        assert!(help.contains("/agents list|show|save [--refinement-rules-json <json-array>]"));
         assert!(help.contains(
             "/skills status|preview|list|show|inspect|import-openclaw|import-doc|export|allow|quarantine"
         ));
@@ -14584,11 +14664,42 @@ mod slash_tests {
             _ => panic!("expected saved-agent show shortcut"),
         }
         match parse_slash_command("/agents save critic You are careful").unwrap() {
-            Some(SlashCommand::Agents(AgentsSlashCommand::Save { id, system_prompt })) => {
+            Some(SlashCommand::Agents(AgentsSlashCommand::Save {
+                id,
+                system_prompt,
+                prompt_refinements,
+            })) => {
                 assert_eq!(id, "critic");
                 assert_eq!(system_prompt, "You are careful");
+                assert!(prompt_refinements.is_empty());
             }
             _ => panic!("expected saved-agent save shortcut"),
+        }
+        match parse_slash_command(
+            r#"/agents save --refinement-rules-json [{"id":"support","when":"support request","instructions":"Ask for account context first.","agent_awareness":true}] critic You are careful"#,
+        )
+        .unwrap()
+        {
+            Some(SlashCommand::Agents(AgentsSlashCommand::Save {
+                id,
+                system_prompt,
+                prompt_refinements,
+            })) => {
+                assert_eq!(id, "critic");
+                assert_eq!(system_prompt, "You are careful");
+                assert_eq!(prompt_refinements.len(), 1);
+                assert_eq!(prompt_refinements[0].id.as_deref(), Some("support"));
+                assert_eq!(
+                    prompt_refinements[0].when.as_deref(),
+                    Some("support request")
+                );
+                assert_eq!(
+                    prompt_refinements[0].instructions,
+                    "Ask for account context first."
+                );
+                assert!(prompt_refinements[0].agent_awareness);
+            }
+            _ => panic!("expected saved-agent save shortcut with refinement rules"),
         }
         match parse_slash_command("/agents export critic /tmp/critic.toml").unwrap() {
             Some(SlashCommand::Agents(AgentsSlashCommand::Export { id, path })) => {

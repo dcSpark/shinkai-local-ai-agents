@@ -6540,7 +6540,7 @@ fn handle_agents_slash(
             text: [
                 "/agents list",
                 "/agents show <id>",
-                "/agents save <id> <system prompt>",
+                "/agents save [--refinement-rules-json <json-array>] <id> <system prompt>",
                 "/agents use <id>",
                 "/agents export <id> <path>",
                 "/agents import <path> --confirm",
@@ -6593,11 +6593,13 @@ fn handle_agents_slash(
             }),
         },
         "save" => match agent_save_args(args) {
-            Ok((id, system_prompt)) => {
+            Ok(parsed) => {
+                let agent_id = parsed.id;
                 let agent = AgentConfigFile {
-                    id: id.into(),
-                    name: id.into(),
-                    system_prompt: system_prompt.into(),
+                    id: agent_id.clone(),
+                    name: agent_id,
+                    system_prompt: parsed.system_prompt,
+                    prompt_refinements: parsed.prompt_refinements,
                     ..AgentConfigFile::default()
                 };
                 match ConfigResolver::from_env().save_agent_config(&agent) {
@@ -6713,19 +6715,8 @@ fn first_agent_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> 
         .ok_or_else(|| anyhow::anyhow!("agents {command} needs an argument"))
 }
 
-fn agent_save_args(args: &str) -> anyhow::Result<(&str, &str)> {
-    let trimmed = args.trim();
-    let (id, system_prompt) = trimmed
-        .split_once(char::is_whitespace)
-        .map(|(id, system_prompt)| (id.trim(), system_prompt.trim()))
-        .unwrap_or((trimmed, ""));
-    if id.is_empty() {
-        anyhow::bail!("agents save needs an agent id");
-    }
-    if system_prompt.is_empty() {
-        anyhow::bail!("agents save needs a system prompt");
-    }
-    Ok((id, system_prompt))
+fn agent_save_args(args: &str) -> anyhow::Result<crate::headless::AgentSaveSlashArgs> {
+    crate::headless::parse_agent_save_slash_args(args)
 }
 
 fn agent_export_args(args: &str) -> anyhow::Result<(&str, &str)> {
@@ -13630,10 +13621,19 @@ mod tests {
 
     #[test]
     fn agent_args_require_expected_id_path_and_confirmation() {
-        assert_eq!(
-            agent_save_args("research You are a careful researcher.").unwrap(),
-            ("research", "You are a careful researcher.")
-        );
+        let saved = agent_save_args("research You are a careful researcher.").unwrap();
+        assert_eq!(saved.id, "research");
+        assert_eq!(saved.system_prompt, "You are a careful researcher.");
+        assert!(saved.prompt_refinements.is_empty());
+        let saved = agent_save_args(
+            r#"--refinement-rules-json [{"id":"support","when":"support request","instructions":"Ask first.","agent_awareness":true}] research You are a careful researcher."#,
+        )
+        .unwrap();
+        assert_eq!(saved.id, "research");
+        assert_eq!(saved.system_prompt, "You are a careful researcher.");
+        assert_eq!(saved.prompt_refinements.len(), 1);
+        assert_eq!(saved.prompt_refinements[0].id.as_deref(), Some("support"));
+        assert!(saved.prompt_refinements[0].agent_awareness);
         assert!(agent_save_args("").is_err());
         assert!(agent_save_args("research").is_err());
         assert_eq!(

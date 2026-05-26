@@ -229,6 +229,10 @@ assert(initScript.includes("preflight_selected_platforms"), "mobile init helper 
 assert(initScript.includes("preflight_failures"), "mobile init helper must aggregate prerequisite failures");
 assert(initScript.includes("--preflight-only"), "mobile init helper must expose a preflight-only mode");
 assert(
+  initScript.includes("ANDROID_SDK_ROOT"),
+  "mobile init helper must accept ANDROID_SDK_ROOT as an Android SDK alias",
+);
+assert(
   initScript.includes("ANDROID_NDK_HOME"),
   "mobile init helper must accept ANDROID_NDK_HOME as an Android NDK alias",
 );
@@ -312,7 +316,7 @@ if (strict) {
   if (checkAndroid) {
     const androidProject = "crates/agent-tauri/gen/android";
     if (!preflightOnly) requireGeneratedProject(androidProject, "Android");
-    requireStrict(process.env.ANDROID_HOME && fs.existsSync(process.env.ANDROID_HOME), "ANDROID_HOME must point at the Android SDK");
+    requireStrict(envDirExists("ANDROID_HOME", "ANDROID_SDK_ROOT"), "ANDROID_HOME or ANDROID_SDK_ROOT must point at the Android SDK");
     requireStrict(envDirExists("NDK_HOME", "ANDROID_NDK_HOME"), "NDK_HOME or ANDROID_NDK_HOME must point at the Android NDK");
     requireStrict(commandExists("java"), "Java must be installed for Android packaging");
   }

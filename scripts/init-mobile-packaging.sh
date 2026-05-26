@@ -98,7 +98,7 @@ preflight_platform() {
   check_command "$target" rustup "rustup"
   case "$target" in
     android)
-      check_existing_dir_env "$target" ANDROID_HOME "the Android SDK"
+      check_existing_dir_env_any "$target" "the Android SDK" ANDROID_HOME ANDROID_SDK_ROOT
       check_existing_dir_env_any "$target" "the Android NDK" NDK_HOME ANDROID_NDK_HOME
       check_command "$target" java "Java"
       check_rust_target "$target" aarch64-linux-android

@@ -1697,6 +1697,7 @@ export default function App() {
       { command: "/memory create ", label: "Create memory record" },
       { command: "/memory generate ", label: "Generate memory from text" },
       { command: "/memory generate-conversation ", label: "Generate memory from conversation range" },
+      { command: "/memory generate-conv ", label: "Generate memory from conversation range" },
       { command: "/memory classify ", label: "Classify memory record" },
       { command: "/memory show ", label: "Show memory record" },
       { command: "/memory edit ", label: "Edit memory record" },
@@ -3783,7 +3784,7 @@ export default function App() {
       "/memory probe [backend]",
       "/memory create [--user] [--agent <agent>] [--conversation <id>] [--topic <topic>] <content>",
       "/memory generate [--user] [--agent <agent>] [--conversation <id>] [--range <range>] [--topic <topic>] <text> [--guidance <text>]",
-      "/memory generate-conversation [id] [from:to] [--user] [--agent <agent>] [--topic <topic>] [--guidance <text>]",
+      "/memory generate-conversation|generate-conv [id] [from:to] [--user] [--agent <agent>] [--topic <topic>] [--guidance <text>]",
       "/memory classify <id> [--model <model>] [--agent <agent>] [--no-apply]",
       "/memory show <id>",
       "/memory edit <id> <content>",
@@ -7990,7 +7991,7 @@ export default function App() {
             topics: parsed.topics,
           });
         }
-      } else if (command === "generate-conversation") {
+      } else if (command === "generate-conversation" || command === "generate-conv") {
         const parsed = parseMemoryConversationRangeShortcut(args);
         if (parsed) {
           await generateConversationMemoryFromOps(parsed);
@@ -8050,7 +8051,7 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Memory shortcut needs on, off, status, list, access, backends, probe, preview, create, generate, generate-conversation, classify, show, edit, delete, rm, rollback, export, import, or help.",
+          "Memory shortcut needs on, off, status, list, access, backends, probe, preview, create, generate, generate-conversation, generate-conv, classify, show, edit, delete, rm, rollback, export, import, or help.",
         );
       }
       return;

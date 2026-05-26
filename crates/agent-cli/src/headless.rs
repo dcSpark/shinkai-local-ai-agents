@@ -340,6 +340,9 @@ pub async fn run(
                     vision_model,
                     guardrail_model,
                 } => ingest_rerun(id, backend, vision_model, guardrail_model).await,
+                IngestSlashCommand::Preview { id, prompt } => {
+                    preview_context_with_ingest(id, prompt, json, options).await
+                }
                 IngestSlashCommand::Show { id } => ingest_show(id, json).await,
                 IngestSlashCommand::Review {
                     id,
@@ -9396,6 +9399,10 @@ enum IngestSlashCommand {
         vision_model: Option<String>,
         guardrail_model: Option<String>,
     },
+    Preview {
+        id: String,
+        prompt: String,
+    },
     Show {
         id: String,
     },
@@ -10093,7 +10100,7 @@ fn headless_slash_help_text() -> &'static str {
      - /profiles current|list|show|create|delete|grants|grant|revoke\n\
      - /conversation list|tree|show|recover|usage|delete|range-delete|delete-agent\n\
      - /secrets backends|list|show|delete\n\
-     - /ingest list|backends|add|probe-source|probe-vision|rerun|show|review|delete\n\
+     - /ingest list|backends|add|probe-source|probe-vision|rerun|preview|show|review|delete\n\
      - /artifacts list|generate|show|open|export|download|delete\n\
      - /capabilities list|doctor|propose|show|allow|reject|delete|export|import\n\
      - /adapters list|doctor|inspect|import|import-manifest|show|export|install-skill|allow|quarantine|clawhub\n\
@@ -10164,6 +10171,23 @@ fn preview_prompt_from_rest(rest: &str) -> String {
     } else {
         prompt.into()
     }
+}
+
+async fn preview_context_with_ingest(
+    id: String,
+    prompt: String,
+    json: bool,
+    mut options: setup::RuntimeOptions,
+) -> anyhow::Result<()> {
+    IngestionStore::from_env().show(&id)?;
+    if !options
+        .include_ingest
+        .iter()
+        .any(|existing| existing == &id)
+    {
+        options.include_ingest.push(id);
+    }
+    preview_context_text(prompt, json, options).await
 }
 
 fn guide_help_slash_command(trimmed: &str) -> bool {
@@ -12265,6 +12289,7 @@ fn parse_ingest_slash_rest(rest: &str) -> anyhow::Result<IngestSlashCommand> {
         "probe-source" => parse_ingest_probe_source_args(args),
         "probe-vision" | "probe" => parse_ingest_probe_vision_args(args),
         "rerun" => parse_ingest_rerun_args(args),
+        "preview" => parse_ingest_preview_args(args),
         "show" => {
             let mut parts = args.split_whitespace();
             let id = next_required(&mut parts, "usage: /ingest show <id>")?;
@@ -12274,9 +12299,24 @@ fn parse_ingest_slash_rest(rest: &str) -> anyhow::Result<IngestSlashCommand> {
         "review" => parse_ingest_review_args(args),
         "delete" | "rm" => parse_ingest_delete_args(args),
         _ => anyhow::bail!(
-            "ingest shortcut needs list, backends, add, probe-source, probe-vision, rerun, show, review, or delete"
+            "ingest shortcut needs list, backends, add, probe-source, probe-vision, rerun, preview, show, review, or delete"
         ),
     }
+}
+
+fn parse_ingest_preview_args(rest: &str) -> anyhow::Result<IngestSlashCommand> {
+    let rest = rest.trim();
+    let (id, prompt) = rest
+        .split_once(char::is_whitespace)
+        .map(|(id, prompt)| (id.trim(), prompt.trim()))
+        .unwrap_or((rest, ""));
+    if id.is_empty() {
+        anyhow::bail!("usage: /ingest preview <id> [prompt]");
+    }
+    Ok(IngestSlashCommand::Preview {
+        id: id.to_string(),
+        prompt: preview_prompt_from_rest(prompt),
+    })
 }
 
 fn parse_ingest_add_args(rest: &str) -> anyhow::Result<IngestSlashCommand> {
@@ -13304,6 +13344,7 @@ mod slash_tests {
         assert!(help.contains("/approval (/approvals) list|assess|approve|reject|execute"));
         assert!(help.contains("/models list|providers|doctor|show|probe|save|export|import"));
         assert!(help.contains("/memory status|preview|list|access|backends"));
+        assert!(help.contains("/ingest list|backends|add|probe-source|probe-vision|rerun|preview"));
         assert!(help.contains("/hooks list|policy|available|review|disable|enable"));
     }
 
@@ -14455,6 +14496,20 @@ mod slash_tests {
             }
             _ => panic!("expected ingest rerun shortcut"),
         }
+        match parse_slash_command("/ingest preview artifact-1 summarize the doc").unwrap() {
+            Some(SlashCommand::Ingest(IngestSlashCommand::Preview { id, prompt })) => {
+                assert_eq!(id, "artifact-1");
+                assert_eq!(prompt, "summarize the doc");
+            }
+            _ => panic!("expected ingest preview shortcut"),
+        }
+        match parse_slash_command("/ingest preview artifact-1").unwrap() {
+            Some(SlashCommand::Ingest(IngestSlashCommand::Preview { id, prompt })) => {
+                assert_eq!(id, "artifact-1");
+                assert_eq!(prompt, "preview");
+            }
+            _ => panic!("expected ingest preview shortcut"),
+        }
         match parse_slash_command("/ingest show artifact-1").unwrap() {
             Some(SlashCommand::Ingest(IngestSlashCommand::Show { id })) => {
                 assert_eq!(id, "artifact-1");
@@ -14483,6 +14538,7 @@ mod slash_tests {
             _ => panic!("expected ingest delete shortcut"),
         }
         assert!(parse_slash_command("/ingest delete artifact-1").is_err());
+        assert!(parse_slash_command("/ingest preview").is_err());
         assert!(parse_slash_command("/ingest probe-vision ./image.png").is_err());
         assert!(parse_slash_command("/ingester list").unwrap().is_none());
     }

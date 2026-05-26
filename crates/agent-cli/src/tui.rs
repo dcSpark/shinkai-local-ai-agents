@@ -976,6 +976,7 @@ fn global_slash_help_text() -> &'static str {
      - /visibility full|descriptions|names|config - set tool visibility for future TUI runs\n\
      - /cost input|output|both|clear|status - set token cost overrides for future TUI runs\n\
      - /memory on|off|status|preview, /skills on|off|status|preview - toggle or preview runtime memory/skill context loading\n\
+     - /ingest preview <id> [prompt] - inspect context with an explicit ingestion artifact\n\
      - /preview <prompt> - inspect context before running\n\
      - /guide <text> - steer the active run at the next checkpoint\n\
      - /stop [default|--summarise|--discard] [reason], /stop status - stop or inspect the active run\n\
@@ -1368,7 +1369,7 @@ fn handle_slash_command(
         return true;
     }
     if let Some(rest) = ingest_slash_rest(trimmed) {
-        handle_ingest_slash(app, rest, line_tx);
+        handle_ingest_slash(app, rest, registry, line_tx, options);
         return true;
     }
     if let Some(rest) = approval_slash_rest(trimmed) {
@@ -4464,7 +4465,13 @@ fn capability_doctor_summary(report: &CapabilityDraftDoctorReport) -> serde_json
     })
 }
 
-fn handle_ingest_slash(app: &mut App, rest: &str, line_tx: &UnboundedSender<TranscriptLine>) {
+fn handle_ingest_slash(
+    app: &mut App,
+    rest: &str,
+    registry: &Arc<ToolRegistry>,
+    line_tx: &UnboundedSender<TranscriptLine>,
+    options: &setup::RuntimeOptions,
+) {
     let rest = rest.trim();
     if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
@@ -4476,6 +4483,7 @@ fn handle_ingest_slash(app: &mut App, rest: &str, line_tx: &UnboundedSender<Tran
                 "/ingest rerun <id> [--backend <backend>] [--vision-model <model>] [--guardrail-model <model>]",
                 "/ingest probe-source <path> [--vision-model <model>]",
                 "/ingest probe-vision <path> --model <model>",
+                "/ingest preview <id> [prompt]",
                 "/ingest review <id> <finding-index> <acknowledge|approve|reject> [note]",
                 "/ingest delete <id> --confirm",
             ]
@@ -4520,6 +4528,31 @@ fn handle_ingest_slash(app: &mut App, rest: &str, line_tx: &UnboundedSender<Tran
                 Err(err) => app.transcript.push(TranscriptLine {
                     kind: LineKind::Error,
                     text: format!("Ingest show failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "preview" => match ingest_preview_args(args) {
+            Ok((id, prompt)) => match IngestionStore::from_env().show(id) {
+                Ok(_) => {
+                    let mut preview_options = options.clone();
+                    if !preview_options
+                        .include_ingest
+                        .iter()
+                        .any(|existing| existing == id)
+                    {
+                        preview_options.include_ingest.push(id.to_string());
+                    }
+                    let preview_agent = setup::build_agent(&preview_options);
+                    push_event(app, format!("Previewing context with ingestion artifact {id}."));
+                    push_context_preview(app, registry, &preview_agent, prompt);
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Ingest preview failed: {err}"),
                 }),
             },
             Err(err) => app.transcript.push(TranscriptLine {
@@ -4699,7 +4732,7 @@ fn handle_ingest_slash(app: &mut App, rest: &str, line_tx: &UnboundedSender<Tran
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Ingest command needs list, show, add, rerun, probe-source, probe-vision, review, delete, or help.".into(),
+            text: "Ingest command needs list, show, preview, add, rerun, probe-source, probe-vision, review, delete, or help.".into(),
         }),
     }
 }
@@ -4708,6 +4741,19 @@ fn first_ingest_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str>
     args.split_whitespace()
         .next()
         .ok_or_else(|| anyhow::anyhow!("ingest {command} needs an argument"))
+}
+
+fn ingest_preview_args(args: &str) -> anyhow::Result<(&str, &str)> {
+    let args = args.trim();
+    let (id, prompt) = args
+        .split_once(char::is_whitespace)
+        .map(|(id, prompt)| (id.trim(), prompt.trim()))
+        .unwrap_or((args, ""));
+    if id.is_empty() {
+        anyhow::bail!("usage: /ingest preview <id> [prompt]");
+    }
+    let prompt = if prompt.is_empty() { "preview" } else { prompt };
+    Ok((id, prompt))
 }
 
 fn ingest_delete_args(args: &str) -> anyhow::Result<(&str, bool)> {
@@ -11779,6 +11825,7 @@ mod tests {
         assert!(global_slash_help_text().contains("/cost input|output|both|clear|status"));
         assert!(global_slash_help_text().contains("/memory on|off|status|preview"));
         assert!(global_slash_help_text().contains("/skills on|off|status|preview"));
+        assert!(global_slash_help_text().contains("/ingest preview <id>"));
         assert!(global_slash_help_text().contains("/batch <line-delimited prompts>"));
         assert_eq!(memory_slash_rest("/memory --help"), Some("--help"));
         assert_eq!(agents_slash_rest("/agents --help"), Some("--help"));
@@ -12067,6 +12114,15 @@ mod tests {
         assert_eq!(ingest_slash_rest("/ingest list"), Some("list"));
         assert_eq!(ingest_slash_rest("/ingest"), Some(""));
         assert_eq!(ingest_slash_rest("/ingester"), None);
+        assert_eq!(
+            ingest_preview_args("artifact-1 summarize the doc").unwrap(),
+            ("artifact-1", "summarize the doc")
+        );
+        assert_eq!(
+            ingest_preview_args("artifact-1").unwrap(),
+            ("artifact-1", "preview")
+        );
+        assert!(ingest_preview_args("").is_err());
         assert_eq!(approval_slash_rest("/approval list"), Some("list"));
         assert_eq!(approval_slash_rest("/approval"), Some(""));
         assert_eq!(approval_slash_rest("/approvals list"), Some("list"));

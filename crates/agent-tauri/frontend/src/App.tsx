@@ -2063,6 +2063,7 @@ export default function App() {
       { command: "/bridge-deliveries help", label: "Show bridge delivery shortcuts" },
       { command: "/bridge-deliveries retry ", label: "Retry bridge delivery" },
       { command: "/bridge-deliveries delete ", label: "Delete bridge delivery" },
+      { command: "/bridge-deliveries rm ", label: "Delete bridge delivery" },
       { command: "/bridge-deliveries retry-all", label: "Retry all bridge deliveries" },
       { command: "/hooks", label: "List lifecycle hooks" },
       { command: "/hooks help", label: "Show lifecycle hook shortcuts" },
@@ -3274,7 +3275,7 @@ export default function App() {
       "/bridges status",
       "/bridge-deliveries list",
       "/bridge-deliveries retry <id>",
-      "/bridge-deliveries delete <id> --confirm",
+      "/bridge-deliveries delete|rm <id> --confirm",
       "/bridge-deliveries retry-all",
     ].join("\n");
   }
@@ -9254,11 +9255,11 @@ export default function App() {
         } else {
           await retryBridgeDeliveryFromOps(args[0]);
         }
-      } else if (command === "delete") {
+      } else if (command === "delete" || command === "rm") {
         const confirmed = args.includes("--confirm");
         const ids = args.filter((arg) => arg !== "--confirm");
         if (ids.length !== 1) {
-          appendLine("error", "Bridge delivery delete shortcut needs one delivery id plus --confirm.");
+          appendLine("error", "Bridge delivery delete/rm shortcut needs one delivery id plus --confirm.");
         } else if (!confirmed) {
           appendJson("Bridge delivery delete confirmation", {
             id: ids[0],
@@ -9276,7 +9277,7 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Bridge delivery shortcut needs list, retry, delete, retry-all, or help.",
+          "Bridge delivery shortcut needs list, retry, delete, rm, retry-all, or help.",
         );
       }
       return;

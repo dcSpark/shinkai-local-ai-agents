@@ -1935,8 +1935,12 @@ export default function App() {
       { command: "/profile delete ", label: "Delete a profile" },
       { command: "/profiles grants", label: "List profile grants" },
       { command: "/profile grants", label: "List profile grants" },
+      { command: "/profiles grants --from ", label: "List grants from profile" },
+      { command: "/profile grants --from ", label: "List grants from profile" },
       { command: "/profiles grant ", label: "Grant profile access" },
       { command: "/profile grant ", label: "Grant profile access" },
+      { command: "/profiles grant --to ", label: "Grant profile access" },
+      { command: "/profile grant --to ", label: "Grant profile access" },
       { command: "/profiles revoke ", label: "Revoke profile grant" },
       { command: "/profile revoke ", label: "Revoke profile grant" },
       { command: "/profiles revoke-grant ", label: "Revoke profile grant" },
@@ -5670,7 +5674,8 @@ export default function App() {
       "/profiles show <id>",
       "/profiles create <id> [name]",
       "/profiles delete <id> --confirm",
-      "/profiles grants [from-profile]",
+      "/profiles grants [from-profile|--from <profile>]",
+      "/profiles grant [--from <profile>] --to <profile> --kind <agent|memory|tool|skill|category> <resource>",
       "/profiles grant <to-profile> <agent|memory|tool|skill|category> <resource> [--from <profile>]",
       "  memory resources: agent:<id>, memory:<id>, raw id, or *",
       "/profiles revoke <id> --confirm",
@@ -5692,6 +5697,125 @@ export default function App() {
       return null;
     }
     return { id: ids[0], confirmed };
+  }
+
+  function profileFlagValue(args: string[], index: number, flag: string) {
+    const arg = args[index];
+    if (arg === flag) {
+      const value = args[index + 1];
+      if (!value || value.startsWith("--")) {
+        appendLine("error", `Profiles ${flag} needs a value.`);
+        return null;
+      }
+      return { value, nextIndex: index + 1 };
+    }
+    if (arg.startsWith(`${flag}=`)) {
+      const value = arg.slice(flag.length + 1).trim();
+      if (!value) {
+        appendLine("error", `Profiles ${flag} needs a value.`);
+        return null;
+      }
+      return { value, nextIndex: index };
+    }
+    return undefined;
+  }
+
+  function parseProfileGrantsShortcut(args: string[]) {
+    let fromProfile = "";
+    const positional: string[] = [];
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      const from = profileFlagValue(args, index, "--from");
+      if (from === null) return null;
+      if (from) {
+        if (fromProfile) {
+          appendLine("error", "Profiles grants received duplicate --from.");
+          return null;
+        }
+        fromProfile = from.value;
+        index = from.nextIndex;
+      } else if (arg.startsWith("--")) {
+        appendLine("error", `Profiles grants received unexpected argument: ${arg}`);
+        return null;
+      } else {
+        positional.push(arg);
+      }
+    }
+    if (positional.length > 1 || (fromProfile && positional.length)) {
+      appendLine(
+        "error",
+        "Profiles grants shortcut needs: /profiles grants [from-profile|--from <profile>].",
+      );
+      return null;
+    }
+    return { fromProfile: fromProfile || positional[0] || undefined };
+  }
+
+  function parseProfileGrantShortcut(args: string[]) {
+    let fromProfile: string | null = null;
+    let toProfile = "";
+    let kind = "";
+    let resource = "";
+    const positional: string[] = [];
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      const from = profileFlagValue(args, index, "--from");
+      if (from === null) return null;
+      if (from) {
+        if (fromProfile) {
+          appendLine("error", "Profiles grant received duplicate --from.");
+          return null;
+        }
+        fromProfile = from.value;
+        index = from.nextIndex;
+        continue;
+      }
+      const to = profileFlagValue(args, index, "--to");
+      if (to === null) return null;
+      if (to) {
+        if (toProfile) {
+          appendLine("error", "Profiles grant received duplicate --to.");
+          return null;
+        }
+        toProfile = to.value;
+        index = to.nextIndex;
+        continue;
+      }
+      const kindFlag = profileFlagValue(args, index, "--kind");
+      if (kindFlag === null) return null;
+      if (kindFlag) {
+        if (kind) {
+          appendLine("error", "Profiles grant received duplicate --kind.");
+          return null;
+        }
+        kind = kindFlag.value;
+        index = kindFlag.nextIndex;
+        continue;
+      }
+      if (arg.startsWith("--")) {
+        appendLine("error", `Profiles grant received unexpected argument: ${arg}`);
+        return null;
+      }
+      positional.push(arg);
+    }
+    const remaining = [...positional];
+    if (!toProfile && remaining.length) {
+      toProfile = remaining.shift() ?? "";
+    }
+    if (!kind && remaining.length) {
+      kind = remaining.shift() ?? "";
+    }
+    if (!resource && remaining.length) {
+      resource = remaining.shift() ?? "";
+    }
+    if (remaining.length || !toProfile || !isProfileGrantKind(kind) || !resource) {
+      appendLine(
+        "error",
+        "Profiles grant shortcut needs: /profiles grant [--from <profile>] --to <profile> --kind <agent|memory|tool|skill|category> <resource> or /profiles grant <to-profile> <kind> <resource> [--from <profile>]. Memory resources support agent:<id>, memory:<id>, raw id, or *.",
+      );
+      return null;
+    }
+    return { toProfile, kind, resource, fromProfile };
   }
 
   function secretShortcutHelpText() {
@@ -8012,9 +8136,14 @@ export default function App() {
       } else if (rest === "current") {
         await showCurrentProfileFromOps();
       } else if (rest === "grants" || rest.startsWith("grants ")) {
-        const fromProfile =
-          rest === "grants" ? "" : rest.slice("grants ".length).trim();
-        await listProfileGrantsFromOps(fromProfile || undefined);
+        const args =
+          rest === "grants"
+            ? []
+            : rest.slice("grants ".length).trim().split(/\s+/).filter(Boolean);
+        const parsed = parseProfileGrantsShortcut(args);
+        if (parsed) {
+          await listProfileGrantsFromOps(parsed.fromProfile);
+        }
       } else if (rest.startsWith("show ")) {
         const id = rest.slice("show ".length).trim();
         if (!id) {
@@ -8067,20 +8196,14 @@ export default function App() {
         }
       } else if (rest.startsWith("grant ")) {
         const args = rest.slice("grant ".length).trim().split(/\s+/).filter(Boolean);
-        let fromProfile: string | null = null;
-        const fromIndex = args.indexOf("--from");
-        if (fromIndex >= 0) {
-          fromProfile = args[fromIndex + 1] ?? null;
-          args.splice(fromIndex, fromProfile ? 2 : 1);
-        }
-        const [toProfile, kind, resource] = args;
-        if (!toProfile || !isProfileGrantKind(kind) || !resource || args.length !== 3) {
-          appendLine(
-            "error",
-            "Profiles grant shortcut needs: /profiles grant <to-profile> <agent|memory|tool|skill|category> <resource> [--from <profile>]. Memory resources support agent:<id>, memory:<id>, raw id, or *.",
+        const parsed = parseProfileGrantShortcut(args);
+        if (parsed) {
+          await grantProfile(
+            parsed.toProfile,
+            parsed.kind,
+            parsed.resource,
+            parsed.fromProfile,
           );
-        } else {
-          await grantProfile(toProfile, kind, resource, fromProfile);
         }
       } else {
         appendLine(

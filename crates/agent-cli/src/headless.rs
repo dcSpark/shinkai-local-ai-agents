@@ -6451,6 +6451,7 @@ pub async fn remote_run(
             "enable_prompt_refinement": options.enable_prompt_refinement,
             "prompt_refinement_instructions": options.prompt_refinement_instructions,
             "prompt_refinement_model": options.prompt_refinement_model,
+            "prompt_refinement_agent_awareness": options.prompt_refinement_agent_awareness,
             "require_approval": options.require_approval,
             "auto_approve": options.auto_approve
         }),
@@ -6504,6 +6505,7 @@ pub async fn remote_run_start(
             "enable_prompt_refinement": options.enable_prompt_refinement,
             "prompt_refinement_instructions": options.prompt_refinement_instructions,
             "prompt_refinement_model": options.prompt_refinement_model,
+            "prompt_refinement_agent_awareness": options.prompt_refinement_agent_awareness,
             "require_approval": options.require_approval,
             "auto_approve": options.auto_approve
         }),

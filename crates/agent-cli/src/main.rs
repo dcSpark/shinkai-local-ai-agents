@@ -191,6 +191,10 @@ enum Command {
         #[arg(long)]
         refinement_model: Option<String>,
 
+        /// Include prompt refinement guidance in the agent's system prompt.
+        #[arg(long = "refinement-aware")]
+        refinement_aware: bool,
+
         /// Keep approval-required tools gated. This is the default safe posture.
         #[arg(long)]
         require_approval: bool,
@@ -1940,6 +1944,10 @@ struct BatchRuntimeArgs {
     #[arg(long)]
     refinement_model: Option<String>,
 
+    /// Include prompt refinement guidance in the agent's system prompt.
+    #[arg(long = "refinement-aware")]
+    refinement_aware: bool,
+
     /// Keep approval-required tools gated. This is the default safe posture.
     #[arg(long)]
     require_approval: bool,
@@ -1987,6 +1995,7 @@ impl BatchRuntimeArgs {
             enable_prompt_refinement: self.refine_prompt,
             prompt_refinement_instructions: self.refinement_instructions,
             prompt_refinement_model: self.refinement_model,
+            prompt_refinement_agent_awareness: self.refinement_aware,
             require_approval: self.require_approval,
             auto_approve: self.auto_approve,
             raw_tool_output: self.raw_tool_output,
@@ -2647,6 +2656,10 @@ enum RemoteCommand {
         #[arg(long)]
         refinement_model: Option<String>,
 
+        /// Include prompt refinement guidance in the daemon agent's system prompt.
+        #[arg(long = "refinement-aware")]
+        refinement_aware: bool,
+
         /// Keep approval-required daemon tools gated. This is the default safe posture.
         #[arg(long)]
         require_approval: bool,
@@ -2782,6 +2795,10 @@ enum RemoteCommand {
         /// Optional model id for daemon prompt refinement. Defaults to the agent model.
         #[arg(long)]
         refinement_model: Option<String>,
+
+        /// Include prompt refinement guidance in the daemon agent's system prompt.
+        #[arg(long = "refinement-aware")]
+        refinement_aware: bool,
 
         /// Keep approval-required daemon tools gated. This is the default safe posture.
         #[arg(long)]
@@ -5240,6 +5257,7 @@ mod cli_parse_tests {
             "Clarify first.",
             "--refinement-model",
             "fake-refiner",
+            "--refinement-aware",
         ])
         .unwrap();
         let RemoteCommand::Run {
@@ -5252,6 +5270,7 @@ mod cli_parse_tests {
             refine_prompt,
             refinement_instructions,
             refinement_model,
+            refinement_aware,
             provider_id,
             ..
         } = into_remote_command(cli)
@@ -5267,6 +5286,7 @@ mod cli_parse_tests {
         assert!(refine_prompt);
         assert_eq!(refinement_instructions.as_deref(), Some("Clarify first."));
         assert_eq!(refinement_model.as_deref(), Some("fake-refiner"));
+        assert!(refinement_aware);
         assert_eq!(provider_id.as_deref(), Some("custom-openai"));
     }
 
@@ -5692,6 +5712,7 @@ mod cli_parse_tests {
             "clean it up",
             "--refinement-model",
             "small",
+            "--refinement-aware",
             "--require-approval",
             "--raw-tool-output",
             "--json",
@@ -5763,6 +5784,7 @@ mod cli_parse_tests {
             Some("clean it up")
         );
         assert_eq!(options.prompt_refinement_model.as_deref(), Some("small"));
+        assert!(options.prompt_refinement_agent_awareness);
         assert!(options.require_approval);
         assert!(!options.auto_approve);
         assert!(options.raw_tool_output);
@@ -7819,6 +7841,7 @@ async fn main() -> anyhow::Result<()> {
             refine_prompt,
             refinement_instructions,
             refinement_model,
+            refinement_aware,
             require_approval,
             auto_approve,
             raw_tool_output,
@@ -7855,6 +7878,7 @@ async fn main() -> anyhow::Result<()> {
                 enable_prompt_refinement: refine_prompt,
                 prompt_refinement_instructions: refinement_instructions,
                 prompt_refinement_model: refinement_model,
+                prompt_refinement_agent_awareness: refinement_aware,
                 require_approval,
                 auto_approve,
                 raw_tool_output,
@@ -8802,6 +8826,7 @@ async fn main() -> anyhow::Result<()> {
                 refine_prompt,
                 refinement_instructions,
                 refinement_model,
+                refinement_aware,
                 require_approval,
                 auto_approve,
                 raw_tool_output,
@@ -8838,6 +8863,7 @@ async fn main() -> anyhow::Result<()> {
                     enable_prompt_refinement: refine_prompt,
                     prompt_refinement_instructions: refinement_instructions,
                     prompt_refinement_model: refinement_model,
+                    prompt_refinement_agent_awareness: refinement_aware,
                     require_approval,
                     auto_approve,
                     raw_tool_output,
@@ -8876,6 +8902,7 @@ async fn main() -> anyhow::Result<()> {
                 refine_prompt,
                 refinement_instructions,
                 refinement_model,
+                refinement_aware,
                 require_approval,
                 auto_approve,
                 raw_tool_output,
@@ -8912,6 +8939,7 @@ async fn main() -> anyhow::Result<()> {
                     enable_prompt_refinement: refine_prompt,
                     prompt_refinement_instructions: refinement_instructions,
                     prompt_refinement_model: refinement_model,
+                    prompt_refinement_agent_awareness: refinement_aware,
                     require_approval,
                     auto_approve,
                     raw_tool_output,

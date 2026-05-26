@@ -14,6 +14,7 @@ use agent_capabilities::CapabilityDraftTool;
 use agent_compaction::CompactionStore;
 use agent_config::{
     ConfigResolver, IngestionGuardrailMode, ProfileGrantKind, configured_model_providers,
+    system_prompt_with_prompt_refinement_awareness,
 };
 use agent_conversations::{ConversationPolicy, ConversationRole, ConversationStore};
 use agent_core::{
@@ -72,6 +73,7 @@ pub struct RuntimeOptions {
     pub enable_prompt_refinement: bool,
     pub prompt_refinement_instructions: Option<String>,
     pub prompt_refinement_model: Option<String>,
+    pub prompt_refinement_agent_awareness: bool,
     pub require_approval: bool,
     pub auto_approve: bool,
     pub raw_tool_output: bool,
@@ -111,6 +113,7 @@ impl Default for RuntimeOptions {
             enable_prompt_refinement: false,
             prompt_refinement_instructions: None,
             prompt_refinement_model: None,
+            prompt_refinement_agent_awareness: false,
             require_approval: false,
             auto_approve: false,
             raw_tool_output: false,
@@ -465,13 +468,22 @@ pub fn build_agent(options: &RuntimeOptions) -> AgentConfig {
             .collect();
     }
     if options.enable_prompt_refinement {
+        let instructions = options
+            .prompt_refinement_instructions
+            .clone()
+            .unwrap_or_default();
         agent.prompt_refinement = Some(PromptRefinement {
-            instructions: options
-                .prompt_refinement_instructions
-                .clone()
-                .unwrap_or_default(),
+            instructions: instructions.clone(),
             model: options.prompt_refinement_model.clone().map(ModelRef::from),
         });
+    }
+    if options.prompt_refinement_agent_awareness
+        && let Some(refinement) = agent.prompt_refinement.as_ref()
+    {
+        agent.system_prompt = system_prompt_with_prompt_refinement_awareness(
+            &agent.system_prompt,
+            &refinement.instructions,
+        );
     }
 
     let load_memory = conversation_policy
@@ -1268,6 +1280,19 @@ mod tests {
             &options, paths
         ));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn runtime_prompt_refinement_awareness_updates_system_prompt() {
+        let agent = build_agent(&RuntimeOptions {
+            enable_prompt_refinement: true,
+            prompt_refinement_instructions: Some("Clarify the request.".into()),
+            prompt_refinement_agent_awareness: true,
+            ..RuntimeOptions::default()
+        });
+
+        assert!(agent.system_prompt.contains("<prompt-refinement-guidance>"));
+        assert!(agent.system_prompt.contains("Clarify the request."));
     }
 
     #[test]

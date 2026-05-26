@@ -842,10 +842,14 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
             instructions: instructions.clone(),
             model: options.prompt_refinement_model.clone().map(ModelRef::from),
         });
-        if options.prompt_refinement_agent_awareness {
-            agent.system_prompt =
-                system_prompt_with_prompt_refinement_awareness(&agent.system_prompt, &instructions);
-        }
+    }
+    if options.prompt_refinement_agent_awareness
+        && let Some(refinement) = agent.prompt_refinement.as_ref()
+    {
+        agent.system_prompt = system_prompt_with_prompt_refinement_awareness(
+            &agent.system_prompt,
+            &refinement.instructions,
+        );
     }
     if let Some(memory_backend) = options
         .memory_backend

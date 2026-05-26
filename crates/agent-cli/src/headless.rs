@@ -11707,6 +11707,10 @@ fn save_flag_rest<'a>(rest: &'a str, flag: &str) -> Option<&'a str> {
     }
 }
 
+fn save_flag_value_rest<'a>(rest: &'a str, flag: &str) -> Option<&'a str> {
+    save_flag_rest(rest, flag).or_else(|| rest.strip_prefix(flag)?.strip_prefix('='))
+}
+
 fn take_refinement_rules_json(input: &str) -> anyhow::Result<(String, &str)> {
     if input.trim().is_empty() {
         anyhow::bail!("--refinement-rules-json needs a JSON array");
@@ -13114,12 +13118,57 @@ fn parse_model_slash_rest(rest: &str) -> anyhow::Result<ModelSlashCommand> {
     }
 }
 
-fn parse_model_save_slash_args(args: &str) -> anyhow::Result<ModelConfig> {
-    let trimmed = args.trim();
-    let (id, input) = trimmed
+pub(crate) fn parse_model_save_slash_args(args: &str) -> anyhow::Result<ModelConfig> {
+    let mut rest = args.trim();
+    let mut top_p = None;
+    let mut top_k = None;
+    let mut reasoning_effort = None;
+    loop {
+        if let Some(after_flag) = save_flag_value_rest(rest, "--top-p") {
+            if top_p.is_some() {
+                anyhow::bail!("models save accepts --top-p once");
+            }
+            let (value, tail) = take_save_option_value(after_flag, "--top-p")?;
+            top_p = Some(
+                value
+                    .parse::<f64>()
+                    .map_err(|_| anyhow::anyhow!("--top-p must be a number"))?,
+            );
+            rest = tail.trim_start();
+            continue;
+        }
+        if let Some(after_flag) = save_flag_value_rest(rest, "--top-k") {
+            if top_k.is_some() {
+                anyhow::bail!("models save accepts --top-k once");
+            }
+            let (value, tail) = take_save_option_value(after_flag, "--top-k")?;
+            top_k = Some(
+                value
+                    .parse::<u64>()
+                    .map_err(|_| anyhow::anyhow!("--top-k must be an integer"))?,
+            );
+            rest = tail.trim_start();
+            continue;
+        }
+        if let Some(after_flag) = save_flag_value_rest(rest, "--reasoning-effort") {
+            if reasoning_effort.is_some() {
+                anyhow::bail!("models save accepts --reasoning-effort once");
+            }
+            let (value, tail) = take_save_option_value(after_flag, "--reasoning-effort")?;
+            reasoning_effort = Some(value);
+            rest = tail.trim_start();
+            continue;
+        }
+        if rest.starts_with("--") {
+            let flag = rest.split_whitespace().next().unwrap_or(rest);
+            anyhow::bail!("unknown models save option: {flag}");
+        }
+        break;
+    }
+    let (id, input) = rest
         .split_once(char::is_whitespace)
         .map(|(id, input)| (id.trim(), input.trim()))
-        .unwrap_or((trimmed, ""));
+        .unwrap_or((rest, ""));
     if id.is_empty() {
         anyhow::bail!("models save needs a model id");
     }
@@ -13133,8 +13182,10 @@ fn parse_model_save_slash_args(args: &str) -> anyhow::Result<ModelConfig> {
         .as_object_mut()
         .ok_or_else(|| anyhow::anyhow!("models save JSON must be an object"))?;
     object.insert("id".into(), serde_json::Value::String(id.into()));
-    serde_json::from_value(value)
-        .map_err(|err| anyhow::anyhow!("models save JSON does not match ModelConfig: {err}"))
+    let mut model = serde_json::from_value::<ModelConfig>(value)
+        .map_err(|err| anyhow::anyhow!("models save JSON does not match ModelConfig: {err}"))?;
+    merge_provider_option_flags(&mut model.metadata, top_p, top_k, reasoning_effort)?;
+    Ok(model)
 }
 
 fn parse_model_catalog_args<'a>(
@@ -16606,6 +16657,25 @@ mod slash_tests {
             }
             _ => panic!("expected model save shortcut"),
         }
+        match parse_slash_command(
+            r#"/models save --top-p 0.7 --top-k=40 --reasoning-effort high gpt-typed {"metadata":{"provider_options":{"existing":true}}}"#,
+        )
+        .unwrap()
+        {
+            Some(SlashCommand::Model(ModelSlashCommand::Save { model })) => {
+                assert_eq!(model.id, "gpt-typed");
+                assert_eq!(
+                    model.metadata.get("provider_options"),
+                    Some(&serde_json::json!({
+                        "existing": true,
+                        "top_p": 0.7,
+                        "top_k": 40,
+                        "reasoning_effort": "high"
+                    }))
+                );
+            }
+            _ => panic!("expected model save shortcut with provider options"),
+        }
         match parse_slash_command("/models save local-gpt").unwrap() {
             Some(SlashCommand::Model(ModelSlashCommand::Save { model })) => {
                 assert_eq!(model.id, "local-gpt");
@@ -16670,6 +16740,8 @@ mod slash_tests {
         }
         assert!(parse_slash_command("/models save").is_err());
         assert!(parse_slash_command("/models save gpt []").is_err());
+        assert!(parse_slash_command("/models save --top-p 1.5 gpt").is_err());
+        assert!(parse_slash_command("/models save --unknown gpt").is_err());
         assert!(parse_slash_command("/models delete gpt").is_err());
         assert!(parse_slash_command("/models import /tmp/gpt.toml").is_err());
         assert!(

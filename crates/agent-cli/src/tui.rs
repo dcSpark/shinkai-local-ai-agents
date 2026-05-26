@@ -5941,7 +5941,7 @@ fn handle_models_slash(app: &mut App, rest: &str) {
                 "/models list",
                 "/models show <id>",
                 "/models probe <id>",
-                "/models save <id> [json]",
+                "/models save [--top-p <0..1>] [--top-k <n>] [--reasoning-effort <value>] <id> [json]",
                 "/models export <id> <path>",
                 "/models import <path> --confirm",
                 "/models delete <id> --confirm",
@@ -6171,26 +6171,7 @@ fn first_model_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> 
 }
 
 fn model_save_args(args: &str) -> anyhow::Result<ModelConfig> {
-    let trimmed = args.trim();
-    let (id, input) = trimmed
-        .split_once(char::is_whitespace)
-        .map(|(id, input)| (id.trim(), input.trim()))
-        .unwrap_or((trimmed, ""));
-    if id.is_empty() {
-        anyhow::bail!("models save needs a model id");
-    }
-    let mut value = if input.is_empty() {
-        serde_json::json!({})
-    } else {
-        serde_json::from_str::<serde_json::Value>(input)
-            .map_err(|err| anyhow::anyhow!("models save JSON is invalid: {err}"))?
-    };
-    let object = value
-        .as_object_mut()
-        .ok_or_else(|| anyhow::anyhow!("models save JSON must be an object"))?;
-    object.insert("id".into(), serde_json::Value::String(id.into()));
-    serde_json::from_value(value)
-        .map_err(|err| anyhow::anyhow!("models save JSON does not match ModelConfig: {err}"))
+    crate::headless::parse_model_save_slash_args(args)
 }
 
 fn model_export_args(args: &str) -> anyhow::Result<(&str, &str)> {
@@ -13554,12 +13535,28 @@ mod tests {
         assert_eq!(model.id, "gpt-test");
         assert_eq!(model.provider.as_deref(), Some("openai-compatible"));
         assert_eq!(model.available_modalities, vec!["text"]);
+        let typed_model = model_save_args(
+            r#"--top-p 0.7 --top-k=40 --reasoning-effort high gpt-test {"metadata":{"provider_options":{"existing":true}}}"#,
+        )
+        .unwrap();
+        assert_eq!(typed_model.id, "gpt-test");
+        assert_eq!(
+            typed_model.metadata.get("provider_options"),
+            Some(&serde_json::json!({
+                "existing": true,
+                "top_p": 0.7,
+                "top_k": 40,
+                "reasoning_effort": "high"
+            }))
+        );
         assert_eq!(model_save_args("gpt-test").unwrap().id, "gpt-test");
         assert_eq!(first_model_arg("gpt-test", "probe").unwrap(), "gpt-test");
         assert!(first_model_arg("", "probe").is_err());
         assert!(model_save_args("").is_err());
         assert!(model_save_args("gpt-test []").is_err());
         assert!(model_save_args("gpt-test {").is_err());
+        assert!(model_save_args("--top-p 1.5 gpt-test").is_err());
+        assert!(model_save_args("--unknown gpt-test").is_err());
         assert_eq!(
             model_export_args("gpt-test ./model.toml").unwrap(),
             ("gpt-test", "./model.toml")

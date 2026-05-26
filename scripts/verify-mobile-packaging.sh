@@ -140,15 +140,31 @@ const workflow = fs.readFileSync(".github/workflows/mobile-packaging.yml", "utf8
 assert(workflow.includes("Build signed Android mobile artifacts"), "mobile workflow must expose an Android build step");
 assert(workflow.includes("Build signed iOS mobile artifacts"), "mobile workflow must expose an iOS build step");
 assert(workflow.includes("if: inputs.build"), "mobile workflow must gate signed builds behind the build input");
+assert(workflow.includes("preflight_only:"), "mobile workflow must expose a preflight-only input");
 assertIncludes(
   workflow,
-  "scripts/init-mobile-packaging.sh --platform=android",
+  "args+=(--preflight-only)",
+  "mobile workflow must pass --preflight-only to the init helper when requested",
+);
+assertIncludes(
+  workflow,
+  "if: inputs.build && !inputs.preflight_only",
+  "mobile workflow must skip signing/build/upload steps during preflight-only runs",
+);
+assertIncludes(
+  workflow,
+  "args=(--platform=android)",
   "mobile workflow must initialize and verify Android through the shared helper",
 );
 assertIncludes(
   workflow,
-  "scripts/init-mobile-packaging.sh --platform=ios",
+  "args=(--platform=ios)",
   "mobile workflow must initialize and verify iOS through the shared helper",
+);
+assertIncludes(
+  workflow,
+  'scripts/init-mobile-packaging.sh "${args[@]}"',
+  "mobile workflow must call the shared init helper with platform args",
 );
 assertIncludes(
   workflow,
@@ -172,7 +188,7 @@ assertIncludes(
 );
 assertBefore(
   workflow,
-  "scripts/init-mobile-packaging.sh --platform=android",
+  "args=(--platform=android)",
   "scripts/prepare-mobile-signing.sh --platform=android",
   "mobile workflow must initialize Android before preparing signing",
 );
@@ -184,7 +200,7 @@ assertBefore(
 );
 assertBefore(
   workflow,
-  "scripts/init-mobile-packaging.sh --platform=ios",
+  "args=(--platform=ios)",
   "scripts/prepare-mobile-signing.sh --platform=ios",
   "mobile workflow must initialize iOS before preparing signing",
 );

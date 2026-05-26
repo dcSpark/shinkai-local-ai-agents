@@ -17,6 +17,11 @@ on:
         required: true
         default: false
         type: boolean
+      preflight_only:
+        description: "Check platform prerequisites without initializing generated Tauri mobile projects"
+        required: true
+        default: false
+        type: boolean
 
 concurrency:
   group: mobile-packaging-${{ github.ref }}-${{ github.event.inputs.platform || 'all' }}
@@ -91,19 +96,25 @@ jobs:
         working-directory: crates/agent-tauri/frontend
         run: npm ci
 
-      - name: Initialize and verify Android Tauri project
-        run: scripts/init-mobile-packaging.sh --platform=android
+      - name: Initialize or preflight Android Tauri project
+        shell: bash
+        run: |
+          args=(--platform=android)
+          if [[ "${{ inputs.preflight_only }}" == "true" ]]; then
+            args+=(--preflight-only)
+          fi
+          scripts/init-mobile-packaging.sh "${args[@]}"
 
       - name: Prepare Android signing
-        if: inputs.build
+        if: inputs.build && !inputs.preflight_only
         run: scripts/prepare-mobile-signing.sh --platform=android
 
       - name: Build signed Android mobile artifacts
-        if: inputs.build
+        if: inputs.build && !inputs.preflight_only
         run: scripts/build-release-artifact.sh --platform=android
 
       - name: Upload Android mobile artifacts
-        if: inputs.build
+        if: inputs.build && !inputs.preflight_only
         uses: actions/upload-artifact@v4
         with:
           name: shinkai-android-mobile
@@ -151,19 +162,25 @@ jobs:
         working-directory: crates/agent-tauri/frontend
         run: npm ci
 
-      - name: Initialize and verify iOS Tauri project
-        run: scripts/init-mobile-packaging.sh --platform=ios
+      - name: Initialize or preflight iOS Tauri project
+        shell: bash
+        run: |
+          args=(--platform=ios)
+          if [[ "${{ inputs.preflight_only }}" == "true" ]]; then
+            args+=(--preflight-only)
+          fi
+          scripts/init-mobile-packaging.sh "${args[@]}"
 
       - name: Prepare iOS signing
-        if: inputs.build
+        if: inputs.build && !inputs.preflight_only
         run: scripts/prepare-mobile-signing.sh --platform=ios
 
       - name: Build signed iOS mobile artifacts
-        if: inputs.build
+        if: inputs.build && !inputs.preflight_only
         run: scripts/build-release-artifact.sh --platform=ios
 
       - name: Upload iOS mobile artifacts
-        if: inputs.build
+        if: inputs.build && !inputs.preflight_only
         uses: actions/upload-artifact@v4
         with:
           name: shinkai-ios-mobile

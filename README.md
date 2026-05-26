@@ -304,6 +304,10 @@ files, add `--preflight-only`:
 scripts/init-mobile-packaging.sh --platform=android --preflight-only
 ```
 
+The manual mobile packaging workflow exposes the same `preflight_only` input.
+When enabled, it skips generated project initialization, signing preparation,
+artifact builds, and artifact uploads after the platform prerequisite checks.
+
 Signed mobile builds also run `scripts/prepare-mobile-signing.sh` in CI after
 initialization. Android uses the `ANDROID_KEYSTORE_BASE64`,
 `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD`

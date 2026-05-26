@@ -10730,7 +10730,7 @@ fn headless_slash_help_text() -> &'static str {
      - /bridge-deliveries [list], /bridge-deliveries delete <id> --confirm - inspect or remove local bridge delivery dead letters\n\
      - /hooks list|policy|available|review|disable|enable\n\
      - /storage report, /storage prune-cache <days> [--apply]\n\
-     - /bundles export <path>, /bundles import <path> --confirm\n\
+     - /bundles backup <path>, /bundles export <path>, /bundles import <path> --confirm\n\
      - /profiles current|list|show|create|delete|grants|grant|revoke\n\
      - /conversation list|tree|show|recover|usage|delete|delete-many|range-delete|delete-agent\n\
      - /secrets backends|list|show|delete\n\
@@ -14233,6 +14233,7 @@ mod slash_tests {
             ) && help.contains("show|review|delete|remove")
         );
         assert!(help.contains("/artifacts list|generate|show|preview|open|export"));
+        assert!(help.contains("/bundles backup <path>"));
         assert!(help.contains("/hooks list|policy|available|review|disable|enable"));
         assert!(help.contains("/compact list|show|export|import|delete|keep-run [last|run-id]"));
     }

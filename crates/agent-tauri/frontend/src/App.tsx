@@ -3029,7 +3029,7 @@ export default function App() {
   function bundleShortcutHelpText() {
     return [
       "/export [path]",
-      "/bundles backup",
+      "/bundles backup [path]",
       "/bundles export <path>",
       "/bundles import <path> --confirm",
       "/bundle is accepted as an alias for /bundles.",
@@ -8333,8 +8333,9 @@ export default function App() {
       if (!rest || command === "help" || command === "--help") {
         appendLine("assistant", bundleShortcutHelpText());
       } else if (command === "backup") {
-        if (args.length) {
-          appendLine("error", "Bundles backup shortcut accepts no arguments.");
+        const path = rest.slice("backup".length).trim();
+        if (path) {
+          await exportBundleFromOps(path);
         } else {
           await backupBundleNow();
         }

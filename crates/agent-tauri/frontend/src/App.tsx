@@ -1721,6 +1721,7 @@ export default function App() {
       { command: "/subagent on", label: "Enable subagent tool" },
       { command: "/subagent off", label: "Disable subagent tool" },
       { command: "/subagent status", label: "Show subagent status" },
+      { command: "/cost", label: "Show token cost overrides" },
       { command: "/cost help", label: "Show token cost shortcuts" },
       { command: "/cost input ", label: "Set input token cost per million" },
       { command: "/cost output ", label: "Set output token cost per million" },
@@ -7329,7 +7330,14 @@ export default function App() {
     }
 
     if (prompt === "/cost") {
-      appendLine("error", "Cost shortcut needs input, output, both, clear, or status.");
+      setInput("");
+      appendLine("user", "/cost");
+      appendEvent(
+        `Input cost override: ${inputCostPerMillion.trim() || "config"} $/M`,
+      );
+      appendEvent(
+        `Output cost override: ${outputCostPerMillion.trim() || "config"} $/M`,
+      );
       return;
     }
     if (prompt.startsWith("/cost ")) {
@@ -7342,6 +7350,10 @@ export default function App() {
         return;
       }
       if (action === "clear") {
+        if (args.length) {
+          appendLine("error", "Cost clear shortcut accepts no arguments.");
+          return;
+        }
         setInput("");
         setInputCostPerMillion("");
         setOutputCostPerMillion("");
@@ -7350,6 +7362,10 @@ export default function App() {
         return;
       }
       if (action === "status") {
+        if (args.length) {
+          appendLine("error", "Cost status shortcut accepts no arguments.");
+          return;
+        }
         setInput("");
         appendLine("user", "/cost status");
         appendEvent(
@@ -7362,6 +7378,13 @@ export default function App() {
       }
       if (action === "input" || action === "output") {
         const value = args[0] ?? "";
+        if (args.length !== 1) {
+          appendLine(
+            "error",
+            `Cost ${action} shortcut needs exactly one non-negative number.`,
+          );
+          return;
+        }
         const parsedCost = parseOptionalNonNegativeFloat(value);
         if (parsedCost === null) {
           appendLine("error", `Cost ${action} shortcut needs a non-negative number.`);
@@ -7381,6 +7404,10 @@ export default function App() {
       }
       if (action === "both") {
         const [inputCost, outputCost] = args;
+        if (args.length !== 2) {
+          appendLine("error", "Cost both shortcut needs exactly two numbers.");
+          return;
+        }
         const parsedInputCost = parseOptionalNonNegativeFloat(inputCost ?? "");
         const parsedOutputCost = parseOptionalNonNegativeFloat(outputCost ?? "");
         if (parsedInputCost === null || parsedOutputCost === null) {

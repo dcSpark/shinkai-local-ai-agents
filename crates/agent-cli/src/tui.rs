@@ -968,6 +968,7 @@ fn global_slash_help_text() -> &'static str {
      - /voice status, /voice transcribe <path>, /voice speak <text> - inspect voice config or call native voice tools directly\n\
      - /x402 request|required|settle ... - call native x402 payment tools directly\n\
      - /shell status|on|off - inspect or toggle shell tool access\n\
+     - /cost input|output|both|clear|status - set token cost overrides for future TUI runs\n\
      - /preview <prompt> - inspect context before running\n\
      - /guide <text> - steer the active run at the next checkpoint\n\
      - /stop [default|--summarise|--discard] [reason], /stop status - stop or inspect the active run\n\
@@ -1037,6 +1038,22 @@ fn shell_slash_rest(trimmed: &str) -> Option<&str> {
 
 fn shell_slash_help_text() -> &'static str {
     "/shell status\n/shell on\n/shell off"
+}
+
+fn cost_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/cost help" | "/cost --help")
+}
+
+fn cost_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/cost" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/cost ").map(str::trim)
+    }
+}
+
+fn cost_slash_help_text() -> &'static str {
+    "/cost input <usd-per-million>\n/cost output <usd-per-million>\n/cost both <input> <output>\n/cost clear\n/cost status"
 }
 
 fn voice_help_slash_command(trimmed: &str) -> bool {
@@ -1247,6 +1264,17 @@ fn handle_slash_command(
     }
     if let Some(rest) = shell_slash_rest(trimmed) {
         handle_shell_slash(app, rest, registry, options);
+        return true;
+    }
+    if cost_help_slash_command(trimmed) {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: cost_slash_help_text().into(),
+        });
+        return true;
+    }
+    if let Some(rest) = cost_slash_rest(trimmed) {
+        handle_cost_slash(app, rest, agent, options);
         return true;
     }
     if voice_help_slash_command(trimmed) {
@@ -9213,6 +9241,166 @@ fn handle_shell_slash(
     }
 }
 
+fn handle_cost_slash(
+    app: &mut App,
+    rest: &str,
+    agent: &mut AgentConfig,
+    options: &mut setup::RuntimeOptions,
+) {
+    let mut parts = rest.split_whitespace();
+    let command = parts.next().unwrap_or_default();
+    match command {
+        "" | "status" => {
+            if let Err(err) = ensure_no_extra_cost_args(parts, "usage: /cost status") {
+                push_cost_error(app, err);
+                return;
+            }
+            push_event(app, cost_status_text(agent, options));
+        }
+        "help" | "--help" => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: cost_slash_help_text().into(),
+            });
+        }
+        "input" => match single_cost_value(parts, "usage: /cost input <usd-per-million>") {
+            Ok(value) => {
+                options.input_cost_per_million = Some(value);
+                refresh_agent_cost_policy(app, agent, options);
+                push_event(
+                    app,
+                    format!("Input token cost override set to {value} $/M."),
+                );
+            }
+            Err(err) => push_cost_error(app, err),
+        },
+        "output" => match single_cost_value(parts, "usage: /cost output <usd-per-million>") {
+            Ok(value) => {
+                options.output_cost_per_million = Some(value);
+                refresh_agent_cost_policy(app, agent, options);
+                push_event(
+                    app,
+                    format!("Output token cost override set to {value} $/M."),
+                );
+            }
+            Err(err) => push_cost_error(app, err),
+        },
+        "both" => match two_cost_values(parts, "usage: /cost both <input> <output>") {
+            Ok((input, output)) => {
+                options.input_cost_per_million = Some(input);
+                options.output_cost_per_million = Some(output);
+                refresh_agent_cost_policy(app, agent, options);
+                push_event(
+                    app,
+                    format!(
+                        "Token cost overrides set to input {input} $/M and output {output} $/M."
+                    ),
+                );
+            }
+            Err(err) => push_cost_error(app, err),
+        },
+        "clear" => {
+            if let Err(err) = ensure_no_extra_cost_args(parts, "usage: /cost clear") {
+                push_cost_error(app, err);
+                return;
+            }
+            options.input_cost_per_million = None;
+            options.output_cost_per_million = None;
+            refresh_agent_cost_policy(app, agent, options);
+            push_event(
+                app,
+                "Token cost overrides cleared; configured model costs will be used.".into(),
+            );
+        }
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Cost command needs input, output, both, clear, status, or help.".into(),
+        }),
+    }
+}
+
+fn refresh_agent_cost_policy(
+    app: &mut App,
+    agent: &mut AgentConfig,
+    options: &setup::RuntimeOptions,
+) {
+    *agent = setup::build_agent(options);
+    app.calls_used = 0;
+    app.calls_max = agent.tool_policy.max_calls;
+    app.calls_remaining = agent.tool_policy.max_calls;
+}
+
+fn push_cost_error(app: &mut App, err: anyhow::Error) {
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::Error,
+        text: err.to_string(),
+    });
+}
+
+fn ensure_no_extra_cost_args<'a>(
+    mut parts: impl Iterator<Item = &'a str>,
+    usage: &str,
+) -> anyhow::Result<()> {
+    if let Some(extra) = parts.next() {
+        anyhow::bail!("{usage}, unexpected {extra:?}");
+    }
+    Ok(())
+}
+
+fn single_cost_value<'a>(
+    mut parts: impl Iterator<Item = &'a str>,
+    usage: &str,
+) -> anyhow::Result<f64> {
+    let value = parts.next().ok_or_else(|| anyhow::anyhow!("{usage}"))?;
+    let parsed = parse_cost_rate(value)?;
+    ensure_no_extra_cost_args(parts, usage)?;
+    Ok(parsed)
+}
+
+fn two_cost_values<'a>(
+    mut parts: impl Iterator<Item = &'a str>,
+    usage: &str,
+) -> anyhow::Result<(f64, f64)> {
+    let input = parts.next().ok_or_else(|| anyhow::anyhow!("{usage}"))?;
+    let output = parts.next().ok_or_else(|| anyhow::anyhow!("{usage}"))?;
+    let input = parse_cost_rate(input)?;
+    let output = parse_cost_rate(output)?;
+    ensure_no_extra_cost_args(parts, usage)?;
+    Ok((input, output))
+}
+
+fn parse_cost_rate(value: &str) -> anyhow::Result<f64> {
+    let parsed = value
+        .parse::<f64>()
+        .map_err(|_| anyhow::anyhow!("cost rate must be a non-negative number"))?;
+    if !parsed.is_finite() || parsed < 0.0 {
+        anyhow::bail!("cost rate must be a non-negative number");
+    }
+    Ok(parsed)
+}
+
+fn cost_status_text(agent: &AgentConfig, options: &setup::RuntimeOptions) -> String {
+    format!(
+        "Token cost overrides: input {}, output {}; effective input {}, output {}.",
+        cost_override_label(options.input_cost_per_million),
+        cost_override_label(options.output_cost_per_million),
+        cost_effective_label(agent.cost_policy.input_cost_per_million),
+        cost_effective_label(agent.cost_policy.output_cost_per_million),
+    )
+}
+
+fn cost_override_label(value: Option<f64>) -> String {
+    value
+        .map(|rate| format!("{rate} $/M"))
+        .unwrap_or_else(|| "config".into())
+}
+
+fn cost_effective_label(value: Option<f64>) -> String {
+    value
+        .map(|rate| format!("{rate} $/M"))
+        .unwrap_or_else(|| "n/a".into())
+}
+
 fn start_code_tool_call(
     app: &mut App,
     tool_name: &str,
@@ -11270,6 +11458,7 @@ mod tests {
         assert!(slash_help_rest("--help"));
         assert!(!slash_help_rest("helper"));
         assert!(global_slash_help_text().contains("/usage [current|last|trace|run|conversation]"));
+        assert!(global_slash_help_text().contains("/cost input|output|both|clear|status"));
         assert!(global_slash_help_text().contains("/batch <line-delimited prompts>"));
         assert_eq!(memory_slash_rest("/memory --help"), Some("--help"));
         assert_eq!(agents_slash_rest("/agents --help"), Some("--help"));
@@ -11304,6 +11493,14 @@ mod tests {
         assert_eq!(shell_slash_rest("/shell on"), Some("on"));
         assert_eq!(shell_slash_rest("/shells"), None);
         assert!(shell_slash_help_text().contains("/shell status"));
+        assert!(cost_help_slash_command("/cost help"));
+        assert!(cost_help_slash_command("/cost --help"));
+        assert!(!cost_help_slash_command("/cost helper"));
+        assert!(!cost_help_slash_command("/costs help"));
+        assert_eq!(cost_slash_rest("/cost"), Some(""));
+        assert_eq!(cost_slash_rest("/cost status"), Some("status"));
+        assert_eq!(cost_slash_rest("/costs status"), None);
+        assert!(cost_slash_help_text().contains("/cost both <input> <output>"));
         assert!(voice_help_slash_command("/voice help"));
         assert!(voice_help_slash_command("/voice --help"));
         assert!(!voice_help_slash_command("/voice helper"));
@@ -12035,6 +12232,7 @@ mod tests {
         assert!(help.contains("/x402 request"));
         assert!(help.contains("manual JSON input"));
         assert!(help.contains("/guide <text>"));
+        assert!(help.contains("/cost input|output|both|clear|status"));
         assert!(help.contains("/conversation"));
     }
 
@@ -12518,6 +12716,48 @@ mod tests {
                 .iter()
                 .any(|line| line.text.contains("Shell tool access disabled."))
         );
+    }
+
+    #[test]
+    fn cost_slash_updates_runtime_cost_overrides() {
+        let _home = HarnessHomeGuard::new();
+        let mut app = App::default();
+        let mut options = setup::RuntimeOptions::default();
+        let mut agent = setup::build_agent(&options);
+
+        handle_cost_slash(&mut app, "status", &mut agent, &mut options);
+        assert!(
+            app.transcript
+                .iter()
+                .any(|line| line.text.contains("Token cost overrides: input config"))
+        );
+
+        handle_cost_slash(&mut app, "input 0.15", &mut agent, &mut options);
+        assert_eq!(options.input_cost_per_million, Some(0.15));
+        assert_eq!(agent.cost_policy.input_cost_per_million, Some(0.15));
+
+        handle_cost_slash(&mut app, "output 0.6", &mut agent, &mut options);
+        assert_eq!(options.output_cost_per_million, Some(0.6));
+        assert_eq!(agent.cost_policy.output_cost_per_million, Some(0.6));
+
+        handle_cost_slash(&mut app, "both 0.1 0.2", &mut agent, &mut options);
+        assert_eq!(options.input_cost_per_million, Some(0.1));
+        assert_eq!(options.output_cost_per_million, Some(0.2));
+        assert_eq!(agent.cost_policy.input_cost_per_million, Some(0.1));
+        assert_eq!(agent.cost_policy.output_cost_per_million, Some(0.2));
+
+        handle_cost_slash(&mut app, "input -1", &mut agent, &mut options);
+        assert!(app.transcript.iter().any(|line| {
+            line.text
+                .contains("cost rate must be a non-negative number")
+        }));
+        assert_eq!(options.input_cost_per_million, Some(0.1));
+
+        handle_cost_slash(&mut app, "clear", &mut agent, &mut options);
+        assert_eq!(options.input_cost_per_million, None);
+        assert_eq!(options.output_cost_per_million, None);
+        assert_eq!(agent.cost_policy.input_cost_per_million, None);
+        assert_eq!(agent.cost_policy.output_cost_per_million, None);
     }
 
     #[test]

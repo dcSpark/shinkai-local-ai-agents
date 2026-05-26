@@ -2103,11 +2103,12 @@ impl ConfigResolver {
 
     pub fn save_model(&self, model: &ModelConfig) -> Result<ModelConfig, ConfigError> {
         self.paths.ensure_base_dirs()?;
+        let model = normalize_model_config(model.clone())?;
         validate_model_id(&model.id)?;
-        validate_model_config_with_providers(model, &self.model_provider_descriptors()?)?;
+        validate_model_config_with_providers(&model, &self.model_provider_descriptors()?)?;
         let path = self.paths.model_config(&model.id);
-        write_storage_text(&self.paths, path, toml::to_string_pretty(model)?)?;
-        Ok(model.clone())
+        write_storage_text(&self.paths, path, toml::to_string_pretty(&model)?)?;
+        Ok(model)
     }
 
     pub fn delete_model(&self, id: &str) -> Result<bool, ConfigError> {
@@ -2314,7 +2315,7 @@ impl ConfigResolver {
         if !model_path.exists() {
             return Ok(None);
         }
-        let model: ModelConfig = toml::from_str(&std::fs::read_to_string(model_path)?)?;
+        let model = read_model_config(&model_path)?;
         let provider_options = provider_options_from_metadata(&model.metadata)?;
         validate_provider_options(model.provider.as_deref(), provider_options.as_ref())?;
         Ok(Some(ModelRuntimeConfig {
@@ -2544,6 +2545,7 @@ fn validate_model_config_with_providers(
     model: &ModelConfig,
     providers: &[ModelProviderDescriptor],
 ) -> Result<(), ConfigError> {
+    validate_saved_model_config_fields(model)?;
     if let Some(api_base_url) = model.api_base_url.as_deref()
         && !api_base_url.trim().is_empty()
         && !provider_supports_api_base_url(model.provider.as_deref(), providers)
@@ -2556,6 +2558,50 @@ fn validate_model_config_with_providers(
     let provider_options = provider_options_from_metadata(&model.metadata)?;
     validate_provider_options(model.provider.as_deref(), provider_options.as_ref())?;
     Ok(())
+}
+
+fn validate_saved_model_config_fields(model: &ModelConfig) -> Result<(), ConfigError> {
+    validate_catalog_string_list(
+        &model.available_modalities,
+        &format!("model config {} available_modalities", model.id),
+    )?;
+    for (field, value) in [
+        ("max_context_tokens", model.max_context_tokens),
+        ("max_output_tokens", model.max_output_tokens),
+    ] {
+        if value == Some(0) {
+            return Err(ConfigError::InvalidInput(format!(
+                "model config {} {field} must be greater than 0",
+                model.id
+            )));
+        }
+    }
+    for (field, value) in [
+        ("input_cost_per_million", model.input_cost_per_million),
+        ("output_cost_per_million", model.output_cost_per_million),
+    ] {
+        if let Some(value) = value
+            && (!value.is_finite() || value < 0.0)
+        {
+            return Err(ConfigError::InvalidInput(format!(
+                "model config {} {field} must be a non-negative finite number",
+                model.id
+            )));
+        }
+    }
+    Ok(())
+}
+
+fn normalize_model_config(mut model: ModelConfig) -> Result<ModelConfig, ConfigError> {
+    model.provider = clean_optional(model.provider);
+    model.api_base_url = clean_optional(model.api_base_url);
+    model.api_key_env = clean_optional(model.api_key_env);
+    model.reasoning_mode = clean_optional(model.reasoning_mode);
+    model.privacy_level = clean_optional(model.privacy_level);
+    model.cost_tier = clean_optional(model.cost_tier);
+    normalize_catalog_string_list(&mut model.available_modalities);
+    validate_saved_model_config_fields(&model)?;
+    Ok(model)
 }
 
 fn validate_provider_options(
@@ -5035,7 +5081,7 @@ fn skill_visibility_override_map(
 }
 
 fn read_model_config(path: &Path) -> Result<ModelConfig, ConfigError> {
-    Ok(toml::from_str(&std::fs::read_to_string(path)?)?)
+    normalize_model_config(toml::from_str(&std::fs::read_to_string(path)?)?)
 }
 
 fn read_agent_config(path: &Path) -> Result<AgentToml, ConfigError> {
@@ -6005,6 +6051,76 @@ system_prompt = "Review carefully."
         assert!(resolver.show_model("gpt-test").unwrap().is_none());
         assert_eq!(resolver.import_model_config(&export_path).unwrap(), model);
         assert!(resolver.show_model("gpt-test").unwrap().is_some());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn model_registry_normalizes_and_validates_saved_model_fields() {
+        let dir = std::env::temp_dir().join(format!("agent-model-normalize-test-{}", uuid_like()));
+        let resolver = ConfigResolver::new(StoragePaths::new(&dir));
+
+        let mut model = ModelConfig::for_id("spaced-model");
+        model.provider = Some(" openai ".into());
+        model.api_base_url = Some(" https://api.openai.com/v1 ".into());
+        model.api_key_env = Some(" OPENAI_API_KEY ".into());
+        model.available_modalities = vec![" text ".into(), "image".into()];
+        model.reasoning_mode = Some(" medium ".into());
+        model.privacy_level = Some(" cloud ".into());
+        model.cost_tier = Some(" cheap ".into());
+        model.input_cost_per_million = Some(0.15);
+        model.output_cost_per_million = Some(0.6);
+
+        let saved = resolver.save_model(&model).unwrap();
+        assert_eq!(saved.provider.as_deref(), Some("openai"));
+        assert_eq!(
+            saved.api_base_url.as_deref(),
+            Some("https://api.openai.com/v1")
+        );
+        assert_eq!(saved.api_key_env.as_deref(), Some("OPENAI_API_KEY"));
+        assert_eq!(saved.available_modalities, vec!["text", "image"]);
+        assert_eq!(saved.reasoning_mode.as_deref(), Some("medium"));
+        assert_eq!(saved.privacy_level.as_deref(), Some("cloud"));
+        assert_eq!(saved.cost_tier.as_deref(), Some("cheap"));
+        assert_eq!(
+            resolver.show_model("spaced-model").unwrap().as_ref(),
+            Some(&saved)
+        );
+        assert!(
+            resolver
+                .model_supports_modality("spaced-model", "image")
+                .unwrap()
+        );
+
+        let mut duplicate = ModelConfig::for_id("duplicate-modalities");
+        duplicate.available_modalities = vec!["text".into(), " text ".into()];
+        let err = resolver.save_model(&duplicate).unwrap_err();
+        assert!(err.to_string().contains(
+            "model config duplicate-modalities available_modalities contains duplicate value: text"
+        ));
+
+        let mut empty_modality = ModelConfig::for_id("empty-modality");
+        empty_modality.available_modalities = vec![" ".into()];
+        let err = resolver.save_model(&empty_modality).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("model config empty-modality available_modalities contains empty value")
+        );
+
+        let mut zero_tokens = ModelConfig::for_id("zero-tokens");
+        zero_tokens.max_output_tokens = Some(0);
+        let err = resolver.save_model(&zero_tokens).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("model config zero-tokens max_output_tokens must be greater than 0")
+        );
+
+        let mut negative_cost = ModelConfig::for_id("negative-cost");
+        negative_cost.input_cost_per_million = Some(-0.1);
+        let err = resolver.save_model(&negative_cost).unwrap_err();
+        assert!(err.to_string().contains(
+            "model config negative-cost input_cost_per_million must be a non-negative finite number"
+        ));
+
         let _ = std::fs::remove_dir_all(dir);
     }
 

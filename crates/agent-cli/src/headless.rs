@@ -198,6 +198,7 @@ pub async fn run(
         Some(SlashCommand::StopStatus) => return stop_status(&options, json),
         Some(SlashCommand::ShellStatus) => return shell_status(&options, json),
         Some(SlashCommand::SubagentStatus) => return subagent_status(&options, json),
+        Some(SlashCommand::BridgeStatus) => return bridge_status(json),
         Some(SlashCommand::VoiceStatus) => return voice_status(&options, json),
         Some(SlashCommand::BatchRun {
             items,
@@ -9180,6 +9181,7 @@ enum SlashCommand {
     StopStatus,
     ShellStatus,
     SubagentStatus,
+    BridgeStatus,
     VoiceStatus,
     BatchRun {
         items: Vec<String>,
@@ -9815,6 +9817,16 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
             "headless stop shortcut supports status/help; use `agent cancel <run-id|last>` to stop persisted runs"
         );
     }
+    if let Some(rest) = bridges_slash_rest(trimmed) {
+        let rest = rest.trim();
+        if rest.is_empty() || slash_family_help_rest(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
+        if rest == "status" {
+            return Ok(Some(SlashCommand::BridgeStatus));
+        }
+        anyhow::bail!("bridges shortcut needs status or help");
+    }
     if let Some(rest) = hooks_slash_rest(trimmed) {
         if slash_family_help_rest(rest) {
             return Ok(Some(SlashCommand::Help));
@@ -10203,6 +10215,217 @@ fn subagent_status(options: &setup::RuntimeOptions, json: bool) -> anyhow::Resul
     Ok(())
 }
 
+fn bridge_status(json: bool) -> anyhow::Result<()> {
+    let status = bridge_status_report_from_env();
+    if json {
+        println!("{}", serde_json::to_string_pretty(&status)?);
+        return Ok(());
+    }
+    println!("Bridge status");
+    println!("{}", serde_json::to_string_pretty(&status)?);
+    Ok(())
+}
+
+pub fn bridge_status_report_from_env() -> serde_json::Value {
+    serde_json::json!({
+        "bridges": [
+            bridge_status_record(
+                "telegram",
+                vec!["POST /bridges/telegram/webhook"],
+                bridge_env("telegram", "SECRET_TOKEN").is_some(),
+                serde_json::json!({
+                    "bot_token_configured": bridge_env("telegram", "BOT_TOKEN")
+                        .or_else(|| clean_env("TELEGRAM_BOT_TOKEN"))
+                        .is_some(),
+                    "api_base_url_configured": bridge_env("telegram", "API_BASE_URL").is_some()
+                })
+            ),
+            bridge_status_record(
+                "slack",
+                vec!["POST /bridges/slack/slash"],
+                bridge_env("slack", "SIGNING_SECRET").is_some(),
+                serde_json::json!({
+                    "bot_token_configured": bridge_env("slack", "BOT_TOKEN")
+                        .or_else(|| bridge_env("slack", "ACCESS_TOKEN"))
+                        .or_else(|| clean_env("SLACK_BOT_TOKEN"))
+                        .or_else(|| clean_env("SLACK_ACCESS_TOKEN"))
+                        .is_some(),
+                    "response_url_supported": true,
+                    "api_base_url_configured": bridge_env("slack", "API_BASE_URL").is_some(),
+                    "response_type_configured": bridge_env("slack", "RESPONSE_TYPE").is_some()
+                })
+            ),
+            bridge_status_record(
+                "teams",
+                vec!["POST /bridges/teams/activity"],
+                bridge_env("teams", "SECRET_TOKEN").is_some(),
+                serde_json::json!({
+                    "bot_token_configured": bridge_env("teams", "BOT_TOKEN")
+                        .or_else(|| bridge_env("teams", "ACCESS_TOKEN"))
+                        .or_else(|| clean_env("TEAMS_BOT_TOKEN"))
+                        .or_else(|| clean_env("TEAMS_ACCESS_TOKEN"))
+                        .is_some(),
+                    "response_url_configured": bridge_env("teams", "RESPONSE_URL").is_some(),
+                    "activity_reply_supported": true
+                })
+            ),
+            bridge_status_record(
+                "whatsapp",
+                vec![
+                    "GET /bridges/whatsapp/webhook",
+                    "POST /bridges/whatsapp/webhook"
+                ],
+                bridge_env("whatsapp", "SECRET_TOKEN").is_some(),
+                serde_json::json!({
+                    "access_token_configured": bridge_env("whatsapp", "ACCESS_TOKEN")
+                        .or_else(|| clean_env("WHATSAPP_ACCESS_TOKEN"))
+                        .is_some(),
+                    "verify_token_configured": bridge_env("whatsapp", "VERIFY_TOKEN")
+                        .or_else(|| bridge_env("whatsapp", "SECRET_TOKEN"))
+                        .is_some(),
+                    "response_url_configured": bridge_env("whatsapp", "RESPONSE_URL").is_some(),
+                    "api_base_url_configured": bridge_env("whatsapp", "API_BASE_URL").is_some()
+                })
+            ),
+            bridge_status_record(
+                "webhook",
+                vec!["POST /bridges/webhook"],
+                bridge_env("webhook", "SECRET_TOKEN").is_some(),
+                serde_json::json!({
+                    "response_url_per_request": true
+                })
+            ),
+            serde_json::json!({
+                "platform": "web-embed",
+                "inbound": ["GET /bridges/embed.js"],
+                "targets": ["POST /bridges/webhook"],
+                "auth": {
+                    "mode": "webhook bearer token",
+                    "configured": bridge_env("webhook", "SECRET_TOKEN").is_some()
+                },
+                "runtime": bridge_runtime_status("webhook"),
+                "outbound": {
+                    "browser_fetch_to_webhook": true
+                },
+                "x402": bridge_x402_status("webhook")
+            })
+        ],
+        "delivery_worker": {
+            "enabled": bridge_delivery_worker_interval_ms().is_some(),
+            "interval_ms_configured": bridge_env("messaging", "DELIVERY_WORKER_INTERVAL_MS").is_some(),
+            "batch_limit": bridge_delivery_worker_batch_limit(),
+            "delivery_attempts_configured": bridge_env("messaging", "DELIVERY_ATTEMPTS").is_some()
+        },
+        "daemon_x402": {
+            "enabled": clean_env("AGENT_DAEMON_X402_ACCEPTS").is_some(),
+            "paths_configured": clean_env("AGENT_DAEMON_X402_PATHS").is_some()
+        }
+    })
+}
+
+fn bridge_status_record(
+    platform: &str,
+    inbound: Vec<&str>,
+    auth_configured: bool,
+    outbound: serde_json::Value,
+) -> serde_json::Value {
+    serde_json::json!({
+        "platform": platform,
+        "inbound": inbound,
+        "auth": {
+            "mode": "optional configured secret/signature",
+            "configured": auth_configured
+        },
+        "runtime": bridge_runtime_status(platform),
+        "outbound": outbound,
+        "x402": bridge_x402_status(platform)
+    })
+}
+
+fn bridge_runtime_status(platform: &str) -> serde_json::Value {
+    serde_json::json!({
+        "agent_id_configured": bridge_env(platform, "AGENT_ID").is_some(),
+        "provider_configured": bridge_env(platform, "PROVIDER").is_some(),
+        "model_configured": bridge_env(platform, "MODEL").is_some(),
+        "api_base_url_configured": bridge_env(platform, "API_BASE_URL").is_some(),
+        "api_key_env_configured": bridge_env(platform, "API_KEY_ENV").is_some(),
+        "demo_configured": bridge_env(platform, "DEMO").is_some(),
+        "max_tool_calls_configured": bridge_env(platform, "MAX_TOOL_CALLS").is_some(),
+        "load_memory": bridge_env(platform, "LOAD_MEMORY").is_some_and(|value| is_truthy(&value)),
+        "load_skills": bridge_env(platform, "LOAD_SKILLS").is_some_and(|value| is_truthy(&value))
+    })
+}
+
+fn bridge_x402_status(platform: &str) -> serde_json::Value {
+    let Some(accepts_text) = bridge_env(platform, "X402_ACCEPTS") else {
+        return serde_json::json!({ "enabled": false });
+    };
+    match serde_json::from_str::<serde_json::Value>(&accepts_text) {
+        Ok(value) => serde_json::json!({
+            "enabled": true,
+            "valid": bridge_x402_accepts_count(&value).is_some(),
+            "accepts": bridge_x402_accepts_count(&value).unwrap_or_default(),
+            "facilitator_configured": bridge_env(platform, "X402_FACILITATOR_URL")
+                .or_else(|| bridge_env("x402", "FACILITATOR_URL"))
+                .is_some()
+        }),
+        Err(err) => serde_json::json!({
+            "enabled": true,
+            "valid": false,
+            "error": err.to_string()
+        }),
+    }
+}
+
+fn bridge_x402_accepts_count(value: &serde_json::Value) -> Option<usize> {
+    value
+        .get("accepts")
+        .and_then(serde_json::Value::as_array)
+        .map(Vec::len)
+        .or_else(|| {
+            value
+                .as_array()
+                .filter(|items| !items.is_empty())
+                .map(Vec::len)
+        })
+}
+
+fn bridge_delivery_worker_interval_ms() -> Option<u64> {
+    bridge_env("messaging", "DELIVERY_WORKER_INTERVAL_MS")
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+}
+
+fn bridge_delivery_worker_batch_limit() -> usize {
+    bridge_env("messaging", "DELIVERY_WORKER_BATCH")
+        .and_then(|value| value.parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(10)
+}
+
+fn bridge_env(platform: &str, suffix: &str) -> Option<String> {
+    let platform_key = format!("AGENT_{}_{}", platform.to_ascii_uppercase(), suffix);
+    std::env::var(platform_key)
+        .ok()
+        .or_else(|| std::env::var(format!("AGENT_BRIDGE_{suffix}")).ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn clean_env(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn is_truthy(value: &str) -> bool {
+    matches!(
+        value.trim().to_ascii_lowercase().as_str(),
+        "1" | "true" | "yes" | "on"
+    )
+}
+
 fn memory_context_status(options: &setup::RuntimeOptions, json: bool) -> anyhow::Result<()> {
     if json {
         println!(
@@ -10299,6 +10522,7 @@ fn headless_slash_help_text() -> &'static str {
      - /preview [prompt] - inspect context before running\n\
      - /usage last, /usage trace|run [last|run-id], /usage conversation <id> [from:to|last N|--from N --to N|--last N]\n\
      - /stop status - inspect stopped-run summary retention; use `agent cancel` to stop persisted runs\n\
+     - /bridges status - inspect local messaging bridge readiness without printing secrets\n\
      - /hooks list|policy|available|review|disable|enable\n\
      - /storage report, /storage prune-cache <days> [--apply]\n\
      - /bundles export <path>, /bundles import <path> --confirm\n\
@@ -10424,6 +10648,14 @@ fn stop_status_slash_command(trimmed: &str) -> bool {
 
 fn voice_help_slash_command(trimmed: &str) -> bool {
     matches!(trimmed, "/voice help" | "/voice --help")
+}
+
+fn bridges_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/bridges" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/bridges ").map(str::trim)
+    }
 }
 
 fn shell_slash_rest(trimmed: &str) -> Option<&str> {
@@ -13547,6 +13779,9 @@ mod slash_tests {
             "/scores --help",
             "/voice help",
             "/voice --help",
+            "/bridges",
+            "/bridges help",
+            "/bridges --help",
             "/shell help",
             "/shell --help",
             "/subagent help",
@@ -13629,12 +13864,21 @@ mod slash_tests {
         assert!(voice_status_slash_command("/voice"));
         assert!(voice_status_slash_command("/voice status"));
         assert!(!voice_status_slash_command("/voice status extra"));
+        assert_eq!(bridges_slash_rest("/bridges"), Some(""));
+        assert_eq!(bridges_slash_rest("/bridges status"), Some("status"));
+        assert_eq!(bridges_slash_rest("/bridgesx status"), None);
+        assert!(matches!(
+            parse_slash_command("/bridges status").unwrap(),
+            Some(SlashCommand::BridgeStatus)
+        ));
+        assert!(parse_slash_command("/bridges status extra").is_err());
 
         let help = headless_slash_help_text();
         assert!(help.contains("/tool! <name> <json>"));
         assert!(help.contains("/python <code>"));
         assert!(help.contains("/stop status"));
         assert!(help.contains("/voice status, /voice transcribe <path>"));
+        assert!(help.contains("/bridges status"));
         assert!(help.contains("/batch files <paths>, /batch folder <path>"));
         assert!(help.contains("/x402 request"));
         assert!(help.contains("/subagent status"));
@@ -13669,6 +13913,59 @@ mod slash_tests {
         assert!(help.contains("/artifacts list|generate|show|preview|open|export"));
         assert!(help.contains("/hooks list|policy|available|review|disable|enable"));
         assert!(help.contains("/compact list|show|export|import|delete|keep-run [last|run-id]"));
+    }
+
+    #[test]
+    fn bridge_status_report_is_redacted_and_env_based() {
+        let lock = crate::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let vars = [
+            "AGENT_SLACK_SIGNING_SECRET",
+            "AGENT_SLACK_BOT_TOKEN",
+            "AGENT_SLACK_X402_ACCEPTS",
+            "AGENT_MESSAGING_DELIVERY_WORKER_INTERVAL_MS",
+            "AGENT_MESSAGING_DELIVERY_WORKER_BATCH",
+            "AGENT_DAEMON_X402_ACCEPTS",
+        ];
+        let previous = vars
+            .iter()
+            .map(|name| (*name, std::env::var_os(name)))
+            .collect::<Vec<_>>();
+        unsafe {
+            std::env::set_var("AGENT_SLACK_SIGNING_SECRET", "super-secret-signing");
+            std::env::set_var("AGENT_SLACK_BOT_TOKEN", "xoxb-super-secret");
+            std::env::set_var(
+                "AGENT_SLACK_X402_ACCEPTS",
+                r#"[{"scheme":"exact","asset":"USDC"}]"#,
+            );
+            std::env::set_var("AGENT_MESSAGING_DELIVERY_WORKER_INTERVAL_MS", "250");
+            std::env::set_var("AGENT_MESSAGING_DELIVERY_WORKER_BATCH", "3");
+            std::env::set_var("AGENT_DAEMON_X402_ACCEPTS", r#"[{"asset":"USDC"}]"#);
+        }
+
+        let status = bridge_status_report_from_env();
+        let serialized = serde_json::to_string(&status).unwrap();
+        let slack = status["bridges"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|bridge| bridge["platform"] == "slack")
+            .unwrap();
+
+        assert!(status["delivery_worker"]["enabled"].as_bool().unwrap());
+        assert_eq!(status["delivery_worker"]["batch_limit"], 3);
+        assert!(status["daemon_x402"]["enabled"].as_bool().unwrap());
+        assert!(slack["auth"]["configured"].as_bool().unwrap());
+        assert!(slack["outbound"]["bot_token_configured"].as_bool().unwrap());
+        assert_eq!(slack["x402"]["accepts"], 1);
+        assert!(!serialized.contains("super-secret"));
+        assert!(!serialized.contains("xoxb"));
+
+        for (name, value) in previous {
+            restore_env(name, value);
+        }
+        drop(lock);
     }
 
     #[test]

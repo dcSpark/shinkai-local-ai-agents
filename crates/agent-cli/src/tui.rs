@@ -984,6 +984,7 @@ fn global_slash_help_text() -> &'static str {
      - /python <code>, /typescript <code>, /ts <code> - call native code tools directly\n\
      - /voice status, /voice transcribe <path>, /voice speak <text> - inspect voice config or call native voice tools directly\n\
      - /x402 request|required|settle ... - call native x402 payment tools directly\n\
+     - /bridges status - inspect messaging bridge readiness without printing secrets\n\
      - /shell status|on|off - inspect or toggle shell tool access\n\
      - /subagent status|on|off - inspect or toggle subagent tool access\n\
      - /budget <n> - set the max tool-call budget for future TUI runs\n\
@@ -1360,6 +1361,10 @@ fn handle_slash_command(
     }
     if let Some(rest) = crate::x402_slash::slash_rest(trimmed) {
         handle_x402_slash(app, rest, registry, agent, publish_tx);
+        return true;
+    }
+    if let Some(rest) = bridges_slash_rest(trimmed) {
+        handle_bridges_slash(app, rest);
         return true;
     }
     if let Some(rest) = trimmed.strip_prefix("/tool ").map(str::trim) {
@@ -9421,6 +9426,18 @@ fn voice_slash_rest(trimmed: &str) -> Option<&str> {
     }
 }
 
+fn bridges_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/bridges" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/bridges ").map(str::trim)
+    }
+}
+
+fn bridges_slash_help_text() -> &'static str {
+    "/bridges status"
+}
+
 fn voice_slash_help_text() -> &'static str {
     "Voice commands:\n\
      - /voice status - show resolved active-agent voice config\n\
@@ -9808,6 +9825,28 @@ fn handle_voice_slash(
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
             text: "Voice command needs status, transcribe, speak, or help.".into(),
+        }),
+    }
+}
+
+fn handle_bridges_slash(app: &mut App, rest: &str) {
+    let rest = rest.trim();
+    if slash_help_rest(rest) {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: bridges_slash_help_text().into(),
+        });
+        return;
+    }
+    match rest {
+        "status" => app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: serde_json::to_string_pretty(&crate::headless::bridge_status_report_from_env())
+                .unwrap_or_else(|_| "<unserializable bridge status>".into()),
+        }),
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Bridges command needs status or help.".into(),
         }),
     }
 }
@@ -12297,6 +12336,7 @@ mod tests {
         assert!(global_slash_help_text().contains("/skills on|off|status|preview"));
         assert!(global_slash_help_text().contains("/ingest preview <id>"));
         assert!(global_slash_help_text().contains("/batch <line-delimited prompts>"));
+        assert!(global_slash_help_text().contains("/bridges status"));
         assert_eq!(memory_slash_rest("/memory --help"), Some("--help"));
         assert_eq!(agents_slash_rest("/agents --help"), Some("--help"));
         assert_eq!(compact_slash_rest("/compactions --help"), Some("--help"));
@@ -12449,6 +12489,10 @@ mod tests {
             Some("transcribe ./sample.wav")
         );
         assert_eq!(voice_slash_rest("/voices"), None);
+        assert_eq!(bridges_slash_rest("/bridges"), Some(""));
+        assert_eq!(bridges_slash_rest("/bridges status"), Some("status"));
+        assert_eq!(bridges_slash_rest("/bridgesx status"), None);
+        assert!(bridges_slash_help_text().contains("/bridges status"));
         assert_eq!(
             crate::x402_slash::slash_rest("/x402 request https://example.test"),
             Some("request https://example.test")

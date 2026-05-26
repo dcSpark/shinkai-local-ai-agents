@@ -16,6 +16,7 @@ use agent_compaction::{CompactionRecord, CompactionStore};
 use agent_config::{
     AgentConfigFile, ConfigResolver, IngestionGuardrailMode, ModelConfig, ModelRuntimeConfig,
     ProfileGrant, ProfileGrantKind, configured_model_providers,
+    system_prompt_with_prompt_refinement_awareness,
 };
 use agent_conversations::{
     ConversationMessage, ConversationPolicy, ConversationRole, ConversationStore,
@@ -7122,6 +7123,8 @@ struct DaemonRuntimeOptions {
     prompt_refinement_instructions: Option<String>,
     prompt_refinement_model: Option<String>,
     #[serde(default)]
+    prompt_refinement_agent_awareness: bool,
+    #[serde(default)]
     require_approval: bool,
     #[serde(default)]
     auto_approve: bool,
@@ -8034,13 +8037,18 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
         agent.execution_policy.max_recursion_depth = depth;
     }
     if options.enable_prompt_refinement {
+        let instructions = options
+            .prompt_refinement_instructions
+            .clone()
+            .unwrap_or_default();
         agent.prompt_refinement = Some(PromptRefinement {
-            instructions: options
-                .prompt_refinement_instructions
-                .clone()
-                .unwrap_or_default(),
+            instructions: instructions.clone(),
             model: options.prompt_refinement_model.clone().map(ModelRef::from),
         });
+        if options.prompt_refinement_agent_awareness {
+            agent.system_prompt =
+                system_prompt_with_prompt_refinement_awareness(&agent.system_prompt, &instructions);
+        }
     }
     if let Some(memory_backend) = options
         .memory_backend

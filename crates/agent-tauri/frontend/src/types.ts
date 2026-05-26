@@ -651,6 +651,7 @@ export type RunOptions = {
   enable_prompt_refinement: boolean;
   prompt_refinement_instructions: string | null;
   prompt_refinement_model: string | null;
+  prompt_refinement_agent_awareness: boolean;
   require_approval: boolean;
   auto_approve: boolean;
   raw_tool_output: boolean;

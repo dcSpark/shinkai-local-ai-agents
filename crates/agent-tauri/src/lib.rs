@@ -28,6 +28,7 @@ use agent_config::{
     AgentConfigFile, AgentSummary, ConfigResolver, IngestionGuardrailMode, ModelConfig,
     ModelDoctorReport, ModelMetadataCatalog, ModelProviderCatalog, ModelProviderDescriptor,
     ModelRuntimeConfig, ProfileGrant, ProfileGrantKind, ProfileSummary, configured_model_providers,
+    system_prompt_with_prompt_refinement_awareness,
 };
 use agent_conversations::{
     ConversationDoc, ConversationMessage, ConversationPolicy, ConversationRole, ConversationStore,
@@ -179,6 +180,7 @@ struct RunOptions {
     enable_prompt_refinement: bool,
     prompt_refinement_instructions: Option<String>,
     prompt_refinement_model: Option<String>,
+    prompt_refinement_agent_awareness: bool,
     require_approval: bool,
     auto_approve: bool,
     raw_tool_output: bool,
@@ -232,6 +234,7 @@ impl Default for RunOptions {
             enable_prompt_refinement: false,
             prompt_refinement_instructions: None,
             prompt_refinement_model: None,
+            prompt_refinement_agent_awareness: false,
             require_approval: false,
             auto_approve: false,
             raw_tool_output: false,
@@ -831,13 +834,18 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
         agent.execution_policy.max_recursion_depth = depth;
     }
     if options.enable_prompt_refinement {
+        let instructions = options
+            .prompt_refinement_instructions
+            .clone()
+            .unwrap_or_default();
         agent.prompt_refinement = Some(PromptRefinement {
-            instructions: options
-                .prompt_refinement_instructions
-                .clone()
-                .unwrap_or_default(),
+            instructions: instructions.clone(),
             model: options.prompt_refinement_model.clone().map(ModelRef::from),
         });
+        if options.prompt_refinement_agent_awareness {
+            agent.system_prompt =
+                system_prompt_with_prompt_refinement_awareness(&agent.system_prompt, &instructions);
+        }
     }
     if let Some(memory_backend) = options
         .memory_backend

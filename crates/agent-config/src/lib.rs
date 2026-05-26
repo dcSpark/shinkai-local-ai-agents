@@ -4985,6 +4985,26 @@ fn prompt_refinement_rule_line(idx: usize, refinement: &AgentPromptRefinementCon
     format!("- {id}{when}: {}", refinement.instructions.trim())
 }
 
+pub fn system_prompt_with_prompt_refinement_awareness(
+    system_prompt: &str,
+    instructions: &str,
+) -> String {
+    if system_prompt.contains("<prompt-refinement-guidance>") {
+        return system_prompt.to_string();
+    }
+    let instructions = instructions.trim();
+    let instructions = if instructions.is_empty() {
+        "Rewrite the user's prompt into a clearer instruction for the target agent. Preserve intent, constraints, and relevant details. Return only the rewritten prompt."
+    } else {
+        instructions
+    };
+    format!(
+        "{}\n\n<prompt-refinement-guidance>\nUser prompts are preprocessed before you see them. Refinement instructions:\n{}\n</prompt-refinement-guidance>",
+        system_prompt.trim_end(),
+        instructions
+    )
+}
+
 fn system_prompt_with_refinement_awareness(
     system_prompt: &str,
     refinements: &[AgentPromptRefinementConfig],
@@ -4996,10 +5016,9 @@ fn system_prompt_with_refinement_awareness(
     {
         return system_prompt.to_string();
     }
-    format!(
-        "{}\n\n<prompt-refinement-guidance>\nUser prompts are preprocessed before you see them. Refinement instructions:\n{}\n</prompt-refinement-guidance>",
-        system_prompt.trim_end(),
-        prompt_refinement_instructions(refinements).trim()
+    system_prompt_with_prompt_refinement_awareness(
+        system_prompt,
+        &prompt_refinement_instructions(refinements),
     )
 }
 
@@ -5584,6 +5603,18 @@ mod tests {
         assert_eq!(resolved.agent.model.0, "fake-model");
         assert!(resolver.paths.default_agent_config().exists());
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn prompt_refinement_awareness_guidance_is_idempotent() {
+        let prompt =
+            system_prompt_with_prompt_refinement_awareness("You are concise.", "Clarify the ask.");
+        assert!(prompt.contains("<prompt-refinement-guidance>"));
+        assert!(prompt.contains("Clarify the ask."));
+
+        let repeated =
+            system_prompt_with_prompt_refinement_awareness(&prompt, "Different guidance.");
+        assert_eq!(repeated, prompt);
     }
 
     #[test]

@@ -581,6 +581,8 @@ export default function App() {
   const [promptRefinementInstructions, setPromptRefinementInstructions] =
     useState("");
   const [promptRefinementModel, setPromptRefinementModel] = useState("");
+  const [promptRefinementAgentAwareness, setPromptRefinementAgentAwareness] =
+    useState(false);
   const [requireApproval, setRequireApproval] = useState(true);
   const [runApprovalControllerAgent, setRunApprovalControllerAgent] =
     useState("");
@@ -1187,6 +1189,7 @@ export default function App() {
       prompt_refinement_instructions:
         promptRefinementInstructions.trim() || null,
       prompt_refinement_model: promptRefinementModel.trim() || null,
+      prompt_refinement_agent_awareness: promptRefinementAgentAwareness,
       require_approval: requireApproval,
       auto_approve: !requireApproval,
       raw_tool_output: rawToolOutput,
@@ -1662,6 +1665,8 @@ export default function App() {
       { command: "/refine status", label: "Show prompt refinement status" },
       { command: "/refine model ", label: "Set refiner model" },
       { command: "/refine instructions ", label: "Set refinement instructions" },
+      { command: "/refine aware on", label: "Tell agent about refinement" },
+      { command: "/refine aware off", label: "Hide refinement from agent" },
       { command: "/shell help", label: "Show shell access shortcuts" },
       { command: "/shell on", label: "Enable shell tool access" },
       { command: "/shell off", label: "Disable shell tool access" },
@@ -2270,6 +2275,7 @@ export default function App() {
       "- /refine status - show the current refinement settings",
       "- /refine model <model> - set the prompt-refinement model",
       "- /refine instructions <text> - set refinement instructions",
+      "- /refine aware on|off - include or hide refinement guidance in the agent prompt",
     ].join("\n");
   }
 
@@ -7044,6 +7050,7 @@ export default function App() {
       setAllowUnsafeIngest(false);
       setIngestionGuardrailMode("");
       setEnablePromptRefinement(false);
+      setPromptRefinementAgentAwareness(false);
       appendLine("user", prompt);
       appendEvent(
         routerMode
@@ -7238,7 +7245,7 @@ export default function App() {
     }
 
     if (prompt === "/refine") {
-      appendLine("error", "Refine shortcut needs on, off, status, model, or instructions.");
+      appendLine("error", "Refine shortcut needs on, off, status, model, instructions, or aware.");
       return;
     }
     if (prompt === "/refine on") {
@@ -7267,6 +7274,26 @@ export default function App() {
       if (promptRefinementInstructions.trim()) {
         appendEvent(`Refinement instructions: ${promptRefinementInstructions.trim()}`);
       }
+      appendEvent(
+        `Agent awareness: ${promptRefinementAgentAwareness ? "on" : "off"}.`,
+      );
+      return;
+    }
+    if (prompt === "/refine aware on" || prompt === "/refine aware off") {
+      const aware = prompt.endsWith(" on");
+      setInput("");
+      setEnablePromptRefinement(true);
+      setPromptRefinementAgentAwareness(aware);
+      appendLine("user", prompt);
+      appendEvent(
+        aware
+          ? "Prompt refinement guidance will be included in the agent prompt."
+          : "Prompt refinement guidance will stay hidden from the agent prompt.",
+      );
+      return;
+    }
+    if (prompt.startsWith("/refine aware ")) {
+      appendLine("error", "Refine awareness shortcut needs on or off.");
       return;
     }
     if (prompt.startsWith("/refine model ")) {
@@ -11110,6 +11137,7 @@ export default function App() {
     setEnablePromptRefinement(refinement != null);
     setPromptRefinementInstructions(refinement?.instructions ?? "");
     setPromptRefinementModel(refinement?.model ?? "");
+    setPromptRefinementAgentAwareness(refinement?.agent_awareness === true);
     appendEvent(`Applied saved agent ${doc.id} to run controls.`);
   }
 
@@ -11175,6 +11203,7 @@ export default function App() {
           ? {
               instructions: promptRefinementInstructions.trim(),
               model: promptRefinementModel.trim() || null,
+              agent_awareness: promptRefinementAgentAwareness,
             }
           : null,
       tool_overrides: parseJsonArrayControl(
@@ -15656,7 +15685,7 @@ export default function App() {
       {
         title: "Prompt Prep",
         value: preparationEnabled ? "Preprocessing active" : "Direct prompt",
-        detail: `${enablePromptRefinement ? "Refinement on" : "Refinement off"}; output ${rawToolOutput ? "raw" : "interpreted"}.`,
+        detail: `${enablePromptRefinement ? "Refinement on" : "Refinement off"}; awareness ${promptRefinementAgentAwareness ? "on" : "off"}; output ${rawToolOutput ? "raw" : "interpreted"}.`,
         tone: preparationEnabled ? "ok" : "neutral",
       },
     ];
@@ -17552,6 +17581,17 @@ export default function App() {
           </label>
           {enablePromptRefinement ? (
             <>
+              <label className="switch">
+                <input
+                  type="checkbox"
+                  checked={promptRefinementAgentAwareness}
+                  onChange={(e) =>
+                    setPromptRefinementAgentAwareness(e.target.checked)
+                  }
+                  disabled={running}
+                />
+                <span>Agent sees refinement guidance</span>
+              </label>
               <label>
                 Refiner model
                 <input

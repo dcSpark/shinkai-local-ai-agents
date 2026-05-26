@@ -21892,7 +21892,10 @@ function parseOptionalPositiveInt(value: string): number | null {
 function parseOptionalNonNegativeFloat(value: string): number | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
-  const parsed = Number.parseFloat(trimmed);
+  if (!/^(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(trimmed)) {
+    return null;
+  }
+  const parsed = Number(trimmed);
   if (!Number.isFinite(parsed) || parsed < 0) return null;
   return parsed;
 }

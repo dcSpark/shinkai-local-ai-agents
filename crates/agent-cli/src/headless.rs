@@ -189,6 +189,7 @@ pub async fn run(
             return force_tool(name, prompt, json, demo, options).await;
         }
         Some(SlashCommand::ShellStatus) => return shell_status(&options, json),
+        Some(SlashCommand::SubagentStatus) => return subagent_status(&options, json),
         Some(SlashCommand::VoiceStatus) => return voice_status(&options, json),
         Some(SlashCommand::BatchRun {
             items,
@@ -9037,6 +9038,7 @@ enum SlashCommand {
         prompt: String,
     },
     ShellStatus,
+    SubagentStatus,
     VoiceStatus,
     BatchRun {
         items: Vec<String>,
@@ -9817,6 +9819,17 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
             "headless shell shortcut supports status/help; use --enable-shell to enable shell access for a run"
         );
     }
+    if subagent_status_slash_command(trimmed) {
+        return Ok(Some(SlashCommand::SubagentStatus));
+    }
+    if subagent_help_slash_command(trimmed) {
+        return Ok(Some(SlashCommand::Help));
+    }
+    if subagent_slash_rest(trimmed).is_some() {
+        anyhow::bail!(
+            "headless subagent shortcut supports status/help; use --enable-subagent to enable subagent access for a run"
+        );
+    }
     if voice_status_slash_command(trimmed) {
         return Ok(Some(SlashCommand::VoiceStatus));
     }
@@ -9954,6 +9967,30 @@ fn shell_status(options: &setup::RuntimeOptions, json: bool) -> anyhow::Result<(
     Ok(())
 }
 
+fn subagent_status(options: &setup::RuntimeOptions, json: bool) -> anyhow::Result<()> {
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "enable_subagent": options.enable_subagent,
+                "shortcut": "/subagent status",
+                "enable_flag": "--enable-subagent"
+            }))?
+        );
+        return Ok(());
+    }
+    println!(
+        "subagent access: {}",
+        if options.enable_subagent {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
+    println!("enable for a run with: --enable-subagent");
+    Ok(())
+}
+
 fn memory_context_status(options: &setup::RuntimeOptions, json: bool) -> anyhow::Result<()> {
     if json {
         println!(
@@ -10019,6 +10056,7 @@ fn headless_slash_help_text() -> &'static str {
      - /voice status, /voice transcribe <path>, /voice speak <text> - inspect voice config or call native voice tools directly\n\
      - /x402 request|required|settle ... - call native x402 payment tools directly\n\
      - /shell status - inspect whether this run enables the shell tool; use --enable-shell to enable it\n\
+     - /subagent status - inspect whether this run enables saved-agent-as-tool access; use --enable-subagent to enable it\n\
      - /resume <run-id> [--from-event N], /resume plan <run-id> [--from-event N]\n\
      - /trace list [limit|--limit N], /trace [summary|tree|hooks|scores|prompt] <run-id>, /scores <run-id>, /compare <run-id> <run-id>, /replay <run-id>\n\
      - /usage trace|run <run-id>, /usage conversation <id> [from:to|last N|--from N --to N|--last N]\n\
@@ -10109,6 +10147,22 @@ fn shell_help_slash_command(trimmed: &str) -> bool {
 
 fn shell_status_slash_command(trimmed: &str) -> bool {
     matches!(trimmed, "/shell" | "/shell status")
+}
+
+fn subagent_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/subagent" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/subagent ").map(str::trim)
+    }
+}
+
+fn subagent_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/subagent help" | "/subagent --help")
+}
+
+fn subagent_status_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/subagent" | "/subagent status")
 }
 
 fn voice_status_slash_command(trimmed: &str) -> bool {
@@ -13096,6 +13150,8 @@ mod slash_tests {
             "/voice --help",
             "/shell help",
             "/shell --help",
+            "/subagent help",
+            "/subagent --help",
             "/x402 --help",
             "/payment --help",
             "/hooks help",
@@ -13150,6 +13206,12 @@ mod slash_tests {
         assert!(shell_help_slash_command("/shell --help"));
         assert!(!shell_status_slash_command("/shell status extra"));
         assert!(shell_slash_rest("/shells").is_none());
+        assert!(subagent_status_slash_command("/subagent"));
+        assert!(subagent_status_slash_command("/subagent status"));
+        assert!(subagent_help_slash_command("/subagent help"));
+        assert!(subagent_help_slash_command("/subagent --help"));
+        assert!(!subagent_status_slash_command("/subagent status extra"));
+        assert!(subagent_slash_rest("/subagents").is_none());
         assert!(!batch_help_slash_command("/batch helper"));
         assert!(!resume_batch_help_slash_command("/resume-batch helper"));
         assert!(voice_status_slash_command("/voice"));
@@ -13162,6 +13224,7 @@ mod slash_tests {
         assert!(help.contains("/voice status, /voice transcribe <path>"));
         assert!(help.contains("/batch files <paths>, /batch folder <path>"));
         assert!(help.contains("/x402 request"));
+        assert!(help.contains("/subagent status"));
         assert!(help.contains("/trace [summary|tree|hooks|scores|prompt] <run-id>"));
         assert!(help.contains("/scores <run-id>"));
         assert!(help.contains("/usage trace|run <run-id>"));
@@ -15635,6 +15698,24 @@ mod slash_tests {
         ));
         assert!(parse_slash_command("/shell on").is_err());
         assert!(parse_slash_command("/shells status").unwrap().is_none());
+    }
+
+    #[test]
+    fn parses_subagent_status_shortcut() {
+        assert!(matches!(
+            parse_slash_command("/subagent").unwrap(),
+            Some(SlashCommand::SubagentStatus)
+        ));
+        assert!(matches!(
+            parse_slash_command("/subagent status").unwrap(),
+            Some(SlashCommand::SubagentStatus)
+        ));
+        assert!(matches!(
+            parse_slash_command("/subagent help").unwrap(),
+            Some(SlashCommand::Help)
+        ));
+        assert!(parse_slash_command("/subagent on").is_err());
+        assert!(parse_slash_command("/subagents status").unwrap().is_none());
     }
 
     #[test]

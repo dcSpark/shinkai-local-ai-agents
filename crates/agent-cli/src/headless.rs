@@ -6591,7 +6591,9 @@ pub async fn remote_resume(
     from_event: Option<u64>,
     demo: Demo,
 ) -> anyhow::Result<()> {
-    print_remote(DaemonHttpClient::new(url).post_json(
+    let client = DaemonHttpClient::new(url);
+    let run_id = remote_run_selector(&client, &run_id)?;
+    print_remote(client.post_json(
         "/resume",
         serde_json::json!({
             "run_id": run_id,
@@ -6607,7 +6609,9 @@ pub async fn remote_resume_start(
     from_event: Option<u64>,
     demo: Demo,
 ) -> anyhow::Result<()> {
-    print_remote(DaemonHttpClient::new(url).post_json(
+    let client = DaemonHttpClient::new(url);
+    let run_id = remote_run_selector(&client, &run_id)?;
+    print_remote(client.post_json(
         "/resume/start",
         serde_json::json!({
             "run_id": run_id,
@@ -6622,7 +6626,9 @@ pub async fn remote_resume_plan(
     run_id: String,
     from_event: Option<u64>,
 ) -> anyhow::Result<()> {
-    print_remote(DaemonHttpClient::new(url).post_json(
+    let client = DaemonHttpClient::new(url);
+    let run_id = remote_run_selector(&client, &run_id)?;
+    print_remote(client.post_json(
         "/resume/plan",
         serde_json::json!({
             "run_id": run_id,
@@ -6724,6 +6730,7 @@ pub async fn remote_tool(
 
 pub async fn remote_trace(url: String, run_id: String) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
+    let run_id = remote_run_selector(&client, &run_id)?;
     print_remote(client.get_json(&format!("/trace/{run_id}"))?)
 }
 
@@ -6732,13 +6739,33 @@ pub async fn remote_trace_list(url: String, limit: usize) -> anyhow::Result<()> 
     print_remote(client.get_json(&format!("/traces?limit={limit}"))?)
 }
 
+fn remote_run_selector(client: &DaemonHttpClient, selector: &str) -> anyhow::Result<String> {
+    if selector == "last" {
+        return remote_last_run_id_from_trace_list(&client.get_json("/traces?limit=1")?);
+    }
+    let _ = uuid::Uuid::parse_str(selector)?;
+    Ok(selector.to_string())
+}
+
+fn remote_last_run_id_from_trace_list(value: &serde_json::Value) -> anyhow::Result<String> {
+    value
+        .as_array()
+        .and_then(|records| records.first())
+        .and_then(|record| record.get("run_id"))
+        .and_then(|run_id| run_id.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| anyhow::anyhow!("no daemon trace runs found for selector `last`"))
+}
+
 pub async fn remote_trace_summary(url: String, run_id: String) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
+    let run_id = remote_run_selector(&client, &run_id)?;
     print_remote(client.get_json(&format!("/trace/{run_id}/summary"))?)
 }
 
 pub async fn remote_trace_prompt(url: String, run_id: String, json: bool) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
+    let run_id = remote_run_selector(&client, &run_id)?;
     let value = client.get_json(&format!("/trace/{run_id}/prompt"))?;
     if json {
         print_remote(value)?;
@@ -6764,6 +6791,7 @@ pub async fn remote_trace_prompt(url: String, run_id: String, json: bool) -> any
 
 pub async fn remote_trace_tree(url: String, run_id: String, json: bool) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
+    let run_id = remote_run_selector(&client, &run_id)?;
     let value = client.get_json(&format!("/trace/{run_id}/tree"))?;
     if json {
         print_remote(value)?;
@@ -6785,10 +6813,12 @@ pub async fn remote_trace_compare(
     compare_run_id: String,
     json: bool,
 ) -> anyhow::Result<()> {
+    let client = DaemonHttpClient::new(url);
+    let primary_run_id = remote_run_selector(&client, &primary_run_id)?;
+    let compare_run_id = remote_run_selector(&client, &compare_run_id)?;
     if primary_run_id == compare_run_id {
         anyhow::bail!("compare needs two different run ids");
     }
-    let client = DaemonHttpClient::new(url);
     let value = client.get_json(&format!("/trace/{primary_run_id}/compare/{compare_run_id}"))?;
     if json {
         print_remote(value)?;
@@ -6897,11 +6927,12 @@ fn remote_trace_replay_source(
     client: &DaemonHttpClient,
     run_id: &str,
 ) -> anyhow::Result<(RunId, String, String)> {
+    let run_id = remote_run_selector(client, run_id)?;
     let value = client.get_json(&format!("/trace/{run_id}/prompt"))?;
     let source_run_id = value
         .get("run_id")
         .and_then(|value| value.as_str())
-        .unwrap_or(run_id);
+        .unwrap_or(&run_id);
     let source_run_id = RunId(uuid::Uuid::parse_str(source_run_id)?);
     let agent_id = value
         .get("agent_id")
@@ -6932,6 +6963,7 @@ fn remote_trace_replay_run_payload(
 
 pub async fn remote_trace_hooks(url: String, run_id: String) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
+    let run_id = remote_run_selector(&client, &run_id)?;
     print_remote(client.get_json(&format!("/trace/{run_id}/hooks"))?)
 }
 
@@ -6990,6 +7022,7 @@ fn remote_hook_confirm_command(action: &str, hook_id: &str, agent: Option<&str>)
 
 pub async fn remote_trace_scores(url: String, run_id: String) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
+    let run_id = remote_run_selector(&client, &run_id)?;
     print_remote(client.get_json(&format!("/trace/{run_id}/scores"))?)
 }
 
@@ -14026,6 +14059,22 @@ mod slash_tests {
             resolve_local_run_selector(&first.0.to_string(), &store).unwrap(),
             first
         );
+    }
+
+    #[test]
+    fn remote_last_run_id_reads_trace_list_response() {
+        let value = json!([
+            {
+                "run_id": "00000000-0000-0000-0000-000000000001",
+                "status": "completed"
+            }
+        ]);
+        assert_eq!(
+            remote_last_run_id_from_trace_list(&value).unwrap(),
+            "00000000-0000-0000-0000-000000000001"
+        );
+        assert!(remote_last_run_id_from_trace_list(&json!([])).is_err());
+        assert!(remote_last_run_id_from_trace_list(&json!({"traces": []})).is_err());
     }
 
     #[test]

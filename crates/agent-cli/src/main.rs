@@ -2882,6 +2882,7 @@ enum RemoteCommand {
     },
     /// Restart a saved remote run trace from an event boundary.
     Resume {
+        /// Remote run UUID, or `last`.
         run_id: String,
 
         #[arg(long, value_parser = parse_positive_event_id)]
@@ -2892,6 +2893,7 @@ enum RemoteCommand {
     },
     /// Start a resumed remote run asynchronously and return its run id immediately.
     ResumeStart {
+        /// Remote run UUID, or `last`.
         run_id: String,
 
         #[arg(long, value_parser = parse_positive_event_id)]
@@ -2902,6 +2904,7 @@ enum RemoteCommand {
     },
     /// Preview the generated prompt that would be used to resume a remote run trace.
     ResumePlan {
+        /// Remote run UUID, or `last`.
         run_id: String,
 
         #[arg(long, value_parser = parse_positive_event_id)]
@@ -2955,35 +2958,46 @@ enum RemoteCommand {
         auto_approve: bool,
     },
     /// Show daemon trace events.
-    Trace { run_id: String },
+    Trace {
+        /// Remote run UUID, or `last`.
+        run_id: String,
+    },
     /// List recent daemon trace runs.
     TraceList {
         #[arg(long, default_value_t = 20)]
         limit: usize,
     },
     /// Show daemon trace summary counters.
-    TraceSummary { run_id: String },
+    TraceSummary {
+        /// Remote run UUID, or `last`.
+        run_id: String,
+    },
     /// Print the original prompt from a daemon trace.
     TracePrompt {
+        /// Remote run UUID, or `last`.
         run_id: String,
         #[arg(long)]
         json: bool,
     },
     /// Show daemon child-run trace tree.
     TraceTree {
+        /// Remote run UUID, or `last`.
         run_id: String,
         #[arg(long)]
         json: bool,
     },
     /// Compare two daemon traces side by side.
     TraceCompare {
+        /// Baseline remote run UUID, or `last`.
         run_id: String,
+        /// Remote run UUID to compare against the baseline, or `last`.
         compare_run_id: String,
         #[arg(long)]
         json: bool,
     },
     /// Replay a daemon trace prompt as a fresh daemon run.
     TraceReplay {
+        /// Source remote run UUID, or `last`.
         run_id: String,
 
         /// Demo provider behavior.
@@ -3004,6 +3018,7 @@ enum RemoteCommand {
     },
     /// Start replaying a daemon trace prompt asynchronously.
     TraceReplayStart {
+        /// Source remote run UUID, or `last`.
         run_id: String,
 
         /// Demo provider behavior.
@@ -3015,14 +3030,20 @@ enum RemoteCommand {
         no_hooks: bool,
     },
     /// Show daemon hook remediation plan.
-    TraceHooks { run_id: String },
+    TraceHooks {
+        /// Remote run UUID, or `last`.
+        run_id: String,
+    },
     /// Remote lifecycle hook policy operations.
     Hooks {
         #[command(subcommand)]
         command: RemoteHookCommand,
     },
     /// Show daemon quality score records.
-    TraceScores { run_id: String },
+    TraceScores {
+        /// Remote run UUID, or `last`.
+        run_id: String,
+    },
     /// Remote approval operations.
     Approval {
         #[command(subcommand)]
@@ -4347,6 +4368,12 @@ mod cli_parse_tests {
         };
         assert_eq!(run_id, "00000000-0000-0000-0000-000000000000");
 
+        let cli = parse_cli(["agent", "remote", "trace-scores", "last"]).unwrap();
+        let RemoteCommand::TraceScores { run_id } = into_remote_command(cli) else {
+            panic!("expected remote trace scores command");
+        };
+        assert_eq!(run_id, "last");
+
         let cli = parse_cli([
             "agent",
             "remote",
@@ -4359,6 +4386,13 @@ mod cli_parse_tests {
             panic!("expected remote trace prompt command");
         };
         assert_eq!(run_id, "00000000-0000-0000-0000-000000000000");
+        assert!(json);
+
+        let cli = parse_cli(["agent", "remote", "trace-prompt", "last", "--json"]).unwrap();
+        let RemoteCommand::TracePrompt { run_id, json } = into_remote_command(cli) else {
+            panic!("expected remote trace prompt command");
+        };
+        assert_eq!(run_id, "last");
         assert!(json);
     }
 

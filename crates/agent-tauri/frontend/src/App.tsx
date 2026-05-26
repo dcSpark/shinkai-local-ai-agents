@@ -1955,6 +1955,10 @@ export default function App() {
       { command: "/secret list", label: "List secret metadata" },
       { command: "/secrets show ", label: "Show secret metadata" },
       { command: "/secret show ", label: "Show secret metadata" },
+      { command: "/secrets set ", label: "Store secret from Value" },
+      { command: "/secret set ", label: "Store secret from Value" },
+      { command: "/secrets rotate ", label: "Rotate secret from Value" },
+      { command: "/secret rotate ", label: "Rotate secret from Value" },
       { command: "/secrets delete ", label: "Delete secret metadata" },
       { command: "/secret delete ", label: "Delete secret metadata" },
       { command: "/secrets rm ", label: "Delete secret metadata" },
@@ -5869,9 +5873,62 @@ export default function App() {
       "/secrets backends",
       "/secrets list",
       "/secrets show <id>",
+      "/secrets set <id> [--label <label>] - store Value as the secret value",
+      "/secrets rotate <id> - rotate using Value as the new value",
       "/secrets delete <id> --confirm",
       "/secret is accepted as an alias for /secrets.",
     ].join("\n");
+  }
+
+  function parseSecretSetShortcut(args: string[]) {
+    const id = args[0]?.trim() ?? "";
+    if (!id) {
+      appendLine("error", "Secrets set shortcut needs a secret id.");
+      return null;
+    }
+    const rest = args.slice(1);
+    if (!rest.length) return { id, label: null };
+    if (rest[0] === "--label") {
+      const label = rest.slice(1).join(" ").trim();
+      if (!label) {
+        appendLine("error", "Secrets set --label needs a label value.");
+        return null;
+      }
+      return { id, label };
+    }
+    if (rest[0].startsWith("--label=")) {
+      const label = rest[0].slice("--label=".length).trim();
+      if (!label || rest.length > 1) {
+        appendLine("error", "Secrets set --label=<label> accepts only one label value.");
+        return null;
+      }
+      return { id, label };
+    }
+    if (rest.some((arg) => arg.startsWith("--"))) {
+      appendLine("error", "Secrets set shortcut only accepts an optional --label.");
+      return null;
+    }
+    appendLine(
+      "error",
+      "Secrets set stores the existing Value field; do not put secret values in the slash command.",
+    );
+    return null;
+  }
+
+  function parseSecretValueFieldShortcut(args: string[], command: string) {
+    const id = args[0]?.trim() ?? "";
+    if (!id) {
+      appendLine("error", `Secrets ${command} shortcut needs a secret id.`);
+      return null;
+    }
+    if (args.length !== 1) {
+      appendLine(
+        "error",
+        `Secrets ${command} uses the existing Value field; provide only the secret id in the slash command.`,
+      );
+      return null;
+    }
+    return id;
   }
 
   function parseSecretDeleteShortcut(args: string[]) {
@@ -8271,6 +8328,10 @@ export default function App() {
       secretPrompt === "/secrets help" ||
       secretPrompt === "/secrets --help" ||
       secretPrompt.startsWith("/secrets show ") ||
+      secretPrompt === "/secrets set" ||
+      secretPrompt.startsWith("/secrets set ") ||
+      secretPrompt === "/secrets rotate" ||
+      secretPrompt.startsWith("/secrets rotate ") ||
       secretPrompt.startsWith("/secrets delete ") ||
       secretPrompt.startsWith("/secrets rm ")
     ) {
@@ -8287,6 +8348,38 @@ export default function App() {
           appendLine("error", "Secrets show shortcut needs a secret id.");
         } else {
           await showSecretFromOps(id);
+        }
+      } else if (
+        secretPrompt === "/secrets set" ||
+        secretPrompt.startsWith("/secrets set ")
+      ) {
+        const args =
+          secretPrompt === "/secrets set"
+            ? []
+            : secretPrompt
+                .slice("/secrets set ".length)
+                .trim()
+                .split(/\s+/)
+                .filter(Boolean);
+        const parsed = parseSecretSetShortcut(args);
+        if (parsed) {
+          await setSecretFromOps(parsed.id, parsed.label);
+        }
+      } else if (
+        secretPrompt === "/secrets rotate" ||
+        secretPrompt.startsWith("/secrets rotate ")
+      ) {
+        const args =
+          secretPrompt === "/secrets rotate"
+            ? []
+            : secretPrompt
+                .slice("/secrets rotate ".length)
+                .trim()
+                .split(/\s+/)
+                .filter(Boolean);
+        const id = parseSecretValueFieldShortcut(args, "rotate");
+        if (id) {
+          await rotateSecretFromOps(id);
         }
       } else if (
         secretPrompt.startsWith("/secrets delete ") ||
@@ -11203,12 +11296,13 @@ export default function App() {
     }
   }
 
-  async function setSecretFromOps() {
-    const id = requireOpsId("Secret store");
+  async function setSecretFromOps(explicitId?: string, explicitLabel?: string | null) {
+    const id = explicitId ?? requireOpsId("Secret store");
     const value = requireOpsValue("Secret store");
     if (!id || value === null) return;
     try {
-      const label = secretLabel.trim() || null;
+      const label =
+        explicitLabel === undefined ? secretLabel.trim() || null : explicitLabel;
       const result =
         transport === "daemon"
           ? await daemonJson<SecretWriteResult>("/secrets", { id, value, label })
@@ -11223,8 +11317,8 @@ export default function App() {
     }
   }
 
-  async function rotateSecretFromOps() {
-    const id = requireOpsId("Secret rotate");
+  async function rotateSecretFromOps(explicitId?: string) {
+    const id = explicitId ?? requireOpsId("Secret rotate");
     const value = requireOpsValue("Secret rotate");
     if (!id || value === null) return;
     try {

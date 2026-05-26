@@ -1675,6 +1675,7 @@ export default function App() {
       { command: "/memory backends", label: "List memory backends" },
       { command: "/memory probe ", label: "Probe a memory backend" },
       { command: "/memory preview", label: "Preview context with memory" },
+      { command: "/memory preview ", label: "Preview context with memory" },
       { command: "/memory create ", label: "Create memory record" },
       { command: "/memory generate ", label: "Generate memory from text" },
       { command: "/memory generate-conversation ", label: "Generate memory from conversation range" },
@@ -1688,6 +1689,8 @@ export default function App() {
       { command: "/skills on", label: "Load skills in context" },
       { command: "/skills off", label: "Stop loading skills" },
       { command: "/skills status", label: "Show skill loading status" },
+      { command: "/skills preview", label: "Preview context with skills" },
+      { command: "/skills preview ", label: "Preview context with skills" },
       { command: "/skills list", label: "List imported skills" },
       { command: "/skills show ", label: "Show imported skill" },
       { command: "/skills inspect ", label: "Inspect imported skill" },
@@ -1699,6 +1702,8 @@ export default function App() {
       { command: "/skills allow ", label: "Allow quarantined skill" },
       { command: "/skills quarantine ", label: "Quarantine skill" },
       { command: "/skill help", label: "Show skill shortcuts" },
+      { command: "/skill preview", label: "Preview context with skills" },
+      { command: "/skill preview ", label: "Preview context with skills" },
       { command: "/skill list", label: "List imported skills" },
       { command: "/skill show ", label: "Show imported skill" },
       { command: "/skill inspect ", label: "Inspect imported skill" },
@@ -3158,6 +3163,10 @@ export default function App() {
 
   function skillShortcutHelpText() {
     return [
+      "/skills on",
+      "/skills off",
+      "/skills status",
+      "/skills preview [prompt]",
       "/skills list",
       "/skills show <id>",
       "/skills inspect <id>",
@@ -3703,11 +3712,14 @@ export default function App() {
 
   function memoryShortcutHelpText() {
     return [
+      "/memory on",
+      "/memory off",
+      "/memory status",
+      "/memory preview [prompt]",
       "/memory list",
       "/memory access [--topic <topic>] [--agent <agent>]",
       "/memory backends",
       "/memory probe [backend]",
-      "/memory preview",
       "/memory create [--user] [--agent <agent>] [--conversation <id>] [--topic <topic>] <content>",
       "/memory generate [--user] [--agent <agent>] [--conversation <id>] [--range <range>] [--topic <topic>] <text> [--guidance <text>]",
       "/memory generate-conversation [id] [from:to] [--user] [--agent <agent>] [--topic <topic>] [--guidance <text>]",
@@ -7781,7 +7793,7 @@ export default function App() {
           await probeMemoryBackend(parsed.backend, parsed.topics);
         }
       } else if (command === "preview") {
-        await previewWithMemoryFromOps();
+        await previewWithMemoryFromOps(rest.slice("preview".length).trim());
       } else if (command === "create") {
         const parsed = parseMemoryWriteShortcut(args, "create", false);
         if (parsed) {
@@ -8088,6 +8100,8 @@ export default function App() {
         await reviewSkills();
       } else if (command === "help" || command === "--help") {
         appendLine("assistant", skillShortcutHelpText());
+      } else if (command === "preview") {
+        await previewWithSkillsFromOps(rest.slice("preview".length).trim());
       } else if (command === "show" || command === "inspect") {
         if (args.length !== 1) {
           appendLine("error", "Skills show shortcut needs a skill id.");
@@ -8128,7 +8142,7 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Skills shortcut needs list, show, inspect, import-openclaw, import-doc, export, allow, quarantine, or help.",
+          "Skills shortcut needs on, off, status, preview, list, show, inspect, import-openclaw, import-doc, export, allow, quarantine, or help.",
         );
       }
       return;
@@ -10653,8 +10667,11 @@ export default function App() {
     }
   }
 
-  async function previewWithMemoryFromOps() {
-    const prompt = input.trim() || "preview";
+  async function previewWithMemoryFromOps(explicitPrompt?: string) {
+    const prompt =
+      explicitPrompt === undefined
+        ? input.trim() || "preview"
+        : explicitPrompt.trim() || "preview";
     const options = {
       ...runtimeOptions(),
       load_memory: true,
@@ -11631,8 +11648,11 @@ export default function App() {
     }
   }
 
-  async function previewWithSkillsFromOps() {
-    const prompt = input.trim() || "preview";
+  async function previewWithSkillsFromOps(explicitPrompt?: string) {
+    const prompt =
+      explicitPrompt === undefined
+        ? input.trim() || "preview"
+        : explicitPrompt.trim() || "preview";
     const options = {
       ...runtimeOptions(),
       load_skills: true,

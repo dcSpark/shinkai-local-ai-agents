@@ -7,6 +7,7 @@ import type {
   AdapterDoctorReport,
   AdapterPackage,
   AgentConfigFile,
+  AgentPromptRefinementConfig,
   AgentSummary,
   BundleManifest,
   CapabilityDraft,
@@ -583,6 +584,7 @@ export default function App() {
   const [promptRefinementModel, setPromptRefinementModel] = useState("");
   const [promptRefinementAgentAwareness, setPromptRefinementAgentAwareness] =
     useState(false);
+  const [promptRefinementsJson, setPromptRefinementsJson] = useState("");
   const [requireApproval, setRequireApproval] = useState(true);
   const [runApprovalControllerAgent, setRunApprovalControllerAgent] =
     useState("");
@@ -1667,6 +1669,7 @@ export default function App() {
       { command: "/refine instructions ", label: "Set refinement instructions" },
       { command: "/refine aware on", label: "Tell agent about refinement" },
       { command: "/refine aware off", label: "Hide refinement from agent" },
+      { command: "/refine rules ", label: "Set refinement rules JSON" },
       { command: "/shell help", label: "Show shell access shortcuts" },
       { command: "/shell on", label: "Enable shell tool access" },
       { command: "/shell off", label: "Disable shell tool access" },
@@ -2276,6 +2279,7 @@ export default function App() {
       "- /refine model <model> - set the prompt-refinement model",
       "- /refine instructions <text> - set refinement instructions",
       "- /refine aware on|off - include or hide refinement guidance in the agent prompt",
+      "- /refine rules <json-array> - set saved-agent topic/task refinement rules",
     ].join("\n");
   }
 
@@ -7051,6 +7055,7 @@ export default function App() {
       setIngestionGuardrailMode("");
       setEnablePromptRefinement(false);
       setPromptRefinementAgentAwareness(false);
+      setPromptRefinementsJson("");
       appendLine("user", prompt);
       appendEvent(
         routerMode
@@ -7274,6 +7279,9 @@ export default function App() {
       if (promptRefinementInstructions.trim()) {
         appendEvent(`Refinement instructions: ${promptRefinementInstructions.trim()}`);
       }
+      if (promptRefinementsJson.trim()) {
+        appendEvent("Refinement rules JSON: present.");
+      }
       appendEvent(
         `Agent awareness: ${promptRefinementAgentAwareness ? "on" : "off"}.`,
       );
@@ -7294,6 +7302,19 @@ export default function App() {
     }
     if (prompt.startsWith("/refine aware ")) {
       appendLine("error", "Refine awareness shortcut needs on or off.");
+      return;
+    }
+    if (prompt.startsWith("/refine rules ")) {
+      const value = prompt.slice("/refine rules ".length).trim();
+      if (!value) {
+        appendLine("error", "Refine rules shortcut needs a JSON array.");
+        return;
+      }
+      setInput("");
+      setEnablePromptRefinement(true);
+      setPromptRefinementsJson(value);
+      appendLine("user", "/refine rules");
+      appendEvent("Prompt refinement rules JSON updated.");
       return;
     }
     if (prompt.startsWith("/refine model ")) {
@@ -11077,7 +11098,8 @@ export default function App() {
   }
 
   function applyAgentConfigToControls(doc: AgentConfigFile) {
-    const refinement = firstPromptRefinement(doc);
+    const refinement = doc.prompt_refinement ?? null;
+    const refinementRules = doc.prompt_refinements ?? [];
     setAgentId(doc.id);
     setOpsId(doc.id);
     setOpsValue(doc.system_prompt);
@@ -11134,15 +11156,12 @@ export default function App() {
     setApprovalControllerCategories(
       (doc.approval_controller_allowed_tool_categories ?? []).join(", "),
     );
-    setEnablePromptRefinement(refinement != null);
+    setEnablePromptRefinement(refinement != null || refinementRules.length > 0);
     setPromptRefinementInstructions(refinement?.instructions ?? "");
     setPromptRefinementModel(refinement?.model ?? "");
     setPromptRefinementAgentAwareness(refinement?.agent_awareness === true);
+    setPromptRefinementsJson(jsonArrayControlValue(refinementRules));
     appendEvent(`Applied saved agent ${doc.id} to run controls.`);
-  }
-
-  function firstPromptRefinement(doc: AgentConfigFile) {
-    return doc.prompt_refinement ?? doc.prompt_refinements?.[0] ?? null;
   }
 
   function numberControlValue(value: number | null | undefined) {
@@ -11193,6 +11212,12 @@ export default function App() {
   }
 
   function agentConfigFromCurrentControls(id: string, systemPrompt: string): AgentConfigFile {
+    const promptRefinements = enablePromptRefinement
+      ? parseJsonArrayControl<AgentPromptRefinementConfig>(
+          promptRefinementsJson,
+          "Prompt refinement rules",
+        )
+      : [];
     return {
       id,
       name: id,
@@ -11206,6 +11231,10 @@ export default function App() {
               agent_awareness: promptRefinementAgentAwareness,
             }
           : null,
+      prompt_refinements:
+        enablePromptRefinement && promptRefinements.length
+          ? promptRefinements
+          : undefined,
       tool_overrides: parseJsonArrayControl(
         toolOverridesJson,
         "Tool overrides",
@@ -11272,19 +11301,23 @@ export default function App() {
   }
 
   async function saveAgent(id: string, systemPrompt: string) {
-    if (enablePromptRefinement && !promptRefinementInstructions.trim()) {
-      appendLine(
-        "error",
-        "Agent save needs refinement instructions when prompt refinement is enabled.",
-      );
-      return;
-    }
     let doc: AgentConfigFile;
     try {
       doc = agentConfigFromCurrentControls(id, systemPrompt);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Agent save failed: ${msg}`);
+      return;
+    }
+    if (
+      enablePromptRefinement &&
+      !doc.prompt_refinement &&
+      !doc.prompt_refinements?.length
+    ) {
+      appendLine(
+        "error",
+        "Agent save needs refinement instructions or refinement rules when prompt refinement is enabled.",
+      );
       return;
     }
     try {
@@ -15685,7 +15718,7 @@ export default function App() {
       {
         title: "Prompt Prep",
         value: preparationEnabled ? "Preprocessing active" : "Direct prompt",
-        detail: `${enablePromptRefinement ? "Refinement on" : "Refinement off"}; awareness ${promptRefinementAgentAwareness ? "on" : "off"}; output ${rawToolOutput ? "raw" : "interpreted"}.`,
+        detail: `${enablePromptRefinement ? "Refinement on" : "Refinement off"}; rules ${promptRefinementsJson.trim() ? "set" : "none"}; awareness ${promptRefinementAgentAwareness ? "on" : "off"}; output ${rawToolOutput ? "raw" : "interpreted"}.`,
         tone: preparationEnabled ? "ok" : "neutral",
       },
     ];
@@ -17612,6 +17645,18 @@ export default function App() {
                   placeholder="default refinement"
                   disabled={running}
                   rows={3}
+                />
+              </label>
+              <label>
+                Refinement rules
+                <textarea
+                  className="ops-text"
+                  value={promptRefinementsJson}
+                  onChange={(e) => setPromptRefinementsJson(e.target.value)}
+                  placeholder='[{"id":"support","when":"support request","instructions":"Ask for account context first."}]'
+                  disabled={running}
+                  rows={4}
+                  title="JSON array of saved-agent prompt refinement rules."
                 />
               </label>
             </>

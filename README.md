@@ -298,7 +298,9 @@ scripts/init-mobile-packaging.sh --platform=ios
 
 The init helper preflights platform SDK tools and Rust mobile targets before it
 generates Tauri mobile projects, so install any reported prerequisite before
-rerunning it.
+rerunning it. When `--platform=all` is used, it checks both selected platforms
+first and reports the full missing-prerequisite list before writing generated
+project files.
 
 To check prerequisites without creating or updating generated mobile project
 files, add `--preflight-only`:

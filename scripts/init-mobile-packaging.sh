@@ -39,50 +39,64 @@ fail() {
   exit 1
 }
 
-require_command() {
-  local command="$1"
-  local label="$2"
+preflight_failures=()
+
+record_preflight_failure() {
+  local target="$1"
+  local message="$2"
+  preflight_failures+=("${target}: ${message}")
+}
+
+check_command() {
+  local target="$1"
+  local command="$2"
+  local label="$3"
   if ! command -v "$command" >/dev/null 2>&1; then
-    fail "$label is required before initializing mobile packaging"
+    record_preflight_failure "$target" "$label is required before initializing mobile packaging"
   fi
 }
 
-require_existing_dir_env() {
-  local name="$1"
-  local label="$2"
+check_existing_dir_env() {
+  local target="$1"
+  local name="$2"
+  local label="$3"
   local value="${!name:-}"
   if [[ -z "$value" || ! -d "$value" ]]; then
-    fail "$name must point at $label before initializing mobile packaging"
+    record_preflight_failure "$target" "$name must point at $label before initializing mobile packaging"
   fi
 }
 
-require_rust_target() {
+check_rust_target() {
   local target="$1"
-  if ! rustup target list --installed | grep -qx "$target"; then
-    fail "Rust mobile target is missing: $target"
+  local rust_target="$2"
+  if ! command -v rustup >/dev/null 2>&1; then
+    return
+  fi
+  if ! rustup target list --installed | grep -qx "$rust_target"; then
+    record_preflight_failure "$target" "Rust mobile target is missing: $rust_target"
   fi
 }
 
 preflight_platform() {
   local target="$1"
 
-  require_command rustup "rustup"
+  check_command "$target" rustup "rustup"
   case "$target" in
     android)
-      require_existing_dir_env ANDROID_HOME "the Android SDK"
-      require_existing_dir_env NDK_HOME "the Android NDK"
-      require_command java "Java"
-      require_rust_target aarch64-linux-android
-      require_rust_target armv7-linux-androideabi
-      require_rust_target i686-linux-android
-      require_rust_target x86_64-linux-android
+      check_existing_dir_env "$target" ANDROID_HOME "the Android SDK"
+      check_existing_dir_env "$target" NDK_HOME "the Android NDK"
+      check_command "$target" java "Java"
+      check_rust_target "$target" aarch64-linux-android
+      check_rust_target "$target" armv7-linux-androideabi
+      check_rust_target "$target" i686-linux-android
+      check_rust_target "$target" x86_64-linux-android
       ;;
     ios)
-      require_command xcodebuild "Xcode"
-      require_command pod "CocoaPods"
-      require_rust_target aarch64-apple-ios
-      require_rust_target aarch64-apple-ios-sim
-      require_rust_target x86_64-apple-ios
+      check_command "$target" xcodebuild "Xcode"
+      check_command "$target" pod "CocoaPods"
+      check_rust_target "$target" aarch64-apple-ios
+      check_rust_target "$target" aarch64-apple-ios-sim
+      check_rust_target "$target" x86_64-apple-ios
       ;;
     *)
       fail "unsupported platform $target"
@@ -90,11 +104,24 @@ preflight_platform() {
   esac
 }
 
+preflight_selected_platforms() {
+  local target
+
+  preflight_failures=()
+  for target in "$@"; do
+    echo "preflighting ${target} mobile packaging prerequisites"
+    preflight_platform "$target"
+  done
+
+  if ((${#preflight_failures[@]} > 0)); then
+    echo "mobile packaging init failed: missing mobile packaging prerequisites:" >&2
+    printf -- '- %s\n' "${preflight_failures[@]}" >&2
+    exit 1
+  fi
+}
+
 init_platform() {
   local target="$1"
-
-  echo "preflighting ${target} mobile packaging prerequisites"
-  preflight_platform "$target"
 
   if [[ "$preflight_only" == true ]]; then
     echo "verifying ${target} mobile packaging preflight"
@@ -110,15 +137,20 @@ init_platform() {
   scripts/verify-mobile-packaging.sh --strict "--platform=${target}"
 }
 
+selected_platforms=()
 case "$platform" in
   android)
-    init_platform android
+    selected_platforms=(android)
     ;;
   ios)
-    init_platform ios
+    selected_platforms=(ios)
     ;;
   all)
-    init_platform android
-    init_platform ios
+    selected_platforms=(android ios)
     ;;
 esac
+
+preflight_selected_platforms "${selected_platforms[@]}"
+for target in "${selected_platforms[@]}"; do
+  init_platform "$target"
+done

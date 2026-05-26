@@ -17,7 +17,7 @@ function fail(message) {
 }
 
 function usage() {
-  console.log(`usage: scripts/verify-mobile-packaging.sh [--strict] [--preflight-only] [--platform=android|ios]
+  console.log(`usage: scripts/verify-mobile-packaging.sh [--strict] [--preflight-only] [--platform=android|ios|all]
 
 Verifies native mobile packaging metadata. With --strict, also checks generated
 Tauri mobile projects, platform SDK tools, and installed Rust mobile targets.
@@ -32,7 +32,7 @@ for (const arg of rawArgs) {
   }
   if (arg === "--strict" || arg === "--preflight-only") continue;
   if (arg.startsWith("--platform=")) {
-    if (!arg.slice("--platform=".length).trim()) fail("--platform needs android or ios");
+    if (!arg.slice("--platform=".length).trim()) fail("--platform needs android, ios, or all");
     continue;
   }
   fail(`unknown argument ${arg}`);
@@ -45,12 +45,12 @@ const platformArg = process.argv
   .slice(2)
   .find((arg) => arg.startsWith("--platform="))
   ?.slice("--platform=".length);
-const checkAndroid = !platformArg || platformArg === "android";
-const checkIos = !platformArg || platformArg === "ios";
+const checkAndroid = !platformArg || platformArg === "android" || platformArg === "all";
+const checkIos = !platformArg || platformArg === "ios" || platformArg === "all";
 
 assert(
-  !platformArg || ["android", "ios"].includes(platformArg),
-  "--platform must be android or ios",
+  !platformArg || ["android", "ios", "all"].includes(platformArg),
+  "--platform must be android, ios, or all",
 );
 
 function assert(condition, message) {

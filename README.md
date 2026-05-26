@@ -316,6 +316,8 @@ checks that do not require generated project directories:
 scripts/verify-mobile-packaging.sh --strict --preflight-only --platform=android
 ```
 
+Use `--platform=all` or omit `--platform` to verify Android and iOS together.
+
 The manual mobile packaging workflow exposes the same `preflight_only` input.
 When enabled, it skips generated project initialization, signing preparation,
 artifact builds, and artifact uploads after the platform prerequisite checks.

@@ -5634,7 +5634,7 @@ fn handle_models_slash(app: &mut App, rest: &str) {
                 "/models probe <id>",
                 "/models save <id> [json]",
                 "/models export <id> <path>",
-                "/models import <path>",
+                "/models import <path> --confirm",
                 "/models delete <id> --confirm",
                 "/models providers",
                 "/models doctor",
@@ -5745,21 +5745,35 @@ fn handle_models_slash(app: &mut App, rest: &str) {
                 text: err.to_string(),
             }),
         },
-        "import" => match model_path_arg(args, "import") {
-            Ok(path) => match ConfigResolver::from_env().import_model_config(path) {
-                Ok(model) => {
-                    push_event(app, format!("Imported model {}", model.id));
+        "import" => match model_import_args(args) {
+            Ok((path, confirmed)) => {
+                if !confirmed {
                     app.transcript.push(TranscriptLine {
                         kind: LineKind::Assistant,
-                        text: serde_json::to_string_pretty(&model)
-                            .unwrap_or_else(|_| "<unserializable model config>".into()),
+                        text: serde_json::to_string_pretty(&serde_json::json!({
+                            "pending_action": "import_model",
+                            "path": path,
+                            "confirm_command": format!("/models import {path} --confirm"),
+                        }))
+                        .unwrap_or_else(|_| "<unserializable model confirmation>".into()),
                     });
+                    return;
                 }
-                Err(err) => app.transcript.push(TranscriptLine {
-                    kind: LineKind::Error,
-                    text: format!("Model import failed: {err}"),
-                }),
-            },
+                match ConfigResolver::from_env().import_model_config(path) {
+                    Ok(model) => {
+                        push_event(app, format!("Imported model {}", model.id));
+                        app.transcript.push(TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&model)
+                                .unwrap_or_else(|_| "<unserializable model config>".into()),
+                        });
+                    }
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Model import failed: {err}"),
+                    }),
+                }
+            }
             Err(err) => app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
                 text: err.to_string(),
@@ -5847,17 +5861,6 @@ fn first_model_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> 
         .ok_or_else(|| anyhow::anyhow!("models {command} needs an argument"))
 }
 
-fn model_path_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
-    let mut parts = args.split_whitespace();
-    let path = parts
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("models {command} needs a path"))?;
-    if parts.next().is_some() {
-        anyhow::bail!("models {command} accepts exactly one path");
-    }
-    Ok(path)
-}
-
 fn model_save_args(args: &str) -> anyhow::Result<ModelConfig> {
     let trimmed = args.trim();
     let (id, input) = trimmed
@@ -5893,6 +5896,22 @@ fn model_export_args(args: &str) -> anyhow::Result<(&str, &str)> {
         anyhow::bail!("models export accepts exactly a model id and path");
     }
     Ok((id, path))
+}
+
+fn model_import_args(args: &str) -> anyhow::Result<(&str, bool)> {
+    let mut path = None;
+    let mut confirmed = false;
+    for part in args.split_whitespace() {
+        if part == "--confirm" {
+            confirmed = true;
+        } else if path.is_none() {
+            path = Some(part);
+        } else {
+            anyhow::bail!("models import accepts exactly one path and optional --confirm");
+        }
+    }
+    let path = path.ok_or_else(|| anyhow::anyhow!("models import needs a path"))?;
+    Ok((path, confirmed))
 }
 
 fn model_delete_args(args: &str) -> anyhow::Result<(&str, bool)> {
@@ -12992,8 +13011,12 @@ mod tests {
             ("gpt-test", "./model.toml")
         );
         assert_eq!(
-            model_path_arg("./model.toml", "import").unwrap(),
-            "./model.toml"
+            model_import_args("./model.toml").unwrap(),
+            ("./model.toml", false)
+        );
+        assert_eq!(
+            model_import_args("./model.toml --confirm").unwrap(),
+            ("./model.toml", true)
         );
         assert!(model_export_args("gpt-test").is_err());
         assert!(model_export_args("gpt-test ./model.toml extra").is_err());
@@ -13004,8 +13027,8 @@ mod tests {
         assert_eq!(model_delete_args("gpt-test").unwrap(), ("gpt-test", false));
         assert!(model_delete_args("").is_err());
         assert!(model_delete_args("gpt-test extra").is_err());
-        assert!(model_path_arg("", "import").is_err());
-        assert!(model_path_arg("./model.toml extra", "import").is_err());
+        assert!(model_import_args("").is_err());
+        assert!(model_import_args("./model.toml extra").is_err());
     }
 
     #[test]

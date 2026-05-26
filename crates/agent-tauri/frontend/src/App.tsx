@@ -5546,7 +5546,7 @@ export default function App() {
       "/models save <id> [json]",
       "/models save-current",
       "/models export <id> <path>",
-      "/models import <path>",
+      "/models import <path> --confirm",
       "/models delete <id> --confirm",
       "/models providers",
       "/models doctor",
@@ -5558,6 +5558,22 @@ export default function App() {
       "/models metadata-catalog import <path> --confirm",
       "/model is accepted as an alias for /models.",
     ].join("\n");
+  }
+
+  function parseModelImportShortcut(args: string[]) {
+    const confirmed = args.includes("--confirm");
+    const unknownFlags = args.filter(
+      (arg) => arg.startsWith("--") && arg !== "--confirm",
+    );
+    const path = args.filter((arg) => arg !== "--confirm").join(" ").trim();
+    if (unknownFlags.length || !path) {
+      appendLine(
+        "error",
+        "Models import shortcut needs a path and optional --confirm.",
+      );
+      return null;
+    }
+    return { path, confirmed };
   }
 
   function parseModelDeleteShortcut(args: string[]) {
@@ -8309,11 +8325,23 @@ export default function App() {
           await exportModel(id, path);
         }
       } else if (modelPrompt.startsWith("/models import ")) {
-        const path = modelPrompt.slice("/models import ".length).trim();
-        if (!path) {
-          appendLine("error", "Models import shortcut needs a path.");
-        } else {
-          await importModel(path);
+        const parsed = parseModelImportShortcut(
+          modelPrompt
+            .slice("/models import ".length)
+            .trim()
+            .split(/\s+/)
+            .filter(Boolean),
+        );
+        if (parsed) {
+          if (parsed.confirmed) {
+            await importModel(parsed.path);
+          } else {
+            appendJson("Model import confirmation", {
+              pending_action: "import_model",
+              path: parsed.path,
+              confirm_command: `/models import ${parsed.path} --confirm`,
+            });
+          }
         }
       } else if (
         modelPrompt.startsWith("/models delete ") ||

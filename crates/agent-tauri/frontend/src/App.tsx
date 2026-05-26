@@ -1702,6 +1702,9 @@ export default function App() {
       { command: "/skills allow ", label: "Allow quarantined skill" },
       { command: "/skills quarantine ", label: "Quarantine skill" },
       { command: "/skill help", label: "Show skill shortcuts" },
+      { command: "/skill on", label: "Load skills in context" },
+      { command: "/skill off", label: "Stop loading skills" },
+      { command: "/skill status", label: "Show skill loading status" },
       { command: "/skill preview", label: "Preview context with skills" },
       { command: "/skill preview ", label: "Preview context with skills" },
       { command: "/skill list", label: "List imported skills" },
@@ -3177,7 +3180,7 @@ export default function App() {
       "/skills export <id> <path>",
       "/skills allow <id> --confirm",
       "/skills quarantine <id> --confirm",
-      "/skill is accepted as an alias for /skills.",
+      "/skill is accepted as an alias for /skills, including on/off/status/preview.",
     ].join("\n");
   }
 
@@ -7254,25 +7257,36 @@ export default function App() {
       }
     }
 
-    if (prompt.startsWith("/skills ")) {
-      const value = prompt.slice("/skills ".length).trim().toLowerCase();
+    const skillContextPrompt = prompt.startsWith("/skills ")
+      ? {
+          prefix: "/skills",
+          value: prompt.slice("/skills ".length).trim().toLowerCase(),
+        }
+      : prompt.startsWith("/skill ")
+        ? {
+            prefix: "/skill",
+            value: prompt.slice("/skill ".length).trim().toLowerCase(),
+          }
+        : null;
+    if (skillContextPrompt) {
+      const { prefix, value } = skillContextPrompt;
       if (value === "on") {
         setInput("");
         setLoadSkills(true);
-        appendLine("user", "/skills on");
+        appendLine("user", `${prefix} on`);
         appendEvent("Skill loading enabled for context.");
         return;
       }
       if (value === "off") {
         setInput("");
         setLoadSkills(false);
-        appendLine("user", "/skills off");
+        appendLine("user", `${prefix} off`);
         appendEvent("Skill loading disabled.");
         return;
       }
       if (value === "status") {
         setInput("");
-        appendLine("user", "/skills status");
+        appendLine("user", `${prefix} status`);
         appendEvent(`Skill loading is ${loadSkills ? "enabled" : "disabled"}.`);
         return;
       }

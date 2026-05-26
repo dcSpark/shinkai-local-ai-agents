@@ -968,6 +968,7 @@ fn global_slash_help_text() -> &'static str {
      - /voice status, /voice transcribe <path>, /voice speak <text> - inspect voice config or call native voice tools directly\n\
      - /x402 request|required|settle ... - call native x402 payment tools directly\n\
      - /shell status|on|off - inspect or toggle shell tool access\n\
+     - /subagent status|on|off - inspect or toggle subagent tool access\n\
      - /cost input|output|both|clear|status - set token cost overrides for future TUI runs\n\
      - /preview <prompt> - inspect context before running\n\
      - /guide <text> - steer the active run at the next checkpoint\n\
@@ -1038,6 +1039,18 @@ fn shell_slash_rest(trimmed: &str) -> Option<&str> {
 
 fn shell_slash_help_text() -> &'static str {
     "/shell status\n/shell on\n/shell off"
+}
+
+fn subagent_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/subagent" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/subagent ").map(str::trim)
+    }
+}
+
+fn subagent_slash_help_text() -> &'static str {
+    "/subagent status\n/subagent on\n/subagent off"
 }
 
 fn cost_help_slash_command(trimmed: &str) -> bool {
@@ -1264,6 +1277,10 @@ fn handle_slash_command(
     }
     if let Some(rest) = shell_slash_rest(trimmed) {
         handle_shell_slash(app, rest, registry, options);
+        return true;
+    }
+    if let Some(rest) = subagent_slash_rest(trimmed) {
+        handle_subagent_slash(app, rest, registry, options);
         return true;
     }
     if cost_help_slash_command(trimmed) {
@@ -9241,6 +9258,62 @@ fn handle_shell_slash(
     }
 }
 
+fn handle_subagent_slash(
+    app: &mut App,
+    rest: &str,
+    registry: &mut Arc<ToolRegistry>,
+    options: &mut setup::RuntimeOptions,
+) {
+    let rest = rest.trim().to_lowercase();
+    match rest.as_str() {
+        "" | "status" => {
+            push_event(
+                app,
+                format!(
+                    "Subagent tool access is {}.",
+                    if options.enable_subagent {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    }
+                ),
+            );
+        }
+        "help" | "--help" => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: subagent_slash_help_text().into(),
+            });
+        }
+        "on" | "enable" | "enabled" => {
+            options.enable_subagent = true;
+            *registry = setup::build_registry(
+                options.enable_shell,
+                options.enable_subagent,
+                options.enable_capability_drafts,
+                options.agent_id.as_deref(),
+                options.conversation_id.as_deref(),
+            );
+            push_event(app, "Subagent tool access enabled.".into());
+        }
+        "off" | "disable" | "disabled" => {
+            options.enable_subagent = false;
+            *registry = setup::build_registry(
+                options.enable_shell,
+                options.enable_subagent,
+                options.enable_capability_drafts,
+                options.agent_id.as_deref(),
+                options.conversation_id.as_deref(),
+            );
+            push_event(app, "Subagent tool access disabled.".into());
+        }
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Subagent command needs status, on, off, or help.".into(),
+        }),
+    }
+}
+
 fn handle_cost_slash(
     app: &mut App,
     rest: &str,
@@ -11458,6 +11531,7 @@ mod tests {
         assert!(slash_help_rest("--help"));
         assert!(!slash_help_rest("helper"));
         assert!(global_slash_help_text().contains("/usage [current|last|trace|run|conversation]"));
+        assert!(global_slash_help_text().contains("/subagent status|on|off"));
         assert!(global_slash_help_text().contains("/cost input|output|both|clear|status"));
         assert!(global_slash_help_text().contains("/batch <line-delimited prompts>"));
         assert_eq!(memory_slash_rest("/memory --help"), Some("--help"));
@@ -11493,6 +11567,10 @@ mod tests {
         assert_eq!(shell_slash_rest("/shell on"), Some("on"));
         assert_eq!(shell_slash_rest("/shells"), None);
         assert!(shell_slash_help_text().contains("/shell status"));
+        assert_eq!(subagent_slash_rest("/subagent"), Some(""));
+        assert_eq!(subagent_slash_rest("/subagent status"), Some("status"));
+        assert_eq!(subagent_slash_rest("/subagents status"), None);
+        assert!(subagent_slash_help_text().contains("/subagent status"));
         assert!(cost_help_slash_command("/cost help"));
         assert!(cost_help_slash_command("/cost --help"));
         assert!(!cost_help_slash_command("/cost helper"));
@@ -12232,6 +12310,7 @@ mod tests {
         assert!(help.contains("/x402 request"));
         assert!(help.contains("manual JSON input"));
         assert!(help.contains("/guide <text>"));
+        assert!(help.contains("/subagent status|on|off"));
         assert!(help.contains("/cost input|output|both|clear|status"));
         assert!(help.contains("/conversation"));
     }
@@ -12715,6 +12794,42 @@ mod tests {
             app.transcript
                 .iter()
                 .any(|line| line.text.contains("Shell tool access disabled."))
+        );
+    }
+
+    #[test]
+    fn subagent_slash_toggles_runtime_subagent_access() {
+        let mut app = App::default();
+        let mut options = setup::RuntimeOptions::default();
+        let mut registry = setup::build_registry(
+            options.enable_shell,
+            options.enable_subagent,
+            options.enable_capability_drafts,
+            options.agent_id.as_deref(),
+            options.conversation_id.as_deref(),
+        );
+
+        handle_subagent_slash(&mut app, "status", &mut registry, &mut options);
+        assert!(
+            app.transcript
+                .iter()
+                .any(|line| line.text.contains("Subagent tool access is disabled."))
+        );
+
+        handle_subagent_slash(&mut app, "on", &mut registry, &mut options);
+        assert!(options.enable_subagent);
+        assert!(
+            app.transcript
+                .iter()
+                .any(|line| line.text.contains("Subagent tool access enabled."))
+        );
+
+        handle_subagent_slash(&mut app, "off", &mut registry, &mut options);
+        assert!(!options.enable_subagent);
+        assert!(
+            app.transcript
+                .iter()
+                .any(|line| line.text.contains("Subagent tool access disabled."))
         );
     }
 

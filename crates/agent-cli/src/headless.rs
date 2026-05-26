@@ -1529,12 +1529,12 @@ pub async fn trace_compare(
     compare_run_id: String,
     json: bool,
 ) -> anyhow::Result<()> {
-    let primary_run_id = RunId(uuid::Uuid::parse_str(&primary_run_id)?);
-    let compare_run_id = RunId(uuid::Uuid::parse_str(&compare_run_id)?);
+    let store = open_event_store()?;
+    let primary_run_id = resolve_local_run_selector(&primary_run_id, &store)?;
+    let compare_run_id = resolve_local_run_selector(&compare_run_id, &store)?;
     if primary_run_id == compare_run_id {
         anyhow::bail!("compare needs two different run ids");
     }
-    let store = open_event_store()?;
     let comparison =
         build_trace_comparison(primary_run_id, compare_run_id, |id| store.try_events(id))?;
 
@@ -1553,8 +1553,8 @@ pub async fn trace_replay(
     compare_source: bool,
     json: bool,
 ) -> anyhow::Result<()> {
-    let source_run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
+    let source_run_id = resolve_local_run_selector(&run_id, &store)?;
     let events = store.try_events(source_run_id)?;
     let (agent_id, prompt) = trace_replay_source(source_run_id, &events)?;
     let options = setup::RuntimeOptions {
@@ -10191,7 +10191,7 @@ fn headless_slash_help_text() -> &'static str {
      - /shell status - inspect whether this run enables the shell tool; use --enable-shell to enable it\n\
      - /subagent status - inspect whether this run enables saved-agent-as-tool access; use --enable-subagent to enable it\n\
      - /resume [last|run-id] [--from-event N], /resume plan [last|run-id] [--from-event N]\n\
-     - /trace list [limit|--limit N], /trace [summary|tree|hooks|scores|prompt] [last|run-id], /scores [last|run-id], /compare <run-id> <run-id>, /replay <run-id>\n\
+     - /trace list [limit|--limit N], /trace [summary|tree|hooks|scores|prompt] [last|run-id], /scores [last|run-id], /compare <last|run-id> <last|run-id>, /replay <last|run-id>\n\
      - /preview [prompt] - inspect context before running\n\
      - /usage last, /usage trace|run [last|run-id], /usage conversation <id> [from:to|last N|--from N --to N|--last N]\n\
      - /hooks list|policy|available|review|disable|enable\n\
@@ -10647,17 +10647,25 @@ fn parse_compare_slash_rest(rest: &str) -> anyhow::Result<(String, String)> {
     let mut parts = rest.split_whitespace();
     let primary_run_id = parts
         .next()
-        .ok_or_else(|| anyhow::anyhow!("usage: /compare <primary-run-id> <compare-run-id>"))?
+        .ok_or_else(|| {
+            anyhow::anyhow!("usage: /compare <last|primary-run-id> <last|compare-run-id>")
+        })?
         .to_string();
     let compare_run_id = parts
         .next()
-        .ok_or_else(|| anyhow::anyhow!("usage: /compare <primary-run-id> <compare-run-id>"))?
+        .ok_or_else(|| {
+            anyhow::anyhow!("usage: /compare <last|primary-run-id> <last|compare-run-id>")
+        })?
         .to_string();
     if parts.next().is_some() {
-        anyhow::bail!("usage: /compare <primary-run-id> <compare-run-id>");
+        anyhow::bail!("usage: /compare <last|primary-run-id> <last|compare-run-id>");
     }
-    let _ = uuid::Uuid::parse_str(&primary_run_id)?;
-    let _ = uuid::Uuid::parse_str(&compare_run_id)?;
+    if primary_run_id != "last" {
+        let _ = uuid::Uuid::parse_str(&primary_run_id)?;
+    }
+    if compare_run_id != "last" {
+        let _ = uuid::Uuid::parse_str(&compare_run_id)?;
+    }
     if primary_run_id == compare_run_id {
         anyhow::bail!("compare needs two different run ids");
     }
@@ -10668,9 +10676,13 @@ fn parse_replay_slash_rest(rest: &str) -> anyhow::Result<(String, bool, bool)> {
     let mut parts = rest.split_whitespace();
     let run_id = parts
         .next()
-        .ok_or_else(|| anyhow::anyhow!("usage: /replay <run-id> [--no-hooks] [--compare-source]"))?
+        .ok_or_else(|| {
+            anyhow::anyhow!("usage: /replay <last|run-id> [--no-hooks] [--compare-source]")
+        })?
         .to_string();
-    let _ = uuid::Uuid::parse_str(&run_id)?;
+    if run_id != "last" {
+        let _ = uuid::Uuid::parse_str(&run_id)?;
+    }
     let mut no_hooks = false;
     let mut compare_source = false;
     for part in parts {
@@ -13460,6 +13472,8 @@ mod slash_tests {
         assert!(help.contains("/subagent status"));
         assert!(help.contains("/preview [prompt]"));
         assert!(help.contains("/trace [summary|tree|hooks|scores|prompt] [last|run-id]"));
+        assert!(help.contains("/compare <last|run-id> <last|run-id>"));
+        assert!(help.contains("/replay <last|run-id>"));
         assert!(help.contains("/scores [last|run-id]"));
         assert!(help.contains("/usage last, /usage trace|run [last|run-id]"));
         assert!(help.contains("/agent [id] [prompt]"));
@@ -14329,6 +14343,16 @@ mod slash_tests {
             }
             _ => panic!("expected compare shortcut"),
         }
+        match parse_slash_command(&format!("/compare last {compare}")).unwrap() {
+            Some(SlashCommand::Compare {
+                primary_run_id,
+                compare_run_id,
+            }) => {
+                assert_eq!(primary_run_id, "last");
+                assert_eq!(compare_run_id, compare);
+            }
+            _ => panic!("expected compare shortcut"),
+        }
         match parse_slash_command(&format!("/replay {primary} --no-hooks --compare-source"))
             .unwrap()
         {
@@ -14343,11 +14367,24 @@ mod slash_tests {
             }
             _ => panic!("expected replay shortcut"),
         }
+        match parse_slash_command("/replay last --compare-source").unwrap() {
+            Some(SlashCommand::Replay {
+                run_id,
+                no_hooks,
+                compare_source,
+            }) => {
+                assert_eq!(run_id, "last");
+                assert!(!no_hooks);
+                assert!(compare_source);
+            }
+            _ => panic!("expected replay shortcut"),
+        }
         assert!(parse_slash_command("/trace summary").is_err());
         assert!(parse_slash_command("/trace scores").is_err());
         assert!(parse_slash_command("/trace prompt").is_err());
         assert!(parse_slash_command(&format!("/compare {primary}")).is_err());
         assert!(parse_slash_command(&format!("/compare {primary} {primary}")).is_err());
+        assert!(parse_slash_command("/compare last last").is_err());
         assert!(parse_slash_command(&format!("/replay {primary} --mystery")).is_err());
     }
 

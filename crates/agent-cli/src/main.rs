@@ -590,10 +590,10 @@ enum TraceCommand {
     },
     /// Compare two persisted run traces side by side.
     Compare {
-        /// Baseline run UUID printed by `agent run`.
+        /// Baseline run UUID printed by `agent run`, or `last`.
         run_id: String,
 
-        /// Run UUID to compare against the baseline.
+        /// Run UUID to compare against the baseline, or `last`.
         compare_run_id: String,
 
         /// Emit a JSON comparison object.
@@ -602,7 +602,7 @@ enum TraceCommand {
     },
     /// Run the original prompt from a persisted trace as a fresh run.
     Replay {
-        /// Source run UUID printed by `agent run`.
+        /// Source run UUID printed by `agent run`, or `last`.
         run_id: String,
 
         /// Demo provider behavior.
@@ -4456,6 +4456,21 @@ mod cli_parse_tests {
         assert_eq!(compare_run_id, compare);
         assert!(json);
 
+        let cli = parse_cli(["agent", "trace", "compare", "last", compare]).unwrap();
+        let Command::Trace {
+            command:
+                TraceCommand::Compare {
+                    run_id,
+                    compare_run_id,
+                    ..
+                },
+        } = into_command(cli)
+        else {
+            panic!("expected trace compare command");
+        };
+        assert_eq!(run_id, "last");
+        assert_eq!(compare_run_id, compare);
+
         let cli = parse_cli([
             "agent",
             "remote",
@@ -4511,6 +4526,15 @@ mod cli_parse_tests {
         assert!(no_hooks);
         assert!(compare_source);
         assert!(json);
+
+        let cli = parse_cli(["agent", "trace", "replay", "last"]).unwrap();
+        let Command::Trace {
+            command: TraceCommand::Replay { run_id, .. },
+        } = into_command(cli)
+        else {
+            panic!("expected trace replay command");
+        };
+        assert_eq!(run_id, "last");
     }
 
     #[test]

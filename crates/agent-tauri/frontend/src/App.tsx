@@ -5601,6 +5601,7 @@ export default function App() {
       "/profiles delete <id> --confirm",
       "/profiles grants [from-profile]",
       "/profiles grant <to-profile> <agent|memory|tool|skill|category> <resource> [--from <profile>]",
+      "  memory resources: agent:<id>, memory:<id>, raw id, or *",
       "/profiles revoke <id> --confirm",
       "/profile is accepted as an alias for /profiles.",
     ].join("\n");
@@ -7984,7 +7985,7 @@ export default function App() {
         if (!toProfile || !isProfileGrantKind(kind) || !resource || args.length !== 3) {
           appendLine(
             "error",
-            "Profiles grant shortcut needs: /profiles grant <to-profile> <agent|memory|tool|skill|category> <resource> [--from <profile>].",
+            "Profiles grant shortcut needs: /profiles grant <to-profile> <agent|memory|tool|skill|category> <resource> [--from <profile>]. Memory resources support agent:<id>, memory:<id>, raw id, or *.",
           );
         } else {
           await grantProfile(toProfile, kind, resource, fromProfile);
@@ -10816,7 +10817,7 @@ export default function App() {
     if (!isProfileGrantKind(kind) || typeof resource !== "string" || !resource.trim()) {
       appendLine(
         "error",
-        'Profile grant needs Value JSON like { "kind": "memory", "resource": "critic" }.',
+        'Profile grant needs Value JSON like { "kind": "memory", "resource": "agent:critic" }.',
       );
       return;
     }
@@ -17989,7 +17990,7 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title='Grant to profile Id using Value JSON like { "kind": "memory", "resource": "critic" }.'
+                  title='Grant to profile Id using Value JSON like { "kind": "memory", "resource": "agent:critic" }.'
                   onClick={() => void grantProfileFromOps()}
                   disabled={running || !opsId.trim() || !opsValue.trim()}
                 >

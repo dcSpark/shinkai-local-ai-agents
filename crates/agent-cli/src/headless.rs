@@ -11623,7 +11623,9 @@ fn parse_profile_grant_args<'a>(
     let to = to.ok_or_else(|| anyhow::anyhow!("profiles grant requires --to <profile>"))?;
     let kind = kind.ok_or_else(|| anyhow::anyhow!("profiles grant requires --kind <kind>"))?;
     let resource = resource.ok_or_else(|| {
-        anyhow::anyhow!("usage: /profiles grant --to <profile> --kind <kind> <resource>")
+        anyhow::anyhow!(
+            "usage: /profiles grant --to <profile> --kind <kind> <resource>; memory resources support agent:<id>, memory:<id>, raw id, or *"
+        )
     })?;
     Ok(ProfileSlashCommand::Grant {
         from,
@@ -14855,8 +14857,10 @@ mod slash_tests {
             }
             _ => panic!("expected profile grants shortcut"),
         }
-        match parse_slash_command("/profiles grant --from main --to research --kind memory critic")
-            .unwrap()
+        match parse_slash_command(
+            "/profiles grant --from main --to research --kind memory agent:critic",
+        )
+        .unwrap()
         {
             Some(SlashCommand::Profile(ProfileSlashCommand::Grant {
                 from,
@@ -14867,7 +14871,7 @@ mod slash_tests {
                 assert_eq!(from.as_deref(), Some("main"));
                 assert_eq!(to, "research");
                 assert!(matches!(kind, ProfileGrantKind::Memory));
-                assert_eq!(resource, "critic");
+                assert_eq!(resource, "agent:critic");
             }
             _ => panic!("expected profile grant shortcut"),
         }

@@ -6488,6 +6488,7 @@ fn handle_profiles_slash(app: &mut App, rest: &str) {
                 "/profiles create <id> [--name <name>]",
                 "/profiles delete <id> --confirm",
                 "/profiles grant [--from <profile>] --to <profile> --kind <agent|memory|tool|skill|category> <resource>",
+                "  memory resources: agent:<id>, memory:<id>, raw id, or *",
                 "/profiles grants [--from <profile>]",
                 "/profiles revoke-grant <id> --confirm",
                 "/profile is accepted as an alias for /profiles.",
@@ -13111,11 +13112,11 @@ mod tests {
         assert!(profile_create_args("research --title nope").is_err());
 
         let grant =
-            profile_grant_args("--from main --to research --kind memory fake-agent").unwrap();
+            profile_grant_args("--from main --to research --kind memory agent:fake-agent").unwrap();
         assert_eq!(grant.from.as_deref(), Some("main"));
         assert_eq!(grant.to, "research");
         assert_eq!(grant.kind, ProfileGrantKind::Memory);
-        assert_eq!(grant.resource, "fake-agent");
+        assert_eq!(grant.resource, "agent:fake-agent");
 
         let grant = profile_grant_args("--to=research --kind=category review").unwrap();
         assert_eq!(grant.from, None);

@@ -1637,6 +1637,21 @@ export default function App() {
       { command: "/approval reject ", label: "Reject an approval" },
       { command: "/approval execute last ", label: "Execute latest-run approval" },
       { command: "/approval execute ", label: "Execute an approved action" },
+      { command: "/approvals", label: "Review current run approvals" },
+      { command: "/approvals help", label: "Show approvals shortcut" },
+      { command: "/approvals on", label: "Require approval for tool actions" },
+      { command: "/approvals off", label: "Auto-approve tool actions" },
+      { command: "/approvals status", label: "Show approval gate status" },
+      { command: "/approvals list", label: "List approvals for current run" },
+      { command: "/approvals list last", label: "List approvals for last run" },
+      { command: "/approvals assess last ", label: "Assess latest-run approval" },
+      { command: "/approvals assess ", label: "Assess an approval" },
+      { command: "/approvals approve last ", label: "Approve latest-run approval" },
+      { command: "/approvals approve ", label: "Approve and execute an approval" },
+      { command: "/approvals reject last ", label: "Reject latest-run approval" },
+      { command: "/approvals reject ", label: "Reject an approval" },
+      { command: "/approvals execute last ", label: "Execute latest-run approval" },
+      { command: "/approvals execute ", label: "Execute an approved action" },
       { command: "/refine help", label: "Show prompt refinement shortcuts" },
       { command: "/refine on", label: "Enable prompt refinement" },
       { command: "/refine off", label: "Disable prompt refinement" },
@@ -2066,8 +2081,6 @@ export default function App() {
       { command: "/replay ", label: "Replay a run trace by id or last" },
       { command: "/replay --no-hooks", label: "Replay loaded trace without hooks" },
       { command: "/replay --compare-source", label: "Replay and compare source trace" },
-      { command: "/approvals", label: "Review current run approvals" },
-      { command: "/approvals help", label: "Show approvals shortcut" },
       { command: "/batch help", label: "Show batch shortcuts" },
       { command: "/batch list", label: "List persisted batches" },
       { command: "/batch show ", label: "Show a persisted batch" },
@@ -3066,14 +3079,7 @@ export default function App() {
       "/approval approve [run-id|last] <approval-id> [--controller-agent <agent>]",
       "/approval reject [run-id|last] <approval-id>",
       "/approval execute [run-id|last] <approval-id>",
-    ].join("\n");
-  }
-
-  function approvalsShortcutHelpText() {
-    return [
-      "Approvals shortcuts:",
-      "- /approvals - review current run approvals",
-      "- /approval help - show approval action shortcuts",
+      "/approvals is accepted as an alias for /approval; bare /approvals reviews the latest run.",
     ].join("\n");
   }
 
@@ -6929,17 +6935,31 @@ export default function App() {
       return;
     }
 
-    if (prompt === "/approval") {
-      setInput("");
-      appendLine("user", "/approval");
-      appendLine("assistant", approvalShortcutHelpText());
-      return;
-    }
-    if (prompt.startsWith("/approval ")) {
-      const rest = prompt.slice("/approval ".length).trim();
+    const approvalPrefix =
+      prompt === "/approval" || prompt.startsWith("/approval ")
+        ? "/approval"
+        : prompt === "/approvals" || prompt.startsWith("/approvals ")
+          ? "/approvals"
+          : null;
+    if (approvalPrefix) {
+      const rest =
+        prompt === approvalPrefix
+          ? ""
+          : prompt.slice(`${approvalPrefix} `.length).trim();
       const [command = "", ...args] = rest.split(/\s+/).filter(Boolean);
       const normalized = command.toLowerCase();
-      if (normalized === "help" || normalized === "--help") {
+      if (!rest && approvalPrefix === "/approvals") {
+        setInput("");
+        setActiveSection("approvals");
+        appendLine("user", "/approvals");
+        if (!lastRunId) {
+          appendLine("error", "Approvals shortcut needs a completed or active run.");
+          return;
+        }
+        await reviewApprovals();
+        return;
+      }
+      if (!rest || normalized === "help" || normalized === "--help") {
         setInput("");
         appendLine("user", prompt);
         appendLine("assistant", approvalShortcutHelpText());
@@ -9441,25 +9461,6 @@ export default function App() {
         skipHooks,
         compareSource,
       });
-      return;
-    }
-
-    if (prompt === "/approvals help" || prompt === "/approvals --help") {
-      setInput("");
-      appendLine("user", prompt);
-      appendLine("assistant", approvalsShortcutHelpText());
-      return;
-    }
-
-    if (prompt === "/approvals") {
-      setInput("");
-      setActiveSection("approvals");
-      appendLine("user", "/approvals");
-      if (!lastRunId) {
-        appendLine("error", "Approvals shortcut needs a completed or active run.");
-        return;
-      }
-      await reviewApprovals();
       return;
     }
 

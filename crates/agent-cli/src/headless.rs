@@ -2340,8 +2340,8 @@ pub async fn cancel(
     reason: String,
     mode: Option<StopRetentionMode>,
 ) -> anyhow::Result<()> {
-    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
+    let run_id = resolve_local_run_selector(&run_id, &store)?;
     let events = store.try_events(run_id)?;
     if events
         .iter()
@@ -6583,11 +6583,13 @@ pub async fn remote_cancel(
     reason: String,
     mode: Option<StopRetentionMode>,
 ) -> anyhow::Result<()> {
+    let client = DaemonHttpClient::new(url);
+    let run_id = remote_run_selector(&client, &run_id)?;
     let mut body = serde_json::json!({ "run_id": run_id, "reason": reason });
     if let Some(mode) = mode {
         body["mode"] = serde_json::Value::String(mode.as_str().into());
     }
-    print_remote(DaemonHttpClient::new(url).post_json("/cancel", body)?)
+    print_remote(client.post_json("/cancel", body)?)
 }
 
 pub async fn remote_resume(
@@ -14208,6 +14210,46 @@ mod slash_tests {
             &event.kind,
             RunEventKind::QualityScored { target, score }
                 if target == "last_answer" && (*score - 8.0).abs() < f32::EPSILON
+        )));
+        assert_eq!(store.try_events(first).unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn cancel_resolves_last_trace_record() {
+        let dir = std::env::temp_dir().join(format!(
+            "headless-cancel-last-selector-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let _home = HarnessHomeGuard::set(&dir);
+        let store = open_event_store().unwrap();
+        let first = RunId::new();
+        let second = RunId::new();
+        store.append(
+            first,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "first-agent".into(),
+                input: "first prompt".into(),
+            },
+        );
+        store.append(
+            second,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "second-agent".into(),
+                input: "second prompt".into(),
+            },
+        );
+
+        cancel("last".into(), "pause latest".into(), None)
+            .await
+            .unwrap();
+
+        let events = store.try_events(second).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.kind,
+            RunEventKind::RunCancelled { reason } if reason == "pause latest"
         )));
         assert_eq!(store.try_events(first).unwrap().len(), 1);
     }

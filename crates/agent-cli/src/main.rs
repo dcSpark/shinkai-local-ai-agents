@@ -359,7 +359,7 @@ enum Command {
     },
     /// Mark a run as cancelled in the durable trace.
     Cancel {
-        /// Run UUID printed by `agent run`.
+        /// Run UUID printed by `agent run`, or `last`.
         run_id: String,
 
         /// Context retention mode for this stop. Defaults to agent/profile/global policy.
@@ -2876,6 +2876,7 @@ enum RemoteCommand {
     },
     /// Mark a remote run as cancelled in the daemon trace store.
     Cancel {
+        /// Remote run UUID, or `last`.
         run_id: String,
 
         #[arg(long, value_enum)]
@@ -6598,6 +6599,15 @@ mod cli_parse_tests {
         assert_eq!(parsed_id, run_id);
         assert!(matches!(mode, Some(StopRetentionModeArg::Summarise)));
 
+        let cli = parse_cli(["agent", "cancel", "last"]).unwrap();
+        let Command::Cancel {
+            run_id: parsed_id, ..
+        } = into_command(cli)
+        else {
+            panic!("expected cancel command");
+        };
+        assert_eq!(parsed_id, "last");
+
         let cli = parse_cli(["agent", "resume", run_id, "--from-event", "7", "--json"]).unwrap();
         let Command::Resume {
             run_id: parsed_id,
@@ -6681,6 +6691,15 @@ mod cli_parse_tests {
         };
         assert_eq!(parsed_id, run_id);
         assert!(matches!(mode, Some(StopRetentionModeArg::Discard)));
+
+        let cli = parse_cli(["agent", "remote", "cancel", "last"]).unwrap();
+        let RemoteCommand::Cancel {
+            run_id: parsed_id, ..
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote cancel command");
+        };
+        assert_eq!(parsed_id, "last");
 
         let cli = parse_cli([
             "agent",

@@ -2133,6 +2133,22 @@ struct ConversationDeletionCleanup {
     memories: Vec<String>,
 }
 
+#[derive(Debug, Default)]
+struct ConversationRangePreserveOptions {
+    compact_first: bool,
+    compact_guidance: Option<String>,
+    compact_max_output_tokens: u32,
+    memory_first: bool,
+    memory_guidance: Option<String>,
+    memory_user: bool,
+}
+
+#[derive(Debug, Default)]
+struct ConversationRangePreservedArtifacts {
+    compactions: Vec<String>,
+    memories: Vec<String>,
+}
+
 fn cleanup_conversation_side_data(
     deleted: &[String],
 ) -> anyhow::Result<ConversationDeletionCleanup> {
@@ -2142,11 +2158,66 @@ fn cleanup_conversation_side_data(
     })
 }
 
+fn preserve_conversation_range_artifacts(
+    store: &ConversationStore,
+    id: &str,
+    from: usize,
+    to: usize,
+    options: &ConversationRangePreserveOptions,
+) -> anyhow::Result<ConversationRangePreservedArtifacts> {
+    let mut preserved = ConversationRangePreservedArtifacts::default();
+    if !options.compact_first && !options.memory_first {
+        return Ok(preserved);
+    }
+    let rendered = store.render_deletable_message_range(id, from, to)?;
+    let source = format!("pre-delete-range:{id}:{}", rendered.source_range);
+    if options.compact_first {
+        let record = CompactionStore::from_env().create_from_text_for_conversation(
+            &rendered.text,
+            options.compact_guidance.clone(),
+            Some(options.compact_max_output_tokens),
+            Some(source),
+            Some(id.to_string()),
+        )?;
+        preserved.compactions.push(record.id);
+    }
+    if options.memory_first {
+        let target = if options.memory_user {
+            MemoryTarget::User
+        } else {
+            MemoryTarget::Agent
+        };
+        let records = MemoryStore::from_env()
+            .generate_from_conversation_text_with_topics_for_agent_and_guidance(
+                target,
+                &rendered.text,
+                Some(rendered.source_range),
+                Some(id.to_string()),
+                Vec::new(),
+                None,
+                options.memory_guidance.clone(),
+            )?;
+        for record in &records {
+            record_memory_written(record, "generated").map_err(|err| anyhow::anyhow!(err))?;
+        }
+        preserved
+            .memories
+            .extend(records.into_iter().map(|record| record.id));
+    }
+    Ok(preserved)
+}
+
 #[tauri::command]
 async fn conversation_delete_range(
     id: String,
     from: usize,
     to: usize,
+    compact_first: Option<bool>,
+    compact_guidance: Option<String>,
+    compact_max_output_tokens: Option<u32>,
+    memory_first: Option<bool>,
+    memory_guidance: Option<String>,
+    memory_user: Option<bool>,
 ) -> Result<serde_json::Value, String> {
     let store = ConversationStore::from_env();
     let before = store
@@ -2154,6 +2225,16 @@ async fn conversation_delete_range(
         .map_err(|e| e.to_string())?
         .messages
         .len();
+    let options = ConversationRangePreserveOptions {
+        compact_first: compact_first.unwrap_or(false),
+        compact_guidance,
+        compact_max_output_tokens: compact_max_output_tokens.unwrap_or(512),
+        memory_first: memory_first.unwrap_or(false),
+        memory_guidance,
+        memory_user: memory_user.unwrap_or(false),
+    };
+    let preserved = preserve_conversation_range_artifacts(&store, &id, from, to, &options)
+        .map_err(|e| e.to_string())?;
     let conversation = store
         .delete_message_range(&id, from, to)
         .map_err(|e| e.to_string())?;
@@ -2168,6 +2249,8 @@ async fn conversation_delete_range(
         "to": to,
         "deleted_messages": before.saturating_sub(after),
         "expanded_message_count": after,
+        "preserved_compactions": preserved.compactions,
+        "preserved_memories": preserved.memories,
         "conversation": conversation
     }))
 }

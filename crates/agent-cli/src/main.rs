@@ -2417,6 +2417,30 @@ enum ConversationCommand {
         /// Last expanded message index to delete.
         #[arg(long)]
         to: usize,
+
+        /// Compact the selected message range before deleting and keep that artifact.
+        #[arg(long)]
+        compact_first: bool,
+
+        /// Guidance for --compact-first.
+        #[arg(long)]
+        compact_guidance: Option<String>,
+
+        /// Approximate max output tokens for --compact-first.
+        #[arg(long, default_value_t = 512)]
+        compact_max_output_tokens: u32,
+
+        /// Generate memory from the selected message range before deleting and keep it.
+        #[arg(long)]
+        memory_first: bool,
+
+        /// Guidance for --memory-first.
+        #[arg(long)]
+        memory_guidance: Option<String>,
+
+        /// Store --memory-first output in user.md instead of memory.md.
+        #[arg(long)]
+        memory_user: bool,
     },
     /// Delete all conversation branches owned by one agent id.
     DeleteAgent {
@@ -3280,6 +3304,18 @@ enum RemoteConversationCommand {
         from: usize,
         #[arg(long)]
         to: usize,
+        #[arg(long)]
+        compact_first: bool,
+        #[arg(long)]
+        compact_guidance: Option<String>,
+        #[arg(long, default_value_t = 512)]
+        compact_max_output_tokens: u32,
+        #[arg(long)]
+        memory_first: bool,
+        #[arg(long)]
+        memory_guidance: Option<String>,
+        #[arg(long)]
+        memory_user: bool,
     },
 }
 
@@ -5949,7 +5985,14 @@ mod cli_parse_tests {
         ])
         .unwrap();
         let RemoteCommand::Conversation {
-            command: RemoteConversationCommand::DeleteRange { id, from, to },
+            command:
+                RemoteConversationCommand::DeleteRange {
+                    id,
+                    from,
+                    to,
+                    memory_first,
+                    ..
+                },
         } = into_remote_command(cli)
         else {
             panic!("expected remote conversation delete-range command");
@@ -5957,6 +6000,7 @@ mod cli_parse_tests {
         assert_eq!(id, "conversation-1");
         assert_eq!(from, 2);
         assert_eq!(to, 4);
+        assert!(!memory_first);
     }
 
     #[test]
@@ -7974,8 +8018,26 @@ async fn main() -> anyhow::Result<()> {
                 };
                 headless::conversation_delete(id, options).await
             }
-            ConversationCommand::DeleteRange { id, from, to } => {
-                headless::conversation_delete_range(id, from, to).await
+            ConversationCommand::DeleteRange {
+                id,
+                from,
+                to,
+                compact_first,
+                compact_guidance,
+                compact_max_output_tokens,
+                memory_first,
+                memory_guidance,
+                memory_user,
+            } => {
+                let options = headless::ConversationRangeDeleteOptions {
+                    compact_first,
+                    compact_guidance,
+                    compact_max_output_tokens,
+                    memory_first,
+                    memory_guidance,
+                    memory_user,
+                };
+                headless::conversation_delete_range(id, from, to, options).await
             }
             ConversationCommand::DeleteAgent {
                 agent,
@@ -8861,8 +8923,26 @@ async fn main() -> anyhow::Result<()> {
                 RemoteConversationCommand::DeleteAgent { agent, recursive } => {
                     headless::remote_conversation_delete_agent(url, agent, recursive).await
                 }
-                RemoteConversationCommand::DeleteRange { id, from, to } => {
-                    headless::remote_conversation_delete_range(url, id, from, to).await
+                RemoteConversationCommand::DeleteRange {
+                    id,
+                    from,
+                    to,
+                    compact_first,
+                    compact_guidance,
+                    compact_max_output_tokens,
+                    memory_first,
+                    memory_guidance,
+                    memory_user,
+                } => {
+                    let options = headless::ConversationRangeDeleteOptions {
+                        compact_first,
+                        compact_guidance,
+                        compact_max_output_tokens,
+                        memory_first,
+                        memory_guidance,
+                        memory_user,
+                    };
+                    headless::remote_conversation_delete_range(url, id, from, to, options).await
                 }
             },
             RemoteCommand::Memory { command } => match command {

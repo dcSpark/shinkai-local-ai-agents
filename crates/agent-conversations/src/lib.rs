@@ -466,26 +466,42 @@ impl ConversationStore {
         from: usize,
         to: usize,
     ) -> Result<ConversationDoc, ConversationError> {
+        self.render_deletable_message_range(id, from, to)?;
         validate_id(id)?;
-        let docs = self.list()?;
-        if has_children(id, &docs) {
-            return Err(ConversationError::HasChildrenForRange { id: id.into() });
-        }
         let mut doc = self.show(id)?;
         let expanded_len = self.expand_doc(&doc)?.len();
-        validate_message_range(expanded_len, from, to)?;
         let own_start = expanded_len.saturating_sub(doc.messages.len());
-        if from < own_start {
-            return Err(ConversationError::InvalidInput(format!(
-                "range {from}:{to} includes inherited parent messages; delete that range on the parent branch"
-            )));
-        }
         let own_from = from - own_start;
         let own_to = to - own_start;
         doc.messages.drain(own_from..=own_to);
         doc.updated_at = Utc::now();
         self.write(&doc)?;
         Ok(doc)
+    }
+
+    pub fn render_deletable_message_range(
+        &self,
+        id: &str,
+        from: usize,
+        to: usize,
+    ) -> Result<RenderedMessageRange, ConversationError> {
+        validate_id(id)?;
+        let docs = self.list()?;
+        if has_children(id, &docs) {
+            return Err(ConversationError::HasChildrenForRange { id: id.into() });
+        }
+        let expanded = self.expanded(id)?;
+        validate_message_range(expanded.messages.len(), from, to)?;
+        let own_start = expanded
+            .messages
+            .len()
+            .saturating_sub(expanded.conversation.messages.len());
+        if from < own_start {
+            return Err(ConversationError::InvalidInput(format!(
+                "range {from}:{to} includes inherited parent messages; delete that range on the parent branch"
+            )));
+        }
+        render_message_range(&expanded.messages, Some(from), Some(to))
     }
 
     pub fn run_ids_for_range(
@@ -966,6 +982,11 @@ mod tests {
                 .contains("inherited parent messages")
         );
 
+        let rendered = store
+            .render_deletable_message_range(&branch.id, 2, 2)
+            .unwrap();
+        assert_eq!(rendered.source_range, "messages:2..3");
+        assert!(rendered.text.contains("branch one"));
         let updated = store.delete_message_range(&branch.id, 2, 2).unwrap();
         assert_eq!(updated.messages.len(), 1);
         assert_eq!(updated.messages[0].content, "branch two");

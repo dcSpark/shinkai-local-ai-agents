@@ -3309,7 +3309,7 @@ export default function App() {
       "/conversation delete-agent-plan [agent] [--recursive]",
       "/conversation delete-agent [agent] [--recursive] --confirm",
       "/conversation range [id] <from>:<to>",
-      "/conversation range-delete [id] <from>:<to> --confirm",
+      "/conversation range-delete [id] <from>:<to> [--compact-first] [--memory-first] --confirm",
       "/conversations is accepted as an alias for /conversation.",
     ].join("\n");
   }
@@ -3430,12 +3430,70 @@ export default function App() {
   ) {
     const command = options.command ?? "range-delete";
     const requireConfirm = options.requireConfirm ?? true;
-    const confirmed = args.includes("--confirm");
-    const unknownFlags = args.filter(
-      (arg) => arg.startsWith("--") && arg !== "--confirm",
-    );
-    const positional = args.filter((arg) => !arg.startsWith("--"));
-    if (unknownFlags.length || positional.length < 1 || positional.length > 3) {
+    let confirmed = false;
+    let compactFirst = false;
+    let compactGuidance: string | null = null;
+    let compactMaxOutputTokens = 512;
+    let memoryFirst = false;
+    let memoryGuidance: string | null = null;
+    let memoryUser = false;
+    const positional: string[] = [];
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (arg === "--confirm") {
+        confirmed = true;
+      } else if (requireConfirm && arg === "--compact-first") {
+        compactFirst = true;
+      } else if (requireConfirm && arg === "--compact-guidance") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", "Conversation range-delete needs guidance after --compact-guidance.");
+          return null;
+        }
+        compactGuidance = value;
+        index += 1;
+      } else if (requireConfirm && arg.startsWith("--compact-guidance=")) {
+        compactGuidance = arg.slice("--compact-guidance=".length).trim() || null;
+        if (!compactGuidance) {
+          appendLine("error", "Conversation range-delete needs guidance after --compact-guidance=.");
+          return null;
+        }
+      } else if (requireConfirm && arg === "--compact-max-output-tokens") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", "Conversation range-delete needs a value after --compact-max-output-tokens.");
+          return null;
+        }
+        compactMaxOutputTokens = Number(value);
+        index += 1;
+      } else if (requireConfirm && arg.startsWith("--compact-max-output-tokens=")) {
+        compactMaxOutputTokens = Number(arg.slice("--compact-max-output-tokens=".length));
+      } else if (requireConfirm && arg === "--memory-first") {
+        memoryFirst = true;
+      } else if (requireConfirm && arg === "--memory-guidance") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", "Conversation range-delete needs guidance after --memory-guidance.");
+          return null;
+        }
+        memoryGuidance = value;
+        index += 1;
+      } else if (requireConfirm && arg.startsWith("--memory-guidance=")) {
+        memoryGuidance = arg.slice("--memory-guidance=".length).trim() || null;
+        if (!memoryGuidance) {
+          appendLine("error", "Conversation range-delete needs guidance after --memory-guidance=.");
+          return null;
+        }
+      } else if (requireConfirm && arg === "--memory-user") {
+        memoryUser = true;
+      } else if (arg.startsWith("--")) {
+        appendLine("error", `Conversation ${command} shortcut does not accept ${arg}.`);
+        return null;
+      } else {
+        positional.push(arg);
+      }
+    }
+    if (positional.length < 1 || positional.length > 3) {
       appendLine(
         "error",
         `Conversation ${command} shortcut needs [id] <from>:<to> or [id] <from> <to>${requireConfirm ? " plus --confirm" : "."}`,
@@ -3448,6 +3506,10 @@ export default function App() {
     }
     if (!requireConfirm && confirmed) {
       appendLine("error", `Conversation ${command} shortcut does not use --confirm.`);
+      return null;
+    }
+    if (!Number.isInteger(compactMaxOutputTokens) || compactMaxOutputTokens <= 0) {
+      appendLine("error", "Conversation range-delete compact token limit must be positive.");
       return null;
     }
 
@@ -3480,7 +3542,16 @@ export default function App() {
     }
     const range = parseConversationRangeText(fromText, toText);
     if (!range) return null;
-    return { id, range };
+    return {
+      id,
+      range,
+      compactFirst,
+      compactGuidance,
+      compactMaxOutputTokens,
+      memoryFirst,
+      memoryGuidance,
+      memoryUser,
+    };
   }
 
   function parseCompactionDeleteShortcut(args: string[]) {
@@ -8488,7 +8559,14 @@ export default function App() {
       } else if (command === "range-delete" || command === "delete-range") {
         const parsed = parseConversationRangeShortcut(args);
         if (parsed) {
-          await deleteConversationRange(parsed.id, parsed.range, true);
+          await deleteConversationRange(parsed.id, parsed.range, true, {
+            compactFirst: parsed.compactFirst,
+            compactGuidance: parsed.compactGuidance,
+            compactMaxOutputTokens: parsed.compactMaxOutputTokens,
+            memoryFirst: parsed.memoryFirst,
+            memoryGuidance: parsed.memoryGuidance,
+            memoryUser: parsed.memoryUser,
+          });
         }
       } else {
         appendLine(
@@ -11693,6 +11771,14 @@ export default function App() {
     id: string,
     range: ConversationRange,
     confirmed = false,
+    preserve: {
+      compactFirst?: boolean;
+      compactGuidance?: string | null;
+      compactMaxOutputTokens?: number;
+      memoryFirst?: boolean;
+      memoryGuidance?: string | null;
+      memoryUser?: boolean;
+    } = {},
   ) {
     if (
       !confirmed &&
@@ -11707,11 +11793,30 @@ export default function App() {
         transport === "daemon"
           ? await daemonJson<ConversationDeleteRangeResult>(
               `/conversations/${encodeURIComponent(id)}/delete-range`,
-              { from: range.from, to: range.to },
+              {
+                from: range.from,
+                to: range.to,
+                compact_first: preserve.compactFirst ?? false,
+                compact_guidance: preserve.compactGuidance ?? null,
+                compact_max_output_tokens: preserve.compactMaxOutputTokens ?? 512,
+                memory_first: preserve.memoryFirst ?? false,
+                memory_guidance: preserve.memoryGuidance ?? null,
+                memory_user: preserve.memoryUser ?? false,
+              },
             )
           : await invoke<ConversationDeleteRangeResult>(
               "conversation_delete_range",
-              { id, from: range.from, to: range.to },
+              {
+                id,
+                from: range.from,
+                to: range.to,
+                compactFirst: preserve.compactFirst ?? false,
+                compactGuidance: preserve.compactGuidance ?? null,
+                compactMaxOutputTokens: preserve.compactMaxOutputTokens ?? 512,
+                memoryFirst: preserve.memoryFirst ?? false,
+                memoryGuidance: preserve.memoryGuidance ?? null,
+                memoryUser: preserve.memoryUser ?? false,
+              },
             );
       setConversationDocs((docs) => [
         result.conversation,

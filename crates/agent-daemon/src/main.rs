@@ -1795,6 +1795,7 @@ fn daemon_conversation_delete_range(id: &str, body: &str) -> anyhow::Result<serd
     let input: ConversationRangeInput = serde_json::from_str(body)?;
     let store = ConversationStore::from_env();
     let before = store.expanded(id)?.messages.len();
+    let preserved = preserve_conversation_range_artifacts(&store, id, &input)?;
     let conversation = store.delete_message_range(id, input.from, input.to)?;
     let after = store.expanded(id)?.messages.len();
     Ok(serde_json::json!({
@@ -1803,6 +1804,8 @@ fn daemon_conversation_delete_range(id: &str, body: &str) -> anyhow::Result<serd
         "to": input.to,
         "deleted_messages": before.saturating_sub(after),
         "expanded_message_count": after,
+        "preserved_compactions": preserved.compactions,
+        "preserved_memories": preserved.memories,
         "conversation": conversation
     }))
 }
@@ -1944,6 +1947,63 @@ fn parse_conversation_agent_delete_input(
 struct ConversationDeletionCleanup {
     compactions: Vec<String>,
     memories: Vec<String>,
+}
+
+#[derive(Debug, Default)]
+struct ConversationRangePreservedArtifacts {
+    compactions: Vec<String>,
+    memories: Vec<String>,
+}
+
+fn default_compaction_output_tokens() -> u32 {
+    512
+}
+
+fn preserve_conversation_range_artifacts(
+    store: &ConversationStore,
+    id: &str,
+    input: &ConversationRangeInput,
+) -> anyhow::Result<ConversationRangePreservedArtifacts> {
+    let mut preserved = ConversationRangePreservedArtifacts::default();
+    if !input.compact_first && !input.memory_first {
+        return Ok(preserved);
+    }
+    let rendered = store.render_deletable_message_range(id, input.from, input.to)?;
+    let source = format!("pre-delete-range:{id}:{}", rendered.source_range);
+    if input.compact_first {
+        let record = CompactionStore::from_env().create_from_text_for_conversation(
+            &rendered.text,
+            input.compact_guidance.clone(),
+            Some(input.compact_max_output_tokens),
+            Some(source),
+            Some(id.to_string()),
+        )?;
+        preserved.compactions.push(record.id);
+    }
+    if input.memory_first {
+        let target = if input.memory_user {
+            MemoryTarget::User
+        } else {
+            MemoryTarget::Agent
+        };
+        let records = MemoryStore::from_env()
+            .generate_from_conversation_text_with_topics_for_agent_and_guidance(
+                target,
+                &rendered.text,
+                Some(rendered.source_range),
+                Some(id.to_string()),
+                Vec::new(),
+                None,
+                input.memory_guidance.clone(),
+            )?;
+        for record in &records {
+            record_memory_written(record, "generated")?;
+        }
+        preserved
+            .memories
+            .extend(records.into_iter().map(|record| record.id));
+    }
+    Ok(preserved)
 }
 
 fn cleanup_conversation_side_data(
@@ -6706,6 +6766,18 @@ struct ConversationAgentDeleteInput {
 struct ConversationRangeInput {
     from: usize,
     to: usize,
+    #[serde(default)]
+    compact_first: bool,
+    #[serde(default)]
+    compact_guidance: Option<String>,
+    #[serde(default = "default_compaction_output_tokens")]
+    compact_max_output_tokens: u32,
+    #[serde(default)]
+    memory_first: bool,
+    #[serde(default)]
+    memory_guidance: Option<String>,
+    #[serde(default)]
+    memory_user: bool,
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -9748,6 +9820,60 @@ mod tests {
         assert_eq!(
             memory_classification_model(None, Some("critic")).unwrap(),
             "memory-classifier"
+        );
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn conversation_delete_range_can_preserve_guided_artifacts_first() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("conversation-range-preserve");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+
+        let conversation_store = ConversationStore::from_env();
+        let conversation = conversation_store
+            .create(Some("Range delete".into()), Some("fake-agent".into()))
+            .unwrap();
+        conversation_store
+            .append_message(
+                &conversation.id,
+                ConversationRole::User,
+                "Remember: range deletion keeps this fact",
+            )
+            .unwrap();
+
+        let body = serde_json::json!({
+            "from": 0,
+            "to": 0,
+            "compact_first": true,
+            "compact_guidance": "keep durable range context",
+            "memory_first": true,
+            "memory_guidance": "keep durable facts",
+            "memory_user": true
+        })
+        .to_string();
+        let deleted = daemon_conversation_delete_range(&conversation.id, &body).unwrap();
+        assert_eq!(deleted["deleted_messages"], 1);
+        assert_eq!(
+            deleted["preserved_compactions"].as_array().map(Vec::len),
+            Some(1)
+        );
+        assert_eq!(
+            deleted["preserved_memories"].as_array().map(Vec::len),
+            Some(1)
+        );
+        assert_eq!(
+            ConversationStore::from_env()
+                .expanded(&conversation.id)
+                .unwrap()
+                .messages
+                .len(),
+            0
         );
 
         restore_env("AGENT_HARNESS_HOME", previous_home);

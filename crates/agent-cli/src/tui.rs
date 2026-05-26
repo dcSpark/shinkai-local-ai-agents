@@ -157,6 +157,7 @@ enum PendingConversationAction {
         id: String,
         from: usize,
         to: usize,
+        options: crate::headless::ConversationRangeDeleteOptions,
     },
 }
 
@@ -1562,7 +1563,7 @@ fn handle_conversation_slash(app: &mut App, rest: &str) {
                 "/conversation range [<id>] <from>:<to>",
                 "/conversation usage [<id>] [<from>:<to>|last <n>]",
                 "/conversation memory [<id>] <from>:<to> [--user] [--topic <topic>]",
-                "/conversation range-delete [<id>] <from>:<to>",
+                "/conversation range-delete [<id>] <from>:<to> [--compact-first] [--memory-first]",
                 "/conversation confirm",
                 "/conversation cancel",
                 "/conversations is accepted as an alias for /conversation.",
@@ -2114,6 +2115,75 @@ fn parse_conversation_range_args_with_selected(
     Ok((id.to_string(), from, to))
 }
 
+fn parse_conversation_range_delete_args_with_selected(
+    rest: &str,
+    selected: Option<&str>,
+) -> anyhow::Result<(
+    String,
+    usize,
+    usize,
+    crate::headless::ConversationRangeDeleteOptions,
+)> {
+    let mut positional = Vec::new();
+    let mut options = crate::headless::ConversationRangeDeleteOptions::default();
+    let mut parts = rest.split_whitespace();
+    while let Some(part) = parts.next() {
+        match part {
+            "--compact-first" => options.compact_first = true,
+            "--compact-guidance" => {
+                options.compact_guidance = Some(
+                    parts
+                        .next()
+                        .ok_or_else(|| anyhow::anyhow!("--compact-guidance needs text"))?
+                        .to_string(),
+                );
+            }
+            other if other.starts_with("--compact-guidance=") => {
+                options.compact_guidance =
+                    Some(other.trim_start_matches("--compact-guidance=").to_string());
+            }
+            "--compact-max-output-tokens" => {
+                options.compact_max_output_tokens = parts
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--compact-max-output-tokens needs a value"))?
+                    .parse::<u32>()?;
+                if options.compact_max_output_tokens == 0 {
+                    anyhow::bail!("--compact-max-output-tokens must be greater than zero");
+                }
+            }
+            other if other.starts_with("--compact-max-output-tokens=") => {
+                options.compact_max_output_tokens = other
+                    .trim_start_matches("--compact-max-output-tokens=")
+                    .parse::<u32>()?;
+                if options.compact_max_output_tokens == 0 {
+                    anyhow::bail!("--compact-max-output-tokens must be greater than zero");
+                }
+            }
+            "--memory-first" => options.memory_first = true,
+            "--memory-guidance" => {
+                options.memory_guidance = Some(
+                    parts
+                        .next()
+                        .ok_or_else(|| anyhow::anyhow!("--memory-guidance needs text"))?
+                        .to_string(),
+                );
+            }
+            other if other.starts_with("--memory-guidance=") => {
+                options.memory_guidance =
+                    Some(other.trim_start_matches("--memory-guidance=").to_string());
+            }
+            "--memory-user" => options.memory_user = true,
+            other if other.starts_with("--") => {
+                anyhow::bail!("unexpected range-delete argument: {other}");
+            }
+            other => positional.push(other),
+        }
+    }
+    let (id, from, to) =
+        parse_conversation_range_args_with_selected(&positional.join(" "), selected)?;
+    Ok((id, from, to, options))
+}
+
 fn parse_conversation_range_args_explicit(rest: &str) -> anyhow::Result<(String, usize, usize)> {
     let mut parts = rest.split_whitespace();
     let id = parts
@@ -2310,8 +2380,10 @@ fn prepare_conversation_delete(app: &mut App, args: &str) -> anyhow::Result<()> 
 }
 
 fn prepare_conversation_range_delete(app: &mut App, args: &str) -> anyhow::Result<()> {
-    let (id, from, to) =
-        parse_conversation_range_args_with_selected(args, app.selected_conversation_id.as_deref())?;
+    let (id, from, to, options) = parse_conversation_range_delete_args_with_selected(
+        args,
+        app.selected_conversation_id.as_deref(),
+    )?;
     let review = conversation_range_review_value(&id, from, to)?;
     push_conversation_range_review(app, &review);
     if review["deletable_by_delete_range"].as_bool() != Some(true) {
@@ -2328,7 +2400,12 @@ fn prepare_conversation_range_delete(app: &mut App, args: &str) -> anyhow::Resul
             .unwrap_or_else(|| "range is not deletable".into());
         anyhow::bail!("{warnings}");
     }
-    app.pending_conversation_action = Some(PendingConversationAction::DeleteRange { id, from, to });
+    app.pending_conversation_action = Some(PendingConversationAction::DeleteRange {
+        id,
+        from,
+        to,
+        options,
+    });
     push_event(
         app,
         "Pending conversation range delete. Use /conversation confirm or /conversation cancel."
@@ -2410,6 +2487,61 @@ fn generate_conversation_memory_from_tui(app: &mut App, args: &str) -> anyhow::R
     Ok(())
 }
 
+#[derive(Debug, Default)]
+struct PreservedRangeArtifacts {
+    compaction_ids: Vec<String>,
+    memory_ids: Vec<String>,
+}
+
+fn preserve_conversation_range_artifacts_from_tui(
+    store: &ConversationStore,
+    id: &str,
+    from: usize,
+    to: usize,
+    options: &crate::headless::ConversationRangeDeleteOptions,
+) -> anyhow::Result<PreservedRangeArtifacts> {
+    let mut preserved = PreservedRangeArtifacts::default();
+    if !options.compact_first && !options.memory_first {
+        return Ok(preserved);
+    }
+    let rendered = store.render_deletable_message_range(id, from, to)?;
+    let source = format!("pre-delete-range:{id}:{}", rendered.source_range);
+    if options.compact_first {
+        let record = CompactionStore::from_env().create_from_text_for_conversation(
+            &rendered.text,
+            options.compact_guidance.clone(),
+            Some(options.compact_max_output_tokens),
+            Some(source),
+            Some(id.to_string()),
+        )?;
+        preserved.compaction_ids.push(record.id);
+    }
+    if options.memory_first {
+        let target = if options.memory_user {
+            MemoryTarget::User
+        } else {
+            MemoryTarget::Agent
+        };
+        let records = MemoryStore::from_env()
+            .generate_from_conversation_text_with_topics_for_agent_and_guidance(
+                target,
+                &rendered.text,
+                Some(rendered.source_range),
+                Some(id.to_string()),
+                Vec::new(),
+                None,
+                options.memory_guidance.clone(),
+            )?;
+        for record in &records {
+            crate::headless::record_memory_written(record, "generated")?;
+        }
+        preserved
+            .memory_ids
+            .extend(records.into_iter().map(|record| record.id));
+    }
+    Ok(preserved)
+}
+
 fn confirm_conversation_action(app: &mut App) -> anyhow::Result<()> {
     let Some(action) = app.pending_conversation_action.take() else {
         anyhow::bail!("no pending conversation action");
@@ -2447,10 +2579,18 @@ fn confirm_conversation_action(app: &mut App) -> anyhow::Result<()> {
                 });
             }
         }
-        PendingConversationAction::DeleteRange { id, from, to } => {
-            let before = ConversationStore::from_env().expanded(&id)?.messages.len();
-            let doc = ConversationStore::from_env().delete_message_range(&id, from, to)?;
-            let after = ConversationStore::from_env().expanded(&id)?.messages.len();
+        PendingConversationAction::DeleteRange {
+            id,
+            from,
+            to,
+            options,
+        } => {
+            let store = ConversationStore::from_env();
+            let before = store.expanded(&id)?.messages.len();
+            let preserved =
+                preserve_conversation_range_artifacts_from_tui(&store, &id, from, to, &options)?;
+            let doc = store.delete_message_range(&id, from, to)?;
+            let after = store.expanded(&id)?.messages.len();
             push_event(
                 app,
                 format!(
@@ -2458,6 +2598,16 @@ fn confirm_conversation_action(app: &mut App) -> anyhow::Result<()> {
                     doc.messages.len()
                 ),
             );
+            if !preserved.compaction_ids.is_empty() || !preserved.memory_ids.is_empty() {
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Event,
+                    text: format!(
+                        "Preserved {} compaction artifact(s) and {} memory record(s).",
+                        preserved.compaction_ids.len(),
+                        preserved.memory_ids.len()
+                    ),
+                });
+            }
         }
     }
     Ok(())
@@ -12347,6 +12497,24 @@ mod tests {
             ("conv-1".into(), 2, 4)
         );
         assert!(parse_conversation_range_args_with_selected("2:4", None).is_err());
+    }
+
+    #[test]
+    fn conversation_range_delete_args_accept_preservation_options() {
+        let (id, from, to, options) = parse_conversation_range_delete_args_with_selected(
+            "2:4 --compact-first --compact-guidance keep --compact-max-output-tokens=128 --memory-first --memory-guidance stable --memory-user",
+            Some("conv-1"),
+        )
+        .unwrap();
+        assert_eq!(id, "conv-1");
+        assert_eq!(from, 2);
+        assert_eq!(to, 4);
+        assert!(options.compact_first);
+        assert_eq!(options.compact_guidance.as_deref(), Some("keep"));
+        assert_eq!(options.compact_max_output_tokens, 128);
+        assert!(options.memory_first);
+        assert_eq!(options.memory_guidance.as_deref(), Some("stable"));
+        assert!(options.memory_user);
     }
 
     #[test]

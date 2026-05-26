@@ -284,9 +284,12 @@ pub async fn run(
                 ConversationSlashCommand::Delete { id, options } => {
                     conversation_delete(id, options).await
                 }
-                ConversationSlashCommand::DeleteRange { id, from, to } => {
-                    conversation_delete_range(id, from, to).await
-                }
+                ConversationSlashCommand::DeleteRange {
+                    id,
+                    from,
+                    to,
+                    options,
+                } => conversation_delete_range(id, from, to, options).await,
                 ConversationSlashCommand::DeleteAgent { agent, options } => {
                     conversation_delete_agent(agent, options).await
                 }
@@ -3181,6 +3184,29 @@ pub struct ConversationDeleteOptions {
     pub memory_user: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConversationRangeDeleteOptions {
+    pub compact_first: bool,
+    pub compact_guidance: Option<String>,
+    pub compact_max_output_tokens: u32,
+    pub memory_first: bool,
+    pub memory_guidance: Option<String>,
+    pub memory_user: bool,
+}
+
+impl Default for ConversationRangeDeleteOptions {
+    fn default() -> Self {
+        Self {
+            compact_first: false,
+            compact_guidance: None,
+            compact_max_output_tokens: 512,
+            memory_first: false,
+            memory_guidance: None,
+            memory_user: false,
+        }
+    }
+}
+
 pub async fn conversation_delete(
     id: String,
     options: ConversationDeleteOptions,
@@ -3193,15 +3219,23 @@ pub async fn conversation_delete(
     Ok(())
 }
 
-pub async fn conversation_delete_range(id: String, from: usize, to: usize) -> anyhow::Result<()> {
-    let before = ConversationStore::from_env().expanded(&id)?.messages.len();
-    let doc = ConversationStore::from_env().delete_message_range(&id, from, to)?;
-    let after = ConversationStore::from_env().expanded(&id)?.messages.len();
+pub async fn conversation_delete_range(
+    id: String,
+    from: usize,
+    to: usize,
+    options: ConversationRangeDeleteOptions,
+) -> anyhow::Result<()> {
+    let store = ConversationStore::from_env();
+    let before = store.expanded(&id)?.messages.len();
+    let preserved = preserve_conversation_range_artifacts(&store, &id, from, to, &options)?;
+    let doc = store.delete_message_range(&id, from, to)?;
+    let after = store.expanded(&id)?.messages.len();
     println!(
         "deleted {} message(s) from {id}",
         before.saturating_sub(after)
     );
     println!("own messages remaining: {}", doc.messages.len());
+    print_preserved_conversation_artifacts(&preserved);
     Ok(())
 }
 
@@ -3232,6 +3266,16 @@ fn print_conversation_deletion(
     for id in &deleted {
         println!("{id}");
     }
+    print_preserved_conversation_artifacts(&preserved);
+    println!(
+        "deleted {} linked compaction artifact(s)",
+        cleanup.compactions
+    );
+    println!("deleted {} linked memory record(s)", cleanup.memories);
+    Ok(())
+}
+
+fn print_preserved_conversation_artifacts(preserved: &PreservedConversationArtifacts) {
     if !preserved.compaction_ids.is_empty() {
         println!(
             "preserved {} pre-delete compaction artifact(s)",
@@ -3250,12 +3294,6 @@ fn print_conversation_deletion(
             println!("{id}");
         }
     }
-    println!(
-        "deleted {} linked compaction artifact(s)",
-        cleanup.compactions
-    );
-    println!("deleted {} linked memory record(s)", cleanup.memories);
-    Ok(())
 }
 
 #[derive(Debug, Default)]
@@ -3301,6 +3339,55 @@ fn cleanup_conversation_side_data(
         compactions,
         memories,
     })
+}
+
+fn preserve_conversation_range_artifacts(
+    store: &ConversationStore,
+    id: &str,
+    from: usize,
+    to: usize,
+    options: &ConversationRangeDeleteOptions,
+) -> anyhow::Result<PreservedConversationArtifacts> {
+    let mut preserved = PreservedConversationArtifacts::default();
+    if !options.compact_first && !options.memory_first {
+        return Ok(preserved);
+    }
+    let rendered = store.render_deletable_message_range(id, from, to)?;
+    let source = format!("pre-delete-range:{id}:{}", rendered.source_range);
+    if options.compact_first {
+        let record = CompactionStore::from_env().create_from_text_for_conversation(
+            &rendered.text,
+            options.compact_guidance.clone(),
+            Some(options.compact_max_output_tokens),
+            Some(source.clone()),
+            Some(id.to_string()),
+        )?;
+        preserved.compaction_ids.push(record.id);
+    }
+    if options.memory_first {
+        let target = if options.memory_user {
+            MemoryTarget::User
+        } else {
+            MemoryTarget::Agent
+        };
+        let records = MemoryStore::from_env()
+            .generate_from_conversation_text_with_topics_for_agent_and_guidance(
+                target,
+                &rendered.text,
+                Some(rendered.source_range),
+                Some(id.to_string()),
+                Vec::new(),
+                None,
+                options.memory_guidance.clone(),
+            )?;
+        for record in &records {
+            record_memory_written(record, "generated")?;
+        }
+        preserved
+            .memory_ids
+            .extend(records.into_iter().map(|record| record.id));
+    }
+    Ok(preserved)
 }
 
 fn preserve_conversation_artifacts(
@@ -6929,10 +7016,20 @@ pub async fn remote_conversation_delete_range(
     id: String,
     from: usize,
     to: usize,
+    options: ConversationRangeDeleteOptions,
 ) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).post_json(
         &format!("/conversations/{id}/delete-range"),
-        serde_json::json!({ "from": from, "to": to }),
+        serde_json::json!({
+            "from": from,
+            "to": to,
+            "compact_first": options.compact_first,
+            "compact_guidance": options.compact_guidance,
+            "compact_max_output_tokens": options.compact_max_output_tokens,
+            "memory_first": options.memory_first,
+            "memory_guidance": options.memory_guidance,
+            "memory_user": options.memory_user
+        }),
     )?)
 }
 
@@ -8965,6 +9062,7 @@ enum ConversationSlashCommand {
         id: String,
         from: usize,
         to: usize,
+        options: ConversationRangeDeleteOptions,
     },
     DeleteAgent {
         agent: String,
@@ -11113,9 +11211,39 @@ fn parse_conversation_delete_range_args<'a>(
     let mut from = None;
     let mut to = None;
     let mut confirmed = false;
+    let mut options = ConversationRangeDeleteOptions::default();
     while let Some(part) = parts.next() {
         match part {
             "--confirm" => confirmed = true,
+            "--compact-first" => options.compact_first = true,
+            "--compact-guidance" => {
+                options.compact_guidance =
+                    Some(next_required(&mut parts, "--compact-guidance needs text")?);
+            }
+            _ if part.starts_with("--compact-guidance=") => {
+                options.compact_guidance = Some(required_option_value(part, "--compact-guidance")?);
+            }
+            "--compact-max-output-tokens" => {
+                options.compact_max_output_tokens = parse_positive_u32(
+                    &next_required(&mut parts, "--compact-max-output-tokens needs a value")?,
+                    "--compact-max-output-tokens",
+                )?;
+            }
+            _ if part.starts_with("--compact-max-output-tokens=") => {
+                options.compact_max_output_tokens = parse_positive_u32(
+                    &required_option_value(part, "--compact-max-output-tokens")?,
+                    "--compact-max-output-tokens",
+                )?;
+            }
+            "--memory-first" => options.memory_first = true,
+            "--memory-guidance" => {
+                options.memory_guidance =
+                    Some(next_required(&mut parts, "--memory-guidance needs text")?);
+            }
+            _ if part.starts_with("--memory-guidance=") => {
+                options.memory_guidance = Some(required_option_value(part, "--memory-guidance")?);
+            }
+            "--memory-user" => options.memory_user = true,
             "--from" => {
                 from = Some(parse_nonnegative_usize(
                     &next_required(&mut parts, "--from needs an index")?,
@@ -11161,7 +11289,12 @@ fn parse_conversation_delete_range_args<'a>(
     if to < from {
         anyhow::bail!("conversation range-delete end must be greater than or equal to start");
     }
-    Ok(ConversationSlashCommand::DeleteRange { id, from, to })
+    Ok(ConversationSlashCommand::DeleteRange {
+        id,
+        from,
+        to,
+        options,
+    })
 }
 
 fn secrets_slash_rest(trimmed: &str) -> Option<&str> {
@@ -13668,15 +13801,25 @@ mod slash_tests {
             }
             _ => panic!("expected conversation delete shortcut"),
         }
-        match parse_slash_command("/conversation range-delete convo-1 1:3 --confirm").unwrap() {
+        match parse_slash_command(
+            "/conversation range-delete convo-1 1:3 --compact-first --compact-guidance keep-range --memory-first --memory-guidance stable-range --memory-user --confirm",
+        )
+        .unwrap()
+        {
             Some(SlashCommand::Conversation(ConversationSlashCommand::DeleteRange {
                 id,
                 from,
                 to,
+                options,
             })) => {
                 assert_eq!(id, "convo-1");
                 assert_eq!(from, 1);
                 assert_eq!(to, 3);
+                assert!(options.compact_first);
+                assert_eq!(options.compact_guidance.as_deref(), Some("keep-range"));
+                assert!(options.memory_first);
+                assert_eq!(options.memory_guidance.as_deref(), Some("stable-range"));
+                assert!(options.memory_user);
             }
             _ => panic!("expected conversation range-delete shortcut"),
         }

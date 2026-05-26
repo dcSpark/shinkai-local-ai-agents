@@ -220,6 +220,13 @@ pub async fn run(
             };
         }
         Some(SlashCommand::VoiceStatus) => return voice_status(&options, json),
+        Some(SlashCommand::Batch(command)) => {
+            return match command {
+                BatchSlashCommand::List => batch_list(json).await,
+                BatchSlashCommand::Show { batch_id } => batch_show(batch_id, json).await,
+                BatchSlashCommand::Delete { batch_id } => batch_delete(batch_id, json).await,
+            };
+        }
         Some(SlashCommand::BatchRun {
             items,
             files,
@@ -9262,6 +9269,7 @@ enum SlashCommand {
     BridgeStatus,
     BridgeDelivery(BridgeDeliverySlashCommand),
     VoiceStatus,
+    Batch(BatchSlashCommand),
     BatchRun {
         items: Vec<String>,
         files: Vec<String>,
@@ -9320,6 +9328,12 @@ enum SlashCommand {
         score: f32,
         target: String,
     },
+}
+
+enum BatchSlashCommand {
+    List,
+    Show { batch_id: String },
+    Delete { batch_id: String },
 }
 
 enum BundleSlashCommand {
@@ -9831,6 +9845,9 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         anyhow::bail!("batch shortcut needs one or more prompts after /batch");
     }
     if let Some(rest) = trimmed.strip_prefix("/batch ").map(str::trim) {
+        if let Some(command) = parse_batch_management_slash_rest(rest)? {
+            return Ok(Some(SlashCommand::Batch(command)));
+        }
         let batch = parse_batch_slash_run(rest)?;
         return Ok(Some(SlashCommand::BatchRun {
             items: batch.items,
@@ -10777,7 +10794,7 @@ fn headless_slash_help_text() -> &'static str {
     "Headless slash commands:\n\
      - /run <prompt-name> - use a saved prompt when available, otherwise run the literal text\n\
      - /agent [id] [prompt] - inspect config, or run a prompt with a specific saved agent\n\
-     - /batch <line-delimited prompts>, /batch files <paths>, /batch folder <path>, /resume-batch <batch-id> - run or resume deterministic batches\n\
+     - /batch <line-delimited prompts>, /batch files <paths>, /batch folder <path>, /batch list|show|delete, /resume-batch <batch-id> - run, resume, or inspect deterministic batches\n\
      - /agents list|show|save [--disable-lifecycle-hook <hook-id>] [--refinement-rules-json <json-array>]|export|import|delete - manage saved agent configs\n\
      - /skills status|preview|list|show|inspect|import-openclaw|import-doc|export|allow|quarantine\n\
      - /prompts (/prompt) list|show|save|use|preview|export|import|delete - manage global or agent-scoped saved prompts\n\
@@ -11006,6 +11023,49 @@ struct BatchSlashRun {
     items: Vec<String>,
     files: Vec<String>,
     folders: Vec<String>,
+}
+
+fn parse_batch_management_slash_rest(rest: &str) -> anyhow::Result<Option<BatchSlashCommand>> {
+    let mut parts = rest.split_whitespace();
+    let Some(command) = parts.next() else {
+        return Ok(None);
+    };
+    match command {
+        "list" => {
+            ensure_no_extra(parts, "usage: /batch list")?;
+            Ok(Some(BatchSlashCommand::List))
+        }
+        "show" => {
+            let batch_id = next_required(&mut parts, "batch show needs a batch id")?;
+            ensure_no_extra(parts, "usage: /batch show <batch-id>")?;
+            Ok(Some(BatchSlashCommand::Show { batch_id }))
+        }
+        "delete" | "rm" => {
+            let batch_id = next_required(&mut parts, "batch delete needs a batch id")?;
+            parse_batch_confirm(parts, "delete")?;
+            Ok(Some(BatchSlashCommand::Delete { batch_id }))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn parse_batch_confirm<'a>(
+    parts: impl Iterator<Item = &'a str>,
+    action: &str,
+) -> anyhow::Result<()> {
+    let mut confirmed = false;
+    for part in parts {
+        match part {
+            "--confirm" => confirmed = true,
+            extra => {
+                anyhow::bail!("usage: /batch {action} <batch-id> --confirm, unexpected {extra:?}");
+            }
+        }
+    }
+    if !confirmed {
+        anyhow::bail!("batch {action} requires --confirm");
+    }
+    Ok(())
 }
 
 fn parse_batch_slash_run(rest: &str) -> anyhow::Result<BatchSlashRun> {
@@ -14615,10 +14675,35 @@ mod slash_tests {
             }
             _ => panic!("expected batch resume shortcut"),
         }
+        match parse_slash_command("/batch list").unwrap() {
+            Some(SlashCommand::Batch(BatchSlashCommand::List)) => {}
+            _ => panic!("expected batch list shortcut"),
+        }
+        match parse_slash_command("/batch show batch-123").unwrap() {
+            Some(SlashCommand::Batch(BatchSlashCommand::Show { batch_id })) => {
+                assert_eq!(batch_id, "batch-123");
+            }
+            _ => panic!("expected batch show shortcut"),
+        }
+        match parse_slash_command("/batch delete batch-123 --confirm").unwrap() {
+            Some(SlashCommand::Batch(BatchSlashCommand::Delete { batch_id })) => {
+                assert_eq!(batch_id, "batch-123");
+            }
+            _ => panic!("expected batch delete shortcut"),
+        }
+        match parse_slash_command("/batch rm batch-123 --confirm").unwrap() {
+            Some(SlashCommand::Batch(BatchSlashCommand::Delete { batch_id })) => {
+                assert_eq!(batch_id, "batch-123");
+            }
+            _ => panic!("expected batch rm shortcut"),
+        }
 
         assert!(parse_slash_command("/batch").is_err());
         assert!(parse_slash_command("/batch files").is_err());
         assert!(parse_slash_command("/batch folder").is_err());
+        assert!(parse_slash_command("/batch list extra").is_err());
+        assert!(parse_slash_command("/batch show").is_err());
+        assert!(parse_slash_command("/batch delete batch-123").is_err());
         assert!(parse_slash_command("/resume-batch").is_err());
         assert!(parse_slash_command("/resume-batch batch-123 extra").is_err());
         assert!(parse_slash_command("/batcher first").unwrap().is_none());

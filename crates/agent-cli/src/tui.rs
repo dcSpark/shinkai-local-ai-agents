@@ -997,7 +997,7 @@ fn global_slash_help_text() -> &'static str {
      - /guide <text>, /guide <last|run-id> <text> - steer a run at the next checkpoint\n\
      - /stop [default|--summarise|--discard] [reason], /stop status - stop or inspect the active run\n\
      - /resume [last|run-id] [--from-event N] - resume a saved run\n\
-     - /batch <line-delimited prompts>, /batch files <paths>, /batch folder <path>, /resume-batch <batch-id> - run or resume deterministic batches\n\
+     - /batch <line-delimited prompts>, /batch files <paths>, /batch folder <path>, /batch list|show|delete, /resume-batch <batch-id> - run, resume, or inspect deterministic batches\n\
      - /score [target] <0-10> - score the latest or selected answer\n\
      - /usage [current|last|trace|run|conversation] - inspect current or persisted usage totals\n\
      - /agent [id] - show or switch the active saved agent\n\
@@ -1256,7 +1256,7 @@ fn batch_help_slash_command(trimmed: &str) -> bool {
 }
 
 fn batch_slash_help_text() -> &'static str {
-    "/batch <line-delimited prompts>\n/batch files <line-delimited paths>\n/batch folder <path>\n/resume-batch <batch-id>"
+    "/batch <line-delimited prompts>\n/batch files <line-delimited paths>\n/batch folder <path>\n/batch list\n/batch show <batch-id>\n/batch delete <batch-id> --confirm\n/resume-batch <batch-id>"
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1408,7 +1408,7 @@ fn handle_slash_command(
         return true;
     }
     if let Some(rest) = batch_slash_rest(trimmed) {
-        start_batch_run(app, rest, demo, publish_tx, options);
+        handle_batch_slash(app, rest, demo, publish_tx, options);
         return true;
     }
     if let Some(rest) = resume_batch_slash_rest(trimmed) {
@@ -9531,6 +9531,67 @@ fn push_voice_status_field(lines: &mut Vec<String>, label: &str, value: Option<&
     }
 }
 
+fn handle_batch_slash(
+    app: &mut App,
+    rest: &str,
+    demo: Demo,
+    publish_tx: &UnboundedSender<RunEvent>,
+    options: &setup::RuntimeOptions,
+) {
+    match parse_batch_management_slash_rest(rest) {
+        Ok(Some(command)) => handle_batch_management_slash(app, command),
+        Ok(None) => start_batch_run(app, rest, demo, publish_tx, options),
+        Err(err) => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: format!("Batch failed: {err}"),
+        }),
+    }
+}
+
+fn handle_batch_management_slash(app: &mut App, command: BatchSlashCommand) {
+    match command {
+        BatchSlashCommand::List => match BatchPlan::list_from_env() {
+            Ok(summaries) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: serde_json::to_string_pretty(&summaries)
+                    .unwrap_or_else(|_| "<unserializable batch list>".into()),
+            }),
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Batch list failed: {err}"),
+            }),
+        },
+        BatchSlashCommand::Show { batch_id } => match BatchPlan::load_from_env(&batch_id) {
+            Ok(plan) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: serde_json::to_string_pretty(&plan)
+                    .unwrap_or_else(|_| "<unserializable batch plan>".into()),
+            }),
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Batch show failed: {err}"),
+            }),
+        },
+        BatchSlashCommand::Delete { batch_id } => match BatchPlan::delete_from_env(&batch_id) {
+            Ok(()) => {
+                push_event(app, format!("Deleted batch {batch_id}."));
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&serde_json::json!({
+                        "batch_id": batch_id,
+                        "deleted": true
+                    }))
+                    .unwrap_or_else(|_| "<unserializable batch delete result>".into()),
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Batch delete failed: {err}"),
+            }),
+        },
+    }
+}
+
 fn start_batch_run(
     app: &mut App,
     rest: &str,
@@ -10533,6 +10594,67 @@ struct BatchSlashRun {
     items: Vec<String>,
     files: Vec<String>,
     folders: Vec<String>,
+}
+
+enum BatchSlashCommand {
+    List,
+    Show { batch_id: String },
+    Delete { batch_id: String },
+}
+
+fn parse_batch_management_slash_rest(rest: &str) -> anyhow::Result<Option<BatchSlashCommand>> {
+    let mut parts = rest.split_whitespace();
+    let Some(command) = parts.next() else {
+        return Ok(None);
+    };
+    match command {
+        "list" => {
+            if parts.next().is_some() {
+                anyhow::bail!("usage: /batch list");
+            }
+            Ok(Some(BatchSlashCommand::List))
+        }
+        "show" => {
+            let batch_id = parts
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("batch show needs a batch id"))?;
+            if parts.next().is_some() {
+                anyhow::bail!("usage: /batch show <batch-id>");
+            }
+            Ok(Some(BatchSlashCommand::Show {
+                batch_id: batch_id.to_string(),
+            }))
+        }
+        "delete" | "rm" => {
+            let batch_id = parts
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("batch delete needs a batch id"))?;
+            parse_batch_confirm(parts, "delete")?;
+            Ok(Some(BatchSlashCommand::Delete {
+                batch_id: batch_id.to_string(),
+            }))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn parse_batch_confirm<'a>(
+    parts: impl Iterator<Item = &'a str>,
+    action: &str,
+) -> anyhow::Result<()> {
+    let mut confirmed = false;
+    for part in parts {
+        match part {
+            "--confirm" => confirmed = true,
+            extra => {
+                anyhow::bail!("usage: /batch {action} <batch-id> --confirm, unexpected {extra:?}");
+            }
+        }
+    }
+    if !confirmed {
+        anyhow::bail!("batch {action} requires --confirm");
+    }
+    Ok(())
 }
 
 fn parse_batch_slash_run(rest: &str) -> anyhow::Result<BatchSlashRun> {
@@ -12680,6 +12802,30 @@ mod tests {
         assert_eq!(batch_slash_rest("/batch"), Some(""));
         assert_eq!(batch_slash_rest("/batch first"), Some("first"));
         assert_eq!(batch_slash_rest("/batcher first"), None);
+        match parse_batch_management_slash_rest("list").unwrap() {
+            Some(BatchSlashCommand::List) => {}
+            _ => panic!("expected batch list shortcut"),
+        }
+        match parse_batch_management_slash_rest("show batch-1").unwrap() {
+            Some(BatchSlashCommand::Show { batch_id }) => assert_eq!(batch_id, "batch-1"),
+            _ => panic!("expected batch show shortcut"),
+        }
+        match parse_batch_management_slash_rest("delete batch-1 --confirm").unwrap() {
+            Some(BatchSlashCommand::Delete { batch_id }) => assert_eq!(batch_id, "batch-1"),
+            _ => panic!("expected batch delete shortcut"),
+        }
+        match parse_batch_management_slash_rest("rm batch-1 --confirm").unwrap() {
+            Some(BatchSlashCommand::Delete { batch_id }) => assert_eq!(batch_id, "batch-1"),
+            _ => panic!("expected batch rm shortcut"),
+        }
+        assert!(
+            parse_batch_management_slash_rest("first prompt")
+                .unwrap()
+                .is_none()
+        );
+        assert!(parse_batch_management_slash_rest("list extra").is_err());
+        assert!(parse_batch_management_slash_rest("show").is_err());
+        assert!(parse_batch_management_slash_rest("delete batch-1").is_err());
         assert_eq!(resume_batch_slash_rest("/resume-batch"), Some(""));
         assert_eq!(
             resume_batch_slash_rest("/resume-batch batch-1"),
@@ -12972,6 +13118,37 @@ mod tests {
         let deleted = app.transcript.last().unwrap().text.clone();
         assert!(deleted.contains("\"deleted\": true"));
         assert!(!deliveries_dir.join("delivery-1.json").exists());
+    }
+
+    #[test]
+    fn batch_management_slash_lists_shows_and_deletes_plans() {
+        let _home = HarnessHomeGuard::new();
+        let mut plan = BatchPlan::new("batch-shortcut", vec!["first prompt".into()]);
+        plan.save_to_env().unwrap();
+
+        let mut app = App::default();
+        handle_batch_management_slash(&mut app, BatchSlashCommand::List);
+        let listed = app.transcript.last().unwrap().text.clone();
+        assert!(listed.contains("batch-shortcut"));
+
+        handle_batch_management_slash(
+            &mut app,
+            BatchSlashCommand::Show {
+                batch_id: "batch-shortcut".into(),
+            },
+        );
+        let shown = app.transcript.last().unwrap().text.clone();
+        assert!(shown.contains("first prompt"));
+
+        handle_batch_management_slash(
+            &mut app,
+            BatchSlashCommand::Delete {
+                batch_id: "batch-shortcut".into(),
+            },
+        );
+        let deleted = app.transcript.last().unwrap().text.clone();
+        assert!(deleted.contains("\"deleted\": true"));
+        assert!(BatchPlan::load_from_env("batch-shortcut").is_err());
     }
 
     #[test]

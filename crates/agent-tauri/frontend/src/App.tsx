@@ -1701,6 +1701,7 @@ export default function App() {
       { command: "/memory show ", label: "Show memory record" },
       { command: "/memory edit ", label: "Edit memory record" },
       { command: "/memory delete ", label: "Delete memory record" },
+      { command: "/memory rm ", label: "Delete memory record" },
       { command: "/memory rollback --confirm", label: "Rollback memory file" },
       { command: "/memory export ", label: "Export memory records" },
       { command: "/memory import ", label: "Import memory records" },
@@ -3774,7 +3775,7 @@ export default function App() {
       "/memory classify <id> [--model <model>] [--agent <agent>] [--no-apply]",
       "/memory show <id>",
       "/memory edit <id> <content>",
-      "/memory delete <id> --confirm",
+      "/memory delete|rm <id> --confirm",
       "/memory rollback [--user] --confirm",
       "/memory export <path> [--user] [--agent <agent>]",
       "/memory import <path> [--user] [--agent <agent>]",
@@ -8004,16 +8005,16 @@ export default function App() {
         } else {
           await editMemoryFromOps(match[1], match[2].trim());
         }
-      } else if (command === "delete") {
+      } else if (command === "delete" || command === "rm") {
         const ids = args.filter((arg) => arg !== "--confirm");
         const confirmed = args.includes("--confirm");
         if (ids.length !== 1) {
           appendLine(
             "error",
-            "Memory delete shortcut needs a memory id and required --confirm.",
+            "Memory delete/rm shortcut needs a memory id and required --confirm.",
           );
         } else if (!confirmed) {
-          appendLine("error", "Memory delete shortcut requires --confirm.");
+          appendLine("error", "Memory delete/rm shortcut requires --confirm.");
         } else {
           await deleteMemoryFromOps(ids[0], true);
         }
@@ -8037,7 +8038,7 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Memory shortcut needs on, off, status, list, access, backends, probe, preview, create, generate, generate-conversation, classify, show, edit, delete, rollback, export, import, or help.",
+          "Memory shortcut needs on, off, status, list, access, backends, probe, preview, create, generate, generate-conversation, classify, show, edit, delete, rm, rollback, export, import, or help.",
         );
       }
       return;

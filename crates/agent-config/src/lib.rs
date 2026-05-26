@@ -2772,6 +2772,35 @@ fn validate_model_metadata_catalog(catalog: &ModelMetadataCatalog) -> Result<(),
                 "duplicate model metadata catalog entry: {provider}/{model_id}"
             )));
         }
+        validate_model_metadata_catalog_string_list(
+            &model.modalities,
+            &format!("model metadata catalog entry {provider}/{model_id} modalities"),
+        )?;
+        validate_model_metadata_catalog_string_list(
+            &model.capabilities,
+            &format!("model metadata catalog entry {provider}/{model_id} capabilities"),
+        )?;
+    }
+    Ok(())
+}
+
+fn validate_model_metadata_catalog_string_list(
+    values: &[String],
+    field: &str,
+) -> Result<(), ConfigError> {
+    let mut seen = BTreeSet::new();
+    for value in values {
+        let value = value.trim();
+        if value.is_empty() {
+            return Err(ConfigError::InvalidInput(format!(
+                "{field} contains empty value"
+            )));
+        }
+        if !seen.insert(value.to_string()) {
+            return Err(ConfigError::InvalidInput(format!(
+                "{field} contains duplicate value: {value}"
+            )));
+        }
     }
     Ok(())
 }
@@ -2785,6 +2814,8 @@ fn normalize_model_metadata_catalog(
             ConfigError::InvalidInput("model metadata catalog entries require provider".into())
         })?;
         model.model_id = model.model_id.trim().to_string();
+        normalize_model_metadata_catalog_string_list(&mut model.modalities);
+        normalize_model_metadata_catalog_string_list(&mut model.capabilities);
     }
     catalog.models.sort_by(|a, b| {
         a.provider
@@ -2792,6 +2823,12 @@ fn normalize_model_metadata_catalog(
             .then_with(|| a.model_id.cmp(&b.model_id))
     });
     Ok(catalog)
+}
+
+fn normalize_model_metadata_catalog_string_list(values: &mut [String]) {
+    for value in values {
+        *value = value.trim().to_string();
+    }
 }
 
 fn bundled_model_metadata_catalog() -> Option<LoadedModelMetadataCatalog> {
@@ -6927,8 +6964,8 @@ system_prompt = "Review carefully."
                 {
                   "provider": "custom-openai",
                   "model_id": "custom-vision",
-                  "modalities": ["text", "image"],
-                  "capabilities": ["function_calling"],
+                  "modalities": [" text ", "image"],
+                  "capabilities": [" function_calling ", "structured_outputs "],
                   "tool_support": true,
                   "limits": { "context_tokens": 32000 },
                   "pricing": { "input_per_million": "0.10" }
@@ -6943,6 +6980,11 @@ system_prompt = "Review carefully."
             .import_model_metadata_catalog(&import_path)
             .unwrap();
         assert_eq!(imported.models[0].model_id, "custom-vision");
+        assert_eq!(imported.models[0].modalities, vec!["text", "image"]);
+        assert_eq!(
+            imported.models[0].capabilities,
+            vec!["function_calling", "structured_outputs"]
+        );
         assert_eq!(
             resolver
                 .show_model_metadata_catalog()
@@ -6979,6 +7021,7 @@ system_prompt = "Review carefully."
         ));
         let import_path = dir.join("incoming-metadata-catalog.json");
         let duplicate_path = dir.join("duplicate-metadata-catalog.json");
+        let duplicate_list_path = dir.join("duplicate-metadata-list.json");
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(
             &import_path,
@@ -7023,6 +7066,28 @@ system_prompt = "Review carefully."
             err.to_string()
                 .contains("duplicate model metadata catalog entry: rig/gpt-test")
         );
+
+        std::fs::write(
+            &duplicate_list_path,
+            r#"{
+              "schema_version": 1,
+              "models": [
+                {
+                  "provider": "rig",
+                  "model_id": "gpt-test",
+                  "modalities": ["text", " text "]
+                }
+              ]
+            }"#,
+        )
+        .unwrap();
+
+        let err = resolver
+            .import_model_metadata_catalog(&duplicate_list_path)
+            .unwrap_err();
+        assert!(err.to_string().contains(
+            "model metadata catalog entry rig/gpt-test modalities contains duplicate value: text"
+        ));
 
         let _ = std::fs::remove_dir_all(dir);
     }

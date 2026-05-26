@@ -3220,7 +3220,7 @@ export default function App() {
       "/hooks available",
       "/hooks list",
       "/hooks policy",
-      "/hooks review [run-id]",
+      "/hooks review [last|run-id]",
       "/hooks disable <hook-id> [--agent] --confirm",
       "/hooks enable <hook-id> [--agent] --confirm",
     ].join("\n");
@@ -5424,8 +5424,15 @@ export default function App() {
   }
 
   async function reviewHooksFromOps(explicitRunId?: string) {
+    const selector = explicitRunId?.trim() || "";
+    if (selector && selector !== "last" && !isUuid(selector)) {
+      appendLine("error", "Hook review shortcut needs last or a run id.");
+      return;
+    }
     const runId =
-      explicitRunId?.trim() || traceEvents[0]?.run_id || lastRunId || "";
+      selector === "last"
+        ? lastRunId || ""
+        : selector || traceEvents[0]?.run_id || lastRunId || "";
     if (!runId) {
       appendLine("error", "Hook review shortcut needs a run id or previous run.");
       return;

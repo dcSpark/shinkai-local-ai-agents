@@ -8714,7 +8714,7 @@ fn handle_hooks_slash(app: &mut App, rest: &str, agent: &AgentConfig) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
-                "/hooks review [run-id]",
+                "/hooks review [last|run-id]",
                 "/hooks list",
                 "/hooks policy",
                 "/hooks available",
@@ -8840,27 +8840,14 @@ fn handle_hooks_available(app: &mut App, agent_id: &str) {
 }
 
 fn handle_hooks_review(app: &mut App, args: &str) {
-    let run_id = if args.trim().is_empty() {
-        match app.last_run_id {
-            Some(run_id) => run_id,
-            None => {
-                app.transcript.push(TranscriptLine {
-                    kind: LineKind::Error,
-                    text: "Hook review needs a run id or a previous run.".into(),
-                });
-                return;
-            }
-        }
-    } else {
-        match uuid::Uuid::parse_str(args.trim()) {
-            Ok(id) => RunId(id),
-            Err(err) => {
-                app.transcript.push(TranscriptLine {
-                    kind: LineKind::Error,
-                    text: format!("Hook review failed: {err}"),
-                });
-                return;
-            }
+    let run_id = match hooks_review_run_id(args, app.last_run_id) {
+        Ok(run_id) => run_id,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Hook review failed: {err}"),
+            });
+            return;
         }
     };
 
@@ -8879,6 +8866,16 @@ fn handle_hooks_review(app: &mut App, args: &str) {
             text: format!("Hook review failed: {err}"),
         }),
     }
+}
+
+fn hooks_review_run_id(args: &str, last_run_id: Option<RunId>) -> anyhow::Result<RunId> {
+    let selector = args.trim();
+    if selector.is_empty() || selector == "last" {
+        return last_run_id.ok_or_else(|| anyhow::anyhow!("needs a run id or a previous run"));
+    }
+    uuid::Uuid::parse_str(selector)
+        .map(RunId)
+        .map_err(Into::into)
 }
 
 fn handle_hook_policy_change(app: &mut App, command: &str, args: &str, agent_id: &str) {
@@ -12761,6 +12758,21 @@ mod tests {
             hooks_slash_rest("/hooks review run-1"),
             Some("review run-1")
         );
+        let hook_run_id = RunId(uuid::Uuid::new_v4());
+        assert_eq!(
+            hooks_review_run_id("", Some(hook_run_id)).unwrap(),
+            hook_run_id
+        );
+        assert_eq!(
+            hooks_review_run_id("last", Some(hook_run_id)).unwrap(),
+            hook_run_id
+        );
+        assert_eq!(
+            hooks_review_run_id(&hook_run_id.0.to_string(), None).unwrap(),
+            hook_run_id
+        );
+        assert!(hooks_review_run_id("last", None).is_err());
+        assert!(hooks_review_run_id("not-a-run", Some(hook_run_id)).is_err());
         assert_eq!(hooks_slash_rest("/hooks"), Some(""));
         assert_eq!(hooks_slash_rest("/hook"), None);
         assert!(hook_view_args("list", "").is_ok());

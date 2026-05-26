@@ -967,6 +967,7 @@ fn global_slash_help_text() -> &'static str {
      - /python <code>, /typescript <code>, /ts <code> - call native code tools directly\n\
      - /voice status, /voice transcribe <path>, /voice speak <text> - inspect voice config or call native voice tools directly\n\
      - /x402 request|required|settle ... - call native x402 payment tools directly\n\
+     - /shell status|on|off - inspect or toggle shell tool access\n\
      - /preview <prompt> - inspect context before running\n\
      - /guide <text> - steer the active run at the next checkpoint\n\
      - /stop [default|--summarise|--discard] [reason], /stop status - stop or inspect the active run\n\
@@ -1024,6 +1025,18 @@ fn code_help_slash_command(trimmed: &str) -> bool {
 
 fn code_slash_help_text() -> &'static str {
     "/python <code>\n/typescript <code>\n/ts <code>"
+}
+
+fn shell_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/shell" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/shell ").map(str::trim)
+    }
+}
+
+fn shell_slash_help_text() -> &'static str {
+    "/shell status\n/shell on\n/shell off"
 }
 
 fn voice_help_slash_command(trimmed: &str) -> bool {
@@ -1230,6 +1243,10 @@ fn handle_slash_command(
     }
     if let Some((tool_name, code)) = code_slash_command(trimmed) {
         start_code_tool_call(app, tool_name, code, registry, agent, publish_tx);
+        return true;
+    }
+    if let Some(rest) = shell_slash_rest(trimmed) {
+        handle_shell_slash(app, rest, registry, options);
         return true;
     }
     if voice_help_slash_command(trimmed) {
@@ -9140,6 +9157,62 @@ fn start_manual_tool_call(
     start_manual_tool_call_with_input(app, name, input, registry, agent, publish_tx);
 }
 
+fn handle_shell_slash(
+    app: &mut App,
+    rest: &str,
+    registry: &mut Arc<ToolRegistry>,
+    options: &mut setup::RuntimeOptions,
+) {
+    let rest = rest.trim().to_lowercase();
+    match rest.as_str() {
+        "" | "status" => {
+            push_event(
+                app,
+                format!(
+                    "Shell tool access is {}.",
+                    if options.enable_shell {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    }
+                ),
+            );
+        }
+        "help" | "--help" => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: shell_slash_help_text().into(),
+            });
+        }
+        "on" | "enable" | "enabled" => {
+            options.enable_shell = true;
+            *registry = setup::build_registry(
+                options.enable_shell,
+                options.enable_subagent,
+                options.enable_capability_drafts,
+                options.agent_id.as_deref(),
+                options.conversation_id.as_deref(),
+            );
+            push_event(app, "Shell tool access enabled.".into());
+        }
+        "off" | "disable" | "disabled" => {
+            options.enable_shell = false;
+            *registry = setup::build_registry(
+                options.enable_shell,
+                options.enable_subagent,
+                options.enable_capability_drafts,
+                options.agent_id.as_deref(),
+                options.conversation_id.as_deref(),
+            );
+            push_event(app, "Shell tool access disabled.".into());
+        }
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Shell command needs status, on, off, or help.".into(),
+        }),
+    }
+}
+
 fn start_code_tool_call(
     app: &mut App,
     tool_name: &str,
@@ -11226,6 +11299,11 @@ mod tests {
         assert!(!code_help_slash_command("/python helpful"));
         assert!(!code_help_slash_command("/typescript print('help')"));
         assert!(code_slash_help_text().contains("/typescript <code>"));
+        assert_eq!(shell_slash_rest("/shell"), Some(""));
+        assert_eq!(shell_slash_rest("/shell status"), Some("status"));
+        assert_eq!(shell_slash_rest("/shell on"), Some("on"));
+        assert_eq!(shell_slash_rest("/shells"), None);
+        assert!(shell_slash_help_text().contains("/shell status"));
         assert!(voice_help_slash_command("/voice help"));
         assert!(voice_help_slash_command("/voice --help"));
         assert!(!voice_help_slash_command("/voice helper"));
@@ -12403,6 +12481,42 @@ mod tests {
         assert_eq!(
             storage_report_event_text(&report),
             "Storage: 120 bytes across 3 file(s). Quota: 100 bytes, remaining -20 bytes (over quota)."
+        );
+    }
+
+    #[test]
+    fn shell_slash_toggles_runtime_shell_access() {
+        let mut app = App::default();
+        let mut options = setup::RuntimeOptions::default();
+        let mut registry = setup::build_registry(
+            options.enable_shell,
+            options.enable_subagent,
+            options.enable_capability_drafts,
+            options.agent_id.as_deref(),
+            options.conversation_id.as_deref(),
+        );
+
+        handle_shell_slash(&mut app, "status", &mut registry, &mut options);
+        assert!(
+            app.transcript
+                .iter()
+                .any(|line| line.text.contains("Shell tool access is disabled."))
+        );
+
+        handle_shell_slash(&mut app, "on", &mut registry, &mut options);
+        assert!(options.enable_shell);
+        assert!(
+            app.transcript
+                .iter()
+                .any(|line| line.text.contains("Shell tool access enabled."))
+        );
+
+        handle_shell_slash(&mut app, "off", &mut registry, &mut options);
+        assert!(!options.enable_shell);
+        assert!(
+            app.transcript
+                .iter()
+                .any(|line| line.text.contains("Shell tool access disabled."))
         );
     }
 

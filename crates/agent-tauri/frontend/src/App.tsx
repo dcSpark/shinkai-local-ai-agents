@@ -6142,7 +6142,13 @@ export default function App() {
       if (value === "status") {
         setInput("");
         appendLine("user", prompt);
-        appendEvent(`Stop mode is ${stopRetentionLabel(stopRetentionMode)}.`);
+        const activeRun =
+          running && lastRunId
+            ? ` Active run ${lastRunId.slice(0, 8)} will use it.`
+            : " No active run.";
+        appendEvent(
+          `Stop mode is ${stopRetentionLabel(stopRetentionMode)}.${activeRun}`,
+        );
         return;
       }
       const [firstToken = "", ...reasonParts] = rawValue.split(/\s+/).filter(Boolean);

@@ -73,8 +73,9 @@ use agent_tools::{
     ArtifactGenerateInput, GeneratedArtifact, ToolId, ToolRegistry,
     delete_generated_artifact_from_env, delete_generated_artifacts_by_ids_from_env,
     export_generated_artifact_from_env, generate_artifact_from_env,
-    generated_artifact_ids_in_value, list_generated_artifacts_from_env,
-    open_generated_artifact_from_env, show_generated_artifact_from_env,
+    generated_artifact_data_url_from_env, generated_artifact_ids_in_value,
+    list_generated_artifacts_from_env, open_generated_artifact_from_env,
+    show_generated_artifact_from_env,
 };
 use agent_tracing::{
     EventId, EventStore, PublishingEventStore, RunEvent, RunEventKind, RunId, SqliteEventStore,
@@ -5342,6 +5343,7 @@ fn handle_artifacts_slash(app: &mut App, rest: &str) {
                 "/artifacts list",
                 "/artifacts generate <format> <content>",
                 "/artifacts show <id>",
+                "/artifacts preview <id>",
                 "/artifacts open <id>",
                 "/artifacts export <id> <path>",
                 "/artifacts download <id> [path]",
@@ -5417,6 +5419,32 @@ fn handle_artifacts_slash(app: &mut App, rest: &str) {
                 Err(err) => app.transcript.push(TranscriptLine {
                     kind: LineKind::Error,
                     text: format!("Artifact show failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "preview" => match first_artifact_arg(args, "preview") {
+            Ok(id) => match generated_artifact_data_url_from_env(id) {
+                Ok(preview) => {
+                    push_event(
+                        app,
+                        format!(
+                            "Loaded artifact preview {} ({})",
+                            preview.artifact.id, preview.media_type
+                        ),
+                    );
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&preview)
+                            .unwrap_or_else(|_| "<unserializable artifact preview>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Artifact preview failed: {err}"),
                 }),
             },
             Err(err) => app.transcript.push(TranscriptLine {
@@ -5517,7 +5545,7 @@ fn handle_artifacts_slash(app: &mut App, rest: &str) {
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Artifacts command needs list, generate, show, open, export, download, delete, or help."
+            text: "Artifacts command needs list, generate, show, preview, open, export, download, delete, or help."
                 .into(),
         }),
     }
@@ -12228,6 +12256,10 @@ mod tests {
         assert_eq!(
             artifacts_slash_rest("/artifact show report"),
             Some("show report")
+        );
+        assert_eq!(
+            artifacts_slash_rest("/artifacts preview artifact-1"),
+            Some("preview artifact-1")
         );
         assert_eq!(artifacts_slash_rest("/artifactx"), None);
         assert_eq!(ingest_slash_rest("/ingest list"), Some("list"));

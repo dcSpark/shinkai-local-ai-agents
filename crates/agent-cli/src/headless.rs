@@ -64,9 +64,9 @@ use agent_storage::StoragePaths;
 use agent_tools::{
     ArtifactGenerateInput, ToolId, delete_generated_artifact_from_env,
     delete_generated_artifacts_by_ids_from_env, export_generated_artifact_from_env,
-    generate_artifact_from_env, generated_artifact_ids_in_value, is_shell_runtime_tool_id,
-    list_generated_artifacts_from_env, open_generated_artifact_from_env,
-    show_generated_artifact_from_env,
+    generate_artifact_from_env, generated_artifact_data_url_from_env,
+    generated_artifact_ids_in_value, is_shell_runtime_tool_id, list_generated_artifacts_from_env,
+    open_generated_artifact_from_env, show_generated_artifact_from_env,
 };
 use agent_tracing::{
     EventId, EventStore, RunEvent, RunEventKind, RunId, SqliteEventStore, TraceComparison,
@@ -361,6 +361,7 @@ pub async fn run(
                     artifact_generate(format, None, Some(content), None, None, json).await
                 }
                 ArtifactSlashCommand::Show { id } => artifact_show(id, json).await,
+                ArtifactSlashCommand::Preview { id } => artifact_preview(id, json).await,
                 ArtifactSlashCommand::Open { id } => artifact_open(id, json).await,
                 ArtifactSlashCommand::Export { id, path } => artifact_export(id, path, json).await,
                 ArtifactSlashCommand::Download { id, path } => {
@@ -5992,6 +5993,21 @@ pub async fn artifact_open(id: String, json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn artifact_preview(id: String, json: bool) -> anyhow::Result<()> {
+    let preview = generated_artifact_data_url_from_env(&id)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&preview)?);
+    } else {
+        println!(
+            "artifact: {} ({})",
+            preview.artifact.id, preview.artifact.format
+        );
+        println!("media type: {}", preview.media_type);
+        println!("{}", preview.data_url);
+    }
+    Ok(())
+}
+
 pub async fn artifact_export(id: String, path: String, json: bool) -> anyhow::Result<()> {
     let exported = export_generated_artifact_from_env(&id, &path)?;
     if json {
@@ -9277,6 +9293,7 @@ enum ArtifactSlashCommand {
     List,
     Generate { format: String, content: String },
     Show { id: String },
+    Preview { id: String },
     Open { id: String },
     Export { id: String, path: String },
     Download { id: String, path: Option<String> },
@@ -10128,7 +10145,7 @@ fn headless_slash_help_text() -> &'static str {
      - /conversation list|tree|show|recover|usage|delete|range-delete|delete-agent\n\
      - /secrets backends|list|show|delete\n\
      - /ingest status|list|backends|add|probe-source|probe-vision|rerun|preview|show|review|delete|remove\n\
-     - /artifacts list|generate|show|open|export|download|delete\n\
+     - /artifacts list|generate|show|preview|open|export|download|delete\n\
      - /capabilities list|doctor|propose|show|allow|reject|delete|export|import\n\
      - /adapters list|doctor|inspect|import|import-manifest|show|export|install-skill|allow|quarantine|clawhub\n\
      - /models list|providers|doctor|show|probe|save|export|import|delete|provider-catalog|metadata-catalog\n\
@@ -11845,6 +11862,11 @@ fn parse_artifact_slash_rest(rest: &str) -> anyhow::Result<ArtifactSlashCommand>
             ensure_no_extra(parts, "usage: /artifacts show <id>")?;
             Ok(ArtifactSlashCommand::Show { id })
         }
+        "preview" => {
+            let id = next_required(&mut parts, "artifact preview needs an id")?;
+            ensure_no_extra(parts, "usage: /artifacts preview <id>")?;
+            Ok(ArtifactSlashCommand::Preview { id })
+        }
         "open" => {
             let id = next_required(&mut parts, "artifact open needs an id")?;
             ensure_no_extra(parts, "usage: /artifacts open <id>")?;
@@ -11877,7 +11899,7 @@ fn parse_artifact_slash_rest(rest: &str) -> anyhow::Result<ArtifactSlashCommand>
             Ok(ArtifactSlashCommand::Delete { id })
         }
         _ => anyhow::bail!(
-            "artifact shortcut needs list, generate, show, open, export, download, or delete"
+            "artifact shortcut needs list, generate, show, preview, open, export, download, or delete"
         ),
     }
 }
@@ -13380,6 +13402,7 @@ mod slash_tests {
                 "/ingest status|list|backends|add|probe-source|probe-vision|rerun|preview"
             ) && help.contains("show|review|delete|remove")
         );
+        assert!(help.contains("/artifacts list|generate|show|preview|open|export"));
         assert!(help.contains("/hooks list|policy|available|review|disable|enable"));
     }
 
@@ -14613,6 +14636,12 @@ mod slash_tests {
             }
             _ => panic!("expected artifact show shortcut"),
         }
+        match parse_slash_command("/artifacts preview artifact-1").unwrap() {
+            Some(SlashCommand::Artifact(ArtifactSlashCommand::Preview { id })) => {
+                assert_eq!(id, "artifact-1");
+            }
+            _ => panic!("expected artifact preview shortcut"),
+        }
         match parse_slash_command("/artifacts open artifact-1").unwrap() {
             Some(SlashCommand::Artifact(ArtifactSlashCommand::Open { id })) => {
                 assert_eq!(id, "artifact-1");
@@ -14647,6 +14676,7 @@ mod slash_tests {
             _ => panic!("expected artifact delete shortcut"),
         }
         assert!(parse_slash_command("/artifacts delete artifact-1").is_err());
+        assert!(parse_slash_command("/artifacts preview").is_err());
         assert!(parse_slash_command("/artifactsx list").unwrap().is_none());
     }
 

@@ -2086,19 +2086,24 @@ async fn daemon_cancel(body: &str, state: Arc<DaemonState>) -> anyhow::Result<se
     let run_id = RunId(uuid::Uuid::parse_str(&input.run_id)?);
     let store = open_event_store()?;
     let existing_events = store.try_events(run_id)?;
-    let active_handle = state.active_runs.lock().await.remove(&input.run_id);
-    let aborted = active_handle.is_some();
-    if !aborted
-        && existing_events
-            .iter()
-            .any(|event| is_terminal_run_event(&event.kind))
+    if existing_events
+        .iter()
+        .any(|event| is_terminal_run_event(&event.kind))
     {
+        let active_handle = state.active_runs.lock().await.remove(&input.run_id);
+        let stale_active_handle = active_handle.is_some();
+        if let Some(handle) = active_handle {
+            handle.abort();
+        }
         return Ok(serde_json::json!({
             "run_id": run_id.0,
             "recorded": "not_active",
-            "aborted": false
+            "aborted": false,
+            "stale_active_handle": stale_active_handle
         }));
     }
+    let active_handle = state.active_runs.lock().await.remove(&input.run_id);
+    let aborted = active_handle.is_some();
     let parent = latest_event_id(&existing_events)
         .ok_or_else(|| anyhow::anyhow!("run {run_id} has no trace events"))?;
     store.append(
@@ -8202,6 +8207,85 @@ mod tests {
 
         restore_env("AGENT_HARNESS_HOME", previous_home);
         restore_env("AGENT_DAEMON_X402_ACCEPTS", previous_daemon_x402);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn cancel_does_not_rewrite_terminal_run_with_stale_active_handle() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("cancel-terminal-stale-active");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+
+        let run_id = RunId::new();
+        let store = open_event_store().unwrap();
+        let started = store.append(
+            run_id,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "runner".into(),
+                input: "finish normally".into(),
+            },
+        );
+        store.append(
+            run_id,
+            Some(started.id),
+            RunEventKind::RunCompleted {
+                final_output: "done".into(),
+                total_cost_usd: None,
+                total_duration_ms: 7,
+            },
+        );
+
+        let state = Arc::new(DaemonState::default());
+        let stale_task = tokio::spawn(async { std::future::pending::<()>().await });
+        state
+            .active_runs
+            .lock()
+            .await
+            .insert(run_id.0.to_string(), stale_task.abort_handle());
+
+        let response = daemon_cancel(
+            &serde_json::json!({
+                "run_id": run_id.0.to_string(),
+                "reason": "too late",
+                "mode": "summarise"
+            })
+            .to_string(),
+            state.clone(),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(response["recorded"], "not_active");
+        assert_eq!(response["aborted"], false);
+        assert_eq!(response["stale_active_handle"], true);
+        assert!(
+            !state
+                .active_runs
+                .lock()
+                .await
+                .contains_key(&run_id.0.to_string())
+        );
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_secs(1), stale_task)
+                .await
+                .unwrap()
+                .is_err()
+        );
+        let events = open_event_store().unwrap().events(run_id);
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event.kind, RunEventKind::RunCancelled { .. }))
+                .count(),
+            0
+        );
+        assert!(CompactionStore::from_env().list().unwrap().is_empty());
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
         let _ = std::fs::remove_dir_all(dir);
     }
 

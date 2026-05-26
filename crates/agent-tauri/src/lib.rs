@@ -2870,10 +2870,16 @@ async fn cancel(
         .iter()
         .any(|event| is_terminal_run_event(&event.kind))
     {
+        let active_handle = state.active_runs.lock().await.remove(&run_id);
+        let stale_active_handle = active_handle.is_some();
+        if let Some(handle) = active_handle {
+            handle.abort();
+        }
         return Ok(serde_json::json!({
             "run_id": parsed_run_id.0,
             "recorded": "not_active",
-            "aborted": false
+            "aborted": false,
+            "stale_active_handle": stale_active_handle
         }));
     }
     let parent = latest_event_id(&events)

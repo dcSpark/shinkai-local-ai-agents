@@ -985,6 +985,7 @@ fn global_slash_help_text() -> &'static str {
      - /voice status, /voice transcribe <path>, /voice speak <text> - inspect voice config or call native voice tools directly\n\
      - /x402 request|required|settle ... - call native x402 payment tools directly\n\
      - /bridges status - inspect messaging bridge readiness without printing secrets\n\
+     - /bridge-deliveries [list], /bridge-deliveries delete <id> --confirm - inspect or remove local bridge delivery dead letters\n\
      - /shell status|on|off - inspect or toggle shell tool access\n\
      - /subagent status|on|off - inspect or toggle subagent tool access\n\
      - /budget <n> - set the max tool-call budget for future TUI runs\n\
@@ -1365,6 +1366,10 @@ fn handle_slash_command(
     }
     if let Some(rest) = bridges_slash_rest(trimmed) {
         handle_bridges_slash(app, rest);
+        return true;
+    }
+    if let Some(rest) = bridge_deliveries_slash_rest(trimmed) {
+        handle_bridge_deliveries_slash(app, rest);
         return true;
     }
     if let Some(rest) = trimmed.strip_prefix("/tool ").map(str::trim) {
@@ -9438,6 +9443,18 @@ fn bridges_slash_help_text() -> &'static str {
     "/bridges status"
 }
 
+fn bridge_deliveries_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/bridge-deliveries" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/bridge-deliveries ").map(str::trim)
+    }
+}
+
+fn bridge_deliveries_slash_help_text() -> &'static str {
+    "/bridge-deliveries [list]\n/bridge-deliveries delete <id> --confirm"
+}
+
 fn voice_slash_help_text() -> &'static str {
     "Voice commands:\n\
      - /voice status - show resolved active-agent voice config\n\
@@ -9847,6 +9864,76 @@ fn handle_bridges_slash(app: &mut App, rest: &str) {
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
             text: "Bridges command needs status or help.".into(),
+        }),
+    }
+}
+
+fn handle_bridge_deliveries_slash(app: &mut App, rest: &str) {
+    let rest = rest.trim();
+    if matches!(rest, "help" | "--help") {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: bridge_deliveries_slash_help_text().into(),
+        });
+        return;
+    }
+    if rest.is_empty() || rest == "list" {
+        match crate::headless::bridge_delivery_report_from_env() {
+            Ok(report) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: serde_json::to_string_pretty(&report)
+                    .unwrap_or_else(|_| "<unserializable bridge deliveries>".into()),
+            }),
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Failed to list bridge deliveries: {err}"),
+            }),
+        }
+        return;
+    }
+    let mut parts = rest.split_whitespace();
+    match parts.next() {
+        Some("delete" | "rm") => {
+            let Some(id) = parts.next() else {
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: "Usage: /bridge-deliveries delete <id> --confirm".into(),
+                });
+                return;
+            };
+            let mut confirm = false;
+            for part in parts {
+                if part == "--confirm" {
+                    confirm = true;
+                    continue;
+                }
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!(
+                        "Usage: /bridge-deliveries delete <id> --confirm, unexpected {part:?}"
+                    ),
+                });
+                return;
+            }
+            match crate::headless::bridge_delivery_delete_from_env(
+                id,
+                confirm,
+                &format!("/bridge-deliveries delete {id} --confirm"),
+            ) {
+                Ok(result) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Assistant,
+                    text: serde_json::to_string_pretty(&result)
+                        .unwrap_or_else(|_| "<unserializable bridge delivery delete>".into()),
+                }),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Failed to delete bridge delivery: {err}"),
+                }),
+            }
+        }
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Bridge deliveries command needs list, delete, or help.".into(),
         }),
     }
 }
@@ -12337,6 +12424,7 @@ mod tests {
         assert!(global_slash_help_text().contains("/ingest preview <id>"));
         assert!(global_slash_help_text().contains("/batch <line-delimited prompts>"));
         assert!(global_slash_help_text().contains("/bridges status"));
+        assert!(global_slash_help_text().contains("/bridge-deliveries [list]"));
         assert_eq!(memory_slash_rest("/memory --help"), Some("--help"));
         assert_eq!(agents_slash_rest("/agents --help"), Some("--help"));
         assert_eq!(compact_slash_rest("/compactions --help"), Some("--help"));
@@ -12493,6 +12581,13 @@ mod tests {
         assert_eq!(bridges_slash_rest("/bridges status"), Some("status"));
         assert_eq!(bridges_slash_rest("/bridgesx status"), None);
         assert!(bridges_slash_help_text().contains("/bridges status"));
+        assert_eq!(bridge_deliveries_slash_rest("/bridge-deliveries"), Some(""));
+        assert_eq!(
+            bridge_deliveries_slash_rest("/bridge-deliveries delete delivery-1"),
+            Some("delete delivery-1")
+        );
+        assert_eq!(bridge_deliveries_slash_rest("/bridge-delivery"), None);
+        assert!(bridge_deliveries_slash_help_text().contains("delete <id> --confirm"));
         assert_eq!(
             crate::x402_slash::slash_rest("/x402 request https://example.test"),
             Some("request https://example.test")
@@ -12766,6 +12861,44 @@ mod tests {
         assert_eq!(compact_slash_rest("/compactions"), Some(""));
         assert_eq!(compact_slash_rest("/compactness"), None);
         assert_eq!(compact_slash_rest("/compaction"), None);
+    }
+
+    #[test]
+    fn bridge_delivery_slash_lists_and_deletes_dead_letters() {
+        let _home = HarnessHomeGuard::new();
+        let deliveries_dir = StoragePaths::from_env().bridge_deliveries_dir();
+        std::fs::create_dir_all(&deliveries_dir).unwrap();
+        std::fs::write(
+            deliveries_dir.join("delivery-1.json"),
+            serde_json::to_string_pretty(&json!({
+                "id": "delivery-1",
+                "target": "webhook.response_url",
+                "url": "https://hooks.example.test/secret/token",
+                "payload": {"text": "hello"},
+                "last_delivery": {"delivered": false},
+                "created_ms": 1,
+                "updated_ms": 1
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let mut app = App::default();
+        handle_bridge_deliveries_slash(&mut app, "");
+        let listed = app.transcript.last().unwrap().text.clone();
+        assert!(listed.contains("delivery-1"));
+        assert!(listed.contains("https://hooks.example.test/<redacted>"));
+        assert!(!listed.contains("secret/token"));
+
+        handle_bridge_deliveries_slash(&mut app, "delete delivery-1");
+        let preview = app.transcript.last().unwrap().text.clone();
+        assert!(preview.contains("/bridge-deliveries delete delivery-1 --confirm"));
+        assert!(deliveries_dir.join("delivery-1.json").exists());
+
+        handle_bridge_deliveries_slash(&mut app, "delete delivery-1 --confirm");
+        let deleted = app.transcript.last().unwrap().text.clone();
+        assert!(deleted.contains("\"deleted\": true"));
+        assert!(!deliveries_dir.join("delivery-1.json").exists());
     }
 
     #[test]

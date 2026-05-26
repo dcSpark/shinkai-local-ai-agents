@@ -199,6 +199,14 @@ pub async fn run(
         Some(SlashCommand::ShellStatus) => return shell_status(&options, json),
         Some(SlashCommand::SubagentStatus) => return subagent_status(&options, json),
         Some(SlashCommand::BridgeStatus) => return bridge_status(json),
+        Some(SlashCommand::BridgeDelivery(command)) => {
+            return match command {
+                BridgeDeliverySlashCommand::List => bridge_delivery_list(json),
+                BridgeDeliverySlashCommand::Delete { id, confirm } => {
+                    bridge_delivery_delete(id, confirm, json)
+                }
+            };
+        }
         Some(SlashCommand::VoiceStatus) => return voice_status(&options, json),
         Some(SlashCommand::BatchRun {
             items,
@@ -9182,6 +9190,7 @@ enum SlashCommand {
     ShellStatus,
     SubagentStatus,
     BridgeStatus,
+    BridgeDelivery(BridgeDeliverySlashCommand),
     VoiceStatus,
     BatchRun {
         items: Vec<String>,
@@ -9246,6 +9255,11 @@ enum SlashCommand {
 enum BundleSlashCommand {
     Export { path: String },
     Import { path: String },
+}
+
+enum BridgeDeliverySlashCommand {
+    List,
+    Delete { id: String, confirm: bool },
 }
 
 enum AgentsSlashCommand {
@@ -9827,6 +9841,13 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         }
         anyhow::bail!("bridges shortcut needs status or help");
     }
+    if let Some(rest) = bridge_deliveries_slash_rest(trimmed) {
+        if matches!(rest.trim(), "help" | "--help") {
+            return Ok(Some(SlashCommand::Help));
+        }
+        let command = parse_bridge_delivery_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::BridgeDelivery(command)));
+    }
     if let Some(rest) = hooks_slash_rest(trimmed) {
         if slash_family_help_rest(rest) {
             return Ok(Some(SlashCommand::Help));
@@ -10226,6 +10247,31 @@ fn bridge_status(json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn bridge_delivery_list(json: bool) -> anyhow::Result<()> {
+    let report = bridge_delivery_report_from_env()?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
+    println!("Bridge delivery dead letters");
+    println!("{}", serde_json::to_string_pretty(&report)?);
+    Ok(())
+}
+
+fn bridge_delivery_delete(id: String, confirm: bool, json: bool) -> anyhow::Result<()> {
+    let result = bridge_delivery_delete_from_env(
+        &id,
+        confirm,
+        &format!("/bridge-deliveries delete {id} --confirm"),
+    )?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&result)?);
+        return Ok(());
+    }
+    println!("{}", serde_json::to_string_pretty(&result)?);
+    Ok(())
+}
+
 pub fn bridge_status_report_from_env() -> serde_json::Value {
     serde_json::json!({
         "bridges": [
@@ -10321,6 +10367,115 @@ pub fn bridge_status_report_from_env() -> serde_json::Value {
             "paths_configured": clean_env("AGENT_DAEMON_X402_PATHS").is_some()
         }
     })
+}
+
+pub fn bridge_delivery_report_from_env() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::json!({
+        "deliveries": bridge_delivery_list_for_paths(&StoragePaths::from_env())?
+    }))
+}
+
+pub fn bridge_delivery_delete_from_env(
+    id: &str,
+    confirm: bool,
+    confirm_command: &str,
+) -> anyhow::Result<serde_json::Value> {
+    let id = id.trim();
+    let paths = StoragePaths::from_env();
+    let path = bridge_delivery_record_path(&paths, id)?;
+    if !confirm {
+        return Ok(serde_json::json!({
+            "id": id,
+            "action": "delete",
+            "confirm_command": confirm_command
+        }));
+    }
+    let record = serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(&path)?)?;
+    let public_record = public_bridge_delivery_record(&record);
+    std::fs::remove_file(path)?;
+    Ok(serde_json::json!({
+        "deleted": true,
+        "delivery": public_record,
+        "remaining": bridge_delivery_list_for_paths(&paths)?.len()
+    }))
+}
+
+fn bridge_delivery_list_for_paths(paths: &StoragePaths) -> anyhow::Result<Vec<serde_json::Value>> {
+    let dir = paths.bridge_deliveries_dir();
+    let mut records = Vec::new();
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(records),
+        Err(err) => return Err(err.into()),
+    };
+    for entry in entries {
+        let entry = entry?;
+        if entry.path().extension().and_then(|ext| ext.to_str()) != Some("json") {
+            continue;
+        }
+        let record =
+            serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(entry.path())?)?;
+        records.push(public_bridge_delivery_record(&record));
+    }
+    records.sort_by(|left, right| {
+        bridge_delivery_created_ms(right).cmp(&bridge_delivery_created_ms(left))
+    });
+    Ok(records)
+}
+
+fn public_bridge_delivery_record(record: &serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "id": record.get("id").cloned().unwrap_or(serde_json::Value::Null),
+        "target": record.get("target").cloned().unwrap_or(serde_json::Value::Null),
+        "url": record
+            .get("url")
+            .and_then(serde_json::Value::as_str)
+            .map(redact_bridge_delivery_url)
+            .unwrap_or_else(|| "<redacted>".into()),
+        "payload": record.get("payload").cloned().unwrap_or(serde_json::Value::Null),
+        "last_delivery": record
+            .get("last_delivery")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        "created_ms": record
+            .get("created_ms")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null),
+        "updated_ms": record
+            .get("updated_ms")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null)
+    })
+}
+
+fn bridge_delivery_created_ms(record: &serde_json::Value) -> u64 {
+    record
+        .get("created_ms")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or_default()
+}
+
+fn bridge_delivery_record_path(
+    paths: &StoragePaths,
+    id: &str,
+) -> anyhow::Result<std::path::PathBuf> {
+    let id = id.trim();
+    let valid = !id.is_empty()
+        && id
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'));
+    if !valid {
+        anyhow::bail!("invalid bridge delivery id");
+    }
+    Ok(paths.bridge_deliveries_dir().join(format!("{id}.json")))
+}
+
+fn redact_bridge_delivery_url(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return "<redacted>".into();
+    };
+    let host = rest.split('/').next().unwrap_or_default();
+    format!("{scheme}://{host}/<redacted>")
 }
 
 fn bridge_status_record(
@@ -10523,6 +10678,7 @@ fn headless_slash_help_text() -> &'static str {
      - /usage last, /usage trace|run [last|run-id], /usage conversation <id> [from:to|last N|--from N --to N|--last N]\n\
      - /stop status - inspect stopped-run summary retention; use `agent cancel` to stop persisted runs\n\
      - /bridges status - inspect local messaging bridge readiness without printing secrets\n\
+     - /bridge-deliveries [list], /bridge-deliveries delete <id> --confirm - inspect or remove local bridge delivery dead letters\n\
      - /hooks list|policy|available|review|disable|enable\n\
      - /storage report, /storage prune-cache <days> [--apply]\n\
      - /bundles export <path>, /bundles import <path> --confirm\n\
@@ -10655,6 +10811,41 @@ fn bridges_slash_rest(trimmed: &str) -> Option<&str> {
         Some("")
     } else {
         trimmed.strip_prefix("/bridges ").map(str::trim)
+    }
+}
+
+fn bridge_deliveries_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/bridge-deliveries" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/bridge-deliveries ").map(str::trim)
+    }
+}
+
+fn parse_bridge_delivery_slash_rest(rest: &str) -> anyhow::Result<BridgeDeliverySlashCommand> {
+    let rest = rest.trim();
+    if rest.is_empty() || rest == "list" {
+        return Ok(BridgeDeliverySlashCommand::List);
+    }
+    let mut parts = rest.split_whitespace();
+    match parts.next() {
+        Some("delete" | "rm") => {
+            let id = parts
+                .next()
+                .ok_or_else(|| anyhow::anyhow!("usage: /bridge-deliveries delete <id> --confirm"))?
+                .to_string();
+            let mut confirm = false;
+            for part in parts {
+                match part {
+                    "--confirm" => confirm = true,
+                    extra => anyhow::bail!(
+                        "usage: /bridge-deliveries delete <id> --confirm, unexpected {extra:?}"
+                    ),
+                }
+            }
+            Ok(BridgeDeliverySlashCommand::Delete { id, confirm })
+        }
+        _ => anyhow::bail!("bridge-deliveries shortcut supports list and delete <id> --confirm"),
     }
 }
 
@@ -13867,11 +14058,34 @@ mod slash_tests {
         assert_eq!(bridges_slash_rest("/bridges"), Some(""));
         assert_eq!(bridges_slash_rest("/bridges status"), Some("status"));
         assert_eq!(bridges_slash_rest("/bridgesx status"), None);
+        assert_eq!(bridge_deliveries_slash_rest("/bridge-deliveries"), Some(""));
+        assert_eq!(
+            bridge_deliveries_slash_rest("/bridge-deliveries delete delivery-1"),
+            Some("delete delivery-1")
+        );
+        assert_eq!(bridge_deliveries_slash_rest("/bridge-delivery"), None);
         assert!(matches!(
             parse_slash_command("/bridges status").unwrap(),
             Some(SlashCommand::BridgeStatus)
         ));
         assert!(parse_slash_command("/bridges status extra").is_err());
+        assert!(matches!(
+            parse_slash_command("/bridge-deliveries").unwrap(),
+            Some(SlashCommand::BridgeDelivery(
+                BridgeDeliverySlashCommand::List
+            ))
+        ));
+        match parse_slash_command("/bridge-deliveries delete delivery-1 --confirm").unwrap() {
+            Some(SlashCommand::BridgeDelivery(BridgeDeliverySlashCommand::Delete {
+                id,
+                confirm,
+            })) => {
+                assert_eq!(id, "delivery-1");
+                assert!(confirm);
+            }
+            _ => panic!("expected bridge delivery delete shortcut"),
+        }
+        assert!(parse_slash_command("/bridge-deliveries retry delivery-1").is_err());
 
         let help = headless_slash_help_text();
         assert!(help.contains("/tool! <name> <json>"));
@@ -13879,6 +14093,7 @@ mod slash_tests {
         assert!(help.contains("/stop status"));
         assert!(help.contains("/voice status, /voice transcribe <path>"));
         assert!(help.contains("/bridges status"));
+        assert!(help.contains("/bridge-deliveries [list]"));
         assert!(help.contains("/batch files <paths>, /batch folder <path>"));
         assert!(help.contains("/x402 request"));
         assert!(help.contains("/subagent status"));
@@ -13966,6 +14181,76 @@ mod slash_tests {
             restore_env(name, value);
         }
         drop(lock);
+    }
+
+    #[test]
+    fn bridge_delivery_report_redacts_and_delete_requires_confirm() {
+        let dir = std::env::temp_dir().join(format!(
+            "headless-bridge-delivery-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let _home = HarnessHomeGuard::set(&dir);
+        let deliveries_dir = StoragePaths::from_env().bridge_deliveries_dir();
+        std::fs::create_dir_all(&deliveries_dir).unwrap();
+        std::fs::write(
+            deliveries_dir.join("old.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "id": "old",
+                "target": "webhook.response_url",
+                "url": "https://hooks.example.test/secret/old-token",
+                "payload": {"text": "old"},
+                "last_delivery": {"delivered": false},
+                "created_ms": 1,
+                "updated_ms": 1
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            deliveries_dir.join("new.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "id": "new",
+                "target": "slack.chat.postMessage",
+                "url": "https://hooks.slack.com/services/T000/B000/secret-token",
+                "payload": {"text": "new"},
+                "last_delivery": {"delivered": false, "error": "HTTP 500"},
+                "created_ms": 2,
+                "updated_ms": 2
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let report = bridge_delivery_report_from_env().unwrap();
+        let deliveries = report["deliveries"].as_array().unwrap();
+        let serialized = serde_json::to_string(&report).unwrap();
+        assert_eq!(deliveries.len(), 2);
+        assert_eq!(deliveries[0]["id"], "new");
+        assert_eq!(deliveries[0]["url"], "https://hooks.slack.com/<redacted>");
+        assert!(!serialized.contains("secret-token"));
+
+        let preview = bridge_delivery_delete_from_env(
+            "new",
+            false,
+            "/bridge-deliveries delete new --confirm",
+        )
+        .unwrap();
+        assert_eq!(
+            preview["confirm_command"],
+            "/bridge-deliveries delete new --confirm"
+        );
+        assert!(deliveries_dir.join("new.json").exists());
+
+        let deleted =
+            bridge_delivery_delete_from_env("new", true, "/bridge-deliveries delete new --confirm")
+                .unwrap();
+        assert_eq!(deleted["deleted"], true);
+        assert_eq!(deleted["remaining"], 1);
+        assert!(!deliveries_dir.join("new.json").exists());
+        assert!(bridge_delivery_delete_from_env("../bad", true, "").is_err());
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

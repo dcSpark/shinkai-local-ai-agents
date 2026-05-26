@@ -563,7 +563,7 @@ enum TraceCommand {
     },
     /// Summarize tokens, cost, duration, approvals, memory, artifacts, and scores.
     Summary {
-        /// Run UUID printed by `agent run`.
+        /// Run UUID printed by `agent run`, or `last`.
         run_id: String,
 
         /// Emit a JSON summary object.

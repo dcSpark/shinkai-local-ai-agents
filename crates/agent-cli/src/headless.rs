@@ -1413,8 +1413,8 @@ pub async fn trace_show(run_id: String, json: bool) -> anyhow::Result<()> {
 }
 
 pub async fn trace_summary(run_id: String, json: bool) -> anyhow::Result<()> {
-    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
+    let run_id = resolve_local_run_selector(&run_id, &store)?;
     let events = store.try_events(run_id)?;
 
     if events.is_empty() {
@@ -10153,7 +10153,7 @@ fn headless_slash_help_text() -> &'static str {
      - /resume [last|run-id] [--from-event N], /resume plan [last|run-id] [--from-event N]\n\
      - /trace list [limit|--limit N], /trace [summary|tree|hooks|scores|prompt] <run-id>, /scores <run-id>, /compare <run-id> <run-id>, /replay <run-id>\n\
      - /preview [prompt] - inspect context before running\n\
-     - /usage trace|run <run-id>, /usage conversation <id> [from:to|last N|--from N --to N|--last N]\n\
+     - /usage last, /usage trace|run [last|run-id], /usage conversation <id> [from:to|last N|--from N --to N|--last N]\n\
      - /hooks list|policy|available|review|disable|enable\n\
      - /storage report, /storage prune-cache <days> [--apply]\n\
      - /bundles export <path>, /bundles import <path> --confirm\n\
@@ -10646,15 +10646,24 @@ fn parse_usage_slash_rest(rest: &str) -> anyhow::Result<SlashCommand> {
     let command = parts.next().unwrap_or_default();
     match command {
         "" | "help" | "--help" => Ok(SlashCommand::Help),
+        "last" => {
+            ensure_no_extra(parts, "usage: /usage last")?;
+            Ok(SlashCommand::Trace {
+                run_id: "last".into(),
+                view: TraceSlashView::Summary,
+            })
+        }
         "trace" | "run" => {
             let usage = if command == "run" {
-                "usage: /usage run <run-id>"
+                "usage: /usage run [last|run-id]"
             } else {
-                "usage: /usage trace <run-id>"
+                "usage: /usage trace [last|run-id]"
             };
             let run_id = next_required(&mut parts, usage)?;
             ensure_no_extra(parts, usage)?;
-            let _ = uuid::Uuid::parse_str(&run_id)?;
+            if run_id != "last" {
+                let _ = uuid::Uuid::parse_str(&run_id)?;
+            }
             Ok(SlashCommand::Trace {
                 run_id,
                 view: TraceSlashView::Summary,
@@ -13403,7 +13412,7 @@ mod slash_tests {
         assert!(help.contains("/preview [prompt]"));
         assert!(help.contains("/trace [summary|tree|hooks|scores|prompt] <run-id>"));
         assert!(help.contains("/scores <run-id>"));
-        assert!(help.contains("/usage trace|run <run-id>"));
+        assert!(help.contains("/usage last, /usage trace|run [last|run-id]"));
         assert!(help.contains("/agent [id] [prompt]"));
         assert!(help.contains("/agents list|show|save|export|import|delete"));
         assert!(help.contains(
@@ -14149,6 +14158,27 @@ mod slash_tests {
             }
             _ => panic!("expected usage run shortcut"),
         }
+        match parse_slash_command("/usage last").unwrap() {
+            Some(SlashCommand::Trace { run_id: got, view }) => {
+                assert_eq!(got, "last");
+                assert_eq!(view, TraceSlashView::Summary);
+            }
+            _ => panic!("expected usage last shortcut"),
+        }
+        match parse_slash_command("/usage trace last").unwrap() {
+            Some(SlashCommand::Trace { run_id: got, view }) => {
+                assert_eq!(got, "last");
+                assert_eq!(view, TraceSlashView::Summary);
+            }
+            _ => panic!("expected usage trace last shortcut"),
+        }
+        match parse_slash_command("/usage run last").unwrap() {
+            Some(SlashCommand::Trace { run_id: got, view }) => {
+                assert_eq!(got, "last");
+                assert_eq!(view, TraceSlashView::Summary);
+            }
+            _ => panic!("expected usage run last shortcut"),
+        }
         match parse_slash_command("/usage conversation convo-1 --last 5").unwrap() {
             Some(SlashCommand::Conversation(ConversationSlashCommand::Usage {
                 id,
@@ -14188,18 +14218,17 @@ mod slash_tests {
         }
 
         assert!(parse_slash_command("/usage trace").is_err());
-        assert!(parse_slash_command("/usage trace last").is_err());
         assert!(parse_slash_command(&format!("/usage trace {run_id} extra")).is_err());
         let run_missing = match parse_slash_command("/usage run") {
             Ok(_) => panic!("expected missing usage run id to fail"),
             Err(err) => err.to_string(),
         };
-        assert!(run_missing.contains("usage: /usage run <run-id>"));
+        assert!(run_missing.contains("usage: /usage run [last|run-id]"));
         let run_extra = match parse_slash_command(&format!("/usage run {run_id} extra")) {
             Ok(_) => panic!("expected extra usage run argument to fail"),
             Err(err) => err.to_string(),
         };
-        assert!(run_extra.contains("usage: /usage run <run-id>"));
+        assert!(run_extra.contains("usage: /usage run [last|run-id]"));
         assert!(parse_slash_command("/usage current").is_err());
         assert!(parse_slash_command("/usage conversation convo-1 last 0").is_err());
         assert!(parse_slash_command("/usage conversation convo-1 4:2").is_err());

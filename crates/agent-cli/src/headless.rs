@@ -9786,11 +9786,23 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
     if resume_help_slash_command(trimmed) {
         return Ok(Some(SlashCommand::Help));
     }
+    if trimmed == "/resume-plan" {
+        let (run_id, from_event) = parse_resume_slash_rest("")?;
+        return Ok(Some(SlashCommand::ResumePlan { run_id, from_event }));
+    }
     if let Some(rest) = trimmed.strip_prefix("/resume-plan ").map(str::trim) {
         let (run_id, from_event) = parse_resume_slash_rest(rest)?;
         return Ok(Some(SlashCommand::ResumePlan { run_id, from_event }));
     }
+    if trimmed == "/resume" {
+        let (run_id, from_event) = parse_resume_slash_rest("")?;
+        return Ok(Some(SlashCommand::Resume { run_id, from_event }));
+    }
     if let Some(rest) = trimmed.strip_prefix("/resume ").map(str::trim) {
+        if rest == "plan" {
+            let (run_id, from_event) = parse_resume_slash_rest("")?;
+            return Ok(Some(SlashCommand::ResumePlan { run_id, from_event }));
+        }
         if let Some(plan_rest) = rest.strip_prefix("plan ").map(str::trim) {
             let (run_id, from_event) = parse_resume_slash_rest(plan_rest)?;
             return Ok(Some(SlashCommand::ResumePlan { run_id, from_event }));
@@ -9800,6 +9812,10 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
     }
     if trace_help_slash_command(trimmed) {
         return Ok(Some(SlashCommand::Help));
+    }
+    if trimmed == "/trace" {
+        let (run_id, view) = parse_trace_slash_rest("")?;
+        return Ok(Some(SlashCommand::Trace { run_id, view }));
     }
     if let Some(rest) = trimmed.strip_prefix("/trace ").map(str::trim) {
         let command = rest.split_whitespace().next();
@@ -9822,6 +9838,14 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
     }
     if replay_help_slash_command(trimmed) {
         return Ok(Some(SlashCommand::Help));
+    }
+    if trimmed == "/replay" {
+        let (run_id, no_hooks, compare_source) = parse_replay_slash_rest("")?;
+        return Ok(Some(SlashCommand::Replay {
+            run_id,
+            no_hooks,
+            compare_source,
+        }));
     }
     if let Some(rest) = trimmed.strip_prefix("/replay ").map(str::trim) {
         let (run_id, no_hooks, compare_source) = parse_replay_slash_rest(rest)?;
@@ -10698,7 +10722,7 @@ fn headless_slash_help_text() -> &'static str {
      - /shell status - inspect whether this run enables the shell tool; use --enable-shell to enable it\n\
      - /subagent status - inspect whether this run enables saved-agent-as-tool access; use --enable-subagent to enable it\n\
      - /resume [last|run-id] [--from-event N], /resume plan [last|run-id] [--from-event N]\n\
-     - /trace list [limit|--limit N], /trace [summary|tree|hooks|scores|prompt] [last|run-id], /scores [last|run-id], /compare <last|run-id> <last|run-id>, /replay <last|run-id>\n\
+     - /trace list [limit|--limit N], /trace [summary|tree|hooks|scores|prompt] [last|run-id], /scores [last|run-id], /compare <last|run-id> <last|run-id>, /replay [last|run-id]\n\
      - /preview [prompt] - inspect context before running\n\
      - /usage last, /usage trace|run [last|run-id], /usage conversation <id> [from:to|last N|--from N --to N|--last N]\n\
      - /stop status - inspect stopped-run summary retention; use `agent cancel` to stop persisted runs\n\
@@ -11103,15 +11127,17 @@ fn parse_forced_tool_slash_rest(rest: &str) -> anyhow::Result<(String, String)> 
 }
 
 fn parse_resume_slash_rest(rest: &str) -> anyhow::Result<(String, Option<u64>)> {
-    let mut parts = rest.split_whitespace();
-    let run_id = parts
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("usage: /resume [last|run-id] [--from-event N]"))?
-        .to_string();
+    let mut parts = rest.split_whitespace().collect::<Vec<_>>();
+    let run_id = if parts.first().is_some_and(|part| !part.starts_with("--")) {
+        parts.remove(0).to_string()
+    } else {
+        "last".into()
+    };
     if run_id != "last" {
         let _ = uuid::Uuid::parse_str(&run_id)?;
     }
     let mut from_event = None;
+    let mut parts = parts.into_iter();
     while let Some(part) = parts.next() {
         match part {
             "--from-event" => {
@@ -11147,26 +11173,39 @@ fn parse_positive_u64(value: &str, label: &str) -> anyhow::Result<u64> {
 }
 
 fn parse_trace_slash_rest(rest: &str) -> anyhow::Result<(String, TraceSlashView)> {
-    let (first, tail) = rest
-        .trim()
-        .split_once(char::is_whitespace)
-        .map(|(first, tail)| (first.trim(), tail.trim()))
-        .unwrap_or((rest.trim(), ""));
+    let mut parts = rest.split_whitespace();
+    let first = parts.next().unwrap_or_default();
     let (view, run_id) = match first {
-        "summary" => (TraceSlashView::Summary, tail),
-        "tree" => (TraceSlashView::Tree, tail),
-        "hooks" => (TraceSlashView::Hooks, tail),
-        "scores" => (TraceSlashView::Scores, tail),
-        "prompt" => (TraceSlashView::Prompt, tail),
-        _ => (TraceSlashView::Events, first),
+        "" => (TraceSlashView::Events, "last".to_string()),
+        "summary" => (
+            TraceSlashView::Summary,
+            parts.next().unwrap_or("last").to_string(),
+        ),
+        "tree" => (
+            TraceSlashView::Tree,
+            parts.next().unwrap_or("last").to_string(),
+        ),
+        "hooks" => (
+            TraceSlashView::Hooks,
+            parts.next().unwrap_or("last").to_string(),
+        ),
+        "scores" => (
+            TraceSlashView::Scores,
+            parts.next().unwrap_or("last").to_string(),
+        ),
+        "prompt" => (
+            TraceSlashView::Prompt,
+            parts.next().unwrap_or("last").to_string(),
+        ),
+        _ => (TraceSlashView::Events, first.to_string()),
     };
-    if run_id.is_empty() {
+    if parts.next().is_some() || run_id.is_empty() {
         anyhow::bail!("usage: /trace [summary|tree|hooks|scores|prompt] [last|run-id]");
     }
     if run_id != "last" {
-        let _ = uuid::Uuid::parse_str(run_id)?;
+        let _ = uuid::Uuid::parse_str(&run_id)?;
     }
-    Ok((run_id.to_string(), view))
+    Ok((run_id, view))
 }
 
 fn parse_trace_list_slash_limit(rest: &str) -> anyhow::Result<usize> {
@@ -11242,13 +11281,15 @@ fn parse_compare_slash_rest(rest: &str) -> anyhow::Result<(String, String)> {
 }
 
 fn parse_replay_slash_rest(rest: &str) -> anyhow::Result<(String, bool, bool)> {
-    let mut parts = rest.split_whitespace();
-    let run_id = parts
-        .next()
-        .ok_or_else(|| {
-            anyhow::anyhow!("usage: /replay <last|run-id> [--no-hooks] [--compare-source]")
-        })?
-        .to_string();
+    let mut parts = rest.split_whitespace().collect::<Vec<_>>();
+    let run_id = if parts
+        .first()
+        .is_some_and(|part| !is_replay_slash_option(part))
+    {
+        parts.remove(0).to_string()
+    } else {
+        "last".into()
+    };
     if run_id != "last" {
         let _ = uuid::Uuid::parse_str(&run_id)?;
     }
@@ -11262,6 +11303,18 @@ fn parse_replay_slash_rest(rest: &str) -> anyhow::Result<(String, bool, bool)> {
         }
     }
     Ok((run_id, no_hooks, compare_source))
+}
+
+fn is_replay_slash_option(part: &str) -> bool {
+    matches!(
+        part,
+        "--no-hooks"
+            | "--skip-hooks"
+            | "no-hooks"
+            | "skip-hooks"
+            | "--compare-source"
+            | "compare-source"
+    )
 }
 
 fn parse_usage_slash_rest(rest: &str) -> anyhow::Result<SlashCommand> {
@@ -11282,7 +11335,7 @@ fn parse_usage_slash_rest(rest: &str) -> anyhow::Result<SlashCommand> {
             } else {
                 "usage: /usage trace [last|run-id]"
             };
-            let run_id = next_required(&mut parts, usage)?;
+            let run_id = parts.next().unwrap_or("last").to_string();
             ensure_no_extra(parts, usage)?;
             if run_id != "last" {
                 let _ = uuid::Uuid::parse_str(&run_id)?;
@@ -13862,10 +13915,7 @@ fn parse_score_slash_rest(rest: &str) -> anyhow::Result<(String, f32, String)> {
 
 fn parse_scores_slash_rest(rest: &str) -> anyhow::Result<String> {
     let mut parts = rest.split_whitespace();
-    let run_id = parts
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("usage: /scores [last|run-id]"))?
-        .to_string();
+    let run_id = parts.next().unwrap_or("last").to_string();
     if let Some(extra) = parts.next() {
         anyhow::bail!("usage: /scores [last|run-id], unexpected {extra:?}");
     }
@@ -14152,7 +14202,7 @@ mod slash_tests {
         assert!(help.contains("/preview [prompt]"));
         assert!(help.contains("/trace [summary|tree|hooks|scores|prompt] [last|run-id]"));
         assert!(help.contains("/compare <last|run-id> <last|run-id>"));
-        assert!(help.contains("/replay <last|run-id>"));
+        assert!(help.contains("/replay [last|run-id]"));
         assert!(help.contains("/guide <last|run-id> <text>"));
         assert!(help.contains("/score <last|run-id> <0-10> [target]"));
         assert!(help.contains("/scores [last|run-id]"));
@@ -14866,6 +14916,26 @@ mod slash_tests {
             }
             _ => panic!("expected resume last shortcut"),
         }
+        match parse_slash_command("/resume --from-event=9").unwrap() {
+            Some(SlashCommand::Resume {
+                run_id: parsed_id,
+                from_event,
+            }) => {
+                assert_eq!(parsed_id, "last");
+                assert_eq!(from_event, Some(9));
+            }
+            _ => panic!("expected implicit-last resume shortcut"),
+        }
+        match parse_slash_command("/resume").unwrap() {
+            Some(SlashCommand::Resume {
+                run_id: parsed_id,
+                from_event,
+            }) => {
+                assert_eq!(parsed_id, "last");
+                assert_eq!(from_event, None);
+            }
+            _ => panic!("expected bare resume shortcut"),
+        }
         match parse_slash_command("/resume-plan last").unwrap() {
             Some(SlashCommand::ResumePlan {
                 run_id: parsed_id,
@@ -14875,6 +14945,26 @@ mod slash_tests {
                 assert_eq!(from_event, None);
             }
             _ => panic!("expected resume-plan last shortcut"),
+        }
+        match parse_slash_command("/resume plan").unwrap() {
+            Some(SlashCommand::ResumePlan {
+                run_id: parsed_id,
+                from_event,
+            }) => {
+                assert_eq!(parsed_id, "last");
+                assert_eq!(from_event, None);
+            }
+            _ => panic!("expected bare resume plan shortcut"),
+        }
+        match parse_slash_command("/resume-plan").unwrap() {
+            Some(SlashCommand::ResumePlan {
+                run_id: parsed_id,
+                from_event,
+            }) => {
+                assert_eq!(parsed_id, "last");
+                assert_eq!(from_event, None);
+            }
+            _ => panic!("expected bare resume-plan shortcut"),
         }
         assert!(parse_slash_command("/resume nope").is_err());
         assert!(parse_slash_command(&format!("/resume {run_id} --from-event 0")).is_err());
@@ -15188,12 +15278,26 @@ mod slash_tests {
             }
             _ => panic!("expected trace last shortcut"),
         }
+        match parse_slash_command("/trace").unwrap() {
+            Some(SlashCommand::Trace { run_id, view }) => {
+                assert_eq!(run_id, "last");
+                assert_eq!(view, TraceSlashView::Events);
+            }
+            _ => panic!("expected bare trace shortcut"),
+        }
         match parse_slash_command("/trace summary last").unwrap() {
             Some(SlashCommand::Trace { run_id, view }) => {
                 assert_eq!(run_id, "last");
                 assert_eq!(view, TraceSlashView::Summary);
             }
             _ => panic!("expected trace summary last shortcut"),
+        }
+        match parse_slash_command("/trace summary").unwrap() {
+            Some(SlashCommand::Trace { run_id, view }) => {
+                assert_eq!(run_id, "last");
+                assert_eq!(view, TraceSlashView::Summary);
+            }
+            _ => panic!("expected trace summary implicit-last shortcut"),
         }
         match parse_slash_command("/trace scores last").unwrap() {
             Some(SlashCommand::Trace { run_id, view }) => {
@@ -15259,6 +15363,18 @@ mod slash_tests {
             }
             _ => panic!("expected replay shortcut"),
         }
+        match parse_slash_command("/replay --no-hooks").unwrap() {
+            Some(SlashCommand::Replay {
+                run_id,
+                no_hooks,
+                compare_source,
+            }) => {
+                assert_eq!(run_id, "last");
+                assert!(no_hooks);
+                assert!(!compare_source);
+            }
+            _ => panic!("expected replay implicit-last shortcut"),
+        }
         match parse_slash_command("/replay last --compare-source").unwrap() {
             Some(SlashCommand::Replay {
                 run_id,
@@ -15271,9 +15387,8 @@ mod slash_tests {
             }
             _ => panic!("expected replay shortcut"),
         }
-        assert!(parse_slash_command("/trace summary").is_err());
-        assert!(parse_slash_command("/trace scores").is_err());
-        assert!(parse_slash_command("/trace prompt").is_err());
+        assert!(parse_slash_command("/trace last extra").is_err());
+        assert!(parse_slash_command("/trace scores last extra").is_err());
         assert!(parse_slash_command(&format!("/compare {primary}")).is_err());
         assert!(parse_slash_command(&format!("/compare {primary} {primary}")).is_err());
         assert!(parse_slash_command("/compare last last").is_err());
@@ -15326,12 +15441,26 @@ mod slash_tests {
             }
             _ => panic!("expected usage trace last shortcut"),
         }
+        match parse_slash_command("/usage trace").unwrap() {
+            Some(SlashCommand::Trace { run_id: got, view }) => {
+                assert_eq!(got, "last");
+                assert_eq!(view, TraceSlashView::Summary);
+            }
+            _ => panic!("expected usage trace implicit-last shortcut"),
+        }
         match parse_slash_command("/usage run last").unwrap() {
             Some(SlashCommand::Trace { run_id: got, view }) => {
                 assert_eq!(got, "last");
                 assert_eq!(view, TraceSlashView::Summary);
             }
             _ => panic!("expected usage run last shortcut"),
+        }
+        match parse_slash_command("/usage run").unwrap() {
+            Some(SlashCommand::Trace { run_id: got, view }) => {
+                assert_eq!(got, "last");
+                assert_eq!(view, TraceSlashView::Summary);
+            }
+            _ => panic!("expected usage run implicit-last shortcut"),
         }
         match parse_slash_command("/usage conversation convo-1 --last 5").unwrap() {
             Some(SlashCommand::Conversation(ConversationSlashCommand::Usage {
@@ -15371,13 +15500,7 @@ mod slash_tests {
             _ => panic!("expected usage conversation last shortcut"),
         }
 
-        assert!(parse_slash_command("/usage trace").is_err());
         assert!(parse_slash_command(&format!("/usage trace {run_id} extra")).is_err());
-        let run_missing = match parse_slash_command("/usage run") {
-            Ok(_) => panic!("expected missing usage run id to fail"),
-            Err(err) => err.to_string(),
-        };
-        assert!(run_missing.contains("usage: /usage run [last|run-id]"));
         let run_extra = match parse_slash_command(&format!("/usage run {run_id} extra")) {
             Ok(_) => panic!("expected extra usage run argument to fail"),
             Err(err) => err.to_string(),
@@ -17404,8 +17527,15 @@ mod slash_tests {
             }
             _ => panic!("expected scores last review command"),
         }
+        let parsed = parse_slash_command("/scores").unwrap();
+        match parsed {
+            Some(SlashCommand::Trace { run_id: got, view }) => {
+                assert_eq!(got, "last");
+                assert_eq!(view, TraceSlashView::Scores);
+            }
+            _ => panic!("expected scores implicit-last review command"),
+        }
 
-        assert!(parse_slash_command("/scores").is_err());
         assert!(parse_slash_command("/scores not-a-run").is_err());
         assert!(parse_slash_command(&format!("/scores {run_id} extra")).is_err());
     }

@@ -351,7 +351,7 @@ enum Command {
     },
     /// Attach guidance to a persisted run trace.
     Guide {
-        /// Run UUID printed by `agent run`.
+        /// Run UUID printed by `agent run`, or `last`.
         run_id: String,
 
         /// Guidance text to inject/record.
@@ -402,7 +402,7 @@ enum Command {
     },
     /// Score a run output or step.
     Score {
-        /// Run UUID printed by `agent run`.
+        /// Run UUID printed by `agent run`, or `last`.
         run_id: String,
 
         /// Score, conventionally 0-10.
@@ -2869,7 +2869,11 @@ enum RemoteCommand {
         allow_unsafe_ingest: bool,
     },
     /// Record remote guidance against a run.
-    Guide { run_id: String, text: String },
+    Guide {
+        /// Remote run UUID, or `last`.
+        run_id: String,
+        text: String,
+    },
     /// Mark a remote run as cancelled in the daemon trace store.
     Cancel {
         run_id: String,
@@ -2912,6 +2916,7 @@ enum RemoteCommand {
     },
     /// Score a remote run output or step.
     Score {
+        /// Remote run UUID, or `last`.
         run_id: String,
         score: f32,
 
@@ -4400,6 +4405,49 @@ mod cli_parse_tests {
         };
         assert_eq!(run_id, "last");
         assert!(json);
+    }
+
+    #[test]
+    fn guide_and_score_commands_accept_last_selector() {
+        let cli = parse_cli(["agent", "guide", "last", "steer here"]).unwrap();
+        let Command::Guide { run_id, text } = into_command(cli) else {
+            panic!("expected guide command");
+        };
+        assert_eq!(run_id, "last");
+        assert_eq!(text, "steer here");
+
+        let cli = parse_cli(["agent", "score", "last", "8.5", "--target", "loop"]).unwrap();
+        let Command::Score {
+            run_id,
+            score,
+            target,
+        } = into_command(cli)
+        else {
+            panic!("expected score command");
+        };
+        assert_eq!(run_id, "last");
+        assert_eq!(score, 8.5);
+        assert_eq!(target, "loop");
+
+        let cli = parse_cli(["agent", "remote", "guide", "last", "steer here"]).unwrap();
+        let RemoteCommand::Guide { run_id, text } = into_remote_command(cli) else {
+            panic!("expected remote guide command");
+        };
+        assert_eq!(run_id, "last");
+        assert_eq!(text, "steer here");
+
+        let cli = parse_cli(["agent", "remote", "score", "last", "7"]).unwrap();
+        let RemoteCommand::Score {
+            run_id,
+            score,
+            target,
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote score command");
+        };
+        assert_eq!(run_id, "last");
+        assert_eq!(score, 7.0);
+        assert_eq!(target, "last_answer");
     }
 
     #[test]

@@ -2315,8 +2315,8 @@ fn trace_replay_source(run_id: RunId, events: &[RunEvent]) -> anyhow::Result<(St
 
 pub async fn guide(run_id: String, text: String) -> anyhow::Result<()> {
     let text = validate_guidance_content(&text)?;
-    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
+    let run_id = resolve_local_run_selector(&run_id, &store)?;
     let events = store.try_events(run_id)?;
     if events
         .iter()
@@ -2460,8 +2460,8 @@ pub async fn resume_plan(
 
 pub async fn score(run_id: String, target: String, score: f32) -> anyhow::Result<()> {
     validate_quality_score(score)?;
-    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
+    let run_id = resolve_local_run_selector(&run_id, &store)?;
     let parent = latest_event_id(&store.try_events(run_id)?)
         .ok_or_else(|| anyhow::anyhow!("run {run_id} has no trace events"))?;
     store.append(
@@ -6569,7 +6569,9 @@ pub async fn remote_preview_context(
 
 pub async fn remote_guide(url: String, run_id: String, text: String) -> anyhow::Result<()> {
     let text = validate_guidance_content(&text)?;
-    print_remote(DaemonHttpClient::new(url).post_json(
+    let client = DaemonHttpClient::new(url);
+    let run_id = remote_run_selector(&client, &run_id)?;
+    print_remote(client.post_json(
         "/guide",
         serde_json::json!({ "run_id": run_id, "text": text }),
     )?)
@@ -6647,7 +6649,9 @@ pub async fn remote_score(
     score: f32,
 ) -> anyhow::Result<()> {
     validate_quality_score(score)?;
-    print_remote(DaemonHttpClient::new(url).post_json(
+    let client = DaemonHttpClient::new(url);
+    let run_id = remote_run_selector(&client, &run_id)?;
+    print_remote(client.post_json(
         "/score",
         serde_json::json!({ "run_id": run_id, "target": target, "score": score }),
     )?)
@@ -10207,8 +10211,8 @@ fn headless_slash_help_text() -> &'static str {
      - /models list|providers|doctor|show|probe|save|export|import|delete|provider-catalog|metadata-catalog\n\
      - /memory status|preview|list|access|backends|create|generate|generate-conversation|classify|edit|delete|rollback|export|import\n\
      - /compact list|show|export|import|delete|keep-run [last|run-id], /compactions ...\n\
-     - /guide <run-id> <text> - inject guidance into an active run\n\
-     - /score <run-id> <0-10> [target] - record a quality score\n\
+     - /guide <last|run-id> <text> - inject guidance into an active run\n\
+     - /score <last|run-id> <0-10> [target] - record a quality score\n\
      Use --json to print this help as JSON."
 }
 
@@ -10752,9 +10756,11 @@ fn parse_hooks_slash_rest(rest: &str) -> anyhow::Result<HookSlashCommand> {
             agent: parse_hook_agent_option(parts, "available")?,
         }),
         "review" => {
-            let run_id = next_required(&mut parts, "hooks review needs a run id")?;
-            ensure_no_extra(parts, "usage: /hooks review <run-id>")?;
-            let _ = uuid::Uuid::parse_str(&run_id)?;
+            let run_id = next_required(&mut parts, "hooks review needs last or a run id")?;
+            ensure_no_extra(parts, "usage: /hooks review [last|run-id]")?;
+            if run_id != "last" {
+                let _ = uuid::Uuid::parse_str(&run_id)?;
+            }
             Ok(HookSlashCommand::Review { run_id })
         }
         "disable" | "enable" => {
@@ -13203,11 +13209,13 @@ fn parse_guide_slash_rest(rest: &str) -> anyhow::Result<(String, String)> {
         .trim()
         .split_once(char::is_whitespace)
         .map(|(run_id, text)| (run_id.trim().to_string(), text.trim().to_string()))
-        .ok_or_else(|| anyhow::anyhow!("usage: /guide <run-id> <text>"))?;
+        .ok_or_else(|| anyhow::anyhow!("usage: /guide <last|run-id> <text>"))?;
     if run_id.is_empty() || text.is_empty() {
-        anyhow::bail!("usage: /guide <run-id> <text>");
+        anyhow::bail!("usage: /guide <last|run-id> <text>");
     }
-    let _ = uuid::Uuid::parse_str(&run_id)?;
+    if run_id != "last" {
+        let _ = uuid::Uuid::parse_str(&run_id)?;
+    }
     Ok((run_id, text))
 }
 
@@ -13215,11 +13223,11 @@ fn parse_score_slash_rest(rest: &str) -> anyhow::Result<(String, f32, String)> {
     let mut parts = rest.split_whitespace();
     let run_id = parts
         .next()
-        .ok_or_else(|| anyhow::anyhow!("usage: /score <run-id> <0-10> [target]"))?
+        .ok_or_else(|| anyhow::anyhow!("usage: /score <last|run-id> <0-10> [target]"))?
         .to_string();
     let score = parts
         .next()
-        .ok_or_else(|| anyhow::anyhow!("usage: /score <run-id> <0-10> [target]"))?
+        .ok_or_else(|| anyhow::anyhow!("usage: /score <last|run-id> <0-10> [target]"))?
         .parse::<f32>()?;
     validate_quality_score(score)?;
     let target = parts.collect::<Vec<_>>().join(" ");
@@ -13228,7 +13236,9 @@ fn parse_score_slash_rest(rest: &str) -> anyhow::Result<(String, f32, String)> {
     } else {
         target
     };
-    let _ = uuid::Uuid::parse_str(&run_id)?;
+    if run_id != "last" {
+        let _ = uuid::Uuid::parse_str(&run_id)?;
+    }
     Ok((run_id, score, target))
 }
 
@@ -13474,6 +13484,8 @@ mod slash_tests {
         assert!(help.contains("/trace [summary|tree|hooks|scores|prompt] [last|run-id]"));
         assert!(help.contains("/compare <last|run-id> <last|run-id>"));
         assert!(help.contains("/replay <last|run-id>"));
+        assert!(help.contains("/guide <last|run-id> <text>"));
+        assert!(help.contains("/score <last|run-id> <0-10> [target]"));
         assert!(help.contains("/scores [last|run-id]"));
         assert!(help.contains("/usage last, /usage trace|run [last|run-id]"));
         assert!(help.contains("/agent [id] [prompt]"));
@@ -14155,6 +14167,52 @@ mod slash_tests {
     }
 
     #[tokio::test]
+    async fn guide_and_score_resolve_last_trace_record() {
+        let dir = std::env::temp_dir().join(format!(
+            "headless-guide-score-last-selector-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let _home = HarnessHomeGuard::set(&dir);
+        let store = open_event_store().unwrap();
+        let first = RunId::new();
+        let second = RunId::new();
+        store.append(
+            first,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "first-agent".into(),
+                input: "first prompt".into(),
+            },
+        );
+        store.append(
+            second,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "second-agent".into(),
+                input: "second prompt".into(),
+            },
+        );
+
+        guide("last".into(), "steer this run".into()).await.unwrap();
+        score("last".into(), "last_answer".into(), 8.0)
+            .await
+            .unwrap();
+
+        let events = store.try_events(second).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.kind,
+            RunEventKind::GuidanceInjected { content } if content == "steer this run"
+        )));
+        assert!(events.iter().any(|event| matches!(
+            &event.kind,
+            RunEventKind::QualityScored { target, score }
+                if target == "last_answer" && (*score - 8.0).abs() < f32::EPSILON
+        )));
+        assert_eq!(store.try_events(first).unwrap().len(), 1);
+    }
+
+    #[tokio::test]
     async fn compact_keep_run_resolves_last_trace_record() {
         let dir = std::env::temp_dir().join(format!(
             "headless-compact-keep-last-test-{}-{}",
@@ -14526,6 +14584,12 @@ mod slash_tests {
         match parse_slash_command(&format!("/hooks review {run_id}")).unwrap() {
             Some(SlashCommand::Hooks(HookSlashCommand::Review { run_id: parsed })) => {
                 assert_eq!(parsed, run_id);
+            }
+            _ => panic!("expected hook review shortcut"),
+        }
+        match parse_slash_command("/hooks review last").unwrap() {
+            Some(SlashCommand::Hooks(HookSlashCommand::Review { run_id: parsed })) => {
+                assert_eq!(parsed, "last");
             }
             _ => panic!("expected hook review shortcut"),
         }
@@ -16376,6 +16440,14 @@ mod slash_tests {
             }
             _ => panic!("expected guide command"),
         }
+        let parsed = parse_slash_command("/guide last steer here").unwrap();
+        match parsed {
+            Some(SlashCommand::Guide { run_id: got, text }) => {
+                assert_eq!(got, "last");
+                assert_eq!(text, "steer here");
+            }
+            _ => panic!("expected guide command"),
+        }
     }
 
     #[test]
@@ -16409,6 +16481,19 @@ mod slash_tests {
                 target,
             }) => {
                 assert_eq!(got, run_id);
+                assert_eq!(score, 8.5);
+                assert_eq!(target, "last_answer");
+            }
+            _ => panic!("expected score command"),
+        }
+        let parsed = parse_slash_command("/score last 8.5").unwrap();
+        match parsed {
+            Some(SlashCommand::Score {
+                run_id: got,
+                score,
+                target,
+            }) => {
+                assert_eq!(got, "last");
                 assert_eq!(score, 8.5);
                 assert_eq!(target, "last_answer");
             }

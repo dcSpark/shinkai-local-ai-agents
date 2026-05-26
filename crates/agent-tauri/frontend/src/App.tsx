@@ -1837,6 +1837,8 @@ export default function App() {
       { command: "/conversations usage ", label: "Load conversation usage by id or range" },
       { command: "/conversation memory ", label: "Generate memory from conversation range" },
       { command: "/conversations memory ", label: "Generate memory from conversation range" },
+      { command: "/conversation memory-generate ", label: "Generate memory from conversation range" },
+      { command: "/conversations memory-generate ", label: "Generate memory from conversation range" },
       { command: "/conversation policy", label: "Show conversation policy" },
       { command: "/conversations policy", label: "Show conversation policy" },
       { command: "/conversation policy help", label: "Show conversation shortcuts" },
@@ -1853,10 +1855,20 @@ export default function App() {
       { command: "/conversations delete-plan ", label: "Preview conversation deletion" },
       { command: "/conversation delete ", label: "Delete conversation branch" },
       { command: "/conversations delete ", label: "Delete conversation branch" },
+      { command: "/conversation rm ", label: "Delete conversation branch" },
+      { command: "/conversations rm ", label: "Delete conversation branch" },
       { command: "/conversation delete-many-plan ", label: "Preview bulk conversation deletion" },
       { command: "/conversations delete-many-plan ", label: "Preview bulk conversation deletion" },
+      { command: "/conversation delete-bulk-plan ", label: "Preview bulk conversation deletion" },
+      { command: "/conversations delete-bulk-plan ", label: "Preview bulk conversation deletion" },
+      { command: "/conversation bulk-delete-plan ", label: "Preview bulk conversation deletion" },
+      { command: "/conversations bulk-delete-plan ", label: "Preview bulk conversation deletion" },
       { command: "/conversation delete-many ", label: "Delete multiple conversations" },
       { command: "/conversations delete-many ", label: "Delete multiple conversations" },
+      { command: "/conversation delete-bulk ", label: "Delete multiple conversations" },
+      { command: "/conversations delete-bulk ", label: "Delete multiple conversations" },
+      { command: "/conversation bulk-delete ", label: "Delete multiple conversations" },
+      { command: "/conversations bulk-delete ", label: "Delete multiple conversations" },
       { command: "/conversation delete-agent-plan ", label: "Preview agent conversation deletion" },
       { command: "/conversations delete-agent-plan ", label: "Preview agent conversation deletion" },
       { command: "/conversation delete-agent ", label: "Delete agent conversations" },
@@ -3379,16 +3391,16 @@ export default function App() {
       "/conversation show [id]",
       "/conversation recover [id]",
       "/conversation usage [id] [<from>:<to>|last <n>]",
-      "/conversation memory [id] [<from>:<to>] [--user] [--agent <id>] [--topic <topic>]",
+      "/conversation memory|memory-generate [id] [<from>:<to>] [--user] [--agent <id>] [--topic <topic>]",
       "/conversation policy help",
       "/conversation policy [show] [id]",
       "/conversation policy apply [id]",
       "/conversation policy save [id]",
       "/conversation policy clear [id]",
       "/conversation delete-plan [id] [--recursive]",
-      "/conversation delete [id] [--recursive] --confirm",
-      "/conversation delete-many-plan <id> <id>... [--recursive]",
-      "/conversation delete-many <id> <id>... [--recursive] --confirm",
+      "/conversation delete|rm [id] [--recursive] --confirm",
+      "/conversation delete-many-plan|delete-bulk-plan|bulk-delete-plan <id> <id>... [--recursive]",
+      "/conversation delete-many|delete-bulk|bulk-delete <id> <id>... [--recursive] --confirm",
       "/conversation delete-agent-plan [agent] [--recursive]",
       "/conversation delete-agent [agent] [--recursive] --confirm",
       "/conversation range [id] <from>:<to>",
@@ -9120,7 +9132,7 @@ export default function App() {
         if (parsed) {
           await loadConversationUsage(parsed.id, parsed.range);
         }
-      } else if (command === "memory") {
+      } else if (command === "memory" || command === "memory-generate") {
         const parsed = parseMemoryConversationRangeShortcut(args);
         if (parsed) {
           await generateConversationMemoryFromOps(parsed);
@@ -9160,8 +9172,8 @@ export default function App() {
         if (parsed) {
           await previewConversationDelete(parsed.id, parsed.recursive);
         }
-      } else if (command === "delete") {
-        const parsed = parseConversationBranchShortcut("delete", args, true);
+      } else if (command === "delete" || command === "rm") {
+        const parsed = parseConversationBranchShortcut(command, args, true);
         if (parsed) {
           await deleteConversation(parsed.id, parsed.recursive, true);
         }
@@ -9216,7 +9228,7 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Conversation shortcut needs list, tree, select, show, recover, usage, memory, policy, delete-plan, delete, delete-many-plan, delete-many, delete-agent-plan, delete-agent, range, range-delete, or help.",
+          "Conversation shortcut needs list, tree, select, show, recover, usage, memory, memory-generate, policy, delete-plan, delete, rm, delete-many-plan, delete-many, delete-agent-plan, delete-agent, range, range-delete, or help.",
         );
       }
       return;

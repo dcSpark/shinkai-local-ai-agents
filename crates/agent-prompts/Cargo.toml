@@ -10,4 +10,5 @@ description = "Saved prompt library for Shinkai profiles."
 [dependencies]
 agent-storage = { path = "../agent-storage" }
 serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true

@@ -81,6 +81,13 @@ pub struct CapabilityDraftDoctorEntry {
     pub status: CapabilityDraftStatus,
     pub promotion_target: CapabilityDraftPromotionTarget,
     pub needs_review: bool,
+    pub created_by: String,
+    pub provenance: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub body_preview: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guidance_preview: Option<String>,
     pub notes: Vec<String>,
 }
 
@@ -400,6 +407,11 @@ fn capability_draft_doctor_entry(draft: CapabilityDraft) -> CapabilityDraftDocto
             notes.push("allow promotes this draft into an agent config".into());
         }
     }
+    let body_preview = compact_preview(&draft.body, 240);
+    let guidance_preview = draft
+        .guidance
+        .as_deref()
+        .map(|guidance| compact_preview(guidance, 240));
 
     CapabilityDraftDoctorEntry {
         id: draft.id,
@@ -408,8 +420,26 @@ fn capability_draft_doctor_entry(draft: CapabilityDraft) -> CapabilityDraftDocto
         status: draft.status,
         promotion_target,
         needs_review,
+        created_by: draft.created_by,
+        provenance: draft.provenance,
+        created_at: draft.created_at,
+        updated_at: draft.updated_at,
+        body_preview,
+        guidance_preview,
         notes,
     }
+}
+
+fn compact_preview(text: &str, max_chars: usize) -> String {
+    let compact = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.chars().count() <= max_chars {
+        return compact;
+    }
+    compact
+        .chars()
+        .take(max_chars.saturating_sub(3))
+        .collect::<String>()
+        + "..."
 }
 
 fn capability_draft_promotion_notes(draft: &CapabilityDraft) -> Vec<String> {
@@ -790,7 +820,7 @@ mod tests {
                 kind: CapabilityKind::Tool,
                 name: "Review Tool".into(),
                 body: r#"{"mcpServers":{}}"#.into(),
-                guidance: None,
+                guidance: Some("Review this draft before allowing.".into()),
                 created_by: "agent".into(),
                 provenance: "test".into(),
             })
@@ -845,6 +875,14 @@ mod tests {
             CapabilityDraftPromotionTarget::AdapterPackage
         );
         assert!(tool.needs_review);
+        assert_eq!(tool.created_by, "agent");
+        assert_eq!(tool.provenance, "test");
+        assert!(tool.created_at <= tool.updated_at);
+        assert_eq!(tool.body_preview, r#"{"mcpServers":{}}"#);
+        assert_eq!(
+            tool.guidance_preview.as_deref(),
+            Some("Review this draft before allowing.")
+        );
         assert!(
             tool.notes
                 .iter()

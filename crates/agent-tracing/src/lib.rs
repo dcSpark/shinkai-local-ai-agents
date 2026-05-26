@@ -282,6 +282,8 @@ pub enum ResumePlanError {
     EmptyTrace(RunId),
     #[error("run {0} has no RunStarted event")]
     MissingRunStarted(RunId),
+    #[error("event id must be positive for run {run_id}, got {event_id}")]
+    InvalidEventId { run_id: RunId, event_id: EventId },
     #[error("event {event_id} was not found in run {run_id}")]
     EventNotFound { run_id: RunId, event_id: EventId },
 }
@@ -340,6 +342,9 @@ pub fn build_resume_plan(
         })
         .ok_or(ResumePlanError::MissingRunStarted(run_id))?;
     let selected_index = if let Some(event_id) = from_event {
+        if event_id.0 == 0 {
+            return Err(ResumePlanError::InvalidEventId { run_id, event_id });
+        }
         events
             .iter()
             .position(|event| event.id == event_id)
@@ -709,6 +714,25 @@ pub struct TraceSummaryTotals {
     pub tokens_out: u32,
     pub cost_usd: Option<f64>,
     pub duration_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TraceRunRecord {
+    pub run_id: RunId,
+    pub first_event_id: EventId,
+    pub last_event_id: EventId,
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub event_count: usize,
+    pub status: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_preview: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub final_output_preview: Option<String>,
+    #[serde(default)]
+    pub child_run_count: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1562,6 +1586,19 @@ impl SqliteEventStore {
         let conn = self.conn.lock().expect("sqlite event store mutex poisoned");
         read_events(&conn, run_id)
     }
+
+    pub fn try_run_records(&self, limit: usize) -> Result<Vec<TraceRunRecord>, TraceStoreError> {
+        let conn = self.conn.lock().expect("sqlite event store mutex poisoned");
+        let run_ids = read_recent_run_ids(&conn, limit)?;
+        let mut records = Vec::new();
+        for run_id in run_ids {
+            let events = read_events(&conn, run_id)?;
+            if let Some(record) = trace_run_record(&events, run_id) {
+                records.push(record);
+            }
+        }
+        Ok(records)
+    }
 }
 
 impl EventStore for SqliteEventStore {
@@ -1661,6 +1698,74 @@ fn read_events(conn: &Connection, run_id: RunId) -> Result<Vec<RunEvent>, TraceS
         });
     }
     Ok(events)
+}
+
+fn read_recent_run_ids(conn: &Connection, limit: usize) -> Result<Vec<RunId>, TraceStoreError> {
+    let limit = limit.clamp(1, 200);
+    let mut stmt = conn.prepare(
+        "SELECT run_id
+         FROM run_events
+         GROUP BY run_id
+         ORDER BY MAX(id) DESC
+         LIMIT ?1",
+    )?;
+    let rows = stmt.query_map(params![i64::try_from(limit)?], |row| {
+        row.get::<_, String>(0)
+    })?;
+    let mut run_ids = Vec::new();
+    for row in rows {
+        run_ids.push(RunId(uuid::Uuid::parse_str(&row?)?));
+    }
+    Ok(run_ids)
+}
+
+fn trace_run_record(events: &[RunEvent], _fallback_run_id: RunId) -> Option<TraceRunRecord> {
+    let first = events.first()?;
+    let last = events.last()?;
+    let mut agent_id = None;
+    let mut input_preview = None;
+    let mut final_output_preview = None;
+    let mut child_run_count = 0u32;
+    for event in events {
+        match &event.kind {
+            RunEventKind::RunStarted {
+                agent_id: started_agent,
+                input,
+            } => {
+                agent_id.get_or_insert_with(|| started_agent.clone());
+                input_preview.get_or_insert_with(|| preview_text(input, 160));
+            }
+            RunEventKind::RunCompleted { final_output, .. } => {
+                final_output_preview = Some(preview_text(final_output, 160));
+            }
+            RunEventKind::ChildRunStarted { .. } => {
+                child_run_count = child_run_count.saturating_add(1);
+            }
+            _ => {}
+        }
+    }
+    Some(TraceRunRecord {
+        run_id: first.run_id,
+        first_event_id: first.id,
+        last_event_id: last.id,
+        started_at: first.at,
+        updated_at: last.at,
+        event_count: events.len(),
+        status: trace_status(events),
+        agent_id,
+        input_preview,
+        final_output_preview,
+        child_run_count,
+    })
+}
+
+fn preview_text(value: &str, max_chars: usize) -> String {
+    let compact = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut out = compact.chars().take(max_chars).collect::<String>();
+    if compact.chars().count() > max_chars {
+        out.push_str("...");
+    }
+    out
 }
 
 /// Wraps another `EventStore` and forwards every appended event over a `tokio`
@@ -1998,6 +2103,9 @@ mod tests {
         assert!(plan.prompt.contains("finish report"));
         assert!(plan.prompt.contains("ToolCallProposed"));
         assert!(!plan.prompt.contains("RunCancelled"));
+
+        let err = build_resume_plan(run, &store.events(run), Some(EventId(0))).unwrap_err();
+        assert!(matches!(err, ResumePlanError::InvalidEventId { .. }));
     }
 
     #[test]
@@ -2541,5 +2649,63 @@ mod tests {
                 ..
             } if final_output == "ok"
         ));
+    }
+
+    #[test]
+    fn sqlite_store_lists_recent_run_records() {
+        let store = SqliteEventStore::open_in_memory().unwrap();
+        let older = RunId::new();
+        store.append(
+            older,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "older-agent".into(),
+                input: "older prompt".into(),
+            },
+        );
+        let newer = RunId::new();
+        let started = store.append(
+            newer,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "newer-agent".into(),
+                input: "newer prompt with several words".into(),
+            },
+        );
+        store.append(
+            newer,
+            Some(started.id),
+            RunEventKind::ChildRunStarted {
+                child_run_id: RunId::new(),
+                agent_id: "child".into(),
+            },
+        );
+        store.append(
+            newer,
+            Some(started.id),
+            RunEventKind::RunCompleted {
+                final_output: "newer output".into(),
+                total_cost_usd: None,
+                total_duration_ms: 11,
+            },
+        );
+
+        let records = store.try_run_records(10).unwrap();
+
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].run_id, newer);
+        assert_eq!(records[0].status, "completed");
+        assert_eq!(records[0].agent_id.as_deref(), Some("newer-agent"));
+        assert_eq!(
+            records[0].input_preview.as_deref(),
+            Some("newer prompt with several words")
+        );
+        assert_eq!(
+            records[0].final_output_preview.as_deref(),
+            Some("newer output")
+        );
+        assert_eq!(records[0].child_run_count, 1);
+        assert_eq!(records[1].run_id, older);
+        assert_eq!(records[1].status, "running");
     }
 }

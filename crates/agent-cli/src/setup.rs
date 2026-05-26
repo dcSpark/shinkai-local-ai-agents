@@ -18,18 +18,15 @@ use agent_config::{
 use agent_conversations::{ConversationPolicy, ConversationRole, ConversationStore};
 use agent_core::{
     AgentConfig, ApprovalMode, ConfigValueExplanation, CostPolicy, ExecutionPolicy, Harness,
-    HookTrigger, IngestedArtifactView, MemoryFragment, PromptRefinement, RunHookHandler,
-    RunLifecycleHook, SkillView, ToolOutputMode, ToolPolicy, VisibilityLevel, VoiceConfig,
+    HookTrigger, IngestedArtifactView, PromptRefinement, RunHookHandler, RunLifecycleHook,
+    SkillView, ToolOutputMode, ToolPolicy, VisibilityLevel, VoiceConfig,
 };
 use agent_ingest::IngestionStore;
 use agent_llm::{
     AnthropicProvider, FakeProvider, FakeStep, GeminiProvider, LlmProvider, Message, ModelRef,
     NativeProviderConfig, RigProvider,
 };
-use agent_memory::{
-    MemoryRecord, MemoryStore, list_records_for_supported_backends, load_fragments_for_backend,
-    memory_record_matches_topics,
-};
+use agent_memory::load_fragments_with_profile_grants;
 use agent_skills::SkillRegistry;
 use agent_storage::StoragePaths;
 use agent_tools::{
@@ -482,8 +479,11 @@ pub fn build_agent(options: &RuntimeOptions) -> AgentConfig {
         .map(|policy| policy.effective_load_memory(config_load_memory, options.load_memory))
         .unwrap_or(config_load_memory || options.load_memory);
     if load_memory
-        && let Ok(memory) =
-            load_memory_fragments_with_profile_grants(&agent.memory_backend, &options.memory_topics)
+        && let Ok(memory) = load_fragments_with_profile_grants(
+            StoragePaths::from_env(),
+            &agent.memory_backend,
+            &options.memory_topics,
+        )
     {
         agent.memory_fragments = memory;
     }
@@ -767,41 +767,6 @@ fn normalized_provider_id(provider: &str) -> String {
         "llama-cpp" | "llamacpp" => "llama_cpp".into(),
         other => other.into(),
     }
-}
-
-fn load_memory_fragments_with_profile_grants(
-    backend: &str,
-    topics: &[String],
-) -> anyhow::Result<Vec<MemoryFragment>> {
-    let active_paths = StoragePaths::from_env();
-    let active_profile = active_paths.active_profile_id().to_string();
-    let mut fragments = load_fragments_for_backend(active_paths.clone(), backend, topics)?;
-    let resolver = ConfigResolver::from_env();
-    for grant in resolver.list_profile_grants()?.into_iter().filter(|grant| {
-        grant.kind == ProfileGrantKind::Memory && grant.to_profile == active_profile
-    }) {
-        let source_paths =
-            StoragePaths::new_with_profile(active_paths.root().to_path_buf(), &grant.from_profile);
-        let records = list_records_for_supported_backends(source_paths)?;
-        for record in records
-            .into_iter()
-            .filter(|record| memory_record_matches_grant(record, &grant.resource))
-            .filter(|record| memory_record_matches_topics(record, topics))
-        {
-            fragments.push(MemoryStore::fragment_from_record(
-                record,
-                Some(format!(
-                    "shared_from_profile={}; grant={}",
-                    grant.from_profile, grant.id
-                )),
-            ));
-        }
-    }
-    Ok(fragments)
-}
-
-fn memory_record_matches_grant(record: &MemoryRecord, resource: &str) -> bool {
-    resource == "*" || record.id == resource || record.owning_agent.as_deref() == Some(resource)
 }
 
 fn load_skill_views_with_profile_grants() -> anyhow::Result<Vec<SkillView>> {
@@ -1489,6 +1454,70 @@ hooks:
             agent.context_policy.compaction.guidance.as_deref(),
             Some("keep branch decisions")
         );
+    }
+
+    #[test]
+    fn build_agent_loads_profile_granted_memory_fragments() {
+        let _guard = crate::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let dir =
+            std::env::temp_dir().join(format!("memory-grant-setup-test-{}", std::process::id()));
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        let previous_profile = std::env::var_os("AGENT_HARNESS_PROFILE");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+            std::env::set_var("AGENT_HARNESS_PROFILE", "research");
+        }
+
+        let resolver = ConfigResolver::new(StoragePaths::new_with_profile(&dir, "research"));
+        let _ = resolver.create_profile("research", Some("Research".into()));
+        resolver
+            .grant_profile_access("main", "research", ProfileGrantKind::Memory, "critic")
+            .unwrap();
+        agent_memory::MemoryStore::new(StoragePaths::new(&dir))
+            .create_for_conversation_with_topics_for_agent(
+                agent_memory::MemoryTarget::Agent,
+                "Shared profile memory.",
+                agent_memory::MemoryAuthor::Human,
+                None,
+                None,
+                vec!["team".into()],
+                Some("critic".into()),
+            )
+            .unwrap();
+        agent_memory::MemoryStore::new(StoragePaths::new_with_profile(&dir, "research"))
+            .create_with_topics(
+                agent_memory::MemoryTarget::Agent,
+                "Research local memory.",
+                agent_memory::MemoryAuthor::Human,
+                None,
+                vec!["team".into()],
+            )
+            .unwrap();
+
+        let agent = build_agent(&RuntimeOptions {
+            load_memory: true,
+            memory_topics: vec!["team".into()],
+            ..RuntimeOptions::default()
+        });
+
+        assert_eq!(agent.memory_fragments.len(), 2);
+        assert!(agent.memory_fragments.iter().any(|fragment| {
+            fragment.content == "Research local memory."
+                && fragment.provenance.contains("profile=research")
+        }));
+        assert!(agent.memory_fragments.iter().any(|fragment| {
+            fragment.content == "Shared profile memory."
+                && fragment.provenance.contains("shared_from_profile=main")
+                && fragment
+                    .provenance
+                    .contains("source_backend=local-markdown-v0")
+        }));
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        restore_env("AGENT_HARNESS_PROFILE", previous_profile);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

@@ -7411,25 +7411,28 @@ voice = "nova"
     }
 
     #[test]
-    fn agent_config_accepts_jsonl_memory_backend() {
+    fn agent_config_accepts_supported_memory_backends() {
         let dir = std::env::temp_dir().join(format!("agent-memory-jsonl-test-{}", uuid_like()));
         let resolver = ConfigResolver::new(StoragePaths::new(&dir));
-        let agent = AgentConfigFile {
-            memory_backend: Some("local-jsonl-v0".into()),
-            ..AgentConfigFile::default()
-        };
+        for backend in ["local-jsonl-v0", "external-http-v0"] {
+            let agent = AgentConfigFile {
+                id: format!("agent-{backend}"),
+                memory_backend: Some(backend.into()),
+                ..AgentConfigFile::default()
+            };
 
-        let saved = resolver.save_agent_config(&agent).unwrap();
+            let saved = resolver.save_agent_config(&agent).unwrap();
 
-        assert_eq!(saved.memory_backend.as_deref(), Some("local-jsonl-v0"));
-        assert_eq!(
-            resolver
-                .resolve_agent(&agent.id)
-                .unwrap()
-                .agent
-                .memory_backend,
-            "local-jsonl-v0"
-        );
+            assert_eq!(saved.memory_backend.as_deref(), Some(backend));
+            assert_eq!(
+                resolver
+                    .resolve_agent(&agent.id)
+                    .unwrap()
+                    .agent
+                    .memory_backend,
+                backend
+            );
+        }
         let _ = std::fs::remove_dir_all(dir);
     }
 

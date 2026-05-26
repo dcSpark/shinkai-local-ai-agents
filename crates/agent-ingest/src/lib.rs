@@ -81,6 +81,55 @@ pub struct IngestionCompatibility {
     pub notes: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IngestionToolAvailability {
+    pub tool: String,
+    pub available: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IngestionBackendSourceProbe {
+    pub backend_id: String,
+    pub backend_name: String,
+    pub supported: bool,
+    pub status: String,
+    pub extraction: Option<String>,
+    #[serde(default)]
+    pub optional_tools: Vec<IngestionToolAvailability>,
+    #[serde(default)]
+    pub missing_optional_tools: Vec<String>,
+    #[serde(default)]
+    pub model_requirements: Vec<String>,
+    pub local_dependencies_ready: bool,
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IngestionVisionModelSupportProbe {
+    pub model: String,
+    pub source_kind: String,
+    pub attachment_kind: Option<String>,
+    #[serde(default)]
+    pub required_modalities: Vec<String>,
+    pub supported: bool,
+    pub provider: Option<String>,
+    pub metadata_source: Option<String>,
+    #[serde(default)]
+    pub available_modalities: Vec<String>,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IngestionSourceProbeReport {
+    pub source: PathBuf,
+    pub source_kind: String,
+    pub bytes: u64,
+    #[serde(default)]
+    pub backends: Vec<IngestionBackendSourceProbe>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vision_model: Option<IngestionVisionModelSupportProbe>,
+}
+
 pub struct IngestionBackendOutput {
     pub extracted_text: String,
     pub sections: Vec<IngestSection>,
@@ -611,6 +660,133 @@ pub fn supported_backends() -> Vec<IngestionBackendDescriptor> {
     .into()
 }
 
+pub fn probe_source_compatibility(
+    source: impl AsRef<Path>,
+) -> Result<IngestionSourceProbeReport, IngestError> {
+    probe_source_compatibility_with_tool_checker(source, command_is_available)
+}
+
+fn probe_source_compatibility_with_tool_checker(
+    source: impl AsRef<Path>,
+    tool_available: impl Fn(&str) -> bool,
+) -> Result<IngestionSourceProbeReport, IngestError> {
+    let source = source.as_ref();
+    let bytes = std::fs::metadata(source)?.len();
+    let source_kind = ingestion_source_kind(source);
+    let backends = supported_backends()
+        .into_iter()
+        .map(|backend| probe_backend_for_source(&backend, &source_kind, &tool_available))
+        .collect();
+
+    Ok(IngestionSourceProbeReport {
+        source: source.to_path_buf(),
+        source_kind,
+        bytes,
+        backends,
+        vision_model: None,
+    })
+}
+
+fn probe_backend_for_source(
+    backend: &IngestionBackendDescriptor,
+    source_kind: &str,
+    tool_available: &impl Fn(&str) -> bool,
+) -> IngestionBackendSourceProbe {
+    let compatibility = backend
+        .compatibility
+        .iter()
+        .find(|item| source_kind_matches_compatibility(source_kind, &item.source_kind));
+    let Some(compatibility) = compatibility else {
+        return IngestionBackendSourceProbe {
+            backend_id: backend.id.clone(),
+            backend_name: backend.name.clone(),
+            supported: false,
+            status: "unsupported".into(),
+            extraction: None,
+            optional_tools: Vec::new(),
+            missing_optional_tools: Vec::new(),
+            model_requirements: Vec::new(),
+            local_dependencies_ready: false,
+            notes: format!("No declared compatibility for {source_kind} sources."),
+        };
+    };
+
+    let optional_tools = compatibility
+        .optional_tools
+        .iter()
+        .map(|tool| IngestionToolAvailability {
+            tool: tool.clone(),
+            available: tool_available(tool),
+        })
+        .collect::<Vec<_>>();
+    let missing_optional_tools = optional_tools
+        .iter()
+        .filter(|tool| !tool.available)
+        .map(|tool| tool.tool.clone())
+        .collect::<Vec<_>>();
+    let local_dependencies_ready = missing_optional_tools.is_empty();
+    let status = if local_dependencies_ready {
+        "ready"
+    } else {
+        "degraded"
+    };
+
+    IngestionBackendSourceProbe {
+        backend_id: backend.id.clone(),
+        backend_name: backend.name.clone(),
+        supported: true,
+        status: status.into(),
+        extraction: Some(compatibility.extraction.clone()),
+        optional_tools,
+        missing_optional_tools,
+        model_requirements: compatibility.model_requirements.clone(),
+        local_dependencies_ready,
+        notes: compatibility.notes.clone(),
+    }
+}
+
+fn ingestion_source_kind(source: &Path) -> String {
+    match source_extension(source).as_deref() {
+        Some("pdf") => "pdf",
+        Some("png" | "jpg" | "jpeg" | "gif" | "webp") => "image",
+        Some("svg") => "svg",
+        Some("csv" | "tsv") => "csv/table-like text",
+        Some(
+            "txt" | "text" | "md" | "mdx" | "markdown" | "json" | "jsonl" | "toml" | "yaml" | "yml"
+            | "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" | "kt" | "swift" | "c"
+            | "cc" | "cpp" | "h" | "hpp" | "cs" | "sh" | "bash" | "zsh" | "fish" | "sql" | "html"
+            | "css" | "xml",
+        ) => "text/markdown/code",
+        _ => "unknown",
+    }
+    .into()
+}
+
+fn source_kind_matches_compatibility(source_kind: &str, compatibility_kind: &str) -> bool {
+    match source_kind {
+        "pdf" => compatibility_kind == "pdf",
+        "image" => compatibility_kind == "png/jpeg/gif/webp",
+        "svg" => compatibility_kind == "svg",
+        "csv/table-like text" => {
+            compatibility_kind == "csv/table-like text"
+                || compatibility_kind == "text/markdown/code"
+                || compatibility_kind == "markdown/text"
+        }
+        "text/markdown/code" => {
+            compatibility_kind == "text/markdown/code" || compatibility_kind == "markdown/text"
+        }
+        _ => false,
+    }
+}
+
+fn command_is_available(tool: &str) -> bool {
+    match Command::new(tool).arg("--version").output() {
+        Ok(_) => true,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => false,
+        Err(_) => false,
+    }
+}
+
 fn builtin_backend(id: &str) -> Option<Box<dyn IngestionBackend>> {
     match id {
         "local-v0" => Some(Box::new(LocalParagraphBackend)),
@@ -805,6 +981,13 @@ impl IngestionBackend for LocalLayoutBackend {
                     &[],
                     &["image"],
                     "Useful for charts and diagrams even when OCR is unavailable.",
+                ),
+                compatibility(
+                    "text/markdown/code",
+                    "structured text fallback after layout/image detection",
+                    &[],
+                    &[],
+                    "Useful when a mixed source set should stay on the layout backend.",
                 ),
             ],
         }
@@ -2270,5 +2453,59 @@ mod tests {
                 .any(|item| item.source_kind == "png/jpeg/gif/webp"
                     && item.extraction.contains("adaptive"))
         );
+        assert!(
+            backends[3]
+                .compatibility
+                .iter()
+                .any(|item| item.source_kind == "text/markdown/code"
+                    && item.extraction.contains("structured text fallback"))
+        );
+    }
+
+    #[test]
+    fn source_probe_reports_backend_and_dependency_readiness() {
+        let dir = std::env::temp_dir().join(format!("ingest-source-probe-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("scan.pdf");
+        std::fs::write(&source, b"%PDF-1.7\n").unwrap();
+
+        let report =
+            probe_source_compatibility_with_tool_checker(&source, |tool| tool != "pdftotext")
+                .unwrap();
+
+        assert_eq!(report.source_kind, "pdf");
+        assert_eq!(report.bytes, 9);
+        let local = report
+            .backends
+            .iter()
+            .find(|backend| backend.backend_id == "local-v0")
+            .expect("local backend probe");
+        assert!(local.supported);
+        assert_eq!(local.status, "ready");
+
+        let lines = report
+            .backends
+            .iter()
+            .find(|backend| backend.backend_id == "local-lines-v0")
+            .expect("lines backend probe");
+        assert!(!lines.supported);
+        assert_eq!(lines.status, "unsupported");
+
+        let layout = report
+            .backends
+            .iter()
+            .find(|backend| backend.backend_id == "local-layout-v0")
+            .expect("layout backend probe");
+        assert!(layout.supported);
+        assert_eq!(layout.status, "degraded");
+        assert_eq!(layout.missing_optional_tools, vec!["pdftotext"]);
+        assert!(
+            layout
+                .model_requirements
+                .iter()
+                .any(|requirement| requirement == "document/pdf")
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

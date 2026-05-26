@@ -26,13 +26,16 @@ import type {
   ExpandedConversation,
   GeneratedArtifact,
   GeneratedArtifactDataUrl,
+  GeneratedArtifactExport,
   IngestionArtifact,
   IngestionBackendDescriptor,
   IngestionFindingReviewDecision,
   IngestionGuardrailMode,
   IngestionResult,
+  IngestionSourceProbeReport,
   MemoryAccessReport,
   MemoryBackendDescriptor,
+  MemoryBackendProbeReport,
   MemoryClassifyResult,
   MemoryRecord,
   ModelDoctorReport,
@@ -55,6 +58,7 @@ import type {
   SecretWriteResult,
   SkillDoc,
   StopRetentionMode,
+  TraceRunRecord,
   TraceTreeNode,
   ToolVisibility,
 } from "./types";
@@ -62,6 +66,17 @@ import type {
 type LineKind = "user" | "assistant" | "event" | "error";
 type ArtifactPreview = GeneratedArtifactDataUrl;
 type Transport = "in-process" | "daemon";
+type CapabilityProposeShortcut =
+  | {
+      kind: CapabilityKind;
+      name: string;
+      body: string;
+      guidance: string | null;
+    }
+  | { error: string };
+type CapabilityProposeBody =
+  | { body: string; guidance: string | null }
+  | { error: string };
 type ActiveSection =
   | "chat"
   | "trace"
@@ -157,6 +172,7 @@ interface RemoteRunStatus {
   event_count: number;
   final_output: string | null;
   reason: string | null;
+  recovery_hint?: string | null;
   total_cost_usd: number | null;
   total_duration_ms: number | null;
 }
@@ -181,6 +197,12 @@ interface TraceSummary {
   tokens_out: number;
   cost_usd: number | null;
   duration_ms: number | null;
+}
+
+interface TracePromptPayload {
+  run_id: string;
+  agent_id: string;
+  prompt: string;
 }
 
 type TraceSummaryTotals = Omit<TraceSummary, "run_id">;
@@ -367,6 +389,22 @@ interface BridgeDeliveryListResponse {
   deliveries: BridgeDeliveryRecord[];
 }
 
+interface BridgeStatusRecord {
+  platform: string;
+  inbound?: string[];
+  targets?: string[];
+  auth?: JsonValue;
+  runtime?: JsonValue;
+  outbound?: JsonValue;
+  x402?: JsonValue;
+}
+
+interface BridgeStatusResponse {
+  bridges: BridgeStatusRecord[];
+  delivery_worker?: JsonValue;
+  daemon_x402?: JsonValue;
+}
+
 interface BundleStatus {
   operation: "exported" | "imported";
   path: string;
@@ -426,6 +464,13 @@ interface VoiceCaptureResponse {
   artifact: GeneratedArtifact;
 }
 
+type ArtifactGenerateInput = {
+  format: string;
+  title?: string;
+  content?: string;
+  filename?: string;
+};
+
 const CALLS_MAX = 5;
 
 function hasTauriRuntime() {
@@ -462,6 +507,7 @@ export default function App() {
   const [capabilityKind, setCapabilityKind] = useState<CapabilityKind>("skill");
   const [memorySourceRange, setMemorySourceRange] = useState("");
   const [memoryTopics, setMemoryTopics] = useState("");
+  const [memoryGenerationGuidance, setMemoryGenerationGuidance] = useState("");
   const [memoryClassificationModel, setMemoryClassificationModel] = useState("");
   const [voiceInputEnabled, setVoiceInputEnabled] = useState<"" | "on" | "off">("");
   const [voiceOutputEnabled, setVoiceOutputEnabled] = useState<"" | "on" | "off">("");
@@ -554,6 +600,7 @@ export default function App() {
   );
   const [contextCopyStatus, setContextCopyStatus] = useState("");
   const [traceEvents, setTraceEvents] = useState<RunEvent[]>([]);
+  const [traceRuns, setTraceRuns] = useState<TraceRunRecord[]>([]);
   const [traceSummary, setTraceSummary] = useState<TraceSummary | null>(null);
   const [traceTree, setTraceTree] = useState<TraceTreeNode | null>(null);
   const [collapsedTraceTreeRuns, setCollapsedTraceTreeRuns] = useState<string[]>(
@@ -569,6 +616,9 @@ export default function App() {
   const [storageReport, setStorageReport] = useState<StorageReport | null>(null);
   const [storagePruneResult, setStoragePruneResult] =
     useState<StorageRetentionResult | null>(null);
+  const [bridgeStatus, setBridgeStatus] = useState<BridgeStatusResponse | null>(
+    null,
+  );
   const [bridgeDeliveries, setBridgeDeliveries] = useState<BridgeDeliveryRecord[]>(
     [],
   );
@@ -585,6 +635,8 @@ export default function App() {
   const [ingestionBackends, setIngestionBackends] = useState<
     IngestionBackendDescriptor[]
   >([]);
+  const [ingestionSourceProbe, setIngestionSourceProbe] =
+    useState<IngestionSourceProbeReport | null>(null);
   const [ingestionArtifacts, setIngestionArtifacts] = useState<
     IngestionArtifact[]
   >([]);
@@ -593,6 +645,8 @@ export default function App() {
   >([]);
   const [artifactPreview, setArtifactPreview] =
     useState<ArtifactPreview | null>(null);
+  const [artifactExportStatus, setArtifactExportStatus] =
+    useState<GeneratedArtifactExport | null>(null);
   const [recordingVoice, setRecordingVoice] = useState(false);
   const [voicePreviewUrl, setVoicePreviewUrl] = useState<string | null>(null);
   const [voiceCaptureArtifact, setVoiceCaptureArtifact] =
@@ -607,6 +661,8 @@ export default function App() {
   const [memoryBackends, setMemoryBackends] = useState<MemoryBackendDescriptor[]>(
     [],
   );
+  const [memoryBackendProbe, setMemoryBackendProbe] =
+    useState<MemoryBackendProbeReport | null>(null);
   const [promptDocs, setPromptDocs] = useState<PromptDoc[]>([]);
   const [conversationDocs, setConversationDocs] = useState<ConversationDoc[]>([]);
   const [conversationTree, setConversationTree] = useState<ConversationTreeNode[]>(
@@ -1018,11 +1074,13 @@ export default function App() {
         return;
       case "RunFailed":
         if (evt.run_id !== rootRunIdRef.current) {
-          appendEvent(`Run failed: ${evt.run_id.slice(0, 8)} (${k.reason})`);
+          appendEvent(
+            `Run failed: ${evt.run_id.slice(0, 8)} (${runFailureDetail(k.reason)})`,
+          );
           return;
         }
         terminalEventSeenRef.current = true;
-        appendLine("error", `Run failed: ${k.reason}`);
+        appendLine("error", `Run failed: ${runFailureDetail(k.reason)}`);
         setRunning(false);
         runStartedAtRef.current = null;
         return;
@@ -1034,6 +1092,18 @@ export default function App() {
   }
   function appendLine(kind: LineKind, text: string) {
     setTranscript((t) => [...t, { kind, text }]);
+  }
+
+  function budgetRecoveryHint(reason: string | null | undefined) {
+    if (!reason?.toLowerCase().includes("tool-call budget exhausted")) {
+      return null;
+    }
+    return "Increase the tool-call budget, then use /resume or /replay with this run id if the task should continue.";
+  }
+
+  function runFailureDetail(reason: string, recoveryHint?: string | null) {
+    const hint = recoveryHint ?? budgetRecoveryHint(reason);
+    return hint ? `${reason}\n${hint}` : reason;
   }
 
   function parsedMemoryTopics() {
@@ -1260,7 +1330,13 @@ export default function App() {
         }
       } else {
         if (!terminalEventSeenRef.current) {
-          appendLine("error", `Remote run failed: ${status.reason ?? status.status}`);
+          appendLine(
+            "error",
+            `Remote run failed: ${runFailureDetail(
+              status.reason ?? status.status,
+              status.recovery_hint,
+            )}`,
+          );
         }
       }
       setRunning(false);
@@ -1445,54 +1521,108 @@ export default function App() {
     ];
     const commands: SlashCommandSuggestion[] = [
       { command: "/help", label: "Show shortcuts" },
+      { command: "/?", label: "Show shortcuts" },
       { command: "/preview", label: "Preview context" },
+      { command: "/preview help", label: "Show preview shortcut" },
+      { command: "/agent help", label: "Show agent switch shortcut" },
       { command: "/agent tool", label: "Switch to Tool agent" },
       { command: "/agent echo", label: "Switch to Echo agent" },
       { command: "/agent ", label: "Use saved agent id" },
       { command: "/agents", label: "List saved agents" },
+      { command: "/agents help", label: "Show saved-agent shortcuts" },
       { command: "/agents show ", label: "Show saved agent" },
       { command: "/agents use ", label: "Use saved agent" },
       { command: "/agents save ", label: "Save current setup as agent" },
       { command: "/agents export ", label: "Export saved agent" },
       { command: "/agents import ", label: "Import saved agent" },
       { command: "/agents delete ", label: "Delete saved agent" },
+      { command: "/tool help", label: "Show tool shortcuts" },
+      { command: "/tool!help", label: "Show direct tool shortcut" },
       ...forcedToolCommands,
       ...toolCommands,
+      { command: "/run help", label: "Show saved prompt shortcuts" },
       { command: "/run ", label: "Run saved prompt" },
+      { command: "/prompt help", label: "Show saved prompt shortcuts" },
       { command: "/prompt ", label: "Load saved prompt" },
+      { command: "/prompt list", label: "List saved prompts" },
+      { command: "/prompt show ", label: "Show saved prompt" },
+      { command: "/prompt save ", label: "Save prompt text" },
+      { command: "/prompt use ", label: "Load saved prompt" },
+      { command: "/prompt preview ", label: "Preview saved prompt context" },
+      { command: "/prompt export ", label: "Export saved prompt" },
+      { command: "/prompt import ", label: "Import saved prompt" },
+      { command: "/prompt delete ", label: "Delete saved prompt" },
       { command: "/prompts", label: "List saved prompts" },
+      { command: "/prompts help", label: "Show prompt-library shortcuts" },
       { command: "/prompts list", label: "List saved prompts" },
       { command: "/prompts show ", label: "Show saved prompt" },
+      { command: "/prompts save ", label: "Save prompt text" },
       { command: "/prompts use ", label: "Load saved prompt" },
       { command: "/prompts preview ", label: "Preview saved prompt context" },
+      { command: "/prompts export ", label: "Export saved prompt" },
+      { command: "/prompts import ", label: "Import saved prompt" },
       { command: "/prompts delete ", label: "Delete saved prompt" },
       { command: "/models", label: "List model metadata" },
+      { command: "/model", label: "List model metadata" },
+      { command: "/models help", label: "Show model shortcuts" },
+      { command: "/model help", label: "Show model shortcuts" },
       { command: "/models list", label: "List model metadata" },
+      { command: "/model list", label: "List model metadata" },
       { command: "/models show ", label: "Show model metadata" },
+      { command: "/model show ", label: "Show model metadata" },
       { command: "/models probe ", label: "Probe model capabilities" },
+      { command: "/model probe ", label: "Probe model capabilities" },
       { command: "/models save ", label: "Save model metadata" },
+      { command: "/model save ", label: "Save model metadata" },
       { command: "/models save-current", label: "Save current model controls" },
+      { command: "/model save-current", label: "Save current model controls" },
       { command: "/models export ", label: "Export model metadata" },
+      { command: "/model export ", label: "Export model metadata" },
       { command: "/models import ", label: "Import model metadata" },
+      { command: "/model import ", label: "Import model metadata" },
       { command: "/models delete ", label: "Delete model metadata" },
+      { command: "/model delete ", label: "Delete model metadata" },
+      { command: "/models rm ", label: "Delete model metadata" },
+      { command: "/model rm ", label: "Delete model metadata" },
       { command: "/models providers", label: "List model providers" },
+      { command: "/model providers", label: "List model providers" },
       { command: "/models doctor", label: "Run model doctor" },
+      { command: "/model doctor", label: "Run model doctor" },
       { command: "/models provider-catalog", label: "Show provider catalog" },
+      { command: "/model provider-catalog", label: "Show provider catalog" },
+      { command: "/models provider-catalog help", label: "Show model catalog shortcuts" },
+      { command: "/model provider-catalog help", label: "Show model catalog shortcuts" },
       { command: "/models provider-catalog export ", label: "Export provider catalog" },
+      { command: "/model provider-catalog export ", label: "Export provider catalog" },
       { command: "/models provider-catalog import ", label: "Import provider catalog" },
+      { command: "/model provider-catalog import ", label: "Import provider catalog" },
       { command: "/models metadata-catalog", label: "Show metadata catalog" },
+      { command: "/model metadata-catalog", label: "Show metadata catalog" },
+      { command: "/models metadata-catalog help", label: "Show model catalog shortcuts" },
+      { command: "/model metadata-catalog help", label: "Show model catalog shortcuts" },
       { command: "/models metadata-catalog export ", label: "Export metadata catalog" },
+      { command: "/model metadata-catalog export ", label: "Export metadata catalog" },
       { command: "/models metadata-catalog import ", label: "Import metadata catalog" },
+      { command: "/model metadata-catalog import ", label: "Import metadata catalog" },
+      { command: "/raw help", label: "Show agent mode shortcuts" },
       { command: "/simple", label: "Use low-overhead answer mode" },
+      { command: "/simple help", label: "Show agent mode shortcuts" },
       { command: "/router", label: "Use one-action raw router mode" },
+      { command: "/router help", label: "Show agent mode shortcuts" },
       { command: "/answer", label: "Use zero tool calls" },
+      { command: "/answer help", label: "Show agent mode shortcuts" },
       { command: "/action", label: "Use one tool call" },
+      { command: "/action help", label: "Show agent mode shortcuts" },
       { command: "/workflow", label: `Use default ${CALLS_MAX}-call workflow` },
+      { command: "/workflow help", label: "Show agent mode shortcuts" },
+      { command: "/budget help", label: "Show tool-call budget shortcuts" },
       { command: "/budget ", label: "Set max tool calls" },
+      { command: "/visibility help", label: "Show tool visibility shortcuts" },
       { command: "/visibility full", label: "Show full tool schemas" },
       { command: "/visibility descriptions", label: "Show tool names and descriptions" },
       { command: "/visibility names", label: "Show tool names only" },
       { command: "/visibility config", label: "Use configured tool visibility" },
+      { command: "/approval help", label: "Show approval shortcuts" },
       { command: "/approval on", label: "Require approval for tool actions" },
       { command: "/approval off", label: "Auto-approve tool actions" },
       { command: "/approval status", label: "Show approval gate status" },
@@ -1502,29 +1632,42 @@ export default function App() {
       { command: "/approval approve ", label: "Approve and execute an approval" },
       { command: "/approval reject ", label: "Reject an approval" },
       { command: "/approval execute ", label: "Execute an approved action" },
+      { command: "/refine help", label: "Show prompt refinement shortcuts" },
       { command: "/refine on", label: "Enable prompt refinement" },
       { command: "/refine off", label: "Disable prompt refinement" },
       { command: "/refine status", label: "Show prompt refinement status" },
       { command: "/refine model ", label: "Set refiner model" },
       { command: "/refine instructions ", label: "Set refinement instructions" },
+      { command: "/shell help", label: "Show shell access shortcuts" },
       { command: "/shell on", label: "Enable shell tool access" },
       { command: "/shell off", label: "Disable shell tool access" },
       { command: "/shell status", label: "Show shell access status" },
+      { command: "/python help", label: "Show code execution shortcuts" },
       { command: "/python ", label: "Run Python code" },
+      { command: "/typescript help", label: "Show code execution shortcuts" },
       { command: "/typescript ", label: "Run TypeScript code" },
+      { command: "/ts help", label: "Show code execution shortcuts" },
       { command: "/ts ", label: "Run TypeScript code" },
+      { command: "/x402", label: "Show x402 shortcuts" },
+      { command: "/x402 help", label: "Show x402 shortcuts" },
+      { command: "/x402 --help", label: "Show x402 shortcuts" },
       { command: "/x402 request ", label: "Probe an x402 endpoint" },
       { command: "/x402 required ", label: "Build an x402 payment challenge" },
       { command: "/x402 settle ", label: "Verify and settle an x402 payment" },
+      { command: "/payment", label: "Show x402 payment aliases" },
+      { command: "/payment help", label: "Show x402 payment aliases" },
+      { command: "/payment --help", label: "Show x402 payment aliases" },
       { command: "/payment x402-request ", label: "Probe an x402 endpoint" },
       { command: "/payment x402-required ", label: "Build an x402 payment challenge" },
       { command: "/payment x402-settle ", label: "Verify and settle an x402 payment" },
+      { command: "/memory help", label: "Show memory shortcuts" },
       { command: "/memory on", label: "Load memory in context" },
       { command: "/memory off", label: "Stop loading memory" },
       { command: "/memory status", label: "Show memory loading status" },
       { command: "/memory list", label: "List memory records" },
       { command: "/memory access", label: "Show visible memory access" },
       { command: "/memory backends", label: "List memory backends" },
+      { command: "/memory probe ", label: "Probe a memory backend" },
       { command: "/memory preview", label: "Preview context with memory" },
       { command: "/memory create ", label: "Create memory record" },
       { command: "/memory generate ", label: "Generate memory from text" },
@@ -1533,6 +1676,9 @@ export default function App() {
       { command: "/memory edit ", label: "Edit memory record" },
       { command: "/memory delete ", label: "Delete memory record" },
       { command: "/memory rollback --confirm", label: "Rollback memory file" },
+      { command: "/memory export ", label: "Export memory records" },
+      { command: "/memory import ", label: "Import memory records" },
+      { command: "/skills help", label: "Show skill shortcuts" },
       { command: "/skills on", label: "Load skills in context" },
       { command: "/skills off", label: "Stop loading skills" },
       { command: "/skills status", label: "Show skill loading status" },
@@ -1540,46 +1686,82 @@ export default function App() {
       { command: "/skills show ", label: "Show imported skill" },
       { command: "/skills inspect ", label: "Inspect imported skill" },
       { command: "/skills import-openclaw ", label: "Import OpenClaw skill" },
+      { command: "/skills install ", label: "Import OpenClaw skill" },
       { command: "/skills import-doc ", label: "Import portable skill doc" },
+      { command: "/skills import ", label: "Import portable skill doc" },
       { command: "/skills export ", label: "Export portable skill doc" },
       { command: "/skills allow ", label: "Allow quarantined skill" },
       { command: "/skills quarantine ", label: "Quarantine skill" },
+      { command: "/skill help", label: "Show skill shortcuts" },
+      { command: "/skill list", label: "List imported skills" },
+      { command: "/skill show ", label: "Show imported skill" },
+      { command: "/skill inspect ", label: "Inspect imported skill" },
+      { command: "/skill import-openclaw ", label: "Import OpenClaw skill" },
+      { command: "/skill install ", label: "Import OpenClaw skill" },
+      { command: "/skill import-doc ", label: "Import portable skill doc" },
+      { command: "/skill import ", label: "Import portable skill doc" },
+      { command: "/skill export ", label: "Export portable skill doc" },
+      { command: "/skill allow ", label: "Allow quarantined skill" },
+      { command: "/skill quarantine ", label: "Quarantine skill" },
+      { command: "/subagent help", label: "Show subagent shortcuts" },
       { command: "/subagent on", label: "Enable subagent tool" },
       { command: "/subagent off", label: "Disable subagent tool" },
       { command: "/subagent status", label: "Show subagent status" },
+      { command: "/cost help", label: "Show token cost shortcuts" },
       { command: "/cost input ", label: "Set input token cost per million" },
       { command: "/cost output ", label: "Set output token cost per million" },
       { command: "/cost both ", label: "Set input and output token costs" },
       { command: "/cost clear", label: "Use configured model costs" },
       { command: "/cost status", label: "Show token cost overrides" },
       { command: "/usage", label: "Show current usage totals" },
-      { command: "/usage trace", label: "Load last trace usage totals" },
+      { command: "/usage help", label: "Show usage shortcuts" },
+      { command: "/usage last", label: "Load latest run usage totals" },
+      { command: "/usage trace", label: "Load current trace usage totals" },
+      { command: "/usage trace last", label: "Load latest trace usage totals" },
       { command: "/usage trace ", label: "Load run trace usage totals by id" },
+      { command: "/usage run last", label: "Load latest run usage totals" },
       { command: "/usage run ", label: "Load run usage totals by id" },
       { command: "/usage conversation", label: "Load selected conversation usage totals" },
       { command: "/usage conversation ", label: "Load conversation usage by id or range" },
+      { command: "/score help", label: "Show quality score shortcuts" },
       { command: "/score 10", label: "Score last answer" },
+      { command: "/score ", label: "Score a run by id" },
       { command: "/score conversation 10", label: "Score the full conversation" },
       { command: "/score range:important 8", label: "Score a selected range" },
       { command: "/scores", label: "Review quality scores" },
+      { command: "/scores help", label: "Show quality score shortcuts" },
+      { command: "/scores last", label: "Review latest run quality scores" },
+      { command: "/scores ", label: "Review run quality scores by id" },
+      { command: "/resume help", label: "Show resume shortcuts" },
       { command: "/resume", label: "Resume last or selected run" },
+      { command: "/resume last", label: "Resume latest run" },
       { command: "/resume ", label: "Resume a run by id" },
+      { command: "/resume plan help", label: "Show resume shortcuts" },
+      { command: "/resume plan last", label: "Preview latest run resume prompt" },
       { command: "/resume plan ", label: "Preview resume prompt" },
+      { command: "/resume-plan help", label: "Show resume shortcuts" },
+      { command: "/resume-plan last", label: "Preview latest run resume prompt" },
       { command: "/resume-plan ", label: "Preview resume prompt" },
+      { command: "/guide help", label: "Show guidance shortcuts" },
       { command: "/stop", label: "Stop current run" },
+      { command: "/stop help", label: "Show stop shortcuts" },
       { command: "/stop default", label: "Use configured stop mode" },
       { command: "/stop discard", label: "Stop without retaining context" },
       { command: "/stop summarise", label: "Stop and retain a summary" },
       { command: "/stop --summarise ", label: "Stop, retain summary, add reason" },
       { command: "/stop status", label: "Show stop retention mode" },
+      { command: "/compact help", label: "Show compact shortcuts" },
       { command: "/compact ", label: "Create a guided compaction draft" },
       { command: "/compact keep", label: "Keep current compacted context" },
+      { command: "/compact keep-run last", label: "Keep latest run auto-compaction" },
       { command: "/compact keep-run ", label: "Keep auto-compaction from run" },
       { command: "/compact status", label: "Show manual compacted context" },
       { command: "/compact clear", label: "Clear manual compacted context" },
       { command: "/compactions", label: "List compacted-context artifacts" },
+      { command: "/compactions help", label: "Show compaction record shortcuts" },
       { command: "/compactions list", label: "List compacted-context artifacts" },
       { command: "/compactions keep", label: "Keep current compacted context" },
+      { command: "/compactions keep-run last", label: "Keep latest run auto-compaction" },
       { command: "/compactions keep-run ", label: "Keep auto-compaction from run" },
       { command: "/compactions show ", label: "Show compacted-context artifact" },
       { command: "/compactions use ", label: "Use compacted-context artifact" },
@@ -1587,19 +1769,51 @@ export default function App() {
       { command: "/compactions import ", label: "Import compacted-context artifact" },
       { command: "/compactions delete ", label: "Delete compacted-context artifact" },
       { command: "/conversation", label: "List conversation branches" },
+      { command: "/conversations", label: "List conversation branches" },
+      { command: "/conversation help", label: "Show conversation shortcuts" },
+      { command: "/conversations help", label: "Show conversation shortcuts" },
       { command: "/conversation list", label: "List conversation branches" },
+      { command: "/conversations list", label: "List conversation branches" },
       { command: "/conversation tree", label: "Show conversation tree" },
+      { command: "/conversations tree", label: "Show conversation tree" },
+      { command: "/conversation browse", label: "Browse conversation branches" },
+      { command: "/conversations browse", label: "Browse conversation branches" },
       { command: "/conversation select ", label: "Select conversation branch" },
+      { command: "/conversations select ", label: "Select conversation branch" },
       { command: "/conversation show ", label: "Show conversation branch" },
+      { command: "/conversations show ", label: "Show conversation branch" },
       { command: "/conversation recover ", label: "Recover conversation context" },
+      { command: "/conversations recover ", label: "Recover conversation context" },
+      { command: "/conversation usage", label: "Load selected conversation usage totals" },
+      { command: "/conversations usage", label: "Load selected conversation usage totals" },
+      { command: "/conversation usage ", label: "Load conversation usage by id or range" },
+      { command: "/conversations usage ", label: "Load conversation usage by id or range" },
+      { command: "/conversation memory ", label: "Generate memory from conversation range" },
+      { command: "/conversations memory ", label: "Generate memory from conversation range" },
       { command: "/conversation policy", label: "Show conversation policy" },
+      { command: "/conversations policy", label: "Show conversation policy" },
+      { command: "/conversation policy show ", label: "Show conversation policy" },
+      { command: "/conversations policy show ", label: "Show conversation policy" },
       { command: "/conversation policy apply", label: "Apply conversation policy" },
+      { command: "/conversations policy apply", label: "Apply conversation policy" },
       { command: "/conversation policy save", label: "Save conversation policy" },
+      { command: "/conversations policy save", label: "Save conversation policy" },
       { command: "/conversation policy clear", label: "Clear conversation policy" },
+      { command: "/conversations policy clear", label: "Clear conversation policy" },
       { command: "/conversation delete-plan ", label: "Preview conversation deletion" },
+      { command: "/conversations delete-plan ", label: "Preview conversation deletion" },
       { command: "/conversation delete ", label: "Delete conversation branch" },
+      { command: "/conversations delete ", label: "Delete conversation branch" },
+      { command: "/conversation delete-agent-plan ", label: "Preview agent conversation deletion" },
+      { command: "/conversations delete-agent-plan ", label: "Preview agent conversation deletion" },
+      { command: "/conversation delete-agent ", label: "Delete agent conversations" },
+      { command: "/conversations delete-agent ", label: "Delete agent conversations" },
+      { command: "/conversation range ", label: "Preview conversation message range" },
+      { command: "/conversations range ", label: "Preview conversation message range" },
       { command: "/conversation range-delete ", label: "Delete conversation message range" },
+      { command: "/conversations range-delete ", label: "Delete conversation message range" },
       { command: "/guardrails", label: "Review ingestion guardrails" },
+      { command: "/guardrails help", label: "Show guardrail shortcuts" },
       { command: "/guardrails mode warn", label: "Warn on flagged ingestion" },
       { command: "/guardrails mode block", label: "Block flagged ingestion" },
       { command: "/guardrails unsafe on", label: "Allow flagged ingestion content" },
@@ -1607,21 +1821,29 @@ export default function App() {
       { command: "/guardrails status", label: "Show guardrail status" },
       { command: "/raw", label: "Use raw tool outputs" },
       { command: "/interpret", label: "Interpret tool outputs" },
+      { command: "/interpret help", label: "Show output interpretation shortcuts" },
       { command: "/interpret ", label: "Set interpreter model" },
       { command: "/interpret clear", label: "Use configured interpreter model" },
       { command: "/interpret status", label: "Show interpreter model" },
+      { command: "/router-model help", label: "Show router model shortcuts" },
       { command: "/router-model ", label: "Set tool routing model" },
       { command: "/router-model clear", label: "Use configured routing model" },
       { command: "/router-model status", label: "Show routing model" },
       { command: "/export", label: "Export backup bundle" },
+      { command: "/export help", label: "Show bundle export shortcuts" },
       { command: "/config", label: "Explain effective config" },
+      { command: "/config help", label: "Show config shortcut" },
       { command: "/tools", label: "Show visible tools" },
+      { command: "/tools help", label: "Show tools shortcut" },
       { command: "/storage", label: "Show storage usage" },
+      { command: "/storage help", label: "Show storage shortcuts" },
       { command: "/storage report", label: "Show storage usage" },
       { command: "/storage prune-cache ", label: "Plan cache pruning" },
       { command: "/storage prune-cache 30 --apply", label: "Apply cache pruning" },
       { command: "/memory", label: "List memory records" },
-      { command: "/voice status", label: "Show voice artifacts" },
+      { command: "/voice help", label: "Show voice shortcuts" },
+      { command: "/voice --help", label: "Show voice shortcuts" },
+      { command: "/voice status", label: "Show voice status" },
       { command: "/voice capture", label: "Start voice capture" },
       { command: "/voice stop", label: "Stop voice capture" },
       { command: "/voice transcribe", label: "Transcribe latest voice capture" },
@@ -1629,68 +1851,153 @@ export default function App() {
       { command: "/voice speak ", label: "Create speech from text" },
       { command: "/voice stage ", label: "Stage speech tool input" },
       { command: "/ingest", label: "List ingestion artifacts" },
+      { command: "/ingest help", label: "Show ingestion shortcuts" },
       { command: "/ingest list", label: "List ingestion artifacts" },
       { command: "/ingest backends", label: "List ingestion backends" },
       { command: "/ingest add ", label: "Ingest a file path" },
+      { command: "/ingest probe-source ", label: "Probe source ingestion fit" },
       { command: "/ingest probe-vision ", label: "Probe vision ingestion" },
       { command: "/ingest probe ", label: "Probe vision ingestion" },
       { command: "/ingest show ", label: "Show ingestion artifact" },
       { command: "/ingest rerun ", label: "Rerun ingestion artifact" },
       { command: "/ingest use ", label: "Use ingestion artifact" },
+      { command: "/ingest include ", label: "Use ingestion artifact" },
       { command: "/ingest preview ", label: "Preview context with artifact" },
       { command: "/ingest review ", label: "Review ingestion finding" },
       { command: "/ingest delete ", label: "Delete ingestion artifact" },
+      { command: "/ingest remove ", label: "Delete ingestion artifact" },
+      { command: "/ingest rm ", label: "Delete ingestion artifact" },
       { command: "/artifacts", label: "List generated artifacts" },
+      { command: "/artifact", label: "List generated artifacts" },
+      { command: "/artifacts help", label: "Show artifact shortcuts" },
+      { command: "/artifact help", label: "Show artifact shortcuts" },
       { command: "/artifacts list", label: "List generated artifacts" },
+      { command: "/artifact list", label: "List generated artifacts" },
+      { command: "/artifacts generate ", label: "Generate artifact" },
+      { command: "/artifact generate ", label: "Generate artifact" },
       { command: "/artifacts show ", label: "Show generated artifact" },
+      { command: "/artifact show ", label: "Show generated artifact" },
       { command: "/artifacts open ", label: "Open generated artifact" },
+      { command: "/artifact open ", label: "Open generated artifact" },
       { command: "/artifacts preview ", label: "Preview generated artifact" },
+      { command: "/artifact preview ", label: "Preview generated artifact" },
+      { command: "/artifacts download ", label: "Download generated artifact" },
+      { command: "/artifact download ", label: "Download generated artifact" },
+      { command: "/artifacts export ", label: "Export generated artifact" },
+      { command: "/artifact export ", label: "Export generated artifact" },
       { command: "/artifacts delete ", label: "Delete generated artifact" },
+      { command: "/artifact delete ", label: "Delete generated artifact" },
       { command: "/skills", label: "List imported skills" },
+      { command: "/skill", label: "List imported skills" },
       { command: "/capabilities", label: "List capability drafts" },
+      { command: "/capability", label: "List capability drafts" },
+      { command: "/capabilities help", label: "Show capability shortcuts" },
+      { command: "/capability help", label: "Show capability shortcuts" },
       { command: "/capabilities list", label: "List capability drafts" },
+      { command: "/capability list", label: "List capability drafts" },
       { command: "/capabilities doctor", label: "Summarize capability drafts" },
+      { command: "/capability doctor", label: "Summarize capability drafts" },
       { command: "/capabilities propose ", label: "Propose capability draft" },
       { command: "/capabilities show ", label: "Show capability draft" },
+      { command: "/capability show ", label: "Show capability draft" },
       { command: "/capabilities export ", label: "Export capability draft" },
+      { command: "/capability export ", label: "Export capability draft" },
       { command: "/capabilities import ", label: "Import capability draft" },
+      { command: "/capability import ", label: "Import capability draft" },
+      { command: "/capability propose ", label: "Propose capability draft" },
       { command: "/capabilities allow ", label: "Allow capability draft" },
+      { command: "/capability allow ", label: "Allow capability draft" },
       { command: "/capabilities reject ", label: "Reject capability draft" },
+      { command: "/capability reject ", label: "Reject capability draft" },
       { command: "/capabilities delete ", label: "Delete capability draft" },
+      { command: "/capability delete ", label: "Delete capability draft" },
       { command: "/profiles", label: "List profiles" },
+      { command: "/profile", label: "List profiles" },
+      { command: "/profiles help", label: "Show profile shortcuts" },
+      { command: "/profile help", label: "Show profile shortcuts" },
       { command: "/profiles current", label: "Show current profile" },
+      { command: "/profile current", label: "Show current profile" },
       { command: "/profiles show ", label: "Show a profile" },
+      { command: "/profile show ", label: "Show a profile" },
       { command: "/profiles create ", label: "Create a profile" },
+      { command: "/profile create ", label: "Create a profile" },
       { command: "/profiles delete ", label: "Delete a profile" },
+      { command: "/profile delete ", label: "Delete a profile" },
       { command: "/profiles grants", label: "List profile grants" },
+      { command: "/profile grants", label: "List profile grants" },
       { command: "/profiles grant ", label: "Grant profile access" },
+      { command: "/profile grant ", label: "Grant profile access" },
       { command: "/profiles revoke ", label: "Revoke profile grant" },
+      { command: "/profile revoke ", label: "Revoke profile grant" },
+      { command: "/profiles revoke-grant ", label: "Revoke profile grant" },
+      { command: "/profile revoke-grant ", label: "Revoke profile grant" },
+      { command: "/secrets", label: "List secret metadata" },
+      { command: "/secret", label: "List secret metadata" },
+      { command: "/secrets help", label: "Show secret shortcuts" },
+      { command: "/secret help", label: "Show secret shortcuts" },
       { command: "/secrets backends", label: "List secret backends" },
+      { command: "/secret backends", label: "List secret backends" },
       { command: "/secrets list", label: "List secret metadata" },
+      { command: "/secret list", label: "List secret metadata" },
       { command: "/secrets show ", label: "Show secret metadata" },
+      { command: "/secret show ", label: "Show secret metadata" },
       { command: "/secrets delete ", label: "Delete secret metadata" },
+      { command: "/secret delete ", label: "Delete secret metadata" },
+      { command: "/secrets rm ", label: "Delete secret metadata" },
+      { command: "/secret rm ", label: "Delete secret metadata" },
+      { command: "/bundles", label: "Show bundle shortcuts" },
+      { command: "/bundle", label: "Show bundle shortcuts" },
+      { command: "/bundles help", label: "Show bundle shortcuts" },
+      { command: "/bundle help", label: "Show bundle shortcuts" },
       { command: "/bundles backup", label: "Export profile backup bundle" },
+      { command: "/bundle backup", label: "Export profile backup bundle" },
       { command: "/bundles export ", label: "Export profile bundle" },
+      { command: "/bundle export ", label: "Export profile bundle" },
       { command: "/bundles import ", label: "Import profile bundle" },
+      { command: "/bundle import ", label: "Import profile bundle" },
       { command: "/adapters", label: "List adapter manifests" },
+      { command: "/adapter", label: "List adapter manifests" },
+      { command: "/adapters help", label: "Show adapter shortcuts" },
+      { command: "/adapter help", label: "Show adapter shortcuts" },
       { command: "/adapters list", label: "List adapter manifests" },
+      { command: "/adapter list", label: "List adapter manifests" },
       { command: "/adapters doctor", label: "Check adapter operability" },
+      { command: "/adapter doctor", label: "Check adapter operability" },
       { command: "/adapters show ", label: "Show adapter manifest" },
+      { command: "/adapter show ", label: "Show adapter manifest" },
       { command: "/adapters inspect ", label: "Inspect adapter source" },
+      { command: "/adapter inspect ", label: "Inspect adapter source" },
       { command: "/adapters import ", label: "Import adapter package" },
+      { command: "/adapter import ", label: "Import adapter package" },
       { command: "/adapters import-manifest ", label: "Import adapter manifest" },
+      { command: "/adapter import-manifest ", label: "Import adapter manifest" },
       { command: "/adapters export ", label: "Export adapter manifest" },
+      { command: "/adapter export ", label: "Export adapter manifest" },
       { command: "/adapters install-skill ", label: "Install adapter as skill" },
+      { command: "/adapter install-skill ", label: "Install adapter as skill" },
       { command: "/adapters allow ", label: "Allow adapter manifest" },
+      { command: "/adapter allow ", label: "Allow adapter manifest" },
       { command: "/adapters quarantine ", label: "Quarantine adapter manifest" },
+      { command: "/adapter quarantine ", label: "Quarantine adapter manifest" },
+      { command: "/adapters clawhub help", label: "Show ClawHub adapter shortcuts" },
+      { command: "/adapter clawhub help", label: "Show ClawHub adapter shortcuts" },
       { command: "/adapters clawhub search ", label: "Search ClawHub catalog" },
+      { command: "/adapter clawhub search ", label: "Search ClawHub catalog" },
       { command: "/adapters clawhub inspect ", label: "Inspect ClawHub entry" },
+      { command: "/adapter clawhub inspect ", label: "Inspect ClawHub entry" },
       { command: "/adapters clawhub pin ", label: "Pin ClawHub entry digest" },
+      { command: "/adapter clawhub pin ", label: "Pin ClawHub entry digest" },
       { command: "/adapters clawhub install ", label: "Install ClawHub entry" },
+      { command: "/adapter clawhub install ", label: "Install ClawHub entry" },
+      { command: "/bridges status", label: "Show bridge readiness" },
+      { command: "/bridges help", label: "Show bridge shortcuts" },
       { command: "/bridge-deliveries", label: "List bridge dead letters" },
+      { command: "/bridge-deliveries help", label: "Show bridge delivery shortcuts" },
       { command: "/bridge-deliveries retry ", label: "Retry bridge delivery" },
+      { command: "/bridge-deliveries delete ", label: "Delete bridge delivery" },
       { command: "/bridge-deliveries retry-all", label: "Retry all bridge deliveries" },
       { command: "/hooks", label: "List lifecycle hooks" },
+      { command: "/hooks help", label: "Show lifecycle hook shortcuts" },
       { command: "/hooks available", label: "List lifecycle hooks" },
       { command: "/hooks list", label: "Show lifecycle hook policy" },
       { command: "/hooks policy", label: "Show lifecycle hook policy" },
@@ -1698,17 +2005,41 @@ export default function App() {
       { command: "/hooks disable ", label: "Disable lifecycle hook" },
       { command: "/hooks enable ", label: "Enable lifecycle hook" },
       { command: "/trace", label: "Load last run trace" },
-      { command: "/trace ", label: "Load a run trace by id" },
-      { command: "/trace prompt", label: "Load loaded trace prompt" },
+      { command: "/trace help", label: "Show trace shortcuts" },
+      { command: "/trace list ", label: "List recent traces" },
+      { command: "/trace last", label: "Load latest run trace" },
+      { command: "/trace summary last", label: "Show latest trace summary" },
+      { command: "/trace summary ", label: "Show trace summary" },
+      { command: "/trace tree last", label: "Show latest trace run tree" },
+      { command: "/trace tree ", label: "Show trace run tree" },
+      { command: "/trace hooks last", label: "Review latest trace hook failures" },
+      { command: "/trace hooks ", label: "Review trace hook failures" },
+      { command: "/trace scores last", label: "Review latest trace quality scores" },
+      { command: "/trace scores ", label: "Review trace quality scores" },
+      { command: "/trace ", label: "Load a run trace by id or last" },
+      { command: "/trace prompt last", label: "Load latest trace prompt" },
+      { command: "/trace prompt ", label: "Load trace prompt by id" },
       { command: "/trace clear", label: "Clear loaded trace" },
-      { command: "/compare ", label: "Compare loaded trace to a run id" },
+      { command: "/compare last", label: "Compare loaded trace to latest run" },
+      { command: "/compare ", label: "Compare loaded trace to a run id or last" },
+      { command: "/compare help", label: "Show trace comparison shortcut" },
       { command: "/compare clear", label: "Clear comparison trace" },
       { command: "/replay", label: "Replay loaded trace prompt" },
-      { command: "/replay ", label: "Replay a run trace by id" },
+      { command: "/replay help", label: "Show trace replay shortcut" },
+      { command: "/replay last", label: "Replay latest run trace" },
+      { command: "/replay ", label: "Replay a run trace by id or last" },
       { command: "/replay --no-hooks", label: "Replay loaded trace without hooks" },
       { command: "/replay --compare-source", label: "Replay and compare source trace" },
       { command: "/approvals", label: "Review current run approvals" },
+      { command: "/approvals help", label: "Show approvals shortcut" },
+      { command: "/batch help", label: "Show batch shortcuts" },
+      { command: "/batch list", label: "List persisted batches" },
+      { command: "/batch show ", label: "Show a persisted batch" },
+      { command: "/batch delete ", label: "Delete a persisted batch" },
+      { command: "/batch files ", label: "Run files as deterministic batch items" },
+      { command: "/batch folder ", label: "Run a folder as deterministic batch items" },
       { command: "/batch ", label: "Run lines as deterministic batch" },
+      { command: "/resume-batch help", label: "Show batch shortcuts" },
       { command: "/resume-batch ", label: "Resume deterministic batch" },
     ];
     if (lastRunId) {
@@ -1748,6 +2079,318 @@ export default function App() {
     return [
       "Available shortcuts:",
       ...slashCommandCatalog().map((item) => `${item.command} - ${item.label}`),
+    ].join("\n");
+  }
+
+  function x402ShortcutHelpText() {
+    return [
+      "x402 shortcuts:",
+      "- /x402 request <url> [--method GET|POST] [--max-amount n] [--auto-pay] [--signature-secret id]",
+      "- /x402 required --resource <url> --amount <n> --pay-to <addr> --asset <asset> --network <name>",
+      "- /x402 settle <payment-signature> --facilitator <url> --resource <url> --amount <n> --pay-to <addr> --asset <asset> --network <name> [--mode verify|settle|verify-and-settle]",
+      "/payment x402-request, /payment x402-required, and /payment x402-settle are aliases.",
+    ].join("\n");
+  }
+
+  function previewShortcutHelpText() {
+    return [
+      "Preview shortcuts:",
+      "- /preview - preview context for the current composer prompt",
+      "- /preview <prompt> - preview context for an explicit prompt",
+    ].join("\n");
+  }
+
+  function toolShortcutHelpText() {
+    return [
+      "Tool shortcuts:",
+      "- /tool <name> <request> - ask the agent to fill and call a visible tool",
+      "- /tool!<name> <json> - directly call a visible tool with explicit JSON input",
+    ].join("\n");
+  }
+
+  function configShortcutHelpText() {
+    return [
+      "Config shortcuts:",
+      "- /config - explain the effective runtime config",
+    ].join("\n");
+  }
+
+  function toolsShortcutHelpText() {
+    return [
+      "Tools shortcuts:",
+      "- /tools - show visible tools for the current run setup",
+    ].join("\n");
+  }
+
+  function voiceShortcutHelpText() {
+    return [
+      "Voice shortcuts:",
+      "- /voice status - show voice config, capture, and generated speech artifacts",
+      "- /voice capture - start microphone capture in the app",
+      "- /voice stop - stop microphone capture and save an audio artifact",
+      "- /voice transcribe [path] - transcribe the latest capture or an existing audio file",
+      "- /voice speak [text] - synthesize speech from text or the latest assistant answer",
+      "- /voice stage [text] - stage voice_speak tool input without executing it",
+    ].join("\n");
+  }
+
+  function guardrailShortcutHelpText() {
+    return [
+      "Guardrail shortcuts:",
+      "- /guardrails status - review loaded ingestion artifacts and guardrail state",
+      "- /guardrails mode block|warn|allow|config - set the per-run ingestion guardrail mode",
+      "- /guardrails unsafe on|off - toggle the unsafe-ingest override",
+    ].join("\n");
+  }
+
+  function interpretShortcutHelpText() {
+    return [
+      "Output interpretation shortcuts:",
+      "- /raw - return raw tool outputs",
+      "- /interpret - use interpreted tool outputs",
+      "- /interpret status - show the current interpreter model override",
+      "- /interpret clear - use the configured interpreter model",
+      "- /interpret <model> - set a per-run interpreter model",
+    ].join("\n");
+  }
+
+  function routerModelShortcutHelpText() {
+    return [
+      "Router model shortcuts:",
+      "- /router-model status - show the current tool-routing model override",
+      "- /router-model clear - use the configured routing model",
+      "- /router-model <model> - set a per-run tool-routing model",
+    ].join("\n");
+  }
+
+  function modeShortcutHelpText() {
+    return [
+      "Agent mode shortcuts:",
+      "- /answer - use zero tool calls",
+      "- /action - use one tool call",
+      `- /workflow - use the default ${CALLS_MAX}-call workflow`,
+      "- /simple - use a low-overhead raw answer preset",
+      "- /router - use a one-action raw router preset",
+      "- /raw - return raw tool outputs",
+      "- /interpret - use interpreted tool outputs",
+    ].join("\n");
+  }
+
+  function refineShortcutHelpText() {
+    return [
+      "Prompt refinement shortcuts:",
+      "- /refine on|off - enable or disable prompt refinement",
+      "- /refine status - show the current refinement settings",
+      "- /refine model <model> - set the prompt-refinement model",
+      "- /refine instructions <text> - set refinement instructions",
+    ].join("\n");
+  }
+
+  function budgetShortcutHelpText() {
+    return [
+      "Budget shortcuts:",
+      "- /budget <n> - set the per-run max tool-call budget",
+      "- /budget 0 - run without tool calls",
+    ].join("\n");
+  }
+
+  function visibilityShortcutHelpText() {
+    return [
+      "Visibility shortcuts:",
+      "- /visibility full - show full tool schemas",
+      "- /visibility descriptions - show tool names and descriptions",
+      "- /visibility names - show tool names only",
+      "- /visibility config - use configured tool visibility",
+    ].join("\n");
+  }
+
+  function shellShortcutHelpText() {
+    return [
+      "Shell shortcuts:",
+      "- /shell on - enable shell tool access",
+      "- /shell off - disable shell tool access",
+      "- /shell status - show shell access state",
+    ].join("\n");
+  }
+
+  function codeShortcutHelpText() {
+    return [
+      "Code execution shortcuts:",
+      "- /python <code> - run Python code through the approval-gated code tool",
+      "- /typescript <code> - run TypeScript code through the approval-gated code tool",
+      "- /ts <code> - alias for /typescript",
+    ].join("\n");
+  }
+
+  function subagentShortcutHelpText() {
+    return [
+      "Subagent shortcuts:",
+      "- /subagent on - enable subagent tool access",
+      "- /subagent off - disable subagent tool access",
+      "- /subagent status - show subagent tool state",
+    ].join("\n");
+  }
+
+  function costShortcutHelpText() {
+    return [
+      "Cost shortcuts:",
+      "- /cost input <usd-per-million> - set input token cost",
+      "- /cost output <usd-per-million> - set output token cost",
+      "- /cost both <input> <output> - set both token costs",
+      "- /cost clear - use configured model costs",
+      "- /cost status - show token cost overrides",
+    ].join("\n");
+  }
+
+  function usageShortcutHelpText() {
+    return [
+      "Usage shortcuts:",
+      "- /usage - show current run totals",
+      "- /usage last - load latest persisted run usage totals",
+      "- /usage trace [last|run-id] - load current or persisted trace usage totals",
+      "- /usage run [last|run-id] - load persisted run usage totals",
+      "- /usage conversation [id] - load usage totals for a conversation",
+      "- /usage conversation [id] <from>:<to> - load usage for a message range",
+      "- /usage conversation [id] last <n> - load usage for the last n messages",
+    ].join("\n");
+  }
+
+  function scoreShortcutHelpText() {
+    return [
+      "Quality score shortcuts:",
+      "- /score <0-10> [target] - score the latest run",
+      "- /score <target> <0-10> - score the latest run with a labelled target",
+      "- /score <run-id> <0-10> [target] - score an explicit persisted run",
+      "- /scores [last|run-id] - list recorded quality scores with bookmarkable event ids",
+    ].join("\n");
+  }
+
+  function stopShortcutHelpText() {
+    return [
+      "Stop shortcuts:",
+      "- /stop - stop the active run with the current retention mode",
+      "- /stop status - show the current stop retention mode",
+      "- /stop default|discard|summarise - set the idle default retention mode",
+      "- /stop --discard [reason] - stop the active run without retaining context",
+      "- /stop --summarise [reason] - stop the active run and retain a summary",
+    ].join("\n");
+  }
+
+  function resumeShortcutHelpText() {
+    return [
+      "Resume shortcuts:",
+      "- /resume [last|run-id] [--from-event N] - resume a persisted run",
+      "- /resume plan [last|run-id] [--from-event N] - preview the generated resume prompt",
+      "- /resume-plan [last|run-id] [--from-event N] - alias for /resume plan",
+    ].join("\n");
+  }
+
+  function guideShortcutHelpText() {
+    return [
+      "Guide shortcuts:",
+      "- /guide <text> - steer the active run at the next safe checkpoint",
+      "- /guide help - show guidance shortcut usage",
+    ].join("\n");
+  }
+
+  function compactShortcutHelpText() {
+    return [
+      "Compact shortcuts:",
+      "- /compact <guidance> - create a guided manual compaction draft",
+      "- /compact status - show the active manual compacted context",
+      "- /compact clear - clear the active manual compacted context",
+      "- /compact keep - save the current compacted context as a portable record",
+      "- /compact keep-run [last|run-id] - save an auto-compaction from a run",
+      "- /compactions help - list portable compaction record commands",
+    ].join("\n");
+  }
+
+  function batchShortcutHelpText() {
+    return [
+      "Batch shortcuts:",
+      "- /batch <line-delimited prompts> - run prompts as a deterministic batch",
+      "- /batch [key] <prompt> - run keyed prompts; repeat keyed lines for multiple items",
+      "- /batch files <line-delimited paths> - run UTF-8 files as keyed batch items",
+      "- /batch folder <path> - run UTF-8 files under a folder as keyed batch items",
+      "- /batch list - list persisted batch plans",
+      "- /batch show <batch-id> - show persisted item accounting",
+      "- /batch delete <batch-id> --confirm - delete a persisted batch plan",
+      "- /resume-batch <batch-id> - resume a deterministic batch",
+    ].join("\n");
+  }
+
+  function parseBatchLines(text: string): {
+    items: string[];
+    itemKeys: string[] | null;
+    error?: string;
+  } {
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const parsed = lines.map((line) => {
+      const keyed = line.match(/^\[([^\]]+)\]\s+(.+)$/);
+      if (!keyed) {
+        return { input: line, key: null };
+      }
+      return { input: keyed[2].trim(), key: keyed[1].trim() };
+    });
+    if (parsed.some((item) => !item.input)) {
+      return {
+        items: [],
+        itemKeys: null,
+        error: "Batch item prompts cannot be empty.",
+      };
+    }
+    const keyedCount = parsed.filter((item) => item.key !== null).length;
+    if (keyedCount > 0 && keyedCount !== parsed.length) {
+      return {
+        items: [],
+        itemKeys: null,
+        error: "Every batch line must use [key] prompt when explicit item keys are provided.",
+      };
+    }
+    if (keyedCount > 0) {
+      const keys = parsed.map((item) => item.key ?? "");
+      if (keys.some((key) => !key)) {
+        return {
+          items: [],
+          itemKeys: null,
+          error: "Batch item keys cannot be empty.",
+        };
+      }
+      if (new Set(keys).size !== keys.length) {
+        return {
+          items: [],
+          itemKeys: null,
+          error: "Batch item keys must be unique.",
+        };
+      }
+      return {
+        items: parsed.map((item) => item.input),
+        itemKeys: keys,
+      };
+    }
+    return {
+      items: parsed.map((item) => item.input),
+      itemKeys: null,
+    };
+  }
+
+  function traceShortcutHelpText() {
+    return [
+      "Trace shortcuts:",
+      "- /trace - load the latest run trace",
+      "- /trace list [limit|--limit N] - list recent run traces",
+      "- /trace summary [last|run-id] - show trace summary",
+      "- /trace tree [last|run-id] - show trace run tree",
+      "- /trace hooks [last|run-id] - review trace hook failures",
+      "- /trace scores [last|run-id] - review trace quality scores",
+      "- /trace [last|run-id] - load a run trace",
+      "- /trace prompt [last|run-id] - load a trace prompt into the composer",
+      "- /trace clear - clear the loaded trace",
+      "- /compare help - show trace comparison shortcuts",
+      "- /replay help - show trace replay shortcuts",
     ].join("\n");
   }
 
@@ -1803,6 +2446,122 @@ export default function App() {
     return { days, apply };
   }
 
+  function storageShortcutHelpText() {
+    return ["/storage report", "/storage prune-cache <days> [--apply]"].join("\n");
+  }
+
+  function parseTraceListShortcut(rest: string) {
+    const parts = rest.split(/\s+/).filter(Boolean);
+    const command = parts.shift();
+    if (command !== "list" && command !== "runs") {
+      appendLine("error", "Trace list shortcut needs: /trace list [limit|--limit N].");
+      return null;
+    }
+    let limit: number | null = null;
+    for (let index = 0; index < parts.length; index += 1) {
+      const part = parts[index];
+      if (part === "--limit") {
+        const value = parts[index + 1];
+        if (!value || value.startsWith("--") || limit !== null) {
+          appendLine(
+            "error",
+            "Trace list shortcut needs: /trace list [limit|--limit N].",
+          );
+          return null;
+        }
+        const parsed = parseOptionalPositiveInt(value);
+        if (parsed === null) {
+          appendLine("error", "Trace list limit needs a positive integer.");
+          return null;
+        }
+        limit = parsed;
+        index += 1;
+        continue;
+      }
+      if (part.startsWith("--limit=")) {
+        const value = part.slice("--limit=".length).trim();
+        if (!value || limit !== null) {
+          appendLine(
+            "error",
+            "Trace list shortcut needs: /trace list [limit|--limit N].",
+          );
+          return null;
+        }
+        const parsed = parseOptionalPositiveInt(value);
+        if (parsed === null) {
+          appendLine("error", "Trace list limit needs a positive integer.");
+          return null;
+        }
+        limit = parsed;
+        continue;
+      }
+      if (part.startsWith("--")) {
+        appendLine("error", `Unknown trace list option: ${part}`);
+        return null;
+      }
+      if (limit !== null) {
+        appendLine(
+          "error",
+          "Trace list shortcut needs: /trace list [limit|--limit N].",
+        );
+        return null;
+      }
+      const parsed = parseOptionalPositiveInt(part);
+      if (parsed === null) {
+        appendLine("error", "Trace list limit needs a positive integer.");
+        return null;
+      }
+      limit = parsed;
+    }
+    return limit ?? 20;
+  }
+
+  function traceShortcutRunId(command: string, args: string[]) {
+    if (args.length > 1) {
+      appendLine(
+        "error",
+        `Trace ${command} shortcut accepts at most one run id.`,
+      );
+      return null;
+    }
+    const selector = args[0] || "";
+    if (selector && selector !== "last" && !isUuid(selector)) {
+      appendLine(
+        "error",
+        `Trace ${command} shortcut needs last or a run id.`,
+      );
+      return null;
+    }
+    const requestedRunId = selector === "last" ? "" : selector;
+    const runId = requestedRunId || lastRunId;
+    if (!runId) {
+      appendLine(
+        "error",
+        `Trace ${command} shortcut needs a completed or active run.`,
+      );
+      return null;
+    }
+    if (requestedRunId) {
+      setOpsId(requestedRunId);
+    }
+    return runId;
+  }
+
+  function slashRunIdSelector(label: string, selector: string) {
+    if (selector === "last") {
+      if (!lastRunId) {
+        appendLine("error", `${label} needs a completed or active run.`);
+        return null;
+      }
+      return lastRunId;
+    }
+    if (!isUuid(selector)) {
+      appendLine("error", `${label} needs last or a run id.`);
+      return null;
+    }
+    return selector;
+  }
+
   function parseIngestProbeVisionShortcut(rest: string) {
     const parts = rest.split(/\s+/).filter(Boolean);
     const pathParts: string[] = [];
@@ -1849,6 +2608,51 @@ export default function App() {
       return null;
     }
     return { path, model };
+  }
+
+  function parseIngestProbeSourceShortcut(rest: string) {
+    const parts = rest.split(/\s+/).filter(Boolean);
+    const pathParts: string[] = [];
+    let visionModel: string | null = null;
+    for (let index = 0; index < parts.length; index += 1) {
+      const part = parts[index];
+      if (part === "--vision-model" || part === "--model") {
+        const value = parts[index + 1];
+        if (!value || value.startsWith("--") || visionModel !== null) {
+          appendLine(
+            "error",
+            "Ingest source probe shortcut needs: /ingest probe-source <path> [--vision-model <model>].",
+          );
+          return null;
+        }
+        visionModel = value;
+        index += 1;
+        continue;
+      }
+      if (part.startsWith("--vision-model=") || part.startsWith("--model=")) {
+        const value = part.slice(part.indexOf("=") + 1).trim();
+        if (!value || visionModel !== null) {
+          appendLine(
+            "error",
+            "Ingest source probe shortcut needs: /ingest probe-source <path> [--vision-model <model>].",
+          );
+          return null;
+        }
+        visionModel = value;
+        continue;
+      }
+      if (part.startsWith("--")) {
+        appendLine("error", `Unknown ingest source probe option: ${part}`);
+        return null;
+      }
+      pathParts.push(part);
+    }
+    const path = pathParts.join(" ").trim();
+    if (!path) {
+      appendLine("error", "Ingest source probe shortcut needs a path.");
+      return null;
+    }
+    return { path, visionModel };
   }
 
   function parseIngestModelShortcut(rest: string, command: string) {
@@ -2204,9 +3008,11 @@ export default function App() {
 
   function bundleShortcutHelpText() {
     return [
+      "/export [path]",
       "/bundles backup",
       "/bundles export <path>",
       "/bundles import <path> --confirm",
+      "/bundle is accepted as an alias for /bundles.",
     ].join("\n");
   }
 
@@ -2216,10 +3022,18 @@ export default function App() {
       "/approval off",
       "/approval status",
       "/approval list [run-id|last]",
-      "/approval assess [run-id|last] <approval-id>",
-      "/approval approve [run-id|last] <approval-id>",
+      "/approval assess [run-id|last] <approval-id> [--controller-agent <agent>]",
+      "/approval approve [run-id|last] <approval-id> [--controller-agent <agent>]",
       "/approval reject [run-id|last] <approval-id>",
       "/approval execute [run-id|last] <approval-id>",
+    ].join("\n");
+  }
+
+  function approvalsShortcutHelpText() {
+    return [
+      "Approvals shortcuts:",
+      "- /approvals - review current run approvals",
+      "- /approval help - show approval action shortcuts",
     ].join("\n");
   }
 
@@ -2241,20 +3055,67 @@ export default function App() {
     return runId;
   }
 
-  function parseApprovalActionShortcut(command: string, args: string[]) {
-    if (args.length === 0) {
+  function parseApprovalActionShortcut(
+    command: string,
+    args: string[],
+    options: { allowController?: boolean } = {},
+  ) {
+    const positionals: string[] = [];
+    let controllerAgent: string | undefined;
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (arg === "--controller-agent") {
+        if (!options.allowController) {
+          appendLine("error", `Approval ${command} shortcut does not accept --controller-agent.`);
+          return null;
+        }
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine(
+            "error",
+            `Approval ${command} shortcut needs an agent id after --controller-agent.`,
+          );
+          return null;
+        }
+        controllerAgent = value;
+        index += 1;
+      } else if (arg.startsWith("--controller-agent=")) {
+        if (!options.allowController) {
+          appendLine("error", `Approval ${command} shortcut does not accept --controller-agent.`);
+          return null;
+        }
+        const value = arg.slice("--controller-agent=".length).trim();
+        if (!value) {
+          appendLine(
+            "error",
+            `Approval ${command} shortcut needs an agent id after --controller-agent=.`,
+          );
+          return null;
+        }
+        controllerAgent = value;
+      } else if (arg.startsWith("--")) {
+        appendLine("error", `Approval ${command} shortcut does not accept ${arg}.`);
+        return null;
+      } else {
+        positionals.push(arg);
+      }
+    }
+    if (positionals.length === 0) {
       appendLine("error", `Approval ${command} shortcut needs an approval id.`);
       return null;
     }
-    if (args.length > 2) {
+    if (positionals.length > 2) {
       appendLine(
         "error",
         `Approval ${command} shortcut accepts [run-id|last] <approval-id>.`,
       );
       return null;
     }
-    const runId = args.length === 1 ? approvalShortcutRunId() : approvalShortcutRunId(args[0]);
-    const approvalId = args.length === 1 ? args[0] : args[1];
+    const runId =
+      positionals.length === 1
+        ? approvalShortcutRunId()
+        : approvalShortcutRunId(positionals[0]);
+    const approvalId = positionals.length === 1 ? positionals[0] : positionals[1];
     if (!runId) {
       appendLine(
         "error",
@@ -2266,7 +3127,7 @@ export default function App() {
       appendLine("error", `Approval ${command} shortcut needs an approval id.`);
       return null;
     }
-    return { runId, approvalId };
+    return { runId, approvalId, controllerAgent };
   }
 
   function skillShortcutHelpText() {
@@ -2275,11 +3136,30 @@ export default function App() {
       "/skills show <id>",
       "/skills inspect <id>",
       "/skills import-openclaw <path>",
+      "/skills install <path>",
       "/skills import-doc <path>",
+      "/skills import <path>",
       "/skills export <id> <path>",
       "/skills allow <id> --confirm",
       "/skills quarantine <id> --confirm",
+      "/skill is accepted as an alias for /skills.",
     ].join("\n");
+  }
+
+  function parseSkillReviewShortcut(args: string[], action: string) {
+    const confirmed = args.includes("--confirm");
+    const unknownFlags = args.filter(
+      (arg) => arg.startsWith("--") && arg !== "--confirm",
+    );
+    const ids = args.filter((arg) => !arg.startsWith("--"));
+    if (unknownFlags.length || ids.length !== 1) {
+      appendLine(
+        "error",
+        `Skills ${action} shortcut needs exactly one skill id and optional --confirm.`,
+      );
+      return null;
+    }
+    return { id: ids[0], confirmed };
   }
 
   function adapterShortcutHelpText() {
@@ -2298,13 +3178,32 @@ export default function App() {
       "/adapters clawhub inspect <catalog> <id>",
       "/adapters clawhub pin <catalog> <id>",
       "/adapters clawhub install <catalog> <id>",
+      "/adapter is accepted as an alias for /adapters.",
     ].join("\n");
+  }
+
+  function parseAdapterAllowShortcut(args: string[]) {
+    const confirmed = args.includes("--confirm");
+    const unknownFlags = args.filter(
+      (arg) => arg.startsWith("--") && arg !== "--confirm",
+    );
+    const ids = args.filter((arg) => !arg.startsWith("--"));
+    if (unknownFlags.length || ids.length !== 1) {
+      appendLine(
+        "error",
+        "Adapters allow shortcut needs exactly one adapter id and optional --confirm.",
+      );
+      return null;
+    }
+    return { id: ids[0], confirmed };
   }
 
   function bridgeDeliveryShortcutHelpText() {
     return [
+      "/bridges status",
       "/bridge-deliveries list",
       "/bridge-deliveries retry <id>",
+      "/bridge-deliveries delete <id> --confirm",
       "/bridge-deliveries retry-all",
     ].join("\n");
   }
@@ -2313,9 +3212,81 @@ export default function App() {
     return [
       "/hooks available",
       "/hooks list",
+      "/hooks policy",
       "/hooks review [run-id]",
       "/hooks disable <hook-id> [--agent] --confirm",
       "/hooks enable <hook-id> [--agent] --confirm",
+    ].join("\n");
+  }
+
+  function parseHookPolicyShortcut(args: string[], action: string) {
+    const confirmed = args.includes("--confirm");
+    const agentScope = args.includes("--agent");
+    const unknownFlags = args.filter(
+      (arg) => arg.startsWith("--") && arg !== "--confirm" && arg !== "--agent",
+    );
+    const hookIds = args.filter((arg) => !arg.startsWith("--"));
+    if (unknownFlags.length || hookIds.length !== 1) {
+      appendLine(
+        "error",
+        `Hooks ${action} shortcut needs exactly one hook id plus optional --agent and --confirm.`,
+      );
+      return null;
+    }
+    const scope: "profile" | "agent" = agentScope ? "agent" : "profile";
+    return { hookId: hookIds[0], confirmed, agentScope, scope };
+  }
+
+  function validateHookViewShortcut(args: string[], command: string) {
+    if (args.length === 0) {
+      return true;
+    }
+    appendLine("error", `Hooks ${command} shortcut does not accept arguments.`);
+    return false;
+  }
+
+  function compactionShortcutHelpText() {
+    return [
+      "/compactions list",
+      "/compactions keep",
+      "/compactions keep-run [last|run-id]",
+      "/compactions show <id>",
+      "/compactions use <id>",
+      "/compactions export <id> <path>",
+      "/compactions import <path>",
+      "/compactions delete <id> --confirm",
+    ].join("\n");
+  }
+
+  function ingestShortcutHelpText() {
+    return [
+      "/ingest list",
+      "/ingest backends",
+      "/ingest add <path> [--backend <backend>] [--vision-model <model>] [--guardrail-model <model>]",
+      "/ingest rerun <id> [--backend <backend>] [--vision-model <model>] [--guardrail-model <model>]",
+      "/ingest probe-source <path> [--vision-model <model>]",
+      "/ingest probe-vision <path> --model <model>",
+      "/ingest show <id>",
+      "/ingest use <id>",
+      "/ingest include <id>",
+      "/ingest preview <id>",
+      "/ingest review <id> <finding-index> <acknowledge|approve|reject> [note]",
+      "/ingest delete <id> --confirm",
+      "/ingest remove <id> --confirm",
+    ].join("\n");
+  }
+
+  function artifactShortcutHelpText() {
+    return [
+      "/artifacts list",
+      "/artifacts generate <format> <content>",
+      "/artifacts show <id>",
+      "/artifacts open <id>",
+      "/artifacts preview <id>",
+      "/artifacts download <id>",
+      "/artifacts export <id> <path>",
+      "/artifacts delete <id> --confirm",
+      "/artifact is accepted as an alias for /artifacts.",
     ].join("\n");
   }
 
@@ -2323,16 +3294,23 @@ export default function App() {
     return [
       "/conversation list",
       "/conversation tree",
+      "/conversation browse",
       "/conversation select <id>",
       "/conversation show [id]",
       "/conversation recover [id]",
+      "/conversation usage [id] [<from>:<to>|last <n>]",
+      "/conversation memory [id] [<from>:<to>] [--user] [--agent <id>] [--topic <topic>]",
       "/conversation policy [show] [id]",
       "/conversation policy apply [id]",
       "/conversation policy save [id]",
       "/conversation policy clear [id]",
       "/conversation delete-plan [id] [--recursive]",
       "/conversation delete [id] [--recursive] --confirm",
+      "/conversation delete-agent-plan [agent] [--recursive]",
+      "/conversation delete-agent [agent] [--recursive] --confirm",
+      "/conversation range [id] <from>:<to>",
       "/conversation range-delete [id] <from>:<to> --confirm",
+      "/conversations is accepted as an alias for /conversation.",
     ].join("\n");
   }
 
@@ -2390,6 +3368,43 @@ export default function App() {
     return { id, recursive };
   }
 
+  function parseConversationAgentShortcut(
+    command: string,
+    args: string[],
+    requireConfirm: boolean,
+  ) {
+    const recursive = args.includes("--recursive");
+    const confirmed = args.includes("--confirm");
+    const unknownFlags = args.filter(
+      (arg) => arg.startsWith("--") && arg !== "--recursive" && arg !== "--confirm",
+    );
+    const agents = args.filter((arg) => !arg.startsWith("--"));
+    if (unknownFlags.length || agents.length > 1) {
+      appendLine(
+        "error",
+        `Conversation ${command} shortcut accepts [agent], optional --recursive, and${requireConfirm ? " required" : " no"} --confirm.`,
+      );
+      return null;
+    }
+    if (requireConfirm && !confirmed) {
+      appendLine("error", `Conversation ${command} shortcut requires --confirm.`);
+      return null;
+    }
+    if (!requireConfirm && confirmed) {
+      appendLine("error", `Conversation ${command} shortcut does not use --confirm.`);
+      return null;
+    }
+    const agent = agents[0] || agentId.trim();
+    if (!agent) {
+      appendLine(
+        "error",
+        `Conversation ${command} shortcut needs an agent id or active Agent id.`,
+      );
+      return null;
+    }
+    return { agent, recursive };
+  }
+
   function parseConversationRangeText(fromText: string, toText: string) {
     const from = Number(fromText);
     const to = Number(toText);
@@ -2409,7 +3424,12 @@ export default function App() {
     return { from, to } satisfies ConversationRange;
   }
 
-  function parseConversationRangeShortcut(args: string[]) {
+  function parseConversationRangeShortcut(
+    args: string[],
+    options: { command?: string; requireConfirm?: boolean } = {},
+  ) {
+    const command = options.command ?? "range-delete";
+    const requireConfirm = options.requireConfirm ?? true;
     const confirmed = args.includes("--confirm");
     const unknownFlags = args.filter(
       (arg) => arg.startsWith("--") && arg !== "--confirm",
@@ -2418,12 +3438,16 @@ export default function App() {
     if (unknownFlags.length || positional.length < 1 || positional.length > 3) {
       appendLine(
         "error",
-        "Conversation range-delete shortcut needs [id] <from>:<to> or [id] <from> <to> plus --confirm.",
+        `Conversation ${command} shortcut needs [id] <from>:<to> or [id] <from> <to>${requireConfirm ? " plus --confirm" : "."}`,
       );
       return null;
     }
-    if (!confirmed) {
-      appendLine("error", "Conversation range-delete shortcut requires --confirm.");
+    if (requireConfirm && !confirmed) {
+      appendLine("error", `Conversation ${command} shortcut requires --confirm.`);
+      return null;
+    }
+    if (!requireConfirm && confirmed) {
+      appendLine("error", `Conversation ${command} shortcut does not use --confirm.`);
       return null;
     }
 
@@ -2450,7 +3474,7 @@ export default function App() {
     if (!id) {
       appendLine(
         "error",
-        "Conversation range-delete shortcut needs a conversation id or selected Id.",
+        `Conversation ${command} shortcut needs a conversation id or selected Id.`,
       );
       return null;
     }
@@ -2459,51 +3483,631 @@ export default function App() {
     return { id, range };
   }
 
-  function memoryShortcutHelpText() {
-    return [
-      "/memory list",
-      "/memory access",
-      "/memory backends",
-      "/memory preview",
-      "/memory create <content>",
-      "/memory generate <text>",
-      "/memory generate-conversation [id] <from>:<to>",
-      "/memory classify <id>",
-      "/memory edit <id> <content>",
-      "/memory delete <id> --confirm",
-      "/memory rollback --confirm",
-    ].join("\n");
-  }
-
-  function parseMemoryConversationRangeShortcut(args: string[]) {
-    const unknownFlags = args.filter((arg) => arg.startsWith("--"));
-    const positional = args.filter((arg) => !arg.startsWith("--"));
-    if (unknownFlags.length || positional.length < 1 || positional.length > 3) {
+  function parseCompactionDeleteShortcut(args: string[]) {
+    const confirmed = args.includes("--confirm");
+    const unknownFlags = args.filter(
+      (arg) => arg.startsWith("--") && arg !== "--confirm",
+    );
+    const ids = args.filter((arg) => !arg.startsWith("--"));
+    if (unknownFlags.length || ids.length !== 1) {
       appendLine(
         "error",
-        "Memory generate-conversation shortcut needs [id] <from>:<to> or [id] <from> <to>.",
+        "Compactions delete shortcut needs exactly one compaction id and optional --confirm.",
       );
       return null;
     }
+    return { id: ids[0], confirmed };
+  }
 
+  function parseCapabilityConfirmShortcut(args: string[], action: string) {
+    const confirmed = args.includes("--confirm");
+    const unknownFlags = args.filter(
+      (arg) => arg.startsWith("--") && arg !== "--confirm",
+    );
+    const ids = args.filter((arg) => !arg.startsWith("--"));
+    if (unknownFlags.length || ids.length !== 1) {
+      appendLine(
+        "error",
+        `Capabilities ${action} shortcut needs exactly one draft id and optional --confirm.`,
+      );
+      return null;
+    }
+    return { id: ids[0], confirmed };
+  }
+
+  function parseIngestDeleteShortcut(args: string[]) {
+    const confirmed = args.includes("--confirm");
+    const unknownFlags = args.filter(
+      (arg) => arg.startsWith("--") && arg !== "--confirm",
+    );
+    const ids = args.filter((arg) => !arg.startsWith("--"));
+    if (unknownFlags.length || ids.length !== 1) {
+      appendLine(
+        "error",
+        "Ingest delete shortcut needs exactly one artifact id and optional --confirm.",
+      );
+      return null;
+    }
+    return { id: ids[0], confirmed };
+  }
+
+  function parseArtifactDeleteShortcut(args: string[]) {
+    const confirmed = args.includes("--confirm");
+    const unknownFlags = args.filter(
+      (arg) => arg.startsWith("--") && arg !== "--confirm",
+    );
+    const ids = args.filter((arg) => !arg.startsWith("--"));
+    if (unknownFlags.length || ids.length !== 1) {
+      appendLine(
+        "error",
+        "Artifact delete shortcut needs exactly one artifact id and optional --confirm.",
+      );
+      return null;
+    }
+    return { id: ids[0], confirmed };
+  }
+
+  function parseArtifactExportShortcut(text: string) {
+    const match = text.trim().match(/^(\S+)\s+(.+)$/);
+    if (!match) {
+      appendLine(
+        "error",
+        "Artifact export shortcut needs an artifact id and destination path.",
+      );
+      return null;
+    }
+    return { id: match[1], path: match[2].trim() };
+  }
+
+  function parseArtifactGenerateShortcut(text: string) {
+    const match = text.trim().match(/^(\S+)\s+([\s\S]+)$/);
+    if (!match || !match[2].trim()) {
+      appendLine(
+        "error",
+        "Artifact generate shortcut needs a format and content.",
+      );
+      return null;
+    }
+    return { format: match[1], content: match[2].trim() };
+  }
+
+  function memoryShortcutHelpText() {
+    return [
+      "/memory list",
+      "/memory access [--topic <topic>]",
+      "/memory backends",
+      "/memory probe [backend]",
+      "/memory preview",
+      "/memory create [--user] [--agent <agent>] [--conversation <id>] [--topic <topic>] <content>",
+      "/memory generate [--user] [--agent <agent>] [--conversation <id>] [--range <range>] [--topic <topic>] <text> [--guidance <text>]",
+      "/memory generate-conversation [id] [from:to] [--user] [--agent <agent>] [--topic <topic>] [--guidance <text>]",
+      "/memory classify <id> [--model <model>] [--agent <agent>] [--no-apply]",
+      "/memory edit <id> <content>",
+      "/memory delete <id> --confirm",
+      "/memory rollback [--user] --confirm",
+      "/memory export <path> [--user] [--agent <agent>]",
+      "/memory import <path> [--user] [--agent <agent>]",
+    ].join("\n");
+  }
+
+  function parseMemoryClassifyShortcut(args: string[]) {
+    let id = "";
+    let model: string | null | undefined;
+    let policyAgentId: string | null | undefined;
+    let apply = true;
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (arg === "--model") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", "Memory classify shortcut needs a model after --model.");
+          return null;
+        }
+        model = value;
+        index += 1;
+      } else if (arg.startsWith("--model=")) {
+        const value = arg.slice("--model=".length).trim();
+        if (!value) {
+          appendLine("error", "Memory classify shortcut needs a model after --model=.");
+          return null;
+        }
+        model = value;
+      } else if (arg === "--agent") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", "Memory classify shortcut needs an agent id after --agent.");
+          return null;
+        }
+        policyAgentId = value;
+        index += 1;
+      } else if (arg.startsWith("--agent=")) {
+        const value = arg.slice("--agent=".length).trim();
+        if (!value) {
+          appendLine("error", "Memory classify shortcut needs an agent id after --agent=.");
+          return null;
+        }
+        policyAgentId = value;
+      } else if (arg === "--no-apply") {
+        apply = false;
+      } else if (arg.startsWith("--")) {
+        appendLine("error", `Memory classify shortcut does not accept ${arg}.`);
+        return null;
+      } else if (!id) {
+        id = arg;
+      } else {
+        appendLine("error", "Memory classify shortcut accepts exactly one memory id.");
+        return null;
+      }
+    }
+    if (!id) {
+      appendLine("error", "Memory classify shortcut needs a memory id.");
+      return null;
+    }
+    return { id, model, agentId: policyAgentId, apply };
+  }
+
+  function parseMemoryTopicShortcut(args: string[], command: string) {
+    const topics: string[] = [];
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (arg === "--topic") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", `Memory ${command} shortcut needs a topic after --topic.`);
+          return null;
+        }
+        topics.push(value);
+        index += 1;
+      } else if (arg.startsWith("--topic=")) {
+        const value = arg.slice("--topic=".length).trim();
+        if (!value) {
+          appendLine("error", `Memory ${command} shortcut needs a topic after --topic=.`);
+          return null;
+        }
+        topics.push(value);
+      } else {
+        appendLine("error", `Memory ${command} shortcut does not accept ${arg}.`);
+        return null;
+      }
+    }
+    return { topics: topics.length ? topics : undefined };
+  }
+
+  function parseMemoryRollbackShortcut(args: string[]) {
+    let user = opsUserMemory;
+    const confirmed = args.includes("--confirm");
+    for (const arg of args) {
+      if (arg === "--confirm") {
+        continue;
+      }
+      if (arg === "--user") {
+        user = true;
+        continue;
+      }
+      appendLine("error", `Memory rollback shortcut does not accept ${arg}.`);
+      return null;
+    }
+    return { user, confirmed };
+  }
+
+  function parseMemoryWriteShortcut(
+    args: string[],
+    command: "create" | "generate",
+    allowRange: boolean,
+  ) {
+    let user = opsUserMemory;
+    let agentId: string | null | undefined;
+    let conversationId: string | null | undefined;
+    let range: string | null | undefined;
+    let guidance: string | null | undefined;
+    const topics: string[] = [];
+    let textParts: string[] = [];
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (arg === "--user") {
+        user = true;
+      } else if (arg === "--agent") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", `Memory ${command} shortcut needs an agent id after --agent.`);
+          return null;
+        }
+        agentId = value;
+        index += 1;
+      } else if (arg.startsWith("--agent=")) {
+        const value = arg.slice("--agent=".length).trim();
+        if (!value) {
+          appendLine("error", `Memory ${command} shortcut needs an agent id after --agent=.`);
+          return null;
+        }
+        agentId = value;
+      } else if (arg === "--conversation") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine(
+            "error",
+            `Memory ${command} shortcut needs a conversation id after --conversation.`,
+          );
+          return null;
+        }
+        conversationId = value;
+        index += 1;
+      } else if (arg.startsWith("--conversation=")) {
+        const value = arg.slice("--conversation=".length).trim();
+        if (!value) {
+          appendLine(
+            "error",
+            `Memory ${command} shortcut needs a conversation id after --conversation=.`,
+          );
+          return null;
+        }
+        conversationId = value;
+      } else if (arg === "--topic") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", `Memory ${command} shortcut needs a topic after --topic.`);
+          return null;
+        }
+        topics.push(value);
+        index += 1;
+      } else if (arg.startsWith("--topic=")) {
+        const value = arg.slice("--topic=".length).trim();
+        if (!value) {
+          appendLine("error", `Memory ${command} shortcut needs a topic after --topic=.`);
+          return null;
+        }
+        topics.push(value);
+      } else if (allowRange && arg === "--range") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", "Memory generate shortcut needs a range after --range.");
+          return null;
+        }
+        range = value;
+        index += 1;
+      } else if (allowRange && arg.startsWith("--range=")) {
+        const value = arg.slice("--range=".length).trim();
+        if (!value) {
+          appendLine("error", "Memory generate shortcut needs a range after --range=.");
+          return null;
+        }
+        range = value;
+      } else if (allowRange && arg === "--guidance") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", "Memory generate shortcut needs guidance after --guidance.");
+          return null;
+        }
+        guidance = value;
+        index += 1;
+      } else if (allowRange && arg.startsWith("--guidance=")) {
+        const value = arg.slice("--guidance=".length).trim();
+        if (!value) {
+          appendLine("error", "Memory generate shortcut needs guidance after --guidance=.");
+          return null;
+        }
+        guidance = value;
+      } else if (arg.startsWith("--")) {
+        appendLine("error", `Memory ${command} shortcut does not accept ${arg}.`);
+        return null;
+      } else {
+        textParts = args.slice(index);
+        break;
+      }
+    }
+    const text = textParts.join(" ").trim();
+    if (!text) {
+      appendLine("error", `Memory ${command} shortcut needs text.`);
+      return null;
+    }
+    const parsedGeneration =
+      command === "generate"
+        ? splitMemoryGenerationGuidance(text, "Memory generate")
+        : { text, guidance: null };
+    if (!parsedGeneration) return null;
+    if (guidance && parsedGeneration.guidance) {
+      appendLine("error", `Memory ${command} shortcut received guidance twice.`);
+      return null;
+    }
+    return {
+      text: parsedGeneration.text,
+      user,
+      agentId,
+      conversationId,
+      range,
+      guidance: guidance ?? parsedGeneration.guidance,
+      topics: topics.length ? topics : undefined,
+    };
+  }
+
+  function splitMemoryGenerationGuidance(text: string, label: string) {
+    const trimmed = text.trim();
+    if (
+      trimmed === "--guidance" ||
+      trimmed.startsWith("--guidance ") ||
+      trimmed.startsWith("--guidance=")
+    ) {
+      appendLine("error", `${label} shortcut needs text before --guidance.`);
+      return null;
+    }
+    if (trimmed.endsWith(" --guidance")) {
+      appendLine("error", `${label} shortcut needs guidance after --guidance.`);
+      return null;
+    }
+    const spacedIndex = trimmed.lastIndexOf(" --guidance ");
+    const inlineIndex = trimmed.lastIndexOf(" --guidance=");
+    const index = Math.max(spacedIndex, inlineIndex);
+    if (index < 0) {
+      return { text: trimmed, guidance: null };
+    }
+    const marker = inlineIndex > spacedIndex ? " --guidance=" : " --guidance ";
+    const body = trimmed.slice(0, index).trim();
+    const guidance = trimmed.slice(index + marker.length).trim();
+    if (!body) {
+      appendLine("error", `${label} shortcut needs text before --guidance.`);
+      return null;
+    }
+    if (!guidance) {
+      appendLine("error", `${label} shortcut needs guidance after --guidance.`);
+      return null;
+    }
+    return { text: body, guidance };
+  }
+
+  function parseMemoryFileShortcut(args: string[], label: string) {
+    let path = "";
+    let user = opsUserMemory;
+    let agentId: string | null = null;
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (arg === "--user") {
+        user = true;
+      } else if (arg === "--agent") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", `${label} shortcut needs an agent id after --agent.`);
+          return null;
+        }
+        agentId = value;
+        index += 1;
+      } else if (arg.startsWith("--agent=")) {
+        const value = arg.slice("--agent=".length);
+        if (!value) {
+          appendLine("error", `${label} shortcut needs an agent id after --agent=.`);
+          return null;
+        }
+        agentId = value;
+      } else if (arg.startsWith("--")) {
+        appendLine("error", `${label} shortcut does not accept ${arg}.`);
+        return null;
+      } else if (!path) {
+        path = arg;
+      } else {
+        appendLine("error", `${label} shortcut accepts exactly one path.`);
+        return null;
+      }
+    }
+    if (!path) {
+      appendLine("error", `${label} shortcut needs a file path.`);
+      return null;
+    }
+    return { path, user, agentId };
+  }
+
+  function parseMemoryProbeShortcut(args: string[]) {
+    const topics: string[] = [];
+    const positional: string[] = [];
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (arg === "--topic") {
+        const topic = args[index + 1];
+        if (!topic || topic.startsWith("--")) {
+          appendLine("error", "Memory probe shortcut needs a value after --topic.");
+          return null;
+        }
+        topics.push(topic);
+        index += 1;
+      } else if (arg.startsWith("--")) {
+        appendLine("error", `Memory probe shortcut does not accept ${arg}.`);
+        return null;
+      } else {
+        positional.push(arg);
+      }
+    }
+    if (positional.length > 1) {
+      appendLine("error", "Memory probe shortcut accepts at most one backend id.");
+      return null;
+    }
+    return {
+      backend: positional[0] ?? null,
+      topics: topics.length ? topics : parsedMemoryTopics(),
+    };
+  }
+
+  function parseMemoryConversationRangeShortcut(args: string[]) {
+    let user = opsUserMemory;
+    let agentId: string | null | undefined;
+    let guidance: string | null | undefined;
+    const topics: string[] = [];
+    const positional: string[] = [];
     let id = "";
     let fromText = "";
     let toText = "";
-    if (positional.length === 1) {
-      const [from, to] = positional[0].split(":");
+    let hasFlagRange = false;
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (arg === "--user") {
+        user = true;
+      } else if (arg === "--agent") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine(
+            "error",
+            "Memory generate-conversation shortcut needs an agent id after --agent.",
+          );
+          return null;
+        }
+        agentId = value;
+        index += 1;
+      } else if (arg.startsWith("--agent=")) {
+        const value = arg.slice("--agent=".length).trim();
+        if (!value) {
+          appendLine(
+            "error",
+            "Memory generate-conversation shortcut needs an agent id after --agent=.",
+          );
+          return null;
+        }
+        agentId = value;
+      } else if (arg === "--topic") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine(
+            "error",
+            "Memory generate-conversation shortcut needs a topic after --topic.",
+          );
+          return null;
+        }
+        topics.push(value);
+        index += 1;
+      } else if (arg.startsWith("--topic=")) {
+        const value = arg.slice("--topic=".length).trim();
+        if (!value) {
+          appendLine(
+            "error",
+            "Memory generate-conversation shortcut needs a topic after --topic=.",
+          );
+          return null;
+        }
+        topics.push(value);
+      } else if (arg === "--from") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine(
+            "error",
+            "Memory generate-conversation shortcut needs an index after --from.",
+          );
+          return null;
+        }
+        fromText = value;
+        hasFlagRange = true;
+        index += 1;
+      } else if (arg.startsWith("--from=")) {
+        const value = arg.slice("--from=".length).trim();
+        if (!value) {
+          appendLine(
+            "error",
+            "Memory generate-conversation shortcut needs an index after --from=.",
+          );
+          return null;
+        }
+        fromText = value;
+        hasFlagRange = true;
+      } else if (arg === "--to") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine(
+            "error",
+            "Memory generate-conversation shortcut needs an index after --to.",
+          );
+          return null;
+        }
+        toText = value;
+        hasFlagRange = true;
+        index += 1;
+      } else if (arg.startsWith("--to=")) {
+        const value = arg.slice("--to=".length).trim();
+        if (!value) {
+          appendLine(
+            "error",
+            "Memory generate-conversation shortcut needs an index after --to=.",
+          );
+          return null;
+        }
+        toText = value;
+        hasFlagRange = true;
+      } else if (arg === "--guidance") {
+        const values = args.slice(index + 1);
+        if (!values.length || values[0].startsWith("--")) {
+          appendLine(
+            "error",
+            "Memory generate-conversation shortcut needs guidance after --guidance.",
+          );
+          return null;
+        }
+        guidance = values.join(" ");
+        break;
+      } else if (arg.startsWith("--guidance=")) {
+        const value = arg.slice("--guidance=".length).trim();
+        if (!value) {
+          appendLine(
+            "error",
+            "Memory generate-conversation shortcut needs guidance after --guidance=.",
+          );
+          return null;
+        }
+        const rest = args.slice(index + 1);
+        guidance = [value, ...rest].join(" ");
+        break;
+      } else if (arg.startsWith("--")) {
+        appendLine("error", `Memory generate-conversation shortcut does not accept ${arg}.`);
+        return null;
+      } else {
+        positional.push(arg);
+      }
+    }
+
+    if (positional.length > 3) {
+      appendLine(
+        "error",
+        "Memory generate-conversation shortcut needs [id] [from:to], [id] [from] [to], or --from/--to.",
+      );
+      return null;
+    }
+    if (hasFlagRange && (!fromText || !toText)) {
+      appendLine("error", "Memory generate-conversation shortcut needs both --from and --to.");
+      return null;
+    }
+    if (positional.length === 0) {
       id = selectedConversationShortcutId();
-      fromText = from || "";
-      toText = to || "";
-    } else if (positional.length === 2 && positional[1].includes(":")) {
-      const [from, to] = positional[1].split(":");
-      id = positional[0];
-      fromText = from || "";
-      toText = to || "";
+    } else if (positional.length === 1) {
+      if (positional[0].includes(":")) {
+        if (hasFlagRange) {
+          appendLine("error", "Memory generate-conversation range was specified twice.");
+          return null;
+        }
+        const [from = "", to = ""] = positional[0].split(":");
+        id = selectedConversationShortcutId();
+        fromText = from;
+        toText = to;
+      } else {
+        id = positional[0];
+      }
     } else if (positional.length === 2) {
-      id = selectedConversationShortcutId();
-      [fromText, toText] = positional;
+      if (positional[1].includes(":")) {
+        if (hasFlagRange) {
+          appendLine("error", "Memory generate-conversation range was specified twice.");
+          return null;
+        }
+        const [from = "", to = ""] = positional[1].split(":");
+        id = positional[0];
+        fromText = from;
+        toText = to;
+      } else if (hasFlagRange) {
+        appendLine("error", "Memory generate-conversation shortcut received too many ids.");
+        return null;
+      } else {
+        id = selectedConversationShortcutId();
+        fromText = positional[0];
+        toText = positional[1];
+      }
+    } else if (hasFlagRange) {
+      appendLine("error", "Memory generate-conversation range was specified twice.");
+      return null;
     } else {
-      [id, fromText, toText] = positional;
+      id = positional[0];
+      fromText = positional[1];
+      toText = positional[2];
     }
 
     if (!id) {
@@ -2513,9 +4117,19 @@ export default function App() {
       );
       return null;
     }
-    const range = parseConversationRangeText(fromText, toText);
-    if (!range) return null;
-    return { id, range };
+    const range =
+      fromText || toText ? parseConversationRangeText(fromText, toText) : null;
+    if (fromText || toText) {
+      if (!range) return null;
+    }
+    return {
+      id,
+      range,
+      user,
+      agentId,
+      guidance,
+      topics: topics.length ? topics : undefined,
+    };
   }
 
   function parseIngestReviewShortcut(rest: string) {
@@ -2572,6 +4186,19 @@ export default function App() {
       appendLine("error", "Score shortcut needs a number from 0 to 10.");
       return null;
     }
+    const explicitRunId = isUuid(parts[0]) ? parts[0] : null;
+    if (explicitRunId) {
+      const score = Number(parts[1]);
+      if (!Number.isFinite(score) || score < 0 || score > 10) {
+        appendLine("error", "Score shortcut needs: /score <run-id> <0-10> [target].");
+        return null;
+      }
+      return {
+        runId: explicitRunId,
+        score,
+        target: parts.slice(2).join(" ").trim() || "last_answer",
+      };
+    }
     const firstScore = Number(parts[0]);
     const scoreFirst = Number.isFinite(firstScore);
     const rawScore = scoreFirst ? parts[0] : parts[parts.length - 1];
@@ -2582,9 +4209,16 @@ export default function App() {
     }
     const target = scoreFirst ? parts.slice(1).join(" ") : parts.slice(0, -1).join(" ");
     return {
+      runId: null,
       score,
       target: target.trim() || "last_answer",
     };
+  }
+
+  function isUuid(value: string) {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      value,
+    );
   }
 
   function parseResumeShortcut(text: string) {
@@ -2594,7 +4228,7 @@ export default function App() {
     }
     const parts =
       trimmed === "/resume" ? [] : trimmed.slice("/resume ".length).trim().split(/\s+/);
-    let runId = "";
+    let selector: string | null = null;
     let fromEvent: number | null = null;
 
     for (let index = 0; index < parts.length; index += 1) {
@@ -2603,8 +4237,8 @@ export default function App() {
       if (part === "--from-event") {
         const raw = parts[index + 1];
         const parsed = Number(raw);
-        if (!raw || !Number.isInteger(parsed) || parsed < 0) {
-          appendLine("error", "Resume shortcut --from-event needs a non-negative event id.");
+        if (!raw || !Number.isInteger(parsed) || parsed < 1) {
+          appendLine("error", "Resume shortcut --from-event needs a positive event id.");
           return null;
         }
         fromEvent = parsed;
@@ -2614,22 +4248,35 @@ export default function App() {
       if (part.startsWith("--from-event=")) {
         const raw = part.slice("--from-event=".length);
         const parsed = Number(raw);
-        if (!Number.isInteger(parsed) || parsed < 0) {
-          appendLine("error", "Resume shortcut --from-event needs a non-negative event id.");
+        if (!Number.isInteger(parsed) || parsed < 1) {
+          appendLine("error", "Resume shortcut --from-event needs a positive event id.");
           return null;
         }
         fromEvent = parsed;
         continue;
       }
-      if (!runId) {
-        runId = part === "last" ? "" : part;
+      if (selector === null) {
+        selector = part;
         continue;
       }
       appendLine("error", "Resume shortcut accepts one run id plus optional --from-event.");
       return null;
     }
 
-    const selectedRunId = runId || opsId.trim() || lastRunId || "";
+    let selectedRunId = "";
+    if (selector === null) {
+      selectedRunId = opsId.trim() || lastRunId || "";
+    } else if (selector === "last") {
+      selectedRunId = lastRunId || "";
+    } else if (isUuid(selector)) {
+      selectedRunId = selector;
+    } else {
+      appendLine(
+        "error",
+        "Resume shortcut needs: /resume [last|run-id] [--from-event n].",
+      );
+      return null;
+    }
     if (!selectedRunId) {
       appendLine("error", "Resume shortcut needs a completed run or a run id.");
       return null;
@@ -2815,7 +4462,7 @@ export default function App() {
 
   function qualityScoreReport(records: QualityScoreRecord[]) {
     if (!records.length) {
-      return "No quality scores recorded in the loaded trace.";
+      return "No quality scores recorded in the selected trace.";
     }
     const average =
       records.reduce((total, record) => total + record.score, 0) / records.length;
@@ -3126,7 +4773,7 @@ export default function App() {
             id: event.id,
             title: "Run failed",
             meta: at,
-            detail: kind.reason,
+            detail: runFailureDetail(kind.reason),
             tone: "danger",
           };
       }
@@ -3143,6 +4790,27 @@ export default function App() {
     return transport === "daemon"
       ? await daemonJson<TraceTreeNode>(`/trace/${runId}/tree`)
       : await invoke<TraceTreeNode>("trace_tree", { runId });
+  }
+
+  async function fetchTracePrompt(runId: string) {
+    return transport === "daemon"
+      ? await daemonJson<TracePromptPayload>(`/trace/${runId}/prompt`)
+      : await invoke<TracePromptPayload>("trace_prompt", { runId });
+  }
+
+  async function listTraceRuns(limit = 20) {
+    try {
+      const runs =
+        transport === "daemon"
+          ? await daemonJson<TraceRunRecord[]>(`/traces?limit=${limit}`)
+          : await invoke<TraceRunRecord[]>("trace_list", { limit });
+      setTraceRuns(runs);
+      setActiveSection("trace");
+      appendJson("Trace runs", runs);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Trace list failed: ${msg}`);
+    }
   }
 
   function applyTraceEvents(events: RunEvent[]) {
@@ -3474,15 +5142,30 @@ export default function App() {
       });
   }
 
-  function loadTracePromptToComposer() {
-    const prompt = traceOriginalPrompt(traceEvents);
+  async function loadTracePromptToComposer(runId?: string) {
+    let payload: TracePromptPayload | null = null;
+    if (runId) {
+      try {
+        payload = await fetchTracePrompt(runId);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        appendLine("error", `Load prompt failed: ${msg}`);
+        return;
+      }
+    }
+
+    const prompt = payload?.prompt ?? traceOriginalPrompt(traceEvents);
     if (!prompt) {
       appendLine("error", "Load prompt needs a trace with a RunStarted event.");
       return;
     }
     setInput(prompt);
     setActiveSection("chat");
-    appendEvent("Loaded original trace prompt into the composer.");
+    appendEvent(
+      payload
+        ? `Loaded original trace prompt for ${payload.run_id} into the composer.`
+        : "Loaded original trace prompt into the composer.",
+    );
   }
 
   function clearLoadedTrace() {
@@ -3729,6 +5412,363 @@ export default function App() {
     return agent ? `agent ${agent}` : "profile";
   }
 
+  function agentShortcutHelpText() {
+    return [
+      "/agents list",
+      "/agents show <id>",
+      "/agents use <id>",
+      "/agents save <id> <system prompt>",
+      "/agents export <id> <path>",
+      "/agents import <path>",
+      "/agents delete <id> --confirm",
+    ].join("\n");
+  }
+
+  function agentSwitchShortcutHelpText() {
+    return [
+      "/agent echo",
+      "/agent tool",
+      "/agent <saved-agent-id>",
+      "/agents help",
+    ].join("\n");
+  }
+
+  function parseAgentDeleteShortcut(args: string[]) {
+    const confirmed = args.includes("--confirm");
+    const unknownFlags = args.filter(
+      (arg) => arg.startsWith("--") && arg !== "--confirm",
+    );
+    const ids = args.filter((arg) => !arg.startsWith("--"));
+    if (unknownFlags.length || ids.length !== 1) {
+      appendLine(
+        "error",
+        "Agents delete shortcut needs exactly one agent id and optional --confirm.",
+      );
+      return null;
+    }
+    return { id: ids[0], confirmed };
+  }
+
+  function modelShortcutHelpText() {
+    return [
+      "/models list",
+      "/models show <id>",
+      "/models probe <id>",
+      "/models save <id> [json]",
+      "/models save-current",
+      "/models export <id> <path>",
+      "/models import <path>",
+      "/models delete <id> --confirm",
+      "/models providers",
+      "/models doctor",
+      "/models provider-catalog show",
+      "/models provider-catalog export <path>",
+      "/models provider-catalog import <path> --confirm",
+      "/models metadata-catalog show",
+      "/models metadata-catalog export <path>",
+      "/models metadata-catalog import <path> --confirm",
+      "/model is accepted as an alias for /models.",
+    ].join("\n");
+  }
+
+  function parseModelDeleteShortcut(args: string[]) {
+    const confirmed = args.includes("--confirm");
+    const unknownFlags = args.filter(
+      (arg) => arg.startsWith("--") && arg !== "--confirm",
+    );
+    const ids = args.filter((arg) => !arg.startsWith("--"));
+    if (unknownFlags.length || ids.length !== 1) {
+      appendLine(
+        "error",
+        "Models delete shortcut needs exactly one model id and optional --confirm.",
+      );
+      return null;
+    }
+    return { id: ids[0], confirmed };
+  }
+
+  function profileShortcutHelpText() {
+    return [
+      "/profiles current",
+      "/profiles list",
+      "/profiles show <id>",
+      "/profiles create <id> [name]",
+      "/profiles delete <id> --confirm",
+      "/profiles grants [from-profile]",
+      "/profiles grant <to-profile> <agent|memory|tool|skill|category> <resource> [--from <profile>]",
+      "/profiles revoke <id> --confirm",
+      "/profile is accepted as an alias for /profiles.",
+    ].join("\n");
+  }
+
+  function parseProfileConfirmShortcut(args: string[], action: string) {
+    const confirmed = args.includes("--confirm");
+    const unknownFlags = args.filter(
+      (arg) => arg.startsWith("--") && arg !== "--confirm",
+    );
+    const ids = args.filter((arg) => !arg.startsWith("--"));
+    if (unknownFlags.length || ids.length !== 1) {
+      appendLine(
+        "error",
+        `Profiles ${action} shortcut needs exactly one id and optional --confirm.`,
+      );
+      return null;
+    }
+    return { id: ids[0], confirmed };
+  }
+
+  function secretShortcutHelpText() {
+    return [
+      "/secrets backends",
+      "/secrets list",
+      "/secrets show <id>",
+      "/secrets delete <id> --confirm",
+      "/secret is accepted as an alias for /secrets.",
+    ].join("\n");
+  }
+
+  function parseSecretDeleteShortcut(args: string[]) {
+    const confirmed = args.includes("--confirm");
+    const unknownFlags = args.filter(
+      (arg) => arg.startsWith("--") && arg !== "--confirm",
+    );
+    const ids = args.filter((arg) => !arg.startsWith("--"));
+    if (unknownFlags.length || ids.length !== 1) {
+      appendLine(
+        "error",
+        "Secrets delete shortcut needs exactly one secret id and optional --confirm.",
+      );
+      return null;
+    }
+    return { id: ids[0], confirmed };
+  }
+
+  function promptShortcutHelpText() {
+    return [
+      "/run <name>",
+      "/prompt <name>",
+      "/prompt mirrors /prompts for list/show/save/use/preview/export/import/delete.",
+      "/prompts list [--agent <agent>]",
+      "/prompts show <name> [--agent <agent>]",
+      "/prompts save <name> [--agent <agent>] <text>",
+      "/prompts use <name> [--agent <agent>]",
+      "/prompts preview <name> [--agent <agent>]",
+      "/prompts export <name> <path> [--agent <agent>]",
+      "/prompts import <path> [--agent <agent>]",
+      "/prompts delete <name> [--agent <agent>] --confirm",
+    ].join("\n");
+  }
+
+  function parsePromptAgentArgs(args: string[], command: string) {
+    let agentId = promptScopeAgentId();
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (arg === "--agent") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", "Prompt --agent needs a value.");
+          return null;
+        }
+        agentId = value;
+        index += 1;
+      } else if (arg.startsWith("--agent=")) {
+        const value = arg.slice("--agent=".length).trim();
+        if (!value) {
+          appendLine("error", "Prompt --agent needs a value.");
+          return null;
+        }
+        agentId = value;
+      } else {
+        appendLine("error", `Prompts ${command} received unexpected argument: ${arg}`);
+        return null;
+      }
+    }
+    return { agentId };
+  }
+
+  function parsePromptNamedShortcut(
+    args: string[],
+    command: string,
+    options: { allowConfirm?: boolean } = {},
+  ) {
+    const name = args[0];
+    if (!name) {
+      appendLine("error", `Prompts ${command} shortcut needs a prompt name.`);
+      return null;
+    }
+    let agentId = promptScopeAgentId();
+    let confirmed = false;
+    for (let index = 1; index < args.length; index += 1) {
+      const arg = args[index];
+      if (options.allowConfirm && arg === "--confirm") {
+        confirmed = true;
+      } else if (arg === "--agent") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", "Prompt --agent needs a value.");
+          return null;
+        }
+        agentId = value;
+        index += 1;
+      } else if (arg.startsWith("--agent=")) {
+        const value = arg.slice("--agent=".length).trim();
+        if (!value) {
+          appendLine("error", "Prompt --agent needs a value.");
+          return null;
+        }
+        agentId = value;
+      } else {
+        appendLine("error", `Prompts ${command} received unexpected argument: ${arg}`);
+        return null;
+      }
+    }
+    return { name, agentId, confirmed };
+  }
+
+  function parsePromptSaveShortcut(args: string[]) {
+    const name = args[0];
+    if (!name) {
+      appendLine("error", "Prompts save shortcut needs a prompt name.");
+      return null;
+    }
+    let agentId = promptScopeAgentId();
+    let textStart = -1;
+    for (let index = 1; index < args.length; index += 1) {
+      const arg = args[index];
+      if (arg === "--agent") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", "Prompt --agent needs a value.");
+          return null;
+        }
+        agentId = value;
+        index += 1;
+      } else if (arg.startsWith("--agent=")) {
+        const value = arg.slice("--agent=".length).trim();
+        if (!value) {
+          appendLine("error", "Prompt --agent needs a value.");
+          return null;
+        }
+        agentId = value;
+      } else if (arg.startsWith("--")) {
+        appendLine("error", `Prompts save received unexpected argument: ${arg}`);
+        return null;
+      } else {
+        textStart = index;
+        break;
+      }
+    }
+    const body = textStart === -1 ? "" : args.slice(textStart).join(" ").trim();
+    if (!body) {
+      appendLine("error", "Prompts save shortcut needs prompt text.");
+      return null;
+    }
+    return { name, body, agentId };
+  }
+
+  function parsePromptExportShortcut(args: string[]) {
+    const positional: string[] = [];
+    let agentId = promptScopeAgentId();
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (arg === "--agent") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", "Prompt --agent needs a value.");
+          return null;
+        }
+        agentId = value;
+        index += 1;
+      } else if (arg.startsWith("--agent=")) {
+        const value = arg.slice("--agent=".length).trim();
+        if (!value) {
+          appendLine("error", "Prompt --agent needs a value.");
+          return null;
+        }
+        agentId = value;
+      } else if (arg.startsWith("--")) {
+        appendLine("error", `Prompts export received unexpected argument: ${arg}`);
+        return null;
+      } else {
+        positional.push(arg);
+      }
+    }
+    const [name, path] = positional;
+    if (!name || !path || positional.length !== 2) {
+      appendLine("error", "Prompts export shortcut needs: /prompts export <name> <path> [--agent <agent>].");
+      return null;
+    }
+    return { name, path, agentId };
+  }
+
+  function parsePromptImportShortcut(args: string[]) {
+    const positional: string[] = [];
+    let agentId: string | null = null;
+    for (let index = 0; index < args.length; index += 1) {
+      const arg = args[index];
+      if (arg === "--agent") {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          appendLine("error", "Prompt --agent needs a value.");
+          return null;
+        }
+        agentId = value;
+        index += 1;
+      } else if (arg.startsWith("--agent=")) {
+        const value = arg.slice("--agent=".length).trim();
+        if (!value) {
+          appendLine("error", "Prompt --agent needs a value.");
+          return null;
+        }
+        agentId = value;
+      } else if (arg.startsWith("--")) {
+        appendLine("error", `Prompts import received unexpected argument: ${arg}`);
+        return null;
+      } else {
+        positional.push(arg);
+      }
+    }
+    const [path] = positional;
+    if (!path || positional.length !== 1) {
+      appendLine("error", "Prompts import shortcut needs: /prompts import <path> [--agent <agent>].");
+      return null;
+    }
+    return { path, agentId };
+  }
+
+  function promptLibraryShortcutRest(value: string) {
+    const trimmed = value.trim();
+    if (trimmed === "/prompts" || trimmed === "/prompt") {
+      return "";
+    }
+    if (trimmed.startsWith("/prompts ")) {
+      return trimmed.slice("/prompts ".length).trim();
+    }
+    if (!trimmed.startsWith("/prompt ")) {
+      return null;
+    }
+    const rest = trimmed.slice("/prompt ".length).trim();
+    const command = rest.split(/\s+/)[0] || "";
+    if (
+      [
+        "list",
+        "show",
+        "save",
+        "use",
+        "preview",
+        "export",
+        "import",
+        "delete",
+        "rm",
+        "help",
+        "--help",
+      ].includes(command)
+    ) {
+      return rest;
+    }
+    return null;
+  }
+
   async function fetchPrompt(name: string, agent = promptScopeAgentId()) {
     if (transport === "daemon") {
       if (agent) {
@@ -3742,8 +5782,8 @@ export default function App() {
     return await invoke<PromptDoc>("prompt_show", { name, agentId: agent });
   }
 
-  async function loadPromptBody(name: string) {
-    const agent = promptScopeAgentId();
+  async function loadPromptBody(name: string, agentOverride?: string | null) {
+    const agent = agentOverride === undefined ? promptScopeAgentId() : agentOverride;
     let prompt: PromptDoc;
     try {
       prompt = await fetchPrompt(name, agent);
@@ -3754,6 +5794,15 @@ export default function App() {
       prompt = await fetchPrompt(name, null);
     }
     return prompt.body;
+  }
+
+  function isPromptLibraryName(name: string) {
+    return /^[A-Za-z0-9._-]+$/.test(name);
+  }
+
+  function isSavedPromptNotFoundError(err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return /saved prompt .* not found/i.test(msg);
   }
 
   async function loadTraceFor(runId: string) {
@@ -3767,7 +5816,7 @@ export default function App() {
       `Trace tree: ${traceTreeNodeCount(tree)} run(s), ${traceTreeChildCount(tree)} child link(s)`,
     );
     const summary = applyTraceEvents(events);
-    return { events, summary };
+    return { events, summary, tree };
   }
 
   async function loadTraceById(runId: string) {
@@ -3780,9 +5829,13 @@ export default function App() {
   }
 
   async function loadTraceComparison(runIdInput?: string, primaryRunId?: string) {
-    const runId = runIdInput?.trim() || traceCompareRunId.trim() || opsId.trim();
-    if (!runId) {
+    const selector = runIdInput?.trim() || traceCompareRunId.trim() || opsId.trim();
+    if (!selector) {
       appendLine("error", "Compare trace needs a run id.");
+      return false;
+    }
+    const runId = slashRunIdSelector("Compare trace selector", selector);
+    if (!runId) {
       return false;
     }
     if ((primaryRunId || traceSummary?.run_id) === runId) {
@@ -3822,9 +5875,20 @@ export default function App() {
     await loadTraceById(runId);
   }
 
-  function parseConversationUsageShortcut(args: string[]) {
+  function parseConversationUsageShortcut(
+    args: string[],
+    options: {
+      selectedId?: string;
+      label?: string;
+      usagePrefix?: string;
+    } = {},
+  ) {
     const remaining = [...args];
-    let id = conversationId.trim() || expandedConversation?.conversation.id || "";
+    const label = options.label ?? "Usage conversation";
+    const usagePrefix = options.usagePrefix ?? "/usage conversation";
+    let id =
+      options.selectedId ??
+      (conversationId.trim() || expandedConversation?.conversation.id || "");
     const range: { from?: number | null; to?: number | null; last?: number | null } = {};
 
     const first = remaining[0];
@@ -3832,7 +5896,7 @@ export default function App() {
       id = remaining.shift() ?? id;
     }
     if (!id) {
-      appendLine("error", "Usage conversation shortcut needs a conversation id or selected conversation.");
+      appendLine("error", `${label} shortcut needs a conversation id or selected conversation.`);
       return null;
     }
     if (remaining.length === 0) {
@@ -3840,7 +5904,7 @@ export default function App() {
     }
     if (remaining[0] === "last") {
       if (remaining.length !== 2) {
-        appendLine("error", "Usage conversation last needs: /usage conversation [id] last <n>.");
+        appendLine("error", `${label} last needs: ${usagePrefix} [id] last <n>.`);
         return null;
       }
       const last = Number(remaining[1]);
@@ -3866,13 +5930,20 @@ export default function App() {
       }
       return { id, range: { from, to } };
     }
-    appendLine("error", "Usage conversation accepts [id], [id] <from>:<to>, or [id] last <n>.");
+    appendLine("error", `${label} accepts [id], [id] <from>:<to>, or [id] last <n>.`);
     return null;
   }
 
   async function submit() {
     let prompt = input.trim();
     if (!prompt) return;
+
+    if (prompt === "/guide help" || prompt === "/guide --help") {
+      setInput("");
+      appendLine("user", prompt);
+      appendLine("assistant", guideShortcutHelpText());
+      return;
+    }
 
     if (prompt.startsWith("/guide ")) {
       const guidance = prompt.slice("/guide ".length).trim();
@@ -3893,9 +5964,9 @@ export default function App() {
       return;
     }
 
-    if (prompt === "/help") {
+    if (prompt === "/help" || prompt === "/?") {
       setInput("");
-      appendLine("user", "/help");
+      appendLine("user", prompt);
       appendLine("assistant", slashCommandHelpText());
       return;
     }
@@ -3904,6 +5975,12 @@ export default function App() {
       const scope = prompt === "/usage" ? "current" : prompt.slice("/usage ".length).trim();
       const usageArgs = scope.split(/\s+/).filter(Boolean);
       const usageCommand = usageArgs[0] ?? "current";
+      if (usageCommand === "help" || usageCommand === "--help") {
+        setInput("");
+        appendLine("user", prompt);
+        appendLine("assistant", usageShortcutHelpText());
+        return;
+      }
       if (usageCommand === "current" || usageCommand === "status") {
         setInput("");
         appendLine("user", prompt);
@@ -3917,18 +5994,42 @@ export default function App() {
       if (usageCommand === "trace" || usageCommand === "last" || usageCommand === "run") {
         setInput("");
         appendLine("user", prompt);
-        if (usageArgs.length > 2) {
-          appendLine("error", "Usage trace shortcut accepts at most one run id.");
+        const usageLabel =
+          usageCommand === "run"
+            ? "Usage run"
+            : usageCommand === "last"
+              ? "Usage last"
+              : "Usage trace";
+        if (usageCommand === "last" && usageArgs.length > 1) {
+          appendLine("error", `${usageLabel} shortcut does not accept a run id.`);
           return;
         }
-        const requestedRunId = usageArgs[1] === "last" ? "" : usageArgs[1];
-        const runId = requestedRunId || lastRunId;
+        if (usageArgs.length > 2) {
+          appendLine("error", `${usageLabel} shortcut accepts at most one run id.`);
+          return;
+        }
+        const runIdArg = usageCommand === "last" ? "last" : (usageArgs[1] ?? "");
+        if (runIdArg && runIdArg !== "last" && !isUuid(runIdArg)) {
+          appendLine(
+            "error",
+            `${usageLabel} shortcut needs: /usage ${usageCommand} [last|run-id].`,
+          );
+          return;
+        }
+        const requestedRunId = runIdArg === "last" ? "" : runIdArg;
+        const loadedTraceRunId =
+          traceSummary?.run_id ?? traceTree?.run_id ?? traceEvents[0]?.run_id ?? "";
+        const runId =
+          requestedRunId ||
+          (usageCommand === "trace" && !runIdArg
+            ? loadedTraceRunId || lastRunId
+            : lastRunId);
         if (!runId) {
-          appendLine("error", "Usage trace shortcut needs a completed or active run.");
+          appendLine("error", `${usageLabel} shortcut needs a completed or active run.`);
           return;
         }
         if (running) {
-          appendLine("error", "Usage trace shortcut is available after the run settles.");
+          appendLine("error", `${usageLabel} shortcut is available after the run settles.`);
           return;
         }
         try {
@@ -3937,11 +6038,11 @@ export default function App() {
           }
           const { summary } = await loadTraceFor(runId);
           if (summary) {
-            appendEvent(traceUsageSummary(summary));
+            appendEvent(traceUsageSummary(summary, usageLabel));
           }
         } catch (err: unknown) {
           const msg = err instanceof Error ? err.message : String(err);
-          appendLine("error", `Usage trace failed: ${msg}`);
+          appendLine("error", `${usageLabel} failed: ${msg}`);
         }
         return;
       }
@@ -3953,13 +6054,19 @@ export default function App() {
         await loadConversationUsage(parsed.id, parsed.range);
         return;
       }
-      appendLine("error", "Usage shortcut needs current, trace, run, or conversation.");
+      appendLine("error", "Usage shortcut needs current, last, trace, run, conversation, or help.");
       return;
     }
 
     if (prompt === "/stop" || prompt.startsWith("/stop ")) {
       const rawValue = prompt === "/stop" ? "now" : prompt.slice("/stop ".length).trim();
       const value = rawValue.toLowerCase();
+      if (value === "help" || value === "--help") {
+        setInput("");
+        appendLine("user", prompt);
+        appendLine("assistant", stopShortcutHelpText());
+        return;
+      }
       if (value === "status") {
         setInput("");
         appendLine("user", prompt);
@@ -4005,7 +6112,7 @@ export default function App() {
       }
       appendLine(
         "error",
-        "Stop shortcut needs default, discard, summarise, status, or an active run.",
+        "Stop shortcut needs default, discard, summarise, status, help, or an active run.",
       );
       return;
     }
@@ -4013,6 +6120,12 @@ export default function App() {
     if (prompt === "/compact" || prompt.startsWith("/compact ")) {
       const guidance = prompt === "/compact" ? "" : prompt.slice("/compact ".length).trim();
       const command = guidance.toLowerCase();
+      if (command === "help" || command === "--help") {
+        setInput("");
+        appendLine("user", prompt);
+        appendLine("assistant", compactShortcutHelpText());
+        return;
+      }
       if (command === "clear") {
         setInput("");
         setManualCompactedContext("");
@@ -4058,6 +6171,10 @@ export default function App() {
           : prompt.slice("/guardrails ".length).trim().toLowerCase();
       setInput("");
       appendLine("user", prompt);
+      if (value === "help" || value === "--help") {
+        appendLine("assistant", guardrailShortcutHelpText());
+        return;
+      }
       if (value === "review" || value === "status") {
         setActiveSection("ingest");
         appendLine("assistant", guardrailReport());
@@ -4094,24 +6211,62 @@ export default function App() {
       }
       appendLine(
         "error",
-        "Guardrails shortcut needs review, status, mode block|warn|allow|config, unsafe on, or unsafe off.",
+        "Guardrails shortcut needs review, status, help, mode block|warn|allow|config, unsafe on, or unsafe off.",
       );
       return;
     }
 
     if (running) return;
 
-    if (prompt === "/scores") {
+    if (prompt === "/score help" || prompt === "/score --help") {
       setInput("");
-      appendLine("user", "/scores");
+      appendLine("user", prompt);
+      appendLine("assistant", scoreShortcutHelpText());
+      return;
+    }
+
+    if (prompt === "/scores" || prompt.startsWith("/scores ")) {
+      setInput("");
+      appendLine("user", prompt);
+      const scoresRest =
+        prompt === "/scores" ? "" : prompt.slice("/scores ".length).trim();
+      if (scoresRest === "help" || scoresRest === "--help") {
+        appendLine("assistant", scoreShortcutHelpText());
+        return;
+      }
       try {
+        const scoreArgs = scoresRest.split(/\s+/).filter(Boolean);
+        if (scoreArgs.length > 1) {
+          appendLine("error", "Scores shortcut needs: /scores [last|run-id].");
+          return;
+        }
+        const runIdArg = scoreArgs[0] ?? "";
+        if (runIdArg && runIdArg !== "last" && !isUuid(runIdArg)) {
+          appendLine("error", "Scores shortcut needs: /scores [last|run-id].");
+          return;
+        }
         let events = traceEvents;
-        if (!events.length && lastRunId) {
+        if (runIdArg === "last") {
+          if (!lastRunId) {
+            appendLine("error", "Scores shortcut needs a completed run.");
+            return;
+          }
+          events = await fetchTraceEvents(lastRunId);
+          applyTraceEvents(events);
+        } else if (runIdArg) {
+          events = await fetchTraceEvents(runIdArg);
+          setOpsId(runIdArg);
+        } else if (!events.length && lastRunId) {
           events = await fetchTraceEvents(lastRunId);
           applyTraceEvents(events);
         }
         if (!events.length) {
-          appendLine("error", "Scores shortcut needs a loaded trace or completed run.");
+          appendLine(
+            "error",
+            runIdArg
+              ? `Scores shortcut could not load run ${runIdArg}.`
+              : "Scores shortcut needs a loaded trace or completed run.",
+          );
           return;
         }
         appendLine("assistant", qualityScoreReport(qualityScoresFromEvents(events)));
@@ -4119,6 +6274,26 @@ export default function App() {
         const msg = err instanceof Error ? err.message : String(err);
         appendLine("error", `Scores review failed: ${msg}`);
       }
+      return;
+    }
+
+    if (
+      prompt === "/raw help" ||
+      prompt === "/raw --help" ||
+      prompt === "/answer help" ||
+      prompt === "/answer --help" ||
+      prompt === "/action help" ||
+      prompt === "/action --help" ||
+      prompt === "/workflow help" ||
+      prompt === "/workflow --help" ||
+      prompt === "/simple help" ||
+      prompt === "/simple --help" ||
+      prompt === "/router help" ||
+      prompt === "/router --help"
+    ) {
+      setInput("");
+      appendLine("user", prompt);
+      appendLine("assistant", modeShortcutHelpText());
       return;
     }
 
@@ -4135,35 +6310,43 @@ export default function App() {
       prompt === "/interpreted" ||
       prompt.startsWith("/interpret ")
     ) {
-      setInput("");
-      setRawToolOutput(false);
-      appendLine("user", prompt);
       const interpreterModel = prompt.startsWith("/interpret ")
         ? prompt.slice("/interpret ".length).trim()
         : "";
-      if (interpreterModel === "clear") {
-        setToolOutputInterpretationModel("");
-        appendEvent("Interpreter model cleared.");
-      } else if (interpreterModel === "status") {
-        appendEvent(
-          `Interpreter model: ${toolOutputInterpretationModel.trim() || "configured default"}.`,
-        );
-      } else if (interpreterModel) {
-        setToolOutputInterpretationModel(interpreterModel);
-        appendEvent(`Interpreter model set to ${interpreterModel}.`);
+      if (interpreterModel === "help" || interpreterModel === "--help") {
+        setInput("");
+        appendLine("user", prompt);
+        appendLine("assistant", interpretShortcutHelpText());
       } else {
-        appendEvent("Output mode set to interpreted tool results.");
+        setInput("");
+        setRawToolOutput(false);
+        appendLine("user", prompt);
+        if (interpreterModel === "clear") {
+          setToolOutputInterpretationModel("");
+          appendEvent("Interpreter model cleared.");
+        } else if (interpreterModel === "status") {
+          appendEvent(
+            `Interpreter model: ${toolOutputInterpretationModel.trim() || "configured default"}.`,
+          );
+        } else if (interpreterModel) {
+          setToolOutputInterpretationModel(interpreterModel);
+          appendEvent(`Interpreter model set to ${interpreterModel}.`);
+        } else {
+          appendEvent("Output mode set to interpreted tool results.");
+        }
       }
       return;
     }
 
     if (prompt === "/router-model" || prompt.startsWith("/router-model ")) {
-      setInput("");
-      appendLine("user", prompt);
       const routingModel = prompt.startsWith("/router-model ")
         ? prompt.slice("/router-model ".length).trim()
         : "";
-      if (routingModel === "clear") {
+      setInput("");
+      appendLine("user", prompt);
+      if (routingModel === "help" || routingModel === "--help") {
+        appendLine("assistant", routerModelShortcutHelpText());
+      } else if (routingModel === "clear") {
         setToolRoutingModel("");
         appendEvent("Routing model cleared.");
       } else if (routingModel === "status" || !routingModel) {
@@ -4229,6 +6412,12 @@ export default function App() {
     }
     if (prompt.startsWith("/budget ")) {
       const value = prompt.slice("/budget ".length).trim();
+      if (value === "help" || value === "--help") {
+        setInput("");
+        appendLine("user", prompt);
+        appendLine("assistant", budgetShortcutHelpText());
+        return;
+      }
       const parsedBudget = parseOptionalNonNegativeInt(value);
       if (parsedBudget === null) {
         appendLine("error", "Budget shortcut needs a non-negative integer.");
@@ -4250,6 +6439,12 @@ export default function App() {
     }
     if (prompt.startsWith("/visibility ")) {
       const value = prompt.slice("/visibility ".length).trim().toLowerCase();
+      if (value === "help" || value === "--help") {
+        setInput("");
+        appendLine("user", prompt);
+        appendLine("assistant", visibilityShortcutHelpText());
+        return;
+      }
       const visibility =
         value === "full" || value === "full_schema"
           ? "full_schema"
@@ -4288,7 +6483,7 @@ export default function App() {
       const rest = prompt.slice("/approval ".length).trim();
       const [command = "", ...args] = rest.split(/\s+/).filter(Boolean);
       const normalized = command.toLowerCase();
-      if (normalized === "help") {
+      if (normalized === "help" || normalized === "--help") {
         setInput("");
         appendLine("user", prompt);
         appendLine("assistant", approvalShortcutHelpText());
@@ -4330,9 +6525,13 @@ export default function App() {
         setInput("");
         setActiveSection("approvals");
         appendLine("user", prompt);
-        const parsed = parseApprovalActionShortcut("assess", args);
+        const parsed = parseApprovalActionShortcut("assess", args, {
+          allowController: true,
+        });
         if (parsed) {
-          await assessApproval(parsed.approvalId, parsed.runId);
+          await assessApproval(parsed.approvalId, parsed.runId, {
+            controllerAgent: parsed.controllerAgent,
+          });
         }
         return;
       }
@@ -4340,12 +6539,15 @@ export default function App() {
         setInput("");
         setActiveSection("approvals");
         appendLine("user", prompt);
-        const parsed = parseApprovalActionShortcut(normalized, args);
+        const parsed = parseApprovalActionShortcut(normalized, args, {
+          allowController: normalized === "approve",
+        });
         if (parsed) {
           await decideApproval(
             parsed.approvalId,
             normalized === "approve",
             parsed.runId,
+            { controllerAgent: parsed.controllerAgent },
           );
         }
         return;
@@ -4364,6 +6566,13 @@ export default function App() {
         "error",
         "Approval shortcut needs on, off, status, list, assess, approve, reject, or execute.",
       );
+      return;
+    }
+
+    if (prompt === "/refine help" || prompt === "/refine --help") {
+      setInput("");
+      appendLine("user", prompt);
+      appendLine("assistant", refineShortcutHelpText());
       return;
     }
 
@@ -4432,6 +6641,12 @@ export default function App() {
     }
     if (prompt.startsWith("/shell ")) {
       const value = prompt.slice("/shell ".length).trim().toLowerCase();
+      if (value === "help" || value === "--help") {
+        setInput("");
+        appendLine("user", prompt);
+        appendLine("assistant", shellShortcutHelpText());
+        return;
+      }
       if (value === "on") {
         setInput("");
         setEnableShell(true);
@@ -4472,6 +6687,12 @@ export default function App() {
           ? "/typescript "
           : "/ts ";
       const code = prompt.slice(prefix.length).trim();
+      if (code === "help" || code === "--help") {
+        setInput("");
+        appendLine("user", prompt);
+        appendLine("assistant", codeShortcutHelpText());
+        return;
+      }
       if (!code) {
         appendLine("error", "Code shortcut needs code text.");
         return;
@@ -4488,6 +6709,17 @@ export default function App() {
     if (
       prompt === "/x402" ||
       prompt === "/payment" ||
+      prompt === "/x402 help" ||
+      prompt === "/x402 --help" ||
+      prompt === "/payment help" ||
+      prompt === "/payment --help"
+    ) {
+      setInput("");
+      appendLine("user", prompt);
+      appendLine("assistant", x402ShortcutHelpText());
+      return;
+    }
+    if (
       prompt === "/x402 request" ||
       prompt === "/x402 required" ||
       prompt === "/x402 settle" ||
@@ -4601,6 +6833,12 @@ export default function App() {
     }
     if (prompt.startsWith("/subagent ")) {
       const value = prompt.slice("/subagent ".length).trim().toLowerCase();
+      if (value === "help" || value === "--help") {
+        setInput("");
+        appendLine("user", prompt);
+        appendLine("assistant", subagentShortcutHelpText());
+        return;
+      }
       if (value === "on") {
         setInput("");
         setEnableSubagent(true);
@@ -4632,6 +6870,12 @@ export default function App() {
     if (prompt.startsWith("/cost ")) {
       const rest = prompt.slice("/cost ".length).trim();
       const [action, ...args] = rest.split(/\s+/);
+      if (action === "help" || action === "--help") {
+        setInput("");
+        appendLine("user", prompt);
+        appendLine("assistant", costShortcutHelpText());
+        return;
+      }
       if (action === "clear") {
         setInput("");
         setInputCostPerMillion("");
@@ -4692,6 +6936,12 @@ export default function App() {
     }
 
     const isAgentShortcut = prompt === "/agent" || prompt.startsWith("/agent ");
+    if (prompt === "/agent help" || prompt === "/agent --help") {
+      setInput("");
+      appendLine("user", prompt);
+      appendLine("assistant", agentSwitchShortcutHelpText());
+      return;
+    }
     const nextAgent = parseAgentShortcut(prompt);
     if (nextAgent) {
       setInput("");
@@ -4715,6 +6965,8 @@ export default function App() {
       const rest = prompt === "/agents" ? "" : prompt.slice("/agents ".length).trim();
       if (!rest) {
         await reviewAgents();
+      } else if (rest === "help" || rest === "--help") {
+        appendLine("assistant", agentShortcutHelpText());
       } else if (rest.startsWith("show ")) {
         const id = rest.slice("show ".length).trim();
         if (!id) {
@@ -4759,17 +7011,26 @@ export default function App() {
         } else {
           await importAgent(path);
         }
-      } else if (rest.startsWith("delete ")) {
-        const id = rest.slice("delete ".length).trim();
-        if (!id) {
-          appendLine("error", "Agents delete shortcut needs an agent id.");
-        } else {
-          await deleteAgentFromOps(id);
+      } else if (rest.startsWith("delete ") || rest.startsWith("rm ")) {
+        const prefix = rest.startsWith("delete ") ? "delete " : "rm ";
+        const parsed = parseAgentDeleteShortcut(
+          rest.slice(prefix.length).trim().split(/\s+/).filter(Boolean),
+        );
+        if (parsed) {
+          if (parsed.confirmed) {
+            await deleteAgentFromOps(parsed.id, true);
+          } else {
+            appendJson("Agent delete confirmation", {
+              pending_action: "delete_agent",
+              agent_id: parsed.id,
+              confirm_command: `/agents delete ${parsed.id} --confirm`,
+            });
+          }
         }
       } else {
         appendLine(
           "error",
-          "Agents shortcut needs show, use, save, export, import, or delete.",
+          "Agents shortcut needs show, use, save, export, import, delete, or help.",
         );
       }
       return;
@@ -4778,8 +7039,25 @@ export default function App() {
     const previewPrompt = parsePreviewShortcut(prompt);
     if (previewPrompt !== null) {
       setInput("");
+      if (previewPrompt === "help" || previewPrompt === "--help") {
+        appendLine("user", prompt);
+        appendLine("assistant", previewShortcutHelpText());
+        return;
+      }
       appendLine("user", previewPrompt ? `/preview ${previewPrompt}` : "/preview");
       await previewCurrentContext(previewPrompt || "preview");
+      return;
+    }
+
+    if (
+      prompt === "/tool help" ||
+      prompt === "/tool --help" ||
+      prompt === "/tool!help" ||
+      prompt === "/tool!--help"
+    ) {
+      setInput("");
+      appendLine("user", prompt);
+      appendLine("assistant", toolShortcutHelpText());
       return;
     }
 
@@ -4803,15 +7081,30 @@ export default function App() {
     if (scoreShortcut) {
       setInput("");
       appendLine("user", prompt);
-      if (!lastRunId) {
+      const targetRunId = scoreShortcut.runId ?? lastRunId;
+      if (!targetRunId) {
         appendLine("error", "Score shortcut needs a completed or active run.");
         return;
       }
-      await scoreLastRun(scoreShortcut.score, scoreShortcut.target);
+      await scoreRun(targetRunId, scoreShortcut.score, scoreShortcut.target);
       return;
     }
     if (prompt === "/score") {
       appendLine("error", "Score shortcut needs a number from 0 to 10.");
+      return;
+    }
+
+    if (
+      prompt === "/resume help" ||
+      prompt === "/resume --help" ||
+      prompt === "/resume plan help" ||
+      prompt === "/resume plan --help" ||
+      prompt === "/resume-plan help" ||
+      prompt === "/resume-plan --help"
+    ) {
+      setInput("");
+      appendLine("user", prompt);
+      appendLine("assistant", resumeShortcutHelpText());
       return;
     }
 
@@ -4831,10 +7124,24 @@ export default function App() {
       return;
     }
 
+    if (prompt === "/config help" || prompt === "/config --help") {
+      setInput("");
+      appendLine("user", prompt);
+      appendLine("assistant", configShortcutHelpText());
+      return;
+    }
+
     if (prompt === "/config") {
       setInput("");
       appendLine("user", "/config");
       await explainCurrentConfig();
+      return;
+    }
+
+    if (prompt === "/tools help" || prompt === "/tools --help") {
+      setInput("");
+      appendLine("user", prompt);
+      appendLine("assistant", toolsShortcutHelpText());
       return;
     }
 
@@ -4852,6 +7159,9 @@ export default function App() {
       if (!rest || rest === "status") {
         appendLine("user", prompt);
         appendVoiceStatus();
+      } else if (rest === "help" || rest === "--help") {
+        appendLine("user", prompt);
+        appendLine("assistant", voiceShortcutHelpText());
       } else if (rest === "capture" || rest === "start" || rest === "record") {
         appendLine("user", prompt);
         await startVoiceCapture();
@@ -4918,6 +7228,8 @@ export default function App() {
           : prompt.slice("/compactions ".length).trim();
       if (!rest || rest === "list") {
         await listCompactionsFromOps();
+      } else if (rest === "help" || rest === "--help") {
+        appendLine("assistant", compactionShortcutHelpText());
       } else if (rest === "keep") {
         await keepAvailableCompaction();
       } else if (rest === "keep-run" || rest.startsWith("keep-run ")) {
@@ -4954,16 +7266,24 @@ export default function App() {
         }
       } else if (rest.startsWith("delete ") || rest.startsWith("rm ")) {
         const prefix = rest.startsWith("delete ") ? "delete " : "rm ";
-        const id = rest.slice(prefix.length).trim();
-        if (!id) {
-          appendLine("error", "Compactions delete shortcut needs a compaction id.");
-        } else {
-          await deleteCompactionFromOps(id);
+        const parsed = parseCompactionDeleteShortcut(
+          rest.slice(prefix.length).trim().split(/\s+/).filter(Boolean),
+        );
+        if (parsed) {
+          if (parsed.confirmed) {
+            await deleteCompactionFromOps(parsed.id, true);
+          } else {
+            appendJson("Compaction delete confirmation", {
+              pending_action: "delete_compaction",
+              compaction_id: parsed.id,
+              confirm_command: `/compactions delete ${parsed.id} --confirm`,
+            });
+          }
         }
       } else {
         appendLine(
           "error",
-          "Compactions shortcut needs list, keep, keep-run, show, use, export, import, or delete.",
+          "Compactions shortcut needs list, keep, keep-run, show, use, export, import, delete, or help.",
         );
       }
       return;
@@ -4976,6 +7296,8 @@ export default function App() {
       const rest = prompt === "/storage" ? "" : prompt.slice("/storage ".length).trim();
       if (!rest || rest === "report") {
         await storageReportFromOps();
+      } else if (rest === "help" || rest === "--help") {
+        appendLine("assistant", storageShortcutHelpText());
       } else if (rest.startsWith("prune-cache ")) {
         const prune = parseStoragePruneShortcut(
           rest.slice("prune-cache ".length).trim(),
@@ -4997,27 +7319,43 @@ export default function App() {
       const [command = "", ...args] = rest.split(/\s+/).filter(Boolean);
       if (!rest || command === "list") {
         await reviewMemory();
-      } else if (command === "help") {
+      } else if (command === "help" || command === "--help") {
         appendLine("assistant", memoryShortcutHelpText());
       } else if (command === "access") {
-        await reviewMemoryAccess();
+        const parsed = parseMemoryTopicShortcut(args, "access");
+        if (parsed) {
+          await reviewMemoryAccess(parsed.topics);
+        }
       } else if (command === "backends") {
         await reviewMemoryBackends();
+      } else if (command === "probe") {
+        const parsed = parseMemoryProbeShortcut(args);
+        if (parsed) {
+          await probeMemoryBackend(parsed.backend, parsed.topics);
+        }
       } else if (command === "preview") {
         await previewWithMemoryFromOps();
       } else if (command === "create") {
-        const content = rest.slice("create".length).trim();
-        if (!content) {
-          appendLine("error", "Memory create shortcut needs content.");
-        } else {
-          await createMemoryFromOps(content);
+        const parsed = parseMemoryWriteShortcut(args, "create", false);
+        if (parsed) {
+          await createMemoryFromOps(parsed.text, {
+            user: parsed.user,
+            agentId: parsed.agentId,
+            conversationId: parsed.conversationId,
+            topics: parsed.topics,
+          });
         }
       } else if (command === "generate") {
-        const text = rest.slice("generate".length).trim();
-        if (!text) {
-          appendLine("error", "Memory generate shortcut needs text.");
-        } else {
-          await generateMemoryFromOps(text);
+        const parsed = parseMemoryWriteShortcut(args, "generate", true);
+        if (parsed) {
+          await generateMemoryFromOps(parsed.text, {
+            user: parsed.user,
+            range: parsed.range,
+            agentId: parsed.agentId,
+            conversationId: parsed.conversationId,
+            guidance: parsed.guidance,
+            topics: parsed.topics,
+          });
         }
       } else if (command === "generate-conversation") {
         const parsed = parseMemoryConversationRangeShortcut(args);
@@ -5025,10 +7363,13 @@ export default function App() {
           await generateConversationMemoryFromOps(parsed);
         }
       } else if (command === "classify") {
-        if (args.length !== 1) {
-          appendLine("error", "Memory classify shortcut needs a memory id.");
-        } else {
-          await classifyMemoryFromOps(args[0]);
+        const parsed = parseMemoryClassifyShortcut(args);
+        if (parsed) {
+          await classifyMemoryFromOps(parsed.id, {
+            model: parsed.model,
+            agentId: parsed.agentId,
+            apply: parsed.apply,
+          });
         }
       } else if (command === "edit") {
         const match = rest.slice("edit".length).trim().match(/^(\S+)\s+([\s\S]+)$/);
@@ -5051,19 +7392,26 @@ export default function App() {
           await deleteMemoryFromOps(ids[0], true);
         }
       } else if (command === "rollback") {
-        const extra = args.filter((arg) => arg !== "--confirm");
-        const confirmed = args.includes("--confirm");
-        if (extra.length) {
-          appendLine("error", "Memory rollback shortcut accepts only --confirm.");
-        } else if (!confirmed) {
+        const parsed = parseMemoryRollbackShortcut(args);
+        if (parsed && !parsed.confirmed) {
           appendLine("error", "Memory rollback shortcut requires --confirm.");
-        } else {
-          await rollbackMemoryFromOps(true);
+        } else if (parsed) {
+          await rollbackMemoryFromOps(true, parsed.user);
+        }
+      } else if (command === "export") {
+        const parsed = parseMemoryFileShortcut(args, "Memory export");
+        if (parsed) {
+          await exportMemoryFromOps(parsed);
+        }
+      } else if (command === "import") {
+        const parsed = parseMemoryFileShortcut(args, "Memory import");
+        if (parsed) {
+          await importMemoryFromOps(parsed);
         }
       } else {
         appendLine(
           "error",
-          "Memory shortcut needs on, off, status, list, access, backends, preview, create, generate, generate-conversation, classify, edit, delete, rollback, or help.",
+          "Memory shortcut needs on, off, status, list, access, backends, probe, preview, create, generate, generate-conversation, classify, edit, delete, rollback, export, import, or help.",
         );
       }
       return;
@@ -5075,6 +7423,8 @@ export default function App() {
       appendLine("user", prompt);
       if (prompt === "/ingest" || prompt === "/ingest list") {
         await reviewIngestion();
+      } else if (prompt === "/ingest help" || prompt === "/ingest --help") {
+        appendLine("assistant", ingestShortcutHelpText());
       } else if (prompt === "/ingest backends") {
         await reviewIngestionBackends();
       } else if (prompt.startsWith("/ingest add ")) {
@@ -5084,6 +7434,13 @@ export default function App() {
         );
         if (parsed) {
           await ingestPathFromOps(parsed.target, parsed.options);
+        }
+      } else if (prompt.startsWith("/ingest probe-source ")) {
+        const probe = parseIngestProbeSourceShortcut(
+          prompt.slice("/ingest probe-source ".length).trim(),
+        );
+        if (probe) {
+          await probeIngestSourceFromOps(probe.path, probe.visionModel);
         }
       } else if (
         prompt.startsWith("/ingest probe-vision ") ||
@@ -5150,73 +7507,123 @@ export default function App() {
           : prompt.startsWith("/ingest remove ")
             ? "/ingest remove "
             : "/ingest rm ";
-        const id = prompt.slice(prefix.length).trim();
-        if (!id) {
-          appendLine("error", "Ingest delete shortcut needs an artifact id.");
-        } else {
-          await removeIngestFromOps(id);
+        const parsed = parseIngestDeleteShortcut(
+          prompt.slice(prefix.length).trim().split(/\s+/).filter(Boolean),
+        );
+        if (parsed) {
+          if (parsed.confirmed) {
+            await removeIngestFromOps(parsed.id, true);
+          } else {
+            appendJson("Ingest delete confirmation", {
+              pending_action: "delete_ingestion_artifact",
+              artifact_id: parsed.id,
+              confirm_command: `/ingest delete ${parsed.id} --confirm`,
+            });
+          }
         }
       } else {
         appendLine(
           "error",
-          "Ingest shortcut needs list, backends, add, probe-vision, show, rerun, use, preview, review, or delete.",
+          "Ingest shortcut needs list, backends, add, probe-source, probe-vision, show, rerun, use, preview, review, delete, or help.",
         );
       }
       return;
     }
 
-    if (prompt === "/artifacts" || prompt === "/artifacts list" || prompt.startsWith("/artifacts ")) {
+    const artifactPrefix =
+      prompt === "/artifacts" || prompt.startsWith("/artifacts ")
+        ? "/artifacts"
+        : prompt === "/artifact" || prompt.startsWith("/artifact ")
+          ? "/artifact"
+          : null;
+    if (artifactPrefix) {
       setInput("");
       setActiveSection("artifacts");
       appendLine("user", prompt);
-      if (prompt === "/artifacts" || prompt === "/artifacts list") {
+      const rest =
+        prompt === artifactPrefix
+          ? ""
+          : prompt.slice(`${artifactPrefix} `.length).trim();
+      const [command = "", ...args] = rest.split(/\s+/).filter(Boolean);
+      const commandArgsText = command ? rest.slice(command.length).trim() : "";
+      if (!rest || command === "list") {
         await reviewGeneratedArtifacts();
-      } else if (prompt.startsWith("/artifacts show ")) {
-        const id = prompt.slice("/artifacts show ".length).trim();
-        if (!id) {
+      } else if (command === "help" || command === "--help") {
+        appendLine("assistant", artifactShortcutHelpText());
+      } else if (command === "generate") {
+        const parsed = parseArtifactGenerateShortcut(commandArgsText);
+        if (parsed) {
+          await generateArtifactFromOps(parsed);
+        }
+      } else if (command === "show") {
+        if (args.length !== 1) {
           appendLine("error", "Artifact show shortcut needs an artifact id.");
         } else {
-          await showGeneratedArtifactFromOps(id);
+          await showGeneratedArtifactFromOps(args[0]);
         }
-      } else if (prompt.startsWith("/artifacts open ")) {
-        const id = prompt.slice("/artifacts open ".length).trim();
-        if (!id) {
+      } else if (command === "open") {
+        if (args.length !== 1) {
           appendLine("error", "Artifact open shortcut needs an artifact id.");
         } else {
-          await openGeneratedArtifactFromOps(id);
+          await openGeneratedArtifactFromOps(args[0]);
         }
-      } else if (prompt.startsWith("/artifacts preview ")) {
-        const id = prompt.slice("/artifacts preview ".length).trim();
-        if (!id) {
+      } else if (command === "preview") {
+        if (args.length !== 1) {
           appendLine("error", "Artifact preview shortcut needs an artifact id.");
         } else {
-          await previewGeneratedArtifactById(id);
+          await previewGeneratedArtifactById(args[0]);
         }
-      } else if (prompt.startsWith("/artifacts delete ")) {
-        const id = prompt.slice("/artifacts delete ".length).trim();
-        if (!id) {
-          appendLine("error", "Artifact delete shortcut needs an artifact id.");
+      } else if (command === "download") {
+        if (args.length !== 1) {
+          appendLine("error", "Artifact download shortcut needs an artifact id.");
         } else {
-          await deleteGeneratedArtifactFromOps(id);
+          await downloadGeneratedArtifactFromOps(args[0]);
+        }
+      } else if (command === "export") {
+        const parsed = parseArtifactExportShortcut(commandArgsText);
+        if (parsed) {
+          await exportGeneratedArtifactFromOps(parsed.id, parsed.path);
+        }
+      } else if (command === "delete" || command === "rm") {
+        const parsed = parseArtifactDeleteShortcut(args);
+        if (parsed) {
+          if (parsed.confirmed) {
+            await deleteGeneratedArtifactFromOps(parsed.id, true);
+          } else {
+            appendJson("Artifact delete confirmation", {
+              pending_action: "delete_artifact",
+              artifact_id: parsed.id,
+              confirm_command: `/artifacts delete ${parsed.id} --confirm`,
+            });
+          }
         }
       } else {
         appendLine(
           "error",
-          "Artifacts shortcut needs list, show, open, preview, or delete.",
+          "Artifacts shortcut needs list, generate, show, open, preview, download, export, delete, or help.",
         );
       }
       return;
     }
 
-    if (prompt === "/skills" || prompt.startsWith("/skills ")) {
+    const skillPrefix =
+      prompt === "/skills" || prompt.startsWith("/skills ")
+        ? "/skills"
+        : prompt === "/skill" || prompt.startsWith("/skill ")
+          ? "/skill"
+          : null;
+    if (skillPrefix) {
       setInput("");
       setActiveSection("skills");
       appendLine("user", prompt);
-      const rest = prompt === "/skills" ? "" : prompt.slice("/skills ".length).trim();
+      const rest =
+        prompt === skillPrefix
+          ? ""
+          : prompt.slice(`${skillPrefix} `.length).trim();
       const [command = "", ...args] = rest.split(/\s+/).filter(Boolean);
       if (!rest || command === "list") {
         await reviewSkills();
-      } else if (command === "help") {
+      } else if (command === "help" || command === "--help") {
         appendLine("assistant", skillShortcutHelpText());
       } else if (command === "show" || command === "inspect") {
         if (args.length !== 1) {
@@ -5243,18 +7650,17 @@ export default function App() {
           await exportSkillFromOps(args[0], args[1]);
         }
       } else if (command === "allow" || command === "quarantine") {
-        const ids = args.filter((arg) => arg !== "--confirm");
-        const id = ids[0] ?? "";
-        const confirmed = args.includes("--confirm");
-        if (ids.length !== 1) {
-          appendLine(
-            "error",
-            `Skills ${command} shortcut needs a skill id and optional --confirm.`,
-          );
-        } else if (!confirmed) {
-          appendLine("error", `Skills ${command} shortcut requires --confirm.`);
-        } else {
-          await setSkillQuarantine(command === "allow", id);
+        const parsed = parseSkillReviewShortcut(args, command);
+        if (parsed) {
+          if (parsed.confirmed) {
+            await setSkillQuarantine(command === "allow", parsed.id);
+          } else {
+            appendJson("Skill confirmation", {
+              pending_action: `${command}_skill`,
+              skill_id: parsed.id,
+              confirm_command: `/skills ${command} ${parsed.id} --confirm`,
+            });
+          }
         }
       } else {
         appendLine(
@@ -5265,50 +7671,53 @@ export default function App() {
       return;
     }
 
-    if (prompt === "/capabilities" || prompt.startsWith("/capabilities ")) {
+    const capabilityPrefix =
+      prompt === "/capabilities" || prompt.startsWith("/capabilities ")
+        ? "/capabilities"
+        : prompt === "/capability" || prompt.startsWith("/capability ")
+          ? "/capability"
+          : null;
+    if (capabilityPrefix) {
       setInput("");
       setActiveSection("skills");
       appendLine("user", prompt);
       const rest =
-        prompt === "/capabilities"
+        prompt === capabilityPrefix
           ? ""
-          : prompt.slice("/capabilities ".length).trim();
+          : prompt.slice(`${capabilityPrefix} `.length).trim();
       const [command = "", ...args] = rest.split(/\s+/).filter(Boolean);
       if (!rest || command === "list") {
         await reviewCapabilities();
-      } else if (command === "help") {
+      } else if (command === "help" || command === "--help") {
         appendLine(
           "assistant",
           [
             "/capabilities list",
             "/capabilities doctor",
-            "/capabilities propose <tool|skill|agent|subagent> <name> <body>",
+            "/capabilities propose <tool|skill|agent|subagent> <name> <body> [--guidance <text>]",
             "/capabilities show <id>",
             "/capabilities export <id> <path>",
             "/capabilities import <path>",
             "/capabilities allow <id> --confirm",
             "/capabilities reject <id> --confirm",
-            "/capabilities delete <id>",
+            "/capabilities delete <id> --confirm",
+            "/capability is accepted as an alias for /capabilities.",
           ].join("\n"),
         );
       } else if (command === "doctor") {
         await capabilityDoctorFromOps();
       } else if (command === "propose") {
         const proposeInput = rest.slice("propose".length).trim();
-        const match = proposeInput.match(/^(\S+)\s+(\S+)\s+([\s\S]+)$/);
-        const kind = match ? normalizeCapabilityKind(match[1]) : null;
-        if (!match) {
-          appendLine(
-            "error",
-            "Capabilities propose shortcut needs a kind, name, and body.",
-          );
-        } else if (!kind) {
-          appendLine(
-            "error",
-            "Capabilities propose kind must be tool, skill, agent, or subagent.",
-          );
+        const parsed = parseCapabilityProposeShortcut(proposeInput);
+        if ("error" in parsed) {
+          appendLine("error", parsed.error);
         } else {
-          await proposeCapabilityFromOps(kind, match[2], match[3].trim());
+          await proposeCapabilityFromOps(
+            parsed.kind,
+            parsed.name,
+            parsed.body,
+            parsed.guidance,
+          );
         }
       } else if (command === "show") {
         if (args.length !== 1) {
@@ -5332,27 +7741,30 @@ export default function App() {
           await importCapabilityFromOps(args[0]);
         }
       } else if (command === "allow" || command === "reject") {
-        const ids = args.filter((arg) => arg !== "--confirm");
-        const id = ids[0] ?? "";
-        const confirmed = args.includes("--confirm");
-        if (ids.length !== 1) {
-          appendLine(
-            "error",
-            `Capabilities ${command} shortcut needs a draft id and optional --confirm.`,
-          );
-        } else if (!confirmed) {
-          appendLine(
-            "error",
-            `Capabilities ${command} shortcut requires --confirm.`,
-          );
-        } else {
-          await reviewCapabilityDraft(command === "allow", id);
+        const parsed = parseCapabilityConfirmShortcut(args, command);
+        if (parsed) {
+          if (parsed.confirmed) {
+            await reviewCapabilityDraft(command === "allow", parsed.id);
+          } else {
+            appendJson("Capability draft confirmation", {
+              pending_action: `${command}_capability_draft`,
+              draft_id: parsed.id,
+              confirm_command: `/capabilities ${command} ${parsed.id} --confirm`,
+            });
+          }
         }
-      } else if (command === "delete") {
-        if (args.length !== 1) {
-          appendLine("error", "Capabilities delete shortcut needs a draft id.");
-        } else {
-          await deleteCapabilityFromOps(args[0]);
+      } else if (command === "delete" || command === "rm") {
+        const parsed = parseCapabilityConfirmShortcut(args, "delete");
+        if (parsed) {
+          if (parsed.confirmed) {
+            await deleteCapabilityFromOps(parsed.id, true);
+          } else {
+            appendJson("Capability draft delete confirmation", {
+              pending_action: "delete_capability_draft",
+              draft_id: parsed.id,
+              confirm_command: `/capabilities delete ${parsed.id} --confirm`,
+            });
+          }
         }
       } else {
         appendLine(
@@ -5363,13 +7775,24 @@ export default function App() {
       return;
     }
 
-    if (prompt === "/profiles" || prompt.startsWith("/profiles ")) {
+    const profilePrefix =
+      prompt === "/profiles" || prompt.startsWith("/profiles ")
+        ? "/profiles"
+        : prompt === "/profile" || prompt.startsWith("/profile ")
+          ? "/profile"
+          : null;
+    if (profilePrefix) {
       setInput("");
       setActiveSection("profiles");
       appendLine("user", prompt);
-      const rest = prompt === "/profiles" ? "" : prompt.slice("/profiles ".length).trim();
+      const rest =
+        prompt === profilePrefix
+          ? ""
+          : prompt.slice(`${profilePrefix} `.length).trim();
       if (!rest) {
         await listProfilesFromOps();
+      } else if (rest === "help" || rest === "--help") {
+        appendLine("assistant", profileShortcutHelpText());
       } else if (rest === "current") {
         await showCurrentProfileFromOps();
       } else if (rest === "grants" || rest.startsWith("grants ")) {
@@ -5392,19 +7815,39 @@ export default function App() {
         } else {
           await createProfile(id, name);
         }
-      } else if (rest.startsWith("delete ")) {
-        const id = rest.slice("delete ".length).trim();
-        if (!id) {
-          appendLine("error", "Profiles delete shortcut needs a profile id.");
-        } else {
-          await deleteProfileFromOps(id);
+      } else if (rest.startsWith("delete ") || rest.startsWith("rm ")) {
+        const prefix = rest.startsWith("delete ") ? "delete " : "rm ";
+        const parsed = parseProfileConfirmShortcut(
+          rest.slice(prefix.length).trim().split(/\s+/).filter(Boolean),
+          "delete",
+        );
+        if (parsed) {
+          if (parsed.confirmed) {
+            await deleteProfileFromOps(parsed.id, true);
+          } else {
+            appendJson("Profile delete confirmation", {
+              pending_action: "delete_profile",
+              profile_id: parsed.id,
+              confirm_command: `/profiles delete ${parsed.id} --confirm`,
+            });
+          }
         }
-      } else if (rest.startsWith("revoke ")) {
-        const id = rest.slice("revoke ".length).trim();
-        if (!id) {
-          appendLine("error", "Profiles revoke shortcut needs a grant id.");
-        } else {
-          await revokeProfileGrantFromOps(id);
+      } else if (rest.startsWith("revoke ") || rest.startsWith("revoke-grant ")) {
+        const prefix = rest.startsWith("revoke-grant ") ? "revoke-grant " : "revoke ";
+        const parsed = parseProfileConfirmShortcut(
+          rest.slice(prefix.length).trim().split(/\s+/).filter(Boolean),
+          "revoke",
+        );
+        if (parsed) {
+          if (parsed.confirmed) {
+            await revokeProfileGrantFromOps(parsed.id, true);
+          } else {
+            appendJson("Profile grant revoke confirmation", {
+              pending_action: "revoke_profile_grant",
+              grant_id: parsed.id,
+              confirm_command: `/profiles revoke ${parsed.id} --confirm`,
+            });
+          }
         }
       } else if (rest.startsWith("grant ")) {
         const args = rest.slice("grant ".length).trim().split(/\s+/).filter(Boolean);
@@ -5426,37 +7869,60 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Profiles shortcut needs current, show, create, delete, grants, grant, or revoke.",
+          "Profiles shortcut needs current, show, create, delete, grants, grant, revoke, or help.",
         );
       }
       return;
     }
 
+    const secretPrompt =
+      prompt === "/secret" || prompt.startsWith("/secret ")
+        ? `/secrets${prompt.slice("/secret".length)}`
+        : prompt;
     if (
-      prompt === "/secrets" ||
-      prompt === "/secrets backends" ||
-      prompt === "/secrets list" ||
-      prompt.startsWith("/secrets show ") ||
-      prompt.startsWith("/secrets delete ")
+      secretPrompt === "/secrets" ||
+      secretPrompt === "/secrets backends" ||
+      secretPrompt === "/secrets list" ||
+      secretPrompt === "/secrets help" ||
+      secretPrompt === "/secrets --help" ||
+      secretPrompt.startsWith("/secrets show ") ||
+      secretPrompt.startsWith("/secrets delete ") ||
+      secretPrompt.startsWith("/secrets rm ")
     ) {
       setInput("");
       setActiveSection("profiles");
       appendLine("user", prompt);
-      if (prompt === "/secrets backends") {
+      if (secretPrompt === "/secrets backends") {
         await listSecretBackendsFromOps();
-      } else if (prompt.startsWith("/secrets show ")) {
-        const id = prompt.slice("/secrets show ".length).trim();
+      } else if (secretPrompt === "/secrets help" || secretPrompt === "/secrets --help") {
+        appendLine("assistant", secretShortcutHelpText());
+      } else if (secretPrompt.startsWith("/secrets show ")) {
+        const id = secretPrompt.slice("/secrets show ".length).trim();
         if (!id) {
           appendLine("error", "Secrets show shortcut needs a secret id.");
         } else {
           await showSecretFromOps(id);
         }
-      } else if (prompt.startsWith("/secrets delete ")) {
-        const id = prompt.slice("/secrets delete ".length).trim();
-        if (!id) {
-          appendLine("error", "Secrets delete shortcut needs a secret id.");
-        } else {
-          await deleteSecretFromOps(id);
+      } else if (
+        secretPrompt.startsWith("/secrets delete ") ||
+        secretPrompt.startsWith("/secrets rm ")
+      ) {
+        const prefix = secretPrompt.startsWith("/secrets delete ")
+          ? "/secrets delete "
+          : "/secrets rm ";
+        const parsed = parseSecretDeleteShortcut(
+          secretPrompt.slice(prefix.length).trim().split(/\s+/).filter(Boolean),
+        );
+        if (parsed) {
+          if (parsed.confirmed) {
+            await deleteSecretFromOps(parsed.id, true);
+          } else {
+            appendJson("Secret delete confirmation", {
+              pending_action: "delete_secret",
+              secret_id: parsed.id,
+              confirm_command: `/secrets delete ${parsed.id} --confirm`,
+            });
+          }
         }
       } else {
         await listSecretsFromOps();
@@ -5464,13 +7930,22 @@ export default function App() {
       return;
     }
 
-    if (prompt === "/bundles" || prompt.startsWith("/bundles ")) {
+    const bundlePrefix =
+      prompt === "/bundles" || prompt.startsWith("/bundles ")
+        ? "/bundles"
+        : prompt === "/bundle" || prompt.startsWith("/bundle ")
+          ? "/bundle"
+          : null;
+    if (bundlePrefix) {
       setInput("");
       setActiveSection("adapters");
       appendLine("user", prompt);
-      const rest = prompt === "/bundles" ? "" : prompt.slice("/bundles ".length).trim();
+      const rest =
+        prompt === bundlePrefix
+          ? ""
+          : prompt.slice(`${bundlePrefix} `.length).trim();
       const [command = "", ...args] = rest.split(/\s+/).filter(Boolean);
-      if (!rest || command === "help") {
+      if (!rest || command === "help" || command === "--help") {
         appendLine("assistant", bundleShortcutHelpText());
       } else if (command === "backup") {
         if (args.length) {
@@ -5491,7 +7966,11 @@ export default function App() {
         if (!path) {
           appendLine("error", "Bundles import shortcut needs a bundle path.");
         } else if (!confirmed) {
-          appendLine("error", "Bundles import shortcut requires --confirm.");
+          appendJson("Bundle import confirmation", {
+            pending_action: "import_bundle",
+            path,
+            confirm_command: `/bundles import ${path} --confirm`,
+          });
         } else {
           await importBundleFromOps(path, true);
         }
@@ -5501,87 +7980,120 @@ export default function App() {
       return;
     }
 
-    if (
-      prompt === "/prompts" ||
-      prompt === "/prompts list" ||
-      prompt.startsWith("/prompts show ") ||
-      prompt.startsWith("/prompts use ") ||
-      prompt.startsWith("/prompts preview ") ||
-      prompt.startsWith("/prompts delete ")
-    ) {
+    const promptLibraryRest = promptLibraryShortcutRest(prompt);
+    if (promptLibraryRest !== null) {
       setInput("");
       setActiveSection("prompts");
       appendLine("user", prompt);
-      if (prompt === "/prompts" || prompt === "/prompts list") {
-        await reviewPrompts();
-      } else if (prompt.startsWith("/prompts show ")) {
-        const name = prompt.slice("/prompts show ".length).trim();
-        if (!name) {
-          appendLine("error", "Prompts show shortcut needs a prompt name.");
-        } else {
-          await showPromptFromOps(name);
+      const [command = "", ...args] = promptLibraryRest.split(/\s+/).filter(Boolean);
+      if (!command || command === "list") {
+        const parsed = parsePromptAgentArgs(args, "list");
+        if (parsed) {
+          await reviewPrompts(parsed.agentId);
         }
-      } else if (prompt.startsWith("/prompts use ")) {
-        const name = prompt.slice("/prompts use ".length).trim();
-        if (!name) {
-          appendLine("error", "Prompts use shortcut needs a prompt name.");
-        } else {
-          await usePromptByName(name);
+      } else if (command === "help" || command === "--help") {
+        appendLine("assistant", promptShortcutHelpText());
+      } else if (command === "show") {
+        const parsed = parsePromptNamedShortcut(args, "show");
+        if (parsed) {
+          await showPromptFromOps(parsed.name, parsed.agentId);
         }
-      } else if (prompt.startsWith("/prompts preview ")) {
-        const name = prompt.slice("/prompts preview ".length).trim();
-        if (!name) {
-          appendLine("error", "Prompts preview shortcut needs a prompt name.");
-        } else {
-          await previewPromptByName(name);
+      } else if (command === "save") {
+        const parsed = parsePromptSaveShortcut(args);
+        if (parsed) {
+          await savePromptByName(parsed.name, parsed.body, parsed.agentId);
         }
-      } else if (prompt.startsWith("/prompts delete ")) {
-        const name = prompt.slice("/prompts delete ".length).trim();
-        if (!name) {
-          appendLine("error", "Prompts delete shortcut needs a prompt name.");
-        } else {
-          await deletePromptByName(name);
+      } else if (command === "use") {
+        const parsed = parsePromptNamedShortcut(args, "use");
+        if (parsed) {
+          await usePromptByName(parsed.name, parsed.agentId);
         }
+      } else if (command === "preview") {
+        const parsed = parsePromptNamedShortcut(args, "preview");
+        if (parsed) {
+          await previewPromptByName(parsed.name, undefined, parsed.agentId);
+        }
+      } else if (command === "export") {
+        const parsed = parsePromptExportShortcut(args);
+        if (parsed) {
+          await exportPromptByName(parsed.name, parsed.path, parsed.agentId);
+        }
+      } else if (command === "import") {
+        const parsed = parsePromptImportShortcut(args);
+        if (parsed) {
+          await importPromptFromPath(parsed.path, parsed.agentId);
+        }
+      } else if (command === "delete" || command === "rm") {
+        const parsed = parsePromptNamedShortcut(args, "delete", { allowConfirm: true });
+        if (parsed) {
+          if (parsed.confirmed) {
+            await deletePromptByName(parsed.name, parsed.agentId, true);
+          } else {
+            const agentFlag = parsed.agentId ? ` --agent ${parsed.agentId}` : "";
+            appendJson("Prompt delete confirmation", {
+              pending_action: "delete_prompt",
+              name: parsed.name,
+              agent: parsed.agentId,
+              confirm_command: `/prompts delete ${parsed.name}${agentFlag} --confirm`,
+            });
+          }
+        }
+      } else {
+        appendLine(
+          "error",
+          "Prompts shortcut needs list, show, save, use, preview, export, import, delete, or help.",
+        );
       }
       return;
     }
 
+    const modelPrompt =
+      prompt === "/model" || prompt.startsWith("/model ")
+        ? `/models${prompt.slice("/model".length)}`
+        : prompt;
     if (
-      prompt === "/models" ||
-      prompt === "/models list" ||
-      prompt === "/models providers" ||
-      prompt === "/models doctor" ||
-      prompt === "/models provider-catalog" ||
-      prompt.startsWith("/models provider-catalog ") ||
-      prompt === "/models metadata-catalog" ||
-      prompt.startsWith("/models metadata-catalog ") ||
-      prompt.startsWith("/models show ") ||
-      prompt.startsWith("/models probe ") ||
-      prompt.startsWith("/models save ") ||
-      prompt === "/models save-current" ||
-      prompt.startsWith("/models export ") ||
-      prompt.startsWith("/models import ") ||
-      prompt.startsWith("/models delete ")
+      modelPrompt === "/models" ||
+      modelPrompt === "/models list" ||
+      modelPrompt === "/models help" ||
+      modelPrompt === "/models --help" ||
+      modelPrompt === "/models providers" ||
+      modelPrompt === "/models doctor" ||
+      modelPrompt === "/models provider-catalog" ||
+      modelPrompt.startsWith("/models provider-catalog ") ||
+      modelPrompt === "/models metadata-catalog" ||
+      modelPrompt.startsWith("/models metadata-catalog ") ||
+      modelPrompt.startsWith("/models show ") ||
+      modelPrompt.startsWith("/models probe ") ||
+      modelPrompt.startsWith("/models save ") ||
+      modelPrompt === "/models save-current" ||
+      modelPrompt.startsWith("/models export ") ||
+      modelPrompt.startsWith("/models import ") ||
+      modelPrompt.startsWith("/models delete ") ||
+      modelPrompt.startsWith("/models rm ")
     ) {
       setInput("");
       setActiveSection("prompts");
       appendLine("user", prompt);
-      if (prompt === "/models" || prompt === "/models list") {
+      if (modelPrompt === "/models" || modelPrompt === "/models list") {
         await listModelsFromOps();
-      } else if (prompt === "/models providers") {
+      } else if (modelPrompt === "/models help" || modelPrompt === "/models --help") {
+        appendLine("assistant", modelShortcutHelpText());
+      } else if (modelPrompt === "/models providers") {
         await listModelProvidersFromOps();
-      } else if (prompt === "/models doctor") {
+      } else if (modelPrompt === "/models doctor") {
         await modelDoctorFromOps();
       } else if (
-        prompt === "/models provider-catalog" ||
-        prompt.startsWith("/models provider-catalog ")
+        modelPrompt === "/models provider-catalog" ||
+        modelPrompt.startsWith("/models provider-catalog ")
       ) {
         const rest =
-          prompt === "/models provider-catalog"
+          modelPrompt === "/models provider-catalog"
             ? ""
-            : prompt.slice("/models provider-catalog ".length).trim();
+            : modelPrompt.slice("/models provider-catalog ".length).trim();
         if (!rest || rest === "show") {
           await showModelProviderCatalogFromOps();
+        } else if (rest === "help" || rest === "--help") {
+          appendLine("assistant", modelShortcutHelpText());
         } else if (rest.startsWith("export ")) {
           const path = rest.slice("export ".length).trim();
           if (!path) {
@@ -5596,7 +8108,11 @@ export default function App() {
           if (!path) {
             appendLine("error", "Provider catalog import shortcut needs a path.");
           } else if (!confirmed) {
-            appendLine("error", "Provider catalog import shortcut requires --confirm.");
+            appendJson("Provider catalog import confirmation", {
+              pending_action: "import_model_provider_catalog",
+              path,
+              confirm_command: `/models provider-catalog import ${path} --confirm`,
+            });
           } else {
             await importModelProviderCatalogFromOps(path, true);
           }
@@ -5607,15 +8123,17 @@ export default function App() {
           );
         }
       } else if (
-        prompt === "/models metadata-catalog" ||
-        prompt.startsWith("/models metadata-catalog ")
+        modelPrompt === "/models metadata-catalog" ||
+        modelPrompt.startsWith("/models metadata-catalog ")
       ) {
         const rest =
-          prompt === "/models metadata-catalog"
+          modelPrompt === "/models metadata-catalog"
             ? ""
-            : prompt.slice("/models metadata-catalog ".length).trim();
+            : modelPrompt.slice("/models metadata-catalog ".length).trim();
         if (!rest || rest === "show") {
           await showModelMetadataCatalogFromOps();
+        } else if (rest === "help" || rest === "--help") {
+          appendLine("assistant", modelShortcutHelpText());
         } else if (rest.startsWith("export ")) {
           const path = rest.slice("export ".length).trim();
           if (!path) {
@@ -5630,7 +8148,11 @@ export default function App() {
           if (!path) {
             appendLine("error", "Metadata catalog import shortcut needs a path.");
           } else if (!confirmed) {
-            appendLine("error", "Metadata catalog import shortcut requires --confirm.");
+            appendJson("Metadata catalog import confirmation", {
+              pending_action: "import_model_metadata_catalog",
+              path,
+              confirm_command: `/models metadata-catalog import ${path} --confirm`,
+            });
           } else {
             await importModelMetadataCatalogFromOps(path, true);
           }
@@ -5640,22 +8162,22 @@ export default function App() {
             "Metadata catalog shortcut needs show, export, or import.",
           );
         }
-      } else if (prompt.startsWith("/models show ")) {
-        const id = prompt.slice("/models show ".length).trim();
+      } else if (modelPrompt.startsWith("/models show ")) {
+        const id = modelPrompt.slice("/models show ".length).trim();
         if (!id) {
           appendLine("error", "Models show shortcut needs a model id.");
         } else {
           await showModelFromOps(id);
         }
-      } else if (prompt.startsWith("/models probe ")) {
-        const id = prompt.slice("/models probe ".length).trim();
+      } else if (modelPrompt.startsWith("/models probe ")) {
+        const id = modelPrompt.slice("/models probe ".length).trim();
         if (!id) {
           appendLine("error", "Models probe shortcut needs a model id.");
         } else {
           await probeModelFromOps(id);
         }
-      } else if (prompt.startsWith("/models save ")) {
-        const body = prompt.slice("/models save ".length).trim();
+      } else if (modelPrompt.startsWith("/models save ")) {
+        const body = modelPrompt.slice("/models save ".length).trim();
         const splitAt = body.search(/\s/);
         const id = splitAt === -1 ? body : body.slice(0, splitAt).trim();
         const inputText = splitAt === -1 ? "" : body.slice(splitAt).trim();
@@ -5667,10 +8189,10 @@ export default function App() {
             await saveModel(id, input);
           }
         }
-      } else if (prompt === "/models save-current") {
+      } else if (modelPrompt === "/models save-current") {
         await saveCurrentModelFromControls();
-      } else if (prompt.startsWith("/models export ")) {
-        const body = prompt.slice("/models export ".length).trim();
+      } else if (modelPrompt.startsWith("/models export ")) {
+        const body = modelPrompt.slice("/models export ".length).trim();
         const splitAt = body.search(/\s/);
         const id = splitAt === -1 ? body : body.slice(0, splitAt).trim();
         const path = splitAt === -1 ? "" : body.slice(splitAt).trim();
@@ -5679,33 +8201,56 @@ export default function App() {
         } else {
           await exportModel(id, path);
         }
-      } else if (prompt.startsWith("/models import ")) {
-        const path = prompt.slice("/models import ".length).trim();
+      } else if (modelPrompt.startsWith("/models import ")) {
+        const path = modelPrompt.slice("/models import ".length).trim();
         if (!path) {
           appendLine("error", "Models import shortcut needs a path.");
         } else {
           await importModel(path);
         }
-      } else if (prompt.startsWith("/models delete ")) {
-        const id = prompt.slice("/models delete ".length).trim();
-        if (!id) {
-          appendLine("error", "Models delete shortcut needs a model id.");
-        } else {
-          await deleteModelFromOps(id);
+      } else if (
+        modelPrompt.startsWith("/models delete ") ||
+        modelPrompt.startsWith("/models rm ")
+      ) {
+        const prefix = modelPrompt.startsWith("/models delete ")
+          ? "/models delete "
+          : "/models rm ";
+        const parsed = parseModelDeleteShortcut(
+          modelPrompt.slice(prefix.length).trim().split(/\s+/).filter(Boolean),
+        );
+        if (parsed) {
+          if (parsed.confirmed) {
+            await deleteModelFromOps(parsed.id, true);
+          } else {
+            appendJson("Model delete confirmation", {
+              pending_action: "delete_model",
+              model_id: parsed.id,
+              confirm_command: `/models delete ${parsed.id} --confirm`,
+            });
+          }
         }
       }
       return;
     }
 
-    if (prompt === "/adapters" || prompt.startsWith("/adapters ")) {
+    const adapterPrefix =
+      prompt === "/adapters" || prompt.startsWith("/adapters ")
+        ? "/adapters"
+        : prompt === "/adapter" || prompt.startsWith("/adapter ")
+          ? "/adapter"
+          : null;
+    if (adapterPrefix) {
       setInput("");
       setActiveSection("adapters");
       appendLine("user", prompt);
-      const rest = prompt === "/adapters" ? "" : prompt.slice("/adapters ".length).trim();
+      const rest =
+        prompt === adapterPrefix
+          ? ""
+          : prompt.slice(`${adapterPrefix} `.length).trim();
       const [command = "", ...args] = rest.split(/\s+/).filter(Boolean);
       if (!rest || command === "list") {
         await reviewAdapters();
-      } else if (command === "help") {
+      } else if (command === "help" || command === "--help") {
         appendLine("assistant", adapterShortcutHelpText());
       } else if (command === "doctor") {
         await adapterDoctorFromOps();
@@ -5746,17 +8291,17 @@ export default function App() {
           await installAdapterSkillFromOps(args[0]);
         }
       } else if (command === "allow") {
-        const ids = args.filter((arg) => arg !== "--confirm");
-        const confirmed = args.includes("--confirm");
-        if (ids.length !== 1) {
-          appendLine(
-            "error",
-            "Adapters allow shortcut needs an adapter id and optional --confirm.",
-          );
-        } else if (!confirmed) {
-          appendLine("error", "Adapters allow shortcut requires --confirm.");
-        } else {
-          await setAdapterQuarantine(true, ids[0]);
+        const parsed = parseAdapterAllowShortcut(args);
+        if (parsed) {
+          if (parsed.confirmed) {
+            await setAdapterQuarantine(true, parsed.id);
+          } else {
+            appendJson("Adapter allow confirmation", {
+              pending_action: "allow_adapter",
+              adapter_id: parsed.id,
+              confirm_command: `/adapters allow ${parsed.id} --confirm`,
+            });
+          }
         }
       } else if (command === "quarantine") {
         const ids = args.filter((arg) => arg !== "--confirm");
@@ -5770,7 +8315,9 @@ export default function App() {
         }
       } else if (command === "clawhub") {
         const [subcommand = "", ...clawArgs] = args;
-        if (subcommand === "search") {
+        if (subcommand === "help" || subcommand === "--help") {
+          appendLine("assistant", adapterShortcutHelpText());
+        } else if (subcommand === "search") {
           const [catalog = "", ...queryParts] = clawArgs;
           if (!catalog) {
             appendLine("error", "Adapters clawhub search shortcut needs a catalog path.");
@@ -5819,16 +8366,24 @@ export default function App() {
       return;
     }
 
-    if (prompt === "/conversation" || prompt.startsWith("/conversation ")) {
+    const conversationPrefix =
+      prompt === "/conversation" || prompt.startsWith("/conversation ")
+        ? "/conversation"
+        : prompt === "/conversations" || prompt.startsWith("/conversations ")
+          ? "/conversations"
+          : null;
+    if (conversationPrefix) {
       setInput("");
       setActiveSection("conversations");
       appendLine("user", prompt);
       const rest =
-        prompt === "/conversation" ? "" : prompt.slice("/conversation ".length).trim();
+        prompt === conversationPrefix
+          ? ""
+          : prompt.slice(`${conversationPrefix} `.length).trim();
       const [command = "", ...args] = rest.split(/\s+/).filter(Boolean);
-      if (!rest || command === "list" || command === "tree") {
+      if (!rest || command === "list" || command === "tree" || command === "browse") {
         await reviewConversations();
-      } else if (command === "help") {
+      } else if (command === "help" || command === "--help") {
         appendLine("assistant", conversationShortcutHelpText());
       } else if (command === "select") {
         if (args.length !== 1) {
@@ -5862,6 +8417,20 @@ export default function App() {
           } else {
             await recoverConversation(id);
           }
+        }
+      } else if (command === "usage") {
+        const parsed = parseConversationUsageShortcut(args, {
+          selectedId: selectedConversationShortcutId(),
+          label: "Conversation usage",
+          usagePrefix: `${conversationPrefix} usage`,
+        });
+        if (parsed) {
+          await loadConversationUsage(parsed.id, parsed.range);
+        }
+      } else if (command === "memory") {
+        const parsed = parseMemoryConversationRangeShortcut(args);
+        if (parsed) {
+          await generateConversationMemoryFromOps(parsed);
         }
       } else if (command === "policy") {
         if (args[0] === "help") {
@@ -5898,6 +8467,24 @@ export default function App() {
         if (parsed) {
           await deleteConversation(parsed.id, parsed.recursive, true);
         }
+      } else if (command === "delete-agent-plan" || command === "agent-delete-plan") {
+        const parsed = parseConversationAgentShortcut("delete-agent-plan", args, false);
+        if (parsed) {
+          await previewConversationDeleteAgent(parsed.agent, parsed.recursive);
+        }
+      } else if (command === "delete-agent" || command === "agent-delete") {
+        const parsed = parseConversationAgentShortcut("delete-agent", args, true);
+        if (parsed) {
+          await deleteConversationsForAgent(parsed.agent, parsed.recursive, true);
+        }
+      } else if (command === "range" || command === "range-preview") {
+        const parsed = parseConversationRangeShortcut(args, {
+          command: "range",
+          requireConfirm: false,
+        });
+        if (parsed) {
+          await previewConversationRange(parsed.id, parsed.range);
+        }
       } else if (command === "range-delete" || command === "delete-range") {
         const parsed = parseConversationRangeShortcut(args);
         if (parsed) {
@@ -5906,8 +8493,23 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Conversation shortcut needs list, tree, select, show, recover, policy, delete-plan, delete, range-delete, or help.",
+          "Conversation shortcut needs list, tree, select, show, recover, usage, memory, policy, delete-plan, delete, delete-agent-plan, delete-agent, range, range-delete, or help.",
         );
+      }
+      return;
+    }
+
+    if (prompt === "/bridges" || prompt.startsWith("/bridges ")) {
+      setInput("");
+      setActiveSection("adapters");
+      appendLine("user", prompt);
+      const rest = prompt === "/bridges" ? "status" : prompt.slice("/bridges ".length).trim();
+      if (rest === "status" || rest === "") {
+        await bridgeStatusFromOps();
+      } else if (rest === "help" || rest === "--help") {
+        appendLine("assistant", bridgeDeliveryShortcutHelpText());
+      } else {
+        appendLine("error", "Bridge shortcut needs status or help.");
       }
       return;
     }
@@ -5923,13 +8525,26 @@ export default function App() {
       const [command = "", ...args] = rest.split(/\s+/).filter(Boolean);
       if (!rest || command === "list") {
         await listBridgeDeliveriesFromOps();
-      } else if (command === "help") {
+      } else if (command === "help" || command === "--help") {
         appendLine("assistant", bridgeDeliveryShortcutHelpText());
       } else if (command === "retry") {
         if (args.length !== 1) {
           appendLine("error", "Bridge delivery retry shortcut needs a delivery id.");
         } else {
           await retryBridgeDeliveryFromOps(args[0]);
+        }
+      } else if (command === "delete") {
+        const confirmed = args.includes("--confirm");
+        const ids = args.filter((arg) => arg !== "--confirm");
+        if (ids.length !== 1) {
+          appendLine("error", "Bridge delivery delete shortcut needs one delivery id plus --confirm.");
+        } else if (!confirmed) {
+          appendJson("Bridge delivery delete confirmation", {
+            id: ids[0],
+            confirm_command: `/bridge-deliveries delete ${ids[0]} --confirm`,
+          });
+        } else {
+          await deleteBridgeDeliveryFromOps(ids[0], true);
         }
       } else if (command === "retry-all") {
         if (args.length) {
@@ -5940,7 +8555,7 @@ export default function App() {
       } else {
         appendLine(
           "error",
-          "Bridge delivery shortcut needs list, retry, retry-all, or help.",
+          "Bridge delivery shortcut needs list, retry, delete, retry-all, or help.",
         );
       }
       return;
@@ -5952,12 +8567,18 @@ export default function App() {
       appendLine("user", prompt);
       const rest = prompt === "/hooks" ? "" : prompt.slice("/hooks ".length).trim();
       const [command = "", ...args] = rest.split(/\s+/).filter(Boolean);
-      if (!rest || command === "available") {
+      if (!rest) {
         await refreshHookCatalog();
-      } else if (command === "help") {
+      } else if (command === "available") {
+        if (validateHookViewShortcut(args, command)) {
+          await refreshHookCatalog();
+        }
+      } else if (command === "help" || command === "--help") {
         appendLine("assistant", hookShortcutHelpText());
       } else if (command === "list" || command === "policy") {
-        await refreshHookPolicy();
+        if (validateHookViewShortcut(args, command)) {
+          await refreshHookPolicy();
+        }
       } else if (command === "review") {
         if (args.length > 1) {
           appendLine("error", "Hooks review shortcut accepts at most one run id.");
@@ -5965,23 +8586,36 @@ export default function App() {
           await reviewHooksFromOps(args[0]);
         }
       } else if (command === "disable" || command === "enable") {
-        const hookIds = args.filter((arg) => arg !== "--confirm" && arg !== "--agent");
-        const confirmed = args.includes("--confirm");
-        const scope = args.includes("--agent") ? "agent" : "profile";
-        if (hookIds.length !== 1) {
-          appendLine(
-            "error",
-            `Hooks ${command} shortcut needs a hook id plus optional --agent and required --confirm.`,
-          );
-        } else if (!confirmed) {
-          appendLine("error", `Hooks ${command} shortcut requires --confirm.`);
-        } else {
-          await setPersistentHookDisabled(
-            hookIds[0],
-            command === "disable",
-            scope,
-            true,
-          );
+        const parsed = parseHookPolicyShortcut(args, command);
+        if (parsed) {
+          const disabling = command === "disable";
+          if (parsed.confirmed) {
+            await setPersistentHookDisabled(
+              parsed.hookId,
+              disabling,
+              parsed.scope,
+              true,
+            );
+          } else {
+            const scope = parsed.agentScope ? "agent" : "active_profile";
+            appendJson("Hook policy confirmation", {
+              pending_action: `${command}_hook`,
+              hook_id: parsed.hookId,
+              action: command,
+              scope,
+              agent_id: parsed.agentScope ? agentId.trim() || "fake-agent" : null,
+              effect: disabling
+                ? parsed.agentScope
+                  ? "future runs for this agent will use this agent-level hook policy"
+                  : "future runs in this active profile will skip this hook unless agent config overrides the list"
+                : parsed.agentScope
+                  ? "future runs for this agent can load this hook again unless another layer disables it"
+                  : "future runs in this active profile can load this hook again unless another layer disables it",
+              confirm_command: parsed.agentScope
+                ? `/hooks ${command} ${parsed.hookId} --agent --confirm`
+                : `/hooks ${command} ${parsed.hookId} --confirm`,
+            });
+          }
         }
       } else {
         appendLine(
@@ -5997,8 +8631,8 @@ export default function App() {
       setInput("");
       setActiveSection("trace");
       appendLine("user", prompt);
-      if (rest === "prompt" || rest === "load-prompt") {
-        loadTracePromptToComposer();
+      if (rest === "help" || rest === "--help") {
+        appendLine("assistant", traceShortcutHelpText());
         return;
       }
       if (rest === "clear") {
@@ -6006,7 +8640,75 @@ export default function App() {
         appendEvent("Cleared loaded trace.");
         return;
       }
+      const [traceCommand = "", ...traceArgs] = rest.split(/\s+/).filter(Boolean);
+      if (traceCommand === "list" || traceCommand === "runs") {
+        const limit = parseTraceListShortcut(rest);
+        if (limit !== null) {
+          await listTraceRuns(limit);
+        }
+        return;
+      }
+      if (traceCommand === "prompt" || traceCommand === "load-prompt") {
+        if (traceArgs.length) {
+          const runId = traceShortcutRunId(traceCommand, traceArgs);
+          if (!runId) {
+            return;
+          }
+          await loadTracePromptToComposer(runId);
+        } else {
+          await loadTracePromptToComposer();
+        }
+        return;
+      }
+      if (
+        traceCommand === "summary" ||
+        traceCommand === "tree" ||
+        traceCommand === "hooks" ||
+        traceCommand === "scores"
+      ) {
+        const runId = traceShortcutRunId(traceCommand, traceArgs);
+        if (!runId) {
+          return;
+        }
+        try {
+          const loaded = await loadTraceFor(runId);
+          if (traceCommand === "summary") {
+            if (loaded.summary) {
+              appendJson("Trace summary", loaded.summary);
+            } else {
+              appendLine("error", `Trace ${runId} has no events.`);
+            }
+          } else if (traceCommand === "tree") {
+            appendJson("Trace tree", loaded.tree);
+          } else if (traceCommand === "hooks") {
+            const plan = hookRemediationsFromEvents(loaded.events);
+            appendEvent(`Trace hook review: ${plan.length} issue(s) for ${runId}.`);
+            appendJson("Trace hook review", plan);
+          } else {
+            appendLine(
+              "assistant",
+              qualityScoreReport(qualityScoresFromEvents(loaded.events)),
+            );
+          }
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          appendLine("error", `Trace ${traceCommand} failed: ${msg}`);
+        }
+        return;
+      }
       if (rest) {
+        if (rest === "last") {
+          if (!lastRunId) {
+            appendLine("error", "Trace shortcut needs a completed or active run.");
+            return;
+          }
+          await loadLastTrace();
+          return;
+        }
+        if (!isUuid(rest)) {
+          appendLine("error", "Trace shortcut needs: /trace [last|run-id].");
+          return;
+        }
         setOpsId(rest);
         await loadTraceById(rest);
         return;
@@ -6033,7 +8735,7 @@ export default function App() {
       if (rest === "help" || rest === "--help") {
         appendLine(
           "assistant",
-          "Use /compare <compare-run-id> after loading a primary trace, /compare <primary-run-id> <compare-run-id>, or /compare clear.",
+          "Use /compare <last|compare-run-id> after loading a primary trace, /compare <last|primary-run-id> <last|compare-run-id>, or /compare clear.",
         );
         return;
       }
@@ -6055,7 +8757,11 @@ export default function App() {
         return;
       }
       if (args.length === 2) {
-        const [primaryRunId, compareRunId] = args;
+        const primaryRunId = slashRunIdSelector("Compare primary selector", args[0]);
+        const compareRunId = slashRunIdSelector("Compare target selector", args[1]);
+        if (!primaryRunId || !compareRunId) {
+          return;
+        }
         if (primaryRunId === compareRunId) {
           appendLine("error", "Compare shortcut needs two different run ids.");
           return;
@@ -6074,7 +8780,11 @@ export default function App() {
         appendLine("error", "Load a primary trace before comparing.");
         return;
       }
-      await loadTraceComparison(args[0]);
+      const compareRunId = slashRunIdSelector("Compare target selector", args[0]);
+      if (!compareRunId) {
+        return;
+      }
+      await loadTraceComparison(compareRunId);
       return;
     }
 
@@ -6107,7 +8817,7 @@ export default function App() {
       if (help) {
         appendLine(
           "assistant",
-          "Use /replay [run-id] to run a trace prompt again, add --no-hooks to skip lifecycle hooks once, or add --compare-source to compare the replay against the source trace.",
+          "Use /replay [last|run-id] to run a trace prompt again, add --no-hooks to skip lifecycle hooks once, or add --compare-source to compare the replay against the source trace.",
         );
         return;
       }
@@ -6122,11 +8832,26 @@ export default function App() {
         );
         return;
       }
+      let replayRunId: string | undefined;
+      if (runIds[0]) {
+        const resolvedRunId = slashRunIdSelector("Replay selector", runIds[0]);
+        if (!resolvedRunId) {
+          return;
+        }
+        replayRunId = resolvedRunId;
+      }
       await replayTracePromptWithOptions({
-        runId: runIds[0],
+        runId: replayRunId,
         skipHooks,
         compareSource,
       });
+      return;
+    }
+
+    if (prompt === "/approvals help" || prompt === "/approvals --help") {
+      setInput("");
+      appendLine("user", prompt);
+      appendLine("assistant", approvalsShortcutHelpText());
       return;
     }
 
@@ -6142,24 +8867,111 @@ export default function App() {
       return;
     }
 
+    if (prompt === "/batch help" || prompt === "/batch --help") {
+      setInput("");
+      appendLine("user", prompt);
+      appendLine("assistant", batchShortcutHelpText());
+      return;
+    }
+    if (prompt === "/batch list") {
+      setInput("");
+      appendLine("user", prompt);
+      await listBatches();
+      return;
+    }
+    if (prompt.startsWith("/batch show ")) {
+      const batchId = prompt.slice("/batch show ".length).trim();
+      if (!batchId) {
+        appendLine("error", "Batch show shortcut needs a batch id.");
+        return;
+      }
+      setInput("");
+      appendLine("user", `/batch show ${batchId}`);
+      await showBatch(batchId);
+      return;
+    }
+    if (prompt.startsWith("/batch delete ") || prompt.startsWith("/batch rm ")) {
+      const command = prompt.startsWith("/batch delete ") ? "/batch delete " : "/batch rm ";
+      const rest = prompt.slice(command.length).trim();
+      const args = rest.split(/\s+/).filter(Boolean);
+      const confirmed = args.includes("--confirm");
+      const ids = args.filter((arg) => arg !== "--confirm");
+      if (ids.length !== 1) {
+        appendLine("error", "Batch delete shortcut needs one batch id plus --confirm.");
+        return;
+      }
+      if (!confirmed) {
+        appendJson("Batch delete confirmation", {
+          batch_id: ids[0],
+          confirm_command: `/batch delete ${ids[0]} --confirm`,
+        });
+        return;
+      }
+      setInput("");
+      appendLine("user", `/batch delete ${ids[0]} --confirm`);
+      await deleteBatch(ids[0]);
+      return;
+    }
+    if (prompt === "/batch files") {
+      appendLine("error", "Batch files shortcut needs one file path per line after /batch files.");
+      return;
+    }
+    if (prompt.startsWith("/batch files ")) {
+      const files = prompt
+        .slice("/batch files ".length)
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      if (!files.length) {
+        appendLine("error", "Batch files shortcut needs one file path per line after /batch files.");
+        return;
+      }
+      await runBatchItems([], null, files);
+      return;
+    }
+    if (prompt === "/batch folder" || prompt === "/batch folders") {
+      appendLine("error", "Batch folder shortcut needs one folder path.");
+      return;
+    }
+    if (prompt.startsWith("/batch folder ") || prompt.startsWith("/batch folders ")) {
+      const command = prompt.startsWith("/batch folder ") ? "/batch folder " : "/batch folders ";
+      const folders = prompt
+        .slice(command.length)
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      if (!folders.length) {
+        appendLine("error", "Batch folder shortcut needs one folder path.");
+        return;
+      }
+      await runBatchItems([], null, [], folders);
+      return;
+    }
     if (prompt === "/batch") {
       appendLine("error", "Batch shortcut needs one item per line after /batch.");
       return;
     }
     if (prompt.startsWith("/batch ")) {
-      const items = prompt
-        .slice("/batch ".length)
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean);
+      const parsed = parseBatchLines(prompt.slice("/batch ".length));
+      const { items, itemKeys, error } = parsed;
+      if (error) {
+        appendLine("error", error);
+        return;
+      }
       if (!items.length) {
         appendLine("error", "Batch shortcut needs one item per line after /batch.");
         return;
       }
-      await runBatchItems(items);
+      await runBatchItems(items, itemKeys);
       return;
     }
 
+    if (prompt === "/resume-batch help" || prompt === "/resume-batch --help") {
+      setInput("");
+      appendLine("user", prompt);
+      appendLine("assistant", batchShortcutHelpText());
+      return;
+    }
     if (prompt === "/resume-batch") {
       appendLine("error", "Resume batch shortcut needs a batch id.");
       return;
@@ -6179,6 +8991,12 @@ export default function App() {
 
     const exportPath = parseExportShortcut(prompt);
     if (exportPath !== null) {
+      if (exportPath === "help" || exportPath === "--help") {
+        setInput("");
+        appendLine("user", prompt);
+        appendLine("assistant", bundleShortcutHelpText());
+        return;
+      }
       if (!exportPath) {
         appendLine("error", "Export shortcut needs a bundle path.");
         return;
@@ -6193,25 +9011,51 @@ export default function App() {
     const savedPromptName = prompt.startsWith("/run ")
       ? prompt.slice("/run ".length).trim()
       : null;
+    if (savedPromptName === "help" || savedPromptName === "--help") {
+      setInput("");
+      appendLine("user", prompt);
+      appendLine("assistant", promptShortcutHelpText());
+      return;
+    }
     if (savedPromptName) {
-      try {
-        const savedPromptBody = await loadPromptBody(savedPromptName);
-        appendEvent(`Loaded saved prompt for run: ${savedPromptName}`);
-        prompt = savedPromptBody;
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        appendLine("error", `Saved prompt failed: ${msg}`);
-        return;
+      if (isPromptLibraryName(savedPromptName)) {
+        try {
+          const savedPromptBody = await loadPromptBody(savedPromptName);
+          appendEvent(`Loaded saved prompt for run: ${savedPromptName}`);
+          prompt = savedPromptBody;
+        } catch (err: unknown) {
+          if (!isSavedPromptNotFoundError(err)) {
+            const msg = err instanceof Error ? err.message : String(err);
+            appendLine("error", `Saved prompt failed: ${msg}`);
+            return;
+          }
+          appendEvent(`No saved prompt named ${savedPromptName}; running literal /run text.`);
+          prompt = savedPromptName;
+        }
+      } else {
+        appendEvent("Saved prompt name not valid; running literal /run text.");
+        prompt = savedPromptName;
       }
     }
 
     const promptShortcutName = prompt.startsWith("/prompt ")
       ? prompt.slice("/prompt ".length).trim()
       : null;
-    if (promptShortcutName) {
+    if (promptShortcutName === "help" || promptShortcutName === "--help") {
       setInput("");
-      appendLine("user", `/prompt ${promptShortcutName}`);
-      await usePromptByName(promptShortcutName);
+      appendLine("user", prompt);
+      appendLine("assistant", promptShortcutHelpText());
+      return;
+    }
+    if (promptShortcutName) {
+      const parsed = parsePromptNamedShortcut(
+        promptShortcutName.split(/\s+/).filter(Boolean),
+        "use",
+      );
+      if (!parsed) return;
+      setInput("");
+      appendLine("user", prompt);
+      await usePromptByName(parsed.name, parsed.agentId);
       return;
     }
     if (prompt === "/prompt") {
@@ -6385,11 +9229,36 @@ export default function App() {
     }
   }
 
+  function voiceTriStateStatus(value: "" | "on" | "off") {
+    return value || "config";
+  }
+
+  function currentVoiceControlStatus() {
+    return {
+      input_enabled: voiceTriStateStatus(voiceInputEnabled),
+      output_enabled: voiceTriStateStatus(voiceOutputEnabled),
+      input_backend: voiceInputBackend.trim() || null,
+      input_provider: voiceInputProvider.trim() || null,
+      input_model: voiceInputModel.trim() || null,
+      output_backend: voiceOutputBackend.trim() || null,
+      tts_provider: voiceTtsProvider.trim() || null,
+      tts_model: voiceTtsModel.trim() || null,
+      voice: voiceName.trim() || null,
+      tone: voiceTone.trim() || null,
+    };
+  }
+
   function appendVoiceStatus() {
     appendJson("Voice status", {
+      agent: activeAgentLabel(),
+      agent_id: agentId.trim() || null,
+      controls: currentVoiceControlStatus(),
+      saved_agent_voice: voiceConfigFromCurrentControls(),
       recording: recordingVoice,
       capture_artifact: voiceCaptureArtifact,
       output_artifact: voiceOutputArtifact,
+      capture_preview_ready: Boolean(voicePreviewUrl),
+      output_preview_ready: Boolean(voiceOutputPreviewUrl),
     });
   }
 
@@ -6598,8 +9467,15 @@ export default function App() {
   function isInlineArtifactFormat(format: string) {
     return (
       isAudioFormat(format) ||
+      isImageArtifactFormat(format) ||
       isTextArtifactFormat(format) ||
       ["html", "pdf"].includes(format.toLowerCase())
+    );
+  }
+
+  function isImageArtifactFormat(format: string) {
+    return ["svg", "png", "jpg", "jpeg", "gif", "webp"].includes(
+      format.toLowerCase(),
     );
   }
 
@@ -6964,7 +9840,20 @@ export default function App() {
   }
 
   async function keepRunCompaction(runIdInput?: string) {
-    const runId = runIdInput?.trim() || opsId.trim() || lastRunId || "";
+    const selector = runIdInput?.trim();
+    const fallbackSelector = opsId.trim();
+    let runId = "";
+    if (selector) {
+      const resolved = slashRunIdSelector("Compactions keep-run selector", selector);
+      if (!resolved) return;
+      runId = resolved;
+    } else if (fallbackSelector) {
+      const resolved = slashRunIdSelector("Compactions keep-run selector", fallbackSelector);
+      if (!resolved) return;
+      runId = resolved;
+    } else {
+      runId = lastRunId || "";
+    }
     if (!runId) {
       appendLine("error", "Compactions keep-run needs a run id or previous run.");
       return;
@@ -7082,10 +9971,10 @@ export default function App() {
     }
   }
 
-  async function deleteCompactionFromOps(explicitId?: string) {
+  async function deleteCompactionFromOps(explicitId?: string, confirmed = false) {
     const id = explicitId?.trim() || requireOpsId("Compaction delete");
     if (!id) return;
-    if (!confirmLocalChange(`Delete compacted context ${id}`)) return;
+    if (!confirmed && !confirmLocalChange(`Delete compacted context ${id}`)) return;
     try {
       if (transport === "daemon") {
         await daemonJson<{ deleted: boolean; id: string }>(
@@ -7160,8 +10049,8 @@ export default function App() {
     }
   }
 
-  async function reviewMemoryAccess() {
-    const topics = parsedMemoryTopics();
+  async function reviewMemoryAccess(explicitTopics?: string[]) {
+    const topics = explicitTopics ?? parsedMemoryTopics();
     try {
       const report =
         transport === "daemon"
@@ -7189,6 +10078,37 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Memory backends failed: ${msg}`);
+    }
+  }
+
+  async function probeMemoryBackend(
+    backendOverride?: string | null,
+    topicsOverride?: string[],
+  ) {
+    const backend =
+      backendOverride === undefined
+        ? memoryBackend.trim() || null
+        : backendOverride || null;
+    const topics = topicsOverride ?? parsedMemoryTopics();
+    try {
+      const report =
+        transport === "daemon"
+          ? await daemonJson<MemoryBackendProbeReport>("/memory/backends/probe", {
+              backend,
+              topics,
+            })
+          : await invoke<MemoryBackendProbeReport>("memory_backend_probe", {
+              backend,
+              topics,
+            });
+      setMemoryBackendProbe(report);
+      appendEvent(
+        `Memory backend ${report.backend}: ${report.ok ? "ok" : "failed"} (${report.matching_records}/${report.records})`,
+      );
+      appendJson("Memory backend probe", report);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Memory backend probe failed: ${msg}`);
     }
   }
 
@@ -7575,7 +10495,7 @@ export default function App() {
     );
   }
 
-  async function deleteAgentFromOps(explicitId?: string) {
+  async function deleteAgentFromOps(explicitId?: string, confirmed = false) {
     const id = explicitId ?? requireOpsId("Agent delete");
     if (!id) return;
     if (knownProfileGrantedAgent(id)) {
@@ -7585,7 +10505,7 @@ export default function App() {
       );
       return;
     }
-    if (!confirmLocalChange(`Delete agent ${id}`)) return;
+    if (!confirmed && !confirmLocalChange(`Delete agent ${id}`)) return;
     try {
       const result =
         transport === "daemon"
@@ -7679,7 +10599,7 @@ export default function App() {
     }
   }
 
-  async function deleteProfileFromOps(explicitId?: string) {
+  async function deleteProfileFromOps(explicitId?: string, confirmed = false) {
     const id = explicitId ?? requireOpsId("Profile delete");
     if (!id) return;
     if (id === "main") {
@@ -7693,7 +10613,7 @@ export default function App() {
       );
       return;
     }
-    if (!confirmLocalChange(`Delete profile ${id}`)) return;
+    if (!confirmed && !confirmLocalChange(`Delete profile ${id}`)) return;
     try {
       const result =
         transport === "daemon"
@@ -7790,10 +10710,10 @@ export default function App() {
     }
   }
 
-  async function revokeProfileGrantFromOps(explicitId?: string) {
+  async function revokeProfileGrantFromOps(explicitId?: string, confirmed = false) {
     const id = explicitId ?? requireOpsId("Profile grant revoke");
     if (!id) return;
-    if (!confirmLocalChange(`Revoke profile grant ${id}`)) return;
+    if (!confirmed && !confirmLocalChange(`Revoke profile grant ${id}`)) return;
     try {
       const revoked =
         transport === "daemon"
@@ -7897,10 +10817,10 @@ export default function App() {
     }
   }
 
-  async function deleteSecretFromOps(explicitId?: string) {
+  async function deleteSecretFromOps(explicitId?: string, confirmed = false) {
     const id = explicitId ?? requireOpsId("Secret delete");
     if (!id) return;
-    if (!confirmLocalChange(`Delete secret ${id}`)) return;
+    if (!confirmed && !confirmLocalChange(`Delete secret ${id}`)) return;
     try {
       const result =
         transport === "daemon"
@@ -7951,11 +10871,19 @@ export default function App() {
     explicitKind?: CapabilityKind,
     explicitName?: string,
     explicitBody?: string,
+    explicitGuidance?: string | null,
   ) {
     const kind = explicitKind ?? capabilityKind;
     const name = explicitName ?? requireOpsId("Capability propose");
     const body = explicitBody ?? requireOpsValue("Capability propose");
     if (!name || !body) return;
+    const explicitProposal =
+      explicitKind !== undefined ||
+      explicitName !== undefined ||
+      explicitBody !== undefined;
+    const guidance = explicitProposal
+      ? explicitGuidance?.trim() || null
+      : capabilityDraftGuidance.trim() || null;
     try {
       const draft =
         transport === "daemon"
@@ -7963,13 +10891,14 @@ export default function App() {
               kind,
               name,
               body,
+              guidance,
               created_by: "user",
             })
           : await invoke<CapabilityDraft>("capability_propose", {
               kind,
               name,
               body,
-              guidance: null,
+              guidance,
               createdBy: "user",
             });
       setCapabilityDrafts((drafts) => upsertCapabilityDraft(drafts, draft));
@@ -7979,6 +10908,67 @@ export default function App() {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Capability propose failed: ${msg}`);
     }
+  }
+
+  function parseCapabilityProposeShortcut(
+    input: string,
+  ): CapabilityProposeShortcut {
+    const match = input.match(/^(\S+)\s+(\S+)\s+([\s\S]+)$/);
+    if (!match) {
+      return {
+        error: "Capabilities propose shortcut needs a kind, name, and body.",
+      };
+    }
+    const kind = normalizeCapabilityKind(match[1]);
+    if (!kind) {
+      return {
+        error:
+          "Capabilities propose kind must be tool, skill, agent, or subagent.",
+      };
+    }
+    const parsedBody = parseCapabilityProposeBody(match[3]);
+    if ("error" in parsedBody) return parsedBody;
+    return {
+      kind,
+      name: match[2],
+      body: parsedBody.body,
+      guidance: parsedBody.guidance,
+    };
+  }
+
+  function parseCapabilityProposeBody(input: string): CapabilityProposeBody {
+    const text = input.trim();
+    if (
+      text === "--guidance" ||
+      text.startsWith("--guidance ") ||
+      text.startsWith("--guidance=")
+    ) {
+      return {
+        error: "Capabilities propose needs a body before --guidance.",
+      };
+    }
+    if (text.endsWith(" --guidance")) {
+      return { error: "Capabilities propose --guidance needs text." };
+    }
+    const spacedIndex = text.lastIndexOf(" --guidance ");
+    const equalsIndex = text.lastIndexOf(" --guidance=");
+    const index = Math.max(spacedIndex, equalsIndex);
+    if (index < 0) {
+      return { body: text, guidance: null };
+    }
+    const delimiter =
+      spacedIndex > equalsIndex ? " --guidance " : " --guidance=";
+    const body = text.slice(0, index).trim();
+    const guidance = text.slice(index + delimiter.length).trim();
+    if (!body) {
+      return {
+        error: "Capabilities propose needs a body before --guidance.",
+      };
+    }
+    if (!guidance) {
+      return { error: "Capabilities propose --guidance needs text." };
+    }
+    return { body, guidance };
   }
 
   function normalizeCapabilityKind(value: string): CapabilityKind | null {
@@ -8081,10 +11071,10 @@ export default function App() {
     }
   }
 
-  async function deleteCapabilityFromOps(explicitId?: string) {
+  async function deleteCapabilityFromOps(explicitId?: string, confirmed = false) {
     const id = explicitId ?? requireOpsId("Capability delete");
     if (!id) return;
-    if (!confirmLocalChange(`Delete capability draft ${id}`)) return;
+    if (!confirmed && !confirmLocalChange(`Delete capability draft ${id}`)) return;
     try {
       const result =
         transport === "daemon"
@@ -8191,8 +11181,8 @@ export default function App() {
     }
   }
 
-  async function reviewPrompts() {
-    const agent = promptScopeAgentId();
+  async function reviewPrompts(agentOverride?: string | null) {
+    const agent = agentOverride === undefined ? promptScopeAgentId() : agentOverride;
     try {
       const prompts =
         transport === "daemon"
@@ -8588,8 +11578,11 @@ export default function App() {
     }
   }
 
-  async function previewConversationDeleteAgent() {
-    const agent = agentId.trim();
+  async function previewConversationDeleteAgent(
+    explicitAgent?: string,
+    recursive = false,
+  ) {
+    const agent = (explicitAgent || agentId).trim();
     if (!agent) {
       appendLine("error", "Set an Agent id before planning agent conversation deletion.");
       return;
@@ -8599,27 +11592,36 @@ export default function App() {
         transport === "daemon"
           ? await daemonJson<string[]>("/conversations/delete-agent-plan", {
               agent_id: agent,
-              recursive: false,
+              recursive,
             })
           : await invoke<string[]>("conversation_delete_agent_plan", {
               agentId: agent,
-              recursive: false,
+              recursive,
             });
       setConversationDeletePlan(plan);
-      appendJson("Agent conversation delete plan", { agent_id: agent, plan });
+      appendJson("Agent conversation delete plan", { agent_id: agent, recursive, plan });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Agent conversation delete preview failed: ${msg}`);
     }
   }
 
-  async function deleteConversationsForAgent() {
-    const agent = agentId.trim();
+  async function deleteConversationsForAgent(
+    explicitAgent?: string,
+    recursive = false,
+    confirmed = false,
+  ) {
+    const agent = (explicitAgent || agentId).trim();
     if (!agent) {
       appendLine("error", "Set an Agent id before deleting agent conversations.");
       return;
     }
-    if (!confirmLocalChange(`Delete all conversations for agent ${agent}`)) {
+    if (
+      !confirmed &&
+      !confirmLocalChange(
+        `Delete all conversations for agent ${agent}${recursive ? " recursively" : ""}`,
+      )
+    ) {
       return;
     }
     try {
@@ -8627,11 +11629,11 @@ export default function App() {
         transport === "daemon"
           ? await daemonJson<ConversationDeleteResult>(
               "/conversations/delete-agent",
-              { agent_id: agent, recursive: false },
+              { agent_id: agent, recursive },
             )
           : await invoke<ConversationDeleteResult>("conversation_delete_agent", {
               agentId: agent,
-              recursive: false,
+              recursive,
             });
       applyConversationDeleteResult(result);
       appendJson("Agent conversations deleted", result);
@@ -8646,6 +11648,45 @@ export default function App() {
     const range = parseConversationRangeFromOps();
     if (!id || !range) return;
     await deleteConversationRange(id, range);
+  }
+
+  async function previewConversationRange(id: string, range: ConversationRange) {
+    try {
+      const expanded = await fetchConversation(id);
+      setExpandedConversation(expanded);
+      setOpsId(expanded.conversation.id);
+      setConversationId(expanded.conversation.id);
+      if (
+        range.from >= expanded.messages.length ||
+        range.to >= expanded.messages.length
+      ) {
+        appendLine(
+          "error",
+          `Conversation range ${range.from}:${range.to} is outside ${expanded.messages.length} message(s).`,
+        );
+        return;
+      }
+      const messages = expanded.messages
+        .slice(range.from, range.to + 1)
+        .map((message, offset) => ({
+          index: range.from + offset,
+          ...message,
+        }));
+      appendJson("Conversation message range", {
+        id: expanded.conversation.id,
+        from: range.from,
+        to: range.to,
+        source_range: `messages:${range.from}..${range.to + 1}`,
+        message_count: messages.length,
+        messages,
+      });
+      appendEvent(
+        `Conversation range ${expanded.conversation.id} ${range.from}:${range.to} (${messages.length} message(s))`,
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Conversation range preview failed: ${msg}`);
+    }
   }
 
   async function deleteConversationRange(
@@ -8712,6 +11753,36 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Artifact review failed: ${msg}`);
+    }
+  }
+
+  async function generateArtifactFromOps(
+    explicit?: { format: string; content: string },
+  ) {
+    const format = explicit?.format.trim() || requireOpsId("Artifact generate");
+    if (!format) return;
+    const content = explicit?.content ?? opsValue;
+    if (!content.trim()) {
+      appendLine("error", "Artifact generate needs content in Value or shortcut text.");
+      return;
+    }
+    const input: ArtifactGenerateInput = {
+      format,
+      content: content.trim(),
+    };
+    try {
+      const artifact =
+        transport === "daemon"
+          ? await daemonJson<GeneratedArtifact>("/artifacts/generate", input)
+          : await invoke<GeneratedArtifact>("artifact_generate", { input });
+      setGeneratedArtifacts((artifacts) =>
+        upsertGeneratedArtifact(artifacts, artifact),
+      );
+      setOpsId(artifact.id);
+      appendJson("Generated artifact", artifact);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Artifact generate failed: ${msg}`);
     }
   }
 
@@ -8782,21 +11853,25 @@ export default function App() {
     const qualityScore = scoreOverride ?? qualityScoreFromOps();
     if (qualityScore === null) return;
     const target = targetOverride?.trim() || opsId.trim() || "last_answer";
+    await scoreRun(lastRunId, qualityScore, target);
+  }
+
+  async function scoreRun(runId: string, qualityScore: number, target: string) {
     try {
       if (transport === "daemon") {
         await daemonJson("/score", {
-          run_id: lastRunId,
+          run_id: runId,
           target,
           score: qualityScore,
         });
       } else {
         await invoke("score", {
-          runId: lastRunId,
+          runId,
           target,
           score: qualityScore,
         });
       }
-      appendEvent(`Score ${qualityScore}/10 recorded for ${target} on ${lastRunId}`);
+      appendEvent(`Score ${qualityScore}/10 recorded for ${target} on ${runId}`);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Score failed: ${msg}`);
@@ -8993,10 +12068,15 @@ export default function App() {
     }
   }
 
-  async function assessApproval(approvalId: string, explicitRunId?: string) {
+  async function assessApproval(
+    approvalId: string,
+    explicitRunId?: string,
+    options: { controllerAgent?: string } = {},
+  ) {
     const runId = explicitRunId ?? lastRunId;
     if (!runId) return;
-    const controllerAgent = approvalControllerAgent.trim() || undefined;
+    const controllerAgent =
+      (options.controllerAgent ?? approvalControllerAgent.trim()) || undefined;
     try {
       setLastRunId(runId);
       const result =
@@ -9029,6 +12109,7 @@ export default function App() {
     approvalId: string,
     approved: boolean,
     explicitRunId?: string,
+    options: { controllerAgent?: string } = {},
   ) {
     const runId = explicitRunId ?? lastRunId;
     if (!runId) return;
@@ -9036,9 +12117,11 @@ export default function App() {
     const signature =
       approved && approvalSignature ? approvalSignature : undefined;
     const controllerAgent =
-      approved && approvalControllerAgent.trim()
-        ? approvalControllerAgent.trim()
-        : undefined;
+      approved && options.controllerAgent !== undefined
+        ? options.controllerAgent
+        : approved && approvalControllerAgent.trim()
+          ? approvalControllerAgent.trim()
+          : undefined;
     try {
       setLastRunId(runId);
       if (transport === "daemon") {
@@ -9121,27 +12204,39 @@ export default function App() {
   }
 
   async function runBatchFromInput() {
-    const items = input
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-    await runBatchItems(items);
+    const { items, itemKeys, error } = parseBatchLines(input);
+    if (error) {
+      appendLine("error", error);
+      return;
+    }
+    await runBatchItems(items, itemKeys);
   }
 
-  async function runBatchItems(items: string[]) {
-    if (!items.length || running) return;
+  async function runBatchItems(
+    items: string[],
+    itemKeys: string[] | null = null,
+    files: string[] = [],
+    folders: string[] = [],
+  ) {
+    if ((!items.length && !files.length && !folders.length) || running) return;
     setInput("");
-    appendLine("user", `batch ${items.length} items`);
+    appendLine("user", `batch ${items.length + files.length + folders.length} items`);
     try {
       const summary =
         transport === "daemon"
           ? await daemonJson<unknown>("/batch", {
               items,
+              ...(itemKeys ? { item_keys: itemKeys } : {}),
+              ...(files.length ? { files } : {}),
+              ...(folders.length ? { folders } : {}),
               demo: "echo",
               ...runtimeOptions(),
             })
           : await invoke<unknown>("batch_run", {
               items,
+              itemKeys,
+              files: files.length ? files : null,
+              folders: folders.length ? folders : null,
               demo: "echo",
               options: runtimeOptions(),
             });
@@ -9149,6 +12244,45 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Batch failed: ${msg}`);
+    }
+  }
+
+  async function listBatches() {
+    try {
+      const batches =
+        transport === "daemon"
+          ? await daemonJson<unknown>("/batches")
+          : await invoke<unknown>("batch_list");
+      appendJson("Batches", batches);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Batch list failed: ${msg}`);
+    }
+  }
+
+  async function showBatch(batchId: string) {
+    try {
+      const batch =
+        transport === "daemon"
+          ? await daemonJson<unknown>(`/batches/${encodeURIComponent(batchId)}`)
+          : await invoke<unknown>("batch_show", { batchId });
+      appendJson("Batch", batch);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Batch show failed: ${msg}`);
+    }
+  }
+
+  async function deleteBatch(batchId: string) {
+    try {
+      const result =
+        transport === "daemon"
+          ? await daemonJson<unknown>(`/batches/${encodeURIComponent(batchId)}/delete`, {})
+          : await invoke<unknown>("batch_delete", { batchId });
+      appendJson("Batch deleted", result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Batch delete failed: ${msg}`);
     }
   }
 
@@ -9208,24 +12342,37 @@ export default function App() {
     }
   }
 
-  async function createMemoryFromOps(explicitContent?: string) {
+  async function createMemoryFromOps(
+    explicitContent?: string,
+    options: {
+      user?: boolean;
+      agentId?: string | null;
+      conversationId?: string | null;
+      topics?: string[];
+    } = {},
+  ) {
     const content = explicitContent?.trim() || requireOpsValue("Memory create");
     if (!content) return;
-    const topics = parsedMemoryTopics();
-    const ownerAgentId = agentId.trim() || null;
+    const user = options.user ?? opsUserMemory;
+    const topics = options.topics ?? parsedMemoryTopics();
+    const ownerAgentId =
+      options.agentId !== undefined ? options.agentId : agentId.trim() || null;
+    const conversationId = options.conversationId ?? null;
     try {
       const record =
         transport === "daemon"
           ? await daemonJson<MemoryRecord>("/memory", {
               content,
-              user: opsUserMemory,
+              user,
               agent_id: ownerAgentId,
+              conversation_id: conversationId,
               topics,
             })
           : await invoke<MemoryRecord>("memory_create", {
               content,
-              user: opsUserMemory,
+              user,
               agentId: ownerAgentId,
+              conversationId,
               topics,
             });
       setMemoryRecords((records) => upsertMemoryRecord(records, record));
@@ -9236,27 +12383,49 @@ export default function App() {
     }
   }
 
-  async function generateMemoryFromOps(explicitText?: string) {
+  async function generateMemoryFromOps(
+    explicitText?: string,
+    options: {
+      user?: boolean;
+      range?: string | null;
+      agentId?: string | null;
+      conversationId?: string | null;
+      guidance?: string | null;
+      topics?: string[];
+    } = {},
+  ) {
     const text = explicitText?.trim() || requireOpsValue("Memory generate");
     if (!text) return;
-    const range = memorySourceRange.trim() || null;
-    const topics = parsedMemoryTopics();
-    const ownerAgentId = agentId.trim() || null;
+    const user = options.user ?? opsUserMemory;
+    const range =
+      options.range !== undefined ? options.range : memorySourceRange.trim() || null;
+    const topics = options.topics ?? parsedMemoryTopics();
+    const ownerAgentId =
+      options.agentId !== undefined ? options.agentId : agentId.trim() || null;
+    const conversationId = options.conversationId ?? null;
+    const guidance =
+      options.guidance !== undefined
+        ? options.guidance
+        : memoryGenerationGuidance.trim() || null;
     try {
       const records =
         transport === "daemon"
           ? await daemonJson<MemoryRecord[]>("/memory/generate", {
               text,
-              user: opsUserMemory,
+              user,
               range,
               agent_id: ownerAgentId,
+              conversation_id: conversationId,
+              guidance,
               topics,
             })
           : await invoke<MemoryRecord[]>("memory_generate", {
               text,
-              user: opsUserMemory,
+              user,
               range,
               agentId: ownerAgentId,
+              conversationId,
+              guidance,
               topics,
             });
       setMemoryRecords((current) =>
@@ -9270,7 +12439,14 @@ export default function App() {
   }
 
   async function generateConversationMemoryFromOps(
-    explicit?: { id: string; range: ConversationRange },
+    explicit?: {
+      id: string;
+      range: ConversationRange | null;
+      user?: boolean;
+      agentId?: string | null;
+      guidance?: string | null;
+      topics?: string[];
+    },
   ) {
     const conversationId = explicit?.id || expandedConversation?.conversation.id;
     if (!conversationId) {
@@ -9278,27 +12454,37 @@ export default function App() {
       return;
     }
     const range =
-      explicit?.range || parseConversationRangeFromOps("Conversation memory generation");
-    if (!range) return;
-    const topics = parsedMemoryTopics();
-    const ownerAgentId = agentId.trim() || null;
+      explicit === undefined
+        ? parseConversationRangeFromOps("Conversation memory generation")
+        : explicit.range;
+    if (range === undefined) return;
+    const user = explicit?.user ?? opsUserMemory;
+    const topics = explicit?.topics ?? parsedMemoryTopics();
+    const ownerAgentId =
+      explicit?.agentId !== undefined ? explicit.agentId : agentId.trim() || null;
+    const guidance =
+      explicit?.guidance !== undefined
+        ? explicit.guidance
+        : memoryGenerationGuidance.trim() || null;
     try {
       const records =
         transport === "daemon"
           ? await daemonJson<MemoryRecord[]>("/memory/generate-conversation", {
               id: conversationId,
-              from: range.from,
-              to: range.to,
-              user: opsUserMemory,
+              from: range?.from ?? null,
+              to: range?.to ?? null,
+              user,
               agent_id: ownerAgentId,
+              guidance,
               topics,
             })
           : await invoke<MemoryRecord[]>("memory_generate_conversation", {
               id: conversationId,
-              from: range.from,
-              to: range.to,
-              user: opsUserMemory,
+              from: range?.from ?? null,
+              to: range?.to ?? null,
+              user,
               agentId: ownerAgentId,
+              guidance,
               topics,
             });
       setMemoryRecords((current) =>
@@ -9311,11 +12497,23 @@ export default function App() {
     }
   }
 
-  async function classifyMemoryFromOps(explicitId?: string) {
+  async function classifyMemoryFromOps(
+    explicitId?: string,
+    options: {
+      model?: string | null;
+      agentId?: string | null;
+      apply?: boolean;
+    } = {},
+  ) {
     const id = explicitId ?? requireOpsId("Memory classify");
     if (!id) return;
-    const model = memoryClassificationModel.trim() || null;
-    const policyAgentId = agentId.trim() || null;
+    const model =
+      options.model !== undefined
+        ? options.model
+        : memoryClassificationModel.trim() || null;
+    const policyAgentId =
+      options.agentId !== undefined ? options.agentId : agentId.trim() || null;
+    const apply = options.apply ?? true;
     try {
       const result =
         transport === "daemon"
@@ -9323,13 +12521,13 @@ export default function App() {
               id,
               model,
               agent_id: policyAgentId,
-              apply: true,
+              apply,
             })
           : await invoke<MemoryClassifyResult>("memory_classify", {
               id,
               model,
               agentId: policyAgentId,
-              apply: true,
+              apply,
             });
       const record = result.record;
       if (record) {
@@ -9377,20 +12575,23 @@ export default function App() {
     }
   }
 
-  async function rollbackMemoryFromOps(confirmed = false) {
+  async function rollbackMemoryFromOps(
+    confirmed = false,
+    user = opsUserMemory,
+  ) {
     if (
       !confirmed &&
-      !confirmLocalChange(`Rollback ${opsUserMemory ? "user" : "agent"} memory`)
+      !confirmLocalChange(`Rollback ${user ? "user" : "agent"} memory`)
     ) {
       return;
     }
     try {
       if (transport === "daemon") {
-        await daemonJson("/memory/rollback", { user: opsUserMemory });
+        await daemonJson("/memory/rollback", { user });
       } else {
-        await invoke("memory_rollback", { user: opsUserMemory });
+        await invoke("memory_rollback", { user });
       }
-      appendEvent(`Memory rollback complete (${opsUserMemory ? "user" : "agent"})`);
+      appendEvent(`Memory rollback complete (${user ? "user" : "agent"})`);
       const records =
         transport === "daemon"
           ? await daemonJson<MemoryRecord[]>("/memory")
@@ -9408,11 +12609,65 @@ export default function App() {
     }
   }
 
+  async function exportMemoryFromOps(args: {
+    path: string;
+    user: boolean;
+    agentId: string | null;
+  }) {
+    try {
+      const result =
+        transport === "daemon"
+          ? await daemonJson<unknown>("/memory/export", {
+              path: args.path,
+              user: args.user,
+              agent_id: args.agentId,
+            })
+          : await invoke<unknown>("memory_export", {
+              path: args.path,
+              user: args.user,
+              agentId: args.agentId,
+            });
+      appendJson("Memory exported", result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Memory export failed: ${msg}`);
+    }
+  }
+
+  async function importMemoryFromOps(args: {
+    path: string;
+    user: boolean;
+    agentId: string | null;
+  }) {
+    try {
+      const records =
+        transport === "daemon"
+          ? await daemonJson<MemoryRecord[]>("/memory/import", {
+              path: args.path,
+              user: args.user,
+              agent_id: args.agentId,
+            })
+          : await invoke<MemoryRecord[]>("memory_import", {
+              path: args.path,
+              user: args.user,
+              agentId: args.agentId,
+            });
+      setMemoryRecords((current) => records.reduce(upsertMemoryRecord, current));
+      appendJson("Memory imported", records);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Memory import failed: ${msg}`);
+    }
+  }
+
   async function savePromptFromOps() {
     const name = requireOpsId("Prompt save");
     const body = requireOpsValue("Prompt save");
     if (!name || !body) return;
-    const agent = promptScopeAgentId();
+    await savePromptByName(name, body, promptScopeAgentId());
+  }
+
+  async function savePromptByName(name: string, body: string, agent: string | null) {
     try {
       const prompt =
         transport === "daemon"
@@ -9426,11 +12681,15 @@ export default function App() {
     }
   }
 
-  async function showPromptFromOps(explicitName?: string) {
+  async function showPromptFromOps(
+    explicitName?: string,
+    agentOverride?: string | null,
+  ) {
     const name = explicitName ?? requireOpsId("Prompt show");
     if (!name) return;
+    const agent = agentOverride === undefined ? promptScopeAgentId() : agentOverride;
     try {
-      const prompt = await fetchPrompt(name);
+      const prompt = await fetchPrompt(name, agent);
       setPromptDocs((docs) => upsertPromptDoc(docs, prompt));
       appendJson("Prompt", prompt);
     } catch (err: unknown) {
@@ -9442,7 +12701,7 @@ export default function App() {
   async function usePromptFromOps() {
     const name = requireOpsId("Use prompt");
     if (!name) return;
-    await usePromptByName(name);
+    await usePromptByName(name, promptScopeAgentId());
   }
 
   async function runPromptFromOps() {
@@ -9451,10 +12710,14 @@ export default function App() {
     await runPromptByName(name);
   }
 
-  async function runPromptByName(name: string, bodyOverride?: string) {
+  async function runPromptByName(
+    name: string,
+    bodyOverride?: string,
+    agentOverride?: string | null,
+  ) {
     if (running) return;
     try {
-      const body = bodyOverride ?? (await loadPromptBody(name));
+      const body = bodyOverride ?? (await loadPromptBody(name, agentOverride));
       appendEvent(`Loaded saved prompt for run: ${name}`);
       await runAgentPrompt(body, `/run ${name}`);
     } catch (err: unknown) {
@@ -9466,13 +12729,17 @@ export default function App() {
   async function previewPromptFromOps() {
     const name = requireOpsId("Preview prompt");
     if (!name) return;
-    await previewPromptByName(name);
+    await previewPromptByName(name, undefined, promptScopeAgentId());
   }
 
-  async function previewPromptByName(name: string, bodyOverride?: string) {
+  async function previewPromptByName(
+    name: string,
+    bodyOverride?: string,
+    agentOverride?: string | null,
+  ) {
     if (running) return;
     try {
-      const body = bodyOverride ?? (await loadPromptBody(name));
+      const body = bodyOverride ?? (await loadPromptBody(name, agentOverride));
       await previewCurrentContext(body);
       setActiveSection("chat");
       appendEvent(`Previewed saved prompt context: ${name}`);
@@ -9482,9 +12749,65 @@ export default function App() {
     }
   }
 
-  async function usePromptByName(name: string) {
+  async function exportPromptFromOps() {
+    const name = requireOpsId("Prompt export");
+    const path = requireOpsValue("Prompt export");
+    if (!name || !path) return;
+    await exportPromptByName(name, path, promptScopeAgentId());
+  }
+
+  async function exportPromptByName(
+    name: string,
+    path: string,
+    agentOverride?: string | null,
+  ) {
+    const agent = agentOverride === undefined ? promptScopeAgentId() : agentOverride;
     try {
-      const body = await loadPromptBody(name);
+      const prompt =
+        transport === "daemon"
+          ? await daemonJson<PromptDoc>("/prompts/export", {
+              name,
+              path,
+              agent_id: agent,
+            })
+          : await invoke<PromptDoc>("prompt_export", { name, path, agentId: agent });
+      setPromptDocs((docs) => upsertPromptDoc(docs, prompt));
+      appendJson("Prompt exported", { path, prompt });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Prompt export failed: ${msg}`);
+    }
+  }
+
+  async function importPromptFromOps() {
+    const path = requireOpsValue("Prompt import");
+    if (!path) return;
+    await importPromptFromPath(path, promptScopeAgentId());
+  }
+
+  async function importPromptFromPath(path: string, agentOverride?: string | null) {
+    try {
+      const prompt =
+        transport === "daemon"
+          ? await daemonJson<PromptDoc>("/prompts/import", {
+              path,
+              agent_id: agentOverride ?? null,
+            })
+          : await invoke<PromptDoc>("prompt_import", {
+              path,
+              agentId: agentOverride ?? null,
+            });
+      setPromptDocs((docs) => upsertPromptDoc(docs, prompt));
+      appendJson("Prompt imported", prompt);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Prompt import failed: ${msg}`);
+    }
+  }
+
+  async function usePromptByName(name: string, agentOverride?: string | null) {
+    try {
+      const body = await loadPromptBody(name, agentOverride);
       setInput(body);
       appendEvent(`Loaded saved prompt into composer: ${name}`);
     } catch (err: unknown) {
@@ -9496,12 +12819,18 @@ export default function App() {
   async function deletePromptFromOps() {
     const name = requireOpsId("Prompt delete");
     if (!name) return;
-    await deletePromptByName(name);
+    await deletePromptByName(name, promptScopeAgentId());
   }
 
-  async function deletePromptByName(name: string) {
-    const agent = promptScopeAgentId();
-    if (!confirmLocalChange(`Delete prompt ${name} (${promptScopeLabel(agent)})`)) return;
+  async function deletePromptByName(
+    name: string,
+    agentOverride?: string | null,
+    confirmed = false,
+  ) {
+    const agent = agentOverride === undefined ? promptScopeAgentId() : agentOverride;
+    if (!confirmed && !confirmLocalChange(`Delete prompt ${name} (${promptScopeLabel(agent)})`)) {
+      return;
+    }
     try {
       const output =
         transport === "daemon"
@@ -9864,10 +13193,10 @@ export default function App() {
     return value;
   }
 
-  async function deleteModelFromOps(explicitId?: string) {
+  async function deleteModelFromOps(explicitId?: string, confirmed = false) {
     const id = explicitId ?? requireOpsId("Model delete");
     if (!id) return;
-    if (!confirmLocalChange(`Delete model ${id}`)) return;
+    if (!confirmed && !confirmLocalChange(`Delete model ${id}`)) return;
     try {
       const output =
         transport === "daemon"
@@ -10034,6 +13363,36 @@ export default function App() {
     }
   }
 
+  async function probeIngestSourceFromOps(
+    path = opsValue.trim(),
+    visionModel: string | null = ingestVisionModel.trim() || null,
+  ) {
+    if (!path.trim()) {
+      appendLine("error", "Ingest source probe needs a file path in Value.");
+      return;
+    }
+    try {
+      const probe =
+        transport === "daemon"
+          ? await daemonJson<IngestionSourceProbeReport>(
+              "/ingest/probe-source",
+              {
+                path,
+                vision_model: visionModel,
+              },
+            )
+          : await invoke<IngestionSourceProbeReport>("ingest_probe_source", {
+              path,
+              visionModel,
+            });
+      setIngestionSourceProbe(probe);
+      appendJson("Ingestion source probe", probe);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Ingest source probe failed: ${msg}`);
+    }
+  }
+
   async function rerunIngestFromOps(
     explicitId?: string,
     options: IngestModelOptions = {},
@@ -10193,14 +13552,118 @@ export default function App() {
     }
   }
 
-  async function deleteGeneratedArtifactFromOps(explicitId?: string) {
-    const id = explicitId?.trim() || requireOpsId("Artifact delete");
+  async function downloadGeneratedArtifactFromOps(
+    explicitId?: string,
+    artifactHint?: GeneratedArtifact,
+  ) {
+    const id = explicitId?.trim() || requireOpsId("Artifact download");
     if (!id) return;
-    await deleteGeneratedArtifact(id);
+    await downloadGeneratedArtifact(
+      id,
+      artifactHint ?? generatedArtifacts.find((item) => item.id === id),
+    );
   }
 
-  async function deleteGeneratedArtifact(id: string) {
-    if (!confirmLocalChange(`Delete generated artifact ${id}`)) return;
+  async function downloadGeneratedArtifact(
+    id: string,
+    artifactHint?: GeneratedArtifact,
+  ) {
+    try {
+      if (transport === "daemon") {
+        const artifact =
+          artifactHint ??
+          (await daemonJson<GeneratedArtifact>(`/artifacts/${encodeURIComponent(id)}`));
+        const response = await fetch(
+          `${daemonBaseUrl()}/artifacts/${encodeURIComponent(id)}/download`,
+        );
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || `HTTP ${response.status}`);
+        }
+        const blobUrl = URL.createObjectURL(await response.blob());
+        triggerArtifactDownload(blobUrl, generatedArtifactFileName(artifact));
+        window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+        setGeneratedArtifacts((artifacts) =>
+          upsertGeneratedArtifact(artifacts, artifact),
+        );
+        appendEvent(`Download started: ${generatedArtifactFileName(artifact)}`);
+        return;
+      }
+
+      const preview = await loadGeneratedArtifactDataUrl(id);
+      triggerArtifactDownload(
+        preview.data_url,
+        generatedArtifactFileName(preview.artifact),
+      );
+      setGeneratedArtifacts((artifacts) =>
+        upsertGeneratedArtifact(artifacts, preview.artifact),
+      );
+      appendEvent(`Download started: ${generatedArtifactFileName(preview.artifact)}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Artifact download failed: ${msg}`);
+    }
+  }
+
+  function triggerArtifactDownload(href: string, filename: string) {
+    const link = document.createElement("a");
+    link.href = href;
+    link.download = filename;
+    link.rel = "noopener";
+    link.style.display = "none";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+
+  async function exportGeneratedArtifactFromOps(
+    explicitId?: string,
+    explicitPath?: string,
+  ) {
+    const id = explicitId?.trim() || requireOpsId("Artifact export");
+    if (!id) return;
+    const artifact = generatedArtifacts.find((item) => item.id === id);
+    const path =
+      explicitPath?.trim() ||
+      opsValue.trim() ||
+      defaultGeneratedArtifactPath(artifact ?? id);
+    setOpsValue(path);
+    await exportGeneratedArtifact(id, path);
+  }
+
+  async function exportGeneratedArtifact(id: string, path: string) {
+    try {
+      const exported =
+        transport === "daemon"
+          ? await daemonJson<GeneratedArtifactExport>(
+              `/artifacts/${encodeURIComponent(id)}/export`,
+              { path },
+            )
+          : await invoke<GeneratedArtifactExport>("artifact_export", { id, path });
+      setArtifactExportStatus(exported);
+      setGeneratedArtifacts((artifacts) =>
+        upsertGeneratedArtifact(artifacts, exported.artifact),
+      );
+      appendEvent(
+        `Exported artifact ${exported.artifact.id} to ${exported.output_path}.`,
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Artifact export failed: ${msg}`);
+    }
+  }
+
+  async function deleteGeneratedArtifactFromOps(
+    explicitId?: string,
+    confirmed = false,
+  ) {
+    const id = explicitId?.trim() || requireOpsId("Artifact delete");
+    if (!id) return;
+    await deleteGeneratedArtifact(id, confirmed);
+  }
+
+  async function deleteGeneratedArtifact(id: string, confirmed = false) {
+    if (!confirmed && !confirmLocalChange(`Delete generated artifact ${id}`)) return;
     try {
       const artifact =
         transport === "daemon"
@@ -10222,10 +13685,10 @@ export default function App() {
     }
   }
 
-  async function removeIngestFromOps(explicitId?: string) {
+  async function removeIngestFromOps(explicitId?: string, confirmed = false) {
     const id = explicitId?.trim() || requireOpsId("Ingest remove");
     if (!id) return;
-    if (!confirmLocalChange(`Remove ingestion artifact ${id}`)) return;
+    if (!confirmed && !confirmLocalChange(`Remove ingestion artifact ${id}`)) return;
     try {
       if (transport === "daemon") {
         await daemonJson(`/ingest/${id}/rm`, {});
@@ -10599,6 +14062,22 @@ export default function App() {
     }
   }
 
+  async function bridgeStatusFromOps() {
+    if (transport !== "daemon") {
+      appendLine("error", "Bridge status is available over daemon transport.");
+      return;
+    }
+    try {
+      const result = await daemonJson<BridgeStatusResponse>("/bridges/status");
+      setBridgeStatus(result);
+      appendEvent(`Bridge status: ${result.bridges?.length ?? 0} surfaces`);
+      appendJson("Bridge status", result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Bridge status failed: ${msg}`);
+    }
+  }
+
   async function retryBridgeDeliveryFromOps(explicitId?: string) {
     const id = explicitId ?? requireOpsId("Bridge delivery retry");
     if (!id) return;
@@ -10617,6 +14096,28 @@ export default function App() {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Bridge delivery retry failed: ${msg}`);
+    }
+  }
+
+  async function deleteBridgeDeliveryFromOps(explicitId?: string, confirmed = false) {
+    const id = explicitId ?? requireOpsId("Bridge delivery delete");
+    if (!id) return;
+    if (transport !== "daemon") {
+      appendLine("error", "Bridge delivery delete is available over daemon transport.");
+      return;
+    }
+    if (!confirmed && !confirmLocalChange(`Delete bridge delivery ${id}`)) return;
+    try {
+      const result = await daemonJson<JsonValue>(
+        `/bridges/deliveries/${id}/delete`,
+        {},
+      );
+      setBridgeDeliveryResult(result);
+      appendJson("Bridge delivery delete", result);
+      await listBridgeDeliveriesFromOps();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      appendLine("error", `Bridge delivery delete failed: ${msg}`);
     }
   }
 
@@ -10760,6 +14261,18 @@ export default function App() {
       return deliveryStatusLabel(delivery);
     }
     return deliveryStatusLabel(value);
+  }
+
+  function configuredLabel(value: JsonValue | undefined, key = "configured") {
+    const record = jsonObject(value);
+    const configured = record?.[key];
+    return configured === true ? "configured" : configured === false ? "open" : "unknown";
+  }
+
+  function bridgeReadinessSummary(bridge: BridgeStatusRecord) {
+    const auth = configuredLabel(bridge.auth);
+    const x402 = jsonObject(bridge.x402)?.enabled === true ? "x402 on" : "x402 off";
+    return `auth ${auth}; ${x402}`;
   }
 
   function formatCost(cost: number | null) {
@@ -10969,9 +14482,9 @@ export default function App() {
     ].join(", ");
   }
 
-  function traceUsageSummary(summary: TraceSummary) {
+  function traceUsageSummary(summary: TraceSummary, label = "Trace usage") {
     return [
-      `Trace usage: tokens ${summary.tokens_in}/${summary.tokens_out}`,
+      `${label}: tokens ${summary.tokens_in}/${summary.tokens_out}`,
       `cost ${formatCost(summary.cost_usd)}`,
       `time ${summary.duration_ms === null ? "n/a" : formatDuration(summary.duration_ms)}`,
       `${summary.llm_calls} LLM calls`,
@@ -11167,6 +14680,8 @@ export default function App() {
         : [
             { id: "local-markdown-v0", name: "local markdown" },
             { id: "local-jsonl-v0", name: "local JSONL" },
+            { id: "external-command-v0", name: "external command" },
+            { id: "external-http-v0", name: "external HTTP" },
           ];
     descriptors.forEach((descriptor) => {
       if (!seen.has(descriptor.id)) {
@@ -11594,6 +15109,24 @@ export default function App() {
 
   function defaultCompactionPath(id: string) {
     return `/tmp/${id || "compacted-context"}.json`;
+  }
+
+  function generatedArtifactFileName(artifactOrId: GeneratedArtifact | string) {
+    const rawName =
+      typeof artifactOrId === "string"
+        ? artifactOrId || "artifact"
+        : fileName(artifactOrId.path) ||
+          `${artifactOrId.id || "artifact"}.${artifactOrId.format || "bin"}`;
+    return (
+      rawName
+        .replace(/[\x00-\x1f\x7f/\\]+/g, "-")
+        .replace(/"/g, "_")
+        .replace(/^-+|-+$/g, "") || "artifact"
+    );
+  }
+
+  function defaultGeneratedArtifactPath(artifactOrId: GeneratedArtifact | string) {
+    return `/tmp/${generatedArtifactFileName(artifactOrId)}`;
   }
 
   function hasHighRiskFindings(artifact: IngestionArtifact) {
@@ -13335,6 +16868,14 @@ export default function App() {
           <div className="context-actions">
             <button
               type="button"
+              title="List recent persisted trace runs."
+              onClick={() => void listTraceRuns()}
+              disabled={running}
+            >
+              Runs
+            </button>
+            <button
+              type="button"
               title="Load the run id in the Id field, or the last run when Id is blank."
               onClick={() => void loadTraceFromOps()}
               disabled={running || (!opsId.trim() && !lastRunId)}
@@ -13370,7 +16911,7 @@ export default function App() {
             <button
               type="button"
               title="Load the original prompt from the loaded trace into the composer."
-              onClick={loadTracePromptToComposer}
+              onClick={() => void loadTracePromptToComposer()}
               disabled={running || !traceOriginalPrompt(traceEvents)}
             >
               Load Prompt
@@ -13398,9 +16939,61 @@ export default function App() {
               aria-label="Compare run id"
               value={traceCompareRunId}
               onChange={(event) => setTraceCompareRunId(event.target.value)}
-              placeholder="run id to compare"
+              placeholder="run id or last"
             />
           </label>
+          {traceRuns.length ? (
+            <section className="trace-tree">
+              <div className="trace-tree-head">
+                <strong>Recent Runs</strong>
+                <span>{traceRuns.length} loaded</span>
+              </div>
+              <div className="trace-timeline-list">
+                {traceRuns.map((record) => (
+                  <div className="context-card compact" key={record.run_id}>
+                    <div className="trace-tree-node-meta">
+                      <strong>{record.status}</strong>
+                      <span>{record.agent_id ?? "unknown agent"}</span>
+                    </div>
+                    <span title={record.run_id}>
+                      {record.run_id} / {record.event_count} events /{" "}
+                      {record.child_run_count} children
+                    </span>
+                    {record.input_preview ? <p>{record.input_preview}</p> : null}
+                    {record.final_output_preview ? (
+                      <p>{record.final_output_preview}</p>
+                    ) : null}
+                    <div className="mini-actions">
+                      <button
+                        type="button"
+                        title="Load this trace."
+                        onClick={() => void loadTraceById(record.run_id)}
+                        disabled={running}
+                      >
+                        Load
+                      </button>
+                      <button
+                        type="button"
+                        title="Use this run as the comparison target."
+                        onClick={() => setTraceCompareRunId(record.run_id)}
+                        disabled={running}
+                      >
+                        Compare
+                      </button>
+                      <button
+                        type="button"
+                        title="Move this run id into the Id field."
+                        onClick={() => setOpsId(record.run_id)}
+                        disabled={running}
+                      >
+                        Set Id
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
           {traceSummary ? (
             <div className="trace-summary">
               <span>events {traceSummary.events}</span>
@@ -13605,7 +17198,7 @@ export default function App() {
                         <button
                           type="button"
                           title="Load the original trace prompt into the composer."
-                          onClick={loadTracePromptToComposer}
+                          onClick={() => void loadTracePromptToComposer()}
                           disabled={running || !traceOriginalPrompt(traceEvents)}
                         >
                           Load Prompt
@@ -14480,6 +18073,15 @@ export default function App() {
                 />
               </label>
               <label>
+                Generation guidance
+                <input
+                  value={memoryGenerationGuidance}
+                  onChange={(e) => setMemoryGenerationGuidance(e.target.value)}
+                  placeholder="keep durable preferences"
+                  disabled={running}
+                />
+              </label>
+              <label>
                 Classification model
                 <input
                   value={memoryClassificationModel}
@@ -14512,6 +18114,14 @@ export default function App() {
                   disabled={running}
                 >
                   Backends
+                </button>
+                <button
+                  type="button"
+                  title="Probe the selected memory backend and topic filter."
+                  onClick={() => void probeMemoryBackend()}
+                  disabled={running}
+                >
+                  Probe Backend
                 </button>
                 <button
                   type="button"
@@ -14591,6 +18201,9 @@ export default function App() {
                         <span>{backend.name}</span>
                       </div>
                       <div className="memory-meta">
+                        <span>{backend.supports_write ? "write" : "read-only"}</span>
+                        <span>{backend.supports_edit ? "edit" : "no edit"}</span>
+                        <span>{backend.supports_delete ? "delete" : "no delete"}</span>
                         <span>
                           {backend.supports_generation
                             ? "generation"
@@ -14606,6 +18219,32 @@ export default function App() {
                       <p>{backend.description}</p>
                     </div>
                   ))}
+                </div>
+              ) : null}
+              {memoryBackendProbe ? (
+                <div className="memory-review">
+                  <div className="memory-card">
+                    <div className="memory-card-head">
+                      <strong>{memoryBackendProbe.backend}</strong>
+                      <span>{memoryBackendProbe.ok ? "ok" : "failed"}</span>
+                    </div>
+                    <div className="memory-meta">
+                      <span>
+                        {memoryBackendProbe.configured
+                          ? "configured"
+                          : "not configured"}
+                      </span>
+                      <span>{memoryBackendProbe.records} records</span>
+                      <span>{memoryBackendProbe.matching_records} matching</span>
+                      {memoryBackendProbe.topics?.length ? (
+                        <span>topics {memoryBackendProbe.topics.join(", ")}</span>
+                      ) : null}
+                    </div>
+                    <p>{memoryBackendProbe.descriptor.description}</p>
+                    {memoryBackendProbe.error ? (
+                      <p>{memoryBackendProbe.error}</p>
+                    ) : null}
+                  </div>
                 </div>
               ) : null}
               {memoryRecords.length ? (
@@ -14627,6 +18266,11 @@ export default function App() {
                         ) : null}
                         {record.generating_model ? (
                           <span>model {record.generating_model}</span>
+                        ) : null}
+                        {record.generation_guidance ? (
+                          <span title={record.generation_guidance}>
+                            guidance {previewText(record.generation_guidance)}
+                          </span>
                         ) : null}
                         {record.topics?.length ? (
                           <span>topics {record.topics.join(", ")}</span>
@@ -14722,6 +18366,22 @@ export default function App() {
                   disabled={running || !opsId.trim()}
                 >
                   Preview Prompt
+                </button>
+                <button
+                  type="button"
+                  title="Export saved prompt Id to the path in Value."
+                  onClick={() => void exportPromptFromOps()}
+                  disabled={running || !opsValue.trim() || !opsId.trim()}
+                >
+                  Export Prompt
+                </button>
+                <button
+                  type="button"
+                  title="Import a saved prompt from the path in Value."
+                  onClick={() => void importPromptFromOps()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Import Prompt
                 </button>
                 <button
                   type="button"
@@ -15045,7 +18705,7 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Create a quarantined draft from Id as name and Value as body."
+                  title="Create a quarantined draft from Id as name, Value as body, and optional Draft guidance."
                   onClick={() => void proposeCapabilityFromOps()}
                   disabled={running || !opsId.trim() || !opsValue.trim()}
                 >
@@ -15125,6 +18785,20 @@ export default function App() {
                     {capabilityDoctorReport.warnings.map((warning) => (
                       <span className="finding warning" key={warning}>
                         {warning}
+                      </span>
+                    ))}
+                    {capabilityDoctorReport.drafts.slice(0, 8).map((draft) => (
+                      <span key={draft.id}>
+                        {draft.id} {draft.status}
+                        {" -> "}
+                        {draft.promotion_target}
+                        {` / source ${draft.created_by}`}
+                        {` / created ${draft.created_at}`}
+                        {` / ${previewText(draft.provenance, 80)}`}
+                        {` / body ${previewText(draft.body_preview, 80)}`}
+                        {draft.guidance_preview
+                          ? ` / guidance ${previewText(draft.guidance_preview, 80)}`
+                          : ""}
                       </span>
                     ))}
                   </div>
@@ -15426,6 +19100,14 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  title="Check which ingestion backends fit the file path in Value."
+                  onClick={() => void probeIngestSourceFromOps()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Probe Source
+                </button>
+                <button
+                  type="button"
                   title="Ingest the file path in Value using the selected backend."
                   onClick={() => void ingestPathFromOps()}
                   disabled={running || !opsValue.trim()}
@@ -15492,6 +19174,55 @@ export default function App() {
                   Remove Ingest
                 </button>
               </div>
+              {ingestionSourceProbe ? (
+                <div className="ingestion-review">
+                  <div className="ingestion-card">
+                    <div className="ingestion-card-head">
+                      <strong>{fileName(ingestionSourceProbe.source)}</strong>
+                      <span>
+                        {ingestionSourceProbe.source_kind} /{" "}
+                        {formatBytes(ingestionSourceProbe.bytes)}
+                      </span>
+                    </div>
+                    {ingestionSourceProbe.vision_model ? (
+                      <span
+                        className={`finding ${
+                          ingestionSourceProbe.vision_model.supported
+                            ? "none"
+                            : "high"
+                        }`}
+                      >
+                        model {ingestionSourceProbe.vision_model.model}:{" "}
+                        {ingestionSourceProbe.vision_model.reason}
+                      </span>
+                    ) : null}
+                    <div className="finding-list">
+                      {ingestionSourceProbe.backends.map((backend) => (
+                        <span
+                          className={`finding ${
+                            backend.status === "ready"
+                              ? "none"
+                              : backend.supported
+                                ? "warning"
+                                : "high"
+                          }`}
+                          key={backend.backend_id}
+                          title={backend.notes}
+                        >
+                          {backend.backend_id}: {backend.status}
+                          {backend.extraction ? ` / ${backend.extraction}` : ""}
+                          {backend.missing_optional_tools.length
+                            ? ` / missing ${backend.missing_optional_tools.join(", ")}`
+                            : ""}
+                          {backend.model_requirements.length
+                            ? ` / model ${backend.model_requirements.join(", ")}`
+                            : ""}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
               {ingestionBackends.length ? (
                 <div className="ingestion-review">
                   {ingestionBackends.map((backend) => (
@@ -15696,6 +19427,14 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  title="Generate a document artifact using Id as the format and Value as content."
+                  onClick={() => void generateArtifactFromOps()}
+                  disabled={running || !opsId.trim() || !opsValue.trim()}
+                >
+                  Generate Artifact
+                </button>
+                <button
+                  type="button"
                   title="Show generated artifact Id."
                   onClick={() => void showGeneratedArtifactFromOps()}
                   disabled={running || !opsId.trim()}
@@ -15712,6 +19451,22 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  title="Download generated artifact Id to this device."
+                  onClick={() => void downloadGeneratedArtifactFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Download Artifact
+                </button>
+                <button
+                  type="button"
+                  title="Export generated artifact Id to the path in Value, or to /tmp when Value is blank."
+                  onClick={() => void exportGeneratedArtifactFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Export Artifact
+                </button>
+                <button
+                  type="button"
                   title="Delete generated artifact Id from the local artifact cache."
                   onClick={() => void deleteGeneratedArtifactFromOps()}
                   disabled={running || !opsId.trim()}
@@ -15719,6 +19474,18 @@ export default function App() {
                   Delete Artifact
                 </button>
               </div>
+              {artifactExportStatus ? (
+                <div className="bundle-card">
+                  <div className="bundle-card-head">
+                    <strong>Artifact exported</strong>
+                    <span>{artifactExportStatus.artifact.id}</span>
+                  </div>
+                  <span title={artifactExportStatus.output_path}>
+                    {artifactExportStatus.output_path}
+                  </span>
+                  <span>{formatBytes(artifactExportStatus.bytes)}</span>
+                </div>
+              ) : null}
               {generatedArtifacts.length ? (
                 <div className="ingestion-review">
                   {generatedArtifacts.map((artifact) => (
@@ -15759,6 +19526,40 @@ export default function App() {
                           disabled={running}
                         >
                           Open
+                        </button>
+                        <button
+                          type="button"
+                          title="Download this generated artifact to this device."
+                          onClick={() =>
+                            void downloadGeneratedArtifactFromOps(artifact.id, artifact)
+                          }
+                          disabled={running}
+                        >
+                          Download
+                        </button>
+                        <button
+                          type="button"
+                          title="Set Value to a default export path for this artifact."
+                          onClick={() => {
+                            setOpsId(artifact.id);
+                            setOpsValue(defaultGeneratedArtifactPath(artifact));
+                          }}
+                          disabled={running}
+                        >
+                          Path
+                        </button>
+                        <button
+                          type="button"
+                          title="Export this generated artifact to Value, or to /tmp when Value is blank."
+                          onClick={() =>
+                            void exportGeneratedArtifactFromOps(
+                              artifact.id,
+                              opsValue.trim() || defaultGeneratedArtifactPath(artifact),
+                            )
+                          }
+                          disabled={running}
+                        >
+                          Export
                         </button>
                         {isInlineArtifactFormat(artifact.format) ? (
                           <button
@@ -15804,6 +19605,33 @@ export default function App() {
                       </button>
                       <button
                         type="button"
+                        title="Download this generated artifact to this device."
+                        onClick={() =>
+                          void downloadGeneratedArtifactFromOps(
+                            artifactPreview.artifact.id,
+                            artifactPreview.artifact,
+                          )
+                        }
+                        disabled={running}
+                      >
+                        Download
+                      </button>
+                      <button
+                        type="button"
+                        title="Export this generated artifact to Value, or to /tmp when Value is blank."
+                        onClick={() =>
+                          void exportGeneratedArtifactFromOps(
+                            artifactPreview.artifact.id,
+                            opsValue.trim() ||
+                              defaultGeneratedArtifactPath(artifactPreview.artifact),
+                          )
+                        }
+                        disabled={running}
+                      >
+                        Export
+                      </button>
+                      <button
+                        type="button"
                         title="Close the inline artifact preview."
                         onClick={() => setArtifactPreview(null)}
                       >
@@ -15813,6 +19641,12 @@ export default function App() {
                   </div>
                   {isAudioFormat(artifactPreview.artifact.format) ? (
                     <audio src={artifactPreview.data_url} controls />
+                  ) : isImageArtifactFormat(artifactPreview.artifact.format) ? (
+                    <img
+                      className="artifact-preview-image"
+                      alt={`Artifact preview ${artifactPreview.artifact.id}`}
+                      src={artifactPreview.data_url}
+                    />
                   ) : isTextArtifactFormat(artifactPreview.artifact.format) ? (
                     <pre className="artifact-preview-text">
                       {textFromDataUrl(artifactPreview.data_url)}
@@ -16359,6 +20193,42 @@ export default function App() {
                       ))}
                     </div>
                   ) : null}
+                  {adapterDoctorReport.packages.some(
+                    (pkg) => pkg.capabilities.length > 0,
+                  ) ? (
+                    <div className="finding-list">
+                      {adapterDoctorReport.packages.flatMap((pkg) =>
+                        pkg.capabilities.map((capability) => {
+                          const runtime = adapterRuntimeSummary(capability.runtime);
+                          const notes = (capability.notes ?? [])
+                            .filter(Boolean)
+                            .join("; ");
+                          const state =
+                            capability.support === "unsupported"
+                              ? "high"
+                              : capability.support === "metadata_only"
+                                ? "warning"
+                                : "none";
+                          const detail = [runtime, notes]
+                            .filter(Boolean)
+                            .join(" / ");
+                          return (
+                            <span
+                              className={`finding ${state}`}
+                              key={`adapter-doctor-capability:${pkg.id}:${capability.id}`}
+                              title={detail || capability.name}
+                            >
+                              {pkg.id}/{capability.id}: {capability.support}
+                              {capability.installable_as_skill ? " / installable" : ""}
+                              {capability.quarantined ? " / quarantined" : ""}
+                              {runtime ? ` / ${runtime}` : ""}
+                              {notes ? ` / ${compactPreview(notes, 140)}` : ""}
+                            </span>
+                          );
+                        }),
+                      )}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
               {adapterPackages.length ? (
@@ -16510,6 +20380,14 @@ export default function App() {
               <div className="button-grid">
                 <button
                   type="button"
+                  title="Show messaging bridge readiness without secret values."
+                  onClick={() => void bridgeStatusFromOps()}
+                  disabled={running || transport !== "daemon"}
+                >
+                  Status
+                </button>
+                <button
+                  type="button"
                   title="List failed outbound bridge delivery dead letters."
                   onClick={() => void listBridgeDeliveriesFromOps()}
                   disabled={running || transport !== "daemon"}
@@ -16526,6 +20404,14 @@ export default function App() {
                 </button>
                 <button
                   type="button"
+                  title="Delete bridge delivery Id without retrying."
+                  onClick={() => void deleteBridgeDeliveryFromOps()}
+                  disabled={running || transport !== "daemon" || !opsId.trim()}
+                >
+                  Delete Id
+                </button>
+                <button
+                  type="button"
                   title="Retry all failed bridge deliveries up to the daemon batch limit."
                   onClick={() => void retryAllBridgeDeliveriesFromOps()}
                   disabled={running || transport !== "daemon"}
@@ -16533,6 +20419,18 @@ export default function App() {
                   Retry All
                 </button>
               </div>
+              {bridgeStatus ? (
+                <div className="storage-buckets">
+                  {bridgeStatus.bridges.map((bridge) => (
+                    <div className="storage-bucket" key={bridge.platform}>
+                      <strong>{bridge.platform}</strong>
+                      <span>{(bridge.inbound ?? bridge.targets ?? []).join(", ")}</span>
+                      <span>{bridgeReadinessSummary(bridge)}</span>
+                      <span>{previewText(previewJson(bridge), 220)}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
               {bridgeDeliveries.length ? (
                 <div className="storage-buckets">
                   {bridgeDeliveries.map((delivery) => (
@@ -16567,6 +20465,17 @@ export default function App() {
                           disabled={running || transport !== "daemon"}
                         >
                           Retry
+                        </button>
+                        <button
+                          type="button"
+                          title="Delete this failed bridge delivery without retrying."
+                          onClick={() => {
+                            setOpsId(delivery.id);
+                            void deleteBridgeDeliveryFromOps(delivery.id);
+                          }}
+                          disabled={running || transport !== "daemon"}
+                        >
+                          Delete
                         </button>
                       </div>
                     </div>

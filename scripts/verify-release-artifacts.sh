@@ -8,18 +8,40 @@ node - "$@" <<'NODE'
 const fs = require("fs");
 const path = require("path");
 
-const args = new Set(process.argv.slice(2));
+const rawArgs = process.argv.slice(2);
+const args = new Set(rawArgs);
+
+function fail(message) {
+  console.error(`release artifact check failed: ${message}`);
+  process.exit(1);
+}
+
+function usage() {
+  console.log(`usage: scripts/verify-release-artifacts.sh [--manifest-only] [--strict] [--platform=<id>]
+
+Verifies release artifact metadata. With --strict, also checks that the selected
+platform's artifact globs and updater artifact globs match non-empty outputs.`);
+}
+
+for (const arg of rawArgs) {
+  if (arg === "-h" || arg === "--help") {
+    usage();
+    process.exit(0);
+  }
+  if (arg === "--manifest-only" || arg === "--strict") continue;
+  if (arg.startsWith("--platform=")) {
+    if (!arg.slice("--platform=".length).trim()) fail("--platform needs a value");
+    continue;
+  }
+  fail(`unknown argument ${arg}`);
+}
+
 const strict = args.has("--strict");
 const manifestOnly = args.has("--manifest-only") || !strict;
 const platformArg = process.argv
   .slice(2)
   .find((arg) => arg.startsWith("--platform="))
   ?.slice("--platform=".length);
-
-function fail(message) {
-  console.error(`release artifact check failed: ${message}`);
-  process.exit(1);
-}
 
 function assert(condition, message) {
   if (!condition) fail(message);
@@ -117,6 +139,7 @@ const manifestPath = "packaging/release-artifacts.json";
 assert(fs.existsSync(manifestPath), `${manifestPath} is missing`);
 assert(fs.existsSync("scripts/build-release-artifact.sh"), "release artifact build script is missing");
 assert(fs.existsSync(".github/workflows/release-packaging.yml"), "release packaging workflow is missing");
+const workflow = fs.readFileSync(".github/workflows/release-packaging.yml", "utf8");
 const manifest = readJson(manifestPath);
 assert(manifest.schema_version === 1, "release artifact manifest schema_version must be 1");
 assert(manifest.product === "Shinkai", "release artifact manifest product must be Shinkai");
@@ -153,6 +176,42 @@ for (const platform of platforms) {
     nonEmptyStrings(platform.signing?.notarization_env, "macos notarization env");
   }
 }
+
+for (const platform of platforms.filter((item) => item.kind === "desktop")) {
+  assert(
+    workflow.includes(`- platform: ${platform.id}`),
+    `release workflow matrix missing ${platform.id}`,
+  );
+  assert(
+    workflow.includes(`runner: ${platform.runner}`),
+    `release workflow matrix runner for ${platform.id} must match manifest`,
+  );
+}
+for (const platform of platforms.filter((item) => item.kind === "mobile")) {
+  assert(
+    !workflow.includes(`- platform: ${platform.id}`),
+    `release workflow must not build mobile platform ${platform.id}`,
+  );
+}
+for (const option of ["all", "linux", "macos", "windows"]) {
+  assert(workflow.includes(`- ${option}`), `release workflow input options missing ${option}`);
+}
+assert(
+  workflow.includes("scripts/build-release-artifact.sh --env-only --platform=${{ matrix.platform }}"),
+  "release workflow must validate signing inputs through the release artifact script",
+);
+assert(
+  workflow.includes("scripts/build-release-artifact.sh --platform=${{ matrix.platform }}"),
+  "release workflow must build through the release artifact script",
+);
+assert(
+  workflow.includes("if-no-files-found: error"),
+  "release workflow artifact upload must fail when bundles are missing",
+);
+assert(
+  workflow.includes("target/release/bundle/**"),
+  "release workflow must upload generated Tauri bundles",
+);
 
 assert(manifest.updater?.required === true, "updater signed artifact generation must be required");
 nonEmptyStrings(manifest.updater?.signing_env, "updater signing_env");

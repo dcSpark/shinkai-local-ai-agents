@@ -1581,6 +1581,34 @@ pub struct GeneratedArtifactDataUrl {
     pub data_url: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct GeneratedArtifactExport {
+    pub artifact: GeneratedArtifact,
+    pub output_path: PathBuf,
+    pub bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ArtifactGenerateInput {
+    pub format: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rows: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeneratedArtifactFile {
+    pub artifact: GeneratedArtifact,
+    pub media_type: String,
+    pub bytes: Vec<u8>,
+}
+
 impl ArtifactTool {
     pub fn from_env() -> Self {
         let paths = StoragePaths::from_env();
@@ -1601,8 +1629,9 @@ impl ArtifactTool {
         ToolDescriptor {
             id: ToolId::from("artifact_generate"),
             name: "Artifact Generator".into(),
-            description: "Generates scoped document artifacts under the harness artifact cache."
-                .into(),
+            description:
+                "Generates scoped document and image artifacts under the harness artifact cache."
+                    .into(),
             categories: vec!["documents".into(), "artifacts".into()],
             input_schema: json!({
                 "type": "object",
@@ -1610,7 +1639,7 @@ impl ArtifactTool {
                 "properties": {
                     "format": {
                         "type": "string",
-                        "enum": ["txt", "md", "csv", "json", "html", "pdf", "docx", "xlsx", "pptx"]
+                        "enum": ["txt", "md", "csv", "json", "html", "svg", "pdf", "docx", "xlsx", "pptx"]
                     },
                     "title": {
                         "type": "string",
@@ -1618,7 +1647,7 @@ impl ArtifactTool {
                     },
                     "content": {
                         "type": "string",
-                        "description": "Text content for text, markdown, HTML, PDF, DOCX, and PPTX outputs."
+                        "description": "Text content for text, markdown, HTML, SVG, PDF, DOCX, and PPTX outputs."
                     },
                     "rows": {
                         "type": "array",
@@ -1648,48 +1677,15 @@ impl ArtifactTool {
 #[async_trait]
 impl Tool for ArtifactTool {
     async fn execute(&self, input: Value) -> Result<Value, ToolError> {
-        let format = input
-            .get("format")
-            .and_then(Value::as_str)
-            .map(str::to_ascii_lowercase)
-            .ok_or_else(|| ToolError::InvalidInput("missing string field `format`".into()))?;
-        let title = input
-            .get("title")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or("Generated Artifact");
-        let content = input
-            .get("content")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
-        let rows = input.get("rows");
-        let extension = artifact_extension(&format)?;
-        let base = input
-            .get("filename")
-            .and_then(Value::as_str)
-            .map(safe_artifact_basename)
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| safe_artifact_basename(title));
-        let artifact_id = format!(
-            "{}-{}",
-            chrono_like_timestamp(),
-            base.trim_end_matches(&format!(".{extension}"))
-        );
-        let filename = format!("{artifact_id}.{extension}");
-        let path = scoped_artifact_path(&self.output_dir, &filename)?;
-        let bytes = render_artifact(&format, title, content, rows)?;
-        ensure_artifact_quota(self.quota_paths.as_ref(), bytes.len())?;
-
-        std::fs::create_dir_all(&self.output_dir)
-            .map_err(|e| ToolError::Execution(e.to_string()))?;
-        std::fs::write(&path, &bytes).map_err(|e| ToolError::Execution(e.to_string()))?;
+        let input: ArtifactGenerateInput =
+            serde_json::from_value(input).map_err(|e| ToolError::InvalidInput(e.to_string()))?;
+        let artifact = generate_artifact(&self.output_dir, self.quota_paths.as_ref(), input)?;
 
         Ok(json!({
-            "artifact_id": artifact_id,
-            "format": format,
-            "path": path.display().to_string(),
-            "bytes": bytes.len(),
+            "artifact_id": artifact.id,
+            "format": artifact.format,
+            "path": artifact.path.display().to_string(),
+            "bytes": artifact.bytes,
             "scoped": true
         }))
     }
@@ -2386,6 +2382,48 @@ pub fn list_generated_artifacts_from_env() -> Result<Vec<GeneratedArtifact>, Too
     list_generated_artifacts(StoragePaths::from_env().artifacts_dir())
 }
 
+pub fn generate_artifact_from_env(
+    input: ArtifactGenerateInput,
+) -> Result<GeneratedArtifact, ToolError> {
+    let paths = StoragePaths::from_env();
+    generate_artifact(&paths.artifacts_dir(), Some(&paths), input)
+}
+
+pub fn generate_artifact(
+    output_dir: &Path,
+    quota_paths: Option<&StoragePaths>,
+    input: ArtifactGenerateInput,
+) -> Result<GeneratedArtifact, ToolError> {
+    let format = input.format.trim().to_ascii_lowercase();
+    let title = input
+        .title
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("Generated Artifact");
+    let content = input.content.as_deref().unwrap_or_default();
+    let extension = artifact_extension(&format)?;
+    let base = input
+        .filename
+        .as_deref()
+        .map(safe_artifact_basename)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| safe_artifact_basename(title));
+    let artifact_id = format!(
+        "{}-{}",
+        chrono_like_timestamp(),
+        base.trim_end_matches(&format!(".{extension}"))
+    );
+    let filename = format!("{artifact_id}.{extension}");
+    let path = scoped_artifact_path(output_dir, &filename)?;
+    let bytes = render_artifact(&format, title, content, input.rows.as_ref())?;
+    ensure_artifact_quota(quota_paths, bytes.len())?;
+
+    std::fs::create_dir_all(output_dir).map_err(|e| ToolError::Execution(e.to_string()))?;
+    std::fs::write(&path, &bytes).map_err(|e| ToolError::Execution(e.to_string()))?;
+    show_generated_artifact(output_dir, &artifact_id)
+}
+
 pub fn list_generated_artifacts(
     output_dir: impl AsRef<Path>,
 ) -> Result<Vec<GeneratedArtifact>, ToolError> {
@@ -2459,6 +2497,47 @@ pub fn open_generated_artifact(
     Ok(artifact)
 }
 
+pub fn export_generated_artifact_from_env(
+    id_or_filename: &str,
+    destination: impl AsRef<Path>,
+) -> Result<GeneratedArtifactExport, ToolError> {
+    export_generated_artifact(
+        StoragePaths::from_env().artifacts_dir(),
+        id_or_filename,
+        destination,
+    )
+}
+
+pub fn export_generated_artifact(
+    output_dir: impl AsRef<Path>,
+    id_or_filename: &str,
+    destination: impl AsRef<Path>,
+) -> Result<GeneratedArtifactExport, ToolError> {
+    let output_dir = output_dir.as_ref();
+    let artifact = show_generated_artifact(output_dir, id_or_filename)?;
+    ensure_artifact_stays_scoped(output_dir, &artifact.path)?;
+    let destination = artifact_export_destination(destination.as_ref(), &artifact)?;
+    if destination.exists() {
+        return Err(ToolError::InvalidInput(format!(
+            "export destination already exists: {}",
+            destination.display()
+        )));
+    }
+    if let Some(parent) = destination
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent).map_err(|e| ToolError::Execution(e.to_string()))?;
+    }
+    let bytes = std::fs::copy(&artifact.path, &destination)
+        .map_err(|e| ToolError::Execution(e.to_string()))?;
+    Ok(GeneratedArtifactExport {
+        artifact,
+        output_path: destination,
+        bytes,
+    })
+}
+
 pub fn delete_generated_artifact_from_env(
     id_or_filename: &str,
 ) -> Result<GeneratedArtifact, ToolError> {
@@ -2499,6 +2578,28 @@ pub fn generated_artifact_data_url(
         artifact,
         media_type: media_type.into(),
         data_url,
+    })
+}
+
+pub fn generated_artifact_file_from_env(
+    id_or_filename: &str,
+) -> Result<GeneratedArtifactFile, ToolError> {
+    generated_artifact_file(StoragePaths::from_env().artifacts_dir(), id_or_filename)
+}
+
+pub fn generated_artifact_file(
+    output_dir: impl AsRef<Path>,
+    id_or_filename: &str,
+) -> Result<GeneratedArtifactFile, ToolError> {
+    let output_dir = output_dir.as_ref();
+    let artifact = show_generated_artifact(output_dir, id_or_filename)?;
+    ensure_artifact_stays_scoped(output_dir, &artifact.path)?;
+    let media_type = artifact_media_type(&artifact.format)?;
+    let bytes = std::fs::read(&artifact.path).map_err(|e| ToolError::Execution(e.to_string()))?;
+    Ok(GeneratedArtifactFile {
+        artifact,
+        media_type: media_type.into(),
+        bytes,
     })
 }
 
@@ -3103,6 +3204,11 @@ fn artifact_extension(format: &str) -> Result<&'static str, ToolError> {
         "csv" => Ok("csv"),
         "json" => Ok("json"),
         "html" => Ok("html"),
+        "svg" => Ok("svg"),
+        "png" => Ok("png"),
+        "jpg" | "jpeg" => Ok("jpg"),
+        "gif" => Ok("gif"),
+        "webp" => Ok("webp"),
         "pdf" => Ok("pdf"),
         "docx" => Ok("docx"),
         "xlsx" => Ok("xlsx"),
@@ -3125,6 +3231,11 @@ fn artifact_media_type(format: &str) -> Result<&'static str, ToolError> {
         "csv" => Ok("text/csv"),
         "json" => Ok("application/json"),
         "html" => Ok("text/html"),
+        "svg" => Ok("image/svg+xml"),
+        "png" => Ok("image/png"),
+        "jpg" => Ok("image/jpeg"),
+        "gif" => Ok("image/gif"),
+        "webp" => Ok("image/webp"),
         "pdf" => Ok("application/pdf"),
         "docx" => Ok("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
         "xlsx" => Ok("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
@@ -3165,6 +3276,26 @@ fn scoped_artifact_path(output_dir: &Path, filename: &str) -> Result<PathBuf, To
         return Err(ToolError::InvalidInput("invalid artifact filename".into()));
     }
     Ok(output_dir.join(filename))
+}
+
+fn artifact_export_destination(
+    destination: &Path,
+    artifact: &GeneratedArtifact,
+) -> Result<PathBuf, ToolError> {
+    if destination.as_os_str().is_empty() {
+        return Err(ToolError::InvalidInput(
+            "export destination must not be empty".into(),
+        ));
+    }
+    if destination.is_dir() {
+        let filename = artifact
+            .path
+            .file_name()
+            .ok_or_else(|| ToolError::InvalidInput("artifact filename is invalid".into()))?;
+        Ok(destination.join(filename))
+    } else {
+        Ok(destination.to_path_buf())
+    }
 }
 
 fn chrono_like_timestamp() -> String {
@@ -3297,6 +3428,7 @@ fn render_artifact(
             serde_json::to_vec_pretty(&value).map_err(|e| ToolError::Execution(e.to_string()))
         }
         "html" => Ok(render_html(title, content).into_bytes()),
+        "svg" => Ok(render_svg(title, content).into_bytes()),
         "pdf" => Ok(render_pdf(title, content)),
         "docx" => Ok(render_docx(title, content)),
         "xlsx" => Ok(render_xlsx(title, rows, content)),
@@ -3370,6 +3502,41 @@ fn render_html(title: &str, content: &str) -> String {
         xml_escape(title),
         xml_escape(content)
     )
+}
+
+fn render_svg(title: &str, content: &str) -> String {
+    let mut svg = String::from(
+        r#"<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img">"#,
+    );
+    let _ = write!(svg, "<title>{}</title>", xml_escape(title));
+    svg.push_str(r##"<rect width="960" height="540" rx="24" fill="#f8fafc"/>"##);
+    svg.push_str(r##"<rect x="48" y="48" width="864" height="444" rx="18" fill="#ffffff" stroke="#cbd5e1" stroke-width="2"/>"##);
+    let _ = write!(
+        svg,
+        r##"<text x="80" y="112" fill="#0f172a" font-family="Arial, sans-serif" font-size="32" font-weight="700">{}</text>"##,
+        xml_escape(title)
+    );
+    let mut y = 170;
+    for line in content
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(10)
+    {
+        let _ = write!(
+            svg,
+            r##"<text x="80" y="{y}" fill="#334155" font-family="Arial, sans-serif" font-size="22">{}</text>"##,
+            xml_escape(line)
+        );
+        y += 34;
+    }
+    if y == 170 {
+        svg.push_str(
+            r##"<text x="80" y="170" fill="#64748b" font-family="Arial, sans-serif" font-size="22">Generated SVG artifact</text>"##,
+        );
+    }
+    svg.push_str("</svg>");
+    svg
 }
 
 fn render_pdf(title: &str, content: &str) -> Vec<u8> {
@@ -5718,6 +5885,7 @@ mod tests {
         let rows = json!([["name", "count"], ["Ada", 3], ["Comma, Cell", true]]);
 
         for (format, magic) in [
+            ("svg", b"<svg".as_slice()),
             ("pdf", b"%PDF-1.4".as_slice()),
             ("docx", b"PK\x03\x04".as_slice()),
             ("xlsx", b"PK\x03\x04".as_slice()),
@@ -5801,6 +5969,27 @@ mod tests {
     }
 
     #[test]
+    fn artifact_export_copies_scoped_artifact_without_overwrite() {
+        let dir = temp_dir("artifact-export");
+        let export_dir = temp_dir("artifact-export-out");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::create_dir_all(&export_dir).unwrap();
+        std::fs::write(dir.join("report.txt"), b"export me").unwrap();
+
+        let exported = export_generated_artifact(&dir, "report", &export_dir).unwrap();
+        assert_eq!(exported.artifact.id, "report");
+        assert_eq!(exported.bytes, 9);
+        assert_eq!(exported.output_path, export_dir.join("report.txt"));
+        assert_eq!(std::fs::read(&exported.output_path).unwrap(), b"export me");
+
+        let err = export_generated_artifact(&dir, "report", &export_dir)
+            .expect_err("export must not overwrite existing files");
+        assert!(err.to_string().contains("already exists"));
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_dir_all(export_dir);
+    }
+
+    #[test]
     fn generated_artifact_data_url_reads_scoped_audio() {
         let dir = temp_dir("artifact-data-url");
         std::fs::create_dir_all(&dir).unwrap();
@@ -5811,6 +6000,52 @@ mod tests {
         assert_eq!(preview.artifact.id, "voice-output");
         assert_eq!(preview.media_type, "audio/mpeg");
         assert_eq!(preview.data_url, "data:audio/mpeg;base64,QVVESU8=");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn generated_artifact_data_url_reads_scoped_svg_image() {
+        let dir = temp_dir("artifact-svg-data-url");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("diagram.svg"), b"<svg></svg>").unwrap();
+
+        let preview = generated_artifact_data_url(&dir, "diagram").unwrap();
+
+        assert_eq!(preview.artifact.id, "diagram");
+        assert_eq!(preview.media_type, "image/svg+xml");
+        assert_eq!(
+            preview.data_url,
+            "data:image/svg+xml;base64,PHN2Zz48L3N2Zz4="
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn generated_artifact_data_url_reads_scoped_raster_image() {
+        let dir = temp_dir("artifact-raster-data-url");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("screenshot.png"), b"\x89PNG").unwrap();
+
+        let preview = generated_artifact_data_url(&dir, "screenshot").unwrap();
+
+        assert_eq!(preview.artifact.id, "screenshot");
+        assert_eq!(preview.artifact.format, "png");
+        assert_eq!(preview.media_type, "image/png");
+        assert_eq!(preview.data_url, "data:image/png;base64,iVBORw==");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn generated_artifact_file_reads_scoped_bytes_and_media_type() {
+        let dir = temp_dir("artifact-file");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("report.pdf"), b"%PDF\xff").unwrap();
+
+        let file = generated_artifact_file(&dir, "report").unwrap();
+
+        assert_eq!(file.artifact.id, "report");
+        assert_eq!(file.media_type, "application/pdf");
+        assert_eq!(file.bytes, b"%PDF\xff");
         let _ = std::fs::remove_dir_all(dir);
     }
 

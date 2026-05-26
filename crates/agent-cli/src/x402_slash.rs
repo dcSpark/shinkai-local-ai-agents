@@ -18,7 +18,7 @@ pub(crate) fn help_text() -> &'static str {
 
 pub(crate) fn is_help(rest: &str) -> bool {
     let rest = rest.trim();
-    rest.is_empty() || rest == "help"
+    matches!(rest, "help" | "--help")
 }
 
 pub(crate) fn parse_tool_call(rest: &str) -> anyhow::Result<(&'static str, serde_json::Value)> {

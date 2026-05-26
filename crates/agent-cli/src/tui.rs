@@ -28,6 +28,7 @@ use tokio::task::AbortHandle;
 use tokio::time::MissedTickBehavior;
 
 use agent_adapters::{AdapterRegistry, ClawHubProvider, NormalizedPackage, inspect_source};
+use agent_batch::{BatchItemState, BatchPlan, prepare_batch_inputs};
 use agent_bundles::{export_bundle, import_bundle};
 use agent_capabilities::{
     CapabilityDraft, CapabilityDraftDoctorReport, CapabilityDraftInput, CapabilityDraftStatus,
@@ -46,6 +47,11 @@ use agent_core::{AgentConfig, ContextSnapshot, Harness, HarnessApi, StopRetentio
 use agent_ingest::{IngestionArtifact, IngestionFindingReviewDecision, IngestionStore};
 use agent_memory::{
     MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget,
+    create_record_for_active_backend_with_topics_for_agent, delete_record_for_active_backend,
+    edit_record_for_active_backend, export_target_for_active_backend,
+    generate_records_for_active_backend_with_topics_for_agent_and_guidance,
+    import_file_for_active_backend_for_agent, list_records_for_active_backend,
+    probe_backend as probe_memory_backend, rollback_active_backend,
     supported_backends as supported_memory_backends,
 };
 use agent_prompts::{PromptDoc, PromptStore, is_valid_prompt_name};
@@ -55,15 +61,17 @@ use agent_secrets::{
 use agent_skills::{SkillDoc, SkillRegistry};
 use agent_storage::StoragePaths;
 use agent_tools::{
-    GeneratedArtifact, ToolId, ToolRegistry, delete_generated_artifact_from_env,
-    list_generated_artifacts_from_env, open_generated_artifact_from_env,
-    show_generated_artifact_from_env,
+    ArtifactGenerateInput, GeneratedArtifact, ToolId, ToolRegistry,
+    delete_generated_artifact_from_env, export_generated_artifact_from_env,
+    generate_artifact_from_env, list_generated_artifacts_from_env,
+    open_generated_artifact_from_env, show_generated_artifact_from_env,
 };
 use agent_tracing::{
     EventId, EventStore, PublishingEventStore, RunEvent, RunEventKind, RunId, SqliteEventStore,
-    TraceComparison, TraceSummary, TraceTreeNode, build_resume_plan, build_trace_comparison,
-    build_trace_tree, hook_remediation_plan, is_terminal_run_event, latest_event_id,
-    quality_score_records, summarize_trace, validate_guidance_content, validate_quality_score,
+    TraceComparison, TraceRunRecord, TraceSummary, TraceTreeNode, build_resume_plan,
+    build_trace_comparison, build_trace_tree, hook_remediation_plan, is_terminal_run_event,
+    latest_event_id, quality_score_records, summarize_trace, validate_guidance_content,
+    validate_quality_score,
 };
 
 use crate::{Demo, setup};
@@ -101,6 +109,8 @@ struct App {
     run_started_at: Option<Instant>,
     active_run_handle: Option<AbortHandle>,
     last_run_id: Option<RunId>,
+    active_batch_run_id: Option<RunId>,
+    loaded_trace_run_id: Option<RunId>,
     pending_replay_comparison: Option<ReplayComparisonRequest>,
     pending_auto_compaction_run: Option<RunId>,
     selected_conversation_id: Option<String>,
@@ -157,6 +167,7 @@ struct ConversationMemoryArgs {
     to: usize,
     user: bool,
     topics: Vec<String>,
+    guidance: Option<String>,
 }
 
 #[derive(Clone)]
@@ -314,8 +325,9 @@ fn handle_terminal_event(
                 } else {
                     app.transcript.push(TranscriptLine {
                         kind: LineKind::Error,
-                        text: "Run in progress. Use /guide <text> or /stop [--summarise] [reason]."
-                            .into(),
+                        text:
+                            "Run in progress. Use /guide <text>, /stop status, or /stop [default|--summarise|--discard] [reason]."
+                                .into(),
                     });
                 }
                 return;
@@ -636,7 +648,7 @@ fn start_replay_run(
     publish_tx: &UnboundedSender<RunEvent>,
     options: &setup::RuntimeOptions,
 ) {
-    let args = match parse_replay_slash_args(rest, app.last_run_id) {
+    let args = match parse_replay_slash_args(rest, trace_default_run_id(app)) {
         Ok(args) => args,
         Err(err) => {
             app.transcript.push(TranscriptLine {
@@ -823,6 +835,10 @@ fn replay_flags_text(args: &ReplaySlashArgs) -> String {
     }
 }
 
+fn trace_default_run_id(app: &App) -> Option<RunId> {
+    app.loaded_trace_run_id.or(app.last_run_id)
+}
+
 fn trace_replay_source(run_id: RunId, events: &[RunEvent]) -> anyhow::Result<(String, String)> {
     events
         .iter()
@@ -834,9 +850,13 @@ fn trace_replay_source(run_id: RunId, events: &[RunEvent]) -> anyhow::Result<(St
 }
 
 fn parse_event_id(value: &str) -> anyhow::Result<u64> {
-    value
+    let parsed = value
         .parse::<u64>()
-        .map_err(|err| anyhow::anyhow!("invalid event id {value:?}: {err}"))
+        .map_err(|err| anyhow::anyhow!("invalid event id {value:?}: {err}"))?;
+    if parsed == 0 {
+        anyhow::bail!("event id must be a positive integer");
+    }
+    Ok(parsed)
 }
 
 fn stopped_run_compaction_for_tui(run_id: RunId) -> anyhow::Result<Option<String>> {
@@ -930,21 +950,215 @@ fn help_slash_command(trimmed: &str) -> bool {
     matches!(trimmed, "/help" | "/?")
 }
 
+fn slash_help_rest(rest: &str) -> bool {
+    let rest = rest.trim();
+    rest.is_empty() || matches!(rest, "help" | "--help")
+}
+
 fn global_slash_help_text() -> &'static str {
     "Slash commands:\n\
      - /tool <name> <request> - force one LLM-filled tool call\n\
      - /tool!<name> <json> - call a tool directly with manual JSON input\n\
      - /python <code>, /typescript <code>, /ts <code> - call native code tools directly\n\
-     - /voice transcribe <path>, /voice speak <text> - call native voice tools directly\n\
+     - /voice status, /voice transcribe <path>, /voice speak <text> - inspect voice config or call native voice tools directly\n\
      - /x402 request|required|settle ... - call native x402 payment tools directly\n\
      - /preview <prompt> - inspect context before running\n\
      - /guide <text> - steer the active run at the next checkpoint\n\
-     - /stop [--summarise|--discard] [reason] - stop the active run\n\
+     - /stop [default|--summarise|--discard] [reason], /stop status - stop or inspect the active run\n\
      - /resume [last|run-id] [--from-event N] - resume a saved run\n\
+     - /batch <line-delimited prompts>, /batch files <paths>, /batch folder <path>, /resume-batch <batch-id> - run or resume deterministic batches\n\
      - /score [target] <0-10> - score the latest or selected answer\n\
+     - /usage [current|last|trace|run|conversation] - inspect current or persisted usage totals\n\
      - /agent [id] - show or switch the active saved agent\n\
-     - /models, /agents, /profiles, /memory, /ingest, /artifacts, /approval, /trace - inspect command families\n\
-     - /conversation, /capabilities, /skills, /adapters, /hooks, /compact, /storage - manage runtime assets"
+     - /models (/model), /agents, /profiles (/profile), /memory, /ingest, /artifacts (/artifact), /approval (/approvals), /trace - inspect command families\n\
+     - /conversation (/conversations), /capabilities (/capability), /skills (/skill), /prompts (/prompt), /adapters (/adapter), /hooks, /compact (/compactions), /storage, /bundles (/bundle), /secrets (/secret) - manage runtime assets"
+}
+
+fn run_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/run help" | "/run --help")
+}
+
+fn prompt_slash_help_text() -> String {
+    [
+        "/run <name>",
+        "/prompts list [--agent <agent>]",
+        "/prompts show <name> [--agent <agent>]",
+        "/prompts save <name> [--agent <agent>] <text>",
+        "/prompts use <name> [--agent <agent>]",
+        "/prompts preview <name> [--agent <agent>]",
+        "/prompts export <name> <path> [--agent <agent>]",
+        "/prompts import <path> [--agent <agent>]",
+        "/prompts delete <name> [--agent <agent>] --confirm",
+        "/prompt is accepted as an alias for /prompts.",
+    ]
+    .join("\n")
+}
+
+fn agent_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/agent help" | "/agent --help")
+}
+
+fn agent_switch_slash_help_text() -> &'static str {
+    "/agent\n/agent <saved-agent-id>\n/agents use <id>\n/agents help"
+}
+
+fn code_help_slash_command(trimmed: &str) -> bool {
+    matches!(
+        trimmed,
+        "/python help"
+            | "/python --help"
+            | "/typescript help"
+            | "/typescript --help"
+            | "/ts help"
+            | "/ts --help"
+    )
+}
+
+fn code_slash_help_text() -> &'static str {
+    "/python <code>\n/typescript <code>\n/ts <code>"
+}
+
+fn voice_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/voice help" | "/voice --help")
+}
+
+fn tool_help_slash_command(trimmed: &str) -> bool {
+    matches!(
+        trimmed,
+        "/tool help" | "/tool --help" | "/tool!help" | "/tool!--help"
+    )
+}
+
+fn tool_slash_help_text() -> &'static str {
+    "/tool <name> <request>\n/tool!<name> <json>"
+}
+
+fn preview_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/preview help" | "/preview --help")
+}
+
+fn preview_slash_help_text() -> &'static str {
+    "/preview\n/preview <prompt>"
+}
+
+fn push_context_preview(
+    app: &mut App,
+    registry: &Arc<ToolRegistry>,
+    agent: &AgentConfig,
+    input: &str,
+) {
+    let harness = setup::build_harness(
+        Arc::new(agent_llm::FakeProvider::echo()),
+        Arc::new(agent_tracing::InMemoryEventStore::new()),
+        registry.clone(),
+    );
+    let snapshot = harness.preview_context(
+        agent,
+        UserInput {
+            text: if input.is_empty() { "preview" } else { input }.to_string(),
+        },
+    );
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::Event,
+        text: format!(
+            "Preview: {} tools, {} skills, {} memory, {} artifacts",
+            snapshot.visible_tools.len(),
+            snapshot.visible_skills.len(),
+            snapshot.loaded_memory.len(),
+            snapshot.loaded_artifacts.len()
+        ),
+    });
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::Assistant,
+        text: serde_json::to_string_pretty(&snapshot)
+            .unwrap_or_else(|_| "<unserializable context>".into()),
+    });
+}
+
+fn resume_help_slash_command(trimmed: &str) -> bool {
+    matches!(
+        trimmed,
+        "/resume help"
+            | "/resume --help"
+            | "/resume plan help"
+            | "/resume plan --help"
+            | "/resume-plan help"
+            | "/resume-plan --help"
+    )
+}
+
+fn resume_slash_help_text() -> &'static str {
+    "/resume [last|run-id] [--from-event N]\n/resume plan [last|run-id] [--from-event N]\n/resume-plan [last|run-id] [--from-event N]"
+}
+
+fn trace_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/trace help" | "/trace --help")
+}
+
+fn trace_slash_help_text() -> &'static str {
+    "/trace [last|run-id]\n/trace list [limit|--limit N]\n/trace summary [last|run-id]\n/trace tree [last|run-id]\n/trace hooks [last|run-id]\n/trace scores [last|run-id]\n/trace prompt [last|run-id]\n/trace clear\n/compare [last|primary-run-id] [last|compare-run-id]\n/replay [last|run-id]"
+}
+
+fn compare_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/compare help" | "/compare --help")
+}
+
+fn compare_slash_help_text() -> &'static str {
+    "/compare <compare-run-id>\n/compare [last|primary-run-id] [last|compare-run-id]"
+}
+
+fn replay_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/replay help" | "/replay --help")
+}
+
+fn replay_slash_help_text() -> &'static str {
+    "/replay [last|run-id] [--no-hooks] [--compare-source]"
+}
+
+fn guide_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/guide help" | "/guide --help")
+}
+
+fn guide_slash_help_text() -> &'static str {
+    "/guide <text>"
+}
+
+fn score_help_slash_command(trimmed: &str) -> bool {
+    matches!(
+        trimmed,
+        "/score help" | "/score --help" | "/scores help" | "/scores --help"
+    )
+}
+
+fn score_slash_help_text() -> &'static str {
+    "/score <0-10> [target]\n/score <target> <0-10>\n/score <run-id> <0-10> [target]\n/scores [last|run-id]"
+}
+
+fn usage_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/usage help" | "/usage --help")
+}
+
+fn usage_slash_help_text() -> &'static str {
+    "/usage\n/usage current\n/usage last\n/usage trace [last|run-id]\n/usage run [last|run-id]\n/usage conversation [id] [from:to|last N]"
+}
+
+fn stop_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/stop help" | "/stop --help")
+}
+
+fn stop_slash_help_text() -> &'static str {
+    "/stop [default|--summarise|--discard] [reason]\n/stop status"
+}
+
+fn batch_help_slash_command(trimmed: &str) -> bool {
+    matches!(
+        trimmed,
+        "/batch help" | "/batch --help" | "/resume-batch help" | "/resume-batch --help"
+    )
+}
+
+fn batch_slash_help_text() -> &'static str {
+    "/batch <line-delimited prompts>\n/batch files <line-delimited paths>\n/batch folder <path>\n/resume-batch <batch-id>"
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -966,6 +1180,27 @@ fn handle_slash_command(
         });
         return true;
     }
+    if run_help_slash_command(trimmed) {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: prompt_slash_help_text(),
+        });
+        return true;
+    }
+    if agent_help_slash_command(trimmed) {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: agent_switch_slash_help_text().into(),
+        });
+        return true;
+    }
+    if tool_help_slash_command(trimmed) {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: tool_slash_help_text().into(),
+        });
+        return true;
+    }
     if let Some(rest) = agent_slash_rest(trimmed) {
         if rest.is_empty() {
             show_active_agent(app, agent);
@@ -978,8 +1213,22 @@ fn handle_slash_command(
         start_manual_tool_call(app, rest, registry, agent, publish_tx);
         return true;
     }
+    if code_help_slash_command(trimmed) {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: code_slash_help_text().into(),
+        });
+        return true;
+    }
     if let Some((tool_name, code)) = code_slash_command(trimmed) {
         start_code_tool_call(app, tool_name, code, registry, agent, publish_tx);
+        return true;
+    }
+    if voice_help_slash_command(trimmed) {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: voice_slash_help_text().into(),
+        });
         return true;
     }
     if let Some(rest) = voice_slash_rest(trimmed) {
@@ -1018,6 +1267,21 @@ fn handle_slash_command(
         handle_approval_slash(app, rest, line_tx);
         return true;
     }
+    if batch_help_slash_command(trimmed) {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: batch_slash_help_text().into(),
+        });
+        return true;
+    }
+    if let Some(rest) = batch_slash_rest(trimmed) {
+        start_batch_run(app, rest, demo, publish_tx, options);
+        return true;
+    }
+    if let Some(rest) = resume_batch_slash_rest(trimmed) {
+        start_batch_resume(app, rest, demo, publish_tx, options);
+        return true;
+    }
     if let Some(rest) = models_slash_rest(trimmed) {
         handle_models_slash(app, rest);
         return true;
@@ -1035,7 +1299,7 @@ fn handle_slash_command(
         return true;
     }
     if let Some(rest) = prompts_slash_rest(trimmed) {
-        handle_prompts_slash(app, rest);
+        handle_prompts_slash(app, rest, registry, agent);
         return true;
     }
     if let Some(rest) = skills_slash_rest(trimmed) {
@@ -1054,8 +1318,22 @@ fn handle_slash_command(
         handle_adapters_slash(app, rest);
         return true;
     }
+    if trace_help_slash_command(trimmed) {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: trace_slash_help_text().into(),
+        });
+        return true;
+    }
     if let Some(rest) = trace_slash_rest(trimmed) {
         handle_trace_slash(app, rest);
+        return true;
+    }
+    if compare_help_slash_command(trimmed) {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: compare_slash_help_text().into(),
+        });
         return true;
     }
     if let Some(rest) = compare_slash_rest(trimmed) {
@@ -1070,50 +1348,47 @@ fn handle_slash_command(
         handle_compact_slash(app, rest);
         return true;
     }
-    if let Some(input) = preview_slash_rest(trimmed) {
-        let harness = setup::build_harness(
-            Arc::new(agent_llm::FakeProvider::echo()),
-            Arc::new(agent_tracing::InMemoryEventStore::new()),
-            registry.clone(),
-        );
-        let snapshot = harness.preview_context(
-            agent,
-            UserInput {
-                text: if input.is_empty() { "preview" } else { input }.to_string(),
-            },
-        );
-        app.transcript.push(TranscriptLine {
-            kind: LineKind::Event,
-            text: format!(
-                "Preview: {} tools, {} skills, {} memory, {} artifacts",
-                snapshot.visible_tools.len(),
-                snapshot.visible_skills.len(),
-                snapshot.loaded_memory.len(),
-                snapshot.loaded_artifacts.len()
-            ),
-        });
+    if usage_help_slash_command(trimmed) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
-            text: serde_json::to_string_pretty(&snapshot)
-                .unwrap_or_else(|_| "<unserializable context>".into()),
+            text: usage_slash_help_text().into(),
         });
         return true;
     }
-    if trimmed == "/scores" {
-        let Some(run_id) = app.last_run_id else {
-            app.transcript.push(TranscriptLine {
-                kind: LineKind::Error,
-                text: "No run to score yet.".into(),
-            });
-            return true;
+    if let Some(rest) = usage_slash_rest(trimmed) {
+        handle_usage_slash(app, rest);
+        return true;
+    }
+    if preview_help_slash_command(trimmed) {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: preview_slash_help_text().into(),
+        });
+        return true;
+    }
+    if let Some(input) = preview_slash_rest(trimmed) {
+        push_context_preview(app, registry, agent, input);
+        return true;
+    }
+    if score_help_slash_command(trimmed) {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: score_slash_help_text().into(),
+        });
+        return true;
+    }
+    if let Some(rest) = scores_slash_rest(trimmed) {
+        let run_id = match parse_scores_run_id(rest, trace_default_run_id(app)) {
+            Ok(run_id) => run_id,
+            Err(err) => {
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Score review failed: {err}"),
+                });
+                return true;
+            }
         };
-        match open_event_store().and_then(|store| {
-            let events = store.try_events(run_id)?;
-            Ok(quality_score_report(
-                run_id,
-                &quality_score_records(&events),
-            ))
-        }) {
+        match quality_score_report_for_run(run_id) {
             Ok(report) => app.transcript.push(TranscriptLine {
                 kind: LineKind::Assistant,
                 text: report,
@@ -1126,19 +1401,22 @@ fn handle_slash_command(
         return true;
     }
     if let Some(rest) = score_slash_rest(trimmed) {
-        let Some(run_id) = app.last_run_id else {
-            app.transcript.push(TranscriptLine {
-                kind: LineKind::Error,
-                text: "No run to score yet.".into(),
-            });
-            return true;
-        };
         let score = match parse_score_slash_rest(rest) {
             Ok(score) => score,
             Err(err) => {
                 app.transcript.push(TranscriptLine {
                     kind: LineKind::Error,
                     text: format!("Score failed: {err}"),
+                });
+                return true;
+            }
+        };
+        let run_id = match score.run_id.or(app.last_run_id) {
+            Some(run_id) => run_id,
+            None => {
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: "No run to score yet.".into(),
                 });
                 return true;
             }
@@ -1168,6 +1446,13 @@ fn handle_slash_command(
         }
         return true;
     }
+    if resume_help_slash_command(trimmed) {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: resume_slash_help_text().into(),
+        });
+        return true;
+    }
     if let Some(rest) = resume_plan_slash_rest(trimmed) {
         show_resume_plan(app, rest);
         return true;
@@ -1176,8 +1461,22 @@ fn handle_slash_command(
         start_resume_run(app, rest, demo, publish_tx, options);
         return true;
     }
+    if replay_help_slash_command(trimmed) {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: replay_slash_help_text().into(),
+        });
+        return true;
+    }
     if let Some(rest) = replay_slash_rest(trimmed) {
         start_replay_run(app, rest, demo, publish_tx, options);
+        return true;
+    }
+    if guide_help_slash_command(trimmed) {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: guide_slash_help_text().into(),
+        });
         return true;
     }
     if let Some(text) = guide_slash_rest(trimmed) {
@@ -1208,6 +1507,23 @@ fn handle_slash_command(
         }
         return true;
     }
+    if stop_help_slash_command(trimmed) {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: stop_slash_help_text().into(),
+        });
+        return true;
+    }
+    if stop_status_slash_command(trimmed) {
+        push_event(
+            app,
+            format!(
+                "Stop mode is configured default {}.",
+                agent.execution_policy.stop_retention_mode.as_str()
+            ),
+        );
+        return true;
+    }
     if let Some(reason) = stop_slash_rest(trimmed) {
         if app.state != AppState::Running {
             app.transcript.push(TranscriptLine {
@@ -1231,7 +1547,7 @@ fn handle_slash_command(
 
 fn handle_conversation_slash(app: &mut App, rest: &str) {
     let rest = rest.trim();
-    if rest.is_empty() || rest == "help" {
+    if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
@@ -1249,6 +1565,7 @@ fn handle_conversation_slash(app: &mut App, rest: &str) {
                 "/conversation range-delete [<id>] <from>:<to>",
                 "/conversation confirm",
                 "/conversation cancel",
+                "/conversations is accepted as an alias for /conversation.",
             ]
             .join("\n"),
         });
@@ -1412,10 +1729,12 @@ fn handle_conversation_slash(app: &mut App, rest: &str) {
 }
 
 fn conversation_slash_rest(trimmed: &str) -> Option<&str> {
-    if trimmed == "/conversation" {
+    if trimmed == "/conversation" || trimmed == "/conversations" {
         Some("")
+    } else if let Some(rest) = trimmed.strip_prefix("/conversation ") {
+        Some(rest.trim())
     } else {
-        trimmed.strip_prefix("/conversation ").map(str::trim)
+        trimmed.strip_prefix("/conversations ").map(str::trim)
     }
 }
 
@@ -1866,11 +2185,23 @@ fn parse_conversation_memory_args_with_selected(
 ) -> anyhow::Result<ConversationMemoryArgs> {
     let mut positional = Vec::new();
     let mut topics = Vec::new();
+    let mut guidance = None;
     let mut user = false;
     let mut parts = rest.split_whitespace();
     while let Some(part) = parts.next() {
         match part {
             "--user" => user = true,
+            "--guidance" => {
+                guidance = Some(
+                    parts
+                        .next()
+                        .ok_or_else(|| anyhow::anyhow!("--guidance needs a value"))?
+                        .to_string(),
+                );
+            }
+            other if other.starts_with("--guidance=") => {
+                guidance = Some(other.trim_start_matches("--guidance=").to_string());
+            }
             "--topic" => {
                 let topic = parts
                     .next()
@@ -1894,6 +2225,7 @@ fn parse_conversation_memory_args_with_selected(
         to,
         user,
         topics,
+        guidance,
     })
 }
 
@@ -2049,12 +2381,14 @@ fn generate_conversation_memory_from_tui(app: &mut App, args: &str) -> anyhow::R
     };
     let expanded = ConversationStore::from_env().expanded(&args.id)?;
     let rendered = render_message_range(&expanded.messages, Some(args.from), Some(args.to))?;
-    let records = MemoryStore::from_env().generate_from_conversation_text_with_topics(
+    let records = generate_records_for_active_backend_with_topics_for_agent_and_guidance(
         target,
         &rendered.text,
         Some(rendered.source_range.clone()),
         Some(args.id.clone()),
         args.topics.clone(),
+        None,
+        args.guidance.clone(),
     )?;
     for record in &records {
         crate::headless::record_memory_written(record, "generated")?;
@@ -2372,18 +2706,22 @@ fn memory_slash_rest(trimmed: &str) -> Option<&str> {
 }
 
 fn capabilities_slash_rest(trimmed: &str) -> Option<&str> {
-    if trimmed == "/capabilities" {
+    if trimmed == "/capabilities" || trimmed == "/capability" {
         Some("")
+    } else if let Some(rest) = trimmed.strip_prefix("/capabilities ") {
+        Some(rest.trim())
     } else {
-        trimmed.strip_prefix("/capabilities ").map(str::trim)
+        trimmed.strip_prefix("/capability ").map(str::trim)
     }
 }
 
 fn artifacts_slash_rest(trimmed: &str) -> Option<&str> {
-    if trimmed == "/artifacts" {
+    if trimmed == "/artifacts" || trimmed == "/artifact" {
         Some("")
+    } else if let Some(rest) = trimmed.strip_prefix("/artifacts ") {
+        Some(rest.trim())
     } else {
-        trimmed.strip_prefix("/artifacts ").map(str::trim)
+        trimmed.strip_prefix("/artifact ").map(str::trim)
     }
 }
 
@@ -2396,18 +2734,22 @@ fn ingest_slash_rest(trimmed: &str) -> Option<&str> {
 }
 
 fn approval_slash_rest(trimmed: &str) -> Option<&str> {
-    if trimmed == "/approval" {
+    if trimmed == "/approval" || trimmed == "/approvals" {
         Some("")
+    } else if let Some(rest) = trimmed.strip_prefix("/approval ") {
+        Some(rest.trim())
     } else {
-        trimmed.strip_prefix("/approval ").map(str::trim)
+        trimmed.strip_prefix("/approvals ").map(str::trim)
     }
 }
 
 fn models_slash_rest(trimmed: &str) -> Option<&str> {
-    if trimmed == "/models" {
+    if trimmed == "/models" || trimmed == "/model" {
         Some("")
+    } else if let Some(rest) = trimmed.strip_prefix("/models ") {
+        Some(rest.trim())
     } else {
-        trimmed.strip_prefix("/models ").map(str::trim)
+        trimmed.strip_prefix("/model ").map(str::trim)
     }
 }
 
@@ -2420,18 +2762,22 @@ fn agents_slash_rest(trimmed: &str) -> Option<&str> {
 }
 
 fn profiles_slash_rest(trimmed: &str) -> Option<&str> {
-    if trimmed == "/profiles" {
+    if trimmed == "/profiles" || trimmed == "/profile" {
         Some("")
+    } else if let Some(rest) = trimmed.strip_prefix("/profiles ") {
+        Some(rest.trim())
     } else {
-        trimmed.strip_prefix("/profiles ").map(str::trim)
+        trimmed.strip_prefix("/profile ").map(str::trim)
     }
 }
 
 fn secrets_slash_rest(trimmed: &str) -> Option<&str> {
-    if trimmed == "/secrets" {
+    if trimmed == "/secrets" || trimmed == "/secret" {
         Some("")
+    } else if let Some(rest) = trimmed.strip_prefix("/secrets ") {
+        Some(rest.trim())
     } else {
-        trimmed.strip_prefix("/secrets ").map(str::trim)
+        trimmed.strip_prefix("/secret ").map(str::trim)
     }
 }
 
@@ -2444,34 +2790,42 @@ fn storage_slash_rest(trimmed: &str) -> Option<&str> {
 }
 
 fn bundles_slash_rest(trimmed: &str) -> Option<&str> {
-    if trimmed == "/bundles" {
+    if trimmed == "/bundles" || trimmed == "/bundle" {
         Some("")
+    } else if let Some(rest) = trimmed.strip_prefix("/bundles ") {
+        Some(rest.trim())
     } else {
-        trimmed.strip_prefix("/bundles ").map(str::trim)
+        trimmed.strip_prefix("/bundle ").map(str::trim)
     }
 }
 
 fn skills_slash_rest(trimmed: &str) -> Option<&str> {
-    if trimmed == "/skills" {
+    if trimmed == "/skills" || trimmed == "/skill" {
         Some("")
+    } else if let Some(rest) = trimmed.strip_prefix("/skills ") {
+        Some(rest.trim())
     } else {
-        trimmed.strip_prefix("/skills ").map(str::trim)
+        trimmed.strip_prefix("/skill ").map(str::trim)
     }
 }
 
 fn prompts_slash_rest(trimmed: &str) -> Option<&str> {
-    if trimmed == "/prompts" {
+    if trimmed == "/prompts" || trimmed == "/prompt" {
         Some("")
+    } else if let Some(rest) = trimmed.strip_prefix("/prompts ") {
+        Some(rest.trim())
     } else {
-        trimmed.strip_prefix("/prompts ").map(str::trim)
+        trimmed.strip_prefix("/prompt ").map(str::trim)
     }
 }
 
 fn adapters_slash_rest(trimmed: &str) -> Option<&str> {
-    if trimmed == "/adapters" {
+    if trimmed == "/adapters" || trimmed == "/adapter" {
         Some("")
+    } else if let Some(rest) = trimmed.strip_prefix("/adapters ") {
+        Some(rest.trim())
     } else {
-        trimmed.strip_prefix("/adapters ").map(str::trim)
+        trimmed.strip_prefix("/adapter ").map(str::trim)
     }
 }
 
@@ -2482,12 +2836,12 @@ fn handle_memory_slash(
     line_tx: &UnboundedSender<TranscriptLine>,
 ) {
     let rest = rest.trim();
-    if rest.is_empty() || rest == "help" {
+    if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
                 "/memory create [--user] [--agent <agent>] [--conversation <id>] [--topic <topic>] <content>",
-                "/memory generate [--user] [--agent <agent>] [--conversation <id>] [--range <range>] [--topic <topic>] <text>",
+                "/memory generate [--user] [--agent <agent>] [--conversation <id>] [--range <range>] [--topic <topic>] <text> [--guidance <text>]",
                 "/memory list",
                 "/memory access [--topic <topic>]",
                 "/memory show <id>",
@@ -2495,9 +2849,10 @@ fn handle_memory_slash(
                 "/memory delete <id> --confirm",
                 "/memory rollback [--user] --confirm",
                 "/memory backends",
+                "/memory probe [backend] [--topic <topic>]",
                 "/memory classify <id> [--model <model>] [--agent <agent>] [--no-apply]",
-                "/memory export <path> [--user]",
-                "/memory import <path> [--user]",
+                "/memory export <path> [--user] [--agent <agent>]",
+                "/memory import <path> [--user] [--agent <agent>]",
             ]
             .join("\n"),
         });
@@ -2512,7 +2867,7 @@ fn handle_memory_slash(
             Ok(args) => {
                 let target = memory_target(args.user);
                 let owning_agent = args.agent.or_else(|| Some(agent.id.clone()));
-                match MemoryStore::from_env().create_for_conversation_with_topics_for_agent(
+                match create_record_for_active_backend_with_topics_for_agent(
                     target,
                     &args.text,
                     MemoryAuthor::Human,
@@ -2552,13 +2907,14 @@ fn handle_memory_slash(
             Ok(args) => {
                 let target = memory_target(args.user);
                 let owning_agent = args.agent.or_else(|| Some(agent.id.clone()));
-                match MemoryStore::from_env().generate_from_conversation_text_with_topics_for_agent(
+                match generate_records_for_active_backend_with_topics_for_agent_and_guidance(
                     target,
                     &args.text,
                     args.range,
                     args.conversation,
                     args.topics,
                     owning_agent,
+                    args.guidance,
                 ) {
                     Ok(records) => {
                         for record in &records {
@@ -2590,7 +2946,7 @@ fn handle_memory_slash(
                 text: err.to_string(),
             }),
         },
-        "list" => match MemoryStore::from_env().list() {
+        "list" => match list_records_for_active_backend() {
             Ok(records) => {
                 push_event(app, format!("Loaded {} memory record(s).", records.len()));
                 app.transcript.push(TranscriptLine {
@@ -2648,7 +3004,7 @@ fn handle_memory_slash(
             }),
         },
         "edit" => match memory_edit_args(args) {
-            Ok((id, content)) => match MemoryStore::from_env().edit(id, content) {
+            Ok((id, content)) => match edit_record_for_active_backend(id, content) {
                 Ok(record) => {
                     if let Err(err) = crate::headless::record_memory_written(&record, "edited") {
                         app.transcript.push(TranscriptLine {
@@ -2675,7 +3031,7 @@ fn handle_memory_slash(
             }),
         },
         "delete" => match memory_confirm_id_args(args, "delete") {
-            Ok(id) => match MemoryStore::from_env().delete(id) {
+            Ok(id) => match delete_record_for_active_backend(id) {
                 Ok(()) => {
                     if let Err(err) =
                         crate::headless::record_memory_operation(id, "deleted", None, None)
@@ -2701,7 +3057,7 @@ fn handle_memory_slash(
         "rollback" => match memory_rollback_args(args) {
             Ok(user) => {
                 let target = memory_target(user);
-                match MemoryStore::from_env().rollback(target) {
+                match rollback_active_backend(target) {
                     Ok(()) => {
                         let name = if user { "user.md" } else { "memory.md" };
                         if let Err(err) =
@@ -2770,14 +3126,44 @@ fn handle_memory_slash(
                     .unwrap_or_else(|_| "<unserializable memory backends>".into()),
             });
         }
+        "probe" => match memory_probe_args(args) {
+            Ok((backend, topics)) => match probe_memory_backend(
+                StoragePaths::from_env(),
+                backend.as_deref().unwrap_or(agent_core::DEFAULT_MEMORY_BACKEND_ID),
+                &topics,
+            ) {
+                Ok(report) => {
+                    push_event(
+                        app,
+                        format!(
+                            "Probed memory backend {}: ok={} records={}",
+                            report.backend, report.ok, report.records
+                        ),
+                    );
+                    app.transcript.push(TranscriptLine {
+                        kind: LineKind::Assistant,
+                        text: serde_json::to_string_pretty(&report)
+                            .unwrap_or_else(|_| "<unserializable memory backend probe>".into()),
+                    });
+                }
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Memory backend probe failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
         "export" => match memory_path_args(args, "export") {
-            Ok((path, user)) => {
+            Ok((path, user, agent)) => {
                 let target = if user {
                     MemoryTarget::User
                 } else {
                     MemoryTarget::Agent
                 };
-                match MemoryStore::from_env().export_target(target, path) {
+                match export_target_for_active_backend(target, path, agent) {
                     Ok(records) => push_event(
                         app,
                         format!("Exported {} memory record(s) to {path}", records.len()),
@@ -2794,13 +3180,13 @@ fn handle_memory_slash(
             }),
         },
         "import" => match memory_path_args(args, "import") {
-            Ok((path, user)) => {
+            Ok((path, user, agent)) => {
                 let target = if user {
                     MemoryTarget::User
                 } else {
                     MemoryTarget::Agent
                 };
-                match MemoryStore::from_env().import_file(path, Some(target)) {
+                match import_file_for_active_backend_for_agent(path, Some(target), agent) {
                     Ok(records) => {
                         for record in &records {
                             if let Err(err) =
@@ -2838,7 +3224,7 @@ fn handle_memory_slash(
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Memory command needs create, generate, list, access, show, edit, delete, rollback, classify, backends, export, import, or help.".into(),
+            text: "Memory command needs create, generate, list, access, show, edit, delete, rollback, classify, backends, probe, export, import, or help.".into(),
         }),
     }
 }
@@ -2850,6 +3236,7 @@ struct MemoryWriteArgs {
     conversation: Option<String>,
     agent: Option<String>,
     topics: Vec<String>,
+    guidance: Option<String>,
 }
 
 struct MemoryClassifyArgs {
@@ -2880,6 +3267,24 @@ fn memory_access_args(args: &str) -> anyhow::Result<Vec<String>> {
     Ok(topics)
 }
 
+fn memory_probe_args(args: &str) -> anyhow::Result<(Option<String>, Vec<String>)> {
+    let mut parts = args.split_whitespace();
+    let mut backend = None;
+    let mut topics = Vec::new();
+    while let Some(part) = parts.next() {
+        match part {
+            "--topic" => topics.push(next_memory_option_value(&mut parts, "--topic")?.to_string()),
+            value if value.starts_with("--topic=") => {
+                topics.push(value.trim_start_matches("--topic=").to_string());
+            }
+            value if value.starts_with("--") => anyhow::bail!("unknown option {value}"),
+            value if backend.is_none() => backend = Some(value.to_string()),
+            _ => anyhow::bail!("usage: /memory probe [backend] [--topic <topic>]"),
+        }
+    }
+    Ok((backend, topics))
+}
+
 fn parse_memory_write_args(
     args: &str,
     command: &str,
@@ -2891,6 +3296,7 @@ fn parse_memory_write_args(
     let mut conversation = None;
     let mut agent = None;
     let mut topics = Vec::new();
+    let mut guidance = None;
     let mut text_parts = Vec::new();
     while let Some(part) = parts.next() {
         match part {
@@ -2908,6 +3314,9 @@ fn parse_memory_write_args(
             "--topic" if text_parts.is_empty() => {
                 topics.push(next_memory_option_value(&mut parts, "--topic")?.to_string());
             }
+            "--guidance" if allow_range && text_parts.is_empty() => {
+                guidance = Some(next_memory_option_value(&mut parts, "--guidance")?.to_string());
+            }
             value if value.starts_with("--range=") && allow_range && text_parts.is_empty() => {
                 range = Some(value.trim_start_matches("--range=").to_string());
             }
@@ -2919,6 +3328,9 @@ fn parse_memory_write_args(
             }
             value if value.starts_with("--topic=") && text_parts.is_empty() => {
                 topics.push(value.trim_start_matches("--topic=").to_string());
+            }
+            value if value.starts_with("--guidance=") && allow_range && text_parts.is_empty() => {
+                guidance = Some(value.trim_start_matches("--guidance=").to_string());
             }
             value if value.starts_with("--") && text_parts.is_empty() => {
                 anyhow::bail!("unexpected memory {command} argument: {value}");
@@ -2934,6 +3346,16 @@ fn parse_memory_write_args(
     if text.trim().is_empty() {
         anyhow::bail!("memory {command} needs text");
     }
+    let text = if allow_range {
+        let (text, trailing_guidance) = memory_generation_text_and_guidance(&text, command)?;
+        if guidance.is_some() && trailing_guidance.is_some() {
+            anyhow::bail!("memory {command} guidance specified twice");
+        }
+        guidance = guidance.or(trailing_guidance);
+        text
+    } else {
+        text
+    };
     Ok(MemoryWriteArgs {
         text,
         user,
@@ -2941,7 +3363,46 @@ fn parse_memory_write_args(
         conversation,
         agent,
         topics,
+        guidance,
     })
+}
+
+fn memory_generation_text_and_guidance(
+    text: &str,
+    command: &str,
+) -> anyhow::Result<(String, Option<String>)> {
+    let text = text.trim();
+    if text == "--guidance" || text.starts_with("--guidance ") || text.starts_with("--guidance=") {
+        anyhow::bail!("memory {command} needs text before --guidance");
+    }
+    if text.ends_with(" --guidance") {
+        anyhow::bail!("memory {command} --guidance needs text");
+    }
+    let spaced = text.rsplit_once(" --guidance ");
+    let inline = text.rsplit_once(" --guidance=");
+    let parsed = match (spaced, inline) {
+        (Some((spaced_text, spaced_guidance)), Some((inline_text, inline_guidance))) => {
+            if spaced_text.len() >= inline_text.len() {
+                Some((spaced_text, spaced_guidance))
+            } else {
+                Some((inline_text, inline_guidance))
+            }
+        }
+        (Some(parsed), None) | (None, Some(parsed)) => Some(parsed),
+        (None, None) => None,
+    };
+    let Some((text, guidance)) = parsed else {
+        return Ok((text.to_string(), None));
+    };
+    let text = text.trim();
+    let guidance = guidance.trim();
+    if text.is_empty() {
+        anyhow::bail!("memory {command} needs text before --guidance");
+    }
+    if guidance.is_empty() {
+        anyhow::bail!("memory {command} --guidance needs text");
+    }
+    Ok((text.to_string(), Some(guidance.to_string())))
 }
 
 fn memory_edit_args(args: &str) -> anyhow::Result<(&str, &str)> {
@@ -3020,7 +3481,11 @@ fn parse_memory_classify_args(args: &str) -> anyhow::Result<MemoryClassifyArgs> 
                 model = Some(value.trim_start_matches("--model=").to_string());
             }
             value if value.starts_with("--agent=") => {
-                agent = Some(value.trim_start_matches("--agent=").to_string());
+                let value = value.trim_start_matches("--agent=");
+                if value.is_empty() {
+                    anyhow::bail!("memory classify --agent needs an id");
+                }
+                agent = Some(value.to_string());
             }
             other => anyhow::bail!("unexpected memory classify argument: {other}"),
         }
@@ -3043,20 +3508,40 @@ fn next_memory_option_value<'a>(
         .ok_or_else(|| anyhow::anyhow!("{flag} needs a value"))
 }
 
-fn memory_path_args<'a>(args: &'a str, command: &str) -> anyhow::Result<(&'a str, bool)> {
+fn memory_path_args<'a>(
+    args: &'a str,
+    command: &str,
+) -> anyhow::Result<(&'a str, bool, Option<String>)> {
     let mut path = None;
     let mut user = false;
-    for part in args.split_whitespace() {
-        if part == "--user" {
-            user = true;
-        } else if path.is_none() {
-            path = Some(part);
-        } else {
-            anyhow::bail!("memory {command} accepts exactly one path and optional --user");
+    let mut agent = None;
+    let mut parts = args.split_whitespace();
+    while let Some(part) = parts.next() {
+        match part {
+            "--user" => user = true,
+            "--agent" => {
+                agent = Some(
+                    parts
+                        .next()
+                        .ok_or_else(|| anyhow::anyhow!("memory {command} --agent needs an id"))?
+                        .to_string(),
+                );
+            }
+            value if value.starts_with("--agent=") => {
+                let value = value.trim_start_matches("--agent=");
+                if value.is_empty() {
+                    anyhow::bail!("memory {command} --agent needs an id");
+                }
+                agent = Some(value.to_string());
+            }
+            _ if path.is_none() => path = Some(part),
+            _ => anyhow::bail!(
+                "memory {command} accepts exactly one path plus optional --user and --agent"
+            ),
         }
     }
     let path = path.ok_or_else(|| anyhow::anyhow!("memory {command} needs a path"))?;
-    Ok((path, user))
+    Ok((path, user, agent))
 }
 
 fn memory_record_summary(record: &MemoryRecord) -> serde_json::Value {
@@ -3077,19 +3562,20 @@ fn memory_record_summary(record: &MemoryRecord) -> serde_json::Value {
 
 fn handle_capabilities_slash(app: &mut App, rest: &str) {
     let rest = rest.trim();
-    if rest.is_empty() || rest == "help" {
+    if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
                 "/capabilities list",
                 "/capabilities doctor",
-                "/capabilities propose <tool|skill|agent|subagent> <name> <body>",
+                "/capabilities propose <tool|skill|agent|subagent> <name> <body> [--guidance <text>]",
                 "/capabilities show <id>",
                 "/capabilities export <id> <path>",
                 "/capabilities import <path>",
                 "/capabilities allow <id> --confirm",
                 "/capabilities reject <id> --confirm",
                 "/capabilities delete <id> --confirm",
+                "/capability is accepted as an alias for /capabilities.",
             ]
             .join("\n"),
         });
@@ -3225,13 +3711,13 @@ fn handle_capabilities_slash(app: &mut App, rest: &str) {
 }
 
 fn propose_capability_draft(args: &str) -> anyhow::Result<CapabilityDraft> {
-    let (kind, name, body) = capability_propose_args(args)?;
+    let (kind, name, body, guidance) = capability_propose_args(args)?;
     let draft = CapabilityDraftStore::from_env().propose(CapabilityDraftInput {
         id: None,
         kind: CapabilityKind::parse(kind)?,
         name: name.into(),
         body: body.into(),
-        guidance: None,
+        guidance: guidance.map(str::to_string),
         created_by: "user".into(),
         provenance: "tui:/capabilities propose".into(),
     })?;
@@ -3353,7 +3839,7 @@ fn capability_export_args(args: &str) -> anyhow::Result<(&str, &str)> {
     Ok((id, path))
 }
 
-fn capability_propose_args(args: &str) -> anyhow::Result<(&str, &str, &str)> {
+fn capability_propose_args(args: &str) -> anyhow::Result<(&str, &str, &str, Option<&str>)> {
     let (kind, rest) = args
         .trim()
         .split_once(char::is_whitespace)
@@ -3366,7 +3852,43 @@ fn capability_propose_args(args: &str) -> anyhow::Result<(&str, &str, &str)> {
     if body.is_empty() {
         anyhow::bail!("capabilities propose needs a body");
     }
-    Ok((kind, name, body))
+    let (body, guidance) = capability_propose_body_and_guidance(body)?;
+    Ok((kind, name, body, guidance))
+}
+
+fn capability_propose_body_and_guidance(body: &str) -> anyhow::Result<(&str, Option<&str>)> {
+    let body = body.trim();
+    if body == "--guidance" || body.starts_with("--guidance ") || body.starts_with("--guidance=") {
+        anyhow::bail!("capabilities propose needs a body before --guidance");
+    }
+    if body.ends_with(" --guidance") {
+        anyhow::bail!("capabilities propose --guidance needs text");
+    }
+    let spaced = body.rsplit_once(" --guidance ");
+    let inline = body.rsplit_once(" --guidance=");
+    let parsed = match (spaced, inline) {
+        (Some((spaced_body, spaced_guidance)), Some((inline_body, inline_guidance))) => {
+            if spaced_body.len() >= inline_body.len() {
+                Some((spaced_body, spaced_guidance))
+            } else {
+                Some((inline_body, inline_guidance))
+            }
+        }
+        (Some(parsed), None) | (None, Some(parsed)) => Some(parsed),
+        (None, None) => None,
+    };
+    let Some((body, guidance)) = parsed else {
+        return Ok((body, None));
+    };
+    let body = body.trim();
+    let guidance = guidance.trim();
+    if body.is_empty() {
+        anyhow::bail!("capabilities propose needs a body before --guidance");
+    }
+    if guidance.is_empty() {
+        anyhow::bail!("capabilities propose --guidance needs text");
+    }
+    Ok((body, Some(guidance)))
 }
 
 fn capability_draft_summary(draft: &CapabilityDraft) -> serde_json::Value {
@@ -3379,6 +3901,7 @@ fn capability_draft_summary(draft: &CapabilityDraft) -> serde_json::Value {
         "provenance": draft.provenance,
         "updated_at": draft.updated_at,
         "body_preview": compact_preview(&draft.body, 240),
+        "guidance_preview": draft.guidance.as_deref().map(|guidance| compact_preview(guidance, 240)),
     })
 }
 
@@ -3400,7 +3923,7 @@ fn capability_doctor_summary(report: &CapabilityDraftDoctorReport) -> serde_json
 
 fn handle_ingest_slash(app: &mut App, rest: &str, line_tx: &UnboundedSender<TranscriptLine>) {
     let rest = rest.trim();
-    if rest.is_empty() || rest == "help" {
+    if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
@@ -3408,6 +3931,7 @@ fn handle_ingest_slash(app: &mut App, rest: &str, line_tx: &UnboundedSender<Tran
                 "/ingest show <id>",
                 "/ingest add <path> [--backend <backend>] [--vision-model <model>] [--guardrail-model <model>]",
                 "/ingest rerun <id> [--backend <backend>] [--vision-model <model>] [--guardrail-model <model>]",
+                "/ingest probe-source <path> [--vision-model <model>]",
                 "/ingest probe-vision <path> --model <model>",
                 "/ingest review <id> <finding-index> <acknowledge|approve|reject> [note]",
                 "/ingest delete <id> --confirm",
@@ -3549,6 +4073,37 @@ fn handle_ingest_slash(app: &mut App, rest: &str, line_tx: &UnboundedSender<Tran
                 text: err.to_string(),
             }),
         },
+        "probe-source" => match ingest_probe_source_args(args) {
+            Ok((path, vision_model)) => {
+                push_event(
+                    app,
+                    format!("Probing ingestion source compatibility for {path}."),
+                );
+                let tx = line_tx.clone();
+                let path = path.to_string();
+                let vision_model = vision_model.map(str::to_string);
+                tokio::spawn(async move {
+                    let line = match crate::headless::ingest_probe_source_result(path, vision_model)
+                    {
+                        Ok(report) => TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&report).unwrap_or_else(|_| {
+                                "<unserializable ingestion source probe>".into()
+                            }),
+                        },
+                        Err(err) => TranscriptLine {
+                            kind: LineKind::Error,
+                            text: format!("Ingest source probe failed: {err}"),
+                        },
+                    };
+                    let _ = tx.send(line);
+                });
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
         "probe-vision" | "probe" => match ingest_probe_vision_args(args) {
             Ok((path, model)) => {
                 push_event(app, format!("Probing vision ingestion for {path}."));
@@ -3601,7 +4156,7 @@ fn handle_ingest_slash(app: &mut App, rest: &str, line_tx: &UnboundedSender<Tran
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Ingest command needs list, show, add, rerun, probe-vision, review, delete, or help.".into(),
+            text: "Ingest command needs list, show, add, rerun, probe-source, probe-vision, review, delete, or help.".into(),
         }),
     }
 }
@@ -3727,6 +4282,43 @@ fn ingest_probe_vision_args(args: &str) -> anyhow::Result<(&str, &str)> {
     Ok((path, model))
 }
 
+fn ingest_probe_source_args(args: &str) -> anyhow::Result<(&str, Option<&str>)> {
+    let mut parts = args.split_whitespace();
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("ingest probe-source needs a path"))?;
+    let mut vision_model = None;
+    while let Some(part) = parts.next() {
+        if part == "--vision-model" || part == "--model" {
+            if vision_model.is_some() {
+                anyhow::bail!("ingest probe-source accepts one --vision-model value");
+            }
+            vision_model = Some(parts.next().ok_or_else(|| {
+                anyhow::anyhow!("ingest probe-source --vision-model needs a value")
+            })?);
+        } else if let Some(value) = part.strip_prefix("--vision-model=") {
+            if value.is_empty() {
+                anyhow::bail!("ingest probe-source --vision-model needs a value");
+            }
+            if vision_model.is_some() {
+                anyhow::bail!("ingest probe-source accepts one --vision-model value");
+            }
+            vision_model = Some(value);
+        } else if let Some(value) = part.strip_prefix("--model=") {
+            if value.is_empty() {
+                anyhow::bail!("ingest probe-source --model needs a value");
+            }
+            if vision_model.is_some() {
+                anyhow::bail!("ingest probe-source accepts one --vision-model value");
+            }
+            vision_model = Some(value);
+        } else {
+            anyhow::bail!("unknown ingest probe-source option: {part}");
+        }
+    }
+    Ok((path, vision_model))
+}
+
 fn ingest_review_args(
     args: &str,
 ) -> anyhow::Result<(&str, u32, IngestionFindingReviewDecision, Option<String>)> {
@@ -3773,7 +4365,7 @@ struct ApprovalActionArgs {
 
 fn handle_approval_slash(app: &mut App, rest: &str, line_tx: &UnboundedSender<TranscriptLine>) {
     let rest = rest.trim();
-    if rest.is_empty() || rest == "help" {
+    if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
@@ -3782,6 +4374,7 @@ fn handle_approval_slash(app: &mut App, rest: &str, line_tx: &UnboundedSender<Tr
                 "/approval approve [run-id|last] <approval-id> [--unlock-env <env>] [--signature-env <env>] [--controller-agent <agent>]",
                 "/approval reject [run-id|last] <approval-id>",
                 "/approval execute [run-id|last] <approval-id> [--unlock-env <env>] [--signature-env <env>]",
+                "/approvals is accepted as an alias for /approval.",
             ]
             .join("\n"),
         });
@@ -4034,14 +4627,18 @@ fn resolve_approval_run_id(raw: &str, last_run_id: Option<RunId>) -> anyhow::Res
 
 fn handle_artifacts_slash(app: &mut App, rest: &str) {
     let rest = rest.trim();
-    if rest.is_empty() || rest == "help" {
+    if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
                 "/artifacts list",
+                "/artifacts generate <format> <content>",
                 "/artifacts show <id>",
                 "/artifacts open <id>",
+                "/artifacts export <id> <path>",
+                "/artifacts download <id> [path]",
                 "/artifacts delete <id> --confirm",
+                "/artifact is accepted as an alias for /artifacts.",
             ]
             .join("\n"),
         });
@@ -4072,6 +4669,34 @@ fn handle_artifacts_slash(app: &mut App, rest: &str) {
             Err(err) => app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
                 text: format!("Artifact list failed: {err}"),
+            }),
+        },
+        "generate" => match artifact_generate_args(args) {
+            Ok((format, content)) => match generate_artifact_from_env(ArtifactGenerateInput {
+                format: format.into(),
+                title: None,
+                content: Some(content.into()),
+                rows: None,
+                filename: None,
+            }) {
+                Ok(artifact) => push_event(
+                    app,
+                    format!(
+                        "Generated artifact {} {} bytes={} path={}",
+                        artifact.id,
+                        artifact.format,
+                        artifact.bytes,
+                        artifact.path.display()
+                    ),
+                ),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Artifact generate failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
             }),
         },
         "show" => match first_artifact_arg(args, "show") {
@@ -4111,6 +4736,48 @@ fn handle_artifacts_slash(app: &mut App, rest: &str) {
                 text: err.to_string(),
             }),
         },
+        "export" => match artifact_export_args(args) {
+            Ok((id, path)) => match export_generated_artifact_from_env(id, path) {
+                Ok(exported) => push_event(
+                    app,
+                    format!(
+                        "Exported artifact {} to {} ({} bytes)",
+                        exported.artifact.id,
+                        exported.output_path.display(),
+                        exported.bytes
+                    ),
+                ),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Artifact export failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "download" => match artifact_download_args(args) {
+            Ok((id, path)) => match export_generated_artifact_from_env(id, path) {
+                Ok(exported) => push_event(
+                    app,
+                    format!(
+                        "Downloaded artifact {} to {} ({} bytes)",
+                        exported.artifact.id,
+                        exported.output_path.display(),
+                        exported.bytes
+                    ),
+                ),
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Artifact download failed: {err}"),
+                }),
+            },
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
         "delete" => match artifact_delete_args(args) {
             Ok((id, true)) => match delete_generated_artifact_from_env(id) {
                 Ok(artifact) => push_event(
@@ -4142,15 +4809,56 @@ fn handle_artifacts_slash(app: &mut App, rest: &str) {
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Artifacts command needs list, show, open, delete, or help.".into(),
+            text: "Artifacts command needs list, generate, show, open, export, download, delete, or help."
+                .into(),
         }),
     }
+}
+
+fn artifact_generate_args(args: &str) -> anyhow::Result<(&str, &str)> {
+    let mut parts = args.trim().splitn(2, char::is_whitespace);
+    let format = parts
+        .next()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| anyhow::anyhow!("artifacts generate needs a format"))?;
+    let content = parts
+        .next()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("artifacts generate needs content"))?;
+    Ok((format, content))
 }
 
 fn first_artifact_arg<'a>(args: &'a str, command: &str) -> anyhow::Result<&'a str> {
     args.split_whitespace()
         .next()
         .ok_or_else(|| anyhow::anyhow!("artifacts {command} needs an argument"))
+}
+
+fn artifact_export_args(args: &str) -> anyhow::Result<(&str, &str)> {
+    let mut parts = args.split_whitespace();
+    let id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("artifacts export needs an artifact id"))?;
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("artifacts export needs a path"))?;
+    if parts.next().is_some() {
+        anyhow::bail!("artifacts export accepts exactly an artifact id and path");
+    }
+    Ok((id, path))
+}
+
+fn artifact_download_args(args: &str) -> anyhow::Result<(&str, &str)> {
+    let mut parts = args.split_whitespace();
+    let id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("artifacts download needs an artifact id"))?;
+    let path = parts.next().unwrap_or(".");
+    if parts.next().is_some() {
+        anyhow::bail!("artifacts download accepts an artifact id and optional path");
+    }
+    Ok((id, path))
 }
 
 fn artifact_delete_args(args: &str) -> anyhow::Result<(&str, bool)> {
@@ -4181,7 +4889,7 @@ fn generated_artifact_summary(artifact: &GeneratedArtifact) -> serde_json::Value
 
 fn handle_models_slash(app: &mut App, rest: &str) {
     let rest = rest.trim();
-    if rest.is_empty() || rest == "help" {
+    if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
@@ -4200,6 +4908,7 @@ fn handle_models_slash(app: &mut App, rest: &str) {
                 "/models metadata-catalog show",
                 "/models metadata-catalog export <path>",
                 "/models metadata-catalog import <path> --confirm",
+                "/model is accepted as an alias for /models.",
             ]
             .join("\n"),
         });
@@ -4468,7 +5177,7 @@ fn model_delete_args(args: &str) -> anyhow::Result<(&str, bool)> {
 
 fn handle_model_provider_catalog_slash(app: &mut App, rest: &str) {
     let rest = rest.trim();
-    if rest.is_empty() || rest == "help" {
+    if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
@@ -4599,7 +5308,7 @@ fn model_provider_catalog_import_args(args: &str) -> anyhow::Result<(&str, bool)
 
 fn handle_model_metadata_catalog_slash(app: &mut App, rest: &str) {
     let rest = rest.trim();
-    if rest.is_empty() || rest == "help" {
+    if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
@@ -4761,7 +5470,7 @@ fn handle_agents_slash(
     options: &mut setup::RuntimeOptions,
 ) {
     let rest = rest.trim();
-    if rest.is_empty() || rest == "help" {
+    if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
@@ -4995,7 +5704,7 @@ fn agent_summary(agent: &AgentSummary) -> serde_json::Value {
 
 fn handle_profiles_slash(app: &mut App, rest: &str) {
     let rest = rest.trim();
-    if rest.is_empty() || rest == "help" {
+    if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
@@ -5007,6 +5716,7 @@ fn handle_profiles_slash(app: &mut App, rest: &str) {
                 "/profiles grant [--from <profile>] --to <profile> --kind <agent|memory|tool|skill|category> <resource>",
                 "/profiles grants [--from <profile>]",
                 "/profiles revoke-grant <id> --confirm",
+                "/profile is accepted as an alias for /profiles.",
             ]
             .join("\n"),
         });
@@ -5356,7 +6066,7 @@ fn profile_summary(profile: &ProfileSummary) -> serde_json::Value {
 
 fn handle_secrets_slash(app: &mut App, rest: &str) {
     let rest = rest.trim();
-    if rest.is_empty() || rest == "help" {
+    if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
@@ -5366,6 +6076,7 @@ fn handle_secrets_slash(app: &mut App, rest: &str) {
                 "/secrets set <id> [--label <label>] <value>",
                 "/secrets rotate <id> <value>",
                 "/secrets delete <id> --confirm",
+                "/secret is accepted as an alias for /secrets.",
             ]
             .join("\n"),
         });
@@ -5644,18 +6355,17 @@ fn next_secret_option_value<'a>(
         .ok_or_else(|| anyhow::anyhow!("{flag} needs a value"))
 }
 
-fn handle_prompts_slash(app: &mut App, rest: &str) {
+fn handle_prompts_slash(
+    app: &mut App,
+    rest: &str,
+    registry: &Arc<ToolRegistry>,
+    agent: &AgentConfig,
+) {
     let rest = rest.trim();
-    if rest.is_empty() || rest == "help" {
+    if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
-            text: [
-                "/prompts list [--agent <agent>]",
-                "/prompts show <name> [--agent <agent>]",
-                "/prompts save <name> [--agent <agent>] <text>",
-                "/prompts delete <name> [--agent <agent>] --confirm",
-            ]
-            .join("\n"),
+            text: prompt_slash_help_text(),
         });
         return;
     }
@@ -5729,6 +6439,87 @@ fn handle_prompts_slash(app: &mut App, rest: &str) {
                 text: err.to_string(),
             }),
         },
+        "use" => match prompt_named_args(args, "use") {
+            Ok((name, prompt_agent)) => {
+                match load_prompt_for_shortcut(name, prompt_agent.as_deref(), Some(&agent.id)) {
+                    Ok(prompt) => {
+                        let name = prompt.name.clone();
+                        app.input = prompt.body;
+                        push_event(app, format!("Loaded prompt {name} into input."));
+                    }
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Use prompt failed: {err}"),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "preview" => match prompt_named_args(args, "preview") {
+            Ok((name, prompt_agent)) => {
+                match load_prompt_for_shortcut(name, prompt_agent.as_deref(), Some(&agent.id)) {
+                    Ok(prompt) => {
+                        push_context_preview(app, registry, agent, &prompt.body);
+                        push_event(app, format!("Previewed saved prompt context: {}", prompt.name));
+                    }
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Preview prompt failed: {err}"),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "export" => match prompt_export_args(args) {
+            Ok((name, path, agent)) => {
+                match PromptStore::from_env().export_scoped(agent.as_deref(), name, path) {
+                    Ok(prompt) => {
+                        push_event(app, format!("Exported prompt {} to {path}.", prompt.name));
+                        app.transcript.push(TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&prompt_summary(&prompt))
+                                .unwrap_or_else(|_| "<unserializable prompt>".into()),
+                        });
+                    }
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Prompt export failed: {err}"),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
+        "import" => match prompt_import_args(args) {
+            Ok((path, agent)) => {
+                match PromptStore::from_env().import_file(path, agent.as_deref()) {
+                    Ok(prompt) => {
+                        push_event(app, format!("Imported prompt {}.", prompt.name));
+                        app.transcript.push(TranscriptLine {
+                            kind: LineKind::Assistant,
+                            text: serde_json::to_string_pretty(&prompt_summary(&prompt))
+                                .unwrap_or_else(|_| "<unserializable prompt>".into()),
+                        });
+                    }
+                    Err(err) => app.transcript.push(TranscriptLine {
+                        kind: LineKind::Error,
+                        text: format!("Prompt import failed: {err}"),
+                    }),
+                }
+            }
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: err.to_string(),
+            }),
+        },
         "delete" => match prompt_delete_args(args) {
             Ok((name, agent, confirmed)) => {
                 if !confirmed {
@@ -5767,9 +6558,22 @@ fn handle_prompts_slash(app: &mut App, rest: &str) {
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Prompts command needs list, show, save, delete, or help.".into(),
+            text:
+                "Prompts command needs list, show, save, use, preview, export, import, delete, or help."
+                    .into(),
         }),
     }
+}
+
+fn load_prompt_for_shortcut(
+    name: &str,
+    agent: Option<&str>,
+    active_agent: Option<&str>,
+) -> anyhow::Result<PromptDoc> {
+    let scope = agent.or(active_agent);
+    PromptStore::from_env()
+        .resolve_for_agent(scope, name)?
+        .ok_or_else(|| anyhow::anyhow!("Prompt {name:?} not found."))
 }
 
 fn prompt_agent_arg(args: &str, command: &str) -> anyhow::Result<Option<String>> {
@@ -5846,6 +6650,45 @@ fn prompt_delete_args(args: &str) -> anyhow::Result<(&str, Option<String>, bool)
     Ok((name, agent, confirmed))
 }
 
+fn prompt_export_args<'a>(args: &'a str) -> anyhow::Result<(&'a str, &'a str, Option<String>)> {
+    let mut parts = args.split_whitespace();
+    let name = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("prompts export needs a prompt name"))?;
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("prompts export needs a path"))?;
+    let mut agent = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--agent" => agent = Some(next_prompt_option_value(&mut parts, "--agent")?.to_string()),
+            value if value.starts_with("--agent=") => {
+                agent = Some(value.trim_start_matches("--agent=").to_string());
+            }
+            other => anyhow::bail!("prompts export received unexpected argument: {other}"),
+        }
+    }
+    Ok((name, path, agent))
+}
+
+fn prompt_import_args(args: &str) -> anyhow::Result<(&str, Option<String>)> {
+    let mut parts = args.split_whitespace();
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("prompts import needs a path"))?;
+    let mut agent = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--agent" => agent = Some(next_prompt_option_value(&mut parts, "--agent")?.to_string()),
+            value if value.starts_with("--agent=") => {
+                agent = Some(value.trim_start_matches("--agent=").to_string());
+            }
+            other => anyhow::bail!("prompts import received unexpected argument: {other}"),
+        }
+    }
+    Ok((path, agent))
+}
+
 fn prompt_named_confirm_args<'a>(
     args: &'a str,
     command: &str,
@@ -5889,7 +6732,7 @@ fn prompt_summary(prompt: &PromptDoc) -> serde_json::Value {
 
 fn handle_skills_slash(app: &mut App, rest: &str) {
     let rest = rest.trim();
-    if rest.is_empty() || rest == "help" {
+    if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
@@ -5901,6 +6744,7 @@ fn handle_skills_slash(app: &mut App, rest: &str) {
                 "/skills export <id> <path>",
                 "/skills allow <id> --confirm",
                 "/skills quarantine <id> --confirm",
+                "/skill is accepted as an alias for /skills.",
             ]
             .join("\n"),
         });
@@ -6118,7 +6962,7 @@ fn skill_summary(doc: &SkillDoc) -> serde_json::Value {
 
 fn handle_storage_slash(app: &mut App, rest: &str) {
     let rest = rest.trim();
-    if rest.is_empty() || rest == "help" {
+    if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: ["/storage report", "/storage prune-cache <days> [--apply]"].join("\n"),
@@ -6204,10 +7048,15 @@ fn storage_prune_cache_args(args: &str) -> anyhow::Result<(u64, bool)> {
 
 fn handle_bundles_slash(app: &mut App, rest: &str) {
     let rest = rest.trim();
-    if rest.is_empty() || rest == "help" {
+    if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
-            text: ["/bundles export <path>", "/bundles import <path> --confirm"].join("\n"),
+            text: [
+                "/bundles export <path>",
+                "/bundles import <path> --confirm",
+                "/bundle is accepted as an alias for /bundles.",
+            ]
+            .join("\n"),
         });
         return;
     }
@@ -6312,7 +7161,7 @@ fn bundle_import_args(args: &str) -> anyhow::Result<(&str, bool)> {
 
 fn handle_adapters_slash(app: &mut App, rest: &str) {
     let rest = rest.trim();
-    if rest.is_empty() || rest == "help" {
+    if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
@@ -6330,6 +7179,7 @@ fn handle_adapters_slash(app: &mut App, rest: &str) {
                 "/adapters clawhub inspect <catalog> <id>",
                 "/adapters clawhub pin <catalog> <id>",
                 "/adapters clawhub install <catalog> <id>",
+                "/adapter is accepted as an alias for /adapters.",
             ]
             .join("\n"),
         });
@@ -6538,7 +7388,7 @@ fn adapter_export_args(args: &str) -> anyhow::Result<(&str, &str)> {
 
 fn handle_adapter_clawhub_slash(app: &mut App, rest: &str) {
     let rest = rest.trim();
-    if rest.is_empty() || rest == "help" {
+    if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
@@ -6720,12 +7570,13 @@ fn adapter_package_summary(package: &NormalizedPackage) -> serde_json::Value {
 
 fn handle_hooks_slash(app: &mut App, rest: &str, agent: &AgentConfig) {
     let rest = rest.trim();
-    if rest.is_empty() || rest == "help" {
+    if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
                 "/hooks review [run-id]",
                 "/hooks list",
+                "/hooks policy",
                 "/hooks available",
                 "/hooks disable <hook-id> [--agent] --confirm",
                 "/hooks enable <hook-id> [--agent] --confirm",
@@ -6740,7 +7591,14 @@ fn handle_hooks_slash(app: &mut App, rest: &str, agent: &AgentConfig) {
         .unwrap_or((rest, ""));
     match command {
         "review" => handle_hooks_review(app, args),
-        "list" => {
+        "list" | "policy" => {
+            if let Err(err) = hook_view_args(command, args) {
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Hook policy list failed: {err}"),
+                });
+                return;
+            }
             match ConfigResolver::from_env().lifecycle_hook_policy_layers_for_agent(&agent.id) {
                 Ok(policy) => {
                     push_event(
@@ -6773,12 +7631,27 @@ fn handle_hooks_slash(app: &mut App, rest: &str, agent: &AgentConfig) {
                 }),
             }
         }
-        "available" => handle_hooks_available(app, &agent.id),
+        "available" => match hook_view_args(command, args) {
+            Ok(()) => handle_hooks_available(app, &agent.id),
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Hook catalog failed: {err}"),
+            }),
+        },
         "disable" | "enable" => handle_hook_policy_change(app, command, args, &agent.id),
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Hooks command needs review, list, available, disable, enable, or help.".into(),
+            text: "Hooks command needs review, list, policy, available, disable, enable, or help."
+                .into(),
         }),
+    }
+}
+
+fn hook_view_args(command: &str, args: &str) -> anyhow::Result<()> {
+    if args.trim().is_empty() {
+        Ok(())
+    } else {
+        anyhow::bail!("usage: /hooks {command}")
     }
 }
 
@@ -6972,20 +7845,23 @@ fn parse_hook_policy_change_args(rest: &str) -> anyhow::Result<(String, bool, bo
 }
 
 fn compact_slash_rest(trimmed: &str) -> Option<&str> {
-    if trimmed == "/compact" {
+    if trimmed == "/compact" || trimmed == "/compactions" {
         Some("")
+    } else if let Some(rest) = trimmed.strip_prefix("/compact ") {
+        Some(rest.trim())
     } else {
-        trimmed.strip_prefix("/compact ").map(str::trim)
+        trimmed.strip_prefix("/compactions ").map(str::trim)
     }
 }
 
 fn handle_compact_slash(app: &mut App, rest: &str) {
     let rest = rest.trim();
-    if rest.is_empty() || rest == "help" {
+    if slash_help_rest(rest) {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
-                "/compact keep [run-id]",
+                "/compact keep [run-id|last]",
+                "/compact keep-run [run-id|last]",
                 "/compact list",
                 "/compact show <id>",
                 "/compact export <id> <path>",
@@ -6993,6 +7869,7 @@ fn handle_compact_slash(app: &mut App, rest: &str) {
                 "/compact delete <id> --confirm",
                 "/compact status",
                 "/compact dismiss",
+                "/compactions is accepted as an alias for /compact record commands.",
             ]
             .join("\n"),
         });
@@ -7003,7 +7880,7 @@ fn handle_compact_slash(app: &mut App, rest: &str) {
         .map(|(command, args)| (command, args.trim()))
         .unwrap_or((rest, ""));
     match command {
-        "keep" => handle_compact_keep(app, args),
+        "keep" | "keep-run" => handle_compact_keep(app, args),
         "list" => match CompactionStore::from_env().list() {
             Ok(records) => {
                 push_event(
@@ -7119,7 +7996,7 @@ fn handle_compact_slash(app: &mut App, rest: &str) {
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
             text:
-                "Compact command needs keep, list, show, export, import, delete, status, dismiss, or help.".into(),
+                "Compact command needs keep, keep-run, list, show, export, import, delete, status, dismiss, or help.".into(),
         }),
     }
 }
@@ -7228,6 +8105,14 @@ fn resolve_compact_keep_run_id(app: &App, args: &str) -> anyhow::Result<RunId> {
             .or(app.last_run_id)
             .ok_or_else(|| anyhow::anyhow!("keep needs a run id or a pending auto compaction"));
     }
+    if input == "last" {
+        return app
+            .last_run_id
+            .ok_or_else(|| anyhow::anyhow!("keep last needs a previous run"));
+    }
+    if input.split_whitespace().nth(1).is_some() {
+        anyhow::bail!("compact keep accepts at most one run id");
+    }
     Ok(RunId(uuid::Uuid::parse_str(input)?))
 }
 
@@ -7247,6 +8132,14 @@ fn score_slash_rest(trimmed: &str) -> Option<&str> {
     }
 }
 
+fn scores_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/scores" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/scores ").map(str::trim)
+    }
+}
+
 fn guide_slash_rest(trimmed: &str) -> Option<&str> {
     if trimmed == "/guide" {
         Some("")
@@ -7261,6 +8154,10 @@ fn stop_slash_rest(trimmed: &str) -> Option<&str> {
     } else {
         trimmed.strip_prefix("/stop ").map(str::trim)
     }
+}
+
+fn stop_status_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/stop status")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7291,6 +8188,12 @@ fn parse_stop_request(rest: &str) -> StopRequest {
         (Some(StopRetentionMode::Discard), "")
     } else if let Some(reason) = rest.strip_prefix("discard ") {
         (Some(StopRetentionMode::Discard), reason)
+    } else if rest == "--default" || rest == "default" {
+        (None, "")
+    } else if let Some(reason) = rest.strip_prefix("--default ") {
+        (None, reason)
+    } else if let Some(reason) = rest.strip_prefix("default ") {
+        (None, reason)
     } else {
         (None, rest)
     };
@@ -7361,6 +8264,14 @@ fn compare_slash_rest(trimmed: &str) -> Option<&str> {
     }
 }
 
+fn usage_slash_rest(trimmed: &str) -> Option<&str> {
+    if trimmed == "/usage" {
+        Some("")
+    } else {
+        trimmed.strip_prefix("/usage ").map(str::trim)
+    }
+}
+
 fn code_slash_command(trimmed: &str) -> Option<(&'static str, &str)> {
     if trimmed == "/python" {
         Some(("code_python", ""))
@@ -7387,10 +8298,320 @@ fn voice_slash_rest(trimmed: &str) -> Option<&str> {
 
 fn voice_slash_help_text() -> &'static str {
     "Voice commands:\n\
-     - /voice status - show terminal voice shortcuts\n\
+     - /voice status - show resolved active-agent voice config\n\
      - /voice transcribe <path> - transcribe an existing audio file\n\
      - /voice speak <text> - synthesize speech from text\n\
      Voice capture/stop is available from the app UI; the TUI can operate on saved audio paths."
+}
+
+fn voice_slash_status_text(agent: &AgentConfig) -> String {
+    let voice = &agent.voice;
+    let mut lines = vec![
+        "Voice status:".to_string(),
+        format!("agent: {} ({})", agent.name, agent.id),
+        format!("input: {}", enabled_label(voice.input_enabled)),
+    ];
+    push_voice_status_field(&mut lines, "input backend", voice.input_backend.as_deref());
+    push_voice_status_field(
+        &mut lines,
+        "input provider",
+        voice.input_provider.as_deref(),
+    );
+    push_voice_status_field(&mut lines, "input model", voice.input_model.as_deref());
+    lines.push(format!("output: {}", enabled_label(voice.output_enabled)));
+    push_voice_status_field(
+        &mut lines,
+        "output backend",
+        voice.output_backend.as_deref(),
+    );
+    push_voice_status_field(&mut lines, "tts provider", voice.tts_provider.as_deref());
+    push_voice_status_field(&mut lines, "tts model", voice.tts_model.as_deref());
+    push_voice_status_field(&mut lines, "voice", voice.voice.as_deref());
+    push_voice_status_field(&mut lines, "tone", voice.tone.as_deref());
+    lines.push("capture: app UI only; use /voice transcribe <path> for saved audio".into());
+    lines.push("shortcuts: /voice transcribe <path>, /voice speak <text>".into());
+    lines.join("\n")
+}
+
+fn enabled_label(enabled: bool) -> &'static str {
+    if enabled { "enabled" } else { "disabled" }
+}
+
+fn push_voice_status_field(lines: &mut Vec<String>, label: &str, value: Option<&str>) {
+    if let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) {
+        lines.push(format!("{label}: {value}"));
+    }
+}
+
+fn start_batch_run(
+    app: &mut App,
+    rest: &str,
+    demo: Demo,
+    publish_tx: &UnboundedSender<RunEvent>,
+    options: &setup::RuntimeOptions,
+) {
+    let source = match parse_batch_slash_run(rest) {
+        Ok(source) => source,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Batch failed: {err}"),
+            });
+            return;
+        }
+    };
+    let batch_run_id = RunId::new();
+    let batch_id = format!("batch-{}", batch_run_id.0);
+    let (items, item_keys) =
+        match prepare_batch_inputs(source.items, None, source.files, source.folders) {
+            Ok(inputs) => inputs,
+            Err(err) => {
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Batch failed: {err}"),
+                });
+                return;
+            }
+        };
+    let mut plan = match BatchPlan::new_with_optional_item_keys(batch_id.clone(), items, item_keys)
+    {
+        Ok(plan) => plan,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Batch failed: {err}"),
+            });
+            return;
+        }
+    };
+    if let Err(err) = plan.save_to_env() {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: format!("Batch failed: {err}"),
+        });
+        return;
+    }
+    start_batch_plan(app, plan, batch_run_id, batch_id, demo, publish_tx, options);
+}
+
+fn start_batch_resume(
+    app: &mut App,
+    rest: &str,
+    demo: Demo,
+    publish_tx: &UnboundedSender<RunEvent>,
+    options: &setup::RuntimeOptions,
+) {
+    let batch_id = match parse_resume_batch_slash_rest(rest) {
+        Ok(batch_id) => batch_id,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Resume batch failed: {err}"),
+            });
+            return;
+        }
+    };
+    let plan = match BatchPlan::load_from_env(&batch_id) {
+        Ok(plan) => plan,
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Resume batch failed: {err}"),
+            });
+            return;
+        }
+    };
+    start_batch_plan(app, plan, RunId::new(), batch_id, demo, publish_tx, options);
+}
+
+fn start_batch_plan(
+    app: &mut App,
+    plan: BatchPlan,
+    batch_run_id: RunId,
+    batch_id: String,
+    demo: Demo,
+    publish_tx: &UnboundedSender<RunEvent>,
+    options: &setup::RuntimeOptions,
+) {
+    let store: Arc<dyn EventStore> = match open_event_store() {
+        Ok(store) => Arc::new(PublishingEventStore::new(store, publish_tx.clone())),
+        Err(err) => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Batch trace setup failed: {err}"),
+            });
+            return;
+        }
+    };
+    let agent = setup::build_agent(options);
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::User,
+        text: format!("/batch {batch_id}"),
+    });
+    app.state = AppState::Running;
+    app.tokens_in = 0;
+    app.tokens_out = 0;
+    app.cost_usd = 0.0;
+    app.calls_used = 0;
+    app.calls_max = agent.tool_policy.max_calls;
+    app.calls_remaining = agent.tool_policy.max_calls;
+    app.elapsed_ms = 0;
+    app.run_started_at = Some(Instant::now());
+    app.last_run_id = Some(batch_run_id);
+    app.active_batch_run_id = Some(batch_run_id);
+
+    let options = options.clone();
+    let store_for_failure = Arc::clone(&store);
+    let batch_id_for_failure = batch_id.clone();
+    let run_task = tokio::spawn(async move {
+        if let Err(err) =
+            execute_tui_batch_plan(plan, batch_run_id, batch_id, demo, options, store).await
+        {
+            store_for_failure.append(
+                batch_run_id,
+                None,
+                RunEventKind::RunFailed {
+                    reason: format!("Batch {batch_id_for_failure} failed: {err}"),
+                },
+            );
+        }
+    });
+    app.active_run_handle = Some(run_task.abort_handle());
+}
+
+async fn execute_tui_batch_plan(
+    mut plan: BatchPlan,
+    batch_run_id: RunId,
+    batch_id: String,
+    demo: Demo,
+    options: setup::RuntimeOptions,
+    store: Arc<dyn EventStore>,
+) -> anyhow::Result<()> {
+    store.append(
+        batch_run_id,
+        None,
+        RunEventKind::BatchRunStarted {
+            batch_id: batch_id.clone(),
+            items: plan.items.len() as u32,
+        },
+    );
+
+    for item in plan.items.clone() {
+        let item_key = item.key.clone();
+        if item.status == BatchItemState::Succeeded {
+            store.append(
+                batch_run_id,
+                None,
+                RunEventKind::BatchItemStatus {
+                    batch_id: batch_id.clone(),
+                    item_key,
+                    status: "skipped: already succeeded".into(),
+                },
+            );
+            continue;
+        }
+
+        plan.mark_running(&item_key);
+        plan.save_to_env()?;
+        store.append(
+            batch_run_id,
+            None,
+            RunEventKind::BatchItemStatus {
+                batch_id: batch_id.clone(),
+                item_key: item_key.clone(),
+                status: "running".into(),
+            },
+        );
+
+        let agent = setup::build_agent(&options);
+        let result = match setup::build_provider(demo, &item.input, &options) {
+            Ok(provider) => {
+                let registry = setup::build_registry(
+                    options.enable_shell,
+                    options.enable_subagent,
+                    options.enable_capability_drafts,
+                    options.agent_id.as_deref(),
+                    options.conversation_id.as_deref(),
+                );
+                let harness = setup::build_harness_for_agent(
+                    provider,
+                    Arc::clone(&store),
+                    registry,
+                    options.agent_id.as_deref(),
+                );
+                harness
+                    .run(
+                        &agent,
+                        UserInput {
+                            text: item.input.clone(),
+                        },
+                    )
+                    .await
+                    .map_err(|err| anyhow::anyhow!(err))
+            }
+            Err(err) => Err(anyhow::anyhow!(err)),
+        };
+
+        match result {
+            Ok(result) => {
+                plan.mark_succeeded(
+                    &item_key,
+                    result.run_id.0.to_string(),
+                    result.final_output.clone(),
+                );
+                plan.save_to_env()?;
+                store.append(
+                    batch_run_id,
+                    None,
+                    RunEventKind::ChildRunStarted {
+                        child_run_id: result.run_id,
+                        agent_id: agent.id.clone(),
+                    },
+                );
+                store.append(
+                    batch_run_id,
+                    None,
+                    RunEventKind::ChildRunCompleted {
+                        child_run_id: result.run_id,
+                        status: "succeeded".into(),
+                    },
+                );
+                store.append(
+                    batch_run_id,
+                    None,
+                    RunEventKind::BatchItemStatus {
+                        batch_id: batch_id.clone(),
+                        item_key,
+                        status: "succeeded".into(),
+                    },
+                );
+            }
+            Err(err) => {
+                plan.mark_failed(&item_key, err.to_string());
+                plan.save_to_env()?;
+                store.append(
+                    batch_run_id,
+                    None,
+                    RunEventKind::BatchItemStatus {
+                        batch_id: batch_id.clone(),
+                        item_key,
+                        status: format!("failed: {err}"),
+                    },
+                );
+            }
+        }
+    }
+
+    store.append(
+        batch_run_id,
+        None,
+        RunEventKind::BatchRunCompleted {
+            batch_id,
+            succeeded: plan.succeeded_count(),
+            failed: plan.failed_count(),
+        },
+    );
+    Ok(())
 }
 
 fn handle_voice_slash(
@@ -7401,7 +8622,14 @@ fn handle_voice_slash(
     publish_tx: &UnboundedSender<RunEvent>,
 ) {
     let rest = rest.trim();
-    if rest.is_empty() || matches!(rest, "help" | "status") {
+    if rest.is_empty() || rest == "status" {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: voice_slash_status_text(agent),
+        });
+        return;
+    }
+    if matches!(rest, "help" | "--help") {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: voice_slash_help_text().into(),
@@ -7635,6 +8863,90 @@ fn parse_tool_slash_rest(rest: &str) -> anyhow::Result<(String, serde_json::Valu
     Ok((name, input))
 }
 
+fn batch_slash_rest(text: &str) -> Option<&str> {
+    if text == "/batch" {
+        return Some("");
+    }
+    text.strip_prefix("/batch ").map(str::trim)
+}
+
+fn resume_batch_slash_rest(text: &str) -> Option<&str> {
+    if text == "/resume-batch" {
+        return Some("");
+    }
+    text.strip_prefix("/resume-batch ").map(str::trim)
+}
+
+struct BatchSlashRun {
+    items: Vec<String>,
+    files: Vec<String>,
+    folders: Vec<String>,
+}
+
+fn parse_batch_slash_run(rest: &str) -> anyhow::Result<BatchSlashRun> {
+    if rest == "files" {
+        anyhow::bail!("batch files shortcut needs one or more file paths after /batch files");
+    }
+    if let Some(files) = rest.strip_prefix("files ").map(str::trim) {
+        return Ok(BatchSlashRun {
+            items: Vec::new(),
+            files: parse_batch_slash_lines(files, "file paths", "/batch files")?,
+            folders: Vec::new(),
+        });
+    }
+    if rest == "folder" || rest == "folders" {
+        anyhow::bail!("batch folder shortcut needs one or more folder paths after /batch folder");
+    }
+    if let Some(folders) = rest
+        .strip_prefix("folder ")
+        .or_else(|| rest.strip_prefix("folders "))
+        .map(str::trim)
+    {
+        return Ok(BatchSlashRun {
+            items: Vec::new(),
+            files: Vec::new(),
+            folders: parse_batch_slash_lines(folders, "folder paths", "/batch folder")?,
+        });
+    }
+    Ok(BatchSlashRun {
+        items: parse_batch_slash_items(rest)?,
+        files: Vec::new(),
+        folders: Vec::new(),
+    })
+}
+
+fn parse_batch_slash_items(rest: &str) -> anyhow::Result<Vec<String>> {
+    let items = parse_batch_slash_lines(rest, "prompts", "/batch")?;
+    if items.is_empty() {
+        anyhow::bail!("batch shortcut needs one or more prompts after /batch");
+    }
+    Ok(items)
+}
+
+fn parse_batch_slash_lines(rest: &str, label: &str, command: &str) -> anyhow::Result<Vec<String>> {
+    let lines = rest
+        .lines()
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if lines.is_empty() {
+        anyhow::bail!("batch shortcut needs one or more {label} after {command}");
+    }
+    Ok(lines)
+}
+
+fn parse_resume_batch_slash_rest(rest: &str) -> anyhow::Result<String> {
+    let mut parts = rest.split_whitespace();
+    let batch_id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("resume batch shortcut needs a batch id"))?;
+    if parts.next().is_some() {
+        anyhow::bail!("resume batch shortcut accepts exactly one batch id");
+    }
+    Ok(batch_id.to_string())
+}
+
 fn parse_forced_tool_slash_rest(rest: &str) -> anyhow::Result<(String, String)> {
     let (name, prompt) = rest
         .trim()
@@ -7658,6 +8970,7 @@ fn forced_tool_prompt(name: &str, prompt: &str) -> String {
 
 #[derive(Debug, Clone, PartialEq)]
 struct ScoreSlashRequest {
+    run_id: Option<RunId>,
     target: String,
     score: f32,
 }
@@ -7666,11 +8979,29 @@ fn parse_score_slash_rest(rest: &str) -> anyhow::Result<ScoreSlashRequest> {
     let rest = rest.trim();
     if rest.is_empty() {
         return Ok(ScoreSlashRequest {
+            run_id: None,
             target: "last_answer".into(),
             score: 10.0,
         });
     }
     let parts = rest.split_whitespace().collect::<Vec<_>>();
+    if let Ok(run_id) = uuid::Uuid::parse_str(parts[0]) {
+        let score = parts
+            .get(1)
+            .ok_or_else(|| anyhow::anyhow!("usage: /score <run-id> <0-10> [target]"))?
+            .parse::<f32>()?;
+        validate_quality_score(score)?;
+        let target = parts.get(2..).unwrap_or_default().join(" ");
+        return Ok(ScoreSlashRequest {
+            run_id: Some(RunId(run_id)),
+            target: if target.trim().is_empty() {
+                "last_answer".into()
+            } else {
+                target.trim().to_string()
+            },
+            score,
+        });
+    }
     let first_score = parts[0].parse::<f32>().ok();
     let (target, score) = if let Some(score) = first_score {
         (parts[1..].join(" "), score)
@@ -7682,6 +9013,7 @@ fn parse_score_slash_rest(rest: &str) -> anyhow::Result<ScoreSlashRequest> {
     };
     validate_quality_score(score)?;
     Ok(ScoreSlashRequest {
+        run_id: None,
         target: if target.trim().is_empty() {
             "last_answer".into()
         } else {
@@ -7708,6 +9040,25 @@ fn append_score_event(
     Ok(())
 }
 
+fn parse_scores_run_id(rest: &str, last_run_id: Option<RunId>) -> anyhow::Result<RunId> {
+    let mut parts = rest.split_whitespace();
+    let run_part = parts.next();
+    if let Some(extra) = parts.next() {
+        anyhow::bail!("scores accepts at most one run id, unexpected {extra:?}");
+    }
+    parse_run_id_arg(run_part, last_run_id, "scores")
+}
+
+fn quality_score_report_for_run(run_id: RunId) -> anyhow::Result<String> {
+    open_event_store().and_then(|store| {
+        let events = store.try_events(run_id)?;
+        Ok(quality_score_report(
+            run_id,
+            &quality_score_records(&events),
+        ))
+    })
+}
+
 fn quality_score_report(run_id: RunId, records: &[agent_tracing::QualityScoreRecord]) -> String {
     if records.is_empty() {
         return format!("No quality scores recorded for {run_id}.");
@@ -7731,15 +9082,21 @@ fn quality_score_report(run_id: RunId, records: &[agent_tracing::QualityScoreRec
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TraceSlashMode {
+    List,
+    Clear,
     Overview,
     Summary,
     Tree,
+    Hooks,
+    Scores,
+    Prompt,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct TraceSlashArgs {
     mode: TraceSlashMode,
-    run_id: RunId,
+    run_id: Option<RunId>,
+    limit: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7749,7 +9106,7 @@ struct CompareSlashArgs {
 }
 
 fn handle_trace_slash(app: &mut App, rest: &str) {
-    let args = match parse_trace_slash_args(rest, app.last_run_id) {
+    let args = match parse_trace_slash_args(rest, trace_default_run_id(app)) {
         Ok(args) => args,
         Err(err) => {
             app.transcript.push(TranscriptLine {
@@ -7759,6 +9116,14 @@ fn handle_trace_slash(app: &mut App, rest: &str) {
             return;
         }
     };
+    if args.mode == TraceSlashMode::Clear {
+        app.loaded_trace_run_id = None;
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Event,
+            text: "Cleared loaded trace selection.".into(),
+        });
+        return;
+    }
     let store = match open_event_store() {
         Ok(store) => store,
         Err(err) => {
@@ -7769,7 +9134,30 @@ fn handle_trace_slash(app: &mut App, rest: &str) {
             return;
         }
     };
-    let events = match store.try_events(args.run_id) {
+    if args.mode == TraceSlashMode::List {
+        match store.try_run_records(args.limit) {
+            Ok(records) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: trace_run_records_report(&records),
+            }),
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Trace list failed: {err}"),
+            }),
+        }
+        return;
+    }
+    let run_id = match args.run_id {
+        Some(run_id) => run_id,
+        None => {
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: "Trace failed: run id required.".into(),
+            });
+            return;
+        }
+    };
+    let events = match store.try_events(run_id) {
         Ok(events) => events,
         Err(err) => {
             app.transcript.push(TranscriptLine {
@@ -7782,12 +9170,42 @@ fn handle_trace_slash(app: &mut App, rest: &str) {
     if events.is_empty() {
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
-            text: format!("No events found for run {}.", args.run_id.0),
+            text: format!("No events found for run {}.", run_id.0),
         });
         return;
     }
-    let summary = summarize_trace(&events, args.run_id);
-    let tree = match build_trace_tree(args.run_id, |id| store.try_events(id)) {
+    app.loaded_trace_run_id = Some(run_id);
+    if args.mode == TraceSlashMode::Prompt {
+        match trace_replay_source(run_id, &events) {
+            Ok((agent_id, prompt)) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: format!("Trace prompt for {run_id}\nagent: {agent_id}\n{prompt}"),
+            }),
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Trace prompt failed: {err}"),
+            }),
+        }
+        return;
+    }
+    if args.mode == TraceSlashMode::Hooks {
+        let plan = hook_remediation_plan(&events);
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: serde_json::to_string_pretty(&plan)
+                .unwrap_or_else(|_| "<unserializable hook review>".into()),
+        });
+        return;
+    }
+    if args.mode == TraceSlashMode::Scores {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: quality_score_report(run_id, &quality_score_records(&events)),
+        });
+        return;
+    }
+    let summary = summarize_trace(&events, run_id);
+    let tree = match build_trace_tree(run_id, |id| store.try_events(id)) {
         Ok(tree) => tree,
         Err(err) => {
             app.transcript.push(TranscriptLine {
@@ -7807,6 +9225,11 @@ fn handle_trace_slash(app: &mut App, rest: &str) {
         }
         TraceSlashMode::Summary => trace_summary_report(&summary),
         TraceSlashMode::Tree => trace_tree_report(&tree),
+        TraceSlashMode::List => unreachable!("list mode returns before trace rendering"),
+        TraceSlashMode::Clear => unreachable!("clear mode returns before trace lookup"),
+        TraceSlashMode::Hooks => unreachable!("hooks mode returns before trace rendering"),
+        TraceSlashMode::Scores => unreachable!("scores mode returns before trace rendering"),
+        TraceSlashMode::Prompt => unreachable!("prompt mode returns before trace rendering"),
     };
     app.transcript.push(TranscriptLine {
         kind: LineKind::Assistant,
@@ -7815,7 +9238,7 @@ fn handle_trace_slash(app: &mut App, rest: &str) {
 }
 
 fn handle_compare_slash(app: &mut App, rest: &str) {
-    let args = match parse_compare_slash_args(rest, app.last_run_id) {
+    let args = match parse_compare_slash_args(rest, trace_default_run_id(app)) {
         Ok(args) => args,
         Err(err) => {
             app.transcript.push(TranscriptLine {
@@ -7849,16 +9272,183 @@ fn handle_compare_slash(app: &mut App, rest: &str) {
     }
 }
 
+fn handle_usage_slash(app: &mut App, rest: &str) {
+    let rest = rest.trim();
+    if matches!(rest, "help" | "--help") {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: usage_slash_help_text().into(),
+        });
+        return;
+    }
+    let (command, args) = rest
+        .split_once(char::is_whitespace)
+        .map(|(command, args)| (command, args.trim()))
+        .unwrap_or((rest, ""));
+    match command {
+        "" | "current" => {
+            if !args.trim().is_empty() {
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: "Usage current accepts no arguments.".into(),
+                });
+                return;
+            }
+            app.transcript.push(TranscriptLine {
+                kind: LineKind::Assistant,
+                text: current_usage_report(app),
+            });
+        }
+        "last" => {
+            if !args.trim().is_empty() {
+                app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: "Usage last accepts no arguments.".into(),
+                });
+                return;
+            }
+            match show_trace_usage(app, "last", "usage last") {
+                Ok(()) => {}
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("Usage last failed: {err}"),
+                }),
+            }
+        }
+        "trace" | "run" => {
+            let label = if command == "run" {
+                "usage run"
+            } else {
+                "usage trace"
+            };
+            match show_trace_usage(app, args, label) {
+                Ok(()) => {}
+                Err(err) => app.transcript.push(TranscriptLine {
+                    kind: LineKind::Error,
+                    text: format!("{} failed: {err}", usage_error_label(label)),
+                }),
+            }
+        }
+        "conversation" | "conv" => match show_conversation_usage(app, args) {
+            Ok(()) => {}
+            Err(err) => app.transcript.push(TranscriptLine {
+                kind: LineKind::Error,
+                text: format!("Usage conversation failed: {err}"),
+            }),
+        },
+        _ => app.transcript.push(TranscriptLine {
+            kind: LineKind::Error,
+            text: "Usage shortcut needs current, last, trace, run, conversation, or help.".into(),
+        }),
+    }
+}
+
+fn show_trace_usage(app: &mut App, args: &str, label: &str) -> anyhow::Result<()> {
+    let run_id =
+        parse_usage_trace_run_id(args, usage_trace_default_run_id(app, args, label), label)?;
+    let events = open_event_store()?.try_events(run_id)?;
+    if events.is_empty() {
+        anyhow::bail!("run {run_id} has no trace events");
+    }
+    let summary = summarize_trace(&events, run_id);
+    push_event(
+        app,
+        format!(
+            "{}: tokens {}/{}, events {}, tools {}",
+            usage_error_label(label),
+            summary.tokens_in,
+            summary.tokens_out,
+            summary.events,
+            summary.tool_calls
+        ),
+    );
+    app.transcript.push(TranscriptLine {
+        kind: LineKind::Assistant,
+        text: trace_summary_report(&summary),
+    });
+    Ok(())
+}
+
+fn usage_trace_default_run_id(app: &App, args: &str, label: &str) -> Option<RunId> {
+    if args.trim().is_empty() && label == "usage trace" {
+        trace_default_run_id(app)
+    } else {
+        app.last_run_id
+    }
+}
+
+fn parse_usage_trace_run_id(
+    rest: &str,
+    last_run_id: Option<RunId>,
+    label: &str,
+) -> anyhow::Result<RunId> {
+    let mut parts = rest.split_whitespace();
+    let run_part = parts.next();
+    if let Some(extra) = parts.next() {
+        anyhow::bail!("{label} accepts at most one run id, unexpected {extra:?}");
+    }
+    parse_run_id_arg(run_part, last_run_id, label)
+}
+
+fn usage_error_label(label: &str) -> &'static str {
+    match label {
+        "usage run" => "Usage run",
+        "usage last" => "Usage last",
+        _ => "Usage trace",
+    }
+}
+
+fn current_usage_report(app: &App) -> String {
+    [
+        "Current usage".to_string(),
+        format!("tokens {}/{}", app.tokens_in, app.tokens_out),
+        format!("cost ${:.6}", app.cost_usd),
+        format!("time {}", format_duration(app.elapsed_ms)),
+        format!(
+            "tool calls {}/{} ({} remaining)",
+            app.calls_used, app.calls_max, app.calls_remaining
+        ),
+        format!(
+            "state {}",
+            match app.state {
+                AppState::Idle => "idle",
+                AppState::Running => "running",
+            }
+        ),
+    ]
+    .join("\n")
+}
+
 fn parse_trace_slash_args(
     rest: &str,
     last_run_id: Option<RunId>,
 ) -> anyhow::Result<TraceSlashArgs> {
     let mut parts = rest.split_whitespace();
     let first = parts.next();
+    if matches!(first, Some("list" | "runs")) {
+        return Ok(TraceSlashArgs {
+            mode: TraceSlashMode::List,
+            run_id: None,
+            limit: parse_trace_list_slash_limit(parts)?,
+        });
+    }
+    if matches!(first, Some("clear")) {
+        if let Some(extra) = parts.next() {
+            anyhow::bail!("usage: /trace clear, unexpected {extra:?}");
+        }
+        return Ok(TraceSlashArgs {
+            mode: TraceSlashMode::Clear,
+            run_id: None,
+            limit: 20,
+        });
+    }
     let (mode, run_part) = match first {
         None => (TraceSlashMode::Overview, None),
         Some("summary") => (TraceSlashMode::Summary, parts.next()),
         Some("tree") => (TraceSlashMode::Tree, parts.next()),
+        Some("hooks") => (TraceSlashMode::Hooks, parts.next()),
+        Some("scores") => (TraceSlashMode::Scores, parts.next()),
+        Some("prompt") => (TraceSlashMode::Prompt, parts.next()),
         Some(value) => (TraceSlashMode::Overview, Some(value)),
     };
     if let Some(extra) = parts.next() {
@@ -7866,8 +9456,51 @@ fn parse_trace_slash_args(
     }
     Ok(TraceSlashArgs {
         mode,
-        run_id: parse_run_id_arg(run_part, last_run_id, "trace")?,
+        run_id: (mode != TraceSlashMode::List)
+            .then(|| parse_run_id_arg(run_part, last_run_id, "trace"))
+            .transpose()?,
+        limit: 20,
     })
+}
+
+fn parse_trace_list_slash_limit<'a>(
+    mut parts: impl Iterator<Item = &'a str>,
+) -> anyhow::Result<usize> {
+    let mut limit = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--limit" => {
+                let value = parts
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--limit needs a count"))?;
+                if limit.is_some() {
+                    anyhow::bail!("trace list limit specified twice");
+                }
+                limit = Some(parse_positive_usize(value, "--limit")?);
+            }
+            _ if part.starts_with("--limit=") => {
+                let value = part
+                    .split_once('=')
+                    .map(|(_, value)| value)
+                    .unwrap_or_default();
+                if value.trim().is_empty() {
+                    anyhow::bail!("--limit needs a count");
+                }
+                if limit.is_some() {
+                    anyhow::bail!("trace list limit specified twice");
+                }
+                limit = Some(parse_positive_usize(value, "--limit")?);
+            }
+            _ if !part.starts_with("--") => {
+                if limit.is_some() {
+                    anyhow::bail!("trace list limit specified twice");
+                }
+                limit = Some(parse_positive_usize(part, "trace list limit")?);
+            }
+            _ => anyhow::bail!("unknown trace list option: {part}"),
+        }
+    }
+    Ok(limit.unwrap_or(20))
 }
 
 fn parse_compare_slash_args(
@@ -7875,18 +9508,22 @@ fn parse_compare_slash_args(
     last_run_id: Option<RunId>,
 ) -> anyhow::Result<CompareSlashArgs> {
     let parts = rest.split_whitespace().collect::<Vec<_>>();
-    match parts.as_slice() {
-        [compare] => Ok(CompareSlashArgs {
+    let args = match parts.as_slice() {
+        [compare] => CompareSlashArgs {
             primary_run_id: parse_run_id_arg(None, last_run_id, "compare primary")?,
             compare_run_id: parse_run_id_arg(Some(compare), last_run_id, "compare target")?,
-        }),
-        [primary, compare] => Ok(CompareSlashArgs {
+        },
+        [primary, compare] => CompareSlashArgs {
             primary_run_id: parse_run_id_arg(Some(primary), last_run_id, "compare primary")?,
             compare_run_id: parse_run_id_arg(Some(compare), last_run_id, "compare target")?,
-        }),
+        },
         [] => anyhow::bail!("compare needs a run id, or primary and compare run ids"),
         _ => anyhow::bail!("compare accepts at most two run ids"),
+    };
+    if args.primary_run_id == args.compare_run_id {
+        anyhow::bail!("compare needs two different run ids");
     }
+    Ok(args)
 }
 
 fn parse_run_id_arg(
@@ -7898,6 +9535,16 @@ fn parse_run_id_arg(
         None | Some("last") => last_run_id.ok_or_else(|| anyhow::anyhow!("{label} needs a run id")),
         Some(value) => Ok(RunId(uuid::Uuid::parse_str(value)?)),
     }
+}
+
+fn parse_positive_usize(value: &str, label: &str) -> anyhow::Result<usize> {
+    let parsed = value
+        .parse::<usize>()
+        .map_err(|_| anyhow::anyhow!("{label} needs a positive integer"))?;
+    if parsed == 0 {
+        anyhow::bail!("{label} needs a positive integer");
+    }
+    Ok(parsed)
 }
 
 fn trace_summary_report(summary: &TraceSummary) -> String {
@@ -7937,6 +9584,40 @@ fn trace_summary_report(summary: &TraceSummary) -> String {
         ),
     ]
     .join("\n")
+}
+
+fn trace_run_records_report(records: &[TraceRunRecord]) -> String {
+    if records.is_empty() {
+        return "No trace runs found.".into();
+    }
+    let mut lines = Vec::new();
+    lines.push(format!("Recent trace runs ({})", records.len()));
+    for record in records {
+        lines.push(format!(
+            "- {} status={} events={} children={} agent={} updated={}",
+            record.run_id.0,
+            record.status,
+            record.event_count,
+            record.child_run_count,
+            record.agent_id.as_deref().unwrap_or("unknown"),
+            record.updated_at
+        ));
+        if let Some(input) = record
+            .input_preview
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            lines.push(format!("  input: {input}"));
+        }
+        if let Some(output) = record
+            .final_output_preview
+            .as_deref()
+            .filter(|value| !value.is_empty())
+        {
+            lines.push(format!("  output: {output}"));
+        }
+    }
+    lines.join("\n")
 }
 
 fn format_conversation_usage_report(report: &ConversationUsageReport) -> String {
@@ -8067,16 +9748,22 @@ fn context_value_has_auto_compaction(snapshot: &serde_json::Value) -> bool {
         .is_some_and(|snapshot| crate::headless::is_auto_compaction_snapshot(&snapshot))
 }
 
+fn active_batch_child_event(app: &App, run_id: RunId) -> bool {
+    app.active_batch_run_id.is_some_and(|batch| batch != run_id)
+}
+
 fn handle_run_event(app: &mut App, evt: &RunEvent) {
     match &evt.kind {
         RunEventKind::RunStarted { .. } => {
-            app.last_run_id = Some(evt.run_id);
-            if let Some(request) = app.pending_replay_comparison.as_mut()
-                && request.replay_run_id.is_none()
-            {
-                request.replay_run_id = Some(evt.run_id);
+            if !active_batch_child_event(app, evt.run_id) {
+                app.last_run_id = Some(evt.run_id);
+                if let Some(request) = app.pending_replay_comparison.as_mut()
+                    && request.replay_run_id.is_none()
+                {
+                    request.replay_run_id = Some(evt.run_id);
+                }
+                app.pending_auto_compaction_run = None;
             }
-            app.pending_auto_compaction_run = None;
         }
         RunEventKind::ContextBuilt { snapshot } => {
             update_tool_budget_from_snapshot(app, snapshot);
@@ -8361,6 +10048,8 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
             );
         }
         RunEventKind::BatchRunStarted { batch_id, items } => {
+            app.last_run_id = Some(evt.run_id);
+            app.active_batch_run_id = Some(evt.run_id);
             push_event(app, format!("Batch started: {batch_id} ({items} items)"));
         }
         RunEventKind::BatchItemStatus {
@@ -8379,28 +10068,39 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
                 app,
                 format!("Batch completed: {batch_id} ({succeeded} ok, {failed} failed)"),
             );
+            update_elapsed_time(app);
+            app.run_started_at = None;
+            app.active_run_handle = None;
+            app.active_batch_run_id = None;
+            app.state = AppState::Idle;
         }
         RunEventKind::RunPaused { reason } => {
             app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
                 text: format!("Run paused: {reason}"),
             });
-            update_elapsed_time(app);
-            app.run_started_at = None;
-            app.active_run_handle = None;
-            app.state = AppState::Idle;
-            maybe_append_replay_comparison(app, evt.run_id);
+            if !active_batch_child_event(app, evt.run_id) {
+                update_elapsed_time(app);
+                app.run_started_at = None;
+                app.active_run_handle = None;
+                app.active_batch_run_id = None;
+                app.state = AppState::Idle;
+                maybe_append_replay_comparison(app, evt.run_id);
+            }
         }
         RunEventKind::RunCancelled { reason } => {
             app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
                 text: format!("Run cancelled: {reason}"),
             });
-            update_elapsed_time(app);
-            app.run_started_at = None;
-            app.active_run_handle = None;
-            app.state = AppState::Idle;
-            maybe_append_replay_comparison(app, evt.run_id);
+            if !active_batch_child_event(app, evt.run_id) {
+                update_elapsed_time(app);
+                app.run_started_at = None;
+                app.active_run_handle = None;
+                app.active_batch_run_id = None;
+                app.state = AppState::Idle;
+                maybe_append_replay_comparison(app, evt.run_id);
+            }
         }
         RunEventKind::RunCompleted {
             final_output,
@@ -8424,25 +10124,31 @@ fn handle_run_event(app: &mut App, evt: &RunEvent) {
             if app.pending_auto_compaction_run == Some(evt.run_id) {
                 push_event(
                     app,
-                    "Auto compacted context ready. Type /compact keep to save it or /compact dismiss.".into(),
+                    "Auto compacted context ready. Type /compact keep or /compact keep-run to save it, or /compact dismiss.".into(),
                 );
             }
-            app.elapsed_ms = *total_duration_ms;
-            app.run_started_at = None;
-            app.active_run_handle = None;
-            app.state = AppState::Idle;
-            maybe_append_replay_comparison(app, evt.run_id);
+            if !active_batch_child_event(app, evt.run_id) {
+                app.elapsed_ms = *total_duration_ms;
+                app.run_started_at = None;
+                app.active_run_handle = None;
+                app.active_batch_run_id = None;
+                app.state = AppState::Idle;
+                maybe_append_replay_comparison(app, evt.run_id);
+            }
         }
         RunEventKind::RunFailed { reason } => {
             app.transcript.push(TranscriptLine {
                 kind: LineKind::Error,
                 text: format!("Run failed: {reason}"),
             });
-            update_elapsed_time(app);
-            app.run_started_at = None;
-            app.active_run_handle = None;
-            app.state = AppState::Idle;
-            maybe_append_replay_comparison(app, evt.run_id);
+            if !active_batch_child_event(app, evt.run_id) {
+                update_elapsed_time(app);
+                app.run_started_at = None;
+                app.active_run_handle = None;
+                app.active_batch_run_id = None;
+                app.state = AppState::Idle;
+                maybe_append_replay_comparison(app, evt.run_id);
+            }
         }
     }
 }
@@ -8513,6 +10219,7 @@ fn stop_active_run(app: &mut App, reason: &str, mode: StopRetentionMode) {
     }
     update_elapsed_time(app);
     app.run_started_at = None;
+    app.active_batch_run_id = None;
     app.state = AppState::Idle;
     app.transcript.push(TranscriptLine {
         kind: LineKind::Error,
@@ -8891,6 +10598,44 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    struct HarnessHomeGuard {
+        _lock: std::sync::MutexGuard<'static, ()>,
+        previous: Option<std::ffi::OsString>,
+        dir: std::path::PathBuf,
+    }
+
+    impl HarnessHomeGuard {
+        fn new() -> Self {
+            let lock = crate::TEST_ENV_LOCK
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let previous = std::env::var_os("AGENT_HARNESS_HOME");
+            let dir = std::env::temp_dir()
+                .join(format!("tui-prompt-shortcut-test-{}", uuid::Uuid::new_v4()));
+            unsafe {
+                std::env::set_var("AGENT_HARNESS_HOME", &dir);
+            }
+            Self {
+                _lock: lock,
+                previous,
+                dir,
+            }
+        }
+    }
+
+    impl Drop for HarnessHomeGuard {
+        fn drop(&mut self) {
+            unsafe {
+                if let Some(value) = self.previous.take() {
+                    std::env::set_var("AGENT_HARNESS_HOME", value);
+                } else {
+                    std::env::remove_var("AGENT_HARNESS_HOME");
+                }
+            }
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+
     #[test]
     fn context_snapshot_updates_status_budget() {
         let mut app = App {
@@ -8993,6 +10738,7 @@ mod tests {
         assert_eq!(
             parse_score_slash_rest("10").unwrap(),
             ScoreSlashRequest {
+                run_id: None,
                 target: "last_answer".into(),
                 score: 10.0
             }
@@ -9000,6 +10746,7 @@ mod tests {
         assert_eq!(
             parse_score_slash_rest("").unwrap(),
             ScoreSlashRequest {
+                run_id: None,
                 target: "last_answer".into(),
                 score: 10.0
             }
@@ -9007,6 +10754,7 @@ mod tests {
         assert_eq!(
             parse_score_slash_rest("conversation 9").unwrap(),
             ScoreSlashRequest {
+                run_id: None,
                 target: "conversation".into(),
                 score: 9.0
             }
@@ -9014,12 +10762,24 @@ mod tests {
         assert_eq!(
             parse_score_slash_rest("8 range:messages:1..3").unwrap(),
             ScoreSlashRequest {
+                run_id: None,
                 target: "range:messages:1..3".into(),
                 score: 8.0
             }
         );
+        let run_id = RunId(uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000123").unwrap());
+        assert_eq!(
+            parse_score_slash_rest(&format!("{} 8.5 regression check", run_id.0)).unwrap(),
+            ScoreSlashRequest {
+                run_id: Some(run_id),
+                target: "regression check".into(),
+                score: 8.5
+            }
+        );
         assert!(parse_score_slash_rest("11").is_err());
         assert!(parse_score_slash_rest("conversation").is_err());
+        assert!(parse_score_slash_rest(&run_id.0.to_string()).is_err());
+        assert!(parse_score_slash_rest(&format!("{} 11", run_id.0)).is_err());
     }
 
     #[test]
@@ -9027,6 +10787,117 @@ mod tests {
         assert!(help_slash_command("/help"));
         assert!(help_slash_command("/?"));
         assert!(!help_slash_command("/helper"));
+        assert!(slash_help_rest(""));
+        assert!(slash_help_rest("help"));
+        assert!(slash_help_rest("--help"));
+        assert!(!slash_help_rest("helper"));
+        assert!(global_slash_help_text().contains("/usage [current|last|trace|run|conversation]"));
+        assert!(global_slash_help_text().contains("/batch <line-delimited prompts>"));
+        assert_eq!(memory_slash_rest("/memory --help"), Some("--help"));
+        assert_eq!(agents_slash_rest("/agents --help"), Some("--help"));
+        assert_eq!(compact_slash_rest("/compactions --help"), Some("--help"));
+        assert!(run_help_slash_command("/run help"));
+        assert!(run_help_slash_command("/run --help"));
+        assert!(!run_help_slash_command("/runner help"));
+        let prompt_help = prompt_slash_help_text();
+        assert!(prompt_help.contains("/run <name>"));
+        assert!(prompt_help.contains("/prompts use <name>"));
+        assert!(prompt_help.contains("/prompts preview <name>"));
+        assert!(prompt_help.contains("/prompt is accepted"));
+        assert!(agent_help_slash_command("/agent help"));
+        assert!(agent_help_slash_command("/agent --help"));
+        assert!(!agent_help_slash_command("/agents help"));
+        assert!(!agent_help_slash_command("/agent helpful"));
+        assert!(agent_switch_slash_help_text().contains("/agent <saved-agent-id>"));
+        assert!(code_help_slash_command("/python help"));
+        assert!(code_help_slash_command("/python --help"));
+        assert!(code_help_slash_command("/typescript help"));
+        assert!(code_help_slash_command("/typescript --help"));
+        assert!(code_help_slash_command("/ts help"));
+        assert!(code_help_slash_command("/ts --help"));
+        assert!(!code_help_slash_command("/python helpful"));
+        assert!(!code_help_slash_command("/typescript print('help')"));
+        assert!(code_slash_help_text().contains("/typescript <code>"));
+        assert!(voice_help_slash_command("/voice help"));
+        assert!(voice_help_slash_command("/voice --help"));
+        assert!(!voice_help_slash_command("/voice helper"));
+        assert!(!voice_help_slash_command("/voices help"));
+        assert!(voice_slash_help_text().contains("/voice transcribe <path>"));
+        assert!(tool_help_slash_command("/tool help"));
+        assert!(tool_help_slash_command("/tool --help"));
+        assert!(tool_help_slash_command("/tool!help"));
+        assert!(tool_help_slash_command("/tool!--help"));
+        assert!(!tool_help_slash_command("/tools help"));
+        assert!(!tool_help_slash_command("/tool helper"));
+        assert!(tool_slash_help_text().contains("/tool!<name> <json>"));
+        assert!(preview_help_slash_command("/preview help"));
+        assert!(preview_help_slash_command("/preview --help"));
+        assert!(!preview_help_slash_command("/preview helper"));
+        assert!(!preview_help_slash_command("/previewer help"));
+        assert!(preview_slash_help_text().contains("/preview <prompt>"));
+        assert!(resume_help_slash_command("/resume help"));
+        assert!(resume_help_slash_command("/resume --help"));
+        assert!(resume_help_slash_command("/resume plan help"));
+        assert!(resume_help_slash_command("/resume plan --help"));
+        assert!(resume_help_slash_command("/resume-plan help"));
+        assert!(resume_help_slash_command("/resume-plan --help"));
+        assert!(!resume_help_slash_command("/resumed help"));
+        assert!(!resume_help_slash_command("/resume helper"));
+        assert!(resume_slash_help_text().contains("/resume-plan [last|run-id]"));
+        assert!(trace_help_slash_command("/trace help"));
+        assert!(trace_help_slash_command("/trace --help"));
+        assert!(trace_slash_help_text().contains("/trace scores [last|run-id]"));
+        assert!(trace_slash_help_text().contains("/trace clear"));
+        assert!(!trace_help_slash_command("/trace helper"));
+        assert!(!trace_help_slash_command("/traces help"));
+        assert!(trace_slash_help_text().contains("/trace tree [last|run-id]"));
+        assert!(trace_slash_help_text().contains("/trace prompt [last|run-id]"));
+        assert!(compare_help_slash_command("/compare help"));
+        assert!(compare_help_slash_command("/compare --help"));
+        assert!(!compare_help_slash_command("/compare helper"));
+        assert!(!compare_help_slash_command("/compared help"));
+        assert!(compare_slash_help_text().contains("/compare [last|primary-run-id]"));
+        assert!(replay_help_slash_command("/replay help"));
+        assert!(replay_help_slash_command("/replay --help"));
+        assert!(!replay_help_slash_command("/replay helper"));
+        assert!(!replay_help_slash_command("/replayed help"));
+        assert!(replay_slash_help_text().contains("[--no-hooks]"));
+        assert!(guide_help_slash_command("/guide help"));
+        assert!(guide_help_slash_command("/guide --help"));
+        assert!(!guide_help_slash_command("/guide helper"));
+        assert!(!guide_help_slash_command("/guidance help"));
+        assert!(guide_slash_help_text().contains("/guide <text>"));
+        assert!(score_help_slash_command("/score help"));
+        assert!(score_help_slash_command("/score --help"));
+        assert!(score_help_slash_command("/scores help"));
+        assert!(score_help_slash_command("/scores --help"));
+        assert!(!score_help_slash_command("/score helper"));
+        assert!(!score_help_slash_command("/scoreboard help"));
+        assert!(score_slash_help_text().contains("/scores [last|run-id]"));
+        assert!(usage_help_slash_command("/usage help"));
+        assert!(usage_help_slash_command("/usage --help"));
+        assert!(!usage_help_slash_command("/usage helper"));
+        assert!(!usage_help_slash_command("/usageful help"));
+        assert!(usage_slash_help_text().contains("/usage last"));
+        assert!(usage_slash_help_text().contains("/usage trace [last|run-id]"));
+        assert!(global_slash_help_text().contains("/stop status"));
+        assert!(global_slash_help_text().contains("default|--summarise|--discard"));
+        assert!(stop_help_slash_command("/stop help"));
+        assert!(stop_help_slash_command("/stop --help"));
+        assert!(!stop_help_slash_command("/stop helper"));
+        assert!(!stop_help_slash_command("/stopped help"));
+        assert!(stop_status_slash_command("/stop status"));
+        assert!(!stop_status_slash_command("/stop status now"));
+        assert!(stop_slash_help_text().contains("default|--summarise|--discard"));
+        assert!(stop_slash_help_text().contains("/stop status"));
+        assert!(batch_help_slash_command("/batch help"));
+        assert!(batch_help_slash_command("/batch --help"));
+        assert!(batch_help_slash_command("/resume-batch help"));
+        assert!(batch_help_slash_command("/resume-batch --help"));
+        assert!(!batch_help_slash_command("/batch helper"));
+        assert!(batch_slash_help_text().contains("/resume-batch <batch-id>"));
+        assert!(batch_slash_help_text().contains("/batch files <line-delimited paths>"));
+        assert!(batch_slash_help_text().contains("/batch folder <path>"));
         assert_eq!(
             code_slash_command("/python print(1)"),
             Some(("code_python", "print(1)"))
@@ -9054,10 +10925,18 @@ mod tests {
             crate::x402_slash::slash_rest("/payment x402-request https://example.test"),
             Some("x402-request https://example.test")
         );
+        assert!(crate::x402_slash::is_help("--help"));
         assert_eq!(crate::x402_slash::slash_rest("/payments"), None);
         assert_eq!(score_slash_rest("/score 7"), Some("7"));
         assert_eq!(score_slash_rest("/score"), Some(""));
         assert_eq!(score_slash_rest("/scoreboard 7"), None);
+        assert_eq!(scores_slash_rest("/scores"), Some(""));
+        assert_eq!(scores_slash_rest("/scores last"), Some("last"));
+        assert_eq!(scores_slash_rest("/scoresboard"), None);
+        assert_eq!(usage_slash_rest("/usage"), Some(""));
+        assert_eq!(usage_slash_rest("/usage last"), Some("last"));
+        assert_eq!(usage_slash_rest("/usage trace last"), Some("trace last"));
+        assert_eq!(usage_slash_rest("/usageful"), None);
         assert_eq!(agent_slash_rest("/agent"), Some(""));
         assert_eq!(agent_slash_rest("/agent research"), Some("research"));
         assert_eq!(agent_slash_rest("/agents"), None);
@@ -9073,6 +10952,15 @@ mod tests {
             Some("last --from-event 7")
         );
         assert_eq!(resume_slash_rest("/resumed"), None);
+        assert_eq!(batch_slash_rest("/batch"), Some(""));
+        assert_eq!(batch_slash_rest("/batch first"), Some("first"));
+        assert_eq!(batch_slash_rest("/batcher first"), None);
+        assert_eq!(resume_batch_slash_rest("/resume-batch"), Some(""));
+        assert_eq!(
+            resume_batch_slash_rest("/resume-batch batch-1"),
+            Some("batch-1")
+        );
+        assert_eq!(resume_batch_slash_rest("/resume-batched"), None);
         assert_eq!(resume_plan_slash_rest("/resume plan"), Some(""));
         assert_eq!(resume_plan_slash_rest("/resume-plan"), Some(""));
         assert_eq!(
@@ -9113,6 +11001,13 @@ mod tests {
             }
         );
         assert_eq!(
+            parse_stop_request("default no longer needed"),
+            StopRequest {
+                reason: "no longer needed".into(),
+                mode: None,
+            }
+        );
+        assert_eq!(
             parse_stop_request(""),
             StopRequest {
                 reason: "user requested stop".into(),
@@ -9127,7 +11022,9 @@ mod tests {
             Some("recover conv-1")
         );
         assert_eq!(conversation_slash_rest("/conversation"), Some(""));
-        assert_eq!(conversation_slash_rest("/conversations"), None);
+        assert_eq!(conversation_slash_rest("/conversations"), Some(""));
+        assert_eq!(conversation_slash_rest("/conversations tree"), Some("tree"));
+        assert_eq!(conversation_slash_rest("/conversationx"), None);
         assert_eq!(memory_slash_rest("/memory list"), Some("list"));
         assert_eq!(memory_slash_rest("/memory"), Some(""));
         assert_eq!(memory_slash_rest("/memories"), None);
@@ -9136,23 +11033,40 @@ mod tests {
             capabilities_slash_rest("/capabilities doctor"),
             Some("doctor")
         );
+        assert_eq!(
+            capabilities_slash_rest("/capability doctor"),
+            Some("doctor")
+        );
         assert_eq!(capabilities_slash_rest("/capabilities"), Some(""));
-        assert_eq!(capabilities_slash_rest("/capability"), None);
+        assert_eq!(capabilities_slash_rest("/capability"), Some(""));
+        assert_eq!(capabilities_slash_rest("/capabilityx"), None);
         assert_eq!(artifacts_slash_rest("/artifacts list"), Some("list"));
         assert_eq!(artifacts_slash_rest("/artifacts"), Some(""));
-        assert_eq!(artifacts_slash_rest("/artifact"), None);
+        assert_eq!(artifacts_slash_rest("/artifact"), Some(""));
+        assert_eq!(
+            artifacts_slash_rest("/artifact show report"),
+            Some("show report")
+        );
+        assert_eq!(artifacts_slash_rest("/artifactx"), None);
         assert_eq!(ingest_slash_rest("/ingest list"), Some("list"));
         assert_eq!(ingest_slash_rest("/ingest"), Some(""));
         assert_eq!(ingest_slash_rest("/ingester"), None);
         assert_eq!(approval_slash_rest("/approval list"), Some("list"));
         assert_eq!(approval_slash_rest("/approval"), Some(""));
-        assert_eq!(approval_slash_rest("/approvals"), None);
+        assert_eq!(approval_slash_rest("/approvals list"), Some("list"));
+        assert_eq!(approval_slash_rest("/approvals"), Some(""));
+        assert_eq!(approval_slash_rest("/approvalx"), None);
         assert_eq!(
             hooks_slash_rest("/hooks review run-1"),
             Some("review run-1")
         );
         assert_eq!(hooks_slash_rest("/hooks"), Some(""));
         assert_eq!(hooks_slash_rest("/hook"), None);
+        assert!(hook_view_args("list", "").is_ok());
+        assert!(hook_view_args("policy", "").is_ok());
+        assert!(hook_view_args("available", "").is_ok());
+        assert!(hook_view_args("list", "--agent critic").is_err());
+        assert!(hook_view_args("policy", "extra").is_err());
         assert_eq!(models_slash_rest("/models providers"), Some("providers"));
         assert_eq!(models_slash_rest("/models doctor"), Some("doctor"));
         assert_eq!(
@@ -9163,23 +11077,37 @@ mod tests {
             models_slash_rest("/models delete gpt-test"),
             Some("delete gpt-test")
         );
+        assert_eq!(models_slash_rest("/model providers"), Some("providers"));
         assert_eq!(models_slash_rest("/models"), Some(""));
-        assert_eq!(models_slash_rest("/model"), None);
+        assert_eq!(models_slash_rest("/model"), Some(""));
+        assert_eq!(models_slash_rest("/modelx"), None);
         assert_eq!(agents_slash_rest("/agents list"), Some("list"));
         assert_eq!(agents_slash_rest("/agents"), Some(""));
         assert_eq!(agents_slash_rest("/agentz"), None);
         assert_eq!(profiles_slash_rest("/profiles list"), Some("list"));
+        assert_eq!(profiles_slash_rest("/profile current"), Some("current"));
         assert_eq!(profiles_slash_rest("/profiles"), Some(""));
-        assert_eq!(profiles_slash_rest("/profile"), None);
+        assert_eq!(profiles_slash_rest("/profile"), Some(""));
+        assert_eq!(profiles_slash_rest("/profilex"), None);
         assert_eq!(secrets_slash_rest("/secrets list"), Some("list"));
+        assert_eq!(secrets_slash_rest("/secret backends"), Some("backends"));
         assert_eq!(secrets_slash_rest("/secrets"), Some(""));
-        assert_eq!(secrets_slash_rest("/secret"), None);
+        assert_eq!(secrets_slash_rest("/secret"), Some(""));
+        assert_eq!(secrets_slash_rest("/secretsx"), None);
         assert_eq!(prompts_slash_rest("/prompts list"), Some("list"));
+        assert_eq!(
+            prompts_slash_rest("/prompts preview daily"),
+            Some("preview daily")
+        );
+        assert_eq!(prompts_slash_rest("/prompt list"), Some("list"));
         assert_eq!(prompts_slash_rest("/prompts"), Some(""));
-        assert_eq!(prompts_slash_rest("/prompt"), None);
+        assert_eq!(prompts_slash_rest("/prompt"), Some(""));
+        assert_eq!(prompts_slash_rest("/promptx"), None);
         assert_eq!(skills_slash_rest("/skills list"), Some("list"));
+        assert_eq!(skills_slash_rest("/skill list"), Some("list"));
         assert_eq!(skills_slash_rest("/skills"), Some(""));
-        assert_eq!(skills_slash_rest("/skill"), None);
+        assert_eq!(skills_slash_rest("/skill"), Some(""));
+        assert_eq!(skills_slash_rest("/skillx"), None);
         assert_eq!(
             storage_slash_rest("/storage prune-cache 30"),
             Some("prune-cache 30")
@@ -9190,8 +11118,13 @@ mod tests {
             bundles_slash_rest("/bundles export ./bundle.tar"),
             Some("export ./bundle.tar")
         );
+        assert_eq!(
+            bundles_slash_rest("/bundle import ./bundle.tar --confirm"),
+            Some("import ./bundle.tar --confirm")
+        );
         assert_eq!(bundles_slash_rest("/bundles"), Some(""));
-        assert_eq!(bundles_slash_rest("/bundle"), None);
+        assert_eq!(bundles_slash_rest("/bundle"), Some(""));
+        assert_eq!(bundles_slash_rest("/bundlex"), None);
         assert_eq!(
             adapters_slash_rest("/adapters show adapter-1"),
             Some("show adapter-1")
@@ -9213,11 +11146,187 @@ mod tests {
             adapters_slash_rest("/adapters clawhub search ./clawhub.json"),
             Some("clawhub search ./clawhub.json")
         );
+        assert_eq!(adapters_slash_rest("/adapter doctor"), Some("doctor"));
         assert_eq!(adapters_slash_rest("/adapters"), Some(""));
-        assert_eq!(adapters_slash_rest("/adapter"), None);
+        assert_eq!(adapters_slash_rest("/adapter"), Some(""));
+        assert_eq!(adapters_slash_rest("/adapterx"), None);
         assert_eq!(compact_slash_rest("/compact keep"), Some("keep"));
+        assert_eq!(
+            compact_slash_rest("/compact keep-run last"),
+            Some("keep-run last")
+        );
+        assert_eq!(compact_slash_rest("/compactions list"), Some("list"));
+        assert_eq!(
+            compact_slash_rest("/compactions keep-run"),
+            Some("keep-run")
+        );
         assert_eq!(compact_slash_rest("/compact"), Some(""));
+        assert_eq!(compact_slash_rest("/compactions"), Some(""));
         assert_eq!(compact_slash_rest("/compactness"), None);
+        assert_eq!(compact_slash_rest("/compaction"), None);
+    }
+
+    #[test]
+    fn prompt_shortcut_resolution_uses_active_agent_fallback() {
+        let _home = HarnessHomeGuard::new();
+        let store = PromptStore::from_env();
+        store.save("daily", "global prompt").unwrap();
+        store
+            .save_for_agent("critic", "daily", "critic prompt")
+            .unwrap();
+        store
+            .save_for_agent("builder", "daily", "builder prompt")
+            .unwrap();
+
+        let active = load_prompt_for_shortcut("daily", None, Some("critic")).unwrap();
+        assert_eq!(active.body, "critic prompt");
+
+        let explicit = load_prompt_for_shortcut("daily", Some("builder"), Some("critic")).unwrap();
+        assert_eq!(explicit.body, "builder prompt");
+
+        let global_fallback = load_prompt_for_shortcut("daily", None, Some("missing")).unwrap();
+        assert_eq!(global_fallback.body, "global prompt");
+    }
+
+    #[test]
+    fn compact_keep_resolves_pending_last_and_explicit_runs() {
+        let pending_run =
+            RunId(uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000111").unwrap());
+        let last_run =
+            RunId(uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000222").unwrap());
+        let explicit_run =
+            RunId(uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000333").unwrap());
+        let app = App {
+            pending_auto_compaction_run: Some(pending_run),
+            last_run_id: Some(last_run),
+            ..App::default()
+        };
+
+        assert_eq!(resolve_compact_keep_run_id(&app, "").unwrap(), pending_run);
+        assert_eq!(resolve_compact_keep_run_id(&app, "last").unwrap(), last_run);
+        assert_eq!(
+            resolve_compact_keep_run_id(&app, &explicit_run.0.to_string()).unwrap(),
+            explicit_run
+        );
+        assert!(resolve_compact_keep_run_id(&app, "last extra").is_err());
+        assert!(resolve_compact_keep_run_id(&App::default(), "").is_err());
+        assert!(resolve_compact_keep_run_id(&App::default(), "last").is_err());
+    }
+
+    #[test]
+    fn batch_slash_args_parse_items_and_resume_id() {
+        assert_eq!(
+            parse_batch_slash_items("first\nsecond\n\n third").unwrap(),
+            vec!["first", "second", "third"]
+        );
+        assert_eq!(
+            parse_batch_slash_items("single prompt").unwrap(),
+            vec!["single prompt"]
+        );
+        assert_eq!(
+            parse_resume_batch_slash_rest("batch-123").unwrap(),
+            "batch-123"
+        );
+        let file_source = parse_batch_slash_run("files /tmp/a.txt\n/tmp/b.txt").unwrap();
+        assert!(file_source.items.is_empty());
+        assert_eq!(file_source.files, vec!["/tmp/a.txt", "/tmp/b.txt"]);
+        assert!(file_source.folders.is_empty());
+        let folder_source = parse_batch_slash_run("folder /tmp/batch folder").unwrap();
+        assert!(folder_source.items.is_empty());
+        assert!(folder_source.files.is_empty());
+        assert_eq!(folder_source.folders, vec!["/tmp/batch folder"]);
+        assert!(parse_batch_slash_items("").is_err());
+        assert!(parse_batch_slash_run("files").is_err());
+        assert!(parse_batch_slash_run("folder").is_err());
+        assert!(parse_resume_batch_slash_rest("").is_err());
+        assert!(parse_resume_batch_slash_rest("batch-123 extra").is_err());
+    }
+
+    #[test]
+    fn batch_child_completion_keeps_tui_running_until_batch_completes() {
+        let batch_run = RunId::new();
+        let child_run = RunId::new();
+        let mut app = App {
+            state: AppState::Running,
+            run_started_at: Some(Instant::now()),
+            active_batch_run_id: Some(batch_run),
+            last_run_id: Some(batch_run),
+            ..App::default()
+        };
+        let store = agent_tracing::InMemoryEventStore::new();
+        let child_completed = store.append(
+            child_run,
+            None,
+            RunEventKind::RunCompleted {
+                final_output: "child done".into(),
+                total_cost_usd: None,
+                total_duration_ms: 42,
+            },
+        );
+
+        handle_run_event(&mut app, &child_completed);
+
+        assert_eq!(app.state, AppState::Running);
+        assert_eq!(app.active_batch_run_id, Some(batch_run));
+        assert!(app.run_started_at.is_some());
+
+        let batch_completed = store.append(
+            batch_run,
+            None,
+            RunEventKind::BatchRunCompleted {
+                batch_id: "batch-1".into(),
+                succeeded: 1,
+                failed: 0,
+            },
+        );
+        handle_run_event(&mut app, &batch_completed);
+
+        assert_eq!(app.state, AppState::Idle);
+        assert_eq!(app.active_batch_run_id, None);
+        assert_eq!(app.run_started_at, None);
+    }
+
+    #[tokio::test]
+    async fn tui_batch_executor_persists_items_and_emits_batch_events() {
+        let _home = HarnessHomeGuard::new();
+        let batch_run = RunId::new();
+        let store: Arc<dyn EventStore> = Arc::new(agent_tracing::InMemoryEventStore::new());
+        let plan = BatchPlan::new(
+            "batch-test",
+            vec!["first prompt".into(), "second prompt".into()],
+        );
+
+        execute_tui_batch_plan(
+            plan,
+            batch_run,
+            "batch-test".into(),
+            Demo::Echo,
+            setup::RuntimeOptions::default(),
+            Arc::clone(&store),
+        )
+        .await
+        .unwrap();
+
+        let events = store.events(batch_run);
+        assert!(matches!(
+            events.first().map(|event| &event.kind),
+            Some(RunEventKind::BatchRunStarted { items: 2, .. })
+        ));
+        assert!(events.iter().any(|event| matches!(
+            &event.kind,
+            RunEventKind::BatchItemStatus { status, .. } if status == "succeeded"
+        )));
+        assert!(matches!(
+            events.last().map(|event| &event.kind),
+            Some(RunEventKind::BatchRunCompleted {
+                succeeded: 2,
+                failed: 0,
+                ..
+            })
+        ));
+        let saved = BatchPlan::load_from_env("batch-test").unwrap();
+        assert_eq!(saved.succeeded_count(), 2);
+        assert_eq!(saved.failed_count(), 0);
     }
 
     #[test]
@@ -9237,6 +11346,7 @@ mod tests {
         assert_eq!(last.from_event, Some(9));
 
         assert!(parse_resume_slash_args("--from-event", Some(last_run)).is_err());
+        assert!(parse_resume_slash_args("last --from-event 0", Some(last_run)).is_err());
         assert!(parse_resume_slash_args("", None).is_err());
         assert!(parse_resume_slash_args("last extra", Some(last_run)).is_err());
     }
@@ -9297,11 +11407,40 @@ mod tests {
 
         let trace = parse_trace_slash_args("", Some(primary)).unwrap();
         assert_eq!(trace.mode, TraceSlashMode::Overview);
-        assert_eq!(trace.run_id, primary);
+        assert_eq!(trace.run_id, Some(primary));
 
         let tree = parse_trace_slash_args(&format!("tree {}", compare.0), Some(primary)).unwrap();
         assert_eq!(tree.mode, TraceSlashMode::Tree);
-        assert_eq!(tree.run_id, compare);
+        assert_eq!(tree.run_id, Some(compare));
+
+        let hooks = parse_trace_slash_args("hooks last", Some(primary)).unwrap();
+        assert_eq!(hooks.mode, TraceSlashMode::Hooks);
+        assert_eq!(hooks.run_id, Some(primary));
+
+        let scores = parse_trace_slash_args("scores last", Some(primary)).unwrap();
+        assert_eq!(scores.mode, TraceSlashMode::Scores);
+        assert_eq!(scores.run_id, Some(primary));
+
+        let prompt = parse_trace_slash_args("prompt last", Some(primary)).unwrap();
+        assert_eq!(prompt.mode, TraceSlashMode::Prompt);
+        assert_eq!(prompt.run_id, Some(primary));
+
+        let list = parse_trace_slash_args("list", None).unwrap();
+        assert_eq!(list.mode, TraceSlashMode::List);
+        assert_eq!(list.run_id, None);
+        assert_eq!(list.limit, 20);
+
+        let clear = parse_trace_slash_args("clear", None).unwrap();
+        assert_eq!(clear.mode, TraceSlashMode::Clear);
+        assert_eq!(clear.run_id, None);
+
+        let limited = parse_trace_slash_args("list 5", None).unwrap();
+        assert_eq!(limited.mode, TraceSlashMode::List);
+        assert_eq!(limited.limit, 5);
+
+        let flag_limited = parse_trace_slash_args("runs --limit=6", None).unwrap();
+        assert_eq!(flag_limited.mode, TraceSlashMode::List);
+        assert_eq!(flag_limited.limit, 6);
 
         let implicit_primary =
             parse_compare_slash_args(&compare.0.to_string(), Some(primary)).unwrap();
@@ -9313,10 +11452,91 @@ mod tests {
         assert_eq!(explicit.primary_run_id, primary);
         assert_eq!(explicit.compare_run_id, compare);
 
+        let explicit_primary_to_last =
+            parse_compare_slash_args(&format!("{} last", compare.0), Some(primary)).unwrap();
+        assert_eq!(explicit_primary_to_last.primary_run_id, compare);
+        assert_eq!(explicit_primary_to_last.compare_run_id, primary);
+
         assert!(parse_trace_slash_args("summary", None).is_err());
         assert!(parse_trace_slash_args("tree last extra", Some(primary)).is_err());
+        assert!(parse_trace_slash_args("hooks", None).is_err());
+        assert!(parse_trace_slash_args("scores", None).is_err());
+        assert!(parse_trace_slash_args("prompt", None).is_err());
+        assert!(parse_trace_slash_args("clear extra", None).is_err());
+        assert!(parse_trace_slash_args("list --limit 0", None).is_err());
+        assert!(parse_trace_slash_args("list 5 6", None).is_err());
+        assert!(parse_trace_slash_args("list --json", None).is_err());
         assert!(parse_compare_slash_args("", Some(primary)).is_err());
         assert!(parse_compare_slash_args("last", None).is_err());
+        assert!(parse_compare_slash_args("last", Some(primary)).is_err());
+
+        let selected_app = App {
+            loaded_trace_run_id: Some(compare),
+            last_run_id: Some(primary),
+            ..App::default()
+        };
+        assert_eq!(trace_default_run_id(&selected_app), Some(compare));
+        assert_eq!(
+            usage_trace_default_run_id(&selected_app, "", "usage trace"),
+            Some(compare)
+        );
+        assert_eq!(
+            usage_trace_default_run_id(&selected_app, "last", "usage trace"),
+            Some(primary)
+        );
+        assert_eq!(
+            usage_trace_default_run_id(&selected_app, "", "usage run"),
+            Some(primary)
+        );
+    }
+
+    #[test]
+    fn usage_trace_args_accept_last_and_explicit_ids() {
+        let primary = RunId(uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000123").unwrap());
+        let explicit =
+            RunId(uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000456").unwrap());
+
+        assert_eq!(
+            parse_usage_trace_run_id("", Some(primary), "usage trace").unwrap(),
+            primary
+        );
+        assert_eq!(
+            parse_usage_trace_run_id("last", Some(primary), "usage trace").unwrap(),
+            primary
+        );
+        assert_eq!(
+            parse_usage_trace_run_id(&explicit.0.to_string(), Some(primary), "usage trace")
+                .unwrap(),
+            explicit
+        );
+
+        assert!(parse_usage_trace_run_id("", None, "usage trace").is_err());
+        assert!(parse_usage_trace_run_id("last", None, "usage trace").is_err());
+        assert!(parse_usage_trace_run_id("last extra", Some(primary), "usage trace").is_err());
+        let run_err = parse_usage_trace_run_id("last extra", Some(primary), "usage run")
+            .unwrap_err()
+            .to_string();
+        assert!(run_err.contains("usage run accepts at most one run id"));
+        assert!(parse_usage_trace_run_id("not-a-run", Some(primary), "usage trace").is_err());
+    }
+
+    #[test]
+    fn scores_args_accept_last_and_explicit_ids() {
+        let primary = RunId(uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000123").unwrap());
+        let explicit =
+            RunId(uuid::Uuid::parse_str("00000000-0000-0000-0000-000000000456").unwrap());
+
+        assert_eq!(parse_scores_run_id("", Some(primary)).unwrap(), primary);
+        assert_eq!(parse_scores_run_id("last", Some(primary)).unwrap(), primary);
+        assert_eq!(
+            parse_scores_run_id(&explicit.0.to_string(), Some(primary)).unwrap(),
+            explicit
+        );
+
+        assert!(parse_scores_run_id("", None).is_err());
+        assert!(parse_scores_run_id("last", None).is_err());
+        assert!(parse_scores_run_id("last extra", Some(primary)).is_err());
+        assert!(parse_scores_run_id("not-a-run", Some(primary)).is_err());
     }
 
     #[test]
@@ -9325,7 +11545,7 @@ mod tests {
         assert!(help.contains("/tool <name> <request>"));
         assert!(help.contains("/tool!<name> <json>"));
         assert!(help.contains("/python <code>"));
-        assert!(help.contains("/voice transcribe <path>"));
+        assert!(help.contains("/voice status, /voice transcribe <path>"));
         assert!(help.contains("/x402 request"));
         assert!(help.contains("manual JSON input"));
         assert!(help.contains("/guide <text>"));
@@ -9335,9 +11555,39 @@ mod tests {
     #[test]
     fn voice_help_advertises_terminal_safe_paths() {
         let help = voice_slash_help_text();
+        assert!(help.contains("/voice status"));
+        assert!(help.contains("resolved active-agent voice config"));
         assert!(help.contains("/voice transcribe <path>"));
         assert!(help.contains("/voice speak <text>"));
         assert!(help.contains("saved audio paths"));
+    }
+
+    #[test]
+    fn voice_status_reports_resolved_agent_voice_config() {
+        let mut agent = setup::build_agent(&setup::RuntimeOptions::default());
+        agent.voice.input_enabled = true;
+        agent.voice.output_enabled = true;
+        agent.voice.input_backend = Some("local".into());
+        agent.voice.input_model = Some("whisper-local".into());
+        agent.voice.output_backend = Some("cloud".into());
+        agent.voice.tts_provider = Some("openai".into());
+        agent.voice.tts_model = Some("tts-1".into());
+        agent.voice.voice = Some("alloy".into());
+        agent.voice.tone = Some("warm".into());
+
+        let status = voice_slash_status_text(&agent);
+        assert!(status.contains("Voice status:"));
+        assert!(status.contains("agent: Fake Agent (fake-agent)"));
+        assert!(status.contains("input: enabled"));
+        assert!(status.contains("input backend: local"));
+        assert!(status.contains("input model: whisper-local"));
+        assert!(status.contains("output: enabled"));
+        assert!(status.contains("output backend: cloud"));
+        assert!(status.contains("tts provider: openai"));
+        assert!(status.contains("tts model: tts-1"));
+        assert!(status.contains("voice: alloy"));
+        assert!(status.contains("tone: warm"));
+        assert!(status.contains("/voice transcribe <path>"));
     }
 
     #[test]
@@ -9768,15 +12018,15 @@ mod tests {
     fn memory_path_args_accept_optional_user_flag() {
         assert_eq!(
             memory_path_args("./memory.md", "export").unwrap(),
-            ("./memory.md", false)
+            ("./memory.md", false, None)
         );
         assert_eq!(
-            memory_path_args("./user.md --user", "import").unwrap(),
-            ("./user.md", true)
+            memory_path_args("./user.md --user --agent critic", "import").unwrap(),
+            ("./user.md", true, Some("critic".into()))
         );
         assert_eq!(
             memory_path_args("--user ./user.md", "import").unwrap(),
-            ("./user.md", true)
+            ("./user.md", true, None)
         );
         assert!(memory_path_args("", "export").is_err());
         assert!(memory_path_args("./memory.md extra", "export").is_err());
@@ -9790,6 +12040,20 @@ mod tests {
         );
         assert!(memory_access_args("--topic").is_err());
         assert!(memory_access_args("extra").is_err());
+    }
+
+    #[test]
+    fn memory_probe_args_accept_backend_and_topics() {
+        let (backend, topics) =
+            memory_probe_args("external-command-v0 --topic team --topic=launch").unwrap();
+        assert_eq!(backend.as_deref(), Some("external-command-v0"));
+        assert_eq!(topics, vec!["team".to_string(), "launch".to_string()]);
+
+        let (backend, topics) = memory_probe_args("--topic ops").unwrap();
+        assert!(backend.is_none());
+        assert_eq!(topics, vec!["ops".to_string()]);
+        assert!(memory_probe_args("one two").is_err());
+        assert!(memory_probe_args("--topic").is_err());
     }
 
     #[test]
@@ -9816,6 +12080,16 @@ mod tests {
         assert_eq!(args.range.as_deref(), Some("messages:1..3"));
         assert_eq!(args.topics, vec!["ops".to_string()]);
         assert_eq!(args.text, "generated text");
+        assert!(args.guidance.is_none());
+
+        let args = parse_memory_write_args(
+            "--topic ops generated text --guidance keep stable preferences",
+            "generate",
+            true,
+        )
+        .unwrap();
+        assert_eq!(args.text, "generated text");
+        assert_eq!(args.guidance.as_deref(), Some("keep stable preferences"));
 
         assert!(parse_memory_write_args("--range messages:1..3 text", "create", false).is_err());
         assert!(parse_memory_write_args("--topic", "create", false).is_err());
@@ -9873,7 +12147,27 @@ mod tests {
     fn capability_args_require_expected_id_and_path() {
         assert_eq!(
             capability_propose_args("tool draft-name echo hello world").unwrap(),
-            ("tool", "draft-name", "echo hello world")
+            ("tool", "draft-name", "echo hello world", None)
+        );
+        assert_eq!(
+            capability_propose_args("skill draft-name echo hello --guidance promote carefully")
+                .unwrap(),
+            (
+                "skill",
+                "draft-name",
+                "echo hello",
+                Some("promote carefully")
+            )
+        );
+        assert_eq!(
+            capability_propose_args("agent draft-name echo hello --guidance=promote carefully")
+                .unwrap(),
+            (
+                "agent",
+                "draft-name",
+                "echo hello",
+                Some("promote carefully")
+            )
         );
         assert_eq!(
             capability_export_args("draft-1 ./draft.json").unwrap(),
@@ -9898,6 +12192,8 @@ mod tests {
         assert!(capability_propose_args("").is_err());
         assert!(capability_propose_args("tool").is_err());
         assert!(capability_propose_args("tool draft-name").is_err());
+        assert!(capability_propose_args("tool draft-name --guidance promote carefully").is_err());
+        assert!(capability_propose_args("tool draft-name echo --guidance=").is_err());
         assert!(capability_export_args("draft-1").is_err());
         assert!(capability_export_args("draft-1 ./draft.json extra").is_err());
         assert!(capability_review_args("", "allow").is_err());
@@ -9907,7 +12203,48 @@ mod tests {
     }
 
     #[test]
+    fn capability_propose_draft_stores_guidance() {
+        let _home = HarnessHomeGuard::new();
+        let draft = propose_capability_draft(
+            "skill guided-draft Create a reusable reviewer skill --guidance Review before allowing",
+        )
+        .unwrap();
+
+        assert_eq!(draft.guidance.as_deref(), Some("Review before allowing"));
+        let stored = CapabilityDraftStore::from_env().show(&draft.id).unwrap();
+        assert_eq!(stored.guidance.as_deref(), Some("Review before allowing"));
+        let summary = capability_draft_summary(&stored);
+        assert_eq!(
+            summary["guidance_preview"].as_str(),
+            Some("Review before allowing")
+        );
+    }
+
+    #[test]
     fn artifact_delete_args_require_id_and_confirm_flag() {
+        assert_eq!(
+            artifact_generate_args("pdf Hello report").unwrap(),
+            ("pdf", "Hello report")
+        );
+        assert!(artifact_generate_args("").is_err());
+        assert!(artifact_generate_args("pdf").is_err());
+        assert_eq!(
+            artifact_export_args("artifact-1 /tmp/artifact.txt").unwrap(),
+            ("artifact-1", "/tmp/artifact.txt")
+        );
+        assert!(artifact_export_args("").is_err());
+        assert!(artifact_export_args("artifact-1").is_err());
+        assert!(artifact_export_args("artifact-1 /tmp/a extra").is_err());
+        assert_eq!(
+            artifact_download_args("artifact-1").unwrap(),
+            ("artifact-1", ".")
+        );
+        assert_eq!(
+            artifact_download_args("artifact-1 /tmp/artifact.txt").unwrap(),
+            ("artifact-1", "/tmp/artifact.txt")
+        );
+        assert!(artifact_download_args("").is_err());
+        assert!(artifact_download_args("artifact-1 /tmp/a extra").is_err());
         assert_eq!(
             artifact_delete_args("artifact-1 --confirm").unwrap(),
             ("artifact-1", true)
@@ -9934,6 +12271,18 @@ mod tests {
         assert_eq!(
             ingest_probe_vision_args("chart.png --model=gemini-2.5-pro").unwrap(),
             ("chart.png", "gemini-2.5-pro")
+        );
+        assert_eq!(
+            ingest_probe_source_args("scan.pdf --vision-model gpt-4o").unwrap(),
+            ("scan.pdf", Some("gpt-4o"))
+        );
+        assert_eq!(
+            ingest_probe_source_args("chart.png --model=vision").unwrap(),
+            ("chart.png", Some("vision"))
+        );
+        assert_eq!(
+            ingest_probe_source_args("notes.md").unwrap(),
+            ("notes.md", None)
         );
         assert_eq!(
             ingest_run_args(
@@ -9963,6 +12312,9 @@ mod tests {
         assert!(ingest_probe_vision_args("doc.pdf").is_err());
         assert!(ingest_probe_vision_args("doc.pdf --model").is_err());
         assert!(ingest_probe_vision_args("doc.pdf --model gpt-4.1 extra").is_err());
+        assert!(ingest_probe_source_args("").is_err());
+        assert!(ingest_probe_source_args("doc.pdf --vision-model").is_err());
+        assert!(ingest_probe_source_args("doc.pdf extra").is_err());
         assert!(ingest_run_args("", "add").is_err());
         assert!(ingest_run_args("doc.md --backend", "add").is_err());
         assert!(ingest_run_args("doc.md extra", "add").is_err());
@@ -10029,6 +12381,7 @@ mod tests {
                 to: 4,
                 user: true,
                 topics: vec!["finance".into(), "ops".into()],
+                guidance: None,
             }
         );
         assert_eq!(
@@ -10039,7 +12392,18 @@ mod tests {
                 to: 3,
                 user: false,
                 topics: Vec::new(),
+                guidance: None,
             }
+        );
+        assert_eq!(
+            parse_conversation_memory_args_with_selected(
+                "conv-2 1 3 --guidance keep-preferences",
+                Some("conv-1")
+            )
+            .unwrap()
+            .guidance
+            .as_deref(),
+            Some("keep-preferences")
         );
         assert!(parse_conversation_memory_args_with_selected("--topic", Some("conv-1")).is_err());
     }
@@ -10307,7 +12671,7 @@ mod tests {
         assert_eq!(app.pending_auto_compaction_run, Some(run_id));
         assert!(app.transcript.iter().any(|line| {
             line.text.contains("Auto compacted context ready")
-                && line.text.contains("/compact keep")
+                && line.text.contains("/compact keep-run")
         }));
     }
 

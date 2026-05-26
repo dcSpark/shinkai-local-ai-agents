@@ -51,6 +51,7 @@ dependencies = [
  "agent-storage",
  "chrono",
  "serde",
+ "serde_json",
  "tar",
  "thiserror 2.0.18",
  "toml 0.8.2",
@@ -233,6 +234,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+ "ureq",
 ]
 
 [[package]]
@@ -241,6 +243,7 @@ version = "0.1.0"
 dependencies = [
  "agent-storage",
  "serde",
+ "serde_json",
  "thiserror 2.0.18",
 ]
 

@@ -8,7 +8,34 @@ node - "$@" <<'NODE'
 const fs = require("fs");
 const { spawnSync } = require("child_process");
 
-const args = new Set(process.argv.slice(2));
+const rawArgs = process.argv.slice(2);
+const args = new Set(rawArgs);
+
+function fail(message) {
+  console.error(`mobile packaging check failed: ${message}`);
+  process.exit(1);
+}
+
+function usage() {
+  console.log(`usage: scripts/verify-mobile-packaging.sh [--strict] [--platform=android|ios]
+
+Verifies native mobile packaging metadata. With --strict, also checks generated
+Tauri mobile projects, platform SDK tools, and installed Rust mobile targets.`);
+}
+
+for (const arg of rawArgs) {
+  if (arg === "-h" || arg === "--help") {
+    usage();
+    process.exit(0);
+  }
+  if (arg === "--strict") continue;
+  if (arg.startsWith("--platform=")) {
+    if (!arg.slice("--platform=".length).trim()) fail("--platform needs android or ios");
+    continue;
+  }
+  fail(`unknown argument ${arg}`);
+}
+
 const strict = args.has("--strict");
 const platformArg = process.argv
   .slice(2)
@@ -22,13 +49,28 @@ assert(
   "--platform must be android or ios",
 );
 
-function fail(message) {
-  console.error(`mobile packaging check failed: ${message}`);
-  process.exit(1);
-}
-
 function assert(condition, message) {
   if (!condition) fail(message);
+}
+
+function assertIncludes(haystack, needle, message) {
+  assert(haystack.includes(needle), message);
+}
+
+function assertBefore(haystack, first, second, message) {
+  const firstIndex = haystack.indexOf(first);
+  const secondIndex = haystack.indexOf(second);
+  assert(firstIndex !== -1, `${message}: missing ${first}`);
+  assert(secondIndex !== -1, `${message}: missing ${second}`);
+  assert(firstIndex < secondIndex, message);
+}
+
+function assertWorkflowSecret(workflow, name) {
+  assertIncludes(
+    workflow,
+    `${name}: ` + "${{ secrets." + name + " }}",
+    `mobile workflow secret wiring is missing ${name}`,
+  );
 }
 
 const strictFailures = [];
@@ -98,14 +140,78 @@ const workflow = fs.readFileSync(".github/workflows/mobile-packaging.yml", "utf8
 assert(workflow.includes("Build signed Android mobile artifacts"), "mobile workflow must expose an Android build step");
 assert(workflow.includes("Build signed iOS mobile artifacts"), "mobile workflow must expose an iOS build step");
 assert(workflow.includes("if: inputs.build"), "mobile workflow must gate signed builds behind the build input");
-assert(
-  workflow.includes("scripts/build-release-artifact.sh --platform=android"),
+assertIncludes(
+  workflow,
+  "scripts/init-mobile-packaging.sh --platform=android",
+  "mobile workflow must initialize and verify Android through the shared helper",
+);
+assertIncludes(
+  workflow,
+  "scripts/init-mobile-packaging.sh --platform=ios",
+  "mobile workflow must initialize and verify iOS through the shared helper",
+);
+assertIncludes(
+  workflow,
+  "scripts/build-release-artifact.sh --platform=android",
   "mobile workflow must build Android through the release artifact script",
 );
-assert(
-  workflow.includes("scripts/build-release-artifact.sh --platform=ios"),
+assertIncludes(
+  workflow,
+  "scripts/build-release-artifact.sh --platform=ios",
   "mobile workflow must build iOS through the release artifact script",
 );
+assertIncludes(
+  workflow,
+  "scripts/prepare-mobile-signing.sh --platform=android",
+  "mobile workflow must prepare Android signing before signed builds",
+);
+assertIncludes(
+  workflow,
+  "scripts/prepare-mobile-signing.sh --platform=ios",
+  "mobile workflow must prepare iOS signing before signed builds",
+);
+assertBefore(
+  workflow,
+  "scripts/init-mobile-packaging.sh --platform=android",
+  "scripts/prepare-mobile-signing.sh --platform=android",
+  "mobile workflow must initialize Android before preparing signing",
+);
+assertBefore(
+  workflow,
+  "scripts/prepare-mobile-signing.sh --platform=android",
+  "scripts/build-release-artifact.sh --platform=android",
+  "mobile workflow must prepare Android signing before building",
+);
+assertBefore(
+  workflow,
+  "scripts/init-mobile-packaging.sh --platform=ios",
+  "scripts/prepare-mobile-signing.sh --platform=ios",
+  "mobile workflow must initialize iOS before preparing signing",
+);
+assertBefore(
+  workflow,
+  "scripts/prepare-mobile-signing.sh --platform=ios",
+  "scripts/build-release-artifact.sh --platform=ios",
+  "mobile workflow must prepare iOS signing before building",
+);
+assert(fs.existsSync("scripts/init-mobile-packaging.sh"), "mobile packaging init helper is missing");
+const initScript = fs.readFileSync("scripts/init-mobile-packaging.sh", "utf8");
+assert(initScript.includes('run tauri -- "$target" init'), "mobile init helper must call Tauri mobile init");
+assert(initScript.includes("preflight_platform"), "mobile init helper must preflight platform prerequisites");
+assert(initScript.includes("--ci --skip-targets-install"), "mobile init helper must run Tauri init non-interactively after target preflight");
+assert(initScript.includes("init_platform android"), "mobile init helper must initialize Android");
+assert(initScript.includes("init_platform ios"), "mobile init helper must initialize iOS");
+assert(
+  initScript.includes("scripts/verify-mobile-packaging.sh --strict"),
+  "mobile init helper must run strict verification after initialization",
+);
+assert(fs.existsSync("scripts/prepare-mobile-signing.sh"), "mobile signing prep helper is missing");
+const signingScript = fs.readFileSync("scripts/prepare-mobile-signing.sh", "utf8");
+assert(signingScript.includes("keystore.properties"), "mobile signing prep must write Android keystore.properties");
+assert(signingScript.includes("rootProject.file(\"keystore.properties\")"), "mobile signing prep must patch Android Gradle signing config");
+assert(signingScript.includes("buildTypesMatch"), "mobile signing prep must locate Android buildTypes robustly");
+assert(signingScript.includes("APPLE_API_KEY_PATH"), "mobile signing prep must expose the iOS App Store Connect key path");
+assert(signingScript.includes("APPLE_DEVELOPMENT_TEAM"), "mobile signing prep must expose the iOS development team");
 
 const tauriConfig = readJson("crates/agent-tauri/tauri.conf.json");
 assert(tauriConfig.identifier === "io.shinkai.agent-app", "Tauri identifier must be stable for mobile packages");
@@ -125,11 +231,24 @@ assert(
   ios.command === "npm --prefix crates/agent-tauri/frontend run tauri -- ios build --export-method app-store-connect",
   "iOS release command must build an App Store export through the project-local Tauri wrapper",
 );
-for (const env of ["ANDROID_KEYSTORE_BASE64", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD"]) {
+const androidSigningEnv = ["ANDROID_KEYSTORE_BASE64", "ANDROID_KEYSTORE_PASSWORD", "ANDROID_KEY_ALIAS", "ANDROID_KEY_PASSWORD"];
+const iosSigningEnv = [
+  "APPLE_API_KEY",
+  "APPLE_API_ISSUER",
+  "APPLE_API_KEY_BASE64",
+  "APPLE_API_KEY_PATH",
+  "APPLE_TEAM_ID",
+  "APPLE_DEVELOPMENT_TEAM",
+];
+for (const env of androidSigningEnv) {
   assert(android.signing?.env?.includes(env), `Android signing env is missing ${env}`);
+  assertWorkflowSecret(workflow, env);
 }
-for (const env of ["APPLE_API_KEY", "APPLE_API_ISSUER", "APPLE_TEAM_ID", "IOS_PROVISIONING_PROFILE"]) {
+for (const env of iosSigningEnv) {
   assert(ios.signing?.env?.includes(env), `iOS signing env is missing ${env}`);
+}
+for (const env of iosSigningEnv.filter((name) => !["APPLE_API_KEY_PATH", "APPLE_DEVELOPMENT_TEAM"].includes(name))) {
+  assertWorkflowSecret(workflow, env);
 }
 for (const glob of [
   "crates/agent-tauri/gen/android/app/build/outputs/apk/**/*.apk",

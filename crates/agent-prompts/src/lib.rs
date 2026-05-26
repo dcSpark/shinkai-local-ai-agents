@@ -4,7 +4,7 @@
 //! profile-global prompts and `profiles/<profile>/agents/<agent>/prompts/` for
 //! agent-specific command libraries.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use agent_storage::{StorageError, StoragePaths};
 use serde::{Deserialize, Serialize};
@@ -17,6 +17,12 @@ pub enum PromptError {
     Io(#[from] std::io::Error),
     #[error("invalid prompt name {0:?}; use letters, numbers, dots, dashes, or underscores")]
     InvalidName(String),
+    #[error("saved prompt {0:?} not found")]
+    NotFound(String),
+    #[error("invalid portable prompt document: {0}")]
+    InvalidPortableDoc(String),
+    #[error("json error: {0}")]
+    Json(#[from] serde_json::Error),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -25,6 +31,19 @@ pub struct PromptDoc {
     pub body: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PortablePromptDoc {
+    pub schema_version: u32,
+    pub prompt: PromptDoc,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum PromptImportDoc {
+    Portable(PortablePromptDoc),
+    Legacy(PromptDoc),
 }
 
 #[derive(Debug, Clone)]
@@ -192,6 +211,50 @@ impl PromptStore {
         Ok(true)
     }
 
+    pub fn export_scoped(
+        &self,
+        agent_id: Option<&str>,
+        name: &str,
+        path: impl AsRef<Path>,
+    ) -> Result<PromptDoc, PromptError> {
+        let prompt = self
+            .get_scoped(agent_id, name)?
+            .ok_or_else(|| PromptError::NotFound(name.to_string()))?;
+        let portable = PortablePromptDoc {
+            schema_version: 1,
+            prompt: prompt.clone(),
+        };
+        if let Some(parent) = path.as_ref().parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, serde_json::to_vec_pretty(&portable)?)?;
+        Ok(prompt)
+    }
+
+    pub fn import_file(
+        &self,
+        path: impl AsRef<Path>,
+        agent_id_override: Option<&str>,
+    ) -> Result<PromptDoc, PromptError> {
+        let input: PromptImportDoc = serde_json::from_str(&std::fs::read_to_string(path)?)?;
+        let prompt = match input {
+            PromptImportDoc::Portable(doc) => {
+                if doc.schema_version != 1 {
+                    return Err(PromptError::InvalidPortableDoc(format!(
+                        "unsupported schema_version {}",
+                        doc.schema_version
+                    )));
+                }
+                doc.prompt
+            }
+            PromptImportDoc::Legacy(prompt) => prompt,
+        };
+        let target_agent = agent_id_override.or(prompt.agent_id.as_deref());
+        self.save_scoped(target_agent, &prompt.name, &prompt.body)
+    }
+
     fn prompt_dir(&self, agent_id: Option<&str>) -> PathBuf {
         if let Some(agent_id) = agent_id {
             self.paths.agent_prompts_dir(agent_id)
@@ -344,6 +407,63 @@ mod tests {
             PromptError::Storage(StorageError::QuotaExceeded { .. })
         ));
         assert!(store.get("too-large").unwrap().is_none());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn prompt_export_import_preserves_scope_by_default() {
+        let dir = std::env::temp_dir().join(format!("agent-prompts-portable-test-{}", uuid_like()));
+        let store = PromptStore::new(StoragePaths::new(&dir));
+        store
+            .save_for_agent("critic", "daily", "review this patch")
+            .unwrap();
+
+        let export_path = dir.join("daily.prompt.json");
+        let exported = store
+            .export_scoped(Some("critic"), "daily", &export_path)
+            .unwrap();
+        assert_eq!(exported.agent_id.as_deref(), Some("critic"));
+        assert!(store.delete_for_agent("critic", "daily").unwrap());
+
+        let imported = store.import_file(&export_path, None).unwrap();
+        assert_eq!(imported.agent_id.as_deref(), Some("critic"));
+        assert_eq!(
+            store
+                .get_for_agent("critic", "daily")
+                .unwrap()
+                .unwrap()
+                .body,
+            "review this patch"
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn prompt_import_can_override_scope() {
+        let dir = std::env::temp_dir().join(format!(
+            "agent-prompts-portable-override-test-{}",
+            uuid_like()
+        ));
+        let store = PromptStore::new(StoragePaths::new(&dir));
+        store
+            .save_for_agent("critic", "daily", "review this patch")
+            .unwrap();
+
+        let export_path = dir.join("daily.prompt.json");
+        store
+            .export_scoped(Some("critic"), "daily", &export_path)
+            .unwrap();
+        let imported = store.import_file(&export_path, Some("builder")).unwrap();
+
+        assert_eq!(imported.agent_id.as_deref(), Some("builder"));
+        assert_eq!(
+            store
+                .get_for_agent("builder", "daily")
+                .unwrap()
+                .unwrap()
+                .body,
+            "review this patch"
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 

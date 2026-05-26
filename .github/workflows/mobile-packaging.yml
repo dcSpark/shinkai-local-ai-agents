@@ -91,12 +91,12 @@ jobs:
         working-directory: crates/agent-tauri/frontend
         run: npm ci
 
-      - name: Initialize Android Tauri project
-        working-directory: crates/agent-tauri/frontend
-        run: npm run tauri -- android init
+      - name: Initialize and verify Android Tauri project
+        run: scripts/init-mobile-packaging.sh --platform=android
 
-      - name: Strict Android mobile packaging verification
-        run: scripts/verify-mobile-packaging.sh --strict --platform=android
+      - name: Prepare Android signing
+        if: inputs.build
+        run: scripts/prepare-mobile-signing.sh --platform=android
 
       - name: Build signed Android mobile artifacts
         if: inputs.build
@@ -123,8 +123,8 @@ jobs:
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      IOS_PROVISIONING_PROFILE: ${{ secrets.IOS_PROVISIONING_PROFILE }}
     steps:
       - uses: actions/checkout@v4
 
@@ -151,12 +151,12 @@ jobs:
         working-directory: crates/agent-tauri/frontend
         run: npm ci
 
-      - name: Initialize iOS Tauri project
-        working-directory: crates/agent-tauri/frontend
-        run: npm run tauri -- ios init
+      - name: Initialize and verify iOS Tauri project
+        run: scripts/init-mobile-packaging.sh --platform=ios
 
-      - name: Strict iOS mobile packaging verification
-        run: scripts/verify-mobile-packaging.sh --strict --platform=ios
+      - name: Prepare iOS signing
+        if: inputs.build
+        run: scripts/prepare-mobile-signing.sh --platform=ios
 
       - name: Build signed iOS mobile artifacts
         if: inputs.build

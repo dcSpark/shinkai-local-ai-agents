@@ -6,7 +6,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use agent_adapters::{AdapterRegistry, ClawHubProvider, NormalizedPackage, inspect_source};
-use agent_batch::{BatchItemState, BatchPlan};
+use agent_batch::{BatchItemState, BatchPlan, prepare_batch_inputs};
 use agent_bundles::{export_bundle, import_bundle};
 use agent_capabilities::{
     CapabilityDraft, CapabilityDraftInput, CapabilityDraftStatus, CapabilityDraftStore,
@@ -23,15 +23,16 @@ use agent_conversations::{
 };
 use agent_core::{
     AgentConfig, ApprovalControllerPolicy, ApprovalMode, ConfigValueExplanation, CostPolicy,
-    ExecutionPolicy, Harness, HarnessApi, HookTrigger, IngestedArtifactView, MemoryFragment,
-    PromptRefinement, RunHookHandler, RunLifecycleHook, RunResult, SkillView, StopRetentionMode,
-    ToolOutputMode, ToolPolicy, UserInput, VisibilityLevel, VoiceConfig,
-    assess_approval_controller_delegate, assess_approval_controller_with_model,
-    verify_configured_approval_signature, verify_configured_approval_unlock,
+    ExecutionPolicy, Harness, HarnessApi, HookTrigger, IngestedArtifactView, PromptRefinement,
+    RunHookHandler, RunLifecycleHook, RunResult, SkillView, StopRetentionMode, ToolOutputMode,
+    ToolPolicy, UserInput, VisibilityLevel, VoiceConfig, assess_approval_controller_delegate,
+    assess_approval_controller_with_model, verify_configured_approval_signature,
+    verify_configured_approval_unlock,
 };
 use agent_ingest::{
-    IngestionArtifact, IngestionFindingReviewDecision, IngestionModelCall, IngestionStore,
-    model_vision_source_requirement, probe_model_vision_source,
+    IngestionArtifact, IngestionFindingReviewDecision, IngestionModelCall,
+    IngestionSourceProbeReport, IngestionStore, IngestionVisionModelSupportProbe,
+    model_vision_source_requirement, probe_model_vision_source, probe_source_compatibility,
     supported_backends as supported_ingestion_backends,
 };
 use agent_llm::{
@@ -39,9 +40,14 @@ use agent_llm::{
     ModelRef, NativeProviderConfig, RigProvider,
 };
 use agent_memory::{
-    MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget, list_records_for_supported_backends,
-    load_fragments_for_backend, memory_classification_from_model_output,
-    memory_record_matches_topics, profile_memory_access_report,
+    MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget,
+    create_record_for_active_backend_with_topics_for_agent, delete_record_for_active_backend,
+    delete_records_by_source_conversation_ids_for_active_backend, edit_record_for_active_backend,
+    export_target_for_active_backend,
+    generate_records_for_active_backend_with_topics_for_agent_and_guidance,
+    import_file_for_active_backend_for_agent, list_records_for_active_backend,
+    load_fragments_with_profile_grants, memory_classification_from_model_output,
+    probe_backend as probe_memory_backend, profile_memory_access_report, rollback_active_backend,
     supported_backends as supported_memory_backends,
 };
 use agent_prompts::{PromptStore, is_valid_prompt_name};
@@ -51,8 +57,10 @@ use agent_secrets::{
 use agent_skills::{SkillDoc, SkillRegistry};
 use agent_storage::StoragePaths;
 use agent_tools::{
-    ArtifactTool, FakeTool, ShellTool, ShellToolConfig, SubagentTool, ToolId, ToolRegistry,
-    VoiceRuntimeConfig, delete_generated_artifact_from_env, generated_artifact_data_url_from_env,
+    ArtifactGenerateInput, ArtifactTool, FakeTool, ShellTool, ShellToolConfig, SubagentTool,
+    ToolId, ToolRegistry, VoiceRuntimeConfig, delete_generated_artifact_from_env,
+    export_generated_artifact_from_env, generate_artifact_from_env,
+    generated_artifact_data_url_from_env, generated_artifact_file_from_env,
     is_shell_runtime_tool_id, list_generated_artifacts_from_env, open_generated_artifact_from_env,
     register_allowed_adapter_tools_for_category_with_provenance,
     register_allowed_adapter_tools_for_resource_with_provenance,
@@ -101,9 +109,11 @@ async fn run_server(addr: &str) -> std::io::Result<()> {
         tokio::spawn(async move {
             let response = match read_request(&mut socket).await {
                 Ok(request) => handle_request(request, state).await,
-                Err(err) => http_json(400, serde_json::json!({"error": err.to_string()})),
+                Err(err) => {
+                    http_json(400, serde_json::json!({"error": err.to_string()})).into_bytes()
+                }
             };
-            let _ = socket.write_all(response.as_bytes()).await;
+            let _ = socket.write_all(&response).await;
         });
     }
 }
@@ -145,15 +155,43 @@ async fn read_request(socket: &mut tokio::net::TcpStream) -> anyhow::Result<Http
     })
 }
 
-async fn handle_request(request: HttpRequest, state: Arc<DaemonState>) -> String {
+async fn handle_request(request: HttpRequest, state: Arc<DaemonState>) -> Vec<u8> {
+    if request.method == "GET" {
+        let (path, _) = split_query(&request.path);
+        if path == "/bridges/embed.js" {
+            return http_javascript(daemon_web_embed_script()).into_bytes();
+        }
+        if path == "/bridges/whatsapp/webhook" {
+            return match daemon_whatsapp_webhook_verify(&request.path) {
+                Ok(challenge) => http_text(200, &challenge).into_bytes(),
+                Err(err) => {
+                    http_json(403, serde_json::json!({"error": err.to_string()})).into_bytes()
+                }
+            };
+        }
+        if path.starts_with("/artifacts/") && path.ends_with("/download") {
+            let id = path
+                .trim_start_matches("/artifacts/")
+                .trim_end_matches("/download");
+            return match daemon_artifact_download(id) {
+                Ok(response) => response,
+                Err(err) => http_json(
+                    error_status(&err.to_string()),
+                    serde_json::json!({"error": err.to_string()}),
+                )
+                .into_bytes(),
+            };
+        }
+    }
     match route(request, state).await {
-        Ok((status, body)) => http_json(status, body),
+        Ok((status, body)) => http_json(status, body).into_bytes(),
         Err(err) => {
             let message = err.to_string();
             http_json(
                 error_status(&message),
                 serde_json::json!({"error": message}),
             )
+            .into_bytes()
         }
     }
 }
@@ -226,10 +264,27 @@ async fn route_inner(
             .await
             .map(|value| (200, value)),
         ("POST", "/score") => daemon_score(&request.body).map(|value| (200, value)),
+        ("GET", "/batches") => daemon_batch_list().map(|value| (200, value)),
+        _ if request.method == "GET" && request.path.starts_with("/batches/") => {
+            let id = request.path.trim_start_matches("/batches/");
+            daemon_batch_show(id).map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/batches/")
+            && request.path.ends_with("/delete") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/batches/")
+                .trim_end_matches("/delete")
+                .trim_end_matches('/');
+            daemon_batch_delete(id).map(|value| (200, value))
+        }
         ("POST", "/batch") => daemon_batch(&request.body).await.map(|value| (200, value)),
         ("POST", "/batch/resume") => daemon_batch_resume(&request.body)
             .await
             .map(|value| (200, value)),
+        ("GET", "/bridges/status") => Ok((200, daemon_bridge_status())),
         ("POST", "/bridges/telegram/webhook") => {
             { daemon_telegram_bridge(&request.body, &request.headers) }
                 .await
@@ -280,6 +335,9 @@ async fn route_inner(
             daemon_compaction_delete(id).map(|value| (200, value))
         }
         ("GET", "/memory/backends") => daemon_memory_backends().map(|value| (200, value)),
+        ("POST", "/memory/backends/probe") => {
+            daemon_memory_backend_probe(&request.body).map(|value| (200, value))
+        }
         ("GET", "/memory") => daemon_memory_list().map(|value| (200, value)),
         ("POST", "/memory") => daemon_memory_create(&request.body).map(|value| (200, value)),
         ("POST", "/memory/access") => daemon_memory_access(&request.body).map(|value| (200, value)),
@@ -426,6 +484,12 @@ async fn route_inner(
         ("POST", "/prompts/delete") => {
             daemon_prompt_delete_scoped(&request.body).map(|value| (200, value))
         }
+        ("POST", "/prompts/export") => {
+            daemon_prompt_export(&request.body).map(|value| (200, value))
+        }
+        ("POST", "/prompts/import") => {
+            daemon_prompt_import(&request.body).map(|value| (200, value))
+        }
         ("GET", "/conversations") => daemon_conversation_list().map(|value| (200, value)),
         ("GET", "/conversations/tree") => daemon_conversation_tree().map(|value| (200, value)),
         _ if request.method == "GET"
@@ -505,10 +569,16 @@ async fn route_inner(
         ("POST", "/ingest/probe-vision") => daemon_ingest_probe_vision(&request.body)
             .await
             .map(|value| (200, value)),
+        ("POST", "/ingest/probe-source") => {
+            daemon_ingest_probe_source(&request.body).map(|value| (200, value))
+        }
         ("POST", "/ingest") => daemon_ingest_add(&request.body)
             .await
             .map(|value| (200, value)),
         ("GET", "/artifacts") => daemon_artifact_list().map(|value| (200, value)),
+        ("POST", "/artifacts/generate") => {
+            daemon_artifact_generate(&request.body).map(|value| (200, value))
+        }
         ("GET", "/adapters") => daemon_adapter_list().map(|value| (200, value)),
         ("GET", "/adapters/doctor") => daemon_adapter_doctor().map(|value| (200, value)),
         ("POST", "/adapters/inspect") => {
@@ -537,6 +607,14 @@ async fn route_inner(
         }
         ("POST", "/bundles/import") => {
             daemon_bundle_import(&request.body).map(|value| (200, value))
+        }
+        _ if request.method == "GET" && request.path.starts_with("/traces") => {
+            let (path, query) = split_query(&request.path);
+            if path != "/traces" {
+                anyhow::bail!("unknown traces path: {path}");
+            }
+            daemon_trace_list(query_param_usize(query, "limit").unwrap_or(20))
+                .map(|value| (200, value))
         }
         _ if request.method == "GET" && trace_compare_path(&request.path).is_some() => {
             let (primary, compare) =
@@ -575,6 +653,16 @@ async fn route_inner(
         }
         _ if request.method == "GET"
             && request.path.starts_with("/trace/")
+            && request.path.ends_with("/prompt") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/trace/")
+                .trim_end_matches("/prompt");
+            trace_prompt(id).map(|value| (200, value))
+        }
+        _ if request.method == "GET"
+            && request.path.starts_with("/trace/")
             && request.path.ends_with("/tree") =>
         {
             let id = request
@@ -602,6 +690,16 @@ async fn route_inner(
             daemon_bridge_delivery_retry(id)
                 .await
                 .map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/bridges/deliveries/")
+            && request.path.ends_with("/delete") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/bridges/deliveries/")
+                .trim_end_matches("/delete");
+            daemon_bridge_delivery_delete(id).map(|value| (200, value))
         }
         _ if request.method == "GET" && request.path.starts_with("/approvals/") => {
             let id = request.path.trim_start_matches("/approvals/");
@@ -748,6 +846,16 @@ async fn route_inner(
         }
         _ if request.method == "POST"
             && request.path.starts_with("/artifacts/")
+            && request.path.ends_with("/export") =>
+        {
+            let id = request
+                .path
+                .trim_start_matches("/artifacts/")
+                .trim_end_matches("/export");
+            daemon_artifact_export(id, &request.body).map(|value| (200, value))
+        }
+        _ if request.method == "POST"
+            && request.path.starts_with("/artifacts/")
             && request.path.ends_with("/delete") =>
         {
             let id = request
@@ -802,12 +910,14 @@ async fn route_inner(
                     "GET /version",
                     "GET /storage",
                     "POST /storage/prune-cache",
+                    "GET /traces?limit=<n>",
                     "GET /trace/<run_id>",
                     "GET /trace/<run_id>/summary",
                     "GET /trace/<run_id>/tree",
                     "GET /trace/<run_id>/compare/<compare_run_id>",
                     "GET /trace/<run_id>/hooks",
                     "GET /trace/<run_id>/scores",
+                    "GET /trace/<run_id>/prompt",
                     "POST /run",
                     "POST /run/start",
                     "GET /run/status/<run_id>",
@@ -826,11 +936,15 @@ async fn route_inner(
                     "POST /bridges/telegram/webhook",
                     "POST /bridges/slack/slash",
                     "POST /bridges/teams/activity",
+                    "GET /bridges/status",
+                    "GET /bridges/embed.js",
+                    "GET /bridges/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=<token>&hub.challenge=<challenge>",
                     "POST /bridges/whatsapp/webhook",
                     "POST /bridges/webhook",
                     "GET /bridges/deliveries",
                     "POST /bridges/deliveries/retry-all",
                     "POST /bridges/deliveries/<id>/retry",
+                    "POST /bridges/deliveries/<id>/delete",
                     "POST /voice/capture",
                     "GET /compactions",
                     "POST /compactions/keep",
@@ -854,6 +968,7 @@ async fn route_inner(
                     "POST /approvals/<run_id>/<approval_id>/execute",
                     "GET|POST /memory",
                     "GET /memory/backends",
+                    "POST /memory/backends/probe",
                     "POST /memory/access",
                     "POST /memory/generate",
                     "POST /memory/generate-conversation",
@@ -921,16 +1036,23 @@ async fn route_inner(
                     "POST /prompts/list",
                     "POST /prompts/show",
                     "POST /prompts/delete",
+                    "POST /prompts/export",
+                    "POST /prompts/import",
                     "GET|POST /ingest",
                     "GET /ingest/backends",
+                    "POST /ingest/probe-source",
+                    "POST /ingest/probe-vision",
                     "GET /ingest/<id>",
                     "POST /ingest/<id>/rerun",
                     "POST /ingest/<id>/review",
                     "POST /ingest/<id>/rm",
                     "GET /artifacts",
+                    "POST /artifacts/generate",
                     "GET /artifacts/<id>",
                     "GET /artifacts/<id>/data-url",
+                    "GET /artifacts/<id>/download",
                     "POST /artifacts/<id>/open",
+                    "POST /artifacts/<id>/export",
                     "POST /artifacts/<id>/delete",
                     "GET /adapters",
                     "GET /adapters/doctor",
@@ -1195,6 +1317,7 @@ async fn daemon_run_status(id: &str, state: Arc<DaemonState>) -> anyhow::Result<
         }
     }
 
+    let recovery_hint = reason.as_deref().and_then(budget_recovery_hint);
     Ok(serde_json::json!({
         "run_id": run_id.0,
         "status": status,
@@ -1202,9 +1325,24 @@ async fn daemon_run_status(id: &str, state: Arc<DaemonState>) -> anyhow::Result<
         "event_count": events.len(),
         "final_output": final_output,
         "reason": reason,
+        "recovery_hint": recovery_hint,
         "total_cost_usd": total_cost_usd,
         "total_duration_ms": total_duration_ms
     }))
+}
+
+fn budget_recovery_hint(reason: &str) -> Option<String> {
+    if reason
+        .to_ascii_lowercase()
+        .contains("tool-call budget exhausted")
+    {
+        Some(
+            "Increase max_tool_calls, then use /resume or /replay against this trace if the task should continue."
+                .into(),
+        )
+    } else {
+        None
+    }
 }
 
 fn daemon_run_events(id: &str, after: Option<u64>) -> anyhow::Result<serde_json::Value> {
@@ -1246,6 +1384,24 @@ fn query_param_u64(query: Option<&str>, key: &str) -> Option<u64> {
                 None
             }
         })
+}
+
+fn query_param_usize(query: Option<&str>, key: &str) -> Option<usize> {
+    query?
+        .split('&')
+        .filter_map(|part| part.split_once('='))
+        .find_map(|(candidate, value)| {
+            if candidate == key {
+                value.parse::<usize>().ok()
+            } else {
+                None
+            }
+        })
+}
+
+fn query_param_string(query: Option<&str>, key: &str) -> Option<String> {
+    url::form_urlencoded::parse(query?.as_bytes())
+        .find_map(|(candidate, value)| (candidate.as_ref() == key).then(|| value.into_owned()))
 }
 
 #[allow(clippy::large_enum_variant)]
@@ -1795,7 +1951,7 @@ fn cleanup_conversation_side_data(
 ) -> anyhow::Result<ConversationDeletionCleanup> {
     Ok(ConversationDeletionCleanup {
         compactions: CompactionStore::from_env().remove_by_conversation_ids(deleted)?,
-        memories: MemoryStore::from_env().delete_by_source_conversation_ids(deleted)?,
+        memories: delete_records_by_source_conversation_ids_for_active_backend(deleted)?,
     })
 }
 
@@ -2143,11 +2299,29 @@ fn daemon_score(body: &str) -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::json!({ "run_id": run_id.0, "recorded": "score" }))
 }
 
+fn daemon_batch_list() -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(BatchPlan::list_from_env()?)?)
+}
+
+fn daemon_batch_show(batch_id: &str) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(BatchPlan::load_from_env(batch_id)?)?)
+}
+
+fn daemon_batch_delete(batch_id: &str) -> anyhow::Result<serde_json::Value> {
+    BatchPlan::delete_from_env(batch_id)?;
+    Ok(serde_json::json!({
+        "batch_id": batch_id,
+        "deleted": true
+    }))
+}
+
 async fn daemon_batch(body: &str) -> anyhow::Result<serde_json::Value> {
     let input: DaemonBatchInput = serde_json::from_str(body)?;
     let batch_run_id = RunId::new();
     let batch_id = format!("batch-{}", batch_run_id.0);
-    let mut plan = BatchPlan::new(batch_id.clone(), input.items);
+    let (items, item_keys) =
+        prepare_batch_inputs(input.items, input.item_keys, input.files, input.folders)?;
+    let mut plan = BatchPlan::new_with_optional_item_keys(batch_id.clone(), items, item_keys)?;
     plan.save_to_env()?;
     execute_daemon_batch_plan(plan, batch_run_id, batch_id, input.demo, input.options).await
 }
@@ -2402,15 +2576,7 @@ async fn daemon_slack_bridge(
         "response_type": bridge_env("slack", "RESPONSE_TYPE").unwrap_or_else(|| "ephemeral".into()),
         "text": result.final_output,
     });
-    let delivery = match form.get("response_url").map(String::as_str) {
-        Some(url) if !url.trim().is_empty() => {
-            post_bridge_json_with_retries("slack.response_url", url, response.clone()).await
-        }
-        _ => serde_json::json!({
-            "attempted": false,
-            "reason": "missing response_url"
-        }),
-    };
+    let delivery = maybe_deliver_slack_reply(&form, response.clone()).await;
     let mut output = serde_json::json!({
         "response_type": response["response_type"],
         "text": response["text"],
@@ -2463,15 +2629,7 @@ async fn daemon_teams_bridge(
         "text": result.final_output,
         "replyToId": activity_id.clone(),
     });
-    let delivery = match teams_response_url(&activity).as_deref().map(str::trim) {
-        Some(url) if !url.is_empty() => {
-            post_bridge_json_with_retries("teams.response_url", url, response.clone()).await
-        }
-        _ => serde_json::json!({
-            "attempted": false,
-            "reason": "missing response_url"
-        }),
-    };
+    let delivery = maybe_deliver_teams_reply(&activity, response.clone()).await;
     let mut output = serde_json::json!({
         "text": response["text"],
         "bridge": {
@@ -2514,15 +2672,7 @@ async fn daemon_whatsapp_bridge(
             "body": result.final_output
         }
     });
-    let delivery = match whatsapp_response_url(&webhook).as_deref().map(str::trim) {
-        Some(url) if !url.is_empty() => {
-            post_bridge_json_with_retries("whatsapp.response_url", url, response.clone()).await
-        }
-        _ => serde_json::json!({
-            "attempted": false,
-            "reason": "missing response_url"
-        }),
-    };
+    let delivery = maybe_deliver_whatsapp_reply(&webhook, &message, response.clone()).await;
     let mut output = serde_json::json!({
         "text": response["text"]["body"],
         "bridge": {
@@ -2539,6 +2689,162 @@ async fn daemon_whatsapp_bridge(
         attach_bridge_x402_payment(&mut output, payment);
     }
     Ok(output)
+}
+
+fn daemon_whatsapp_webhook_verify(path: &str) -> anyhow::Result<String> {
+    let (path, query) = split_query(path);
+    if path != "/bridges/whatsapp/webhook" {
+        anyhow::bail!("unknown WhatsApp webhook verification path: {path}");
+    }
+    let mode = query_param_string(query, "hub.mode")
+        .ok_or_else(|| anyhow::anyhow!("whatsapp webhook verification mode is missing"))?;
+    if mode != "subscribe" {
+        anyhow::bail!("whatsapp webhook verification mode must be subscribe");
+    }
+    let token = query_param_string(query, "hub.verify_token")
+        .ok_or_else(|| anyhow::anyhow!("whatsapp webhook verification token is missing"))?;
+    let expected = bridge_env("whatsapp", "VERIFY_TOKEN")
+        .or_else(|| bridge_env("whatsapp", "SECRET_TOKEN"))
+        .ok_or_else(|| {
+            anyhow::anyhow!("AGENT_WHATSAPP_VERIFY_TOKEN is required for webhook verification")
+        })?;
+    if token != expected {
+        anyhow::bail!("whatsapp webhook verification token is invalid");
+    }
+    query_param_string(query, "hub.challenge")
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("whatsapp webhook verification challenge is missing"))
+}
+
+fn daemon_web_embed_script() -> &'static str {
+    r#"(function () {
+  const script = document.currentScript;
+  if (!script || script.dataset.shinkaiEmbedMounted === "1") return;
+  script.dataset.shinkaiEmbedMounted = "1";
+
+  const endpoint = script.dataset.endpoint || new URL("webhook", script.src).toString();
+  const token = script.dataset.agentBridgeToken || script.dataset.token || "";
+  const randomId = () =>
+    (globalThis.crypto && globalThis.crypto.randomUUID
+      ? globalThis.crypto.randomUUID()
+      : Math.random().toString(36).slice(2));
+  const userId = script.dataset.userId || "web-" + randomId();
+  const conversationId = script.dataset.conversationId || "web-" + randomId();
+  const title = script.dataset.title || "Shinkai Agent";
+  const placeholder = script.dataset.placeholder || "Ask your agent";
+
+  const host = document.createElement("div");
+  host.setAttribute("data-shinkai-embed", "true");
+  const shadow = host.attachShadow({ mode: "open" });
+  shadow.innerHTML = `
+    <style>
+      :host { color-scheme: light dark; }
+      .wrap { position: fixed; right: 20px; bottom: 20px; z-index: 2147483647; font: 14px/1.4 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #172026; }
+      .launcher { width: 54px; height: 54px; border: 0; border-radius: 50%; background: #111827; color: #fff; box-shadow: 0 14px 40px rgba(15, 23, 42, 0.28); cursor: pointer; font-weight: 700; }
+      .panel { display: none; width: min(360px, calc(100vw - 32px)); height: min(560px, calc(100vh - 96px)); border: 1px solid rgba(15, 23, 42, 0.16); border-radius: 8px; background: #fff; box-shadow: 0 18px 56px rgba(15, 23, 42, 0.28); overflow: hidden; }
+      .panel.open { display: grid; grid-template-rows: auto 1fr auto; }
+      .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border-bottom: 1px solid rgba(15, 23, 42, 0.12); background: #f8fafc; font-weight: 700; }
+      .close { border: 0; background: transparent; font-size: 18px; cursor: pointer; color: inherit; }
+      .log { overflow: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+      .msg { max-width: 86%; padding: 9px 11px; border-radius: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .user { align-self: flex-end; background: #111827; color: #fff; }
+      .agent { align-self: flex-start; background: #eef2f7; color: #172026; }
+      .error { align-self: flex-start; background: #fee2e2; color: #7f1d1d; }
+      form { display: flex; gap: 8px; padding: 12px; border-top: 1px solid rgba(15, 23, 42, 0.12); background: #fff; }
+      input { flex: 1; min-width: 0; border: 1px solid rgba(15, 23, 42, 0.2); border-radius: 8px; padding: 10px 11px; font: inherit; color: inherit; background: #fff; }
+      button.send { border: 0; border-radius: 8px; padding: 0 14px; background: #2563eb; color: #fff; font-weight: 700; cursor: pointer; }
+      button:disabled, input:disabled { opacity: 0.6; cursor: wait; }
+      @media (prefers-color-scheme: dark) {
+        .wrap { color: #e5e7eb; }
+        .panel, form { background: #111827; }
+        .top { background: #1f2937; }
+        .agent { background: #263244; color: #e5e7eb; }
+        input { background: #0f172a; border-color: rgba(229, 231, 235, 0.22); }
+      }
+    </style>
+    <div class="wrap">
+      <section class="panel" aria-live="polite">
+        <div class="top"><span></span><button class="close" type="button" aria-label="Close">x</button></div>
+        <div class="log"></div>
+        <form><input autocomplete="off" /><button class="send" type="submit">Send</button></form>
+      </section>
+      <button class="launcher" type="button" aria-label="Open chat">AI</button>
+    </div>`;
+
+  const panel = shadow.querySelector(".panel");
+  const launcher = shadow.querySelector(".launcher");
+  const close = shadow.querySelector(".close");
+  const heading = shadow.querySelector(".top span");
+  const log = shadow.querySelector(".log");
+  const form = shadow.querySelector("form");
+  const input = shadow.querySelector("input");
+  const send = shadow.querySelector(".send");
+  heading.textContent = title;
+  input.placeholder = placeholder;
+
+  const addMessage = (kind, text) => {
+    const item = document.createElement("div");
+    item.className = "msg " + kind;
+    item.textContent = text;
+    log.appendChild(item);
+    log.scrollTop = log.scrollHeight;
+  };
+
+  const setOpen = (open) => {
+    panel.classList.toggle("open", open);
+    launcher.style.display = open ? "none" : "block";
+    if (open) input.focus();
+  };
+
+  launcher.addEventListener("click", () => setOpen(true));
+  close.addEventListener("click", () => setOpen(false));
+  if (script.dataset.open === "true") setOpen(true);
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+    input.value = "";
+    input.disabled = true;
+    send.disabled = true;
+    addMessage("user", text);
+    try {
+      const headers = { "content-type": "application/json" };
+      if (token) headers["x-agent-bridge-token"] = token;
+      const reply = await fetch(endpoint, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          text,
+          user_id: userId,
+          conversation_id: conversationId,
+          metadata: {
+            source: "web-embed",
+            href: location.href,
+            title: document.title
+          }
+        })
+      });
+      const body = await reply.json().catch(() => ({}));
+      if (!reply.ok) throw new Error(body.error || "Bridge request failed");
+      addMessage("agent", body.text || (body.response && body.response.text) || JSON.stringify(body));
+    } catch (error) {
+      addMessage("error", error && error.message ? error.message : String(error));
+    } finally {
+      input.disabled = false;
+      send.disabled = false;
+      input.focus();
+    }
+  });
+
+  const mount = () => document.body.appendChild(host);
+  if (document.body) {
+    mount();
+  } else {
+    document.addEventListener("DOMContentLoaded", mount, { once: true });
+  }
+})();"#
 }
 
 async fn daemon_webhook_bridge(
@@ -2878,6 +3184,147 @@ async fn maybe_deliver_telegram_reply(reply: &serde_json::Value) -> serde_json::
     post_bridge_json_with_retries("telegram.sendMessage", &url, payload).await
 }
 
+async fn maybe_deliver_slack_reply(
+    form: &HashMap<String, String>,
+    response: serde_json::Value,
+) -> serde_json::Value {
+    if let Some(url) = form
+        .get("response_url")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return post_bridge_json_with_retries("slack.response_url", url, response).await;
+    }
+    let Some(_token) = slack_bot_token() else {
+        return serde_json::json!({
+            "attempted": false,
+            "reason": "missing AGENT_SLACK_BOT_TOKEN"
+        });
+    };
+    let Some(channel_id) = form
+        .get("channel_id")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return serde_json::json!({
+            "attempted": false,
+            "reason": "missing Slack channel_id"
+        });
+    };
+    let response_type = response["response_type"].as_str().unwrap_or("ephemeral");
+    let text = response["text"].clone();
+    let base_url =
+        bridge_env("slack", "API_BASE_URL").unwrap_or_else(|| "https://slack.com/api".into());
+    let (target, endpoint, mut payload) = if response_type == "in_channel" {
+        (
+            "slack.chat.postMessage",
+            "chat.postMessage",
+            serde_json::json!({
+                "channel": channel_id,
+                "text": text
+            }),
+        )
+    } else {
+        let Some(user_id) = form
+            .get("user_id")
+            .map(String::as_str)
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            return serde_json::json!({
+                "attempted": false,
+                "reason": "missing Slack user_id"
+            });
+        };
+        (
+            "slack.chat.postEphemeral",
+            "chat.postEphemeral",
+            serde_json::json!({
+                "channel": channel_id,
+                "user": user_id,
+                "text": text
+            }),
+        )
+    };
+    if let Some(thread_ts) = form
+        .get("thread_ts")
+        .map(String::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        && let Some(payload) = payload.as_object_mut()
+    {
+        payload.insert("thread_ts".into(), thread_ts.into());
+    }
+    let url = format!("{}/{endpoint}", base_url.trim_end_matches('/'));
+    post_bridge_json_with_retries(target, &url, payload).await
+}
+
+async fn maybe_deliver_teams_reply(
+    activity: &TeamsActivity,
+    response: serde_json::Value,
+) -> serde_json::Value {
+    if let Some(url) = teams_response_url(activity)
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return post_bridge_json_with_retries("teams.response_url", url, response).await;
+    }
+    let Some(_token) = teams_bot_token() else {
+        return serde_json::json!({
+            "attempted": false,
+            "reason": "missing AGENT_TEAMS_BOT_TOKEN"
+        });
+    };
+    let Some(url) = teams_activity_reply_url(activity) else {
+        return serde_json::json!({
+            "attempted": false,
+            "reason": "missing Teams serviceUrl or conversation.id"
+        });
+    };
+    post_bridge_json_with_retries("teams.activities", &url, response).await
+}
+
+async fn maybe_deliver_whatsapp_reply(
+    webhook: &WhatsAppWebhook,
+    message: &WhatsAppBridgeMessage,
+    response: serde_json::Value,
+) -> serde_json::Value {
+    if let Some(url) = whatsapp_response_url(webhook)
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        return post_bridge_json_with_retries("whatsapp.response_url", url, response).await;
+    }
+    let Some(_token) = whatsapp_access_token() else {
+        return serde_json::json!({
+            "attempted": false,
+            "reason": "missing AGENT_WHATSAPP_ACCESS_TOKEN"
+        });
+    };
+    let Some(phone_number_id) = message
+        .phone_number_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return serde_json::json!({
+            "attempted": false,
+            "reason": "missing WhatsApp phone_number_id"
+        });
+    };
+    let base_url = bridge_env("whatsapp", "API_BASE_URL")
+        .unwrap_or_else(|| "https://graph.facebook.com/v20.0".into());
+    let url = format!(
+        "{}/{phone_number_id}/messages",
+        base_url.trim_end_matches('/')
+    );
+    post_bridge_json_with_retries("whatsapp.messages", &url, response).await
+}
+
 async fn post_bridge_json_with_retries(
     target: &str,
     url: &str,
@@ -2931,20 +3378,56 @@ async fn post_bridge_json_attempts(
     let mut last_error = None;
     let mut last_status = None;
     for attempt in 1..=attempts {
-        match client.post(url).json(&payload).send().await {
+        let mut request = client.post(url).json(&payload);
+        if let Some(token) = bridge_delivery_bearer_token(target) {
+            request = request.bearer_auth(token);
+        }
+        match request.send().await {
             Ok(response) => {
                 let status = response.status().as_u16();
                 last_status = Some(status);
                 if response.status().is_success() {
-                    return serde_json::json!({
-                        "attempted": true,
-                        "delivered": true,
-                        "target": target,
-                        "attempts": attempt,
-                        "status": status
-                    });
+                    if is_slack_api_delivery_target(target) {
+                        match response.json::<serde_json::Value>().await {
+                            Ok(body)
+                                if body
+                                    .get("ok")
+                                    .and_then(serde_json::Value::as_bool)
+                                    .unwrap_or(false) =>
+                            {
+                                return serde_json::json!({
+                                    "attempted": true,
+                                    "delivered": true,
+                                    "target": target,
+                                    "attempts": attempt,
+                                    "status": status,
+                                    "slack_ts": body.get("ts")
+                                });
+                            }
+                            Ok(body) => {
+                                let error = body
+                                    .get("error")
+                                    .and_then(serde_json::Value::as_str)
+                                    .unwrap_or("unknown_error");
+                                last_error = Some(format!("Slack API {error}"));
+                            }
+                            Err(err) => {
+                                last_error =
+                                    Some(format!("Slack API response decode failed: {err}"));
+                            }
+                        }
+                    } else {
+                        return serde_json::json!({
+                            "attempted": true,
+                            "delivered": true,
+                            "target": target,
+                            "attempts": attempt,
+                            "status": status
+                        });
+                    }
+                } else {
+                    last_error = Some(format!("HTTP {status}"));
                 }
-                last_error = Some(format!("HTTP {status}"));
             }
             Err(err) => {
                 last_error = Some(err.to_string());
@@ -2962,6 +3445,192 @@ async fn post_bridge_json_attempts(
         "status": last_status,
         "error": last_error
     })
+}
+
+fn is_slack_api_delivery_target(target: &str) -> bool {
+    matches!(
+        target,
+        "slack.chat.postMessage" | "slack.chat.postEphemeral"
+    )
+}
+
+fn bridge_delivery_bearer_token(target: &str) -> Option<String> {
+    match target {
+        "slack.chat.postMessage" | "slack.chat.postEphemeral" => slack_bot_token(),
+        "teams.activities" => teams_bot_token(),
+        "whatsapp.messages" => whatsapp_access_token(),
+        _ => None,
+    }
+}
+
+fn slack_bot_token() -> Option<String> {
+    bridge_env("slack", "BOT_TOKEN")
+        .or_else(|| bridge_env("slack", "ACCESS_TOKEN"))
+        .or_else(|| clean_env("SLACK_BOT_TOKEN"))
+        .or_else(|| clean_env("SLACK_ACCESS_TOKEN"))
+}
+
+fn teams_bot_token() -> Option<String> {
+    bridge_env("teams", "BOT_TOKEN")
+        .or_else(|| bridge_env("teams", "ACCESS_TOKEN"))
+        .or_else(|| clean_env("TEAMS_BOT_TOKEN"))
+        .or_else(|| clean_env("TEAMS_ACCESS_TOKEN"))
+}
+
+fn whatsapp_access_token() -> Option<String> {
+    bridge_env("whatsapp", "ACCESS_TOKEN").or_else(|| clean_env("WHATSAPP_ACCESS_TOKEN"))
+}
+
+fn clean_env(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn daemon_bridge_status() -> serde_json::Value {
+    serde_json::json!({
+        "bridges": [
+            bridge_status_record(
+                "telegram",
+                vec!["POST /bridges/telegram/webhook"],
+                bridge_env("telegram", "SECRET_TOKEN").is_some(),
+                serde_json::json!({
+                    "bot_token_configured": bridge_env("telegram", "BOT_TOKEN")
+                        .or_else(|| clean_env("TELEGRAM_BOT_TOKEN"))
+                        .is_some(),
+                    "api_base_url_configured": bridge_env("telegram", "API_BASE_URL").is_some()
+                })
+            ),
+            bridge_status_record(
+                "slack",
+                vec!["POST /bridges/slack/slash"],
+                bridge_env("slack", "SIGNING_SECRET").is_some(),
+                serde_json::json!({
+                    "bot_token_configured": slack_bot_token().is_some(),
+                    "response_url_supported": true,
+                    "api_base_url_configured": bridge_env("slack", "API_BASE_URL").is_some(),
+                    "response_type_configured": bridge_env("slack", "RESPONSE_TYPE").is_some()
+                })
+            ),
+            bridge_status_record(
+                "teams",
+                vec!["POST /bridges/teams/activity"],
+                bridge_env("teams", "SECRET_TOKEN").is_some(),
+                serde_json::json!({
+                    "bot_token_configured": teams_bot_token().is_some(),
+                    "response_url_configured": bridge_env("teams", "RESPONSE_URL").is_some(),
+                    "activity_reply_supported": true
+                })
+            ),
+            bridge_status_record(
+                "whatsapp",
+                vec![
+                    "GET /bridges/whatsapp/webhook",
+                    "POST /bridges/whatsapp/webhook"
+                ],
+                bridge_env("whatsapp", "SECRET_TOKEN").is_some(),
+                serde_json::json!({
+                    "access_token_configured": whatsapp_access_token().is_some(),
+                    "verify_token_configured": bridge_env("whatsapp", "VERIFY_TOKEN")
+                        .or_else(|| bridge_env("whatsapp", "SECRET_TOKEN"))
+                        .is_some(),
+                    "response_url_configured": bridge_env("whatsapp", "RESPONSE_URL").is_some(),
+                    "api_base_url_configured": bridge_env("whatsapp", "API_BASE_URL").is_some()
+                })
+            ),
+            bridge_status_record(
+                "webhook",
+                vec!["POST /bridges/webhook"],
+                bridge_env("webhook", "SECRET_TOKEN").is_some(),
+                serde_json::json!({
+                    "response_url_per_request": true
+                })
+            ),
+            serde_json::json!({
+                "platform": "web-embed",
+                "inbound": ["GET /bridges/embed.js"],
+                "targets": ["POST /bridges/webhook"],
+                "auth": {
+                    "mode": "webhook bearer token",
+                    "configured": bridge_env("webhook", "SECRET_TOKEN").is_some()
+                },
+                "runtime": bridge_runtime_status("webhook"),
+                "outbound": {
+                    "browser_fetch_to_webhook": true
+                },
+                "x402": bridge_x402_status("webhook")
+            })
+        ],
+        "delivery_worker": {
+            "enabled": bridge_delivery_worker_interval().is_some(),
+            "interval_ms_configured": bridge_env("messaging", "DELIVERY_WORKER_INTERVAL_MS").is_some(),
+            "batch_limit": bridge_delivery_worker_batch_limit(),
+            "delivery_attempts_configured": bridge_env("messaging", "DELIVERY_ATTEMPTS").is_some()
+        },
+        "daemon_x402": {
+            "enabled": daemon_x402_enabled(),
+            "paths_configured": clean_env("AGENT_DAEMON_X402_PATHS").is_some()
+        }
+    })
+}
+
+fn bridge_status_record(
+    platform: &str,
+    inbound: Vec<&str>,
+    auth_configured: bool,
+    outbound: serde_json::Value,
+) -> serde_json::Value {
+    serde_json::json!({
+        "platform": platform,
+        "inbound": inbound,
+        "auth": {
+            "mode": "optional configured secret/signature",
+            "configured": auth_configured
+        },
+        "runtime": bridge_runtime_status(platform),
+        "outbound": outbound,
+        "x402": bridge_x402_status(platform)
+    })
+}
+
+fn bridge_runtime_status(platform: &str) -> serde_json::Value {
+    serde_json::json!({
+        "agent_id_configured": bridge_env(platform, "AGENT_ID").is_some(),
+        "provider_configured": bridge_env(platform, "PROVIDER").is_some(),
+        "model_configured": bridge_env(platform, "MODEL").is_some(),
+        "api_base_url_configured": bridge_env(platform, "API_BASE_URL").is_some(),
+        "api_key_env_configured": bridge_env(platform, "API_KEY_ENV").is_some(),
+        "demo_configured": bridge_env(platform, "DEMO").is_some(),
+        "max_tool_calls_configured": bridge_env(platform, "MAX_TOOL_CALLS").is_some(),
+        "load_memory": bridge_env(platform, "LOAD_MEMORY").is_some_and(|value| is_truthy(&value)),
+        "load_skills": bridge_env(platform, "LOAD_SKILLS").is_some_and(|value| is_truthy(&value))
+    })
+}
+
+fn bridge_x402_status(platform: &str) -> serde_json::Value {
+    match bridge_x402_payment_required(platform) {
+        Ok(Some(payment_required)) => serde_json::json!({
+            "enabled": true,
+            "valid": true,
+            "accepts": payment_required
+                .get("accepts")
+                .and_then(serde_json::Value::as_array)
+                .map(Vec::len)
+                .unwrap_or(0),
+            "facilitator_configured": bridge_env(platform, "X402_FACILITATOR_URL")
+                .or_else(|| bridge_env("x402", "FACILITATOR_URL"))
+                .is_some()
+        }),
+        Ok(None) => serde_json::json!({
+            "enabled": false
+        }),
+        Err(err) => serde_json::json!({
+            "enabled": true,
+            "valid": false,
+            "error": err.to_string()
+        }),
+    }
 }
 
 fn daemon_bridge_delivery_list() -> anyhow::Result<serde_json::Value> {
@@ -2992,6 +3661,17 @@ async fn daemon_bridge_delivery_retry(id: &str) -> anyhow::Result<serde_json::Va
         "id": record.id,
         "delivery": delivery,
         "resolved": delivered
+    }))
+}
+
+fn daemon_bridge_delivery_delete(id: &str) -> anyhow::Result<serde_json::Value> {
+    let store = BridgeDeliveryStore::from_env();
+    let record = store.show(id)?;
+    store.delete(&record.id)?;
+    Ok(serde_json::json!({
+        "deleted": true,
+        "delivery": public_bridge_delivery_record(&record),
+        "remaining": store.list_records()?.len()
     }))
 }
 
@@ -3075,6 +3755,7 @@ fn maybe_start_memory_generation_worker() {
                 memory_generation_worker_target(),
                 memory_generation_worker_topics(),
                 memory_generation_worker_batch_limit(),
+                None,
             ) {
                 eprintln!("memory generation worker failed: {err}");
             }
@@ -3408,6 +4089,39 @@ fn teams_response_url(activity: &TeamsActivity) -> Option<String> {
         .or_else(|| bridge_env("teams", "RESPONSE_URL"))
 }
 
+fn teams_activity_reply_url(activity: &TeamsActivity) -> Option<String> {
+    let service_url = activity
+        .service_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let conversation_id = activity
+        .conversation
+        .as_ref()
+        .and_then(|value| value.id.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let mut url = url::Url::parse(service_url).ok()?;
+    url.set_query(None);
+    url.set_fragment(None);
+    {
+        let mut segments = url.path_segments_mut().ok()?;
+        segments.pop_if_empty();
+        segments.extend(["v3", "conversations"]);
+        segments.push(conversation_id);
+        segments.push("activities");
+        if let Some(activity_id) = activity
+            .id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            segments.push(activity_id);
+        }
+    }
+    Some(url.to_string())
+}
+
 fn whatsapp_response_url(webhook: &WhatsAppWebhook) -> Option<String> {
     webhook
         .response_url
@@ -3609,6 +4323,12 @@ fn trace_show(id: &str) -> anyhow::Result<serde_json::Value> {
     )?)
 }
 
+fn daemon_trace_list(limit: usize) -> anyhow::Result<serde_json::Value> {
+    Ok(serde_json::to_value(
+        open_event_store()?.try_run_records(limit)?,
+    )?)
+}
+
 fn trace_summary(id: &str) -> anyhow::Result<serde_json::Value> {
     let run_id = RunId(uuid::Uuid::parse_str(id)?);
     let events = open_event_store()?.try_events(run_id)?;
@@ -3624,6 +4344,9 @@ fn trace_compare_path(path: &str) -> Option<(&str, &str)> {
 fn trace_compare(primary: &str, compare: &str) -> anyhow::Result<serde_json::Value> {
     let primary_run_id = RunId(uuid::Uuid::parse_str(primary)?);
     let compare_run_id = RunId(uuid::Uuid::parse_str(compare)?);
+    if primary_run_id == compare_run_id {
+        anyhow::bail!("compare needs two different run ids");
+    }
     let store = open_event_store()?;
     Ok(serde_json::to_value(build_trace_comparison(
         primary_run_id,
@@ -3650,6 +4373,27 @@ fn trace_scores(id: &str) -> anyhow::Result<serde_json::Value> {
     let run_id = RunId(uuid::Uuid::parse_str(id)?);
     let events = open_event_store()?.try_events(run_id)?;
     Ok(serde_json::to_value(quality_score_records(&events))?)
+}
+
+fn trace_prompt(id: &str) -> anyhow::Result<serde_json::Value> {
+    let run_id = RunId(uuid::Uuid::parse_str(id)?);
+    let events = open_event_store()?.try_events(run_id)?;
+    let (agent_id, prompt) = trace_prompt_source(run_id, &events)?;
+    Ok(serde_json::json!({
+        "run_id": run_id.0,
+        "agent_id": agent_id,
+        "prompt": prompt
+    }))
+}
+
+fn trace_prompt_source(run_id: RunId, events: &[RunEvent]) -> anyhow::Result<(String, String)> {
+    events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RunEventKind::RunStarted { agent_id, input } => Some((agent_id.clone(), input.clone())),
+            _ => None,
+        })
+        .ok_or_else(|| anyhow::anyhow!("run {run_id} has no RunStarted event"))
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -4116,7 +4860,7 @@ fn run_agent_id(events: &[RunEvent]) -> Option<String> {
 }
 
 fn daemon_memory_list() -> anyhow::Result<serde_json::Value> {
-    Ok(serde_json::to_value(MemoryStore::from_env().list()?)?)
+    Ok(serde_json::to_value(list_records_for_active_backend()?)?)
 }
 
 fn daemon_memory_access(body: &str) -> anyhow::Result<serde_json::Value> {
@@ -4135,6 +4879,23 @@ fn daemon_memory_backends() -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(supported_memory_backends())?)
 }
 
+fn daemon_memory_backend_probe(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: MemoryBackendProbeInput = if body.trim().is_empty() {
+        MemoryBackendProbeInput::default()
+    } else {
+        serde_json::from_str(body)?
+    };
+    let backend = input
+        .backend
+        .filter(|backend| !backend.trim().is_empty())
+        .unwrap_or_else(|| agent_core::DEFAULT_MEMORY_BACKEND_ID.into());
+    Ok(serde_json::to_value(probe_memory_backend(
+        StoragePaths::from_env(),
+        &backend,
+        &input.topics,
+    )?)?)
+}
+
 fn daemon_memory_create(body: &str) -> anyhow::Result<serde_json::Value> {
     let input: MemoryCreateInput = serde_json::from_str(body)?;
     let target = if input.user {
@@ -4142,12 +4903,12 @@ fn daemon_memory_create(body: &str) -> anyhow::Result<serde_json::Value> {
     } else {
         MemoryTarget::Agent
     };
-    let record = MemoryStore::from_env().create_for_conversation_with_topics_for_agent(
+    let record = create_record_for_active_backend_with_topics_for_agent(
         target,
         &input.content,
         MemoryAuthor::Human,
         None,
-        None,
+        input.conversation_id,
         input.topics,
         input.agent_id,
     )?;
@@ -4162,13 +4923,14 @@ fn daemon_memory_generate(body: &str) -> anyhow::Result<serde_json::Value> {
     } else {
         MemoryTarget::Agent
     };
-    let records = MemoryStore::from_env().generate_from_conversation_text_with_topics_for_agent(
+    let records = generate_records_for_active_backend_with_topics_for_agent_and_guidance(
         target,
         &input.text,
         input.range,
-        None,
+        input.conversation_id,
         input.topics,
         input.agent_id,
+        input.guidance,
     )?;
     for record in &records {
         record_memory_written(record, "generated")?;
@@ -4188,13 +4950,14 @@ fn daemon_memory_generate_conversation(body: &str) -> anyhow::Result<serde_json:
         .agent_id
         .or_else(|| Some(expanded.conversation.agent_id.clone()));
     let rendered = render_message_range(&expanded.messages, input.from, input.to)?;
-    let records = MemoryStore::from_env().generate_from_conversation_text_with_topics_for_agent(
+    let records = generate_records_for_active_backend_with_topics_for_agent_and_guidance(
         target,
         &rendered.text,
         Some(rendered.source_range),
         Some(input.id),
         input.topics,
         owning_agent,
+        input.guidance,
     )?;
     for record in &records {
         record_memory_written(record, "generated")?;
@@ -4226,7 +4989,7 @@ fn daemon_memory_generate_pending(body: &str) -> anyhow::Result<serde_json::Valu
         .limit
         .filter(|limit| *limit > 0)
         .unwrap_or_else(memory_generation_worker_batch_limit);
-    generate_pending_memories_once(target, topics, limit)
+    generate_pending_memories_once(target, topics, limit, input.guidance)
 }
 
 async fn daemon_memory_classify(body: &str) -> anyhow::Result<serde_json::Value> {
@@ -4313,6 +5076,7 @@ fn generate_pending_memories_once(
     target: MemoryTarget,
     topics: Vec<String>,
     limit: usize,
+    generation_guidance: Option<String>,
 ) -> anyhow::Result<serde_json::Value> {
     let paths = StoragePaths::from_env();
     paths.ensure_base_dirs()?;
@@ -4356,13 +5120,14 @@ fn generate_pending_memories_once(
         attempted += 1;
         let text = conversation_memory_text(&expanded.messages[processed..]);
         let range = format!("messages:{processed}..{message_count}");
-        match memory_store.generate_from_conversation_text_with_topics_for_agent(
+        match memory_store.generate_from_conversation_text_with_topics_for_agent_and_guidance(
             target,
             &text,
             Some(range.clone()),
             Some(conversation.id.clone()),
             topics.clone(),
             Some(conversation.agent_id.clone()),
+            generation_guidance.clone(),
         ) {
             Ok(records) => {
                 for record in &records {
@@ -4411,7 +5176,7 @@ fn daemon_memory_rollback(body: &str) -> anyhow::Result<serde_json::Value> {
     } else {
         MemoryTarget::Agent
     };
-    MemoryStore::from_env().rollback(target)?;
+    rollback_active_backend(target)?;
     record_memory_operation(
         if input.user { "user.md" } else { "memory.md" },
         "rolled_back",
@@ -4428,10 +5193,12 @@ fn daemon_memory_export(body: &str) -> anyhow::Result<serde_json::Value> {
     } else {
         MemoryTarget::Agent
     };
-    let records = MemoryStore::from_env().export_target(target, &input.path)?;
+    let agent_id = input.agent_id.clone();
+    let records = export_target_for_active_backend(target, &input.path, input.agent_id)?;
     Ok(serde_json::json!({
         "path": input.path,
         "user": input.user,
+        "agent_id": agent_id,
         "records": records
     }))
 }
@@ -4444,7 +5211,7 @@ fn daemon_memory_import(body: &str) -> anyhow::Result<serde_json::Value> {
         MemoryTarget::Agent
     };
     let records =
-        MemoryStore::from_env().import_file_for_agent(&input.path, Some(target), input.agent_id)?;
+        import_file_for_active_backend_for_agent(&input.path, Some(target), input.agent_id)?;
     for record in &records {
         record_memory_written(record, "imported")?;
     }
@@ -4459,12 +5226,12 @@ fn daemon_memory_route(path: &str, body: &str) -> anyhow::Result<serde_json::Val
     match parts[2] {
         "edit" => {
             let input: MemoryEditInput = serde_json::from_str(body)?;
-            let record = MemoryStore::from_env().edit(parts[1], &input.content)?;
+            let record = edit_record_for_active_backend(parts[1], &input.content)?;
             record_memory_written(&record, "edited")?;
             Ok(serde_json::to_value(record)?)
         }
         "delete" => {
-            MemoryStore::from_env().delete(parts[1])?;
+            delete_record_for_active_backend(parts[1])?;
             record_memory_operation(parts[1], "deleted", None, None)?;
             Ok(serde_json::json!({ "id": parts[1], "deleted": true }))
         }
@@ -5146,6 +5913,24 @@ fn daemon_prompt_delete_scoped(body: &str) -> anyhow::Result<serde_json::Value> 
     }))
 }
 
+fn daemon_prompt_export(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: PromptExportInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        PromptStore::from_env().export_scoped(
+            input.agent_id.as_deref(),
+            &input.name,
+            input.path,
+        )?,
+    )?)
+}
+
+fn daemon_prompt_import(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: PromptImportInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(
+        PromptStore::from_env().import_file(input.path, input.agent_id.as_deref())?,
+    )?)
+}
+
 fn resolve_saved_prompt_or_literal(
     input: String,
     agent_id: Option<&str>,
@@ -5204,6 +5989,13 @@ async fn daemon_ingest_probe_vision(body: &str) -> anyhow::Result<serde_json::Va
         probe_model_vision_source(provider.as_ref(), ModelRef::from(input.model), input.path)
             .await?;
     Ok(serde_json::to_value(probe)?)
+}
+
+fn daemon_ingest_probe_source(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: IngestProbeSourceInput = serde_json::from_str(body)?;
+    let mut report = probe_source_compatibility(&input.path)?;
+    attach_vision_model_source_support(&mut report, input.vision_model)?;
+    Ok(serde_json::to_value(report)?)
 }
 
 async fn ingest_path_with_trace(
@@ -5308,6 +6100,54 @@ fn ensure_model_supports_vision(model: &str, source: &str) -> anyhow::Result<()>
     )
 }
 
+fn attach_vision_model_source_support(
+    report: &mut IngestionSourceProbeReport,
+    vision_model: Option<String>,
+) -> anyhow::Result<()> {
+    let Some(model) = clean_optional_string(vision_model) else {
+        return Ok(());
+    };
+    let Some(requirement) = model_vision_source_requirement(&report.source) else {
+        report.vision_model = Some(IngestionVisionModelSupportProbe {
+            model,
+            source_kind: report.source_kind.clone(),
+            attachment_kind: None,
+            required_modalities: Vec::new(),
+            supported: true,
+            provider: None,
+            metadata_source: None,
+            available_modalities: Vec::new(),
+            reason: "source does not require a vision/document attachment".into(),
+        });
+        return Ok(());
+    };
+    let support = ConfigResolver::from_env()
+        .model_supports_any_modality(&model, &requirement.required_modalities)?;
+    let reason = if support.supported {
+        format!(
+            "model advertises {} support for {} attachments",
+            support.modality, requirement.attachment_kind
+        )
+    } else {
+        format!(
+            "model does not advertise any required modality for {} attachments",
+            requirement.attachment_kind
+        )
+    };
+    report.vision_model = Some(IngestionVisionModelSupportProbe {
+        model,
+        source_kind: requirement.source_kind,
+        attachment_kind: Some(requirement.attachment_kind),
+        required_modalities: requirement.required_modalities,
+        supported: support.supported,
+        provider: Some(support.provider),
+        metadata_source: Some(support.source),
+        available_modalities: support.available_modalities,
+        reason,
+    });
+    Ok(())
+}
+
 fn ingestion_provider_for_model(
     model: &str,
     max_output_tokens: Option<u64>,
@@ -5405,12 +6245,24 @@ fn daemon_artifact_list() -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(list_generated_artifacts_from_env()?)?)
 }
 
+fn daemon_artifact_generate(body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: ArtifactGenerateInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(generate_artifact_from_env(input)?)?)
+}
+
 fn daemon_artifact_show(id: &str) -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(show_generated_artifact_from_env(id)?)?)
 }
 
 fn daemon_artifact_open(id: &str) -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(open_generated_artifact_from_env(id)?)?)
+}
+
+fn daemon_artifact_export(id: &str, body: &str) -> anyhow::Result<serde_json::Value> {
+    let input: ArtifactExportInput = serde_json::from_str(body)?;
+    Ok(serde_json::to_value(export_generated_artifact_from_env(
+        id, input.path,
+    )?)?)
 }
 
 fn daemon_artifact_delete(id: &str) -> anyhow::Result<serde_json::Value> {
@@ -5423,6 +6275,22 @@ fn daemon_artifact_data_url(id: &str) -> anyhow::Result<serde_json::Value> {
     Ok(serde_json::to_value(generated_artifact_data_url_from_env(
         id,
     )?)?)
+}
+
+fn daemon_artifact_download(id: &str) -> anyhow::Result<Vec<u8>> {
+    let file = generated_artifact_file_from_env(id)?;
+    let filename = file
+        .artifact
+        .path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| format!("{}.{}", file.artifact.id, file.artifact.format));
+    Ok(http_binary_attachment(
+        &file.media_type,
+        &filename,
+        file.bytes,
+    ))
 }
 
 fn ingestion_completed_event(artifact: &IngestionArtifact) -> RunEventKind {
@@ -5622,7 +6490,14 @@ struct CompactionPathInput {
 
 #[derive(serde::Deserialize)]
 struct DaemonBatchInput {
+    #[serde(default)]
     items: Vec<String>,
+    #[serde(default)]
+    item_keys: Option<Vec<String>>,
+    #[serde(default)]
+    files: Vec<String>,
+    #[serde(default)]
+    folders: Vec<String>,
     demo: Option<String>,
     #[serde(flatten)]
     options: DaemonRuntimeOptions,
@@ -5890,11 +6765,21 @@ struct MemoryCreateInput {
     #[serde(default)]
     agent_id: Option<String>,
     #[serde(default)]
+    conversation_id: Option<String>,
+    #[serde(default)]
     topics: Vec<String>,
 }
 
 #[derive(Default, serde::Deserialize)]
 struct MemoryAccessInput {
+    #[serde(default)]
+    topics: Vec<String>,
+}
+
+#[derive(Default, serde::Deserialize)]
+struct MemoryBackendProbeInput {
+    #[serde(default)]
+    backend: Option<String>,
     #[serde(default)]
     topics: Vec<String>,
 }
@@ -5907,6 +6792,10 @@ struct MemoryGenerateInput {
     range: Option<String>,
     #[serde(default)]
     agent_id: Option<String>,
+    #[serde(default)]
+    conversation_id: Option<String>,
+    #[serde(default)]
+    guidance: Option<String>,
     #[serde(default)]
     topics: Vec<String>,
 }
@@ -5921,6 +6810,8 @@ struct MemoryGenerateConversationInput {
     #[serde(default)]
     agent_id: Option<String>,
     #[serde(default)]
+    guidance: Option<String>,
+    #[serde(default)]
     topics: Vec<String>,
 }
 
@@ -5929,6 +6820,8 @@ struct MemoryGeneratePendingInput {
     user: Option<bool>,
     #[serde(default)]
     topics: Option<Vec<String>>,
+    #[serde(default)]
+    guidance: Option<String>,
     limit: Option<usize>,
 }
 
@@ -5981,6 +6874,19 @@ struct PromptNameInput {
 }
 
 #[derive(serde::Deserialize)]
+struct PromptExportInput {
+    name: String,
+    path: String,
+    agent_id: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+struct PromptImportInput {
+    path: String,
+    agent_id: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
 struct CapabilityProposeInput {
     kind: String,
     name: String,
@@ -6008,9 +6914,21 @@ struct PathInput {
 }
 
 #[derive(serde::Deserialize)]
+struct ArtifactExportInput {
+    path: String,
+}
+
+#[derive(serde::Deserialize)]
 struct IngestProbeVisionInput {
     path: String,
     model: String,
+}
+
+#[derive(serde::Deserialize)]
+struct IngestProbeSourceInput {
+    path: String,
+    #[serde(default)]
+    vision_model: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -6675,8 +7593,11 @@ fn build_agent(options: &DaemonRuntimeOptions) -> AgentConfig {
         .map(|policy| policy.effective_load_memory(config_load_memory, options.load_memory))
         .unwrap_or(config_load_memory || options.load_memory);
     if load_memory
-        && let Ok(memory) =
-            load_memory_fragments_with_profile_grants(&agent.memory_backend, &options.memory_topics)
+        && let Ok(memory) = load_fragments_with_profile_grants(
+            StoragePaths::from_env(),
+            &agent.memory_backend,
+            &options.memory_topics,
+        )
     {
         agent.memory_fragments = memory;
     }
@@ -6830,41 +7751,6 @@ fn config_ingestion_guardrail(values: &[ConfigValueExplanation]) -> IngestionGua
         .unwrap_or(IngestionGuardrailMode::Block)
 }
 
-fn load_memory_fragments_with_profile_grants(
-    backend: &str,
-    topics: &[String],
-) -> anyhow::Result<Vec<MemoryFragment>> {
-    let active_paths = StoragePaths::from_env();
-    let active_profile = active_paths.active_profile_id().to_string();
-    let mut fragments = load_fragments_for_backend(active_paths.clone(), backend, topics)?;
-    let resolver = ConfigResolver::new(active_paths.clone());
-    for grant in resolver.list_profile_grants()?.into_iter().filter(|grant| {
-        grant.kind == ProfileGrantKind::Memory && grant.to_profile == active_profile
-    }) {
-        let source_paths =
-            StoragePaths::new_with_profile(active_paths.root().to_path_buf(), &grant.from_profile);
-        let records = list_records_for_supported_backends(source_paths)?;
-        for record in records
-            .into_iter()
-            .filter(|record| memory_record_matches_grant(record, &grant.resource))
-            .filter(|record| memory_record_matches_topics(record, topics))
-        {
-            fragments.push(MemoryStore::fragment_from_record(
-                record,
-                Some(format!(
-                    "shared_from_profile={}; grant={}",
-                    grant.from_profile, grant.id
-                )),
-            ));
-        }
-    }
-    Ok(fragments)
-}
-
-fn memory_record_matches_grant(record: &MemoryRecord, resource: &str) -> bool {
-    resource == "*" || record.id == resource || record.owning_agent.as_deref() == Some(resource)
-}
-
 fn load_skill_views_with_profile_grants() -> anyhow::Result<Vec<SkillView>> {
     let active_paths = StoragePaths::from_env();
     let active_profile = active_paths.active_profile_id().to_string();
@@ -6932,6 +7818,7 @@ fn http_json(status: u16, body: serde_json::Value) -> String {
         200 => "200 OK",
         400 => "400 Bad Request",
         402 => "402 Payment Required",
+        403 => "403 Forbidden",
         404 => "404 Not Found",
         _ => "500 Internal Server Error",
     };
@@ -6944,6 +7831,53 @@ fn http_json(status: u16, body: serde_json::Value) -> String {
         "HTTP/1.1 {status_text}\r\ncontent-type: application/json\r\naccess-control-allow-origin: *\r\naccess-control-allow-methods: GET, POST, OPTIONS\r\naccess-control-allow-headers: content-type, x-agent-bridge-token, authorization, payment-signature, payment-required, payment-response\r\n{extra_headers}content-length: {}\r\nconnection: close\r\n\r\n{body}",
         body.len()
     )
+}
+
+fn http_text(status: u16, body: &str) -> String {
+    let status_text = match status {
+        200 => "200 OK",
+        400 => "400 Bad Request",
+        403 => "403 Forbidden",
+        404 => "404 Not Found",
+        _ => "500 Internal Server Error",
+    };
+    format!(
+        "HTTP/1.1 {status_text}\r\ncontent-type: text/plain; charset=utf-8\r\naccess-control-allow-origin: *\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    )
+}
+
+fn http_javascript(body: &str) -> String {
+    format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: application/javascript; charset=utf-8\r\naccess-control-allow-origin: *\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+        body.len()
+    )
+}
+
+fn http_binary_attachment(media_type: &str, filename: &str, body: Vec<u8>) -> Vec<u8> {
+    let filename = safe_content_disposition_filename(filename);
+    let headers = format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: {media_type}\r\ncontent-disposition: attachment; filename=\"{filename}\"\r\naccess-control-allow-origin: *\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+        body.len()
+    );
+    let mut response = headers.into_bytes();
+    response.extend_from_slice(&body);
+    response
+}
+
+fn safe_content_disposition_filename(filename: &str) -> String {
+    let mut safe = filename
+        .chars()
+        .map(|ch| match ch {
+            '"' | '\\' => '_',
+            ch if ch.is_ascii_control() => '_',
+            ch => ch,
+        })
+        .collect::<String>();
+    if safe.trim().is_empty() {
+        safe = "artifact".into();
+    }
+    safe
 }
 
 fn response_extra_headers(body: &serde_json::Value) -> Vec<(String, String)> {
@@ -7192,13 +8126,242 @@ mod tests {
         assert!(available.contains(&serde_json::json!("POST /resume")));
         assert!(available.contains(&serde_json::json!("POST /resume/plan")));
         assert!(available.contains(&serde_json::json!("POST /resume/start")));
+        assert!(available.contains(&serde_json::json!("GET /traces?limit=<n>")));
         assert!(available.contains(&serde_json::json!("POST /memory/access")));
+        assert!(available.contains(&serde_json::json!("POST /memory/backends/probe")));
         assert!(available.contains(&serde_json::json!("POST /memory/rollback")));
         assert!(available.contains(&serde_json::json!("POST /memory/<id>/edit")));
         assert!(available.contains(&serde_json::json!("POST /memory/<id>/delete")));
         assert!(available.contains(&serde_json::json!("POST /skills/<id>/quarantine")));
+        assert!(available.contains(&serde_json::json!("POST /ingest/probe-source")));
         assert!(available.contains(&serde_json::json!("POST /ingest/<id>/rm")));
+        assert!(available.contains(&serde_json::json!("POST /artifacts/generate")));
+        assert!(available.contains(&serde_json::json!("POST /artifacts/<id>/export")));
+        assert!(available.contains(&serde_json::json!("GET /artifacts/<id>/download")));
         assert!(available.contains(&serde_json::json!("POST /adapters/<id>/quarantine")));
+        assert!(available.contains(&serde_json::json!("GET /bridges/status")));
+        assert!(available.contains(&serde_json::json!("GET /bridges/embed.js")));
+        assert!(available.contains(&serde_json::json!(
+            "GET /bridges/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=<token>&hub.challenge=<challenge>"
+        )));
+        assert!(available.contains(&serde_json::json!("POST /bridges/deliveries/<id>/delete")));
+    }
+
+    #[tokio::test]
+    async fn bridge_status_reports_readiness_without_secret_values() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let previous_slack_secret = std::env::var_os("AGENT_SLACK_SIGNING_SECRET");
+        let previous_slack_token = std::env::var_os("AGENT_SLACK_BOT_TOKEN");
+        let previous_slack_x402 = std::env::var_os("AGENT_SLACK_X402_ACCEPTS");
+        unsafe {
+            std::env::set_var("AGENT_SLACK_SIGNING_SECRET", "signing-secret");
+            std::env::set_var("AGENT_SLACK_BOT_TOKEN", "bot-secret");
+            std::env::set_var(
+                "AGENT_SLACK_X402_ACCEPTS",
+                r#"[{"scheme":"exact","resource":"https://example.test","maxAmountRequired":"1","payTo":"0xabc","asset":"USDC","network":"base"}]"#,
+            );
+        }
+
+        let (status, body) = route(
+            HttpRequest {
+                method: "GET".into(),
+                path: "/bridges/status".into(),
+                headers: HashMap::new(),
+                body: String::new(),
+            },
+            Arc::new(DaemonState::default()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(status, 200);
+        let bridges = body["bridges"].as_array().unwrap();
+        let slack = bridges
+            .iter()
+            .find(|bridge| bridge["platform"] == "slack")
+            .expect("slack bridge status");
+        assert_eq!(slack["auth"]["configured"], true);
+        assert_eq!(slack["outbound"]["bot_token_configured"], true);
+        assert_eq!(slack["x402"]["enabled"], true);
+        assert_eq!(slack["x402"]["valid"], true);
+        let serialized = serde_json::to_string(&body).unwrap();
+        assert!(!serialized.contains("signing-secret"));
+        assert!(!serialized.contains("bot-secret"));
+
+        restore_env("AGENT_SLACK_SIGNING_SECRET", previous_slack_secret);
+        restore_env("AGENT_SLACK_BOT_TOKEN", previous_slack_token);
+        restore_env("AGENT_SLACK_X402_ACCEPTS", previous_slack_x402);
+    }
+
+    #[tokio::test]
+    async fn artifact_generate_route_writes_scoped_document() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("artifact-generate-route");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+
+        let (status, body) = route(
+            HttpRequest {
+                method: "POST".into(),
+                path: "/artifacts/generate".into(),
+                headers: HashMap::new(),
+                body: serde_json::json!({
+                    "format": "pdf",
+                    "title": "Route Report",
+                    "content": "hello artifact",
+                    "filename": "route-report"
+                })
+                .to_string(),
+            },
+            Arc::new(DaemonState::default()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(status, 200);
+        assert_eq!(body["format"], "pdf");
+        assert!(body["id"].as_str().unwrap().ends_with("route-report"));
+        let path = PathBuf::from(body["path"].as_str().unwrap());
+        assert!(path.starts_with(StoragePaths::from_env().artifacts_dir()));
+        assert!(std::fs::read(&path).unwrap().starts_with(b"%PDF-1.4"));
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn artifact_export_route_copies_scoped_artifact() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("artifact-export-route");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+
+        let artifact_dir = StoragePaths::from_env().artifacts_dir();
+        std::fs::create_dir_all(&artifact_dir).unwrap();
+        std::fs::write(artifact_dir.join("report.txt"), b"hello").unwrap();
+        let export_dir = dir.join("exports");
+
+        let (status, body) = route(
+            HttpRequest {
+                method: "POST".into(),
+                path: "/artifacts/report/export".into(),
+                headers: HashMap::new(),
+                body: serde_json::json!({ "path": export_dir }).to_string(),
+            },
+            Arc::new(DaemonState::default()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(status, 200);
+        assert_eq!(body["artifact"]["id"], "report");
+        let output_path = PathBuf::from(body["output_path"].as_str().unwrap());
+        assert_eq!(std::fs::read(&output_path).unwrap(), b"hello");
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn artifact_download_route_returns_raw_bytes() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("artifact-download-route");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+
+        let artifact_dir = StoragePaths::from_env().artifacts_dir();
+        std::fs::create_dir_all(&artifact_dir).unwrap();
+        let bytes = b"%PDF-\xff";
+        std::fs::write(artifact_dir.join("report.pdf"), bytes).unwrap();
+
+        let response = handle_request(
+            HttpRequest {
+                method: "GET".into(),
+                path: "/artifacts/report/download".into(),
+                headers: HashMap::new(),
+                body: String::new(),
+            },
+            Arc::new(DaemonState::default()),
+        )
+        .await;
+
+        let header_end = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .unwrap();
+        let headers = String::from_utf8_lossy(&response[..header_end]);
+        assert!(headers.starts_with("HTTP/1.1 200 OK"));
+        assert!(headers.contains("content-type: application/pdf"));
+        assert!(headers.contains("content-disposition: attachment; filename=\"report.pdf\""));
+        assert_eq!(&response[header_end + 4..], bytes);
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn web_embed_script_posts_to_webhook_bridge() {
+        let response = handle_request(
+            HttpRequest {
+                method: "GET".into(),
+                path: "/bridges/embed.js".into(),
+                headers: HashMap::new(),
+                body: String::new(),
+            },
+            Arc::new(DaemonState::default()),
+        )
+        .await;
+        let response = String::from_utf8(response).unwrap();
+
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        assert!(response.contains("content-type: application/javascript; charset=utf-8"));
+        assert!(response.contains(r#"new URL("webhook", script.src)"#));
+        assert!(response.contains(r#"fetch(endpoint"#));
+        assert!(response.contains(r#"headers["x-agent-bridge-token"] = token"#));
+        assert!(response.contains(r#"source: "web-embed""#));
+        assert!(!response.contains("AGENT_WEBHOOK_SECRET_TOKEN"));
+    }
+
+    #[tokio::test]
+    async fn ingest_source_probe_reports_backend_readiness() {
+        let dir = temp_dir("ingest-source-probe");
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("scan.pdf");
+        std::fs::write(&source, b"%PDF-1.7\n").unwrap();
+
+        let (status, body) = route(
+            HttpRequest {
+                method: "POST".into(),
+                path: "/ingest/probe-source".into(),
+                headers: HashMap::new(),
+                body: serde_json::json!({ "path": source }).to_string(),
+            },
+            Arc::new(DaemonState::default()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(status, 200);
+        assert_eq!(body["source_kind"], "pdf");
+        let backends = body["backends"].as_array().unwrap();
+        assert!(backends.iter().any(|backend| {
+            backend["backend_id"] == "local-v0" && backend["status"] == "ready"
+        }));
+        assert!(backends.iter().any(|backend| {
+            backend["backend_id"] == "local-layout-v0"
+                && backend["model_requirements"]
+                    .as_array()
+                    .unwrap()
+                    .contains(&serde_json::json!("document/pdf"))
+        }));
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]
@@ -7495,6 +8658,46 @@ mod tests {
         restore_env("AGENT_WHATSAPP_SECRET_TOKEN", previous_whatsapp);
         restore_env("AGENT_WEBHOOK_SECRET_TOKEN", previous_webhook);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn whatsapp_webhook_get_verification_returns_plain_challenge() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let previous_verify = std::env::var_os("AGENT_WHATSAPP_VERIFY_TOKEN");
+        unsafe {
+            std::env::set_var("AGENT_WHATSAPP_VERIFY_TOKEN", "verify-token");
+        }
+
+        let response = handle_request(
+            HttpRequest {
+                method: "GET".into(),
+                path: "/bridges/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=verify-token&hub.challenge=challenge-123".into(),
+                headers: HashMap::new(),
+                body: String::new(),
+            },
+            Arc::new(DaemonState::default()),
+        )
+        .await;
+        let response = String::from_utf8(response).unwrap();
+        assert!(response.starts_with("HTTP/1.1 200 OK"));
+        assert!(response.contains("content-type: text/plain"));
+        assert!(response.ends_with("\r\n\r\nchallenge-123"));
+
+        let rejected = handle_request(
+            HttpRequest {
+                method: "GET".into(),
+                path: "/bridges/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=wrong&hub.challenge=challenge-123".into(),
+                headers: HashMap::new(),
+                body: String::new(),
+            },
+            Arc::new(DaemonState::default()),
+        )
+        .await;
+        let rejected = String::from_utf8(rejected).unwrap();
+        assert!(rejected.starts_with("HTTP/1.1 403 Forbidden"));
+        assert!(rejected.contains("verification token is invalid"));
+
+        restore_env("AGENT_WHATSAPP_VERIFY_TOKEN", previous_verify);
     }
 
     #[tokio::test]
@@ -7858,14 +9061,39 @@ mod tests {
         let dir = temp_dir("messaging-bridge-delivery");
         let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
         let previous_telegram_token = std::env::var_os("AGENT_TELEGRAM_BOT_TOKEN");
+        let previous_telegram_secret = std::env::var_os("AGENT_TELEGRAM_SECRET_TOKEN");
         let previous_telegram_base = std::env::var_os("AGENT_TELEGRAM_API_BASE_URL");
         let previous_slack_secret = std::env::var_os("AGENT_SLACK_SIGNING_SECRET");
+        let previous_slack_bot_token = std::env::var_os("AGENT_SLACK_BOT_TOKEN");
+        let previous_slack_access_token = std::env::var_os("AGENT_SLACK_ACCESS_TOKEN");
+        let previous_slack_base = std::env::var_os("AGENT_SLACK_API_BASE_URL");
+        let previous_slack_response_type = std::env::var_os("AGENT_SLACK_RESPONSE_TYPE");
+        let previous_teams_secret = std::env::var_os("AGENT_TEAMS_SECRET_TOKEN");
+        let previous_teams_bot_token = std::env::var_os("AGENT_TEAMS_BOT_TOKEN");
+        let previous_teams_access_token = std::env::var_os("AGENT_TEAMS_ACCESS_TOKEN");
+        let previous_teams_response = std::env::var_os("AGENT_TEAMS_RESPONSE_URL");
+        let previous_bridge_response = std::env::var_os("AGENT_BRIDGE_RESPONSE_URL");
+        let previous_whatsapp_secret = std::env::var_os("AGENT_WHATSAPP_SECRET_TOKEN");
+        let previous_whatsapp_access = std::env::var_os("AGENT_WHATSAPP_ACCESS_TOKEN");
+        let previous_whatsapp_base = std::env::var_os("AGENT_WHATSAPP_API_BASE_URL");
         let previous_attempts = std::env::var_os("AGENT_MESSAGING_DELIVERY_ATTEMPTS");
         unsafe {
             std::env::set_var("AGENT_HARNESS_HOME", &dir);
             std::env::set_var("AGENT_TELEGRAM_BOT_TOKEN", "test-token");
+            std::env::set_var("AGENT_SLACK_BOT_TOKEN", "slack-token");
+            std::env::set_var("AGENT_SLACK_RESPONSE_TYPE", "ephemeral");
+            std::env::set_var("AGENT_TEAMS_BOT_TOKEN", "teams-token");
+            std::env::set_var("AGENT_WHATSAPP_ACCESS_TOKEN", "whatsapp-token");
             std::env::set_var("AGENT_MESSAGING_DELIVERY_ATTEMPTS", "3");
             std::env::remove_var("AGENT_SLACK_SIGNING_SECRET");
+            std::env::remove_var("AGENT_SLACK_ACCESS_TOKEN");
+            std::env::remove_var("AGENT_SLACK_API_BASE_URL");
+            std::env::remove_var("AGENT_TELEGRAM_SECRET_TOKEN");
+            std::env::remove_var("AGENT_TEAMS_SECRET_TOKEN");
+            std::env::remove_var("AGENT_TEAMS_ACCESS_TOKEN");
+            std::env::remove_var("AGENT_TEAMS_RESPONSE_URL");
+            std::env::remove_var("AGENT_BRIDGE_RESPONSE_URL");
+            std::env::remove_var("AGENT_WHATSAPP_SECRET_TOKEN");
         }
 
         let (telegram_base, telegram_server) = spawn_json_server(vec![200]);
@@ -7914,10 +9142,111 @@ mod tests {
         assert_eq!(slack_requests.len(), 2);
         assert!(slack_requests[1].1.contains("[fake] deliver slack"));
 
+        let (slack_api_url, slack_api_server) = spawn_json_body_server(vec![
+            (200, r#"{"ok":false,"error":"rate_limited"}"#.into()),
+            (200, r#"{"ok":true,"ts":"123.456"}"#.into()),
+        ]);
+        unsafe {
+            std::env::set_var("AGENT_SLACK_API_BASE_URL", &slack_api_url);
+        }
+        let slack_api_body = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("team_id", "T1")
+            .append_pair("channel_id", "C1")
+            .append_pair("user_id", "U1")
+            .append_pair("command", "/agent")
+            .append_pair("text", "deliver slack api")
+            .finish();
+        let slack_api = daemon_slack_bridge(&slack_api_body, &HashMap::new())
+            .await
+            .unwrap();
+        assert_eq!(slack_api["delivery"]["delivered"], true);
+        assert_eq!(slack_api["delivery"]["attempts"], 2);
+        assert_eq!(slack_api["delivery"]["target"], "slack.chat.postEphemeral");
+        assert_eq!(slack_api["delivery"]["slack_ts"], "123.456");
+        let slack_api_requests = slack_api_server.join().unwrap();
+        assert_eq!(slack_api_requests.len(), 2);
+        assert!(slack_api_requests[1].0.contains("/chat.postEphemeral"));
+        assert!(slack_api_requests[1].1.contains("\"channel\":\"C1\""));
+        assert!(slack_api_requests[1].1.contains("\"user\":\"U1\""));
+        assert!(slack_api_requests[1].1.contains("[fake] deliver slack api"));
+
+        let (teams_url, teams_server) = spawn_json_server(vec![500, 200]);
+        let teams_body = format!(
+            r#"{{
+                "type": "message",
+                "id": "activity-1",
+                "text": "deliver teams",
+                "from": {{ "id": "teams-user" }},
+                "conversation": {{ "id": "teams-conversation" }},
+                "serviceUrl": "{teams_url}/bot"
+            }}"#
+        );
+        let teams = daemon_teams_bridge(&teams_body, &HashMap::new())
+            .await
+            .unwrap();
+        assert_eq!(teams["delivery"]["delivered"], true);
+        assert_eq!(teams["delivery"]["attempts"], 2);
+        assert_eq!(teams["delivery"]["target"], "teams.activities");
+        let teams_requests = teams_server.join().unwrap();
+        assert_eq!(teams_requests.len(), 2);
+        assert!(
+            teams_requests[1]
+                .0
+                .contains("/bot/v3/conversations/teams-conversation/activities/activity-1")
+        );
+        assert!(teams_requests[1].1.contains("[fake] deliver teams"));
+        assert!(teams_requests[1].1.contains("activity-1"));
+
+        let (whatsapp_url, whatsapp_server) = spawn_json_server(vec![500, 200]);
+        unsafe {
+            std::env::set_var("AGENT_WHATSAPP_API_BASE_URL", &whatsapp_url);
+        }
+        let whatsapp = daemon_whatsapp_bridge(
+            r#"{
+                "entry": [{
+                    "changes": [{
+                        "value": {
+                            "metadata": { "phone_number_id": "phone-cloud-1" },
+                            "messages": [{
+                                "id": "wamid.delivery",
+                                "from": "15550001111",
+                                "type": "text",
+                                "text": { "body": "deliver whatsapp" }
+                            }]
+                        }
+                    }]
+                }]
+            }"#,
+            &HashMap::new(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(whatsapp["delivery"]["delivered"], true);
+        assert_eq!(whatsapp["delivery"]["attempts"], 2);
+        assert_eq!(whatsapp["delivery"]["target"], "whatsapp.messages");
+        let whatsapp_requests = whatsapp_server.join().unwrap();
+        assert_eq!(whatsapp_requests.len(), 2);
+        assert!(whatsapp_requests[1].0.contains("/phone-cloud-1/messages"));
+        assert!(whatsapp_requests[1].1.contains("[fake] deliver whatsapp"));
+        assert!(whatsapp_requests[1].1.contains("15550001111"));
+
         restore_env("AGENT_HARNESS_HOME", previous_home);
         restore_env("AGENT_TELEGRAM_BOT_TOKEN", previous_telegram_token);
+        restore_env("AGENT_TELEGRAM_SECRET_TOKEN", previous_telegram_secret);
         restore_env("AGENT_TELEGRAM_API_BASE_URL", previous_telegram_base);
         restore_env("AGENT_SLACK_SIGNING_SECRET", previous_slack_secret);
+        restore_env("AGENT_SLACK_BOT_TOKEN", previous_slack_bot_token);
+        restore_env("AGENT_SLACK_ACCESS_TOKEN", previous_slack_access_token);
+        restore_env("AGENT_SLACK_API_BASE_URL", previous_slack_base);
+        restore_env("AGENT_SLACK_RESPONSE_TYPE", previous_slack_response_type);
+        restore_env("AGENT_TEAMS_SECRET_TOKEN", previous_teams_secret);
+        restore_env("AGENT_TEAMS_BOT_TOKEN", previous_teams_bot_token);
+        restore_env("AGENT_TEAMS_ACCESS_TOKEN", previous_teams_access_token);
+        restore_env("AGENT_TEAMS_RESPONSE_URL", previous_teams_response);
+        restore_env("AGENT_BRIDGE_RESPONSE_URL", previous_bridge_response);
+        restore_env("AGENT_WHATSAPP_SECRET_TOKEN", previous_whatsapp_secret);
+        restore_env("AGENT_WHATSAPP_ACCESS_TOKEN", previous_whatsapp_access);
+        restore_env("AGENT_WHATSAPP_API_BASE_URL", previous_whatsapp_base);
         restore_env("AGENT_MESSAGING_DELIVERY_ATTEMPTS", previous_attempts);
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -8003,6 +9332,65 @@ mod tests {
     }
 
     #[test]
+    fn trace_prompt_returns_original_prompt() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("trace-prompt");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+        let run_id = RunId::new();
+        let store = open_event_store().unwrap();
+        store.append(
+            run_id,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "researcher".into(),
+                input: "write a memo".into(),
+            },
+        );
+
+        let prompt = trace_prompt(&run_id.0.to_string()).unwrap();
+
+        assert_eq!(prompt["run_id"], run_id.0.to_string());
+        assert_eq!(prompt["agent_id"], "researcher");
+        assert_eq!(prompt["prompt"], "write a memo");
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn trace_list_returns_recent_run_records() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("trace-list");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+        let run_id = RunId::new();
+        let store = open_event_store().unwrap();
+        store.append(
+            run_id,
+            None,
+            RunEventKind::RunStarted {
+                agent_id: "agent".into(),
+                input: "hello trace list".into(),
+            },
+        );
+
+        let records = daemon_trace_list(5).unwrap();
+
+        assert_eq!(records[0]["run_id"], run_id.0.to_string());
+        assert_eq!(records[0]["status"], "running");
+        assert_eq!(records[0]["agent_id"], "agent");
+        assert_eq!(records[0]["input_preview"], "hello trace list");
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
     fn trace_compare_returns_side_by_side_metrics() {
         let _guard = ENV_LOCK.lock().unwrap();
         let dir = temp_dir("trace-compare");
@@ -8056,6 +9444,7 @@ mod tests {
                 .iter()
                 .any(|row| { row["label"] == "Run Tree" && row["delta"] == "+1 runs / +1 depth" })
         );
+        assert!(trace_compare(&primary.0.to_string(), &primary.0.to_string()).is_err());
 
         restore_env("AGENT_HARNESS_HOME", previous_home);
         let _ = std::fs::remove_dir_all(dir);
@@ -8118,6 +9507,44 @@ mod tests {
         restore_env("AGENT_HARNESS_HOME", previous_home);
         restore_env("AGENT_SLACK_SIGNING_SECRET", previous_slack_secret);
         restore_env("AGENT_MESSAGING_DELIVERY_ATTEMPTS", previous_attempts);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn bridge_delivery_delete_removes_dead_letter_without_retry() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("messaging-bridge-delete");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+        let store = BridgeDeliveryStore::from_env();
+        let record = store
+            .save_failed(
+                "slack.response_url",
+                "https://hooks.slack.test/secret-token",
+                serde_json::json!({ "text": "stale" }),
+                serde_json::json!({ "delivered": false, "error": "gone" }),
+            )
+            .unwrap();
+
+        let deleted = daemon_bridge_delivery_delete(&record.id).unwrap();
+
+        assert_eq!(deleted["deleted"], true);
+        assert_eq!(deleted["delivery"]["id"], record.id);
+        assert_eq!(
+            deleted["delivery"]["url"],
+            "https://hooks.slack.test/<redacted>"
+        );
+        assert_eq!(deleted["remaining"], 0);
+        assert!(
+            daemon_bridge_delivery_list().unwrap()["deliveries"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -8577,6 +10004,47 @@ mod tests {
         restore_env("AGENT_HARNESS_HOME", previous_home);
         restore_env("AGENT_HARNESS_PROFILE", previous_profile);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn memory_backend_probe_reports_readiness() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = temp_dir("memory-backend-probe");
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+
+        MemoryStore::new_jsonl(StoragePaths::new(&dir))
+            .create_with_topics(
+                MemoryTarget::Agent,
+                "Probe daemon memory.",
+                MemoryAuthor::Human,
+                None,
+                vec!["probe".into()],
+            )
+            .unwrap();
+
+        let report =
+            daemon_memory_backend_probe(r#"{"backend":"local-jsonl-v0","topics":["probe"]}"#)
+                .unwrap();
+        assert_eq!(report["backend"], "local-jsonl-v0");
+        assert_eq!(report["configured"], true);
+        assert_eq!(report["ok"], true);
+        assert_eq!(report["records"], 1);
+        assert_eq!(report["matching_records"], 1);
+
+        restore_env("AGENT_HARNESS_HOME", previous_home);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn budget_recovery_hint_only_matches_tool_budget_failures() {
+        let hint = budget_recovery_hint("tool-call budget exhausted (used=1, limit=1)")
+            .expect("budget failure should have recovery hint");
+        assert!(hint.contains("Increase max_tool_calls"));
+        assert!(hint.contains("/resume"));
+        assert!(budget_recovery_hint("policy denied: missing approval").is_none());
     }
 
     #[test]

@@ -171,6 +171,20 @@ export type ResumePlan = {
   prompt: string;
 };
 
+export type TraceRunRecord = {
+  run_id: Uuid;
+  first_event_id: EventId;
+  last_event_id: EventId;
+  started_at: string;
+  updated_at: string;
+  event_count: number;
+  status: string;
+  agent_id?: string | null;
+  input_preview?: string | null;
+  final_output_preview?: string | null;
+  child_run_count: number;
+};
+
 export type TraceTreeNode = {
   run_id: Uuid;
   agent_id?: string | null;
@@ -656,6 +670,7 @@ export type MemoryRecord = {
   source_range: string | null;
   source_conversation_id?: string | null;
   generating_model?: string | null;
+  generation_guidance?: string | null;
   topics?: string[];
   classification?: MemoryClassification;
 };
@@ -698,8 +713,22 @@ export type MemoryBackendDescriptor = {
   name: string;
   description: string;
   storage: string;
+  supports_write: boolean;
+  supports_edit: boolean;
+  supports_delete: boolean;
   supports_generation: boolean;
   supports_rollback: boolean;
+};
+
+export type MemoryBackendProbeReport = {
+  backend: string;
+  descriptor: MemoryBackendDescriptor;
+  configured: boolean;
+  ok: boolean;
+  records: number;
+  matching_records: number;
+  topics?: string[];
+  error?: string | null;
 };
 
 export type IngestedArtifactView = {
@@ -727,6 +756,44 @@ export type IngestionCompatibility = {
   optional_tools: string[];
   model_requirements: string[];
   notes: string;
+};
+
+export type IngestionToolAvailability = {
+  tool: string;
+  available: boolean;
+};
+
+export type IngestionBackendSourceProbe = {
+  backend_id: string;
+  backend_name: string;
+  supported: boolean;
+  status: string;
+  extraction?: string | null;
+  optional_tools: IngestionToolAvailability[];
+  missing_optional_tools: string[];
+  model_requirements: string[];
+  local_dependencies_ready: boolean;
+  notes: string;
+};
+
+export type IngestionVisionModelSupportProbe = {
+  model: string;
+  source_kind: string;
+  attachment_kind?: string | null;
+  required_modalities: string[];
+  supported: boolean;
+  provider?: string | null;
+  metadata_source?: string | null;
+  available_modalities: string[];
+  reason: string;
+};
+
+export type IngestionSourceProbeReport = {
+  source: string;
+  source_kind: string;
+  bytes: number;
+  backends: IngestionBackendSourceProbe[];
+  vision_model?: IngestionVisionModelSupportProbe | null;
 };
 
 export type IngestionFinding = {
@@ -792,6 +859,12 @@ export type GeneratedArtifactDataUrl = {
   artifact: GeneratedArtifact;
   media_type: string;
   data_url: string;
+};
+
+export type GeneratedArtifactExport = {
+  artifact: GeneratedArtifact;
+  output_path: string;
+  bytes: number;
 };
 
 export type AdapterFindingSeverity = "info" | "warning" | "high";
@@ -936,6 +1009,12 @@ export type CapabilityDraftDoctorEntry = {
   status: CapabilityDraftStatus;
   promotion_target: CapabilityDraftPromotionTarget;
   needs_review: boolean;
+  created_by: string;
+  provenance: string;
+  created_at: string;
+  updated_at: string;
+  body_preview: string;
+  guidance_preview?: string | null;
   notes: string[];
 };
 

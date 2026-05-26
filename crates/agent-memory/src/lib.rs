@@ -3,12 +3,16 @@
 //! Memory generation and loading are deliberately separate. This crate only
 //! writes/loads when explicitly called by the CLI/Tauri layer.
 
+use std::io::Read;
 use std::path::{Path, PathBuf};
+use std::process::{Command, ExitStatus, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use agent_config::{ConfigResolver, ProfileGrantKind};
 use agent_core::{
-    DEFAULT_MEMORY_BACKEND_ID, LOCAL_JSONL_MEMORY_BACKEND_ID, MemoryFragment,
-    SUPPORTED_MEMORY_BACKEND_IDS,
+    DEFAULT_MEMORY_BACKEND_ID, EXTERNAL_COMMAND_MEMORY_BACKEND_ID, EXTERNAL_HTTP_MEMORY_BACKEND_ID,
+    LOCAL_JSONL_MEMORY_BACKEND_ID, MemoryFragment, SUPPORTED_MEMORY_BACKEND_IDS,
 };
 use agent_storage::{StorageError, StoragePaths};
 use chrono::{DateTime, Utc};
@@ -29,8 +33,16 @@ pub enum MemoryError {
     Injection(String),
     #[error("invalid memory classification: {0}")]
     InvalidClassification(String),
-    #[error("unsupported memory backend {0}; supported: local-markdown-v0, local-jsonl-v0")]
+    #[error(
+        "unsupported memory backend {0}; supported: local-markdown-v0, local-jsonl-v0, external-command-v0, external-http-v0"
+    )]
     UnsupportedBackend(String),
+    #[error("memory backend {0} is read-only")]
+    ReadOnlyBackend(String),
+    #[error("external memory backend is not configured: {0}")]
+    ExternalBackendConfig(String),
+    #[error("external memory backend failed: {0}")]
+    ExternalBackendFailed(String),
     #[error("memory not found: {0}")]
     NotFound(String),
 }
@@ -52,6 +64,8 @@ pub struct MemoryRecord {
     pub source_conversation_id: Option<String>,
     #[serde(default)]
     pub generating_model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation_guidance: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub topics: Vec<String>,
     #[serde(default, skip_serializing_if = "MemoryClassification::is_empty")]
@@ -82,9 +96,29 @@ pub struct MemoryBackendDescriptor {
     #[serde(default)]
     pub storage: String,
     #[serde(default)]
+    pub supports_write: bool,
+    #[serde(default)]
+    pub supports_edit: bool,
+    #[serde(default)]
+    pub supports_delete: bool,
+    #[serde(default)]
     pub supports_generation: bool,
     #[serde(default)]
     pub supports_rollback: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemoryBackendProbeReport {
+    pub backend: String,
+    pub descriptor: MemoryBackendDescriptor,
+    pub configured: bool,
+    pub ok: bool,
+    pub records: usize,
+    pub matching_records: usize,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub topics: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,6 +168,7 @@ pub trait MemoryBackend: Send + Sync {
         text: &str,
         source_range: Option<String>,
         source_conversation_id: Option<String>,
+        generation_guidance: Option<String>,
     ) -> Result<Vec<MemoryRecord>, MemoryError>;
 }
 
@@ -162,6 +197,35 @@ pub struct MemoryStore {
     format: MemoryFileFormat,
 }
 
+pub struct ExternalCommandMemoryBackend {
+    paths: StoragePaths,
+    command: String,
+    args: Vec<String>,
+    timeout_ms: u64,
+}
+
+pub struct ExternalHttpMemoryBackend {
+    paths: StoragePaths,
+    url: String,
+    bearer_token: Option<String>,
+    timeout_ms: u64,
+}
+
+struct ExternalCommandOutput {
+    status: ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+const DEFAULT_EXTERNAL_COMMAND_TIMEOUT_MS: u64 = 30_000;
+const MAX_EXTERNAL_COMMAND_TIMEOUT_MS: u64 = 300_000;
+const DEFAULT_EXTERNAL_HTTP_TIMEOUT_MS: u64 = 5_000;
+const MAX_EXTERNAL_HTTP_TIMEOUT_MS: u64 = 60_000;
+const EXTERNAL_COMMAND_WRITES_ENV: &str = "AGENT_MEMORY_EXTERNAL_ENABLE_WRITES";
+const EXTERNAL_HTTP_WRITES_ENV: &str = "AGENT_MEMORY_EXTERNAL_HTTP_ENABLE_WRITES";
+const EXTERNAL_COMMAND_ROLLBACK_ENV: &str = "AGENT_MEMORY_EXTERNAL_ENABLE_ROLLBACK";
+const EXTERNAL_HTTP_ROLLBACK_ENV: &str = "AGENT_MEMORY_EXTERNAL_HTTP_ENABLE_ROLLBACK";
+
 impl MemoryStore {
     pub fn new(paths: StoragePaths) -> Self {
         Self {
@@ -181,6 +245,9 @@ impl MemoryStore {
         match backend {
             DEFAULT_MEMORY_BACKEND_ID => Ok(Self::new(paths)),
             LOCAL_JSONL_MEMORY_BACKEND_ID => Ok(Self::new_jsonl(paths)),
+            EXTERNAL_COMMAND_MEMORY_BACKEND_ID | EXTERNAL_HTTP_MEMORY_BACKEND_ID => {
+                Err(MemoryError::ReadOnlyBackend(backend.into()))
+            }
             other => Err(MemoryError::UnsupportedBackend(other.into())),
         }
     }
@@ -270,6 +337,30 @@ impl MemoryStore {
         topics: Vec<String>,
         owning_agent: Option<String>,
     ) -> Result<MemoryRecord, MemoryError> {
+        self.create_for_conversation_with_topics_for_agent_and_guidance(
+            target,
+            content,
+            author,
+            source_range,
+            source_conversation_id,
+            topics,
+            owning_agent,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_for_conversation_with_topics_for_agent_and_guidance(
+        &self,
+        target: MemoryTarget,
+        content: &str,
+        author: MemoryAuthor,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+        topics: Vec<String>,
+        owning_agent: Option<String>,
+        generation_guidance: Option<String>,
+    ) -> Result<MemoryRecord, MemoryError> {
         scan(content)?;
         self.paths.ensure_base_dirs()?;
         let now = Utc::now();
@@ -287,6 +378,7 @@ impl MemoryStore {
             source_conversation_id: clean_optional(source_conversation_id),
             generating_model: (author == MemoryAuthor::Model)
                 .then(|| "manual-memory-generator-v0".into()),
+            generation_guidance: clean_optional(generation_guidance),
             topics: merge_topics(topics, classification.topics.clone()),
             classification,
         };
@@ -358,19 +450,45 @@ impl MemoryStore {
         topics: Vec<String>,
         owning_agent: Option<String>,
     ) -> Result<Vec<MemoryRecord>, MemoryError> {
+        self.generate_from_conversation_text_with_topics_for_agent_and_guidance(
+            target,
+            text,
+            source_range,
+            source_conversation_id,
+            topics,
+            owning_agent,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_from_conversation_text_with_topics_for_agent_and_guidance(
+        &self,
+        target: MemoryTarget,
+        text: &str,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+        topics: Vec<String>,
+        owning_agent: Option<String>,
+        generation_guidance: Option<String>,
+    ) -> Result<Vec<MemoryRecord>, MemoryError> {
         let candidates = generated_memory_candidates(text);
         let topics = normalize_topics(topics);
+        let generation_guidance = clean_optional(generation_guidance);
         let mut records = Vec::new();
         for candidate in candidates {
-            records.push(self.create_for_conversation_with_topics_for_agent(
-                target,
-                &candidate,
-                MemoryAuthor::Model,
-                source_range.clone(),
-                source_conversation_id.clone(),
-                topics.clone(),
-                owning_agent.clone(),
-            )?);
+            records.push(
+                self.create_for_conversation_with_topics_for_agent_and_guidance(
+                    target,
+                    &candidate,
+                    MemoryAuthor::Model,
+                    source_range.clone(),
+                    source_conversation_id.clone(),
+                    topics.clone(),
+                    owning_agent.clone(),
+                    generation_guidance.clone(),
+                )?,
+            );
         }
         Ok(records)
     }
@@ -515,12 +633,7 @@ impl MemoryStore {
         path: impl AsRef<Path>,
     ) -> Result<Vec<MemoryRecord>, MemoryError> {
         let records = self.list_target(target)?;
-        if let Some(parent) = path.as_ref().parent()
-            && !parent.as_os_str().is_empty()
-        {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::write(path, render_records(&records)?)?;
+        write_memory_export(path, &records)?;
         Ok(records)
     }
 
@@ -700,6 +813,9 @@ impl MemoryBackend for MemoryStore {
                     "Human-readable memory.md/user.md storage with injection scanning and rollback."
                         .into(),
                 storage: self.paths.default_agent_dir().display().to_string(),
+                supports_write: true,
+                supports_edit: true,
+                supports_delete: true,
                 supports_generation: true,
                 supports_rollback: true,
             },
@@ -710,6 +826,9 @@ impl MemoryBackend for MemoryStore {
                     "Line-delimited JSON memory storage with injection scanning, rollback, and portable markdown import/export."
                         .into(),
                 storage: self.paths.default_agent_dir().display().to_string(),
+                supports_write: true,
+                supports_edit: true,
+                supports_delete: true,
                 supports_generation: true,
                 supports_rollback: true,
             },
@@ -747,8 +866,1057 @@ impl MemoryBackend for MemoryStore {
         text: &str,
         source_range: Option<String>,
         source_conversation_id: Option<String>,
+        generation_guidance: Option<String>,
     ) -> Result<Vec<MemoryRecord>, MemoryError> {
-        self.generate_from_conversation_text(target, text, source_range, source_conversation_id)
+        self.generate_from_conversation_text_with_topics_for_agent_and_guidance(
+            target,
+            text,
+            source_range,
+            source_conversation_id,
+            Vec::new(),
+            None,
+            generation_guidance,
+        )
+    }
+}
+
+impl ExternalCommandMemoryBackend {
+    pub fn from_env(paths: StoragePaths) -> Result<Self, MemoryError> {
+        let command = std::env::var("AGENT_MEMORY_EXTERNAL_COMMAND")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                MemoryError::ExternalBackendConfig(
+                    "set AGENT_MEMORY_EXTERNAL_COMMAND to a non-shell executable path".into(),
+                )
+            })?;
+        let args = match std::env::var("AGENT_MEMORY_EXTERNAL_ARGS_JSON") {
+            Ok(value) if !value.trim().is_empty() => serde_json::from_str::<Vec<String>>(&value)?,
+            _ => Vec::new(),
+        };
+        let timeout_ms = external_command_timeout_ms()?;
+        Ok(Self {
+            paths,
+            command,
+            args,
+            timeout_ms,
+        })
+    }
+
+    pub fn descriptor_from_env(_paths: StoragePaths) -> MemoryBackendDescriptor {
+        let command = std::env::var("AGENT_MEMORY_EXTERNAL_COMMAND")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "set AGENT_MEMORY_EXTERNAL_COMMAND".into());
+        let supports_write = external_writes_enabled_flag(EXTERNAL_COMMAND_WRITES_ENV);
+        MemoryBackendDescriptor {
+            id: EXTERNAL_COMMAND_MEMORY_BACKEND_ID.into(),
+            name: "External Command".into(),
+            description:
+                "Memory adapter that loads records and can write/generate records from an explicit external command over JSON stdin/stdout when writes are enabled."
+                    .into(),
+            storage: command,
+            supports_write,
+            supports_edit: supports_write,
+            supports_delete: supports_write,
+            supports_generation: supports_write,
+            supports_rollback: external_enabled_flag(EXTERNAL_COMMAND_ROLLBACK_ENV),
+        }
+    }
+
+    pub fn load_fragments_for_topics(
+        &self,
+        topics: &[String],
+    ) -> Result<Vec<MemoryFragment>, MemoryError> {
+        Ok(self
+            .load_records()?
+            .into_iter()
+            .filter(|record| memory_record_matches_topics(record, topics))
+            .map(|record| {
+                MemoryStore::fragment_from_record(
+                    record,
+                    Some(format!("backend={EXTERNAL_COMMAND_MEMORY_BACKEND_ID}")),
+                )
+            })
+            .collect())
+    }
+
+    fn command_payload(&self) -> Value {
+        serde_json::json!({
+            "operation": "load_records",
+            "backend": EXTERNAL_COMMAND_MEMORY_BACKEND_ID,
+            "profile": self.paths.active_profile_id(),
+            "agent": default_agent(),
+            "storage_root": self.paths.root(),
+        })
+    }
+
+    fn run_payload(&self, payload: Value) -> Result<String, MemoryError> {
+        let mut child = Command::new(&self.command)
+            .args(&self.args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+        let stdout = child.stdout.take().ok_or_else(|| {
+            MemoryError::ExternalBackendFailed("failed to capture adapter stdout".into())
+        })?;
+        let stderr = child.stderr.take().ok_or_else(|| {
+            MemoryError::ExternalBackendFailed("failed to capture adapter stderr".into())
+        })?;
+        let stdout_reader = read_child_pipe(stdout);
+        let stderr_reader = read_child_pipe(stderr);
+        if let Some(stdin) = child.stdin.take() {
+            serde_json::to_writer(stdin, &payload)?;
+        }
+        let output = wait_for_external_command(
+            child,
+            stdout_reader,
+            stderr_reader,
+            Duration::from_millis(self.timeout_ms),
+        )?;
+        if !output.status.success() {
+            return Err(MemoryError::ExternalBackendFailed(truncate_for_error(
+                &String::from_utf8_lossy(&output.stderr),
+            )));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+    }
+
+    fn run(&self) -> Result<Vec<MemoryRecord>, MemoryError> {
+        let stdout = self.run_payload(self.command_payload())?;
+        parse_external_memory_records(&stdout, &self.paths)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn write_record_with_topics_for_agent(
+        &self,
+        target: MemoryTarget,
+        content: &str,
+        author: MemoryAuthor,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+        topics: Vec<String>,
+        owning_agent: Option<String>,
+    ) -> Result<MemoryRecord, MemoryError> {
+        ensure_external_writes_enabled(
+            EXTERNAL_COMMAND_MEMORY_BACKEND_ID,
+            EXTERNAL_COMMAND_WRITES_ENV,
+        )?;
+        scan(content)?;
+        let topics = normalize_topics(topics);
+        let source_conversation_id = clean_optional(source_conversation_id);
+        let source_range = clean_optional(source_range);
+        let owning_agent = clean_optional(owning_agent).or_else(default_agent);
+        let payload = external_memory_write_payload(
+            EXTERNAL_COMMAND_MEMORY_BACKEND_ID,
+            &self.paths,
+            target,
+            content,
+            author,
+            source_range.clone(),
+            source_conversation_id.clone(),
+            topics.clone(),
+            owning_agent.clone(),
+        );
+        let stdout = self.run_payload(payload)?;
+        let defaults = ExternalMemoryRecordDefaults {
+            target,
+            author,
+            source_range,
+            source_conversation_id,
+            topics,
+            owning_agent,
+            generating_model: None,
+            generation_guidance: None,
+        };
+        parse_external_memory_record_response(
+            &stdout,
+            &self.paths,
+            EXTERNAL_COMMAND_MEMORY_BACKEND_ID,
+            defaults,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_records_with_topics_for_agent(
+        &self,
+        target: MemoryTarget,
+        text: &str,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+        topics: Vec<String>,
+        owning_agent: Option<String>,
+    ) -> Result<Vec<MemoryRecord>, MemoryError> {
+        self.generate_records_with_topics_for_agent_and_guidance(
+            target,
+            text,
+            source_range,
+            source_conversation_id,
+            topics,
+            owning_agent,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_records_with_topics_for_agent_and_guidance(
+        &self,
+        target: MemoryTarget,
+        text: &str,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+        topics: Vec<String>,
+        owning_agent: Option<String>,
+        generation_guidance: Option<String>,
+    ) -> Result<Vec<MemoryRecord>, MemoryError> {
+        ensure_external_writes_enabled(
+            EXTERNAL_COMMAND_MEMORY_BACKEND_ID,
+            EXTERNAL_COMMAND_WRITES_ENV,
+        )?;
+        let topics = normalize_topics(topics);
+        let source_conversation_id = clean_optional(source_conversation_id);
+        let source_range = clean_optional(source_range);
+        let owning_agent = clean_optional(owning_agent).or_else(default_agent);
+        let generation_guidance = clean_optional(generation_guidance);
+        let payload = external_memory_generate_payload(
+            EXTERNAL_COMMAND_MEMORY_BACKEND_ID,
+            &self.paths,
+            target,
+            text,
+            source_range.clone(),
+            source_conversation_id.clone(),
+            topics.clone(),
+            owning_agent.clone(),
+            generation_guidance.clone(),
+        );
+        let stdout = self.run_payload(payload)?;
+        let defaults = ExternalMemoryRecordDefaults {
+            target,
+            author: MemoryAuthor::Model,
+            source_range,
+            source_conversation_id,
+            topics,
+            owning_agent,
+            generating_model: Some(EXTERNAL_COMMAND_MEMORY_BACKEND_ID.into()),
+            generation_guidance,
+        };
+        parse_external_memory_records_with_defaults(
+            &stdout,
+            &self.paths,
+            EXTERNAL_COMMAND_MEMORY_BACKEND_ID,
+            defaults,
+        )
+    }
+
+    pub fn edit_record(&self, id: &str, content: &str) -> Result<MemoryRecord, MemoryError> {
+        ensure_external_writes_enabled(
+            EXTERNAL_COMMAND_MEMORY_BACKEND_ID,
+            EXTERNAL_COMMAND_WRITES_ENV,
+        )?;
+        let id = clean_id(id)?;
+        scan(content)?;
+        let payload = external_memory_edit_payload(
+            EXTERNAL_COMMAND_MEMORY_BACKEND_ID,
+            &self.paths,
+            &id,
+            content,
+        );
+        let stdout = self.run_payload(payload)?;
+        let defaults = ExternalMemoryRecordDefaults {
+            target: MemoryTarget::Agent,
+            author: MemoryAuthor::Human,
+            source_range: None,
+            source_conversation_id: None,
+            topics: Vec::new(),
+            owning_agent: default_agent(),
+            generating_model: None,
+            generation_guidance: None,
+        };
+        let mut record = parse_external_memory_record_response(
+            &stdout,
+            &self.paths,
+            EXTERNAL_COMMAND_MEMORY_BACKEND_ID,
+            defaults,
+        )?;
+        if record.id.trim().is_empty() {
+            record.id = id;
+        }
+        Ok(record)
+    }
+
+    pub fn delete_record(&self, id: &str) -> Result<(), MemoryError> {
+        ensure_external_writes_enabled(
+            EXTERNAL_COMMAND_MEMORY_BACKEND_ID,
+            EXTERNAL_COMMAND_WRITES_ENV,
+        )?;
+        let id = clean_id(id)?;
+        let payload =
+            external_memory_delete_payload(EXTERNAL_COMMAND_MEMORY_BACKEND_ID, &self.paths, &id);
+        let stdout = self.run_payload(payload)?;
+        parse_external_memory_delete_response(&stdout)
+    }
+
+    pub fn rollback_target(&self, target: MemoryTarget) -> Result<(), MemoryError> {
+        ensure_external_rollback_enabled(
+            EXTERNAL_COMMAND_MEMORY_BACKEND_ID,
+            EXTERNAL_COMMAND_ROLLBACK_ENV,
+        )?;
+        let payload = external_memory_rollback_payload(
+            EXTERNAL_COMMAND_MEMORY_BACKEND_ID,
+            &self.paths,
+            target,
+        );
+        let stdout = self.run_payload(payload)?;
+        parse_external_memory_rollback_response(&stdout)
+    }
+}
+
+impl ExternalHttpMemoryBackend {
+    pub fn from_env(paths: StoragePaths) -> Result<Self, MemoryError> {
+        let url = std::env::var("AGENT_MEMORY_EXTERNAL_HTTP_URL")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                MemoryError::ExternalBackendConfig(
+                    "set AGENT_MEMORY_EXTERNAL_HTTP_URL to an explicit HTTP(S) endpoint".into(),
+                )
+            })?;
+        if !(url.starts_with("http://") || url.starts_with("https://")) {
+            return Err(MemoryError::ExternalBackendConfig(
+                "AGENT_MEMORY_EXTERNAL_HTTP_URL must start with http:// or https://".into(),
+            ));
+        }
+        let bearer_token = std::env::var("AGENT_MEMORY_EXTERNAL_HTTP_BEARER_TOKEN")
+            .ok()
+            .and_then(|value| clean_optional(Some(value)));
+        Ok(Self {
+            paths,
+            url,
+            bearer_token,
+            timeout_ms: external_http_timeout_ms()?,
+        })
+    }
+
+    pub fn descriptor_from_env(_paths: StoragePaths) -> MemoryBackendDescriptor {
+        let url = std::env::var("AGENT_MEMORY_EXTERNAL_HTTP_URL")
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "set AGENT_MEMORY_EXTERNAL_HTTP_URL".into());
+        let supports_write = external_writes_enabled_flag(EXTERNAL_HTTP_WRITES_ENV);
+        MemoryBackendDescriptor {
+            id: EXTERNAL_HTTP_MEMORY_BACKEND_ID.into(),
+            name: "External HTTP".into(),
+            description:
+                "Memory adapter that loads records and can write/generate records through an explicit HTTP(S) JSON endpoint when writes are enabled."
+                    .into(),
+            storage: url,
+            supports_write,
+            supports_edit: supports_write,
+            supports_delete: supports_write,
+            supports_generation: supports_write,
+            supports_rollback: external_enabled_flag(EXTERNAL_HTTP_ROLLBACK_ENV),
+        }
+    }
+
+    pub fn load_fragments_for_topics(
+        &self,
+        topics: &[String],
+    ) -> Result<Vec<MemoryFragment>, MemoryError> {
+        Ok(self
+            .load_records()?
+            .into_iter()
+            .filter(|record| memory_record_matches_topics(record, topics))
+            .map(|record| {
+                MemoryStore::fragment_from_record(
+                    record,
+                    Some(format!("backend={EXTERNAL_HTTP_MEMORY_BACKEND_ID}")),
+                )
+            })
+            .collect())
+    }
+
+    fn request_payload(&self) -> Value {
+        serde_json::json!({
+            "operation": "load_records",
+            "backend": EXTERNAL_HTTP_MEMORY_BACKEND_ID,
+            "profile": self.paths.active_profile_id(),
+            "agent": default_agent(),
+            "storage_root": self.paths.root(),
+        })
+    }
+
+    fn send_payload(&self, payload: Value) -> Result<String, MemoryError> {
+        let agent: ureq::Agent = ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_millis(self.timeout_ms)))
+            .build()
+            .into();
+        let mut request = agent
+            .post(&self.url)
+            .header("content-type", "application/json");
+        if let Some(token) = &self.bearer_token {
+            request = request.header("authorization", format!("Bearer {token}"));
+        }
+        let mut response = request
+            .send_json(payload)
+            .map_err(|err| MemoryError::ExternalBackendFailed(err.to_string()))?;
+        response
+            .body_mut()
+            .read_to_string()
+            .map_err(|err| MemoryError::ExternalBackendFailed(err.to_string()))
+    }
+
+    fn run(&self) -> Result<Vec<MemoryRecord>, MemoryError> {
+        let body = self.send_payload(self.request_payload())?;
+        parse_external_memory_records_for_backend(
+            &body,
+            &self.paths,
+            EXTERNAL_HTTP_MEMORY_BACKEND_ID,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn write_record_with_topics_for_agent(
+        &self,
+        target: MemoryTarget,
+        content: &str,
+        author: MemoryAuthor,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+        topics: Vec<String>,
+        owning_agent: Option<String>,
+    ) -> Result<MemoryRecord, MemoryError> {
+        ensure_external_writes_enabled(EXTERNAL_HTTP_MEMORY_BACKEND_ID, EXTERNAL_HTTP_WRITES_ENV)?;
+        scan(content)?;
+        let topics = normalize_topics(topics);
+        let source_conversation_id = clean_optional(source_conversation_id);
+        let source_range = clean_optional(source_range);
+        let owning_agent = clean_optional(owning_agent).or_else(default_agent);
+        let payload = external_memory_write_payload(
+            EXTERNAL_HTTP_MEMORY_BACKEND_ID,
+            &self.paths,
+            target,
+            content,
+            author,
+            source_range.clone(),
+            source_conversation_id.clone(),
+            topics.clone(),
+            owning_agent.clone(),
+        );
+        let body = self.send_payload(payload)?;
+        let defaults = ExternalMemoryRecordDefaults {
+            target,
+            author,
+            source_range,
+            source_conversation_id,
+            topics,
+            owning_agent,
+            generating_model: None,
+            generation_guidance: None,
+        };
+        parse_external_memory_record_response(
+            &body,
+            &self.paths,
+            EXTERNAL_HTTP_MEMORY_BACKEND_ID,
+            defaults,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_records_with_topics_for_agent(
+        &self,
+        target: MemoryTarget,
+        text: &str,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+        topics: Vec<String>,
+        owning_agent: Option<String>,
+    ) -> Result<Vec<MemoryRecord>, MemoryError> {
+        self.generate_records_with_topics_for_agent_and_guidance(
+            target,
+            text,
+            source_range,
+            source_conversation_id,
+            topics,
+            owning_agent,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn generate_records_with_topics_for_agent_and_guidance(
+        &self,
+        target: MemoryTarget,
+        text: &str,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+        topics: Vec<String>,
+        owning_agent: Option<String>,
+        generation_guidance: Option<String>,
+    ) -> Result<Vec<MemoryRecord>, MemoryError> {
+        ensure_external_writes_enabled(EXTERNAL_HTTP_MEMORY_BACKEND_ID, EXTERNAL_HTTP_WRITES_ENV)?;
+        let topics = normalize_topics(topics);
+        let source_conversation_id = clean_optional(source_conversation_id);
+        let source_range = clean_optional(source_range);
+        let owning_agent = clean_optional(owning_agent).or_else(default_agent);
+        let generation_guidance = clean_optional(generation_guidance);
+        let payload = external_memory_generate_payload(
+            EXTERNAL_HTTP_MEMORY_BACKEND_ID,
+            &self.paths,
+            target,
+            text,
+            source_range.clone(),
+            source_conversation_id.clone(),
+            topics.clone(),
+            owning_agent.clone(),
+            generation_guidance.clone(),
+        );
+        let body = self.send_payload(payload)?;
+        let defaults = ExternalMemoryRecordDefaults {
+            target,
+            author: MemoryAuthor::Model,
+            source_range,
+            source_conversation_id,
+            topics,
+            owning_agent,
+            generating_model: Some(EXTERNAL_HTTP_MEMORY_BACKEND_ID.into()),
+            generation_guidance,
+        };
+        parse_external_memory_records_with_defaults(
+            &body,
+            &self.paths,
+            EXTERNAL_HTTP_MEMORY_BACKEND_ID,
+            defaults,
+        )
+    }
+
+    pub fn edit_record(&self, id: &str, content: &str) -> Result<MemoryRecord, MemoryError> {
+        ensure_external_writes_enabled(EXTERNAL_HTTP_MEMORY_BACKEND_ID, EXTERNAL_HTTP_WRITES_ENV)?;
+        let id = clean_id(id)?;
+        scan(content)?;
+        let payload = external_memory_edit_payload(
+            EXTERNAL_HTTP_MEMORY_BACKEND_ID,
+            &self.paths,
+            &id,
+            content,
+        );
+        let body = self.send_payload(payload)?;
+        let defaults = ExternalMemoryRecordDefaults {
+            target: MemoryTarget::Agent,
+            author: MemoryAuthor::Human,
+            source_range: None,
+            source_conversation_id: None,
+            topics: Vec::new(),
+            owning_agent: default_agent(),
+            generating_model: None,
+            generation_guidance: None,
+        };
+        let mut record = parse_external_memory_record_response(
+            &body,
+            &self.paths,
+            EXTERNAL_HTTP_MEMORY_BACKEND_ID,
+            defaults,
+        )?;
+        if record.id.trim().is_empty() {
+            record.id = id;
+        }
+        Ok(record)
+    }
+
+    pub fn delete_record(&self, id: &str) -> Result<(), MemoryError> {
+        ensure_external_writes_enabled(EXTERNAL_HTTP_MEMORY_BACKEND_ID, EXTERNAL_HTTP_WRITES_ENV)?;
+        let id = clean_id(id)?;
+        let payload =
+            external_memory_delete_payload(EXTERNAL_HTTP_MEMORY_BACKEND_ID, &self.paths, &id);
+        let body = self.send_payload(payload)?;
+        parse_external_memory_delete_response(&body)
+    }
+
+    pub fn rollback_target(&self, target: MemoryTarget) -> Result<(), MemoryError> {
+        ensure_external_rollback_enabled(
+            EXTERNAL_HTTP_MEMORY_BACKEND_ID,
+            EXTERNAL_HTTP_ROLLBACK_ENV,
+        )?;
+        let payload =
+            external_memory_rollback_payload(EXTERNAL_HTTP_MEMORY_BACKEND_ID, &self.paths, target);
+        let body = self.send_payload(payload)?;
+        parse_external_memory_rollback_response(&body)
+    }
+}
+
+fn external_command_timeout_ms() -> Result<u64, MemoryError> {
+    match std::env::var("AGENT_MEMORY_EXTERNAL_TIMEOUT_MS") {
+        Ok(value) if !value.trim().is_empty() => {
+            let timeout_ms = value.trim().parse::<u64>().map_err(|_| {
+                MemoryError::ExternalBackendConfig(
+                    "AGENT_MEMORY_EXTERNAL_TIMEOUT_MS must be a positive integer".into(),
+                )
+            })?;
+            if timeout_ms == 0 {
+                return Err(MemoryError::ExternalBackendConfig(
+                    "AGENT_MEMORY_EXTERNAL_TIMEOUT_MS must be greater than zero".into(),
+                ));
+            }
+            Ok(timeout_ms.min(MAX_EXTERNAL_COMMAND_TIMEOUT_MS))
+        }
+        _ => Ok(DEFAULT_EXTERNAL_COMMAND_TIMEOUT_MS),
+    }
+}
+
+fn external_http_timeout_ms() -> Result<u64, MemoryError> {
+    match std::env::var("AGENT_MEMORY_EXTERNAL_HTTP_TIMEOUT_MS") {
+        Ok(value) if !value.trim().is_empty() => {
+            let timeout_ms = value.trim().parse::<u64>().map_err(|_| {
+                MemoryError::ExternalBackendConfig(
+                    "AGENT_MEMORY_EXTERNAL_HTTP_TIMEOUT_MS must be a positive integer".into(),
+                )
+            })?;
+            if timeout_ms == 0 {
+                return Err(MemoryError::ExternalBackendConfig(
+                    "AGENT_MEMORY_EXTERNAL_HTTP_TIMEOUT_MS must be greater than zero".into(),
+                ));
+            }
+            Ok(timeout_ms.min(MAX_EXTERNAL_HTTP_TIMEOUT_MS))
+        }
+        _ => Ok(DEFAULT_EXTERNAL_HTTP_TIMEOUT_MS),
+    }
+}
+
+impl MemoryBackend for ExternalHttpMemoryBackend {
+    fn descriptor(&self) -> MemoryBackendDescriptor {
+        MemoryBackendDescriptor {
+            id: EXTERNAL_HTTP_MEMORY_BACKEND_ID.into(),
+            name: "External HTTP".into(),
+            description:
+                "Memory adapter that loads records and can write/generate records through an explicit HTTP(S) JSON endpoint when writes are enabled."
+                    .into(),
+            storage: self.url.clone(),
+            supports_write: external_writes_enabled_flag(EXTERNAL_HTTP_WRITES_ENV),
+            supports_edit: external_writes_enabled_flag(EXTERNAL_HTTP_WRITES_ENV),
+            supports_delete: external_writes_enabled_flag(EXTERNAL_HTTP_WRITES_ENV),
+            supports_generation: external_writes_enabled_flag(EXTERNAL_HTTP_WRITES_ENV),
+            supports_rollback: external_enabled_flag(EXTERNAL_HTTP_ROLLBACK_ENV),
+        }
+    }
+
+    fn load_records(&self) -> Result<Vec<MemoryRecord>, MemoryError> {
+        self.run()
+    }
+
+    fn load_fragments(&self) -> Result<Vec<MemoryFragment>, MemoryError> {
+        self.load_fragments_for_topics(&[])
+    }
+
+    fn write_record(
+        &self,
+        target: MemoryTarget,
+        content: &str,
+        author: MemoryAuthor,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+    ) -> Result<MemoryRecord, MemoryError> {
+        self.write_record_with_topics_for_agent(
+            target,
+            content,
+            author,
+            source_range,
+            source_conversation_id,
+            Vec::new(),
+            None,
+        )
+    }
+
+    fn generate_records(
+        &self,
+        target: MemoryTarget,
+        text: &str,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+        generation_guidance: Option<String>,
+    ) -> Result<Vec<MemoryRecord>, MemoryError> {
+        self.generate_records_with_topics_for_agent_and_guidance(
+            target,
+            text,
+            source_range,
+            source_conversation_id,
+            Vec::new(),
+            None,
+            generation_guidance,
+        )
+    }
+}
+
+fn read_child_pipe<R>(mut pipe: R) -> thread::JoinHandle<std::io::Result<Vec<u8>>>
+where
+    R: Read + Send + 'static,
+{
+    thread::spawn(move || {
+        let mut buffer = Vec::new();
+        pipe.read_to_end(&mut buffer)?;
+        Ok(buffer)
+    })
+}
+
+fn wait_for_external_command(
+    mut child: std::process::Child,
+    stdout_reader: thread::JoinHandle<std::io::Result<Vec<u8>>>,
+    stderr_reader: thread::JoinHandle<std::io::Result<Vec<u8>>>,
+    timeout: Duration,
+) -> Result<ExternalCommandOutput, MemoryError> {
+    let started = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait()? {
+            let stdout = join_child_pipe(stdout_reader)?;
+            let stderr = join_child_pipe(stderr_reader)?;
+            return Ok(ExternalCommandOutput {
+                status,
+                stdout,
+                stderr,
+            });
+        }
+        if started.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = join_child_pipe(stdout_reader);
+            let stderr = join_child_pipe(stderr_reader).unwrap_or_default();
+            let stderr = truncate_for_error(&String::from_utf8_lossy(&stderr));
+            let detail = if stderr.is_empty() {
+                format!("timed out after {} ms", timeout.as_millis())
+            } else {
+                format!("timed out after {} ms: {stderr}", timeout.as_millis())
+            };
+            return Err(MemoryError::ExternalBackendFailed(detail));
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+fn join_child_pipe(
+    reader: thread::JoinHandle<std::io::Result<Vec<u8>>>,
+) -> Result<Vec<u8>, MemoryError> {
+    match reader.join() {
+        Ok(output) => Ok(output?),
+        Err(_) => Err(MemoryError::ExternalBackendFailed(
+            "adapter output reader failed".into(),
+        )),
+    }
+}
+
+impl MemoryBackend for ExternalCommandMemoryBackend {
+    fn descriptor(&self) -> MemoryBackendDescriptor {
+        MemoryBackendDescriptor {
+            id: EXTERNAL_COMMAND_MEMORY_BACKEND_ID.into(),
+            name: "External Command".into(),
+            description:
+                "Memory adapter that loads records and can write/generate records from an explicit external command over JSON stdin/stdout when writes are enabled."
+                    .into(),
+            storage: format!("{} {}", self.command, self.args.join(" ")).trim().into(),
+            supports_write: external_writes_enabled_flag(EXTERNAL_COMMAND_WRITES_ENV),
+            supports_edit: external_writes_enabled_flag(EXTERNAL_COMMAND_WRITES_ENV),
+            supports_delete: external_writes_enabled_flag(EXTERNAL_COMMAND_WRITES_ENV),
+            supports_generation: external_writes_enabled_flag(EXTERNAL_COMMAND_WRITES_ENV),
+            supports_rollback: external_enabled_flag(EXTERNAL_COMMAND_ROLLBACK_ENV),
+        }
+    }
+
+    fn load_records(&self) -> Result<Vec<MemoryRecord>, MemoryError> {
+        self.run()
+    }
+
+    fn load_fragments(&self) -> Result<Vec<MemoryFragment>, MemoryError> {
+        self.load_fragments_for_topics(&[])
+    }
+
+    fn write_record(
+        &self,
+        target: MemoryTarget,
+        content: &str,
+        author: MemoryAuthor,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+    ) -> Result<MemoryRecord, MemoryError> {
+        self.write_record_with_topics_for_agent(
+            target,
+            content,
+            author,
+            source_range,
+            source_conversation_id,
+            Vec::new(),
+            None,
+        )
+    }
+
+    fn generate_records(
+        &self,
+        target: MemoryTarget,
+        text: &str,
+        source_range: Option<String>,
+        source_conversation_id: Option<String>,
+        generation_guidance: Option<String>,
+    ) -> Result<Vec<MemoryRecord>, MemoryError> {
+        self.generate_records_with_topics_for_agent_and_guidance(
+            target,
+            text,
+            source_range,
+            source_conversation_id,
+            Vec::new(),
+            None,
+            generation_guidance,
+        )
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn create_record_for_active_backend_with_topics_for_agent(
+    target: MemoryTarget,
+    content: &str,
+    author: MemoryAuthor,
+    source_range: Option<String>,
+    source_conversation_id: Option<String>,
+    topics: Vec<String>,
+    owning_agent: Option<String>,
+) -> Result<MemoryRecord, MemoryError> {
+    let paths = StoragePaths::from_env();
+    let backend = active_memory_backend_id();
+    match backend.as_str() {
+        DEFAULT_MEMORY_BACKEND_ID | LOCAL_JSONL_MEMORY_BACKEND_ID => {
+            MemoryStore::for_backend(paths, &backend)?
+                .create_for_conversation_with_topics_for_agent(
+                    target,
+                    content,
+                    author,
+                    source_range,
+                    source_conversation_id,
+                    topics,
+                    owning_agent,
+                )
+        }
+        EXTERNAL_COMMAND_MEMORY_BACKEND_ID => ExternalCommandMemoryBackend::from_env(paths)?
+            .write_record_with_topics_for_agent(
+                target,
+                content,
+                author,
+                source_range,
+                source_conversation_id,
+                topics,
+                owning_agent,
+            ),
+        EXTERNAL_HTTP_MEMORY_BACKEND_ID => ExternalHttpMemoryBackend::from_env(paths)?
+            .write_record_with_topics_for_agent(
+                target,
+                content,
+                author,
+                source_range,
+                source_conversation_id,
+                topics,
+                owning_agent,
+            ),
+        other => Err(MemoryError::UnsupportedBackend(other.into())),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn generate_records_for_active_backend_with_topics_for_agent(
+    target: MemoryTarget,
+    text: &str,
+    source_range: Option<String>,
+    source_conversation_id: Option<String>,
+    topics: Vec<String>,
+    owning_agent: Option<String>,
+) -> Result<Vec<MemoryRecord>, MemoryError> {
+    generate_records_for_active_backend_with_topics_for_agent_and_guidance(
+        target,
+        text,
+        source_range,
+        source_conversation_id,
+        topics,
+        owning_agent,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn generate_records_for_active_backend_with_topics_for_agent_and_guidance(
+    target: MemoryTarget,
+    text: &str,
+    source_range: Option<String>,
+    source_conversation_id: Option<String>,
+    topics: Vec<String>,
+    owning_agent: Option<String>,
+    generation_guidance: Option<String>,
+) -> Result<Vec<MemoryRecord>, MemoryError> {
+    let paths = StoragePaths::from_env();
+    let backend = active_memory_backend_id();
+    match backend.as_str() {
+        DEFAULT_MEMORY_BACKEND_ID | LOCAL_JSONL_MEMORY_BACKEND_ID => {
+            MemoryStore::for_backend(paths, &backend)?
+                .generate_from_conversation_text_with_topics_for_agent_and_guidance(
+                    target,
+                    text,
+                    source_range,
+                    source_conversation_id,
+                    topics,
+                    owning_agent,
+                    generation_guidance,
+                )
+        }
+        EXTERNAL_COMMAND_MEMORY_BACKEND_ID => ExternalCommandMemoryBackend::from_env(paths)?
+            .generate_records_with_topics_for_agent_and_guidance(
+                target,
+                text,
+                source_range,
+                source_conversation_id,
+                topics,
+                owning_agent,
+                generation_guidance,
+            ),
+        EXTERNAL_HTTP_MEMORY_BACKEND_ID => ExternalHttpMemoryBackend::from_env(paths)?
+            .generate_records_with_topics_for_agent_and_guidance(
+                target,
+                text,
+                source_range,
+                source_conversation_id,
+                topics,
+                owning_agent,
+                generation_guidance,
+            ),
+        other => Err(MemoryError::UnsupportedBackend(other.into())),
+    }
+}
+
+pub fn list_records_for_active_backend() -> Result<Vec<MemoryRecord>, MemoryError> {
+    let paths = StoragePaths::from_env();
+    let backend = active_memory_backend_id();
+    list_records_for_backend_id(paths, &backend)
+}
+
+pub fn export_target_for_active_backend(
+    target: MemoryTarget,
+    path: impl AsRef<Path>,
+    owning_agent: Option<String>,
+) -> Result<Vec<MemoryRecord>, MemoryError> {
+    let paths = StoragePaths::from_env();
+    let backend = active_memory_backend_id();
+    let owning_agent = clean_optional(owning_agent);
+    let mut records = list_records_for_backend_id(paths, &backend)?
+        .into_iter()
+        .filter(|record| record.target == target)
+        .filter(|record| {
+            owning_agent
+                .as_deref()
+                .is_none_or(|agent| record.owning_agent.as_deref() == Some(agent))
+        })
+        .collect::<Vec<_>>();
+    records.sort_by(|a, b| a.id.cmp(&b.id).then_with(|| a.content.cmp(&b.content)));
+    write_memory_export(path, &records)?;
+    Ok(records)
+}
+
+pub fn import_file_for_active_backend_for_agent(
+    path: impl AsRef<Path>,
+    target: Option<MemoryTarget>,
+    owning_agent: Option<String>,
+) -> Result<Vec<MemoryRecord>, MemoryError> {
+    let paths = StoragePaths::from_env();
+    let backend = active_memory_backend_id();
+    match backend.as_str() {
+        DEFAULT_MEMORY_BACKEND_ID | LOCAL_JSONL_MEMORY_BACKEND_ID => MemoryStore::for_backend(
+            paths, &backend,
+        )?
+        .import_file_for_agent(path, target, owning_agent),
+        EXTERNAL_COMMAND_MEMORY_BACKEND_ID | EXTERNAL_HTTP_MEMORY_BACKEND_ID => {
+            import_file_for_external_active_backend(path, target, owning_agent)
+        }
+        other => Err(MemoryError::UnsupportedBackend(other.into())),
+    }
+}
+
+pub fn edit_record_for_active_backend(
+    id: &str,
+    content: &str,
+) -> Result<MemoryRecord, MemoryError> {
+    let paths = StoragePaths::from_env();
+    let backend = active_memory_backend_id();
+    match backend.as_str() {
+        DEFAULT_MEMORY_BACKEND_ID | LOCAL_JSONL_MEMORY_BACKEND_ID => {
+            MemoryStore::for_backend(paths, &backend)?.edit(id, content)
+        }
+        EXTERNAL_COMMAND_MEMORY_BACKEND_ID => {
+            ExternalCommandMemoryBackend::from_env(paths)?.edit_record(id, content)
+        }
+        EXTERNAL_HTTP_MEMORY_BACKEND_ID => {
+            ExternalHttpMemoryBackend::from_env(paths)?.edit_record(id, content)
+        }
+        other => Err(MemoryError::UnsupportedBackend(other.into())),
+    }
+}
+
+pub fn delete_record_for_active_backend(id: &str) -> Result<(), MemoryError> {
+    let paths = StoragePaths::from_env();
+    let backend = active_memory_backend_id();
+    match backend.as_str() {
+        DEFAULT_MEMORY_BACKEND_ID | LOCAL_JSONL_MEMORY_BACKEND_ID => {
+            MemoryStore::for_backend(paths, &backend)?.delete(id)
+        }
+        EXTERNAL_COMMAND_MEMORY_BACKEND_ID => {
+            ExternalCommandMemoryBackend::from_env(paths)?.delete_record(id)
+        }
+        EXTERNAL_HTTP_MEMORY_BACKEND_ID => {
+            ExternalHttpMemoryBackend::from_env(paths)?.delete_record(id)
+        }
+        other => Err(MemoryError::UnsupportedBackend(other.into())),
+    }
+}
+
+pub fn delete_records_by_source_conversation_ids_for_active_backend(
+    conversation_ids: &[String],
+) -> Result<Vec<String>, MemoryError> {
+    if conversation_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let paths = StoragePaths::from_env();
+    let backend = active_memory_backend_id();
+    match backend.as_str() {
+        DEFAULT_MEMORY_BACKEND_ID | LOCAL_JSONL_MEMORY_BACKEND_ID => {
+            MemoryStore::for_backend(paths, &backend)?
+                .delete_by_source_conversation_ids(conversation_ids)
+        }
+        EXTERNAL_COMMAND_MEMORY_BACKEND_ID => {
+            let adapter = ExternalCommandMemoryBackend::from_env(paths)?;
+            let records = adapter.load_records()?;
+            delete_matching_external_records(records, conversation_ids, |id| {
+                adapter.delete_record(id)
+            })
+        }
+        EXTERNAL_HTTP_MEMORY_BACKEND_ID => {
+            let adapter = ExternalHttpMemoryBackend::from_env(paths)?;
+            let records = adapter.load_records()?;
+            delete_matching_external_records(records, conversation_ids, |id| {
+                adapter.delete_record(id)
+            })
+        }
+        other => Err(MemoryError::UnsupportedBackend(other.into())),
+    }
+}
+
+pub fn rollback_active_backend(target: MemoryTarget) -> Result<(), MemoryError> {
+    let paths = StoragePaths::from_env();
+    let backend = active_memory_backend_id();
+    match backend.as_str() {
+        DEFAULT_MEMORY_BACKEND_ID | LOCAL_JSONL_MEMORY_BACKEND_ID => {
+            MemoryStore::for_backend(paths, &backend)?.rollback(target)
+        }
+        EXTERNAL_COMMAND_MEMORY_BACKEND_ID => {
+            ExternalCommandMemoryBackend::from_env(paths)?.rollback_target(target)
+        }
+        EXTERNAL_HTTP_MEMORY_BACKEND_ID => {
+            ExternalHttpMemoryBackend::from_env(paths)?.rollback_target(target)
+        }
+        other => Err(MemoryError::UnsupportedBackend(other.into())),
     }
 }
 
@@ -756,7 +1924,9 @@ pub fn supported_backends() -> Vec<MemoryBackendDescriptor> {
     let paths = StoragePaths::from_env();
     vec![
         MemoryStore::new(paths.clone()).descriptor(),
-        MemoryStore::new_jsonl(paths).descriptor(),
+        MemoryStore::new_jsonl(paths.clone()).descriptor(),
+        ExternalCommandMemoryBackend::descriptor_from_env(paths.clone()),
+        ExternalHttpMemoryBackend::descriptor_from_env(paths),
     ]
 }
 
@@ -764,12 +1934,118 @@ pub fn supported_backend_ids() -> &'static [&'static str] {
     SUPPORTED_MEMORY_BACKEND_IDS
 }
 
+fn active_memory_backend_id() -> String {
+    std::env::var("AGENT_MEMORY_BACKEND")
+        .ok()
+        .map(|backend| backend.trim().to_string())
+        .filter(|backend| !backend.is_empty())
+        .unwrap_or_else(|| DEFAULT_MEMORY_BACKEND_ID.into())
+}
+
+pub fn probe_backend(
+    paths: StoragePaths,
+    backend: &str,
+    topics: &[String],
+) -> Result<MemoryBackendProbeReport, MemoryError> {
+    let descriptor = descriptor_for_backend(paths.clone(), backend)?;
+    let error = match list_records_for_backend_id(paths, backend) {
+        Ok(records) => {
+            let matching_records = records
+                .iter()
+                .filter(|record| memory_record_matches_topics(record, topics))
+                .count();
+            return Ok(MemoryBackendProbeReport {
+                backend: backend.into(),
+                descriptor,
+                configured: true,
+                ok: true,
+                records: records.len(),
+                matching_records,
+                topics: normalize_topics(topics.to_vec()),
+                error: None,
+            });
+        }
+        Err(err) => err,
+    };
+
+    let configured = !is_unconfigured_external_backend(backend, &error);
+    Ok(MemoryBackendProbeReport {
+        backend: backend.into(),
+        descriptor,
+        configured,
+        ok: false,
+        records: 0,
+        matching_records: 0,
+        topics: normalize_topics(topics.to_vec()),
+        error: Some(error.to_string()),
+    })
+}
+
 pub fn load_fragments_for_backend(
     paths: StoragePaths,
     backend: &str,
     topics: &[String],
 ) -> Result<Vec<MemoryFragment>, MemoryError> {
-    MemoryStore::for_backend(paths, backend)?.load_fragments_for_topics(topics)
+    match backend {
+        DEFAULT_MEMORY_BACKEND_ID | LOCAL_JSONL_MEMORY_BACKEND_ID => {
+            MemoryStore::for_backend(paths, backend)?.load_fragments_for_topics(topics)
+        }
+        EXTERNAL_COMMAND_MEMORY_BACKEND_ID => {
+            ExternalCommandMemoryBackend::from_env(paths)?.load_fragments_for_topics(topics)
+        }
+        EXTERNAL_HTTP_MEMORY_BACKEND_ID => {
+            ExternalHttpMemoryBackend::from_env(paths)?.load_fragments_for_topics(topics)
+        }
+        other => Err(MemoryError::UnsupportedBackend(other.into())),
+    }
+}
+
+pub fn load_fragments_with_profile_grants(
+    active_paths: StoragePaths,
+    backend: &str,
+    topics: &[String],
+) -> Result<Vec<MemoryFragment>, MemoryError> {
+    let active_profile = active_paths.active_profile_id().to_string();
+    let mut fragments = load_fragments_for_backend(active_paths.clone(), backend, topics)?;
+    let resolver = ConfigResolver::new(active_paths.clone());
+    for grant in resolver.list_profile_grants()?.into_iter().filter(|grant| {
+        grant.kind == ProfileGrantKind::Memory && grant.to_profile == active_profile
+    }) {
+        let source_paths =
+            StoragePaths::new_with_profile(active_paths.root().to_path_buf(), &grant.from_profile);
+        for (source_backend, record) in list_records_with_supported_backend_ids(source_paths)?
+            .into_iter()
+            .filter(|(_, record)| memory_record_matches_grant_resource(record, &grant.resource))
+            .filter(|(_, record)| memory_record_matches_topics(record, topics))
+        {
+            fragments.push(MemoryStore::fragment_from_record(
+                record,
+                Some(format!(
+                    "shared_from_profile={}; source_backend={}; grant={}; grant_resource={}",
+                    grant.from_profile, source_backend, grant.id, grant.resource
+                )),
+            ));
+        }
+    }
+    Ok(fragments)
+}
+
+fn descriptor_for_backend(
+    paths: StoragePaths,
+    backend: &str,
+) -> Result<MemoryBackendDescriptor, MemoryError> {
+    match backend {
+        DEFAULT_MEMORY_BACKEND_ID | LOCAL_JSONL_MEMORY_BACKEND_ID => {
+            Ok(MemoryStore::for_backend(paths, backend)?.descriptor())
+        }
+        EXTERNAL_COMMAND_MEMORY_BACKEND_ID => {
+            Ok(ExternalCommandMemoryBackend::descriptor_from_env(paths))
+        }
+        EXTERNAL_HTTP_MEMORY_BACKEND_ID => {
+            Ok(ExternalHttpMemoryBackend::descriptor_from_env(paths))
+        }
+        other => Err(MemoryError::UnsupportedBackend(other.into())),
+    }
 }
 
 pub fn list_records_for_supported_backends(
@@ -789,8 +2065,14 @@ pub fn list_records_with_supported_backend_ids(
 ) -> Result<Vec<(String, MemoryRecord)>, MemoryError> {
     let mut records = Vec::new();
     for backend in SUPPORTED_MEMORY_BACKEND_IDS {
-        for record in MemoryStore::for_backend(paths.clone(), backend)?.list()? {
-            records.push(((*backend).to_string(), record));
+        match list_records_for_backend_id(paths.clone(), backend) {
+            Ok(backend_records) => {
+                for record in backend_records {
+                    records.push(((*backend).to_string(), record));
+                }
+            }
+            Err(err) if is_unconfigured_external_backend(backend, &err) => {}
+            Err(err) => return Err(err),
         }
     }
     records.sort_by(
@@ -803,6 +2085,32 @@ pub fn list_records_with_supported_backend_ids(
         },
     );
     Ok(records)
+}
+
+fn list_records_for_backend_id(
+    paths: StoragePaths,
+    backend: &str,
+) -> Result<Vec<MemoryRecord>, MemoryError> {
+    match backend {
+        DEFAULT_MEMORY_BACKEND_ID | LOCAL_JSONL_MEMORY_BACKEND_ID => {
+            MemoryStore::for_backend(paths, backend)?.list()
+        }
+        EXTERNAL_COMMAND_MEMORY_BACKEND_ID => {
+            ExternalCommandMemoryBackend::from_env(paths)?.load_records()
+        }
+        EXTERNAL_HTTP_MEMORY_BACKEND_ID => {
+            ExternalHttpMemoryBackend::from_env(paths)?.load_records()
+        }
+        other => Err(MemoryError::UnsupportedBackend(other.into())),
+    }
+}
+
+fn is_unconfigured_external_backend(backend: &str, error: &MemoryError) -> bool {
+    matches!(error, MemoryError::ExternalBackendConfig(_))
+        && matches!(
+            backend,
+            EXTERNAL_COMMAND_MEMORY_BACKEND_ID | EXTERNAL_HTTP_MEMORY_BACKEND_ID
+        )
 }
 
 pub fn profile_memory_access_report(
@@ -902,8 +2210,95 @@ fn memory_access_sort_key(entry: &MemoryAccessEntry) -> String {
     )
 }
 
+fn import_file_for_external_active_backend(
+    path: impl AsRef<Path>,
+    target: Option<MemoryTarget>,
+    owning_agent: Option<String>,
+) -> Result<Vec<MemoryRecord>, MemoryError> {
+    let text = std::fs::read_to_string(path)?;
+    let mut records = parse_records(&text)?;
+    if records.is_empty() && !text.trim().is_empty() {
+        return create_record_for_active_backend_with_topics_for_agent(
+            target.unwrap_or(MemoryTarget::Agent),
+            text.trim(),
+            MemoryAuthor::Human,
+            None,
+            None,
+            Vec::new(),
+            owning_agent,
+        )
+        .map(|record| vec![record]);
+    }
+
+    let owning_agent = clean_optional(owning_agent);
+    let mut imported = Vec::new();
+    for record in &mut records {
+        scan(&record.content)?;
+        if let Some(target) = target {
+            record.target = target;
+        }
+        record.classification =
+            normalize_classification_for_storage(std::mem::take(&mut record.classification))?;
+        if record.classification.is_empty() {
+            record.classification = classify_memory_content(&record.content);
+        }
+        record.topics = merge_topics(
+            std::mem::take(&mut record.topics),
+            record.classification.topics.clone(),
+        );
+        let imported_record = create_record_for_active_backend_with_topics_for_agent(
+            record.target,
+            &record.content,
+            record.author,
+            record.source_range.clone(),
+            record.source_conversation_id.clone(),
+            record.topics.clone(),
+            owning_agent.clone(),
+        )?;
+        imported.push(imported_record);
+    }
+    imported.sort_by(|a, b| a.id.cmp(&b.id));
+    Ok(imported)
+}
+
+fn delete_matching_external_records<F>(
+    records: Vec<MemoryRecord>,
+    conversation_ids: &[String],
+    mut delete_record: F,
+) -> Result<Vec<String>, MemoryError>
+where
+    F: FnMut(&str) -> Result<(), MemoryError>,
+{
+    let mut deleted = Vec::new();
+    for record in records {
+        let linked = record
+            .source_conversation_id
+            .as_ref()
+            .is_some_and(|id| conversation_ids.iter().any(|candidate| candidate == id));
+        if linked {
+            delete_record(&record.id)?;
+            deleted.push(record.id);
+        }
+    }
+    deleted.sort();
+    Ok(deleted)
+}
+
 fn memory_record_matches_grant_resource(record: &MemoryRecord, resource: &str) -> bool {
     resource == "*" || record.id == resource || record.owning_agent.as_deref() == Some(resource)
+}
+
+fn write_memory_export(
+    path: impl AsRef<Path>,
+    records: &[MemoryRecord],
+) -> Result<(), MemoryError> {
+    if let Some(parent) = path.as_ref().parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(path, render_records(records)?)?;
+    Ok(())
 }
 
 fn render_records(records: &[MemoryRecord]) -> Result<String, MemoryError> {
@@ -1241,6 +2636,356 @@ fn parse_jsonl_records(text: &str) -> Result<Vec<MemoryRecord>, MemoryError> {
         .map_err(MemoryError::from)
 }
 
+#[derive(Debug, Deserialize)]
+struct ExternalMemoryRecordInput {
+    id: Option<String>,
+    content: String,
+    target: Option<MemoryTarget>,
+    owning_profile: Option<String>,
+    owning_agent: Option<String>,
+    created_at: Option<DateTime<Utc>>,
+    updated_at: Option<DateTime<Utc>>,
+    author: Option<MemoryAuthor>,
+    source_range: Option<String>,
+    source_conversation_id: Option<String>,
+    generating_model: Option<String>,
+    generation_guidance: Option<String>,
+    guidance: Option<String>,
+    #[serde(default)]
+    topics: Vec<String>,
+    #[serde(default)]
+    classification: MemoryClassification,
+}
+
+#[derive(Debug, Clone)]
+struct ExternalMemoryRecordDefaults {
+    target: MemoryTarget,
+    author: MemoryAuthor,
+    source_range: Option<String>,
+    source_conversation_id: Option<String>,
+    topics: Vec<String>,
+    owning_agent: Option<String>,
+    generating_model: Option<String>,
+    generation_guidance: Option<String>,
+}
+
+fn parse_external_memory_records(
+    text: &str,
+    paths: &StoragePaths,
+) -> Result<Vec<MemoryRecord>, MemoryError> {
+    parse_external_memory_records_for_backend(text, paths, EXTERNAL_COMMAND_MEMORY_BACKEND_ID)
+}
+
+fn parse_external_memory_records_for_backend(
+    text: &str,
+    paths: &StoragePaths,
+    backend_id: &str,
+) -> Result<Vec<MemoryRecord>, MemoryError> {
+    parse_external_memory_records_with_defaults(
+        text,
+        paths,
+        backend_id,
+        ExternalMemoryRecordDefaults {
+            target: MemoryTarget::Agent,
+            author: MemoryAuthor::Model,
+            source_range: None,
+            source_conversation_id: None,
+            topics: Vec::new(),
+            owning_agent: default_agent(),
+            generating_model: Some(backend_id.into()),
+            generation_guidance: None,
+        },
+    )
+}
+
+fn parse_external_memory_records_with_defaults(
+    text: &str,
+    paths: &StoragePaths,
+    backend_id: &str,
+    defaults: ExternalMemoryRecordDefaults,
+) -> Result<Vec<MemoryRecord>, MemoryError> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+    let value: Value = serde_json::from_str(trimmed)?;
+    let single_record = value
+        .get("record")
+        .or_else(|| (value.is_object() && value.get("content").is_some()).then_some(&value));
+    let records = if let Some(record) = single_record {
+        vec![record]
+    } else {
+        let records_value = value.get("records").unwrap_or(&value);
+        records_value
+            .as_array()
+            .ok_or_else(|| {
+                MemoryError::ExternalBackendFailed(
+                    "expected JSON array, record object, object with a record field, or object with a records array".into(),
+                )
+            })?
+            .iter()
+            .collect::<Vec<_>>()
+    };
+    let mut out = Vec::new();
+    for (idx, value) in records.iter().enumerate() {
+        let input: ExternalMemoryRecordInput = serde_json::from_value((*value).clone())?;
+        scan(&input.content)?;
+        let now = Utc::now();
+        let mut classification = normalize_classification_for_storage(input.classification)?;
+        if classification.is_empty() {
+            classification = classify_memory_content(&input.content);
+        }
+        let topics = merge_topics(
+            merge_topics(defaults.topics.clone(), input.topics),
+            classification.topics.clone(),
+        );
+        out.push(MemoryRecord {
+            id: input
+                .id
+                .map(|id| id.trim().to_string())
+                .filter(|id| !id.is_empty())
+                .unwrap_or_else(|| format!("{backend_id}-{idx}")),
+            content: input.content,
+            target: input.target.unwrap_or(defaults.target),
+            owning_profile: input
+                .owning_profile
+                .map(|profile| profile.trim().to_string())
+                .filter(|profile| !profile.is_empty())
+                .unwrap_or_else(|| paths.active_profile_id().into()),
+            owning_agent: clean_optional(input.owning_agent)
+                .or_else(|| defaults.owning_agent.clone()),
+            created_at: input.created_at.unwrap_or(now),
+            updated_at: input.updated_at.unwrap_or(now),
+            author: input.author.unwrap_or(defaults.author),
+            source_range: clean_optional(input.source_range)
+                .or_else(|| defaults.source_range.clone()),
+            source_conversation_id: clean_optional(input.source_conversation_id)
+                .or_else(|| defaults.source_conversation_id.clone()),
+            generating_model: clean_optional(input.generating_model)
+                .or_else(|| defaults.generating_model.clone()),
+            generation_guidance: clean_optional(input.generation_guidance)
+                .or_else(|| clean_optional(input.guidance))
+                .or_else(|| defaults.generation_guidance.clone()),
+            topics,
+            classification,
+        });
+    }
+    Ok(out)
+}
+
+fn parse_external_memory_record_response(
+    text: &str,
+    paths: &StoragePaths,
+    backend_id: &str,
+    defaults: ExternalMemoryRecordDefaults,
+) -> Result<MemoryRecord, MemoryError> {
+    let mut records =
+        parse_external_memory_records_with_defaults(text, paths, backend_id, defaults)?;
+    if records.len() != 1 {
+        return Err(MemoryError::ExternalBackendFailed(format!(
+            "expected one record in adapter response, found {}",
+            records.len()
+        )));
+    }
+    Ok(records.remove(0))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn external_memory_write_payload(
+    backend_id: &str,
+    paths: &StoragePaths,
+    target: MemoryTarget,
+    content: &str,
+    author: MemoryAuthor,
+    source_range: Option<String>,
+    source_conversation_id: Option<String>,
+    topics: Vec<String>,
+    owning_agent: Option<String>,
+) -> Value {
+    serde_json::json!({
+        "operation": "write_record",
+        "backend": backend_id,
+        "profile": paths.active_profile_id(),
+        "agent": default_agent(),
+        "storage_root": paths.root(),
+        "record": {
+            "content": content,
+            "target": target,
+            "author": author,
+            "source_range": source_range,
+            "source_conversation_id": source_conversation_id,
+            "topics": topics,
+            "owning_agent": owning_agent
+        }
+    })
+}
+
+fn external_memory_generate_payload(
+    backend_id: &str,
+    paths: &StoragePaths,
+    target: MemoryTarget,
+    text: &str,
+    source_range: Option<String>,
+    source_conversation_id: Option<String>,
+    topics: Vec<String>,
+    owning_agent: Option<String>,
+    generation_guidance: Option<String>,
+) -> Value {
+    serde_json::json!({
+        "operation": "generate_records",
+        "backend": backend_id,
+        "profile": paths.active_profile_id(),
+        "agent": default_agent(),
+        "storage_root": paths.root(),
+        "target": target,
+        "text": text,
+        "source_range": source_range,
+        "source_conversation_id": source_conversation_id,
+        "topics": topics,
+        "owning_agent": owning_agent,
+        "guidance": generation_guidance
+    })
+}
+
+fn external_memory_edit_payload(
+    backend_id: &str,
+    paths: &StoragePaths,
+    id: &str,
+    content: &str,
+) -> Value {
+    serde_json::json!({
+        "operation": "edit_record",
+        "backend": backend_id,
+        "profile": paths.active_profile_id(),
+        "agent": default_agent(),
+        "storage_root": paths.root(),
+        "id": id,
+        "content": content
+    })
+}
+
+fn external_memory_delete_payload(backend_id: &str, paths: &StoragePaths, id: &str) -> Value {
+    serde_json::json!({
+        "operation": "delete_record",
+        "backend": backend_id,
+        "profile": paths.active_profile_id(),
+        "agent": default_agent(),
+        "storage_root": paths.root(),
+        "id": id
+    })
+}
+
+fn external_memory_rollback_payload(
+    backend_id: &str,
+    paths: &StoragePaths,
+    target: MemoryTarget,
+) -> Value {
+    serde_json::json!({
+        "operation": "rollback",
+        "backend": backend_id,
+        "profile": paths.active_profile_id(),
+        "agent": default_agent(),
+        "storage_root": paths.root(),
+        "target": target
+    })
+}
+
+fn parse_external_memory_delete_response(text: &str) -> Result<(), MemoryError> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    let value: Value = serde_json::from_str(trimmed)?;
+    if value
+        .get("deleted")
+        .and_then(|deleted| deleted.as_bool())
+        .is_some_and(|deleted| !deleted)
+    {
+        return Err(MemoryError::ExternalBackendFailed(
+            "adapter reported deleted=false".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn parse_external_memory_rollback_response(text: &str) -> Result<(), MemoryError> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    let value: Value = serde_json::from_str(trimmed)?;
+    if value
+        .get("rolled_back")
+        .and_then(|rolled_back| rolled_back.as_bool())
+        .is_some_and(|rolled_back| !rolled_back)
+    {
+        return Err(MemoryError::ExternalBackendFailed(
+            "adapter reported rolled_back=false".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn ensure_external_writes_enabled(backend_id: &str, env_name: &str) -> Result<(), MemoryError> {
+    if external_enabled(env_name)? {
+        Ok(())
+    } else {
+        Err(MemoryError::ReadOnlyBackend(format!(
+            "{backend_id} (set {env_name}=true to enable external memory writes)"
+        )))
+    }
+}
+
+fn ensure_external_rollback_enabled(backend_id: &str, env_name: &str) -> Result<(), MemoryError> {
+    if external_enabled(env_name)? {
+        Ok(())
+    } else {
+        Err(MemoryError::ReadOnlyBackend(format!(
+            "{backend_id} (set {env_name}=true to enable external memory rollback)"
+        )))
+    }
+}
+
+fn external_writes_enabled_flag(env_name: &str) -> bool {
+    external_enabled_flag(env_name)
+}
+
+fn external_enabled_flag(env_name: &str) -> bool {
+    external_enabled(env_name).unwrap_or(false)
+}
+
+fn external_enabled(env_name: &str) -> Result<bool, MemoryError> {
+    let value = match std::env::var(env_name) {
+        Ok(value) => value,
+        Err(_) => return Ok(false),
+    };
+    match value.trim().to_ascii_lowercase().as_str() {
+        "" | "0" | "false" | "no" | "off" => Ok(false),
+        "1" | "true" | "yes" | "on" => Ok(true),
+        _ => Err(MemoryError::ExternalBackendConfig(format!(
+            "{env_name} must be true/false"
+        ))),
+    }
+}
+
+fn clean_id(id: &str) -> Result<String, MemoryError> {
+    let id = id.trim();
+    if id.is_empty() {
+        Err(MemoryError::NotFound("<empty>".into()))
+    } else {
+        Ok(id.into())
+    }
+}
+
+fn truncate_for_error(text: &str) -> String {
+    const LIMIT: usize = 500;
+    let text = text.trim();
+    if text.chars().count() <= LIMIT {
+        return text.into();
+    }
+    format!("{}...", text.chars().take(LIMIT).collect::<String>())
+}
+
 fn backup_existing(path: &Path, backup_dir: &Path) -> Result<(), MemoryError> {
     std::fs::create_dir_all(backup_dir)?;
     let name = path
@@ -1405,6 +3150,48 @@ fn scan(content: &str) -> Result<(), MemoryError> {
 mod tests {
     use super::*;
 
+    static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    struct EnvGuard {
+        _lock: std::sync::MutexGuard<'static, ()>,
+        previous: Vec<(&'static str, Option<std::ffi::OsString>)>,
+    }
+
+    impl EnvGuard {
+        fn set(vars: &[(&'static str, &str)]) -> Self {
+            let lock = TEST_ENV_LOCK
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let previous = vars
+                .iter()
+                .map(|(name, _)| (*name, std::env::var_os(name)))
+                .collect::<Vec<_>>();
+            unsafe {
+                for (name, value) in vars {
+                    std::env::set_var(name, value);
+                }
+            }
+            Self {
+                _lock: lock,
+                previous,
+            }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            unsafe {
+                for (name, value) in self.previous.drain(..).rev() {
+                    if let Some(value) = value {
+                        std::env::set_var(name, value);
+                    } else {
+                        std::env::remove_var(name);
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn create_list_load_and_delete_memory() {
         let dir = std::env::temp_dir().join(format!("memory-test-{}", std::process::id()));
@@ -1521,14 +3308,35 @@ mod tests {
             .map(|backend| backend.id)
             .collect::<Vec<_>>();
 
-        assert_eq!(ids, vec!["local-markdown-v0", "local-jsonl-v0"]);
+        assert_eq!(
+            ids,
+            vec![
+                "local-markdown-v0",
+                "local-jsonl-v0",
+                "external-command-v0",
+                "external-http-v0"
+            ]
+        );
         assert_eq!(
             supported_backend_ids(),
-            &["local-markdown-v0", "local-jsonl-v0"]
+            &[
+                "local-markdown-v0",
+                "local-jsonl-v0",
+                "external-command-v0",
+                "external-http-v0"
+            ]
         );
         assert!(matches!(
             MemoryStore::for_backend(StoragePaths::new("unused"), "remote-memory-v0"),
             Err(MemoryError::UnsupportedBackend(_))
+        ));
+        assert!(matches!(
+            MemoryStore::for_backend(StoragePaths::new("unused"), "external-command-v0"),
+            Err(MemoryError::ReadOnlyBackend(_))
+        ));
+        assert!(matches!(
+            MemoryStore::for_backend(StoragePaths::new("unused"), "external-http-v0"),
+            Err(MemoryError::ReadOnlyBackend(_))
         ));
     }
 
@@ -1566,6 +3374,493 @@ mod tests {
             backend == LOCAL_JSONL_MEMORY_BACKEND_ID && record.content == "Remember jsonl memory."
         }));
 
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn probe_backend_reports_topic_filtered_counts() {
+        let dir = std::env::temp_dir().join(format!("memory-backend-probe-{}", std::process::id()));
+        let store = MemoryStore::new_jsonl(StoragePaths::new(&dir));
+        store
+            .create_with_topics(
+                MemoryTarget::Agent,
+                "Remember launch notes.",
+                MemoryAuthor::Human,
+                None,
+                vec!["launch".into()],
+            )
+            .unwrap();
+        store
+            .create_with_topics(
+                MemoryTarget::Agent,
+                "Remember billing notes.",
+                MemoryAuthor::Human,
+                None,
+                vec!["billing".into()],
+            )
+            .unwrap();
+
+        let report = probe_backend(
+            StoragePaths::new(&dir),
+            LOCAL_JSONL_MEMORY_BACKEND_ID,
+            &["Launch".into()],
+        )
+        .unwrap();
+
+        assert_eq!(report.backend, LOCAL_JSONL_MEMORY_BACKEND_ID);
+        assert!(report.configured);
+        assert!(report.ok);
+        assert_eq!(report.records, 2);
+        assert_eq!(report.matching_records, 1);
+        assert_eq!(report.topics, vec!["launch"]);
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn external_memory_records_parse_with_defaults_and_topics() {
+        let dir =
+            std::env::temp_dir().join(format!("memory-external-parse-test-{}", std::process::id()));
+        let records = parse_external_memory_records(
+            r#"{"records":[{"content":"Remember the API rollout plan.","topics":["Launch"],"classification":{"tasks":["Review"]}}]}"#,
+            &StoragePaths::new_with_profile(&dir, "research"),
+        )
+        .unwrap();
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].id, "external-command-v0-0");
+        assert_eq!(records[0].owning_profile, "research");
+        assert_eq!(records[0].author, MemoryAuthor::Model);
+        assert!(records[0].topics.contains(&"launch".into()));
+        assert!(records[0].classification.tasks.contains(&"review".into()));
+        assert!(memory_record_matches_topics(
+            &records[0],
+            &["launch".into()]
+        ));
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn external_memory_records_can_use_backend_specific_defaults() {
+        let dir = std::env::temp_dir().join(format!(
+            "memory-external-http-parse-test-{}",
+            std::process::id()
+        ));
+        let records = parse_external_memory_records_for_backend(
+            r#"[{"content":"Remember HTTP memory."}]"#,
+            &StoragePaths::new(&dir),
+            EXTERNAL_HTTP_MEMORY_BACKEND_ID,
+        )
+        .unwrap();
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].id, "external-http-v0-0");
+        assert_eq!(
+            records[0].generating_model.as_deref(),
+            Some(EXTERNAL_HTTP_MEMORY_BACKEND_ID)
+        );
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn external_command_backend_loads_read_only_fragments() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _env = EnvGuard::set(&[
+            (EXTERNAL_COMMAND_WRITES_ENV, "false"),
+            (EXTERNAL_COMMAND_ROLLBACK_ENV, "false"),
+        ]);
+        let dir = std::env::temp_dir().join(format!(
+            "memory-external-command-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("memory-source.sh");
+        std::fs::write(
+            &script,
+            "#!/bin/sh\ncat >/dev/null\nprintf '%s\\n' '{\"records\":[{\"id\":\"ext-1\",\"content\":\"Remember launch notes.\",\"topics\":[\"launch\"]}]}'\n",
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&script).unwrap().permissions();
+        permissions.set_mode(0o700);
+        std::fs::set_permissions(&script, permissions).unwrap();
+
+        let backend = ExternalCommandMemoryBackend {
+            paths: StoragePaths::new(&dir),
+            command: script.display().to_string(),
+            args: Vec::new(),
+            timeout_ms: DEFAULT_EXTERNAL_COMMAND_TIMEOUT_MS,
+        };
+        let fragments = backend
+            .load_fragments_for_topics(&["launch".into()])
+            .unwrap();
+        assert_eq!(fragments.len(), 1);
+        assert_eq!(fragments[0].id, "ext-1");
+        assert!(
+            fragments[0]
+                .provenance
+                .contains("backend=external-command-v0")
+        );
+        assert!(matches!(
+            backend.write_record(MemoryTarget::Agent, "x", MemoryAuthor::Human, None, None),
+            Err(MemoryError::ReadOnlyBackend(_))
+        ));
+        assert!(matches!(
+            backend.rollback_target(MemoryTarget::Agent),
+            Err(MemoryError::ReadOnlyBackend(_))
+        ));
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn external_command_backend_writes_and_generates_when_enabled() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _env = EnvGuard::set(&[
+            (EXTERNAL_COMMAND_WRITES_ENV, "true"),
+            (EXTERNAL_COMMAND_ROLLBACK_ENV, "true"),
+        ]);
+        let dir = std::env::temp_dir().join(format!(
+            "memory-external-command-write-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let request_path = dir.join("last-request.json");
+        let script = dir.join("memory-writer.sh");
+        std::fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nrequest=$(cat)\nprintf '%s' \"$request\" > '{}'\ncase \"$request\" in\n  *generate_records*) printf '%s\\n' '{{\"records\":[{{\"id\":\"external-generated\",\"content\":\"Remember generated external memory.\"}}]}}' ;;\n  *write_record*) printf '%s\\n' '{{\"record\":{{\"id\":\"external-written\",\"content\":\"Remember writable external memory.\",\"topics\":[\"external\"]}}}}' ;;\n  *edit_record*) printf '%s\\n' '{{\"record\":{{\"id\":\"external-written\",\"content\":\"Remember edited external memory.\",\"topics\":[\"edited\"]}}}}' ;;\n  *delete_record*) printf '%s\\n' '{{\"deleted\":true}}' ;;\n  *rollback*) printf '%s\\n' '{{\"rolled_back\":true}}' ;;\n  *) printf '%s\\n' '{{\"records\":[]}}' ;;\nesac\n",
+                request_path.display()
+            ),
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&script).unwrap().permissions();
+        permissions.set_mode(0o700);
+        std::fs::set_permissions(&script, permissions).unwrap();
+
+        let backend = ExternalCommandMemoryBackend {
+            paths: StoragePaths::new_with_profile(&dir, "research"),
+            command: script.display().to_string(),
+            args: Vec::new(),
+            timeout_ms: DEFAULT_EXTERNAL_COMMAND_TIMEOUT_MS,
+        };
+        let written = backend
+            .write_record_with_topics_for_agent(
+                MemoryTarget::User,
+                "Remember writable external memory.",
+                MemoryAuthor::Human,
+                Some("messages:1..2".into()),
+                Some("conv-1".into()),
+                vec!["launch".into()],
+                Some("researcher".into()),
+            )
+            .unwrap();
+        assert_eq!(written.id, "external-written");
+        assert_eq!(written.target, MemoryTarget::User);
+        assert_eq!(written.author, MemoryAuthor::Human);
+        assert_eq!(written.source_range.as_deref(), Some("messages:1..2"));
+        assert_eq!(written.source_conversation_id.as_deref(), Some("conv-1"));
+        assert_eq!(written.owning_agent.as_deref(), Some("researcher"));
+        assert!(written.topics.contains(&"external".into()));
+        assert!(written.topics.contains(&"launch".into()));
+        let request = std::fs::read_to_string(&request_path).unwrap();
+        assert!(request.contains(r#""operation":"write_record""#));
+        assert!(request.contains(r#""content":"Remember writable external memory.""#));
+
+        let generated = backend
+            .generate_records_with_topics_for_agent_and_guidance(
+                MemoryTarget::Agent,
+                "Remember: generated external memory.",
+                Some("messages:2..3".into()),
+                Some("conv-2".into()),
+                vec!["sdk".into()],
+                Some("writer".into()),
+                Some("keep sdk facts".into()),
+            )
+            .unwrap();
+        assert_eq!(generated.len(), 1);
+        assert_eq!(generated[0].id, "external-generated");
+        assert_eq!(generated[0].author, MemoryAuthor::Model);
+        assert_eq!(
+            generated[0].generating_model.as_deref(),
+            Some(EXTERNAL_COMMAND_MEMORY_BACKEND_ID)
+        );
+        assert_eq!(generated[0].source_range.as_deref(), Some("messages:2..3"));
+        assert_eq!(
+            generated[0].source_conversation_id.as_deref(),
+            Some("conv-2")
+        );
+        assert_eq!(generated[0].owning_agent.as_deref(), Some("writer"));
+        assert_eq!(
+            generated[0].generation_guidance.as_deref(),
+            Some("keep sdk facts")
+        );
+        assert!(generated[0].topics.contains(&"sdk".into()));
+        let request = std::fs::read_to_string(&request_path).unwrap();
+        assert!(request.contains(r#""operation":"generate_records""#));
+        assert!(request.contains(r#""text":"Remember: generated external memory.""#));
+        assert!(request.contains(r#""guidance":"keep sdk facts""#));
+
+        let edited = backend
+            .edit_record("external-written", "Remember edited external memory.")
+            .unwrap();
+        assert_eq!(edited.id, "external-written");
+        assert_eq!(edited.content, "Remember edited external memory.");
+        assert!(edited.topics.contains(&"edited".into()));
+        let request = std::fs::read_to_string(&request_path).unwrap();
+        assert!(request.contains(r#""operation":"edit_record""#));
+        assert!(request.contains(r#""id":"external-written""#));
+        assert!(request.contains(r#""content":"Remember edited external memory.""#));
+
+        backend.delete_record("external-written").unwrap();
+        let request = std::fs::read_to_string(&request_path).unwrap();
+        assert!(request.contains(r#""operation":"delete_record""#));
+        assert!(request.contains(r#""id":"external-written""#));
+
+        backend.rollback_target(MemoryTarget::User).unwrap();
+        let request = std::fs::read_to_string(&request_path).unwrap();
+        assert!(request.contains(r#""operation":"rollback""#));
+        assert!(request.contains(r#""target":"user""#));
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn active_backend_create_and_list_use_external_command() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!(
+            "memory-active-external-command-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("active-memory.sh");
+        std::fs::write(
+            &script,
+            "#!/bin/sh\nrequest=$(cat)\ncase \"$request\" in\n  *write_record*) printf '%s\\n' '{\"record\":{\"id\":\"active-written\",\"content\":\"Remember active external memory.\"}}' ;;\n  *edit_record*) printf '%s\\n' '{\"record\":{\"id\":\"active-written\",\"content\":\"Remember active edited memory.\"}}' ;;\n  *delete_record*) printf '%s\\n' '{\"deleted\":true}' ;;\n  *rollback*) printf '%s\\n' '{\"rolled_back\":true}' ;;\n  *) printf '%s\\n' '{\"records\":[{\"id\":\"active-listed\",\"content\":\"Remember listed external memory.\",\"owning_agent\":\"agent-a\"},{\"id\":\"active-linked\",\"content\":\"Remember linked external memory.\",\"owning_agent\":\"agent-b\",\"source_conversation_id\":\"conv-delete\"}]}' ;;\nesac\n",
+        )
+        .unwrap();
+        let mut permissions = std::fs::metadata(&script).unwrap().permissions();
+        permissions.set_mode(0o700);
+        std::fs::set_permissions(&script, permissions).unwrap();
+        let _env = EnvGuard::set(&[
+            ("AGENT_HARNESS_HOME", dir.to_str().unwrap()),
+            ("AGENT_HARNESS_PROFILE", "research"),
+            ("AGENT_MEMORY_BACKEND", EXTERNAL_COMMAND_MEMORY_BACKEND_ID),
+            ("AGENT_MEMORY_EXTERNAL_COMMAND", script.to_str().unwrap()),
+            (EXTERNAL_COMMAND_WRITES_ENV, "true"),
+            (EXTERNAL_COMMAND_ROLLBACK_ENV, "true"),
+        ]);
+
+        let written = create_record_for_active_backend_with_topics_for_agent(
+            MemoryTarget::Agent,
+            "Remember active external memory.",
+            MemoryAuthor::Human,
+            None,
+            None,
+            vec!["active".into()],
+            Some("agent-a".into()),
+        )
+        .unwrap();
+        assert_eq!(written.id, "active-written");
+        assert_eq!(written.owning_profile, "research");
+        assert!(written.topics.contains(&"active".into()));
+
+        let listed = list_records_for_active_backend().unwrap();
+        assert_eq!(listed.len(), 2);
+        assert!(
+            listed
+                .iter()
+                .any(|record| record.id == "active-listed" && record.owning_profile == "research")
+        );
+
+        let export_path = dir.join("active-export.md");
+        let exported = export_target_for_active_backend(
+            MemoryTarget::Agent,
+            &export_path,
+            Some("agent-a".into()),
+        )
+        .unwrap();
+        assert_eq!(exported.len(), 1);
+        assert_eq!(exported[0].id, "active-listed");
+        let export_text = std::fs::read_to_string(&export_path).unwrap();
+        assert!(export_text.contains("active-listed"));
+        assert!(!export_text.contains("active-linked"));
+
+        let import_path = dir.join("active-import.md");
+        std::fs::write(
+            &import_path,
+            render_records(&[MemoryRecord {
+                id: "portable-import".into(),
+                content: "Remember imported external memory.".into(),
+                target: MemoryTarget::Agent,
+                owning_profile: "elsewhere".into(),
+                owning_agent: Some("elsewhere-agent".into()),
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                author: MemoryAuthor::Human,
+                source_range: None,
+                source_conversation_id: None,
+                generating_model: None,
+                generation_guidance: None,
+                topics: vec!["portable".into()],
+                classification: MemoryClassification::default(),
+            }])
+            .unwrap(),
+        )
+        .unwrap();
+        let imported = import_file_for_active_backend_for_agent(
+            &import_path,
+            Some(MemoryTarget::Agent),
+            Some("agent-a".into()),
+        )
+        .unwrap();
+        assert_eq!(imported.len(), 1);
+        assert_eq!(imported[0].id, "active-written");
+
+        let edited =
+            edit_record_for_active_backend("active-written", "Remember active edited memory.")
+                .unwrap();
+        assert_eq!(edited.id, "active-written");
+        assert_eq!(edited.content, "Remember active edited memory.");
+        delete_record_for_active_backend("active-written").unwrap();
+        let deleted =
+            delete_records_by_source_conversation_ids_for_active_backend(&["conv-delete".into()])
+                .unwrap();
+        assert_eq!(deleted, vec!["active-linked"]);
+        rollback_active_backend(MemoryTarget::Agent).unwrap();
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn external_command_backend_times_out_stuck_adapter() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!(
+            "memory-external-command-timeout-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let script = dir.join("memory-source-slow.sh");
+        std::fs::write(&script, "#!/bin/sh\ncat >/dev/null\nsleep 1\n").unwrap();
+        let mut permissions = std::fs::metadata(&script).unwrap().permissions();
+        permissions.set_mode(0o700);
+        std::fs::set_permissions(&script, permissions).unwrap();
+
+        let backend = ExternalCommandMemoryBackend {
+            paths: StoragePaths::new(&dir),
+            command: script.display().to_string(),
+            args: Vec::new(),
+            timeout_ms: 1,
+        };
+        let err = backend.load_records().unwrap_err().to_string();
+        assert!(err.contains("timed out after 1 ms"));
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn external_http_backend_loads_read_only_fragments() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+
+        let _env = EnvGuard::set(&[
+            (EXTERNAL_HTTP_WRITES_ENV, "false"),
+            (EXTERNAL_HTTP_ROLLBACK_ENV, "false"),
+        ]);
+        let dir =
+            std::env::temp_dir().join(format!("memory-external-http-test-{}", std::process::id()));
+        let listener = match TcpListener::bind("127.0.0.1:0") {
+            Ok(listener) => listener,
+            Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => return,
+            Err(err) => panic!("failed to bind local test server: {err}"),
+        };
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut buffer = [0u8; 4096];
+            loop {
+                let bytes = stream.read(&mut buffer).unwrap();
+                if bytes == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buffer[..bytes]);
+                let request_text = String::from_utf8_lossy(&request);
+                let Some(header_end) = request_text.find("\r\n\r\n") else {
+                    continue;
+                };
+                let headers = &request_text[..header_end];
+                if headers.lines().any(|line| {
+                    let Some((name, value)) = line.split_once(':') else {
+                        return false;
+                    };
+                    name.eq_ignore_ascii_case("transfer-encoding")
+                        && value.to_ascii_lowercase().contains("chunked")
+                }) {
+                    if request_text[header_end + 4..].contains("\r\n0\r\n\r\n") {
+                        break;
+                    }
+                    continue;
+                }
+                let content_length = headers
+                    .lines()
+                    .find_map(|line| {
+                        let (name, value) = line.split_once(':')?;
+                        name.eq_ignore_ascii_case("content-length")
+                            .then(|| value.trim().parse::<usize>().ok())
+                            .flatten()
+                    })
+                    .unwrap_or(0);
+                if request.len() >= header_end + 4 + content_length {
+                    break;
+                }
+            }
+            let request = String::from_utf8_lossy(&request);
+            assert!(request.starts_with("POST "));
+            assert!(request.contains(EXTERNAL_HTTP_MEMORY_BACKEND_ID));
+            let body =
+                r#"{"records":[{"id":"http-1","content":"Remember SDK notes.","topics":["sdk"]}]}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+
+        let backend = ExternalHttpMemoryBackend {
+            paths: StoragePaths::new(&dir),
+            url,
+            bearer_token: None,
+            timeout_ms: DEFAULT_EXTERNAL_HTTP_TIMEOUT_MS,
+        };
+        assert_eq!(
+            backend.request_payload()["backend"],
+            EXTERNAL_HTTP_MEMORY_BACKEND_ID
+        );
+        let fragments = backend.load_fragments_for_topics(&["sdk".into()]).unwrap();
+        assert_eq!(fragments.len(), 1);
+        assert_eq!(fragments[0].id, "http-1");
+        assert!(fragments[0].provenance.contains("backend=external-http-v0"));
+        assert!(matches!(
+            backend.write_record(MemoryTarget::Agent, "x", MemoryAuthor::Human, None, None),
+            Err(MemoryError::ReadOnlyBackend(_))
+        ));
+        assert!(matches!(
+            backend.rollback_target(MemoryTarget::Agent),
+            Err(MemoryError::ReadOnlyBackend(_))
+        ));
+
+        handle.join().unwrap();
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -1634,6 +3929,31 @@ mod tests {
                 .records
                 .iter()
                 .any(|entry| entry.record.content == "Private memory fact.")
+        );
+
+        let fragments = load_fragments_with_profile_grants(
+            StoragePaths::new_with_profile(&dir, "research"),
+            DEFAULT_MEMORY_BACKEND_ID,
+            &["team".into()],
+        )
+        .unwrap();
+        assert_eq!(fragments.len(), 2);
+        assert!(fragments.iter().any(|fragment| {
+            fragment.content == "Local memory fact."
+                && fragment.provenance.contains("profile=research")
+        }));
+        assert!(fragments.iter().any(|fragment| {
+            fragment.content == "Shared memory fact."
+                && fragment.provenance.contains("shared_from_profile=main")
+                && fragment
+                    .provenance
+                    .contains("source_backend=local-markdown-v0")
+                && fragment.provenance.contains("grant_resource=critic")
+        }));
+        assert!(
+            !fragments
+                .iter()
+                .any(|fragment| fragment.content == "Private memory fact.")
         );
 
         let _ = std::fs::remove_dir_all(dir);
@@ -1880,16 +4200,24 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("memory-gen-test-{}", std::process::id()));
         let store = MemoryStore::new(StoragePaths::new(&dir));
         let generated = store
-            .generate_from_text(
+            .generate_from_conversation_text_with_topics_for_agent_and_guidance(
                 MemoryTarget::Agent,
                 "hello\nRemember: prefers terse status updates",
                 Some("1:2".into()),
+                None,
+                Vec::new(),
+                None,
+                Some("keep durable preferences".into()),
             )
             .unwrap();
         assert_eq!(generated.len(), 1);
         assert_eq!(
             generated[0].generating_model.as_deref(),
             Some("manual-memory-generator-v0")
+        );
+        assert_eq!(
+            generated[0].generation_guidance.as_deref(),
+            Some("keep durable preferences")
         );
         store.edit(&generated[0].id, "temporary edit").unwrap();
         store.rollback(MemoryTarget::Agent).unwrap();

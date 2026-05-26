@@ -110,8 +110,10 @@
         "env": [
           "APPLE_API_KEY",
           "APPLE_API_ISSUER",
+          "APPLE_API_KEY_BASE64",
+          "APPLE_API_KEY_PATH",
           "APPLE_TEAM_ID",
-          "IOS_PROVISIONING_PROFILE"
+          "APPLE_DEVELOPMENT_TEAM"
         ]
       }
     }

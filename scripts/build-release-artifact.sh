@@ -9,14 +9,41 @@ const childProcess = require("child_process");
 const fs = require("fs");
 
 const args = process.argv.slice(2);
-const platformArg = args.find((arg) => arg.startsWith("--platform="))?.slice("--platform=".length);
-const envOnly = args.includes("--env-only");
-const skipEnvCheck = args.includes("--skip-env-check");
 
 function fail(message) {
   console.error(`release artifact build failed: ${message}`);
   process.exit(1);
 }
+
+function usage() {
+  console.log(`usage: scripts/build-release-artifact.sh [--platform=<id>] [--env-only] [--skip-env-check]
+
+Builds the manifest-selected Tauri release artifact, then verifies strict
+artifact outputs for that platform. Defaults to the host desktop platform.
+
+Options:
+  --platform=<id>     Build linux, macos, windows, android, or ios
+  --env-only          Check signing/updater inputs without building
+  --skip-env-check    Skip signing/updater environment validation
+  -h, --help          Show this help text`);
+}
+
+for (const arg of args) {
+  if (arg === "-h" || arg === "--help") {
+    usage();
+    process.exit(0);
+  }
+  if (arg === "--env-only" || arg === "--skip-env-check") continue;
+  if (arg.startsWith("--platform=")) {
+    if (!arg.slice("--platform=".length).trim()) fail("--platform needs a value");
+    continue;
+  }
+  fail(`unknown argument ${arg}`);
+}
+
+const platformArg = args.find((arg) => arg.startsWith("--platform="))?.slice("--platform=".length);
+const envOnly = args.includes("--env-only");
+const skipEnvCheck = args.includes("--skip-env-check");
 
 function assert(condition, message) {
   if (!condition) fail(message);

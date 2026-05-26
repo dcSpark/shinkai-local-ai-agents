@@ -1281,6 +1281,15 @@ textarea:disabled {
   width: 100%;
 }
 
+.artifact-preview-image {
+  width: 100%;
+  max-height: 360px;
+  object-fit: contain;
+  border: 1px solid #2a2d34;
+  border-radius: 6px;
+  background: #f7f7f8;
+}
+
 .artifact-preview-text {
   min-height: 220px;
   max-height: 360px;

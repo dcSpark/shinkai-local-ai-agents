@@ -16,7 +16,7 @@ use std::time::Instant;
 use agent_adapters::{
     AdapterDoctorReport, AdapterRegistry, ClawHubProvider, NormalizedPackage, inspect_source,
 };
-use agent_batch::{BatchItemState, BatchPlan};
+use agent_batch::{BatchItemState, BatchPlan, prepare_batch_inputs};
 use agent_bundles::{BundleManifest, export_bundle, import_bundle};
 use agent_capabilities::{
     CapabilityDraft, CapabilityDraftDoctorReport, CapabilityDraftInput, CapabilityDraftStatus,
@@ -35,26 +35,32 @@ use agent_conversations::{
 use agent_core::{
     AgentConfig, ApprovalControllerPolicy, ApprovalMode, ConfigExplanation, ConfigValueExplanation,
     ContextSnapshot, CostPolicy, ExecutionPolicy, Harness, HarnessApi, HookTrigger,
-    IngestedArtifactView, MemoryFragment, PromptRefinement, RunHookHandler, RunLifecycleHook,
-    RunResult, SkillView, StopRetentionMode, ToolOutputMode, ToolPolicy, ToolView, UserInput,
-    VisibilityLevel, VoiceConfig, assess_approval_controller_with_model,
-    verify_approval_controller_delegate, verify_configured_approval_signature,
-    verify_configured_approval_unlock,
+    IngestedArtifactView, PromptRefinement, RunHookHandler, RunLifecycleHook, RunResult, SkillView,
+    StopRetentionMode, ToolOutputMode, ToolPolicy, ToolView, UserInput, VisibilityLevel,
+    VoiceConfig, assess_approval_controller_with_model, verify_approval_controller_delegate,
+    verify_configured_approval_signature, verify_configured_approval_unlock,
 };
 use agent_ingest::{
     IngestionArtifact, IngestionBackendDescriptor, IngestionFindingReviewDecision,
-    IngestionModelCall, IngestionStore, model_vision_source_requirement, probe_model_vision_source,
-    supported_backends as supported_ingestion_backends,
+    IngestionModelCall, IngestionSourceProbeReport, IngestionStore,
+    IngestionVisionModelSupportProbe, model_vision_source_requirement, probe_model_vision_source,
+    probe_source_compatibility, supported_backends as supported_ingestion_backends,
 };
 use agent_llm::{
     AnthropicProvider, FakeProvider, FakeStep, GeminiProvider, LlmProvider, LlmRequest, Message,
     ModelRef, NativeProviderConfig, RigProvider,
 };
 use agent_memory::{
-    MemoryAccessReport, MemoryAuthor, MemoryBackendDescriptor, MemoryRecord, MemoryStore,
-    MemoryTarget, list_records_for_supported_backends, load_fragments_for_backend,
-    memory_classification_from_model_output, memory_record_matches_topics,
-    profile_memory_access_report, supported_backends as supported_memory_backends,
+    MemoryAccessReport, MemoryAuthor, MemoryBackendDescriptor, MemoryBackendProbeReport,
+    MemoryRecord, MemoryStore, MemoryTarget,
+    create_record_for_active_backend_with_topics_for_agent, delete_record_for_active_backend,
+    delete_records_by_source_conversation_ids_for_active_backend, edit_record_for_active_backend,
+    export_target_for_active_backend,
+    generate_records_for_active_backend_with_topics_for_agent_and_guidance,
+    import_file_for_active_backend_for_agent, list_records_for_active_backend,
+    load_fragments_with_profile_grants, memory_classification_from_model_output,
+    probe_backend as probe_memory_backend, profile_memory_access_report, rollback_active_backend,
+    supported_backends as supported_memory_backends,
 };
 use agent_prompts::{PromptDoc, PromptStore};
 use agent_secrets::{
@@ -64,9 +70,10 @@ use agent_secrets::{
 use agent_skills::{SkillDoc, SkillRegistry};
 use agent_storage::StoragePaths;
 use agent_tools::{
-    ArtifactTool, FakeTool, GeneratedArtifact, ShellTool, ShellToolConfig, SubagentTool, ToolId,
-    ToolRegistry, VoiceRuntimeConfig, delete_generated_artifact_from_env,
-    generated_artifact_data_url_from_env, is_shell_runtime_tool_id,
+    ArtifactGenerateInput, ArtifactTool, FakeTool, GeneratedArtifact, GeneratedArtifactExport,
+    ShellTool, ShellToolConfig, SubagentTool, ToolId, ToolRegistry, VoiceRuntimeConfig,
+    delete_generated_artifact_from_env, export_generated_artifact_from_env,
+    generate_artifact_from_env, generated_artifact_data_url_from_env, is_shell_runtime_tool_id,
     list_generated_artifacts_from_env, open_generated_artifact_from_env,
     register_allowed_adapter_tools_for_category_with_provenance,
     register_allowed_adapter_tools_for_resource_with_provenance,
@@ -76,8 +83,9 @@ use agent_tools::{
 };
 use agent_tracing::{
     EventId, EventStore, PublishingEventStore, ResumePlan, RunEvent, RunEventKind, RunId,
-    SqliteEventStore, TraceTreeNode, build_resume_plan, build_trace_tree, is_terminal_run_event,
-    latest_event_id, summarize_trace, validate_guidance_content, validate_quality_score,
+    SqliteEventStore, TraceRunRecord, TraceTreeNode, build_resume_plan, build_trace_tree,
+    is_terminal_run_event, latest_event_id, summarize_trace, validate_guidance_content,
+    validate_quality_score,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -846,8 +854,11 @@ fn build_agent(options: &RunOptions) -> AgentConfig {
         .map(|policy| policy.effective_load_memory(config_load_memory, options.load_memory))
         .unwrap_or(config_load_memory || options.load_memory);
     if load_memory
-        && let Ok(memory) =
-            load_memory_fragments_with_profile_grants(&agent.memory_backend, &options.memory_topics)
+        && let Ok(memory) = load_fragments_with_profile_grants(
+            StoragePaths::from_env(),
+            &agent.memory_backend,
+            &options.memory_topics,
+        )
     {
         agent.memory_fragments = memory;
     }
@@ -999,41 +1010,6 @@ fn config_ingestion_guardrail(values: &[ConfigValueExplanation]) -> IngestionGua
         .and_then(|value| value.value.as_str())
         .and_then(IngestionGuardrailMode::from_config_str)
         .unwrap_or(IngestionGuardrailMode::Block)
-}
-
-fn load_memory_fragments_with_profile_grants(
-    backend: &str,
-    topics: &[String],
-) -> Result<Vec<MemoryFragment>, Box<dyn std::error::Error>> {
-    let active_paths = StoragePaths::from_env();
-    let active_profile = active_paths.active_profile_id().to_string();
-    let mut fragments = load_fragments_for_backend(active_paths.clone(), backend, topics)?;
-    let resolver = ConfigResolver::new(active_paths.clone());
-    for grant in resolver.list_profile_grants()?.into_iter().filter(|grant| {
-        grant.kind == ProfileGrantKind::Memory && grant.to_profile == active_profile
-    }) {
-        let source_paths =
-            StoragePaths::new_with_profile(active_paths.root().to_path_buf(), &grant.from_profile);
-        let records = list_records_for_supported_backends(source_paths)?;
-        for record in records
-            .into_iter()
-            .filter(|record| memory_record_matches_grant(record, &grant.resource))
-            .filter(|record| memory_record_matches_topics(record, topics))
-        {
-            fragments.push(MemoryStore::fragment_from_record(
-                record,
-                Some(format!(
-                    "shared_from_profile={}; grant={}",
-                    grant.from_profile, grant.id
-                )),
-            ));
-        }
-    }
-    Ok(fragments)
-}
-
-fn memory_record_matches_grant(record: &MemoryRecord, resource: &str) -> bool {
-    resource == "*" || record.id == resource || record.owning_agent.as_deref() == Some(resource)
 }
 
 fn load_skill_views_with_profile_grants() -> Result<Vec<SkillView>, Box<dyn std::error::Error>> {
@@ -1533,6 +1509,80 @@ mod tauri_slash_tests {
             &event.kind,
             RunEventKind::RunStarted { input, .. } if input.starts_with("/tool! echo")
         )));
+    }
+
+    #[tokio::test]
+    async fn artifact_generate_command_writes_document_artifact() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "agent-tauri-artifact-generate-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+
+        let artifact = artifact_generate(ArtifactGenerateInput {
+            format: "docx".into(),
+            title: Some("Tauri Report".into()),
+            content: Some("hello document".into()),
+            rows: None,
+            filename: Some("tauri-report".into()),
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(artifact.format, "docx");
+        assert!(artifact.id.ends_with("tauri-report"));
+        assert!(
+            std::fs::read(&artifact.path)
+                .unwrap()
+                .starts_with(b"PK\x03\x04")
+        );
+
+        unsafe {
+            if let Some(value) = previous_home {
+                std::env::set_var("AGENT_HARNESS_HOME", value);
+            } else {
+                std::env::remove_var("AGENT_HARNESS_HOME");
+            }
+        }
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[tokio::test]
+    async fn artifact_export_command_copies_scoped_artifact() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = std::env::temp_dir().join(format!(
+            "agent-tauri-artifact-export-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let previous_home = std::env::var_os("AGENT_HARNESS_HOME");
+        unsafe {
+            std::env::set_var("AGENT_HARNESS_HOME", &dir);
+        }
+
+        let artifact_dir = StoragePaths::from_env().artifacts_dir();
+        std::fs::create_dir_all(&artifact_dir).unwrap();
+        std::fs::write(artifact_dir.join("report.txt"), b"hello").unwrap();
+        let export_dir = dir.join("exports");
+
+        let exported = artifact_export("report".into(), export_dir.to_string_lossy().to_string())
+            .await
+            .unwrap();
+
+        assert_eq!(exported.artifact.id, "report");
+        assert_eq!(std::fs::read(&exported.output_path).unwrap(), b"hello");
+
+        unsafe {
+            if let Some(value) = previous_home {
+                std::env::set_var("AGENT_HARNESS_HOME", value);
+            } else {
+                std::env::remove_var("AGENT_HARNESS_HOME");
+            }
+        }
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[tokio::test]
@@ -2088,7 +2138,7 @@ fn cleanup_conversation_side_data(
 ) -> anyhow::Result<ConversationDeletionCleanup> {
     Ok(ConversationDeletionCleanup {
         compactions: CompactionStore::from_env().remove_by_conversation_ids(deleted)?,
-        memories: MemoryStore::from_env().delete_by_source_conversation_ids(deleted)?,
+        memories: delete_records_by_source_conversation_ids_for_active_backend(deleted)?,
     })
 }
 
@@ -2327,11 +2377,42 @@ async fn call_tool(name: String, input: Value, options: RunOptions) -> Result<Va
 }
 
 #[tauri::command]
+async fn trace_list(limit: Option<usize>) -> Result<Vec<TraceRunRecord>, String> {
+    open_event_store()?
+        .try_run_records(limit.unwrap_or(20))
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn trace_show(run_id: String) -> Result<Vec<RunEvent>, String> {
     let run_id = RunId(uuid::Uuid::parse_str(&run_id).map_err(|e| e.to_string())?);
     open_event_store()?
         .try_events(run_id)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn trace_prompt(run_id: String) -> Result<Value, String> {
+    let run_id = RunId(uuid::Uuid::parse_str(&run_id).map_err(|e| e.to_string())?);
+    let events = open_event_store()?
+        .try_events(run_id)
+        .map_err(|e| e.to_string())?;
+    let (agent_id, prompt) = trace_prompt_source(run_id, &events).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "run_id": run_id.0,
+        "agent_id": agent_id,
+        "prompt": prompt
+    }))
+}
+
+fn trace_prompt_source(run_id: RunId, events: &[RunEvent]) -> anyhow::Result<(String, String)> {
+    events
+        .iter()
+        .find_map(|event| match &event.kind {
+            RunEventKind::RunStarted { agent_id, input } => Some((agent_id.clone(), input.clone())),
+            _ => None,
+        })
+        .ok_or_else(|| anyhow::anyhow!("run {run_id} has no RunStarted event"))
 }
 
 #[tauri::command]
@@ -2943,10 +3024,25 @@ async fn score(run_id: String, target: String, score: f32) -> Result<(), String>
 }
 
 #[tauri::command]
-async fn batch_run(items: Vec<String>, demo: Demo, options: RunOptions) -> Result<Value, String> {
+async fn batch_run(
+    items: Vec<String>,
+    item_keys: Option<Vec<String>>,
+    files: Option<Vec<String>>,
+    folders: Option<Vec<String>>,
+    demo: Demo,
+    options: RunOptions,
+) -> Result<Value, String> {
     let batch_run_id = RunId::new();
     let batch_id = format!("batch-{}", batch_run_id.0);
-    let mut plan = BatchPlan::new(batch_id.clone(), items);
+    let (items, item_keys) = prepare_batch_inputs(
+        items,
+        item_keys,
+        files.unwrap_or_default(),
+        folders.unwrap_or_default(),
+    )
+    .map_err(|e| e.to_string())?;
+    let mut plan = BatchPlan::new_with_optional_item_keys(batch_id.clone(), items, item_keys)
+        .map_err(|e| e.to_string())?;
     plan.save_to_env().map_err(|e| e.to_string())?;
     execute_batch_plan(plan, batch_run_id, batch_id, demo, options).await
 }
@@ -2956,6 +3052,27 @@ async fn batch_resume(batch_id: String, demo: Demo, options: RunOptions) -> Resu
     let batch_run_id = RunId::new();
     let plan = BatchPlan::load_from_env(&batch_id).map_err(|e| e.to_string())?;
     execute_batch_plan(plan, batch_run_id, batch_id, demo, options).await
+}
+
+#[tauri::command]
+fn batch_list() -> Result<Value, String> {
+    serde_json::to_value(BatchPlan::list_from_env().map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn batch_show(batch_id: String) -> Result<Value, String> {
+    serde_json::to_value(BatchPlan::load_from_env(&batch_id).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+fn batch_delete(batch_id: String) -> Result<Value, String> {
+    BatchPlan::delete_from_env(&batch_id).map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "batch_id": batch_id,
+        "deleted": true
+    }))
 }
 
 async fn execute_batch_plan(
@@ -3115,6 +3232,7 @@ async fn memory_create(
     content: String,
     user: bool,
     agent_id: Option<String>,
+    conversation_id: Option<String>,
     topics: Option<Vec<String>>,
 ) -> Result<MemoryRecord, String> {
     let target = if user {
@@ -3122,17 +3240,16 @@ async fn memory_create(
     } else {
         MemoryTarget::Agent
     };
-    let record = MemoryStore::from_env()
-        .create_for_conversation_with_topics_for_agent(
-            target,
-            &content,
-            MemoryAuthor::Human,
-            None,
-            None,
-            topics.unwrap_or_default(),
-            agent_id,
-        )
-        .map_err(|e| e.to_string())?;
+    let record = create_record_for_active_backend_with_topics_for_agent(
+        target,
+        &content,
+        MemoryAuthor::Human,
+        None,
+        conversation_id,
+        topics.unwrap_or_default(),
+        agent_id,
+    )
+    .map_err(|e| e.to_string())?;
     record_memory_written(&record, "created")?;
     Ok(record)
 }
@@ -3143,6 +3260,8 @@ async fn memory_generate(
     user: bool,
     range: Option<String>,
     agent_id: Option<String>,
+    conversation_id: Option<String>,
+    guidance: Option<String>,
     topics: Option<Vec<String>>,
 ) -> Result<Vec<MemoryRecord>, String> {
     let target = if user {
@@ -3150,16 +3269,16 @@ async fn memory_generate(
     } else {
         MemoryTarget::Agent
     };
-    let records = MemoryStore::from_env()
-        .generate_from_conversation_text_with_topics_for_agent(
-            target,
-            &text,
-            range,
-            None,
-            topics.unwrap_or_default(),
-            agent_id,
-        )
-        .map_err(|e| e.to_string())?;
+    let records = generate_records_for_active_backend_with_topics_for_agent_and_guidance(
+        target,
+        &text,
+        range,
+        conversation_id,
+        topics.unwrap_or_default(),
+        agent_id,
+        guidance,
+    )
+    .map_err(|e| e.to_string())?;
     for record in &records {
         record_memory_written(record, "generated")?;
     }
@@ -3173,6 +3292,7 @@ async fn memory_generate_conversation(
     to: Option<usize>,
     user: bool,
     agent_id: Option<String>,
+    guidance: Option<String>,
     topics: Option<Vec<String>>,
 ) -> Result<Vec<MemoryRecord>, String> {
     let target = if user {
@@ -3185,16 +3305,16 @@ async fn memory_generate_conversation(
         .map_err(|e| e.to_string())?;
     let owning_agent = agent_id.or_else(|| Some(expanded.conversation.agent_id.clone()));
     let rendered = render_message_range(&expanded.messages, from, to).map_err(|e| e.to_string())?;
-    let records = MemoryStore::from_env()
-        .generate_from_conversation_text_with_topics_for_agent(
-            target,
-            &rendered.text,
-            Some(rendered.source_range),
-            Some(id),
-            topics.unwrap_or_default(),
-            owning_agent,
-        )
-        .map_err(|e| e.to_string())?;
+    let records = generate_records_for_active_backend_with_topics_for_agent_and_guidance(
+        target,
+        &rendered.text,
+        Some(rendered.source_range),
+        Some(id),
+        topics.unwrap_or_default(),
+        owning_agent,
+        guidance,
+    )
+    .map_err(|e| e.to_string())?;
     for record in &records {
         record_memory_written(record, "generated")?;
     }
@@ -3242,7 +3362,7 @@ async fn memory_classify(
 
 #[tauri::command]
 async fn memory_list() -> Result<Vec<MemoryRecord>, String> {
-    MemoryStore::from_env().list().map_err(|e| e.to_string())
+    list_records_for_active_backend().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -3256,19 +3376,26 @@ async fn memory_backends() -> Result<Vec<MemoryBackendDescriptor>, String> {
 }
 
 #[tauri::command]
+async fn memory_backend_probe(
+    backend: Option<String>,
+    topics: Vec<String>,
+) -> Result<MemoryBackendProbeReport, String> {
+    let backend = backend
+        .filter(|backend| !backend.trim().is_empty())
+        .unwrap_or_else(|| agent_core::DEFAULT_MEMORY_BACKEND_ID.into());
+    probe_memory_backend(StoragePaths::from_env(), &backend, &topics).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn memory_edit(id: String, content: String) -> Result<MemoryRecord, String> {
-    let record = MemoryStore::from_env()
-        .edit(&id, &content)
-        .map_err(|e| e.to_string())?;
+    let record = edit_record_for_active_backend(&id, &content).map_err(|e| e.to_string())?;
     record_memory_written(&record, "edited")?;
     Ok(record)
 }
 
 #[tauri::command]
 async fn memory_delete(id: String) -> Result<(), String> {
-    MemoryStore::from_env()
-        .delete(&id)
-        .map_err(|e| e.to_string())?;
+    delete_record_for_active_backend(&id).map_err(|e| e.to_string())?;
     record_memory_operation(&id, "deleted", None, None)
 }
 
@@ -3279,15 +3406,53 @@ async fn memory_rollback(user: bool) -> Result<(), String> {
     } else {
         MemoryTarget::Agent
     };
-    MemoryStore::from_env()
-        .rollback(target)
-        .map_err(|e| e.to_string())?;
+    rollback_active_backend(target).map_err(|e| e.to_string())?;
     record_memory_operation(
         if user { "user.md" } else { "memory.md" },
         "rolled_back",
         None,
         None,
     )
+}
+
+#[tauri::command]
+async fn memory_export(
+    path: String,
+    user: bool,
+    agent_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let target = if user {
+        MemoryTarget::User
+    } else {
+        MemoryTarget::Agent
+    };
+    let records = export_target_for_active_backend(target, &path, agent_id.clone())
+        .map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "path": path,
+        "user": user,
+        "agent_id": agent_id,
+        "records": records
+    }))
+}
+
+#[tauri::command]
+async fn memory_import(
+    path: String,
+    user: bool,
+    agent_id: Option<String>,
+) -> Result<Vec<MemoryRecord>, String> {
+    let target = if user {
+        MemoryTarget::User
+    } else {
+        MemoryTarget::Agent
+    };
+    let records = import_file_for_active_backend_for_agent(&path, Some(target), agent_id)
+        .map_err(|e| e.to_string())?;
+    for record in &records {
+        record_memory_written(record, "imported")?;
+    }
+    Ok(records)
 }
 
 fn record_memory_written(record: &MemoryRecord, operation: &str) -> Result<(), String> {
@@ -3790,6 +3955,24 @@ async fn prompt_delete(name: String, agent_id: Option<String>) -> Result<bool, S
 }
 
 #[tauri::command]
+async fn prompt_export(
+    name: String,
+    path: String,
+    agent_id: Option<String>,
+) -> Result<PromptDoc, String> {
+    PromptStore::from_env()
+        .export_scoped(agent_id.as_deref(), &name, path)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn prompt_import(path: String, agent_id: Option<String>) -> Result<PromptDoc, String> {
+    PromptStore::from_env()
+        .import_file(path, agent_id.as_deref())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn model_list() -> Result<Vec<ModelConfig>, String> {
     ConfigResolver::from_env()
         .list_models()
@@ -4039,6 +4222,54 @@ fn ensure_model_supports_vision(
     .into())
 }
 
+fn attach_vision_model_source_support(
+    report: &mut IngestionSourceProbeReport,
+    vision_model: Option<String>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let Some(model) = clean_optional_string(vision_model) else {
+        return Ok(());
+    };
+    let Some(requirement) = model_vision_source_requirement(&report.source) else {
+        report.vision_model = Some(IngestionVisionModelSupportProbe {
+            model,
+            source_kind: report.source_kind.clone(),
+            attachment_kind: None,
+            required_modalities: Vec::new(),
+            supported: true,
+            provider: None,
+            metadata_source: None,
+            available_modalities: Vec::new(),
+            reason: "source does not require a vision/document attachment".into(),
+        });
+        return Ok(());
+    };
+    let support = ConfigResolver::from_env()
+        .model_supports_any_modality(&model, &requirement.required_modalities)?;
+    let reason = if support.supported {
+        format!(
+            "model advertises {} support for {} attachments",
+            support.modality, requirement.attachment_kind
+        )
+    } else {
+        format!(
+            "model does not advertise any required modality for {} attachments",
+            requirement.attachment_kind
+        )
+    };
+    report.vision_model = Some(IngestionVisionModelSupportProbe {
+        model,
+        source_kind: requirement.source_kind,
+        attachment_kind: Some(requirement.attachment_kind),
+        required_modalities: requirement.required_modalities,
+        supported: support.supported,
+        provider: Some(support.provider),
+        metadata_source: Some(support.source),
+        available_modalities: support.available_modalities,
+        reason,
+    });
+    Ok(())
+}
+
 fn ingestion_provider_for_model(
     model: &str,
     max_output_tokens: Option<u64>,
@@ -4188,6 +4419,13 @@ async fn ingest_probe_vision(path: String, model: String) -> Result<Value, Strin
 }
 
 #[tauri::command]
+async fn ingest_probe_source(path: String, vision_model: Option<String>) -> Result<Value, String> {
+    let mut report = probe_source_compatibility(&path).map_err(|e| e.to_string())?;
+    attach_vision_model_source_support(&mut report, vision_model).map_err(|e| e.to_string())?;
+    serde_json::to_value(report).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn ingest_show(id: String) -> Result<IngestionArtifact, String> {
     IngestionStore::from_env()
         .show(&id)
@@ -4222,6 +4460,11 @@ async fn artifact_list() -> Result<Vec<GeneratedArtifact>, String> {
 }
 
 #[tauri::command]
+async fn artifact_generate(input: ArtifactGenerateInput) -> Result<GeneratedArtifact, String> {
+    generate_artifact_from_env(input).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 async fn artifact_show(id: String) -> Result<GeneratedArtifact, String> {
     show_generated_artifact_from_env(&id).map_err(|e| e.to_string())
 }
@@ -4229,6 +4472,11 @@ async fn artifact_show(id: String) -> Result<GeneratedArtifact, String> {
 #[tauri::command]
 async fn artifact_open(id: String) -> Result<GeneratedArtifact, String> {
     open_generated_artifact_from_env(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn artifact_export(id: String, path: String) -> Result<GeneratedArtifactExport, String> {
+    export_generated_artifact_from_env(&id, path).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -4541,7 +4789,9 @@ pub fn run() {
             compaction_export,
             compaction_import,
             call_tool,
+            trace_list,
             trace_show,
+            trace_prompt,
             trace_tree,
             hook_policy,
             hook_available,
@@ -4555,6 +4805,9 @@ pub fn run() {
             score,
             batch_run,
             batch_resume,
+            batch_list,
+            batch_show,
+            batch_delete,
             memory_create,
             memory_generate,
             memory_generate_conversation,
@@ -4562,9 +4815,12 @@ pub fn run() {
             memory_list,
             memory_access,
             memory_backends,
+            memory_backend_probe,
             memory_edit,
             memory_delete,
             memory_rollback,
+            memory_export,
+            memory_import,
             skill_import_openclaw,
             skill_import_doc,
             skill_list,
@@ -4605,6 +4861,8 @@ pub fn run() {
             prompt_list,
             prompt_show,
             prompt_delete,
+            prompt_export,
+            prompt_import,
             model_list,
             model_provider_list,
             model_doctor,
@@ -4625,12 +4883,15 @@ pub fn run() {
             ingest_list,
             ingest_backends,
             ingest_probe_vision,
+            ingest_probe_source,
             ingest_show,
             ingest_review,
             ingest_rm,
             artifact_list,
+            artifact_generate,
             artifact_show,
             artifact_open,
+            artifact_export,
             artifact_delete,
             artifact_data_url,
             voice_capture,

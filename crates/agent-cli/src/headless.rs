@@ -12,7 +12,7 @@ use agent_adapters::{
     NormalizedRuntime, inspect_source,
 };
 use agent_api_client::DaemonHttpClient;
-use agent_batch::{BatchItemState, BatchPlan};
+use agent_batch::{BatchItemState, BatchPlan, prepare_batch_inputs};
 use agent_bundles::{export_bundle, import_bundle};
 use agent_capabilities::{
     CapabilityDraft, CapabilityDraftDoctorReport, CapabilityDraftInput, CapabilityDraftStatus,
@@ -35,8 +35,9 @@ use agent_core::{
     verify_configured_approval_signature, verify_configured_approval_unlock,
 };
 use agent_ingest::{
-    IngestionArtifact, IngestionFindingReviewDecision, IngestionModelCall, IngestionStore,
-    ModelVisionProbe, model_vision_source_requirement, probe_model_vision_source,
+    IngestionArtifact, IngestionFindingReviewDecision, IngestionModelCall,
+    IngestionSourceProbeReport, IngestionStore, IngestionVisionModelSupportProbe, ModelVisionProbe,
+    model_vision_source_requirement, probe_model_vision_source, probe_source_compatibility,
     supported_backends as supported_ingestion_backends,
 };
 use agent_llm::{
@@ -44,8 +45,14 @@ use agent_llm::{
     NativeProviderConfig, RigProvider,
 };
 use agent_memory::{
-    MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget, memory_classification_from_model_output,
-    profile_memory_access_report, supported_backends as supported_memory_backends,
+    MemoryAuthor, MemoryRecord, MemoryStore, MemoryTarget,
+    create_record_for_active_backend_with_topics_for_agent, delete_record_for_active_backend,
+    edit_record_for_active_backend, export_target_for_active_backend,
+    generate_records_for_active_backend_with_topics_for_agent_and_guidance,
+    import_file_for_active_backend_for_agent, list_records_for_active_backend,
+    memory_classification_from_model_output, probe_backend as probe_memory_backend,
+    profile_memory_access_report, rollback_active_backend,
+    supported_backends as supported_memory_backends,
 };
 use agent_prompts::{PromptStore, is_valid_prompt_name};
 use agent_secrets::{
@@ -54,15 +61,16 @@ use agent_secrets::{
 use agent_skills::{SkillDoc, SkillRegistry};
 use agent_storage::StoragePaths;
 use agent_tools::{
-    ToolId, delete_generated_artifact_from_env, is_shell_runtime_tool_id,
+    ArtifactGenerateInput, ToolId, delete_generated_artifact_from_env,
+    export_generated_artifact_from_env, generate_artifact_from_env, is_shell_runtime_tool_id,
     list_generated_artifacts_from_env, open_generated_artifact_from_env,
     show_generated_artifact_from_env,
 };
 use agent_tracing::{
     EventId, EventStore, RunEvent, RunEventKind, RunId, SqliteEventStore, TraceComparison,
-    TraceSummary, TraceTreeNode, build_resume_plan, build_trace_comparison, build_trace_tree,
-    hook_remediation_plan, is_terminal_run_event, latest_event_id, quality_score_records,
-    summarize_trace, validate_guidance_content, validate_quality_score,
+    TraceRunRecord, TraceSummary, TraceTreeNode, build_resume_plan, build_trace_comparison,
+    build_trace_tree, hook_remediation_plan, is_terminal_run_event, latest_event_id,
+    quality_score_records, summarize_trace, validate_guidance_content, validate_quality_score,
 };
 
 use crate::{Demo, setup};
@@ -111,6 +119,16 @@ pub async fn run(
                 PromptSlashCommand::Save { name, text, agent } => {
                     prompt_save(name, text, agent).await
                 }
+                PromptSlashCommand::Use { name, agent } => {
+                    prompt_use(name, json, agent, options.agent_id.clone()).await
+                }
+                PromptSlashCommand::Preview { name, agent } => {
+                    prompt_preview(name, json, agent, options.clone()).await
+                }
+                PromptSlashCommand::Export { name, path, agent } => {
+                    prompt_export(name, path, agent).await
+                }
+                PromptSlashCommand::Import { path, agent } => prompt_import(path, agent).await,
                 PromptSlashCommand::Delete { name, agent } => prompt_delete(name, agent).await,
             };
         }
@@ -164,6 +182,26 @@ pub async fn run(
         Some(SlashCommand::ToolForced { name, prompt }) => {
             return force_tool(name, prompt, json, demo, options).await;
         }
+        Some(SlashCommand::VoiceStatus) => return voice_status(&options, json),
+        Some(SlashCommand::BatchRun {
+            items,
+            files,
+            folders,
+        }) => {
+            return batch_run_with_options(
+                items,
+                None,
+                files,
+                folders,
+                demo,
+                json,
+                options.clone(),
+            )
+            .await;
+        }
+        Some(SlashCommand::BatchResume { batch_id }) => {
+            return batch_resume_with_options(batch_id, demo, json, options.clone()).await;
+        }
         Some(SlashCommand::Run(prompt)) => {
             text = resolve_saved_prompt_or_literal(&prompt, options.agent_id.as_deref())?
         }
@@ -179,7 +217,12 @@ pub async fn run(
                 TraceSlashView::Summary => trace_summary(run_id, json).await,
                 TraceSlashView::Tree => trace_tree(run_id, json).await,
                 TraceSlashView::Hooks => trace_hooks(run_id, json).await,
+                TraceSlashView::Scores => trace_scores(run_id, json).await,
+                TraceSlashView::Prompt => trace_prompt(run_id, json).await,
             };
+        }
+        Some(SlashCommand::TraceList { limit }) => {
+            return trace_list(limit, json).await;
         }
         Some(SlashCommand::Compare {
             primary_run_id,
@@ -270,6 +313,9 @@ pub async fn run(
                 IngestSlashCommand::ProbeVision { path, model } => {
                     ingest_probe_vision(path, model, json).await
                 }
+                IngestSlashCommand::ProbeSource { path, vision_model } => {
+                    ingest_probe_source(path, vision_model, json).await
+                }
                 IngestSlashCommand::Rerun {
                     id,
                     backend,
@@ -289,8 +335,15 @@ pub async fn run(
         Some(SlashCommand::Artifact(command)) => {
             return match command {
                 ArtifactSlashCommand::List => artifact_list(json).await,
+                ArtifactSlashCommand::Generate { format, content } => {
+                    artifact_generate(format, None, Some(content), None, None, json).await
+                }
                 ArtifactSlashCommand::Show { id } => artifact_show(id, json).await,
                 ArtifactSlashCommand::Open { id } => artifact_open(id, json).await,
+                ArtifactSlashCommand::Export { id, path } => artifact_export(id, path, json).await,
+                ArtifactSlashCommand::Download { id, path } => {
+                    artifact_download(id, path, json).await
+                }
                 ArtifactSlashCommand::Delete { id } => artifact_delete(id, json).await,
             };
         }
@@ -298,6 +351,14 @@ pub async fn run(
             return match command {
                 CapabilitySlashCommand::List => capability_list(json).await,
                 CapabilitySlashCommand::Doctor => capability_doctor(json).await,
+                CapabilitySlashCommand::Propose {
+                    kind,
+                    name,
+                    body,
+                    guidance,
+                } => {
+                    capability_propose(kind, name, Some(body), guidance, "user".into(), json).await
+                }
                 CapabilitySlashCommand::Show { id } => capability_show(id, json).await,
                 CapabilitySlashCommand::Allow { id } => {
                     capability_review(id, CapabilityDraftStatus::Allowed, json).await
@@ -371,6 +432,9 @@ pub async fn run(
                 MemorySlashCommand::List => memory_list(json).await,
                 MemorySlashCommand::Access { topics } => memory_access(topics, json).await,
                 MemorySlashCommand::Backends => memory_backends(json).await,
+                MemorySlashCommand::Probe { backend, topics } => {
+                    memory_backend_probe(backend, topics, json).await
+                }
                 MemorySlashCommand::Create {
                     content,
                     user,
@@ -385,7 +449,10 @@ pub async fn run(
                     conversation,
                     agent,
                     topics,
-                } => memory_generate(text, user, range, conversation, agent, topics).await,
+                    guidance,
+                } => {
+                    memory_generate(text, user, range, conversation, agent, topics, guidance).await
+                }
                 MemorySlashCommand::GenerateConversation {
                     id,
                     from,
@@ -393,7 +460,10 @@ pub async fn run(
                     user,
                     agent,
                     topics,
-                } => memory_generate_conversation(id, from, to, user, agent, topics).await,
+                    guidance,
+                } => {
+                    memory_generate_conversation(id, from, to, user, agent, topics, guidance).await
+                }
                 MemorySlashCommand::Classify {
                     id,
                     model,
@@ -403,7 +473,9 @@ pub async fn run(
                 MemorySlashCommand::Edit { id, content } => memory_edit(id, content).await,
                 MemorySlashCommand::Delete { id } => memory_delete(id).await,
                 MemorySlashCommand::Rollback { user } => memory_rollback(user).await,
-                MemorySlashCommand::Export { path, user } => memory_export(path, user, json).await,
+                MemorySlashCommand::Export { path, user, agent } => {
+                    memory_export(path, user, agent, json).await
+                }
                 MemorySlashCommand::Import { path, user, agent } => {
                     memory_import(path, user, agent, json).await
                 }
@@ -488,6 +560,14 @@ pub async fn preview_context(
     } else {
         text
     };
+    preview_context_text(text, json, options).await
+}
+
+async fn preview_context_text(
+    text: String,
+    json: bool,
+    options: setup::RuntimeOptions,
+) -> anyhow::Result<()> {
     let harness = inspection_harness(
         options.enable_shell,
         options.enable_subagent,
@@ -1000,9 +1080,24 @@ fn print_capability_doctor_report(report: &CapabilityDraftDoctorReport) {
         println!("warning: {warning}");
     }
     for draft in &report.drafts {
+        let guidance = draft
+            .guidance_preview
+            .as_deref()
+            .map(|value| format!(" guidance={value:?}"))
+            .unwrap_or_default();
         println!(
-            "- {} kind={:?} status={:?} target={:?} review_needed={}",
-            draft.id, draft.kind, draft.status, draft.promotion_target, draft.needs_review
+            "- {} kind={:?} status={:?} target={:?} review_needed={} created_by={} provenance={:?} created_at={} updated_at={} body={:?}{}",
+            draft.id,
+            draft.kind,
+            draft.status,
+            draft.promotion_target,
+            draft.needs_review,
+            draft.created_by,
+            draft.provenance,
+            draft.created_at,
+            draft.updated_at,
+            draft.body_preview,
+            guidance
         );
         for note in &draft.notes {
             println!("  note: {note}");
@@ -1083,10 +1178,21 @@ fn quarantine_capability_tool(
 }
 
 fn print_capability_draft_line(draft: &CapabilityDraft) {
-    println!(
+    println!("{}", capability_draft_line(draft));
+}
+
+fn capability_draft_line(draft: &CapabilityDraft) -> String {
+    let guidance = draft
+        .guidance
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!(" guidance={:?}", preview_for_recovery(value, 120)))
+        .unwrap_or_default();
+    format!(
         "{} {:?} status={:?} created_by={} name={:?}",
         draft.id, draft.kind, draft.status, draft.created_by, draft.name
-    );
+    ) + &guidance
 }
 
 pub async fn explain_tools(
@@ -1303,6 +1409,64 @@ pub async fn trace_summary(run_id: String, json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn trace_prompt(run_id: String, json: bool) -> anyhow::Result<()> {
+    let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
+    let store = open_event_store()?;
+    let events = store.try_events(run_id)?;
+    let (agent_id, prompt) = trace_replay_source(run_id, &events)?;
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "run_id": run_id.0,
+                "agent_id": agent_id,
+                "prompt": prompt
+            }))?
+        );
+    } else {
+        println!("trace prompt {}", run_id.0);
+        println!("agent: {agent_id}");
+        println!("{prompt}");
+    }
+    Ok(())
+}
+
+pub async fn trace_list(limit: usize, json: bool) -> anyhow::Result<()> {
+    let records = open_event_store()?.try_run_records(limit)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&records)?);
+    } else if records.is_empty() {
+        println!("No trace runs found.");
+    } else {
+        print_trace_run_records(&records);
+    }
+    Ok(())
+}
+
+fn print_trace_run_records(records: &[TraceRunRecord]) {
+    for record in records {
+        let agent = record.agent_id.as_deref().unwrap_or("unknown");
+        let input = record.input_preview.as_deref().unwrap_or("");
+        let output = record.final_output_preview.as_deref().unwrap_or("");
+        println!(
+            "{} status={} events={} children={} agent={} updated={}",
+            record.run_id.0,
+            record.status,
+            record.event_count,
+            record.child_run_count,
+            agent,
+            record.updated_at
+        );
+        if !input.is_empty() {
+            println!("  input: {input}");
+        }
+        if !output.is_empty() {
+            println!("  output: {output}");
+        }
+    }
+}
+
 pub async fn trace_tree(run_id: String, json: bool) -> anyhow::Result<()> {
     let run_id = RunId(uuid::Uuid::parse_str(&run_id)?);
     let store = open_event_store()?;
@@ -1326,6 +1490,9 @@ pub async fn trace_compare(
 ) -> anyhow::Result<()> {
     let primary_run_id = RunId(uuid::Uuid::parse_str(&primary_run_id)?);
     let compare_run_id = RunId(uuid::Uuid::parse_str(&compare_run_id)?);
+    if primary_run_id == compare_run_id {
+        anyhow::bail!("compare needs two different run ids");
+    }
     let store = open_event_store()?;
     let comparison =
         build_trace_comparison(primary_run_id, compare_run_id, |id| store.try_events(id))?;
@@ -2264,18 +2431,101 @@ pub async fn score(run_id: String, target: String, score: f32) -> anyhow::Result
     Ok(())
 }
 
-pub async fn batch_run(items: Vec<String>, demo: Demo, json: bool) -> anyhow::Result<()> {
+pub(crate) async fn batch_run_with_options(
+    items: Vec<String>,
+    item_keys: Option<Vec<String>>,
+    files: Vec<String>,
+    folders: Vec<String>,
+    demo: Demo,
+    json: bool,
+    options: setup::RuntimeOptions,
+) -> anyhow::Result<()> {
     let batch_run_id = RunId::new();
     let batch_id = format!("batch-{}", batch_run_id.0);
-    let mut plan = BatchPlan::new(batch_id.clone(), items);
+    let (items, item_keys) = prepare_batch_inputs(items, item_keys, files, folders)?;
+    let mut plan = BatchPlan::new_with_optional_item_keys(batch_id.clone(), items, item_keys)?;
     plan.save_to_env()?;
-    execute_batch_plan(plan, batch_run_id, batch_id, demo, json).await
+    execute_batch_plan(plan, batch_run_id, batch_id, demo, json, options).await
 }
 
-pub async fn batch_resume(batch_id: String, demo: Demo, json: bool) -> anyhow::Result<()> {
+pub(crate) async fn batch_resume_with_options(
+    batch_id: String,
+    demo: Demo,
+    json: bool,
+    options: setup::RuntimeOptions,
+) -> anyhow::Result<()> {
     let batch_run_id = RunId::new();
     let plan = BatchPlan::load_from_env(&batch_id)?;
-    execute_batch_plan(plan, batch_run_id, batch_id, demo, json).await
+    execute_batch_plan(plan, batch_run_id, batch_id, demo, json, options).await
+}
+
+pub async fn batch_list(json: bool) -> anyhow::Result<()> {
+    let summaries = BatchPlan::list_from_env()?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&summaries)?);
+    } else if summaries.is_empty() {
+        println!("No persisted batch plans found.");
+    } else {
+        for summary in summaries {
+            println!(
+                "{} items={} pending={} running={} succeeded={} failed={} updated={}",
+                summary.batch_id,
+                summary.items,
+                summary.pending,
+                summary.running,
+                summary.succeeded,
+                summary.failed,
+                summary.updated_at
+            );
+        }
+    }
+    Ok(())
+}
+
+pub async fn batch_show(batch_id: String, json: bool) -> anyhow::Result<()> {
+    let plan = BatchPlan::load_from_env(&batch_id)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&plan)?);
+    } else {
+        let summary = plan.summary();
+        println!(
+            "{} items={} pending={} running={} succeeded={} failed={} updated={}",
+            summary.batch_id,
+            summary.items,
+            summary.pending,
+            summary.running,
+            summary.succeeded,
+            summary.failed,
+            summary.updated_at
+        );
+        for item in plan.items {
+            println!(
+                "{} status={:?} attempts={} last_run_id={} final_output={}",
+                item.key,
+                item.status,
+                item.attempts,
+                item.last_run_id.as_deref().unwrap_or("-"),
+                item.final_output.as_deref().unwrap_or("-")
+            );
+        }
+    }
+    Ok(())
+}
+
+pub async fn batch_delete(batch_id: String, json: bool) -> anyhow::Result<()> {
+    BatchPlan::delete_from_env(&batch_id)?;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "batch_id": batch_id,
+                "deleted": true
+            }))?
+        );
+    } else {
+        println!("deleted batch {batch_id}");
+    }
+    Ok(())
 }
 
 pub async fn compact_create(
@@ -2927,6 +3177,7 @@ pub struct ConversationDeleteOptions {
     pub compact_guidance: Option<String>,
     pub compact_max_output_tokens: u32,
     pub memory_first: bool,
+    pub memory_guidance: Option<String>,
     pub memory_user: bool,
 }
 
@@ -3034,15 +3285,14 @@ fn cleanup_conversation_side_data(
         }
     }
 
-    let memory_store = MemoryStore::from_env();
     let mut memories = 0usize;
-    for record in memory_store.list()? {
+    for record in list_records_for_active_backend()? {
         let linked_to_deleted = record
             .source_conversation_id
             .as_ref()
             .is_some_and(|id| deleted.contains(id));
         if linked_to_deleted && !preserved_memories.contains(&record.id) {
-            memory_store.delete(&record.id)?;
+            delete_record_for_active_backend(&record.id)?;
             memories += 1;
         }
     }
@@ -3087,12 +3337,16 @@ fn preserve_conversation_artifacts(
             preserved.compaction_ids.push(record.id);
         }
         if options.memory_first {
-            let records = memory_store.generate_from_conversation_text(
-                memory_target,
-                &text,
-                Some(format!("pre-delete-conversation:{id}")),
-                Some(id.clone()),
-            )?;
+            let records = memory_store
+                .generate_from_conversation_text_with_topics_for_agent_and_guidance(
+                    memory_target,
+                    &text,
+                    Some(format!("pre-delete-conversation:{id}")),
+                    Some(id.clone()),
+                    Vec::new(),
+                    None,
+                    options.memory_guidance.clone(),
+                )?;
             for record in &records {
                 record_memory_written(record, "generated")?;
             }
@@ -3216,6 +3470,7 @@ async fn execute_batch_plan(
     batch_id: String,
     demo: Demo,
     json: bool,
+    options: setup::RuntimeOptions,
 ) -> anyhow::Result<()> {
     let store = Arc::new(open_event_store()?);
     store.append(
@@ -3262,7 +3517,6 @@ async fn execute_batch_plan(
                 status: "running".into(),
             },
         );
-        let options = setup::RuntimeOptions::default();
         let provider = setup::build_provider(demo, &item.input, &options)?;
         let harness = setup::build_harness(
             provider,
@@ -3391,7 +3645,7 @@ pub async fn memory_create(
     } else {
         MemoryTarget::Agent
     };
-    let record = MemoryStore::from_env().create_for_conversation_with_topics_for_agent(
+    let record = create_record_for_active_backend_with_topics_for_agent(
         target,
         &content,
         MemoryAuthor::Human,
@@ -3412,19 +3666,21 @@ pub async fn memory_generate(
     conversation: Option<String>,
     agent: Option<String>,
     topics: Vec<String>,
+    guidance: Option<String>,
 ) -> anyhow::Result<()> {
     let target = if user {
         MemoryTarget::User
     } else {
         MemoryTarget::Agent
     };
-    let records = MemoryStore::from_env().generate_from_conversation_text_with_topics_for_agent(
+    let records = generate_records_for_active_backend_with_topics_for_agent_and_guidance(
         target,
         &text,
         range,
         conversation,
         topics,
         agent,
+        guidance,
     )?;
     for record in &records {
         record_memory_written(record, "generated")?;
@@ -3440,6 +3696,7 @@ pub async fn memory_generate_conversation(
     user: bool,
     agent: Option<String>,
     topics: Vec<String>,
+    guidance: Option<String>,
 ) -> anyhow::Result<()> {
     let target = if user {
         MemoryTarget::User
@@ -3449,13 +3706,14 @@ pub async fn memory_generate_conversation(
     let expanded = ConversationStore::from_env().expanded(&id)?;
     let owning_agent = agent.or_else(|| Some(expanded.conversation.agent_id.clone()));
     let rendered = render_message_range(&expanded.messages, from, to)?;
-    let records = MemoryStore::from_env().generate_from_conversation_text_with_topics_for_agent(
+    let records = generate_records_for_active_backend_with_topics_for_agent_and_guidance(
         target,
         &rendered.text,
         Some(rendered.source_range),
         Some(id),
         topics,
         owning_agent,
+        guidance,
     )?;
     for record in &records {
         record_memory_written(record, "generated")?;
@@ -3465,7 +3723,7 @@ pub async fn memory_generate_conversation(
 }
 
 pub async fn memory_list(json: bool) -> anyhow::Result<()> {
-    let records = MemoryStore::from_env().list()?;
+    let records = list_records_for_active_backend()?;
     if json {
         println!("{}", serde_json::to_string_pretty(&records)?);
     } else {
@@ -3565,13 +3823,57 @@ pub async fn memory_backends(json: bool) -> anyhow::Result<()> {
     } else {
         for backend in backends {
             println!(
-                "{} name={:?} generation={} rollback={} storage={}",
+                "{} name={:?} write={} edit={} delete={} generation={} rollback={} storage={}",
                 backend.id,
                 backend.name,
+                backend.supports_write,
+                backend.supports_edit,
+                backend.supports_delete,
                 backend.supports_generation,
                 backend.supports_rollback,
                 backend.storage
             );
+        }
+    }
+    Ok(())
+}
+
+pub async fn memory_backend_probe(
+    backend: Option<String>,
+    topics: Vec<String>,
+    json: bool,
+) -> anyhow::Result<()> {
+    let backend = backend
+        .filter(|backend| !backend.trim().is_empty())
+        .unwrap_or_else(|| agent_core::DEFAULT_MEMORY_BACKEND_ID.into());
+    let report = probe_memory_backend(StoragePaths::from_env(), &backend, &topics)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        println!(
+            "{} ok={} configured={} records={} matching={} topics={}",
+            report.backend,
+            report.ok,
+            report.configured,
+            report.records,
+            report.matching_records,
+            if report.topics.is_empty() {
+                "-".into()
+            } else {
+                report.topics.join(",")
+            }
+        );
+        println!(
+            "write={} edit={} delete={} generation={} rollback={} storage={}",
+            report.descriptor.supports_write,
+            report.descriptor.supports_edit,
+            report.descriptor.supports_delete,
+            report.descriptor.supports_generation,
+            report.descriptor.supports_rollback,
+            report.descriptor.storage
+        );
+        if let Some(error) = report.error {
+            println!("error={error}");
         }
     }
     Ok(())
@@ -3622,14 +3924,14 @@ pub(crate) async fn memory_classify_result(
 }
 
 pub async fn memory_edit(id: String, content: String) -> anyhow::Result<()> {
-    let record = MemoryStore::from_env().edit(&id, &content)?;
+    let record = edit_record_for_active_backend(&id, &content)?;
     record_memory_written(&record, "edited")?;
     println!("{}", serde_json::to_string_pretty(&record)?);
     Ok(())
 }
 
 pub async fn memory_delete(id: String) -> anyhow::Result<()> {
-    MemoryStore::from_env().delete(&id)?;
+    delete_record_for_active_backend(&id)?;
     record_memory_operation(&id, "deleted", None, None)?;
     println!("deleted memory {id}");
     Ok(())
@@ -3641,7 +3943,7 @@ pub async fn memory_rollback(user: bool) -> anyhow::Result<()> {
     } else {
         MemoryTarget::Agent
     };
-    MemoryStore::from_env().rollback(target)?;
+    rollback_active_backend(target)?;
     record_memory_operation(
         if user { "user.md" } else { "memory.md" },
         "rolled_back",
@@ -3652,19 +3954,26 @@ pub async fn memory_rollback(user: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
-pub async fn memory_export(path: String, user: bool, json: bool) -> anyhow::Result<()> {
+pub async fn memory_export(
+    path: String,
+    user: bool,
+    agent: Option<String>,
+    json: bool,
+) -> anyhow::Result<()> {
     let target = if user {
         MemoryTarget::User
     } else {
         MemoryTarget::Agent
     };
-    let records = MemoryStore::from_env().export_target(target, &path)?;
+    let agent_filter = agent.clone();
+    let records = export_target_for_active_backend(target, &path, agent)?;
     if json {
         println!(
             "{}",
             serde_json::to_string_pretty(&serde_json::json!({
                 "path": path,
                 "target": target,
+                "agent": agent_filter,
                 "records": records
             }))?
         );
@@ -3685,7 +3994,7 @@ pub async fn memory_import(
     } else {
         MemoryTarget::Agent
     };
-    let records = MemoryStore::from_env().import_file_for_agent(&path, Some(target), agent)?;
+    let records = import_file_for_active_backend_for_agent(&path, Some(target), agent)?;
     for record in &records {
         record_memory_written(record, "imported")?;
     }
@@ -3814,6 +4123,42 @@ pub async fn prompt_show(name: String, json: bool, agent: Option<String>) -> any
     Ok(())
 }
 
+pub async fn prompt_use(
+    name: String,
+    json: bool,
+    agent: Option<String>,
+    runtime_agent: Option<String>,
+) -> anyhow::Result<()> {
+    let prompt = resolve_prompt_for_shortcut(&name, agent.as_deref(), runtime_agent.as_deref())?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&prompt)?);
+    } else {
+        println!("{}", prompt.body);
+    }
+    Ok(())
+}
+
+pub async fn prompt_preview(
+    name: String,
+    json: bool,
+    agent: Option<String>,
+    options: setup::RuntimeOptions,
+) -> anyhow::Result<()> {
+    let prompt = resolve_prompt_for_shortcut(&name, agent.as_deref(), options.agent_id.as_deref())?;
+    preview_context_text(prompt.body, json, options).await
+}
+
+fn resolve_prompt_for_shortcut(
+    name: &str,
+    agent: Option<&str>,
+    runtime_agent: Option<&str>,
+) -> anyhow::Result<agent_prompts::PromptDoc> {
+    let scope = agent.or(runtime_agent);
+    PromptStore::from_env()
+        .resolve_for_agent(scope, name)?
+        .ok_or_else(|| anyhow::anyhow!("saved prompt {name:?} not found"))
+}
+
 pub async fn prompt_delete(name: String, agent: Option<String>) -> anyhow::Result<()> {
     if PromptStore::from_env().delete_scoped(agent.as_deref(), &name)? {
         if let Some(agent) = agent {
@@ -3824,6 +4169,22 @@ pub async fn prompt_delete(name: String, agent: Option<String>) -> anyhow::Resul
     } else {
         println!("prompt {name} not found");
     }
+    Ok(())
+}
+
+pub async fn prompt_export(
+    name: String,
+    path: String,
+    agent: Option<String>,
+) -> anyhow::Result<()> {
+    let prompt = PromptStore::from_env().export_scoped(agent.as_deref(), &name, &path)?;
+    println!("{}", serde_json::to_string_pretty(&prompt)?);
+    Ok(())
+}
+
+pub async fn prompt_import(path: String, agent: Option<String>) -> anyhow::Result<()> {
+    let prompt = PromptStore::from_env().import_file(&path, agent.as_deref())?;
+    println!("{}", serde_json::to_string_pretty(&prompt)?);
     Ok(())
 }
 
@@ -4853,6 +5214,129 @@ pub async fn ingest_probe_vision_result(
     Ok(probe_model_vision_source(provider.as_ref(), ModelRef::from(model), &path).await?)
 }
 
+pub async fn ingest_probe_source(
+    path: String,
+    vision_model: Option<String>,
+    json: bool,
+) -> anyhow::Result<()> {
+    let report = ingest_probe_source_result(path, vision_model)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+    } else {
+        print_ingest_source_probe(&report);
+    }
+    Ok(())
+}
+
+pub fn ingest_probe_source_result(
+    path: String,
+    vision_model: Option<String>,
+) -> anyhow::Result<IngestionSourceProbeReport> {
+    let mut report = probe_source_compatibility(&path)?;
+    attach_vision_model_source_support(&mut report, vision_model)?;
+    Ok(report)
+}
+
+fn print_ingest_source_probe(report: &IngestionSourceProbeReport) {
+    println!(
+        "source probe {:?} kind={} bytes={}",
+        report.source, report.source_kind, report.bytes
+    );
+    if let Some(model) = &report.vision_model {
+        println!(
+            "vision model {} supported={} provider={} source={} required={} available={} reason={}",
+            model.model,
+            model.supported,
+            model.provider.as_deref().unwrap_or("unknown"),
+            model.metadata_source.as_deref().unwrap_or("unknown"),
+            if model.required_modalities.is_empty() {
+                "none".into()
+            } else {
+                model.required_modalities.join(",")
+            },
+            if model.available_modalities.is_empty() {
+                "none".into()
+            } else {
+                model.available_modalities.join(",")
+            },
+            model.reason
+        );
+    }
+    for backend in &report.backends {
+        println!(
+            "{} status={} supported={} deps_ready={} extraction={}",
+            backend.backend_id,
+            backend.status,
+            backend.supported,
+            backend.local_dependencies_ready,
+            backend.extraction.as_deref().unwrap_or("n/a")
+        );
+        if !backend.missing_optional_tools.is_empty() {
+            println!(
+                "  missing optional tools: {}",
+                backend.missing_optional_tools.join(",")
+            );
+        }
+        if !backend.model_requirements.is_empty() {
+            println!(
+                "  model requirements: {}",
+                backend.model_requirements.join(",")
+            );
+        }
+        if !backend.notes.trim().is_empty() {
+            println!("  {}", backend.notes.trim());
+        }
+    }
+}
+
+fn attach_vision_model_source_support(
+    report: &mut IngestionSourceProbeReport,
+    vision_model: Option<String>,
+) -> anyhow::Result<()> {
+    let Some(model) = clean_optional_string(vision_model) else {
+        return Ok(());
+    };
+    let Some(requirement) = model_vision_source_requirement(&report.source) else {
+        report.vision_model = Some(IngestionVisionModelSupportProbe {
+            model,
+            source_kind: report.source_kind.clone(),
+            attachment_kind: None,
+            required_modalities: Vec::new(),
+            supported: true,
+            provider: None,
+            metadata_source: None,
+            available_modalities: Vec::new(),
+            reason: "source does not require a vision/document attachment".into(),
+        });
+        return Ok(());
+    };
+    let support = ConfigResolver::from_env()
+        .model_supports_any_modality(&model, &requirement.required_modalities)?;
+    let reason = if support.supported {
+        format!(
+            "model advertises {} support for {} attachments",
+            support.modality, requirement.attachment_kind
+        )
+    } else {
+        format!(
+            "model does not advertise any required modality for {} attachments",
+            requirement.attachment_kind
+        )
+    };
+    report.vision_model = Some(IngestionVisionModelSupportProbe {
+        model,
+        source_kind: requirement.source_kind,
+        attachment_kind: Some(requirement.attachment_kind),
+        required_modalities: requirement.required_modalities,
+        supported: support.supported,
+        provider: Some(support.provider),
+        metadata_source: Some(support.source),
+        available_modalities: support.available_modalities,
+        reason,
+    });
+    Ok(())
+}
+
 pub async fn ingest_rerun(
     id: String,
     backend: String,
@@ -5156,6 +5640,30 @@ pub async fn artifact_list(json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+pub async fn artifact_generate(
+    format: String,
+    title: Option<String>,
+    content: Option<String>,
+    rows_json: Option<String>,
+    filename: Option<String>,
+    json: bool,
+) -> anyhow::Result<()> {
+    let input = artifact_generate_input(format, title, content, rows_json, filename)?;
+    let artifact = generate_artifact_from_env(input)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&artifact)?);
+    } else {
+        println!(
+            "generated artifact {} {} bytes={} path={}",
+            artifact.id,
+            artifact.format,
+            artifact.bytes,
+            artifact.path.display()
+        );
+    }
+    Ok(())
+}
+
 pub async fn artifact_show(id: String, json: bool) -> anyhow::Result<()> {
     let artifact = show_generated_artifact_from_env(&id)?;
     if json {
@@ -5171,6 +5679,30 @@ pub async fn artifact_show(id: String, json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn artifact_generate_input(
+    format: String,
+    title: Option<String>,
+    content: Option<String>,
+    rows_json: Option<String>,
+    filename: Option<String>,
+) -> anyhow::Result<ArtifactGenerateInput> {
+    let rows = rows_json
+        .map(|raw| serde_json::from_str::<serde_json::Value>(&raw))
+        .transpose()?;
+    if let Some(rows) = rows.as_ref() {
+        if !rows.is_array() {
+            anyhow::bail!("--rows-json must be a JSON array");
+        }
+    }
+    Ok(ArtifactGenerateInput {
+        format,
+        title,
+        content,
+        rows,
+        filename,
+    })
+}
+
 pub async fn artifact_open(id: String, json: bool) -> anyhow::Result<()> {
     let artifact = open_generated_artifact_from_env(&id)?;
     if json {
@@ -5183,6 +5715,25 @@ pub async fn artifact_open(id: String, json: bool) -> anyhow::Result<()> {
         );
     }
     Ok(())
+}
+
+pub async fn artifact_export(id: String, path: String, json: bool) -> anyhow::Result<()> {
+    let exported = export_generated_artifact_from_env(&id, &path)?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&exported)?);
+    } else {
+        println!(
+            "exported artifact {} to {} ({} bytes)",
+            exported.artifact.id,
+            exported.output_path.display(),
+            exported.bytes
+        );
+    }
+    Ok(())
+}
+
+pub async fn artifact_download(id: String, path: Option<String>, json: bool) -> anyhow::Result<()> {
+    artifact_export(id, path.unwrap_or_else(|| ".".into()), json).await
 }
 
 pub async fn artifact_delete(id: String, json: bool) -> anyhow::Result<()> {
@@ -5790,10 +6341,25 @@ pub async fn remote_score(
     )?)
 }
 
-pub async fn remote_batch_run(url: String, items: Vec<String>, demo: String) -> anyhow::Result<()> {
+pub async fn remote_batch_list(url: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).get_json("/batches")?)
+}
+
+pub async fn remote_batch_show(url: String, batch_id: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).get_json(&format!("/batches/{batch_id}"))?)
+}
+
+pub async fn remote_batch_run(
+    url: String,
+    items: Vec<String>,
+    item_keys: Option<Vec<String>>,
+    files: Vec<String>,
+    folders: Vec<String>,
+    demo: String,
+) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).post_json(
         "/batch",
-        serde_json::json!({ "items": items, "demo": demo }),
+        serde_json::json!({ "items": items, "item_keys": item_keys, "files": files, "folders": folders, "demo": demo }),
     )?)
 }
 
@@ -5805,6 +6371,13 @@ pub async fn remote_batch_resume(
     print_remote(DaemonHttpClient::new(url).post_json(
         "/batch/resume",
         serde_json::json!({ "batch_id": batch_id, "demo": demo }),
+    )?)
+}
+
+pub async fn remote_batch_delete(url: String, batch_id: String) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        &format!("/batches/{batch_id}/delete"),
+        serde_json::json!({}),
     )?)
 }
 
@@ -5851,9 +6424,39 @@ pub async fn remote_trace(url: String, run_id: String) -> anyhow::Result<()> {
     print_remote(client.get_json(&format!("/trace/{run_id}"))?)
 }
 
+pub async fn remote_trace_list(url: String, limit: usize) -> anyhow::Result<()> {
+    let client = DaemonHttpClient::new(url);
+    print_remote(client.get_json(&format!("/traces?limit={limit}"))?)
+}
+
 pub async fn remote_trace_summary(url: String, run_id: String) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
     print_remote(client.get_json(&format!("/trace/{run_id}/summary"))?)
+}
+
+pub async fn remote_trace_prompt(url: String, run_id: String, json: bool) -> anyhow::Result<()> {
+    let client = DaemonHttpClient::new(url);
+    let value = client.get_json(&format!("/trace/{run_id}/prompt"))?;
+    if json {
+        print_remote(value)?;
+    } else {
+        let source_run_id = value
+            .get("run_id")
+            .and_then(|value| value.as_str())
+            .unwrap_or(&run_id);
+        let agent_id = value
+            .get("agent_id")
+            .and_then(|value| value.as_str())
+            .unwrap_or("unknown");
+        let prompt = value
+            .get("prompt")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        println!("trace prompt {source_run_id}");
+        println!("agent: {agent_id}");
+        println!("{prompt}");
+    }
+    Ok(())
 }
 
 pub async fn remote_trace_tree(url: String, run_id: String, json: bool) -> anyhow::Result<()> {
@@ -5879,6 +6482,9 @@ pub async fn remote_trace_compare(
     compare_run_id: String,
     json: bool,
 ) -> anyhow::Result<()> {
+    if primary_run_id == compare_run_id {
+        anyhow::bail!("compare needs two different run ids");
+    }
     let client = DaemonHttpClient::new(url);
     let value = client.get_json(&format!("/trace/{primary_run_id}/compare/{compare_run_id}"))?;
     if json {
@@ -5988,10 +6594,22 @@ fn remote_trace_replay_source(
     client: &DaemonHttpClient,
     run_id: &str,
 ) -> anyhow::Result<(RunId, String, String)> {
-    let source_run_id = RunId(uuid::Uuid::parse_str(run_id)?);
-    let events: Vec<RunEvent> =
-        serde_json::from_value(client.get_json(&format!("/trace/{run_id}"))?)?;
-    let (agent_id, prompt) = trace_replay_source(source_run_id, &events)?;
+    let value = client.get_json(&format!("/trace/{run_id}/prompt"))?;
+    let source_run_id = value
+        .get("run_id")
+        .and_then(|value| value.as_str())
+        .unwrap_or(run_id);
+    let source_run_id = RunId(uuid::Uuid::parse_str(source_run_id)?);
+    let agent_id = value
+        .get("agent_id")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| anyhow::anyhow!("trace prompt response did not include agent_id"))?
+        .to_string();
+    let prompt = value
+        .get("prompt")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| anyhow::anyhow!("trace prompt response did not include prompt"))?
+        .to_string();
     Ok((source_run_id, agent_id, prompt))
 }
 
@@ -6163,6 +6781,11 @@ pub async fn remote_storage_report(
     print_remote(client.get_json("/storage")?)
 }
 
+pub async fn remote_bridge_status(url: String) -> anyhow::Result<()> {
+    let client = DaemonHttpClient::new(url);
+    print_remote(client.get_json("/bridges/status")?)
+}
+
 pub async fn remote_bridge_delivery_list(url: String) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
     print_remote(client.get_json("/bridges/deliveries")?)
@@ -6179,6 +6802,25 @@ pub async fn remote_bridge_delivery_retry(url: String, id: String) -> anyhow::Re
 pub async fn remote_bridge_delivery_retry_all(url: String) -> anyhow::Result<()> {
     let client = DaemonHttpClient::new(url);
     print_remote(client.post_json("/bridges/deliveries/retry-all", serde_json::json!({}))?)
+}
+
+pub async fn remote_bridge_delivery_delete(
+    url: String,
+    id: String,
+    confirm: bool,
+) -> anyhow::Result<()> {
+    if !confirm {
+        return print_remote(serde_json::json!({
+            "id": id,
+            "action": "delete",
+            "confirm_command": format!("agent remote bridge-deliveries delete {id} --confirm"),
+        }));
+    }
+    let client = DaemonHttpClient::new(url);
+    print_remote(client.post_json(
+        &format!("/bridges/deliveries/{id}/delete"),
+        serde_json::json!({}),
+    )?)
 }
 
 pub async fn remote_conversation_list(url: String) -> anyhow::Result<()> {
@@ -6309,6 +6951,17 @@ pub async fn remote_memory_backends(url: String) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).get_json("/memory/backends")?)
 }
 
+pub async fn remote_memory_backend_probe(
+    url: String,
+    backend: Option<String>,
+    topics: Vec<String>,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/memory/backends/probe",
+        serde_json::json!({ "backend": backend, "topics": topics }),
+    )?)
+}
+
 pub async fn remote_memory_create(
     url: String,
     content: String,
@@ -6329,10 +6982,11 @@ pub async fn remote_memory_generate(
     range: Option<String>,
     agent: Option<String>,
     topics: Vec<String>,
+    guidance: Option<String>,
 ) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).post_json(
         "/memory/generate",
-        serde_json::json!({ "text": text, "user": user, "range": range, "agent_id": agent, "topics": topics }),
+        serde_json::json!({ "text": text, "user": user, "range": range, "agent_id": agent, "topics": topics, "guidance": guidance }),
     )?)
 }
 
@@ -6344,10 +6998,11 @@ pub async fn remote_memory_generate_conversation(
     user: bool,
     agent: Option<String>,
     topics: Vec<String>,
+    guidance: Option<String>,
 ) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).post_json(
         "/memory/generate-conversation",
-        serde_json::json!({ "id": id, "from": from, "to": to, "user": user, "agent_id": agent, "topics": topics }),
+        serde_json::json!({ "id": id, "from": from, "to": to, "user": user, "agent_id": agent, "topics": topics, "guidance": guidance }),
     )?)
 }
 
@@ -6356,10 +7011,11 @@ pub async fn remote_memory_generate_pending(
     user: bool,
     limit: Option<usize>,
     topics: Vec<String>,
+    guidance: Option<String>,
 ) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).post_json(
         "/memory/generate-pending",
-        serde_json::json!({ "user": user, "limit": limit, "topics": topics }),
+        serde_json::json!({ "user": user, "limit": limit, "topics": topics, "guidance": guidance }),
     )?)
 }
 
@@ -6397,10 +7053,15 @@ pub async fn remote_memory_rollback(url: String, user: bool) -> anyhow::Result<(
     )
 }
 
-pub async fn remote_memory_export(url: String, path: String, user: bool) -> anyhow::Result<()> {
+pub async fn remote_memory_export(
+    url: String,
+    path: String,
+    user: bool,
+    agent: Option<String>,
+) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).post_json(
         "/memory/export",
-        serde_json::json!({ "path": path, "user": user }),
+        serde_json::json!({ "path": path, "user": user, "agent_id": agent }),
     )?)
 }
 
@@ -6641,6 +7302,29 @@ pub async fn remote_prompt_delete(
     print_remote(DaemonHttpClient::new(url).post_json(
         "/prompts/delete",
         serde_json::json!({ "name": name, "agent_id": agent }),
+    )?)
+}
+
+pub async fn remote_prompt_export(
+    url: String,
+    name: String,
+    path: String,
+    agent: Option<String>,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/prompts/export",
+        serde_json::json!({ "name": name, "path": path, "agent_id": agent }),
+    )?)
+}
+
+pub async fn remote_prompt_import(
+    url: String,
+    path: String,
+    agent: Option<String>,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/prompts/import",
+        serde_json::json!({ "path": path, "agent_id": agent }),
     )?)
 }
 
@@ -7031,6 +7715,20 @@ pub async fn remote_ingest_probe_vision(
     )?)
 }
 
+pub async fn remote_ingest_probe_source(
+    url: String,
+    path: String,
+    vision_model: Option<String>,
+) -> anyhow::Result<()> {
+    print_remote(DaemonHttpClient::new(url).post_json(
+        "/ingest/probe-source",
+        serde_json::json!({
+            "path": path,
+            "vision_model": vision_model
+        }),
+    )?)
+}
+
 pub async fn remote_ingest_rerun(
     url: String,
     id: String,
@@ -7079,6 +7777,21 @@ pub async fn remote_artifact_list(url: String) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).get_json("/artifacts")?)
 }
 
+pub async fn remote_artifact_generate(
+    url: String,
+    format: String,
+    title: Option<String>,
+    content: Option<String>,
+    rows_json: Option<String>,
+    filename: Option<String>,
+) -> anyhow::Result<()> {
+    let input = artifact_generate_input(format, title, content, rows_json, filename)?;
+    print_remote(
+        DaemonHttpClient::new(url)
+            .post_json("/artifacts/generate", serde_json::to_value(input)?)?,
+    )
+}
+
 pub async fn remote_artifact_show(url: String, id: String) -> anyhow::Result<()> {
     print_remote(DaemonHttpClient::new(url).get_json(&format!("/artifacts/{id}"))?)
 }
@@ -7088,6 +7801,69 @@ pub async fn remote_artifact_open(url: String, id: String) -> anyhow::Result<()>
         DaemonHttpClient::new(url)
             .post_json(&format!("/artifacts/{id}/open"), serde_json::json!({}))?,
     )
+}
+
+pub async fn remote_artifact_export(url: String, id: String, path: String) -> anyhow::Result<()> {
+    let client = DaemonHttpClient::new(url);
+    let artifact = client.get_json(&format!("/artifacts/{id}"))?;
+    let artifact_id = artifact
+        .get("id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(&id);
+    let bytes = client.get_bytes(&format!("/artifacts/{id}/download"))?;
+    let output_path = remote_artifact_export_destination(&path, &artifact, artifact_id);
+    if output_path.exists() {
+        anyhow::bail!(
+            "export destination already exists: {}",
+            output_path.display()
+        );
+    }
+    if let Some(parent) = output_path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&output_path, &bytes)?;
+    println!(
+        "exported remote artifact {} to {} ({} bytes)",
+        artifact_id,
+        output_path.display(),
+        bytes.len()
+    );
+    Ok(())
+}
+
+pub async fn remote_artifact_download(
+    url: String,
+    id: String,
+    path: Option<String>,
+) -> anyhow::Result<()> {
+    remote_artifact_export(url, id, path.unwrap_or_else(|| ".".into())).await
+}
+
+fn remote_artifact_export_destination(
+    path: &str,
+    artifact: &serde_json::Value,
+    artifact_id: &str,
+) -> std::path::PathBuf {
+    let requested = std::path::PathBuf::from(path);
+    if !requested.is_dir() {
+        return requested;
+    }
+    let filename = artifact
+        .get("path")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|value| std::path::Path::new(value).file_name())
+        .map(std::ffi::OsStr::to_os_string)
+        .or_else(|| {
+            artifact
+                .get("format")
+                .and_then(serde_json::Value::as_str)
+                .map(|format| format!("{artifact_id}.{format}").into())
+        })
+        .unwrap_or_else(|| artifact_id.into());
+    requested.join(filename)
 }
 
 pub async fn remote_artifact_delete(url: String, id: String) -> anyhow::Result<()> {
@@ -7991,6 +8767,15 @@ enum SlashCommand {
         name: String,
         prompt: String,
     },
+    VoiceStatus,
+    BatchRun {
+        items: Vec<String>,
+        files: Vec<String>,
+        folders: Vec<String>,
+    },
+    BatchResume {
+        batch_id: String,
+    },
     Run(String),
     Resume {
         run_id: String,
@@ -8003,6 +8788,9 @@ enum SlashCommand {
     Trace {
         run_id: String,
         view: TraceSlashView,
+    },
+    TraceList {
+        limit: usize,
     },
     Compare {
         primary_run_id: String,
@@ -8074,6 +8862,23 @@ enum PromptSlashCommand {
     Save {
         name: String,
         text: String,
+        agent: Option<String>,
+    },
+    Use {
+        name: String,
+        agent: Option<String>,
+    },
+    Preview {
+        name: String,
+        agent: Option<String>,
+    },
+    Export {
+        name: String,
+        path: String,
+        agent: Option<String>,
+    },
+    Import {
+        path: String,
         agent: Option<String>,
     },
     Delete {
@@ -8176,20 +8981,42 @@ enum SecretsSlashCommand {
 
 enum ArtifactSlashCommand {
     List,
+    Generate { format: String, content: String },
     Show { id: String },
     Open { id: String },
+    Export { id: String, path: String },
+    Download { id: String, path: Option<String> },
     Delete { id: String },
 }
 
 enum CapabilitySlashCommand {
     List,
     Doctor,
-    Show { id: String },
-    Allow { id: String },
-    Reject { id: String },
-    Delete { id: String },
-    Export { id: String, path: String },
-    Import { path: String },
+    Propose {
+        kind: String,
+        name: String,
+        body: String,
+        guidance: Option<String>,
+    },
+    Show {
+        id: String,
+    },
+    Allow {
+        id: String,
+    },
+    Reject {
+        id: String,
+    },
+    Delete {
+        id: String,
+    },
+    Export {
+        id: String,
+        path: String,
+    },
+    Import {
+        path: String,
+    },
 }
 
 enum AdapterSlashCommand {
@@ -8268,6 +9095,10 @@ enum IngestSlashCommand {
         path: String,
         model: String,
     },
+    ProbeSource {
+        path: String,
+        vision_model: Option<String>,
+    },
     Rerun {
         id: String,
         backend: String,
@@ -8294,6 +9125,10 @@ enum MemorySlashCommand {
         topics: Vec<String>,
     },
     Backends,
+    Probe {
+        backend: Option<String>,
+        topics: Vec<String>,
+    },
     Create {
         content: String,
         user: bool,
@@ -8308,6 +9143,7 @@ enum MemorySlashCommand {
         conversation: Option<String>,
         agent: Option<String>,
         topics: Vec<String>,
+        guidance: Option<String>,
     },
     GenerateConversation {
         id: String,
@@ -8316,6 +9152,7 @@ enum MemorySlashCommand {
         user: bool,
         agent: Option<String>,
         topics: Vec<String>,
+        guidance: Option<String>,
     },
     Classify {
         id: String,
@@ -8336,6 +9173,7 @@ enum MemorySlashCommand {
     Export {
         path: String,
         user: bool,
+        agent: Option<String>,
     },
     Import {
         path: String,
@@ -8372,6 +9210,8 @@ enum TraceSlashView {
     Summary,
     Tree,
     Hooks,
+    Scores,
+    Prompt,
 }
 
 enum HookSlashCommand {
@@ -8396,6 +9236,9 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
     if matches!(trimmed, "/help" | "/?") {
         return Ok(Some(SlashCommand::Help));
     }
+    if agent_help_slash_command(trimmed) {
+        return Ok(Some(SlashCommand::Help));
+    }
     if trimmed == "/agent" {
         return Ok(Some(SlashCommand::Agent(None)));
     }
@@ -8413,23 +9256,62 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         return Ok(Some(SlashCommand::AgentRun { agent_id, prompt }));
     }
     if let Some(rest) = agents_slash_rest(trimmed) {
+        if slash_family_help_rest(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
         let command = parse_agents_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Agents(command)));
     }
     if let Some(rest) = skill_slash_rest(trimmed) {
+        if slash_family_help_rest(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
         let command = parse_skill_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Skill(command)));
     }
     if let Some(rest) = prompt_slash_rest(trimmed) {
+        if slash_family_help_rest(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
         let command = parse_prompt_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Prompt(command)));
     }
     if let Some(rest) = approval_slash_rest(trimmed) {
+        if slash_family_help_rest(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
         let command = parse_approval_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Approval(command)));
     }
+    if batch_help_slash_command(trimmed) || resume_batch_help_slash_command(trimmed) {
+        return Ok(Some(SlashCommand::Help));
+    }
+    if trimmed == "/batch" {
+        anyhow::bail!("batch shortcut needs one or more prompts after /batch");
+    }
+    if let Some(rest) = trimmed.strip_prefix("/batch ").map(str::trim) {
+        let batch = parse_batch_slash_run(rest)?;
+        return Ok(Some(SlashCommand::BatchRun {
+            items: batch.items,
+            files: batch.files,
+            folders: batch.folders,
+        }));
+    }
+    if trimmed == "/resume-batch" {
+        anyhow::bail!("resume batch shortcut needs a batch id");
+    }
+    if let Some(rest) = trimmed.strip_prefix("/resume-batch ").map(str::trim) {
+        let batch_id = parse_resume_batch_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::BatchResume { batch_id }));
+    }
     if let Some(rest) = trimmed.strip_prefix("/run ") {
+        if slash_family_help_rest(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
         return Ok(Some(SlashCommand::Run(rest.trim().to_string())));
+    }
+    if resume_help_slash_command(trimmed) {
+        return Ok(Some(SlashCommand::Help));
     }
     if let Some(rest) = trimmed.strip_prefix("/resume-plan ").map(str::trim) {
         let (run_id, from_event) = parse_resume_slash_rest(rest)?;
@@ -8443,9 +9325,20 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         let (run_id, from_event) = parse_resume_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Resume { run_id, from_event }));
     }
+    if trace_help_slash_command(trimmed) {
+        return Ok(Some(SlashCommand::Help));
+    }
     if let Some(rest) = trimmed.strip_prefix("/trace ").map(str::trim) {
+        let command = rest.split_whitespace().next();
+        if matches!(command, Some("list" | "runs")) {
+            let limit = parse_trace_list_slash_limit(rest)?;
+            return Ok(Some(SlashCommand::TraceList { limit }));
+        }
         let (run_id, view) = parse_trace_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Trace { run_id, view }));
+    }
+    if compare_help_slash_command(trimmed) {
+        return Ok(Some(SlashCommand::Help));
     }
     if let Some(rest) = trimmed.strip_prefix("/compare ").map(str::trim) {
         let (primary_run_id, compare_run_id) = parse_compare_slash_rest(rest)?;
@@ -8453,6 +9346,9 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
             primary_run_id,
             compare_run_id,
         }));
+    }
+    if replay_help_slash_command(trimmed) {
+        return Ok(Some(SlashCommand::Help));
     }
     if let Some(rest) = trimmed.strip_prefix("/replay ").map(str::trim) {
         let (run_id, no_hooks, compare_source) = parse_replay_slash_rest(rest)?;
@@ -8462,7 +9358,16 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
             compare_source,
         }));
     }
+    if trimmed == "/usage" || trimmed.starts_with("/usage ") {
+        return parse_usage_slash_rest(
+            trimmed.strip_prefix("/usage ").map(str::trim).unwrap_or(""),
+        )
+        .map(Some);
+    }
     if let Some(rest) = hooks_slash_rest(trimmed) {
+        if slash_family_help_rest(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
         let command = parse_hooks_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Hooks(command)));
     }
@@ -8473,6 +9378,9 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         }));
     }
     if let Some(rest) = trimmed.strip_prefix("/storage ").map(str::trim) {
+        if slash_family_help_rest(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
         let (prune_cache_days, apply) = parse_storage_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Storage {
             prune_cache_days,
@@ -8480,6 +9388,9 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         }));
     }
     if let Some(rest) = bundle_slash_rest(trimmed) {
+        if slash_family_help_rest(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
         let command = parse_bundle_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Bundle(command)));
     }
@@ -8487,6 +9398,9 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         return Ok(Some(SlashCommand::Profile(ProfileSlashCommand::List)));
     }
     if let Some(rest) = profile_slash_rest(trimmed) {
+        if slash_family_help_rest(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
         let command = parse_profile_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Profile(command)));
     }
@@ -8496,6 +9410,9 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         )));
     }
     if let Some(rest) = conversation_slash_rest(trimmed) {
+        if slash_family_help_rest(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
         let command = parse_conversation_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Conversation(command)));
     }
@@ -8503,6 +9420,9 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         return Ok(Some(SlashCommand::Secrets(SecretsSlashCommand::List)));
     }
     if let Some(rest) = secrets_slash_rest(trimmed) {
+        if slash_family_help_rest(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
         let command = parse_secrets_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Secrets(command)));
     }
@@ -8510,6 +9430,9 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         return Ok(Some(SlashCommand::Ingest(IngestSlashCommand::List)));
     }
     if let Some(rest) = trimmed.strip_prefix("/ingest ").map(str::trim) {
+        if slash_family_help_rest(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
         let command = parse_ingest_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Ingest(command)));
     }
@@ -8517,6 +9440,9 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         return Ok(Some(SlashCommand::Artifact(ArtifactSlashCommand::List)));
     }
     if let Some(rest) = artifact_slash_rest(trimmed) {
+        if slash_family_help_rest(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
         let command = parse_artifact_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Artifact(command)));
     }
@@ -8524,6 +9450,9 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         return Ok(Some(SlashCommand::Capability(CapabilitySlashCommand::List)));
     }
     if let Some(rest) = capability_slash_rest(trimmed) {
+        if slash_family_help_rest(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
         let command = parse_capability_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Capability(command)));
     }
@@ -8531,6 +9460,9 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         return Ok(Some(SlashCommand::Adapter(AdapterSlashCommand::List)));
     }
     if let Some(rest) = adapter_slash_rest(trimmed) {
+        if slash_family_help_rest(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
         let command = parse_adapter_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Adapter(command)));
     }
@@ -8538,6 +9470,9 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         return Ok(Some(SlashCommand::Model(ModelSlashCommand::List)));
     }
     if let Some(rest) = model_slash_rest(trimmed) {
+        if slash_family_help_rest(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
         let command = parse_model_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Model(command)));
     }
@@ -8545,6 +9480,9 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         return Ok(Some(SlashCommand::Memory(MemorySlashCommand::List)));
     }
     if let Some(rest) = trimmed.strip_prefix("/memory ").map(str::trim) {
+        if slash_family_help_rest(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
         let command = parse_memory_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Memory(command)));
     }
@@ -8552,12 +9490,32 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         return Ok(Some(SlashCommand::Compact(CompactSlashCommand::List)));
     }
     if let Some(rest) = compact_slash_rest(trimmed) {
+        if slash_family_help_rest(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
         let command = parse_compact_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Compact(command)));
+    }
+    if guide_help_slash_command(trimmed) {
+        return Ok(Some(SlashCommand::Help));
     }
     if let Some(rest) = trimmed.strip_prefix("/guide ").map(str::trim) {
         let (run_id, text) = parse_guide_slash_rest(rest)?;
         return Ok(Some(SlashCommand::Guide { run_id, text }));
+    }
+    if score_help_slash_command(trimmed) {
+        return Ok(Some(SlashCommand::Help));
+    }
+    if trimmed == "/scores" || trimmed.starts_with("/scores ") {
+        let rest = trimmed
+            .strip_prefix("/scores ")
+            .map(str::trim)
+            .unwrap_or("");
+        let run_id = parse_scores_slash_rest(rest)?;
+        return Ok(Some(SlashCommand::Trace {
+            run_id,
+            view: TraceSlashView::Scores,
+        }));
     }
     if let Some(rest) = trimmed.strip_prefix("/score ").map(str::trim) {
         let (run_id, score, target) = parse_score_slash_rest(rest)?;
@@ -8567,18 +9525,33 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
             target,
         }));
     }
+    if code_help_slash_command(trimmed) {
+        return Ok(Some(SlashCommand::Help));
+    }
     if let Some((name, input)) = parse_code_slash_command(trimmed)? {
         return Ok(Some(SlashCommand::ToolManual { name, input }));
+    }
+    if voice_status_slash_command(trimmed) {
+        return Ok(Some(SlashCommand::VoiceStatus));
+    }
+    if voice_help_slash_command(trimmed) {
+        return Ok(Some(SlashCommand::Help));
     }
     if let Some((name, input)) = parse_voice_slash_command(trimmed)? {
         return Ok(Some(SlashCommand::ToolManual { name, input }));
     }
     if let Some(rest) = crate::x402_slash::slash_rest(trimmed) {
+        if crate::x402_slash::is_help(rest) {
+            return Ok(Some(SlashCommand::Help));
+        }
         let (name, input) = parse_x402_slash_command(rest)?;
         return Ok(Some(SlashCommand::ToolManual {
             name: name.into(),
             input,
         }));
+    }
+    if tool_help_slash_command(trimmed) {
+        return Ok(Some(SlashCommand::Help));
     }
     if let Some(rest) = trimmed.strip_prefix("/tool!").map(str::trim) {
         let (name, input) = parse_tool_slash_rest(rest)?;
@@ -8605,30 +9578,98 @@ fn print_slash_help(json: bool) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn voice_status(options: &setup::RuntimeOptions, json: bool) -> anyhow::Result<()> {
+    let agent = setup::build_agent(options);
+    let voice = agent.voice;
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&serde_json::json!({
+                "agent_id": agent.id,
+                "agent_name": agent.name,
+                "voice": voice,
+                "capture_available": false,
+                "terminal_shortcuts": [
+                    "/voice transcribe <path>",
+                    "/voice speak <text>"
+                ]
+            }))?
+        );
+        return Ok(());
+    }
+    println!("Voice status");
+    println!("agent: {} ({})", agent.name, agent.id);
+    println!(
+        "input: {}",
+        if voice.input_enabled {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
+    if let Some(value) = voice.input_backend.as_deref() {
+        println!("input backend: {value}");
+    }
+    if let Some(value) = voice.input_provider.as_deref() {
+        println!("input provider: {value}");
+    }
+    if let Some(value) = voice.input_model.as_deref() {
+        println!("input model: {value}");
+    }
+    println!(
+        "output: {}",
+        if voice.output_enabled {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
+    if let Some(value) = voice.output_backend.as_deref() {
+        println!("output backend: {value}");
+    }
+    if let Some(value) = voice.tts_provider.as_deref() {
+        println!("tts provider: {value}");
+    }
+    if let Some(value) = voice.tts_model.as_deref() {
+        println!("tts model: {value}");
+    }
+    if let Some(value) = voice.voice.as_deref() {
+        println!("voice: {value}");
+    }
+    if let Some(value) = voice.tone.as_deref() {
+        println!("tone: {value}");
+    }
+    println!("capture: app UI only; use /voice transcribe <path> for saved audio");
+    println!("shortcuts: /voice transcribe <path>, /voice speak <text>");
+    Ok(())
+}
+
 fn headless_slash_help_text() -> &'static str {
     "Headless slash commands:\n\
      - /run <prompt-name> - use a saved prompt when available, otherwise run the literal text\n\
      - /agent [id] [prompt] - inspect config, or run a prompt with a specific saved agent\n\
+     - /batch <line-delimited prompts>, /batch files <paths>, /batch folder <path>, /resume-batch <batch-id> - run or resume deterministic batches\n\
      - /agents list|show|export|import|delete - manage saved agent configs\n\
      - /skills list|show|inspect|import-openclaw|import-doc|export|allow|quarantine\n\
-     - /prompts list|show|save|delete - manage global or agent-scoped saved prompts\n\
-     - /approval list|assess|approve|reject|execute <run-id> ...\n\
+     - /prompts (/prompt) list|show|save|use|preview|export|import|delete - manage global or agent-scoped saved prompts\n\
+     - /approval (/approvals) list|assess|approve|reject|execute <run-id> ...\n\
      - /tool <name> [request] - force the model to call one visible tool\n\
      - /tool! <name> <json> - call one native tool directly with manual JSON input\n\
      - /python <code>, /typescript <code>, /ts <code> - call native code execution tools directly\n\
-     - /voice transcribe <path>, /voice speak <text> - call native voice tools directly\n\
+     - /voice status, /voice transcribe <path>, /voice speak <text> - inspect voice config or call native voice tools directly\n\
      - /x402 request|required|settle ... - call native x402 payment tools directly\n\
      - /resume <run-id> [--from-event N], /resume plan <run-id> [--from-event N]\n\
-     - /trace [summary|tree|hooks] <run-id>, /compare <run-id> <run-id>, /replay <run-id>\n\
-     - /hooks list|available|review|disable|enable\n\
+     - /trace list [limit|--limit N], /trace [summary|tree|hooks|scores|prompt] <run-id>, /scores <run-id>, /compare <run-id> <run-id>, /replay <run-id>\n\
+     - /usage trace|run <run-id>, /usage conversation <id> [from:to|last N|--from N --to N|--last N]\n\
+     - /hooks list|policy|available|review|disable|enable\n\
      - /storage report, /storage prune-cache <days> [--apply]\n\
      - /bundles export <path>, /bundles import <path> --confirm\n\
      - /profiles current|list|show|create|delete|grants|grant|revoke\n\
      - /conversation list|tree|show|recover|usage|delete|range-delete|delete-agent\n\
      - /secrets backends|list|show|delete\n\
-     - /ingest list|backends|add|probe-vision|rerun|show|review|delete\n\
-     - /artifacts list|show|open|delete\n\
-     - /capabilities list|doctor|show|allow|reject|delete|export|import\n\
+     - /ingest list|backends|add|probe-source|probe-vision|rerun|show|review|delete\n\
+     - /artifacts list|generate|show|open|export|download|delete\n\
+     - /capabilities list|doctor|propose|show|allow|reject|delete|export|import\n\
      - /adapters list|doctor|inspect|import|import-manifest|show|export|install-skill|allow|quarantine|clawhub\n\
      - /models list|providers|doctor|show|probe|export|import|delete|provider-catalog|metadata-catalog\n\
      - /memory list|access|backends|create|generate|generate-conversation|classify|edit|delete|rollback|export|import\n\
@@ -8636,6 +9677,135 @@ fn headless_slash_help_text() -> &'static str {
      - /guide <run-id> <text> - inject guidance into an active run\n\
      - /score <run-id> <0-10> [target] - record a quality score\n\
      Use --json to print this help as JSON."
+}
+
+fn slash_family_help_rest(rest: &str) -> bool {
+    matches!(rest.trim(), "help" | "--help")
+}
+
+fn batch_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/batch help" | "/batch --help")
+}
+
+fn resume_batch_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/resume-batch help" | "/resume-batch --help")
+}
+
+fn agent_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/agent help" | "/agent --help")
+}
+
+fn resume_help_slash_command(trimmed: &str) -> bool {
+    matches!(
+        trimmed,
+        "/resume help"
+            | "/resume --help"
+            | "/resume plan help"
+            | "/resume plan --help"
+            | "/resume-plan help"
+            | "/resume-plan --help"
+    )
+}
+
+fn trace_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/trace help" | "/trace --help")
+}
+
+fn compare_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/compare help" | "/compare --help")
+}
+
+fn replay_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/replay help" | "/replay --help")
+}
+
+fn guide_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/guide help" | "/guide --help")
+}
+
+fn score_help_slash_command(trimmed: &str) -> bool {
+    matches!(
+        trimmed,
+        "/score" | "/score help" | "/score --help" | "/scores help" | "/scores --help"
+    )
+}
+
+fn voice_help_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/voice help" | "/voice --help")
+}
+
+fn voice_status_slash_command(trimmed: &str) -> bool {
+    matches!(trimmed, "/voice" | "/voice status")
+}
+
+struct BatchSlashRun {
+    items: Vec<String>,
+    files: Vec<String>,
+    folders: Vec<String>,
+}
+
+fn parse_batch_slash_run(rest: &str) -> anyhow::Result<BatchSlashRun> {
+    if rest == "files" {
+        anyhow::bail!("batch files shortcut needs one or more file paths after /batch files");
+    }
+    if let Some(files) = rest.strip_prefix("files ").map(str::trim) {
+        return Ok(BatchSlashRun {
+            items: Vec::new(),
+            files: parse_batch_slash_lines(files, "file paths", "/batch files")?,
+            folders: Vec::new(),
+        });
+    }
+    if rest == "folder" || rest == "folders" {
+        anyhow::bail!("batch folder shortcut needs one or more folder paths after /batch folder");
+    }
+    if let Some(folders) = rest
+        .strip_prefix("folder ")
+        .or_else(|| rest.strip_prefix("folders "))
+        .map(str::trim)
+    {
+        return Ok(BatchSlashRun {
+            items: Vec::new(),
+            files: Vec::new(),
+            folders: parse_batch_slash_lines(folders, "folder paths", "/batch folder")?,
+        });
+    }
+    Ok(BatchSlashRun {
+        items: parse_batch_slash_items(rest)?,
+        files: Vec::new(),
+        folders: Vec::new(),
+    })
+}
+
+fn parse_batch_slash_items(rest: &str) -> anyhow::Result<Vec<String>> {
+    let items = parse_batch_slash_lines(rest, "prompts", "/batch")?;
+    if items.is_empty() {
+        anyhow::bail!("batch shortcut needs one or more prompts after /batch");
+    }
+    Ok(items)
+}
+
+fn parse_batch_slash_lines(rest: &str, label: &str, command: &str) -> anyhow::Result<Vec<String>> {
+    let lines = rest
+        .lines()
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if lines.is_empty() {
+        anyhow::bail!("batch shortcut needs one or more {label} after {command}");
+    }
+    Ok(lines)
+}
+
+fn parse_resume_batch_slash_rest(rest: &str) -> anyhow::Result<String> {
+    let mut parts = rest.split_whitespace();
+    let batch_id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("resume batch shortcut needs a batch id"))?;
+    if parts.next().is_some() {
+        anyhow::bail!("resume batch shortcut accepts exactly one batch id");
+    }
+    Ok(batch_id.to_string())
 }
 
 fn parse_tool_slash_rest(rest: &str) -> anyhow::Result<(String, String)> {
@@ -8651,6 +9821,13 @@ fn parse_tool_slash_rest(rest: &str) -> anyhow::Result<(String, String)> {
     Ok((name, input))
 }
 
+fn tool_help_slash_command(trimmed: &str) -> bool {
+    matches!(
+        trimmed,
+        "/tool help" | "/tool --help" | "/tool!help" | "/tool!--help"
+    )
+}
+
 fn parse_code_slash_command(text: &str) -> anyhow::Result<Option<(String, String)>> {
     let Some((name, code)) = code_slash_command(text) else {
         return Ok(None);
@@ -8660,6 +9837,18 @@ fn parse_code_slash_command(text: &str) -> anyhow::Result<Option<(String, String
     }
     let input = serde_json::json!({ "code": code }).to_string();
     Ok(Some((name.into(), input)))
+}
+
+fn code_help_slash_command(trimmed: &str) -> bool {
+    matches!(
+        trimmed,
+        "/python help"
+            | "/python --help"
+            | "/typescript help"
+            | "/typescript --help"
+            | "/ts help"
+            | "/ts --help"
+    )
 }
 
 fn code_slash_command(trimmed: &str) -> Option<(&'static str, &str)> {
@@ -8698,10 +9887,15 @@ fn parse_voice_slash_command(text: &str) -> anyhow::Result<Option<(String, Strin
         ))),
         "transcribe" => anyhow::bail!("voice transcribe needs an audio path"),
         "speak" => anyhow::bail!("voice speak needs text"),
-        "" | "help" | "status" => {
-            anyhow::bail!("voice shortcut needs transcribe <path> or speak <text>")
+        "capture" | "start" | "record" | "stop" | "end" => {
+            anyhow::bail!(
+                "voice capture controls are available in the app UI; use /voice transcribe <path> for saved audio"
+            )
         }
-        _ => anyhow::bail!("voice shortcut needs transcribe <path> or speak <text>"),
+        "" | "help" | "status" => {
+            anyhow::bail!("voice shortcut needs status, transcribe <path>, or speak <text>")
+        }
+        _ => anyhow::bail!("voice shortcut needs status, transcribe <path>, or speak <text>"),
     }
 }
 
@@ -8785,13 +9979,58 @@ fn parse_trace_slash_rest(rest: &str) -> anyhow::Result<(String, TraceSlashView)
         "summary" => (TraceSlashView::Summary, tail),
         "tree" => (TraceSlashView::Tree, tail),
         "hooks" => (TraceSlashView::Hooks, tail),
+        "scores" => (TraceSlashView::Scores, tail),
+        "prompt" => (TraceSlashView::Prompt, tail),
         _ => (TraceSlashView::Events, first),
     };
     if run_id.is_empty() {
-        anyhow::bail!("usage: /trace [summary|tree|hooks] <run-id>");
+        anyhow::bail!("usage: /trace [summary|tree|hooks|scores|prompt] <run-id>");
     }
     let _ = uuid::Uuid::parse_str(run_id)?;
     Ok((run_id.to_string(), view))
+}
+
+fn parse_trace_list_slash_limit(rest: &str) -> anyhow::Result<usize> {
+    let mut parts = rest.split_whitespace();
+    match parts.next() {
+        Some("list" | "runs") => {}
+        _ => anyhow::bail!("usage: /trace list [limit|--limit N]"),
+    }
+    let mut limit = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--limit" => {
+                let value = parts
+                    .next()
+                    .ok_or_else(|| anyhow::anyhow!("--limit needs a count"))?;
+                if limit.is_some() {
+                    anyhow::bail!("trace list limit specified twice");
+                }
+                limit = Some(parse_positive_usize(value, "--limit")?);
+            }
+            _ if part.starts_with("--limit=") => {
+                let value = part
+                    .split_once('=')
+                    .map(|(_, value)| value)
+                    .unwrap_or_default();
+                if value.trim().is_empty() {
+                    anyhow::bail!("--limit needs a count");
+                }
+                if limit.is_some() {
+                    anyhow::bail!("trace list limit specified twice");
+                }
+                limit = Some(parse_positive_usize(value, "--limit")?);
+            }
+            _ if !part.starts_with("--") => {
+                if limit.is_some() {
+                    anyhow::bail!("trace list limit specified twice");
+                }
+                limit = Some(parse_positive_usize(part, "trace list limit")?);
+            }
+            _ => anyhow::bail!("unknown trace list option: {part}"),
+        }
+    }
+    Ok(limit.unwrap_or(20))
 }
 
 fn parse_compare_slash_rest(rest: &str) -> anyhow::Result<(String, String)> {
@@ -8809,6 +10048,9 @@ fn parse_compare_slash_rest(rest: &str) -> anyhow::Result<(String, String)> {
     }
     let _ = uuid::Uuid::parse_str(&primary_run_id)?;
     let _ = uuid::Uuid::parse_str(&compare_run_id)?;
+    if primary_run_id == compare_run_id {
+        anyhow::bail!("compare needs two different run ids");
+    }
     Ok((primary_run_id, compare_run_id))
 }
 
@@ -8831,6 +10073,32 @@ fn parse_replay_slash_rest(rest: &str) -> anyhow::Result<(String, bool, bool)> {
     Ok((run_id, no_hooks, compare_source))
 }
 
+fn parse_usage_slash_rest(rest: &str) -> anyhow::Result<SlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let command = parts.next().unwrap_or_default();
+    match command {
+        "" | "help" | "--help" => Ok(SlashCommand::Help),
+        "trace" | "run" => {
+            let usage = if command == "run" {
+                "usage: /usage run <run-id>"
+            } else {
+                "usage: /usage trace <run-id>"
+            };
+            let run_id = next_required(&mut parts, usage)?;
+            ensure_no_extra(parts, usage)?;
+            let _ = uuid::Uuid::parse_str(&run_id)?;
+            Ok(SlashCommand::Trace {
+                run_id,
+                view: TraceSlashView::Summary,
+            })
+        }
+        "conversation" | "conv" => Ok(SlashCommand::Conversation(parse_conversation_usage_args(
+            parts,
+        )?)),
+        _ => anyhow::bail!("usage shortcut needs trace, run, conversation, or help"),
+    }
+}
+
 fn hooks_slash_rest(trimmed: &str) -> Option<&str> {
     if trimmed == "/hooks" {
         Some("")
@@ -8843,8 +10111,11 @@ fn parse_hooks_slash_rest(rest: &str) -> anyhow::Result<HookSlashCommand> {
     let mut parts = rest.split_whitespace();
     let command = parts.next().unwrap_or_default();
     match command {
-        "" | "list" => Ok(HookSlashCommand::List {
-            agent: parse_hook_agent_option(parts, "list")?,
+        "" | "list" | "policy" => Ok(HookSlashCommand::List {
+            agent: parse_hook_agent_option(
+                parts,
+                if command.is_empty() { "list" } else { command },
+            )?,
         }),
         "available" => Ok(HookSlashCommand::Available {
             agent: parse_hook_agent_option(parts, "available")?,
@@ -8867,7 +10138,9 @@ fn parse_hooks_slash_rest(rest: &str) -> anyhow::Result<HookSlashCommand> {
                 agent,
             })
         }
-        _ => anyhow::bail!("hooks shortcut needs list, available, review, disable, or enable"),
+        _ => anyhow::bail!(
+            "hooks shortcut needs list, policy, available, review, disable, or enable"
+        ),
     }
 }
 
@@ -9160,6 +10433,22 @@ fn parse_prompt_slash_rest(rest: &str) -> anyhow::Result<PromptSlashCommand> {
             let (name, agent, text) = parse_prompt_save_args(args)?;
             Ok(PromptSlashCommand::Save { name, text, agent })
         }
+        "use" => {
+            let (name, agent) = parse_prompt_named_args(args, "use")?;
+            Ok(PromptSlashCommand::Use { name, agent })
+        }
+        "preview" => {
+            let (name, agent) = parse_prompt_named_args(args, "preview")?;
+            Ok(PromptSlashCommand::Preview { name, agent })
+        }
+        "export" => {
+            let (name, path, agent) = parse_prompt_export_args(args)?;
+            Ok(PromptSlashCommand::Export { name, path, agent })
+        }
+        "import" => {
+            let (path, agent) = parse_prompt_import_args(args)?;
+            Ok(PromptSlashCommand::Import { path, agent })
+        }
         "delete" | "rm" => {
             let (name, agent, confirmed) = parse_prompt_named_confirm_args(args, "delete")?;
             if !confirmed {
@@ -9167,7 +10456,9 @@ fn parse_prompt_slash_rest(rest: &str) -> anyhow::Result<PromptSlashCommand> {
             }
             Ok(PromptSlashCommand::Delete { name, agent })
         }
-        _ => anyhow::bail!("prompts shortcut needs list, show, save, or delete"),
+        _ => anyhow::bail!(
+            "prompts shortcut needs list, show, save, use, preview, export, import, or delete"
+        ),
     }
 }
 
@@ -9239,6 +10530,48 @@ fn parse_prompt_save_args(args: &str) -> anyhow::Result<(String, Option<String>,
     Ok((name, agent, text.to_string()))
 }
 
+fn parse_prompt_export_args(args: &str) -> anyhow::Result<(String, String, Option<String>)> {
+    let mut parts = args.split_whitespace();
+    let name = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("prompts export needs a prompt name"))?
+        .to_string();
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("prompts export needs a path"))?
+        .to_string();
+    let mut agent = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--agent" => agent = Some(next_prompt_option_value(&mut parts, "--agent")?.to_string()),
+            value if value.starts_with("--agent=") => {
+                agent = Some(parse_prompt_agent_equals(value, "export")?.to_string());
+            }
+            other => anyhow::bail!("prompts export received unexpected argument: {other}"),
+        }
+    }
+    Ok((name, path, agent))
+}
+
+fn parse_prompt_import_args(args: &str) -> anyhow::Result<(String, Option<String>)> {
+    let mut parts = args.split_whitespace();
+    let path = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("prompts import needs a path"))?
+        .to_string();
+    let mut agent = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--agent" => agent = Some(next_prompt_option_value(&mut parts, "--agent")?.to_string()),
+            value if value.starts_with("--agent=") => {
+                agent = Some(parse_prompt_agent_equals(value, "import")?.to_string());
+            }
+            other => anyhow::bail!("prompts import received unexpected argument: {other}"),
+        }
+    }
+    Ok((path, agent))
+}
+
 fn parse_prompt_named_confirm_args(
     args: &str,
     command: &str,
@@ -9285,10 +10618,12 @@ fn parse_prompt_agent_equals<'a>(value: &'a str, command: &str) -> anyhow::Resul
 }
 
 fn approval_slash_rest(trimmed: &str) -> Option<&str> {
-    if trimmed == "/approval" {
+    if trimmed == "/approval" || trimmed == "/approvals" {
         Some("")
+    } else if let Some(rest) = trimmed.strip_prefix("/approval ") {
+        Some(rest.trim())
     } else {
-        trimmed.strip_prefix("/approval ").map(str::trim)
+        trimmed.strip_prefix("/approvals ").map(str::trim)
     }
 }
 
@@ -9615,13 +10950,30 @@ fn parse_conversation_usage_args<'a>(
 ) -> anyhow::Result<ConversationSlashCommand> {
     let id = next_required(
         &mut parts,
-        "usage: /conversation usage <id> [--from N] [--to N] [--last N]",
+        "usage: /conversation usage <id> [from:to|last N|--from N --to N|--last N]",
     )?;
     let mut from = None;
     let mut to = None;
     let mut last = None;
     while let Some(part) = parts.next() {
         match part {
+            "last" => {
+                if from.is_some() || to.is_some() || last.is_some() {
+                    anyhow::bail!("conversation usage range specified twice");
+                }
+                last = Some(parse_positive_usize(
+                    &next_required(&mut parts, "last needs a count")?,
+                    "last",
+                )?);
+            }
+            _ if part.contains(':') => {
+                if from.is_some() || to.is_some() || last.is_some() {
+                    anyhow::bail!("conversation usage range specified twice");
+                }
+                let (range_from, range_to) = parse_conversation_message_range(part)?;
+                from = Some(range_from);
+                to = Some(range_to);
+            }
             "--from" => {
                 from = Some(parse_nonnegative_usize(
                     &next_required(&mut parts, "--from needs an index")?,
@@ -9664,6 +11016,18 @@ fn parse_conversation_usage_args<'a>(
     Ok(ConversationSlashCommand::Usage { id, from, to, last })
 }
 
+fn parse_conversation_message_range(value: &str) -> anyhow::Result<(usize, usize)> {
+    let (from, to) = value
+        .split_once(':')
+        .ok_or_else(|| anyhow::anyhow!("conversation usage range needs from:to"))?;
+    let from = parse_nonnegative_usize(from, "conversation usage range start")?;
+    let to = parse_nonnegative_usize(to, "conversation usage range end")?;
+    if to < from {
+        anyhow::bail!("conversation usage range end must be greater than or equal to start");
+    }
+    Ok((from, to))
+}
+
 fn parse_conversation_delete_args<'a>(
     mut parts: impl Iterator<Item = &'a str>,
 ) -> anyhow::Result<ConversationSlashCommand> {
@@ -9694,6 +11058,7 @@ fn parse_conversation_delete_options<'a>(
         compact_guidance: None,
         compact_max_output_tokens: 512,
         memory_first: false,
+        memory_guidance: None,
         memory_user: false,
     };
     while let Some(part) = parts.next() {
@@ -9721,6 +11086,13 @@ fn parse_conversation_delete_options<'a>(
                 )?;
             }
             "--memory-first" => options.memory_first = true,
+            "--memory-guidance" => {
+                options.memory_guidance =
+                    Some(next_required(&mut parts, "--memory-guidance needs text")?);
+            }
+            _ if part.starts_with("--memory-guidance=") => {
+                options.memory_guidance = Some(required_option_value(part, "--memory-guidance")?);
+            }
             "--memory-user" => options.memory_user = true,
             _ => anyhow::bail!("unknown conversation {action} option: {part}"),
         }
@@ -9851,6 +11223,14 @@ fn parse_artifact_slash_rest(rest: &str) -> anyhow::Result<ArtifactSlashCommand>
             ensure_no_extra(parts, "usage: /artifacts list")?;
             Ok(ArtifactSlashCommand::List)
         }
+        "generate" => {
+            let format = next_required(&mut parts, "artifact generate needs a format")?;
+            let content = parts.collect::<Vec<_>>().join(" ");
+            if content.trim().is_empty() {
+                anyhow::bail!("artifact generate needs content");
+            }
+            Ok(ArtifactSlashCommand::Generate { format, content })
+        }
         "show" => {
             let id = next_required(&mut parts, "artifact show needs an id")?;
             ensure_no_extra(parts, "usage: /artifacts show <id>")?;
@@ -9860,6 +11240,18 @@ fn parse_artifact_slash_rest(rest: &str) -> anyhow::Result<ArtifactSlashCommand>
             let id = next_required(&mut parts, "artifact open needs an id")?;
             ensure_no_extra(parts, "usage: /artifacts open <id>")?;
             Ok(ArtifactSlashCommand::Open { id })
+        }
+        "export" => {
+            let id = next_required(&mut parts, "artifact export needs an id")?;
+            let path = next_required(&mut parts, "artifact export needs a path")?;
+            ensure_no_extra(parts, "usage: /artifacts export <id> <path>")?;
+            Ok(ArtifactSlashCommand::Export { id, path })
+        }
+        "download" => {
+            let id = next_required(&mut parts, "artifact download needs an id")?;
+            let path = parts.next().map(str::to_string);
+            ensure_no_extra(parts, "usage: /artifacts download <id> [path]")?;
+            Ok(ArtifactSlashCommand::Download { id, path })
         }
         "delete" | "rm" => {
             let id = next_required(&mut parts, "artifact delete needs an id")?;
@@ -9875,7 +11267,9 @@ fn parse_artifact_slash_rest(rest: &str) -> anyhow::Result<ArtifactSlashCommand>
             }
             Ok(ArtifactSlashCommand::Delete { id })
         }
-        _ => anyhow::bail!("artifact shortcut needs list, show, open, or delete"),
+        _ => anyhow::bail!(
+            "artifact shortcut needs list, generate, show, open, export, download, or delete"
+        ),
     }
 }
 
@@ -9898,6 +11292,16 @@ fn parse_capability_slash_rest(rest: &str) -> anyhow::Result<CapabilitySlashComm
         "doctor" => {
             ensure_no_extra(parts, "usage: /capabilities doctor")?;
             Ok(CapabilitySlashCommand::Doctor)
+        }
+        "propose" => {
+            let args = rest.strip_prefix("propose").unwrap_or_default().trim();
+            let (kind, name, body, guidance) = parse_capability_propose_slash_args(args)?;
+            Ok(CapabilitySlashCommand::Propose {
+                kind,
+                name,
+                body,
+                guidance,
+            })
         }
         "show" => {
             let id = next_required(&mut parts, "capabilities show needs an id")?;
@@ -9931,9 +11335,68 @@ fn parse_capability_slash_rest(rest: &str) -> anyhow::Result<CapabilitySlashComm
             Ok(CapabilitySlashCommand::Import { path })
         }
         _ => anyhow::bail!(
-            "capabilities shortcut needs list, doctor, show, allow, reject, delete, export, or import"
+            "capabilities shortcut needs list, doctor, propose, show, allow, reject, delete, export, or import"
         ),
     }
+}
+
+fn parse_capability_propose_slash_args(
+    args: &str,
+) -> anyhow::Result<(String, String, String, Option<String>)> {
+    let (kind, rest) = args
+        .trim()
+        .split_once(char::is_whitespace)
+        .ok_or_else(|| anyhow::anyhow!("capabilities propose needs a kind, name, and body"))?;
+    let (name, body) = rest
+        .trim()
+        .split_once(char::is_whitespace)
+        .ok_or_else(|| anyhow::anyhow!("capabilities propose needs a name and body"))?;
+    let body = body.trim();
+    if body.is_empty() {
+        anyhow::bail!("capabilities propose needs a body");
+    }
+    let (body, guidance) = parse_capability_propose_body_and_guidance(body)?;
+    Ok((
+        kind.into(),
+        name.into(),
+        body.into(),
+        guidance.map(str::to_string),
+    ))
+}
+
+fn parse_capability_propose_body_and_guidance(body: &str) -> anyhow::Result<(&str, Option<&str>)> {
+    let body = body.trim();
+    if body == "--guidance" || body.starts_with("--guidance ") || body.starts_with("--guidance=") {
+        anyhow::bail!("capabilities propose needs a body before --guidance");
+    }
+    if body.ends_with(" --guidance") {
+        anyhow::bail!("capabilities propose --guidance needs text");
+    }
+    let spaced = body.rsplit_once(" --guidance ");
+    let inline = body.rsplit_once(" --guidance=");
+    let parsed = match (spaced, inline) {
+        (Some((spaced_body, spaced_guidance)), Some((inline_body, inline_guidance))) => {
+            if spaced_body.len() >= inline_body.len() {
+                Some((spaced_body, spaced_guidance))
+            } else {
+                Some((inline_body, inline_guidance))
+            }
+        }
+        (Some(parsed), None) | (None, Some(parsed)) => Some(parsed),
+        (None, None) => None,
+    };
+    let Some((body, guidance)) = parsed else {
+        return Ok((body, None));
+    };
+    let body = body.trim();
+    let guidance = guidance.trim();
+    if body.is_empty() {
+        anyhow::bail!("capabilities propose needs a body before --guidance");
+    }
+    if guidance.is_empty() {
+        anyhow::bail!("capabilities propose --guidance needs text");
+    }
+    Ok((body, Some(guidance)))
 }
 
 fn parse_capability_confirm<'a>(
@@ -10209,6 +11672,7 @@ fn parse_ingest_slash_rest(rest: &str) -> anyhow::Result<IngestSlashCommand> {
             Ok(IngestSlashCommand::Backends)
         }
         "add" => parse_ingest_add_args(args),
+        "probe-source" => parse_ingest_probe_source_args(args),
         "probe-vision" | "probe" => parse_ingest_probe_vision_args(args),
         "rerun" => parse_ingest_rerun_args(args),
         "show" => {
@@ -10220,7 +11684,7 @@ fn parse_ingest_slash_rest(rest: &str) -> anyhow::Result<IngestSlashCommand> {
         "review" => parse_ingest_review_args(args),
         "delete" | "rm" => parse_ingest_delete_args(args),
         _ => anyhow::bail!(
-            "ingest shortcut needs list, backends, add, probe-vision, rerun, show, review, or delete"
+            "ingest shortcut needs list, backends, add, probe-source, probe-vision, rerun, show, review, or delete"
         ),
     }
 }
@@ -10309,6 +11773,39 @@ fn parse_ingest_probe_vision_args(rest: &str) -> anyhow::Result<IngestSlashComma
     Ok(IngestSlashCommand::ProbeVision { path, model })
 }
 
+fn parse_ingest_probe_source_args(rest: &str) -> anyhow::Result<IngestSlashCommand> {
+    let mut parts = rest.split_whitespace();
+    let path = next_required(
+        &mut parts,
+        "usage: /ingest probe-source <path> [--vision-model <id>]",
+    )?;
+    let mut vision_model = None;
+    while let Some(part) = parts.next() {
+        match part {
+            "--vision-model" | "--model" => {
+                if vision_model.is_some() {
+                    anyhow::bail!("ingest probe-source accepts one --vision-model value");
+                }
+                vision_model = Some(next_required(&mut parts, "--vision-model needs an id")?);
+            }
+            _ if part.starts_with("--vision-model=") => {
+                if vision_model.is_some() {
+                    anyhow::bail!("ingest probe-source accepts one --vision-model value");
+                }
+                vision_model = Some(required_option_value(part, "--vision-model")?);
+            }
+            _ if part.starts_with("--model=") => {
+                if vision_model.is_some() {
+                    anyhow::bail!("ingest probe-source accepts one --vision-model value");
+                }
+                vision_model = Some(required_option_value(part, "--model")?);
+            }
+            _ => anyhow::bail!("unknown ingest probe-source option: {part}"),
+        }
+    }
+    Ok(IngestSlashCommand::ProbeSource { path, vision_model })
+}
+
 fn parse_ingest_review_args(rest: &str) -> anyhow::Result<IngestSlashCommand> {
     let mut parts = rest.split_whitespace();
     let id = next_required(
@@ -10388,6 +11885,7 @@ struct MemoryTextOptions {
     agent: Option<String>,
     range: Option<String>,
     topics: Vec<String>,
+    guidance: Option<String>,
 }
 
 fn parse_memory_slash_rest(rest: &str) -> anyhow::Result<MemorySlashCommand> {
@@ -10407,6 +11905,10 @@ fn parse_memory_slash_rest(rest: &str) -> anyhow::Result<MemorySlashCommand> {
         "backends" => {
             ensure_no_extra(args.split_whitespace(), "usage: /memory backends")?;
             Ok(MemorySlashCommand::Backends)
+        }
+        "probe" => {
+            let (backend, topics) = parse_memory_probe_options(args)?;
+            Ok(MemorySlashCommand::Probe { backend, topics })
         }
         "create" => {
             let (content, options) =
@@ -10429,6 +11931,7 @@ fn parse_memory_slash_rest(rest: &str) -> anyhow::Result<MemorySlashCommand> {
                 conversation: options.conversation,
                 agent: options.agent,
                 topics: options.topics,
+                guidance: options.guidance,
             })
         }
         "generate-conversation" | "generate-conv" => parse_memory_generate_conversation_args(args),
@@ -10439,7 +11942,7 @@ fn parse_memory_slash_rest(rest: &str) -> anyhow::Result<MemorySlashCommand> {
         "export" => parse_memory_export_args(args),
         "import" => parse_memory_import_args(args),
         _ => anyhow::bail!(
-            "memory shortcut needs list, access, backends, create, generate, generate-conversation, classify, edit, delete, rollback, export, or import"
+            "memory shortcut needs list, access, backends, probe, create, generate, generate-conversation, classify, edit, delete, rollback, export, or import"
         ),
     }
 }
@@ -10457,6 +11960,24 @@ fn parse_memory_topic_options(rest: &str) -> anyhow::Result<Vec<String>> {
         }
     }
     Ok(topics)
+}
+
+fn parse_memory_probe_options(rest: &str) -> anyhow::Result<(Option<String>, Vec<String>)> {
+    let mut parts = rest.split_whitespace();
+    let mut backend = None;
+    let mut topics = Vec::new();
+    while let Some(part) = parts.next() {
+        match part {
+            "--topic" => topics.push(next_required(&mut parts, "--topic needs a value")?),
+            _ if part.starts_with("--topic=") => {
+                topics.push(required_option_value(part, "--topic")?);
+            }
+            _ if part.starts_with("--") => anyhow::bail!("unknown memory probe option: {part}"),
+            _ if backend.is_none() => backend = Some(part.to_string()),
+            _ => anyhow::bail!("usage: /memory probe [backend] [--topic <topic>]"),
+        }
+    }
+    Ok((backend, topics))
 }
 
 fn parse_memory_text_options(
@@ -10509,14 +12030,23 @@ fn parse_memory_text_options(
     if text.trim().is_empty() {
         anyhow::bail!("{}", missing_text);
     }
+    let text = if allow_range {
+        let (text, guidance) = parse_memory_generation_text_and_guidance(&text, "generate")?;
+        options.guidance = guidance;
+        text
+    } else {
+        text
+    };
     Ok((text, options))
 }
 
 fn parse_memory_generate_conversation_args(rest: &str) -> anyhow::Result<MemorySlashCommand> {
+    let (rest, guidance) =
+        parse_memory_generation_text_and_guidance(rest, "generate-conversation")?;
     let mut parts = rest.split_whitespace();
     let id = next_required(
         &mut parts,
-        "usage: /memory generate-conversation <id> [from:to] [--user] [--agent <id>] [--topic <topic>]",
+        "usage: /memory generate-conversation <id> [from:to] [--user] [--agent <id>] [--topic <topic>] [--guidance <text>]",
     )?;
     let mut from = None;
     let mut to = None;
@@ -10576,7 +12106,46 @@ fn parse_memory_generate_conversation_args(rest: &str) -> anyhow::Result<MemoryS
         user,
         agent,
         topics,
+        guidance,
     })
+}
+
+fn parse_memory_generation_text_and_guidance(
+    text: &str,
+    command: &str,
+) -> anyhow::Result<(String, Option<String>)> {
+    let text = text.trim();
+    if text == "--guidance" || text.starts_with("--guidance ") || text.starts_with("--guidance=") {
+        anyhow::bail!("memory {command} needs text before --guidance");
+    }
+    if text.ends_with(" --guidance") {
+        anyhow::bail!("memory {command} --guidance needs text");
+    }
+    let spaced = text.rsplit_once(" --guidance ");
+    let inline = text.rsplit_once(" --guidance=");
+    let parsed = match (spaced, inline) {
+        (Some((spaced_text, spaced_guidance)), Some((inline_text, inline_guidance))) => {
+            if spaced_text.len() >= inline_text.len() {
+                Some((spaced_text, spaced_guidance))
+            } else {
+                Some((inline_text, inline_guidance))
+            }
+        }
+        (Some(parsed), None) | (None, Some(parsed)) => Some(parsed),
+        (None, None) => None,
+    };
+    let Some((text, guidance)) = parsed else {
+        return Ok((text.to_string(), None));
+    };
+    let text = text.trim();
+    let guidance = guidance.trim();
+    if text.is_empty() {
+        anyhow::bail!("memory {command} needs text before --guidance");
+    }
+    if guidance.is_empty() {
+        anyhow::bail!("memory {command} --guidance needs text");
+    }
+    Ok((text.to_string(), Some(guidance.to_string())))
 }
 
 fn parse_memory_classify_args(rest: &str) -> anyhow::Result<MemorySlashCommand> {
@@ -10656,15 +12225,23 @@ fn parse_memory_rollback_args(rest: &str) -> anyhow::Result<MemorySlashCommand> 
 
 fn parse_memory_export_args(rest: &str) -> anyhow::Result<MemorySlashCommand> {
     let mut parts = rest.split_whitespace();
-    let path = next_required(&mut parts, "usage: /memory export <path> [--user]")?;
+    let path = next_required(
+        &mut parts,
+        "usage: /memory export <path> [--user] [--agent <id>]",
+    )?;
     let mut user = false;
-    for part in parts {
+    let mut agent = None;
+    while let Some(part) = parts.next() {
         match part {
             "--user" => user = true,
+            "--agent" => agent = Some(next_required(&mut parts, "--agent needs an id")?),
+            _ if part.starts_with("--agent=") => {
+                agent = Some(required_option_value(part, "--agent")?);
+            }
             _ => anyhow::bail!("unknown memory export option: {part}"),
         }
     }
-    Ok(MemorySlashCommand::Export { path, user })
+    Ok(MemorySlashCommand::Export { path, user, agent })
 }
 
 fn parse_memory_import_args(rest: &str) -> anyhow::Result<MemorySlashCommand> {
@@ -10876,6 +12453,19 @@ fn parse_score_slash_rest(rest: &str) -> anyhow::Result<(String, f32, String)> {
     Ok((run_id, score, target))
 }
 
+fn parse_scores_slash_rest(rest: &str) -> anyhow::Result<String> {
+    let mut parts = rest.split_whitespace();
+    let run_id = parts
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("usage: /scores <run-id>"))?
+        .to_string();
+    if let Some(extra) = parts.next() {
+        anyhow::bail!("usage: /scores <run-id>, unexpected {extra:?}");
+    }
+    let _ = uuid::Uuid::parse_str(&run_id)?;
+    Ok(run_id)
+}
+
 #[cfg(test)]
 mod slash_tests {
     use super::*;
@@ -10963,21 +12553,240 @@ mod slash_tests {
             let parsed = parse_slash_command(command).unwrap();
             assert!(matches!(parsed, Some(SlashCommand::Help)));
         }
+        for command in [
+            "/agent help",
+            "/agent --help",
+            "/run help",
+            "/run --help",
+            "/agents help",
+            "/agents --help",
+            "/skills help",
+            "/skills --help",
+            "/prompt help",
+            "/prompt --help",
+            "/approval help",
+            "/approval --help",
+            "/approvals help",
+            "/approvals --help",
+            "/batch help",
+            "/batch --help",
+            "/resume-batch help",
+            "/resume-batch --help",
+            "/python help",
+            "/python --help",
+            "/typescript help",
+            "/typescript --help",
+            "/ts help",
+            "/ts --help",
+            "/tool help",
+            "/tool --help",
+            "/tool!help",
+            "/tool!--help",
+            "/resume help",
+            "/resume --help",
+            "/resume plan help",
+            "/resume plan --help",
+            "/resume-plan help",
+            "/resume-plan --help",
+            "/trace help",
+            "/trace --help",
+            "/compare help",
+            "/compare --help",
+            "/replay help",
+            "/replay --help",
+            "/usage",
+            "/usage help",
+            "/usage --help",
+            "/guide help",
+            "/guide --help",
+            "/score",
+            "/score help",
+            "/score --help",
+            "/scores help",
+            "/scores --help",
+            "/voice help",
+            "/voice --help",
+            "/x402 --help",
+            "/payment --help",
+            "/hooks help",
+            "/hooks --help",
+            "/storage help",
+            "/storage --help",
+            "/bundles help",
+            "/bundles --help",
+            "/profile help",
+            "/profile --help",
+            "/conversation help",
+            "/conversation --help",
+            "/secret help",
+            "/secret --help",
+            "/ingest help",
+            "/ingest --help",
+            "/artifact help",
+            "/artifact --help",
+            "/capability help",
+            "/capability --help",
+            "/adapter help",
+            "/adapter --help",
+            "/model help",
+            "/model --help",
+            "/memory help",
+            "/memory --help",
+            "/compactions help",
+            "/compactions --help",
+        ] {
+            let parsed = parse_slash_command(command).unwrap();
+            assert!(matches!(parsed, Some(SlashCommand::Help)));
+        }
         assert!(parse_slash_command("/helper").unwrap().is_none());
+        assert!(!slash_family_help_rest(""));
+        assert!(slash_family_help_rest("help"));
+        assert!(slash_family_help_rest("--help"));
+        assert!(!slash_family_help_rest("helper"));
+        assert!(!agent_help_slash_command("/agent helpful"));
+        assert!(!code_help_slash_command("/python helpful"));
+        assert!(!tool_help_slash_command("/tool helper"));
+        assert!(!resume_help_slash_command("/resume helper"));
+        assert!(!trace_help_slash_command("/trace helper"));
+        assert!(!compare_help_slash_command("/compare helper"));
+        assert!(!replay_help_slash_command("/replay helper"));
+        assert!(!guide_help_slash_command("/guide helper"));
+        assert!(!score_help_slash_command("/score helper"));
+        assert!(!score_help_slash_command("/scores helper"));
+        assert!(!voice_help_slash_command("/voice helper"));
+        assert!(!batch_help_slash_command("/batch helper"));
+        assert!(!resume_batch_help_slash_command("/resume-batch helper"));
+        assert!(voice_status_slash_command("/voice"));
+        assert!(voice_status_slash_command("/voice status"));
+        assert!(!voice_status_slash_command("/voice status extra"));
 
         let help = headless_slash_help_text();
         assert!(help.contains("/tool! <name> <json>"));
         assert!(help.contains("/python <code>"));
-        assert!(help.contains("/voice transcribe <path>"));
+        assert!(help.contains("/voice status, /voice transcribe <path>"));
+        assert!(help.contains("/batch files <paths>, /batch folder <path>"));
         assert!(help.contains("/x402 request"));
+        assert!(help.contains("/trace [summary|tree|hooks|scores|prompt] <run-id>"));
+        assert!(help.contains("/scores <run-id>"));
+        assert!(help.contains("/usage trace|run <run-id>"));
         assert!(help.contains("/agent [id] [prompt]"));
         assert!(help.contains("/agents list|show|export|import|delete"));
         assert!(help.contains(
             "/skills list|show|inspect|import-openclaw|import-doc|export|allow|quarantine"
         ));
-        assert!(help.contains("/prompts list|show|save|delete"));
-        assert!(help.contains("/approval list|assess|approve|reject|execute"));
-        assert!(help.contains("/hooks list|available|review|disable|enable"));
+        assert!(
+            help.contains("/prompts (/prompt) list|show|save|use|preview|export|import|delete")
+        );
+        assert!(help.contains("/approval (/approvals) list|assess|approve|reject|execute"));
+        assert!(help.contains("/hooks list|policy|available|review|disable|enable"));
+    }
+
+    #[test]
+    fn parses_headless_batch_shortcuts() {
+        match parse_slash_command("/batch first\nsecond\n\n third").unwrap() {
+            Some(SlashCommand::BatchRun {
+                items,
+                files,
+                folders,
+            }) => {
+                assert_eq!(items, vec!["first", "second", "third"]);
+                assert!(files.is_empty());
+                assert!(folders.is_empty());
+            }
+            _ => panic!("expected batch run shortcut"),
+        }
+        match parse_slash_command("/batch single prompt").unwrap() {
+            Some(SlashCommand::BatchRun {
+                items,
+                files,
+                folders,
+            }) => {
+                assert_eq!(items, vec!["single prompt"]);
+                assert!(files.is_empty());
+                assert!(folders.is_empty());
+            }
+            _ => panic!("expected single-item batch run shortcut"),
+        }
+        match parse_slash_command("/batch files /tmp/a.txt\n/tmp/b.txt").unwrap() {
+            Some(SlashCommand::BatchRun {
+                items,
+                files,
+                folders,
+            }) => {
+                assert!(items.is_empty());
+                assert_eq!(files, vec!["/tmp/a.txt", "/tmp/b.txt"]);
+                assert!(folders.is_empty());
+            }
+            _ => panic!("expected file batch run shortcut"),
+        }
+        match parse_slash_command("/batch folder /tmp/batch folder").unwrap() {
+            Some(SlashCommand::BatchRun {
+                items,
+                files,
+                folders,
+            }) => {
+                assert!(items.is_empty());
+                assert!(files.is_empty());
+                assert_eq!(folders, vec!["/tmp/batch folder"]);
+            }
+            _ => panic!("expected folder batch run shortcut"),
+        }
+        match parse_slash_command("/resume-batch batch-123").unwrap() {
+            Some(SlashCommand::BatchResume { batch_id }) => {
+                assert_eq!(batch_id, "batch-123");
+            }
+            _ => panic!("expected batch resume shortcut"),
+        }
+
+        assert!(parse_slash_command("/batch").is_err());
+        assert!(parse_slash_command("/batch files").is_err());
+        assert!(parse_slash_command("/batch folder").is_err());
+        assert!(parse_slash_command("/resume-batch").is_err());
+        assert!(parse_slash_command("/resume-batch batch-123 extra").is_err());
+        assert!(parse_slash_command("/batcher first").unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn headless_batch_executor_uses_runtime_options() {
+        let dir = std::env::temp_dir().join(format!(
+            "headless-batch-runtime-options-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let _home = HarnessHomeGuard::set(&dir);
+        ConfigResolver::from_env()
+            .save_agent_config(&AgentConfigFile {
+                id: "critic".into(),
+                name: "Critic".into(),
+                system_prompt: "Review carefully.".into(),
+                ..AgentConfigFile::default()
+            })
+            .unwrap();
+        let run_id = RunId::new();
+        let plan = BatchPlan::new("batch-runtime-options", vec!["check this".into()]);
+        let options = setup::RuntimeOptions {
+            agent_id: Some("critic".into()),
+            ..setup::RuntimeOptions::default()
+        };
+
+        execute_batch_plan(
+            plan,
+            run_id,
+            "batch-runtime-options".into(),
+            Demo::Echo,
+            true,
+            options,
+        )
+        .await
+        .unwrap();
+
+        let events = open_event_store().unwrap().try_events(run_id).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            &event.kind,
+            RunEventKind::ChildRunStarted { agent_id, .. } if agent_id == "critic"
+        )));
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -11210,6 +13019,38 @@ mod slash_tests {
             }
             _ => panic!("expected prompt save text shortcut"),
         }
+        match parse_slash_command("/prompts use daily --agent critic").unwrap() {
+            Some(SlashCommand::Prompt(PromptSlashCommand::Use { name, agent })) => {
+                assert_eq!(name, "daily");
+                assert_eq!(agent.as_deref(), Some("critic"));
+            }
+            _ => panic!("expected prompt use shortcut"),
+        }
+        match parse_slash_command("/prompts preview daily --agent=critic").unwrap() {
+            Some(SlashCommand::Prompt(PromptSlashCommand::Preview { name, agent })) => {
+                assert_eq!(name, "daily");
+                assert_eq!(agent.as_deref(), Some("critic"));
+            }
+            _ => panic!("expected prompt preview shortcut"),
+        }
+        match parse_slash_command("/prompts export daily /tmp/daily.prompt.json --agent critic")
+            .unwrap()
+        {
+            Some(SlashCommand::Prompt(PromptSlashCommand::Export { name, path, agent })) => {
+                assert_eq!(name, "daily");
+                assert_eq!(path, "/tmp/daily.prompt.json");
+                assert_eq!(agent.as_deref(), Some("critic"));
+            }
+            _ => panic!("expected prompt export shortcut"),
+        }
+        match parse_slash_command("/prompts import /tmp/daily.prompt.json --agent=builder").unwrap()
+        {
+            Some(SlashCommand::Prompt(PromptSlashCommand::Import { path, agent })) => {
+                assert_eq!(path, "/tmp/daily.prompt.json");
+                assert_eq!(agent.as_deref(), Some("builder"));
+            }
+            _ => panic!("expected prompt import shortcut"),
+        }
         match parse_slash_command("/prompts delete daily --agent critic --confirm").unwrap() {
             Some(SlashCommand::Prompt(PromptSlashCommand::Delete { name, agent })) => {
                 assert_eq!(name, "daily");
@@ -11219,6 +13060,8 @@ mod slash_tests {
         }
         assert!(parse_slash_command("/prompts delete daily").is_err());
         assert!(parse_slash_command("/prompts save daily").is_err());
+        assert!(parse_slash_command("/prompts export daily").is_err());
+        assert!(parse_slash_command("/prompts import").is_err());
         assert!(parse_slash_command("/promptx list").unwrap().is_none());
     }
 
@@ -11230,6 +13073,12 @@ mod slash_tests {
                 assert_eq!(parsed, run_id);
             }
             _ => panic!("expected approval list shortcut"),
+        }
+        match parse_slash_command(&format!("/approvals list {run_id}")).unwrap() {
+            Some(SlashCommand::Approval(ApprovalSlashCommand::List { run_id: parsed })) => {
+                assert_eq!(parsed, run_id);
+            }
+            _ => panic!("expected approvals list shortcut"),
         }
         match parse_slash_command(&format!(
             "/approval assess {run_id} approval-1 --controller-agent critic"
@@ -11309,11 +13158,7 @@ mod slash_tests {
             ))
             .is_err()
         );
-        assert!(
-            parse_slash_command(&format!("/approvals list {run_id}"))
-                .unwrap()
-                .is_none()
-        );
+        assert!(parse_slash_command("/approvalx list").unwrap().is_none());
     }
 
     #[test]
@@ -11386,6 +13231,43 @@ mod slash_tests {
             }
             _ => panic!("expected trace hooks shortcut"),
         }
+        match parse_slash_command(&format!("/trace scores {primary}")).unwrap() {
+            Some(SlashCommand::Trace { run_id, view }) => {
+                assert_eq!(run_id, primary);
+                assert_eq!(view, TraceSlashView::Scores);
+            }
+            _ => panic!("expected trace scores shortcut"),
+        }
+        match parse_slash_command(&format!("/trace prompt {primary}")).unwrap() {
+            Some(SlashCommand::Trace { run_id, view }) => {
+                assert_eq!(run_id, primary);
+                assert_eq!(view, TraceSlashView::Prompt);
+            }
+            _ => panic!("expected trace prompt shortcut"),
+        }
+        match parse_slash_command("/trace list").unwrap() {
+            Some(SlashCommand::TraceList { limit }) => assert_eq!(limit, 20),
+            _ => panic!("expected trace list shortcut"),
+        }
+        match parse_slash_command("/trace list 5").unwrap() {
+            Some(SlashCommand::TraceList { limit }) => assert_eq!(limit, 5),
+            _ => panic!("expected trace list shortcut"),
+        }
+        match parse_slash_command("/trace list --limit 6").unwrap() {
+            Some(SlashCommand::TraceList { limit }) => assert_eq!(limit, 6),
+            _ => panic!("expected trace list shortcut"),
+        }
+        match parse_slash_command("/trace runs").unwrap() {
+            Some(SlashCommand::TraceList { limit }) => assert_eq!(limit, 20),
+            _ => panic!("expected trace runs shortcut"),
+        }
+        match parse_slash_command("/trace runs --limit=7").unwrap() {
+            Some(SlashCommand::TraceList { limit }) => assert_eq!(limit, 7),
+            _ => panic!("expected trace runs shortcut"),
+        }
+        assert!(parse_slash_command("/trace list --limit 0").is_err());
+        assert!(parse_slash_command("/trace list 5 6").is_err());
+        assert!(parse_slash_command("/trace list --json").is_err());
         match parse_slash_command(&format!("/compare {primary} {compare}")).unwrap() {
             Some(SlashCommand::Compare {
                 primary_run_id,
@@ -11411,8 +13293,84 @@ mod slash_tests {
             _ => panic!("expected replay shortcut"),
         }
         assert!(parse_slash_command("/trace summary").is_err());
+        assert!(parse_slash_command("/trace scores").is_err());
+        assert!(parse_slash_command("/trace prompt").is_err());
         assert!(parse_slash_command(&format!("/compare {primary}")).is_err());
+        assert!(parse_slash_command(&format!("/compare {primary} {primary}")).is_err());
         assert!(parse_slash_command(&format!("/replay {primary} --mystery")).is_err());
+    }
+
+    #[test]
+    fn parses_usage_shortcuts() {
+        let run_id = uuid::Uuid::new_v4().to_string();
+        match parse_slash_command(&format!("/usage trace {run_id}")).unwrap() {
+            Some(SlashCommand::Trace { run_id: got, view }) => {
+                assert_eq!(got, run_id);
+                assert_eq!(view, TraceSlashView::Summary);
+            }
+            _ => panic!("expected usage trace shortcut"),
+        }
+        match parse_slash_command(&format!("/usage run {run_id}")).unwrap() {
+            Some(SlashCommand::Trace { run_id: got, view }) => {
+                assert_eq!(got, run_id);
+                assert_eq!(view, TraceSlashView::Summary);
+            }
+            _ => panic!("expected usage run shortcut"),
+        }
+        match parse_slash_command("/usage conversation convo-1 --last 5").unwrap() {
+            Some(SlashCommand::Conversation(ConversationSlashCommand::Usage {
+                id,
+                from,
+                to,
+                last,
+            })) => {
+                assert_eq!(id, "convo-1");
+                assert_eq!(from, None);
+                assert_eq!(to, None);
+                assert_eq!(last, Some(5));
+            }
+            _ => panic!("expected usage conversation shortcut"),
+        }
+        match parse_slash_command("/usage conversation convo-1 2:4").unwrap() {
+            Some(SlashCommand::Conversation(ConversationSlashCommand::Usage {
+                id,
+                from,
+                to,
+                last,
+            })) => {
+                assert_eq!(id, "convo-1");
+                assert_eq!(from, Some(2));
+                assert_eq!(to, Some(4));
+                assert_eq!(last, None);
+            }
+            _ => panic!("expected usage conversation range shortcut"),
+        }
+        match parse_slash_command("/usage conversation convo-1 last 3").unwrap() {
+            Some(SlashCommand::Conversation(ConversationSlashCommand::Usage {
+                id, last, ..
+            })) => {
+                assert_eq!(id, "convo-1");
+                assert_eq!(last, Some(3));
+            }
+            _ => panic!("expected usage conversation last shortcut"),
+        }
+
+        assert!(parse_slash_command("/usage trace").is_err());
+        assert!(parse_slash_command("/usage trace last").is_err());
+        assert!(parse_slash_command(&format!("/usage trace {run_id} extra")).is_err());
+        let run_missing = match parse_slash_command("/usage run") {
+            Ok(_) => panic!("expected missing usage run id to fail"),
+            Err(err) => err.to_string(),
+        };
+        assert!(run_missing.contains("usage: /usage run <run-id>"));
+        let run_extra = match parse_slash_command(&format!("/usage run {run_id} extra")) {
+            Ok(_) => panic!("expected extra usage run argument to fail"),
+            Err(err) => err.to_string(),
+        };
+        assert!(run_extra.contains("usage: /usage run <run-id>"));
+        assert!(parse_slash_command("/usage current").is_err());
+        assert!(parse_slash_command("/usage conversation convo-1 last 0").is_err());
+        assert!(parse_slash_command("/usage conversation convo-1 4:2").is_err());
     }
 
     #[test]
@@ -11429,6 +13387,12 @@ mod slash_tests {
                 assert_eq!(agent.as_deref(), Some("critic"));
             }
             _ => panic!("expected hook list with agent shortcut"),
+        }
+        match parse_slash_command("/hooks policy --agent critic").unwrap() {
+            Some(SlashCommand::Hooks(HookSlashCommand::List { agent })) => {
+                assert_eq!(agent.as_deref(), Some("critic"));
+            }
+            _ => panic!("expected hook policy with agent shortcut"),
         }
         match parse_slash_command("/hooks available --agent=critic").unwrap() {
             Some(SlashCommand::Hooks(HookSlashCommand::Available { agent })) => {
@@ -11651,6 +13615,29 @@ mod slash_tests {
             }
             _ => panic!("expected conversation usage last shortcut"),
         }
+        match parse_slash_command("/conversation usage convo-1 1:3").unwrap() {
+            Some(SlashCommand::Conversation(ConversationSlashCommand::Usage {
+                id,
+                from,
+                to,
+                last,
+            })) => {
+                assert_eq!(id, "convo-1");
+                assert_eq!(from, Some(1));
+                assert_eq!(to, Some(3));
+                assert_eq!(last, None);
+            }
+            _ => panic!("expected conversation usage range shortcut"),
+        }
+        match parse_slash_command("/conversation usage convo-1 last 5").unwrap() {
+            Some(SlashCommand::Conversation(ConversationSlashCommand::Usage {
+                id, last, ..
+            })) => {
+                assert_eq!(id, "convo-1");
+                assert_eq!(last, Some(5));
+            }
+            _ => panic!("expected conversation usage positional last shortcut"),
+        }
         assert!(parse_slash_command("/conversation usage convo-1 --last 0").is_err());
         assert!(
             parse_slash_command("/conversationx list")
@@ -11662,7 +13649,7 @@ mod slash_tests {
     #[test]
     fn parses_conversation_delete_shortcuts() {
         match parse_slash_command(
-            "/conversation delete convo-1 --recursive --compact-first --compact-guidance keep --compact-max-output-tokens 256 --memory-first --memory-user --confirm",
+            "/conversation delete convo-1 --recursive --compact-first --compact-guidance keep --compact-max-output-tokens 256 --memory-first --memory-guidance stable --memory-user --confirm",
         )
         .unwrap()
         {
@@ -11676,6 +13663,7 @@ mod slash_tests {
                 assert_eq!(options.compact_guidance.as_deref(), Some("keep"));
                 assert_eq!(options.compact_max_output_tokens, 256);
                 assert!(options.memory_first);
+                assert_eq!(options.memory_guidance.as_deref(), Some("stable"));
                 assert!(options.memory_user);
             }
             _ => panic!("expected conversation delete shortcut"),
@@ -11782,6 +13770,14 @@ mod slash_tests {
             }
             _ => panic!("expected ingest probe shortcut"),
         }
+        match parse_slash_command("/ingest probe-source ./scan.pdf --vision-model vision").unwrap()
+        {
+            Some(SlashCommand::Ingest(IngestSlashCommand::ProbeSource { path, vision_model })) => {
+                assert_eq!(path, "./scan.pdf");
+                assert_eq!(vision_model.as_deref(), Some("vision"));
+            }
+            _ => panic!("expected ingest source probe shortcut"),
+        }
         match parse_slash_command("/ingest rerun artifact-1 --backend local-v0").unwrap() {
             Some(SlashCommand::Ingest(IngestSlashCommand::Rerun { id, backend, .. })) => {
                 assert_eq!(id, "artifact-1");
@@ -11831,6 +13827,13 @@ mod slash_tests {
             parse_slash_command("/artifact list").unwrap(),
             Some(SlashCommand::Artifact(ArtifactSlashCommand::List))
         ));
+        match parse_slash_command("/artifacts generate pdf Hello report").unwrap() {
+            Some(SlashCommand::Artifact(ArtifactSlashCommand::Generate { format, content })) => {
+                assert_eq!(format, "pdf");
+                assert_eq!(content, "Hello report");
+            }
+            _ => panic!("expected artifact generate shortcut"),
+        }
         match parse_slash_command("/artifacts show artifact-1").unwrap() {
             Some(SlashCommand::Artifact(ArtifactSlashCommand::Show { id })) => {
                 assert_eq!(id, "artifact-1");
@@ -11842,6 +13845,27 @@ mod slash_tests {
                 assert_eq!(id, "artifact-1");
             }
             _ => panic!("expected artifact open shortcut"),
+        }
+        match parse_slash_command("/artifacts export artifact-1 /tmp/artifact.txt").unwrap() {
+            Some(SlashCommand::Artifact(ArtifactSlashCommand::Export { id, path })) => {
+                assert_eq!(id, "artifact-1");
+                assert_eq!(path, "/tmp/artifact.txt");
+            }
+            _ => panic!("expected artifact export shortcut"),
+        }
+        match parse_slash_command("/artifacts download artifact-1").unwrap() {
+            Some(SlashCommand::Artifact(ArtifactSlashCommand::Download { id, path })) => {
+                assert_eq!(id, "artifact-1");
+                assert!(path.is_none());
+            }
+            _ => panic!("expected artifact download shortcut"),
+        }
+        match parse_slash_command("/artifact download artifact-1 /tmp/artifact.txt").unwrap() {
+            Some(SlashCommand::Artifact(ArtifactSlashCommand::Download { id, path })) => {
+                assert_eq!(id, "artifact-1");
+                assert_eq!(path.as_deref(), Some("/tmp/artifact.txt"));
+            }
+            _ => panic!("expected artifact download shortcut with path"),
         }
         match parse_slash_command("/artifacts delete artifact-1 --confirm").unwrap() {
             Some(SlashCommand::Artifact(ArtifactSlashCommand::Delete { id })) => {
@@ -11867,6 +13891,42 @@ mod slash_tests {
             parse_slash_command("/capabilities doctor").unwrap(),
             Some(SlashCommand::Capability(CapabilitySlashCommand::Doctor))
         ));
+        match parse_slash_command(
+            "/capabilities propose skill guided-draft Create reviewer --guidance Review before allowing",
+        )
+        .unwrap()
+        {
+            Some(SlashCommand::Capability(CapabilitySlashCommand::Propose {
+                kind,
+                name,
+                body,
+                guidance,
+            })) => {
+                assert_eq!(kind, "skill");
+                assert_eq!(name, "guided-draft");
+                assert_eq!(body, "Create reviewer");
+                assert_eq!(guidance.as_deref(), Some("Review before allowing"));
+            }
+            _ => panic!("expected capability propose shortcut"),
+        }
+        match parse_slash_command(
+            "/capability propose tool draft-tool echo hello --guidance=Review before allowing",
+        )
+        .unwrap()
+        {
+            Some(SlashCommand::Capability(CapabilitySlashCommand::Propose {
+                kind,
+                name,
+                body,
+                guidance,
+            })) => {
+                assert_eq!(kind, "tool");
+                assert_eq!(name, "draft-tool");
+                assert_eq!(body, "echo hello");
+                assert_eq!(guidance.as_deref(), Some("Review before allowing"));
+            }
+            _ => panic!("expected capability propose shortcut"),
+        }
         match parse_slash_command("/capabilities show draft-1").unwrap() {
             Some(SlashCommand::Capability(CapabilitySlashCommand::Show { id })) => {
                 assert_eq!(id, "draft-1");
@@ -11904,6 +13964,15 @@ mod slash_tests {
             }
             _ => panic!("expected capability import shortcut"),
         }
+        assert!(parse_slash_command("/capabilities propose skill guided-draft").is_err());
+        assert!(
+            parse_slash_command("/capabilities propose skill guided-draft --guidance Review")
+                .is_err()
+        );
+        assert!(
+            parse_slash_command("/capabilities propose skill guided-draft Body --guidance")
+                .is_err()
+        );
         assert!(parse_slash_command("/capabilities allow draft-1").is_err());
         assert!(parse_slash_command("/capabilities reject draft-1").is_err());
         assert!(parse_slash_command("/capabilities delete draft-1").is_err());
@@ -11912,6 +13981,33 @@ mod slash_tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[test]
+    fn capability_draft_line_surfaces_guidance() {
+        let dir = std::env::temp_dir().join(format!(
+            "capability-line-guidance-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let _home = HarnessHomeGuard::set(&dir);
+        let draft = CapabilityDraftStore::from_env()
+            .propose(CapabilityDraftInput {
+                id: Some("guided-draft".into()),
+                kind: CapabilityKind::Skill,
+                name: "Guided Draft".into(),
+                body: "Create a reusable reviewer skill.".into(),
+                guidance: Some("Review before allowing.".into()),
+                created_by: "user".into(),
+                provenance: "test:capability".into(),
+            })
+            .unwrap();
+
+        let line = capability_draft_line(&draft);
+
+        assert!(line.contains("guided-draft"));
+        assert!(line.contains("guidance=\"Review before allowing.\""));
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -12116,6 +14212,13 @@ mod slash_tests {
             parse_slash_command("/memory backends").unwrap(),
             Some(SlashCommand::Memory(MemorySlashCommand::Backends))
         ));
+        match parse_slash_command("/memory probe external-command-v0 --topic team").unwrap() {
+            Some(SlashCommand::Memory(MemorySlashCommand::Probe { backend, topics })) => {
+                assert_eq!(backend.as_deref(), Some("external-command-v0"));
+                assert_eq!(topics, vec!["team"]);
+            }
+            _ => panic!("expected memory probe shortcut"),
+        }
         match parse_slash_command(
             "/memory create --user --agent critic --conversation conv-1 --topic prefs remember this",
         )
@@ -12137,7 +14240,7 @@ mod slash_tests {
             _ => panic!("expected memory create shortcut"),
         }
         match parse_slash_command(
-            "/memory generate --range messages:0..2 --topic project learned fact",
+            "/memory generate --range messages:0..2 --topic project learned fact --guidance durable facts",
         )
         .unwrap()
         {
@@ -12145,16 +14248,18 @@ mod slash_tests {
                 text,
                 range,
                 topics,
+                guidance,
                 ..
             })) => {
                 assert_eq!(text, "learned fact");
                 assert_eq!(range.as_deref(), Some("messages:0..2"));
                 assert_eq!(topics, vec!["project"]);
+                assert_eq!(guidance.as_deref(), Some("durable facts"));
             }
             _ => panic!("expected memory generate shortcut"),
         }
         match parse_slash_command(
-            "/memory generate-conversation conv-1 1:3 --agent critic --topic project",
+            "/memory generate-conversation conv-1 1:3 --agent critic --topic project --guidance keep preferences",
         )
         .unwrap()
         {
@@ -12164,6 +14269,7 @@ mod slash_tests {
                 to,
                 agent,
                 topics,
+                guidance,
                 ..
             })) => {
                 assert_eq!(id, "conv-1");
@@ -12171,6 +14277,7 @@ mod slash_tests {
                 assert_eq!(to, Some(3));
                 assert_eq!(agent.as_deref(), Some("critic"));
                 assert_eq!(topics, vec!["project"]);
+                assert_eq!(guidance.as_deref(), Some("keep preferences"));
             }
             _ => panic!("expected memory generate-conversation shortcut"),
         }
@@ -12211,10 +14318,11 @@ mod slash_tests {
             }
             _ => panic!("expected memory rollback shortcut"),
         }
-        match parse_slash_command("/memory export /tmp/memory.md --user").unwrap() {
-            Some(SlashCommand::Memory(MemorySlashCommand::Export { path, user })) => {
+        match parse_slash_command("/memory export /tmp/memory.md --user --agent critic").unwrap() {
+            Some(SlashCommand::Memory(MemorySlashCommand::Export { path, user, agent })) => {
                 assert_eq!(path, "/tmp/memory.md");
                 assert!(user);
+                assert_eq!(agent.as_deref(), Some("critic"));
             }
             _ => panic!("expected memory export shortcut"),
         }
@@ -12390,6 +14498,91 @@ mod slash_tests {
             .expect("allowed subagent alias draft should save an agent config");
         assert_eq!(saved.name, "Research Subagent");
         assert_eq!(saved.system_prompt, "Research carefully and cite sources.");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn capability_review_reject_rolls_back_allowed_promotions() {
+        let dir = std::env::temp_dir().join(format!(
+            "capability-review-rollback-test-{}-{}",
+            std::process::id(),
+            uuid::Uuid::new_v4()
+        ));
+        let _home = HarnessHomeGuard::set(&dir);
+        let store = CapabilityDraftStore::from_env();
+        store
+            .propose(CapabilityDraftInput {
+                id: Some("draft-review-skill".into()),
+                kind: CapabilityKind::Skill,
+                name: "Review Skill".into(),
+                body: "Use this reusable review checklist.".into(),
+                guidance: None,
+                created_by: "agent".into(),
+                provenance: "test:capability".into(),
+            })
+            .unwrap();
+        store
+            .propose(CapabilityDraftInput {
+                id: Some("draft-research-agent".into()),
+                kind: CapabilityKind::Agent,
+                name: "Research Agent".into(),
+                body: "Research carefully and cite sources.".into(),
+                guidance: None,
+                created_by: "agent".into(),
+                provenance: "test:capability".into(),
+            })
+            .unwrap();
+        store
+            .propose(CapabilityDraftInput {
+                id: Some("draft-weather-tool".into()),
+                kind: CapabilityKind::Tool,
+                name: "Weather Tool".into(),
+                body: r#"{"mcpServers":{"weather":{"command":"fake-weather-mcp","args":["--stdio"]}}}"#
+                    .into(),
+                guidance: None,
+                created_by: "agent".into(),
+                provenance: "test:capability".into(),
+            })
+            .unwrap();
+
+        for id in [
+            "draft-review-skill",
+            "draft-research-agent",
+            "draft-weather-tool",
+        ] {
+            capability_review_outcome(id, CapabilityDraftStatus::Allowed).unwrap();
+            let outcome = capability_review_outcome(id, CapabilityDraftStatus::Rejected).unwrap();
+            assert_eq!(outcome.draft.status, CapabilityDraftStatus::Rejected);
+        }
+
+        let skill = SkillRegistry::from_env()
+            .inspect("capability-draft-review-skill")
+            .unwrap();
+        assert!(skill.quarantined);
+        assert!(
+            ConfigResolver::from_env()
+                .show_agent_config("capability-draft-research-agent")
+                .unwrap()
+                .is_none()
+        );
+        let package = AdapterRegistry::from_env()
+            .show("agent-tool-draft-weather-tool")
+            .unwrap();
+        assert!(package.quarantined);
+        assert!(
+            package
+                .capabilities
+                .iter()
+                .all(|capability| capability.quarantined)
+        );
+        assert_eq!(
+            agent_tools::register_allowed_adapter_tools_with_provenance(
+                &mut agent_tools::ToolRegistry::new(),
+                vec![package],
+                None,
+            ),
+            0
+        );
         let _ = std::fs::remove_dir_all(dir);
     }
 
@@ -12838,6 +15031,14 @@ mod slash_tests {
 
     #[test]
     fn parses_voice_shortcuts_as_direct_tool_calls() {
+        assert!(matches!(
+            parse_slash_command("/voice").unwrap(),
+            Some(SlashCommand::VoiceStatus)
+        ));
+        assert!(matches!(
+            parse_slash_command("/voice status").unwrap(),
+            Some(SlashCommand::VoiceStatus)
+        ));
         let parsed = parse_slash_command("/voice transcribe ./sample.wav").unwrap();
         match parsed {
             Some(SlashCommand::ToolManual { name, input }) => {
@@ -12860,7 +15061,7 @@ mod slash_tests {
             }
             _ => panic!("expected direct voice tool command"),
         }
-        assert!(parse_slash_command("/voice").is_err());
+        assert!(parse_slash_command("/voice capture").is_err());
         assert!(
             parse_slash_command("/voices transcribe ./sample.wav")
                 .unwrap()
@@ -12969,6 +15170,23 @@ mod slash_tests {
             }
             _ => panic!("expected score command"),
         }
+    }
+
+    #[test]
+    fn parses_score_review_shortcut() {
+        let run_id = uuid::Uuid::new_v4().to_string();
+        let parsed = parse_slash_command(&format!("/scores {run_id}")).unwrap();
+        match parsed {
+            Some(SlashCommand::Trace { run_id: got, view }) => {
+                assert_eq!(got, run_id);
+                assert_eq!(view, TraceSlashView::Scores);
+            }
+            _ => panic!("expected scores review command"),
+        }
+
+        assert!(parse_slash_command("/scores").is_err());
+        assert!(parse_slash_command("/scores not-a-run").is_err());
+        assert!(parse_slash_command(&format!("/scores {run_id} extra")).is_err());
     }
 
     #[test]

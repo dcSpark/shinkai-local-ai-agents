@@ -54,6 +54,10 @@ impl DaemonHttpClient {
         self.request_json("GET", path, None)
     }
 
+    pub fn get_bytes(&self, path: &str) -> Result<Vec<u8>, ApiClientError> {
+        self.request_bytes("GET", path, None)
+    }
+
     pub fn post_json(&self, path: &str, body: Value) -> Result<Value, ApiClientError> {
         self.request_json("POST", path, Some(body))
     }
@@ -89,6 +93,45 @@ impl DaemonHttpClient {
             });
         }
         Ok(serde_json::from_str(body)?)
+    }
+
+    fn request_bytes(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<Value>,
+    ) -> Result<Vec<u8>, ApiClientError> {
+        let target = parse_http_url(&self.base_url)?;
+        let body = body.map(|value| value.to_string()).unwrap_or_default();
+        let request = format!(
+            "{method} {path} HTTP/1.1\r\nhost: {}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+            target.host_header,
+            body.len()
+        );
+        let mut stream = TcpStream::connect((&*target.host, target.port))?;
+        stream.write_all(request.as_bytes())?;
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response)?;
+        let header_end = response
+            .windows(4)
+            .position(|window| window == b"\r\n\r\n")
+            .unwrap_or(response.len());
+        let head = String::from_utf8_lossy(&response[..header_end]);
+        let body_start = (header_end + 4).min(response.len());
+        let body = response[body_start..].to_vec();
+        let status = head
+            .lines()
+            .next()
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|code| code.parse::<u16>().ok())
+            .unwrap_or(500);
+        if !(200..300).contains(&status) {
+            return Err(ApiClientError::Http {
+                status,
+                body: String::from_utf8_lossy(&body).to_string(),
+            });
+        }
+        Ok(body)
     }
 }
 

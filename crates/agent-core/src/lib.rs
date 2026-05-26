@@ -37,8 +37,14 @@ use agent_tracing::{EventId, EventStore, RunEvent, RunEventKind, RunId};
 const MID_RUN_GUIDANCE_PREFIX: &str = "Mid-run user guidance:\n";
 pub const DEFAULT_MEMORY_BACKEND_ID: &str = "local-markdown-v0";
 pub const LOCAL_JSONL_MEMORY_BACKEND_ID: &str = "local-jsonl-v0";
-pub const SUPPORTED_MEMORY_BACKEND_IDS: &[&str] =
-    &[DEFAULT_MEMORY_BACKEND_ID, LOCAL_JSONL_MEMORY_BACKEND_ID];
+pub const EXTERNAL_COMMAND_MEMORY_BACKEND_ID: &str = "external-command-v0";
+pub const EXTERNAL_HTTP_MEMORY_BACKEND_ID: &str = "external-http-v0";
+pub const SUPPORTED_MEMORY_BACKEND_IDS: &[&str] = &[
+    DEFAULT_MEMORY_BACKEND_ID,
+    LOCAL_JSONL_MEMORY_BACKEND_ID,
+    EXTERNAL_COMMAND_MEMORY_BACKEND_ID,
+    EXTERNAL_HTTP_MEMORY_BACKEND_ID,
+];
 const TOOL_OUTPUT_INTERPRETATION_SUMMARY_LIMIT: usize = 240;
 const DEFAULT_HOOK_TIMEOUT_MS: u64 = 1_000;
 const MAX_HOOK_TIMEOUT_MS: u64 = 5_000;
@@ -1207,7 +1213,9 @@ pub enum HarnessError {
     Tool(#[from] agent_tools::ToolError),
     #[error("policy denied: {0}")]
     PolicyDenied(String),
-    #[error("budget exhausted: {0}")]
+    #[error(
+        "budget exhausted: {0}. Increase the tool-call budget and resume or replay the trace if useful."
+    )]
     BudgetExhausted(String),
     #[error("run cancelled: {0}")]
     Cancelled(String),
@@ -6731,6 +6739,15 @@ JSON
                 .system_prompt
                 .contains("tool-call budget exhausted: do not call tools")
         );
+    }
+
+    #[test]
+    fn budget_exhausted_error_points_to_recovery_path() {
+        let err =
+            HarnessError::BudgetExhausted("tool-call budget exhausted (used=1, limit=1)".into());
+        let rendered = err.to_string();
+        assert!(rendered.contains("Increase the tool-call budget"));
+        assert!(rendered.contains("resume or replay"));
     }
 
     #[tokio::test]

@@ -18,7 +18,7 @@ use std::io::IsTerminal;
 
 use agent_config::{IngestionGuardrailMode, ProfileGrantKind};
 use agent_core::{StopRetentionMode, ToolOutputMode, VisibilityLevel};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Parser)]
 #[command(name = "agent")]
@@ -26,6 +26,17 @@ use clap::{Parser, Subcommand, ValueEnum};
 struct Cli {
     #[command(subcommand)]
     command: Command,
+}
+
+fn parse_positive_event_id(value: &str) -> Result<u64, String> {
+    let parsed = value
+        .parse::<u64>()
+        .map_err(|_| "event id must be a positive integer".to_string())?;
+    if parsed == 0 {
+        Err("event id must be a positive integer".to_string())
+    } else {
+        Ok(parsed)
+    }
 }
 
 #[derive(Subcommand)]
@@ -365,7 +376,7 @@ enum Command {
         run_id: String,
 
         /// Event id to resume from. Defaults to the last non-terminal event.
-        #[arg(long)]
+        #[arg(long, value_parser = parse_positive_event_id)]
         from_event: Option<u64>,
 
         /// Demo provider behavior.
@@ -382,7 +393,7 @@ enum Command {
         run_id: String,
 
         /// Event id to resume from. Defaults to the last non-terminal event.
-        #[arg(long)]
+        #[arg(long, value_parser = parse_positive_event_id)]
         from_event: Option<u64>,
 
         /// Emit the full JSON resume plan.
@@ -531,6 +542,16 @@ enum ToolCommand {
 
 #[derive(Subcommand)]
 enum TraceCommand {
+    /// List recent persisted trace runs.
+    List {
+        /// Maximum number of runs to show.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+
+        /// Emit a JSON array.
+        #[arg(long)]
+        json: bool,
+    },
     /// Show events for a persisted run id.
     Show {
         /// Run UUID printed by `agent run`.
@@ -546,6 +567,15 @@ enum TraceCommand {
         run_id: String,
 
         /// Emit a JSON summary object.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Print the original prompt from a persisted trace.
+    Prompt {
+        /// Run UUID printed by `agent run`.
+        run_id: String,
+
+        /// Emit JSON with run id, agent id, and prompt.
         #[arg(long)]
         json: bool,
     },
@@ -815,6 +845,10 @@ enum MemoryCommand {
         /// Topic tag for generated memory. Repeat for multiple topics.
         #[arg(long = "topic")]
         topics: Vec<String>,
+
+        /// Guidance for memory generation.
+        #[arg(long)]
+        guidance: Option<String>,
     },
     /// Generate memory records from an expanded conversation message range.
     GenerateConversation {
@@ -839,6 +873,10 @@ enum MemoryCommand {
         /// Topic tag for generated memory. Repeat for multiple topics.
         #[arg(long = "topic")]
         topics: Vec<String>,
+
+        /// Guidance for memory generation.
+        #[arg(long)]
+        guidance: Option<String>,
     },
     /// List memory records.
     List {
@@ -856,6 +894,18 @@ enum MemoryCommand {
     },
     /// List supported memory backends.
     Backends {
+        #[arg(long)]
+        json: bool,
+    },
+    /// Probe a memory backend and report readable record counts.
+    Probe {
+        /// Backend id. Defaults to local-markdown-v0.
+        backend: Option<String>,
+
+        /// Topic tag to filter by. Repeat for multiple topics.
+        #[arg(long = "topic")]
+        topics: Vec<String>,
+
         #[arg(long)]
         json: bool,
     },
@@ -891,6 +941,9 @@ enum MemoryCommand {
         /// Export user.md instead of memory.md.
         #[arg(long)]
         user: bool,
+        /// Export only records owned by this agent id.
+        #[arg(long)]
+        agent: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -966,6 +1019,19 @@ enum PromptCommand {
         name: String,
         #[arg(long)]
         json: bool,
+        #[arg(long)]
+        agent: Option<String>,
+    },
+    /// Export one saved prompt as portable JSON.
+    Export {
+        name: String,
+        path: String,
+        #[arg(long)]
+        agent: Option<String>,
+    },
+    /// Import one portable prompt JSON document.
+    Import {
+        path: String,
         #[arg(long)]
         agent: Option<String>,
     },
@@ -1389,6 +1455,18 @@ enum IngestCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Check which ingestion backends and optional tools fit a local source.
+    ProbeSource {
+        path: String,
+
+        /// Optional saved model id for PDF/image attachment metadata checks.
+        #[arg(long)]
+        vision_model: Option<String>,
+
+        /// Emit JSON instead of a human-readable summary.
+        #[arg(long)]
+        json: bool,
+    },
     /// Ingest a local file explicitly.
     Add {
         path: String,
@@ -1459,6 +1537,20 @@ enum ArtifactCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Generate a document artifact in the local artifact cache.
+    Generate {
+        format: String,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        content: Option<String>,
+        #[arg(long = "rows-json")]
+        rows_json: Option<String>,
+        #[arg(long)]
+        filename: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
     /// Show a generated artifact by id or filename.
     Show {
         id: String,
@@ -1468,6 +1560,20 @@ enum ArtifactCommand {
     /// Open a generated artifact in the OS default app.
     Open {
         id: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Export a generated artifact to a local filesystem path.
+    Export {
+        id: String,
+        path: String,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Copy a generated artifact to the current directory or an explicit path.
+    Download {
+        id: String,
+        path: Option<String>,
         #[arg(long)]
         json: bool,
     },
@@ -1697,13 +1803,228 @@ enum CapabilityCommand {
     },
 }
 
+#[derive(Args, Clone)]
+struct BatchRuntimeArgs {
+    /// Agent id to run. Can refer to an active-profile agent or a granted agent.
+    #[arg(long)]
+    agent: Option<String>,
+
+    /// LLM provider to use.
+    #[arg(long, value_enum, default_value_t = Provider::Fake)]
+    provider: Provider,
+
+    /// Catalog provider id to use instead of the built-in --provider enum.
+    #[arg(long)]
+    provider_id: Option<String>,
+
+    /// Model id. Defaults to fake-model for fake provider and gpt-4o-mini
+    /// for rig provider.
+    #[arg(long)]
+    model: Option<String>,
+
+    /// OpenAI-compatible API base URL for rig provider.
+    #[arg(long)]
+    api_base_url: Option<String>,
+
+    /// Environment variable containing the API key for rig provider.
+    #[arg(long, default_value = "OPENAI_API_KEY")]
+    api_key_env: String,
+
+    /// Optional max output tokens for rig provider.
+    #[arg(long)]
+    max_output_tokens: Option<u64>,
+
+    /// Optional temperature for rig provider.
+    #[arg(long)]
+    temperature: Option<f64>,
+
+    /// Estimated input-token price in USD per 1M tokens.
+    #[arg(long)]
+    input_cost_per_million: Option<f64>,
+
+    /// Estimated output-token price in USD per 1M tokens.
+    #[arg(long)]
+    output_cost_per_million: Option<f64>,
+
+    /// Override the agent's max tool-call budget for this run.
+    #[arg(long)]
+    max_tool_calls: Option<u32>,
+
+    /// Trigger automatic context compaction after approximately this many conversation tokens.
+    #[arg(long)]
+    max_tokens_before_compaction: Option<u32>,
+
+    /// Approximate output-token budget for automatic context compaction.
+    #[arg(long)]
+    max_compaction_output_tokens: Option<u32>,
+
+    /// Guidance for automatic context compaction in this run.
+    #[arg(long)]
+    compaction_guidance: Option<String>,
+
+    /// Restrict this run to one tool category/pack. Repeat for multiple categories.
+    #[arg(long = "allow-tool-category")]
+    allowed_tool_categories: Vec<String>,
+
+    /// Restrict loaded skills to one category/pack for this run. Repeat for multiple categories.
+    #[arg(long = "allow-skill-category")]
+    allowed_skill_categories: Vec<String>,
+
+    /// Override how much tool detail is shown to the model.
+    #[arg(long, value_enum)]
+    tool_visibility: Option<ToolVisibility>,
+
+    /// Override how much skill detail is shown to the model.
+    #[arg(long, value_enum)]
+    skill_visibility: Option<ToolVisibility>,
+
+    /// Explicitly register the shell tool for this run.
+    #[arg(long)]
+    enable_shell: bool,
+
+    /// Explicitly register the subagent tool for this run.
+    #[arg(long)]
+    enable_subagent: bool,
+
+    /// Explicitly register the quarantined capability-draft creation tool for this run.
+    #[arg(long)]
+    enable_capability_drafts: bool,
+
+    /// Load file-backed memory into context for this run.
+    #[arg(long)]
+    load_memory: bool,
+
+    /// Restrict loaded memory to one topic. Repeat for multiple topics.
+    #[arg(long = "memory-topic")]
+    memory_topics: Vec<String>,
+
+    /// Load allowed file-backed skills into context for this run.
+    #[arg(long)]
+    load_skills: bool,
+
+    /// Load and append to a persisted conversation branch.
+    #[arg(long)]
+    conversation: Option<String>,
+
+    /// Explicit compacted-context artifact id to include in context.
+    #[arg(long = "include-compact")]
+    include_compact: Option<String>,
+
+    /// Explicit ingestion artifact id to include in context. Repeatable.
+    #[arg(long = "include-ingest")]
+    include_ingest: Vec<String>,
+
+    /// Include high-risk ingestion artifacts that guardrails would otherwise withhold.
+    #[arg(long)]
+    allow_unsafe_ingest: bool,
+
+    /// Rewrite the user prompt in a traced preprocessing LLM call before the main run.
+    #[arg(long)]
+    refine_prompt: bool,
+
+    /// Instructions for the prompt refinement preprocessing call.
+    #[arg(long)]
+    refinement_instructions: Option<String>,
+
+    /// Optional model id for prompt refinement. Defaults to the agent model.
+    #[arg(long)]
+    refinement_model: Option<String>,
+
+    /// Keep approval-required tools gated. This is the default safe posture.
+    #[arg(long)]
+    require_approval: bool,
+
+    /// Explicitly auto-approve approval-required tools for this run.
+    #[arg(long, conflicts_with = "require_approval")]
+    auto_approve: bool,
+
+    /// Return the first tool output directly without an LLM interpretation pass.
+    #[arg(long)]
+    raw_tool_output: bool,
+}
+
+impl BatchRuntimeArgs {
+    fn into_runtime_options(self) -> setup::RuntimeOptions {
+        setup::RuntimeOptions {
+            provider: self.provider,
+            provider_id: self.provider_id,
+            agent_id: self.agent,
+            model: self.model,
+            api_base_url: self.api_base_url,
+            api_key_env: self.api_key_env,
+            max_output_tokens: self.max_output_tokens,
+            temperature: self.temperature,
+            input_cost_per_million: self.input_cost_per_million,
+            output_cost_per_million: self.output_cost_per_million,
+            max_tool_calls: self.max_tool_calls,
+            max_tokens_before_compaction: self.max_tokens_before_compaction,
+            max_compaction_output_tokens: self.max_compaction_output_tokens,
+            compaction_guidance: self.compaction_guidance,
+            allowed_tool_categories: self.allowed_tool_categories,
+            allowed_skill_categories: self.allowed_skill_categories,
+            tool_visibility: self.tool_visibility.map(VisibilityLevel::from),
+            skill_visibility: self.skill_visibility.map(VisibilityLevel::from),
+            enable_shell: self.enable_shell,
+            enable_subagent: self.enable_subagent,
+            enable_capability_drafts: self.enable_capability_drafts,
+            load_memory: self.load_memory,
+            memory_topics: self.memory_topics,
+            load_skills: self.load_skills,
+            conversation_id: self.conversation,
+            include_compact: self.include_compact,
+            include_ingest: self.include_ingest,
+            allow_unsafe_ingest: self.allow_unsafe_ingest,
+            enable_prompt_refinement: self.refine_prompt,
+            prompt_refinement_instructions: self.refinement_instructions,
+            prompt_refinement_model: self.refinement_model,
+            require_approval: self.require_approval,
+            auto_approve: self.auto_approve,
+            raw_tool_output: self.raw_tool_output,
+        }
+    }
+}
+
+fn explicit_item_keys(item_keys: Vec<String>) -> Option<Vec<String>> {
+    if item_keys.is_empty() {
+        None
+    } else {
+        Some(item_keys)
+    }
+}
+
 #[derive(Subcommand)]
 enum BatchCommand {
+    /// List persisted batch plans.
+    List {
+        /// Emit JSON summary.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show a persisted batch plan.
+    Show {
+        batch_id: String,
+
+        /// Emit JSON plan.
+        #[arg(long)]
+        json: bool,
+    },
     /// Run one deterministic agent step per item.
     Run {
         /// Batch item input. Repeat for multiple items.
-        #[arg(long = "item", required = true)]
+        #[arg(long = "item")]
         items: Vec<String>,
+
+        /// Explicit batch item key. Repeat once per --item to override hash(input) resume keys.
+        #[arg(long = "item-key")]
+        item_keys: Vec<String>,
+
+        /// UTF-8 text file to run as a batch item. Repeat for multiple files; file paths become item keys.
+        #[arg(long = "file")]
+        files: Vec<String>,
+
+        /// Folder of UTF-8 text files to run as batch items. Repeat for multiple folders; file paths become item keys.
+        #[arg(long = "folder")]
+        folders: Vec<String>,
 
         /// Demo mode for each child run.
         #[arg(long, value_enum, default_value_t = Demo::Echo)]
@@ -1712,6 +2033,10 @@ enum BatchCommand {
         /// Emit JSON summary.
         #[arg(long)]
         json: bool,
+
+        /// Runtime options applied to each child run.
+        #[command(flatten)]
+        runtime: BatchRuntimeArgs,
     },
     /// Resume a persisted batch, skipping succeeded item keys.
     Resume {
@@ -1722,6 +2047,18 @@ enum BatchCommand {
         demo: Demo,
 
         /// Emit JSON summary.
+        #[arg(long)]
+        json: bool,
+
+        /// Runtime options applied to each retried child run.
+        #[command(flatten)]
+        runtime: BatchRuntimeArgs,
+    },
+    /// Delete a persisted batch plan. Historical run traces are preserved.
+    Delete {
+        batch_id: String,
+
+        /// Emit JSON metadata.
         #[arg(long)]
         json: bool,
     },
@@ -2061,6 +2398,10 @@ enum ConversationCommand {
         #[arg(long)]
         memory_first: bool,
 
+        /// Guidance for --memory-first.
+        #[arg(long)]
+        memory_guidance: Option<String>,
+
         /// Store --memory-first output in user.md instead of memory.md.
         #[arg(long)]
         memory_user: bool,
@@ -2099,6 +2440,10 @@ enum ConversationCommand {
         /// Generate memory from each deleted conversation before deleting and keep it.
         #[arg(long)]
         memory_first: bool,
+
+        /// Guidance for --memory-first.
+        #[arg(long)]
+        memory_guidance: Option<String>,
 
         /// Store --memory-first output in user.md instead of memory.md.
         #[arg(long)]
@@ -2509,7 +2854,7 @@ enum RemoteCommand {
     Resume {
         run_id: String,
 
-        #[arg(long)]
+        #[arg(long, value_parser = parse_positive_event_id)]
         from_event: Option<u64>,
 
         #[arg(long, value_enum, default_value_t = Demo::Echo)]
@@ -2519,7 +2864,7 @@ enum RemoteCommand {
     ResumeStart {
         run_id: String,
 
-        #[arg(long)]
+        #[arg(long, value_parser = parse_positive_event_id)]
         from_event: Option<u64>,
 
         #[arg(long, value_enum, default_value_t = Demo::Echo)]
@@ -2529,7 +2874,7 @@ enum RemoteCommand {
     ResumePlan {
         run_id: String,
 
-        #[arg(long)]
+        #[arg(long, value_parser = parse_positive_event_id)]
         from_event: Option<u64>,
     },
     /// Score a remote run output or step.
@@ -2548,6 +2893,11 @@ enum RemoteCommand {
         /// Apply the daemon cache prune plan. Without this flag, pruning is a dry run.
         #[arg(long)]
         apply: bool,
+    },
+    /// Remote messaging bridge readiness and configuration checks.
+    Bridges {
+        #[command(subcommand)]
+        command: RemoteBridgeCommand,
     },
     /// Remote messaging bridge delivery dead-letter operations.
     BridgeDeliveries {
@@ -2576,8 +2926,19 @@ enum RemoteCommand {
     },
     /// Show daemon trace events.
     Trace { run_id: String },
+    /// List recent daemon trace runs.
+    TraceList {
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
     /// Show daemon trace summary counters.
     TraceSummary { run_id: String },
+    /// Print the original prompt from a daemon trace.
+    TracePrompt {
+        run_id: String,
+        #[arg(long)]
+        json: bool,
+    },
     /// Show daemon child-run trace tree.
     TraceTree {
         run_id: String,
@@ -2746,20 +3107,48 @@ enum RemoteApprovalCommand {
 }
 
 #[derive(Subcommand)]
+enum RemoteBridgeCommand {
+    /// Show daemon messaging bridge readiness without secret values.
+    Status,
+}
+
+#[derive(Subcommand)]
 enum RemoteBridgeDeliveryCommand {
     /// List failed outbound bridge deliveries.
     List,
     /// Retry one failed outbound bridge delivery by id.
     Retry { id: String },
+    /// Delete one failed outbound bridge delivery without retrying it.
+    Delete {
+        id: String,
+        #[arg(long)]
+        confirm: bool,
+    },
     /// Retry all failed outbound bridge deliveries up to the daemon batch limit.
     RetryAll,
 }
 
 #[derive(Subcommand)]
 enum RemoteBatchCommand {
+    List,
+    Show {
+        batch_id: String,
+    },
     Run {
-        #[arg(long = "item", required = true)]
+        #[arg(long = "item")]
         items: Vec<String>,
+
+        /// Explicit remote batch item key. Repeat once per --item to override hash(input) resume keys.
+        #[arg(long = "item-key")]
+        item_keys: Vec<String>,
+
+        /// UTF-8 text file on the daemon host to run as a batch item.
+        #[arg(long = "file")]
+        files: Vec<String>,
+
+        /// Folder of UTF-8 text files on the daemon host to run as batch items.
+        #[arg(long = "folder")]
+        folders: Vec<String>,
 
         #[arg(long, default_value = "echo")]
         demo: String,
@@ -2769,6 +3158,9 @@ enum RemoteBatchCommand {
 
         #[arg(long, default_value = "echo")]
         demo: String,
+    },
+    Delete {
+        batch_id: String,
     },
 }
 
@@ -2899,6 +3291,11 @@ enum RemoteMemoryCommand {
         topics: Vec<String>,
     },
     Backends,
+    Probe {
+        backend: Option<String>,
+        #[arg(long = "topic")]
+        topics: Vec<String>,
+    },
     Create {
         content: String,
         #[arg(long)]
@@ -2918,6 +3315,9 @@ enum RemoteMemoryCommand {
         agent: Option<String>,
         #[arg(long = "topic")]
         topics: Vec<String>,
+
+        #[arg(long)]
+        guidance: Option<String>,
     },
     GenerateConversation {
         id: String,
@@ -2931,6 +3331,9 @@ enum RemoteMemoryCommand {
         agent: Option<String>,
         #[arg(long = "topic")]
         topics: Vec<String>,
+
+        #[arg(long)]
+        guidance: Option<String>,
     },
     GeneratePending {
         #[arg(long)]
@@ -2939,6 +3342,9 @@ enum RemoteMemoryCommand {
         limit: Option<usize>,
         #[arg(long = "topic")]
         topics: Vec<String>,
+
+        #[arg(long)]
+        guidance: Option<String>,
     },
     Classify {
         id: String,
@@ -2966,6 +3372,8 @@ enum RemoteMemoryCommand {
         path: String,
         #[arg(long)]
         user: bool,
+        #[arg(long)]
+        agent: Option<String>,
     },
     Import {
         path: String,
@@ -3112,6 +3520,17 @@ enum RemotePromptCommand {
     },
     Show {
         name: String,
+        #[arg(long)]
+        agent: Option<String>,
+    },
+    Export {
+        name: String,
+        path: String,
+        #[arg(long)]
+        agent: Option<String>,
+    },
+    Import {
+        path: String,
         #[arg(long)]
         agent: Option<String>,
     },
@@ -3322,6 +3741,13 @@ enum RemoteIngestCommand {
         #[arg(long)]
         model: String,
     },
+    ProbeSource {
+        path: String,
+
+        /// Optional saved model id to check for PDF/image attachment support.
+        #[arg(long)]
+        vision_model: Option<String>,
+    },
     Add {
         path: String,
 
@@ -3378,9 +3804,34 @@ enum RemoteIngestCommand {
 #[derive(Subcommand)]
 enum RemoteArtifactCommand {
     List,
-    Show { id: String },
-    Open { id: String },
-    Delete { id: String },
+    Generate {
+        format: String,
+        #[arg(long)]
+        title: Option<String>,
+        #[arg(long)]
+        content: Option<String>,
+        #[arg(long = "rows-json")]
+        rows_json: Option<String>,
+        #[arg(long)]
+        filename: Option<String>,
+    },
+    Show {
+        id: String,
+    },
+    Open {
+        id: String,
+    },
+    Export {
+        id: String,
+        path: String,
+    },
+    Download {
+        id: String,
+        path: Option<String>,
+    },
+    Delete {
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -3595,6 +4046,14 @@ mod cli_parse_tests {
 
     #[test]
     fn remote_bridge_delivery_commands_parse() {
+        let cli = parse_cli(["agent", "remote", "bridges", "status"]).unwrap();
+        let RemoteCommand::Bridges {
+            command: RemoteBridgeCommand::Status,
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote bridge status command");
+        };
+
         let cli = parse_cli(["agent", "remote", "bridge-deliveries", "list"]).unwrap();
         let RemoteCommand::BridgeDeliveries {
             command: RemoteBridgeDeliveryCommand::List,
@@ -3618,6 +4077,24 @@ mod cli_parse_tests {
             panic!("expected remote bridge delivery retry command");
         };
         assert_eq!(id, "bridge-delivery-1");
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "bridge-deliveries",
+            "delete",
+            "bridge-delivery-1",
+            "--confirm",
+        ])
+        .unwrap();
+        let RemoteCommand::BridgeDeliveries {
+            command: RemoteBridgeDeliveryCommand::Delete { id, confirm },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote bridge delivery delete command");
+        };
+        assert_eq!(id, "bridge-delivery-1");
+        assert!(confirm);
 
         let cli = parse_cli(["agent", "remote", "bridge-deliveries", "retry-all"]).unwrap();
         let RemoteCommand::BridgeDeliveries {
@@ -3738,6 +4215,22 @@ mod cli_parse_tests {
 
     #[test]
     fn trace_scores_command_parses() {
+        let cli = parse_cli(["agent", "trace", "list", "--limit", "5", "--json"]).unwrap();
+        let Command::Trace {
+            command: TraceCommand::List { limit, json },
+        } = into_command(cli)
+        else {
+            panic!("expected trace list command");
+        };
+        assert_eq!(limit, 5);
+        assert!(json);
+
+        let cli = parse_cli(["agent", "remote", "trace-list", "--limit", "7"]).unwrap();
+        let RemoteCommand::TraceList { limit } = into_remote_command(cli) else {
+            panic!("expected remote trace-list command");
+        };
+        assert_eq!(limit, 7);
+
         let cli = parse_cli([
             "agent",
             "trace",
@@ -3757,6 +4250,48 @@ mod cli_parse_tests {
 
         let cli = parse_cli([
             "agent",
+            "trace",
+            "prompt",
+            "00000000-0000-0000-0000-000000000000",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Trace {
+            command: TraceCommand::Prompt { run_id, json },
+        } = into_command(cli)
+        else {
+            panic!("expected trace prompt command");
+        };
+        assert_eq!(run_id, "00000000-0000-0000-0000-000000000000");
+        assert!(json);
+
+        let cli = parse_cli([
+            "agent",
+            "memory",
+            "probe",
+            "local-jsonl-v0",
+            "--topic",
+            "finance",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Memory {
+            command:
+                MemoryCommand::Probe {
+                    backend,
+                    topics,
+                    json,
+                },
+        } = into_command(cli)
+        else {
+            panic!("expected memory probe command");
+        };
+        assert_eq!(backend.as_deref(), Some("local-jsonl-v0"));
+        assert_eq!(topics, vec!["finance"]);
+        assert!(json);
+
+        let cli = parse_cli([
+            "agent",
             "remote",
             "trace-scores",
             "00000000-0000-0000-0000-000000000000",
@@ -3766,6 +4301,20 @@ mod cli_parse_tests {
             panic!("expected remote trace scores command");
         };
         assert_eq!(run_id, "00000000-0000-0000-0000-000000000000");
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "trace-prompt",
+            "00000000-0000-0000-0000-000000000000",
+            "--json",
+        ])
+        .unwrap();
+        let RemoteCommand::TracePrompt { run_id, json } = into_remote_command(cli) else {
+            panic!("expected remote trace prompt command");
+        };
+        assert_eq!(run_id, "00000000-0000-0000-0000-000000000000");
+        assert!(json);
     }
 
     #[test]
@@ -4797,6 +5346,390 @@ mod cli_parse_tests {
     }
 
     #[test]
+    fn batch_commands_parse_runtime_options() {
+        let cli = parse_cli([
+            "agent",
+            "batch",
+            "run",
+            "--item",
+            "one",
+            "--item-key",
+            "key-one",
+            "--item",
+            "two",
+            "--item-key",
+            "key-two",
+            "--agent",
+            "critic",
+            "--provider-id",
+            "local-openai",
+            "--model",
+            "qwen3.5",
+            "--api-base-url",
+            "http://127.0.0.1:11434/v1",
+            "--api-key-env",
+            "LOCAL_KEY",
+            "--max-output-tokens",
+            "256",
+            "--temperature",
+            "0.2",
+            "--input-cost-per-million",
+            "0.1",
+            "--output-cost-per-million",
+            "0.2",
+            "--max-tool-calls",
+            "4",
+            "--max-tokens-before-compaction",
+            "1000",
+            "--max-compaction-output-tokens",
+            "200",
+            "--compaction-guidance",
+            "keep facts",
+            "--allow-tool-category",
+            "fs",
+            "--allow-skill-category",
+            "docs",
+            "--tool-visibility",
+            "name-only",
+            "--skill-visibility",
+            "name-and-description",
+            "--enable-shell",
+            "--enable-subagent",
+            "--enable-capability-drafts",
+            "--load-memory",
+            "--memory-topic",
+            "work",
+            "--load-skills",
+            "--conversation",
+            "conv-1",
+            "--include-compact",
+            "compact-1",
+            "--include-ingest",
+            "ingest-1",
+            "--allow-unsafe-ingest",
+            "--refine-prompt",
+            "--refinement-instructions",
+            "clean it up",
+            "--refinement-model",
+            "small",
+            "--require-approval",
+            "--raw-tool-output",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Batch {
+            command:
+                BatchCommand::Run {
+                    items,
+                    item_keys,
+                    files,
+                    folders,
+                    demo,
+                    json,
+                    runtime,
+                },
+        } = into_command(cli)
+        else {
+            panic!("expected batch run command");
+        };
+        assert_eq!(items, vec!["one".to_string(), "two".to_string()]);
+        assert_eq!(
+            explicit_item_keys(item_keys),
+            Some(vec!["key-one".to_string(), "key-two".to_string()])
+        );
+        assert!(files.is_empty());
+        assert!(folders.is_empty());
+        assert!(matches!(demo, Demo::Echo));
+        assert!(json);
+
+        let options = runtime.into_runtime_options();
+        assert_eq!(options.agent_id.as_deref(), Some("critic"));
+        assert!(matches!(options.provider, Provider::Fake));
+        assert_eq!(options.provider_id.as_deref(), Some("local-openai"));
+        assert_eq!(options.model.as_deref(), Some("qwen3.5"));
+        assert_eq!(
+            options.api_base_url.as_deref(),
+            Some("http://127.0.0.1:11434/v1")
+        );
+        assert_eq!(options.api_key_env, "LOCAL_KEY");
+        assert_eq!(options.max_output_tokens, Some(256));
+        assert_eq!(options.temperature, Some(0.2));
+        assert_eq!(options.input_cost_per_million, Some(0.1));
+        assert_eq!(options.output_cost_per_million, Some(0.2));
+        assert_eq!(options.max_tool_calls, Some(4));
+        assert_eq!(options.max_tokens_before_compaction, Some(1000));
+        assert_eq!(options.max_compaction_output_tokens, Some(200));
+        assert_eq!(options.compaction_guidance.as_deref(), Some("keep facts"));
+        assert_eq!(options.allowed_tool_categories, vec!["fs".to_string()]);
+        assert_eq!(options.allowed_skill_categories, vec!["docs".to_string()]);
+        assert_eq!(options.tool_visibility, Some(VisibilityLevel::NameOnly));
+        assert_eq!(
+            options.skill_visibility,
+            Some(VisibilityLevel::NameAndDescription)
+        );
+        assert!(options.enable_shell);
+        assert!(options.enable_subagent);
+        assert!(options.enable_capability_drafts);
+        assert!(options.load_memory);
+        assert_eq!(options.memory_topics, vec!["work".to_string()]);
+        assert!(options.load_skills);
+        assert_eq!(options.conversation_id.as_deref(), Some("conv-1"));
+        assert_eq!(options.include_compact.as_deref(), Some("compact-1"));
+        assert_eq!(options.include_ingest, vec!["ingest-1".to_string()]);
+        assert!(options.allow_unsafe_ingest);
+        assert!(options.enable_prompt_refinement);
+        assert_eq!(
+            options.prompt_refinement_instructions.as_deref(),
+            Some("clean it up")
+        );
+        assert_eq!(options.prompt_refinement_model.as_deref(), Some("small"));
+        assert!(options.require_approval);
+        assert!(!options.auto_approve);
+        assert!(options.raw_tool_output);
+
+        let cli = parse_cli([
+            "agent",
+            "batch",
+            "resume",
+            "batch-1",
+            "--provider",
+            "anthropic",
+            "--auto-approve",
+        ])
+        .unwrap();
+        let Command::Batch {
+            command:
+                BatchCommand::Resume {
+                    batch_id,
+                    demo,
+                    json,
+                    runtime,
+                },
+        } = into_command(cli)
+        else {
+            panic!("expected batch resume command");
+        };
+        assert_eq!(batch_id, "batch-1");
+        assert!(matches!(demo, Demo::Echo));
+        assert!(!json);
+        let options = runtime.into_runtime_options();
+        assert!(matches!(options.provider, Provider::Anthropic));
+        assert!(options.auto_approve);
+        assert!(!options.require_approval);
+    }
+
+    #[test]
+    fn batch_management_commands_parse() {
+        let cli = parse_cli(["agent", "batch", "list", "--json"]).unwrap();
+        let Command::Batch {
+            command: BatchCommand::List { json },
+        } = into_command(cli)
+        else {
+            panic!("expected batch list command");
+        };
+        assert!(json);
+
+        let cli = parse_cli(["agent", "batch", "show", "batch-1", "--json"]).unwrap();
+        let Command::Batch {
+            command: BatchCommand::Show { batch_id, json },
+        } = into_command(cli)
+        else {
+            panic!("expected batch show command");
+        };
+        assert_eq!(batch_id, "batch-1");
+        assert!(json);
+
+        let cli = parse_cli(["agent", "batch", "delete", "batch-1", "--json"]).unwrap();
+        let Command::Batch {
+            command: BatchCommand::Delete { batch_id, json },
+        } = into_command(cli)
+        else {
+            panic!("expected batch delete command");
+        };
+        assert_eq!(batch_id, "batch-1");
+        assert!(json);
+    }
+
+    #[test]
+    fn batch_run_accepts_file_sources_without_prompt_items() {
+        let cli = parse_cli(["agent", "batch", "run", "--file", "/tmp/a.txt", "--json"]).unwrap();
+        let Command::Batch {
+            command:
+                BatchCommand::Run {
+                    items,
+                    item_keys,
+                    files,
+                    folders,
+                    json,
+                    ..
+                },
+        } = into_command(cli)
+        else {
+            panic!("expected batch run command");
+        };
+        assert!(items.is_empty());
+        assert!(item_keys.is_empty());
+        assert_eq!(files, vec!["/tmp/a.txt".to_string()]);
+        assert!(folders.is_empty());
+        assert!(json);
+    }
+
+    #[test]
+    fn batch_run_accepts_folder_sources_without_prompt_items() {
+        let cli = parse_cli([
+            "agent",
+            "batch",
+            "run",
+            "--folder",
+            "/tmp/batch-dir",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Batch {
+            command:
+                BatchCommand::Run {
+                    items,
+                    item_keys,
+                    files,
+                    folders,
+                    json,
+                    ..
+                },
+        } = into_command(cli)
+        else {
+            panic!("expected batch run command");
+        };
+        assert!(items.is_empty());
+        assert!(item_keys.is_empty());
+        assert!(files.is_empty());
+        assert_eq!(folders, vec!["/tmp/batch-dir".to_string()]);
+        assert!(json);
+    }
+
+    #[test]
+    fn remote_batch_run_parses_item_keys() {
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "batch",
+            "run",
+            "--item",
+            "one",
+            "--item-key",
+            "file-one",
+            "--item",
+            "two",
+            "--item-key",
+            "file-two",
+        ])
+        .unwrap();
+        let RemoteCommand::Batch {
+            command:
+                RemoteBatchCommand::Run {
+                    items,
+                    item_keys,
+                    files,
+                    folders,
+                    demo,
+                },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote batch run command");
+        };
+        assert_eq!(items, vec!["one".to_string(), "two".to_string()]);
+        assert_eq!(
+            explicit_item_keys(item_keys),
+            Some(vec!["file-one".to_string(), "file-two".to_string()])
+        );
+        assert!(files.is_empty());
+        assert!(folders.is_empty());
+        assert_eq!(demo, "echo");
+    }
+
+    #[test]
+    fn remote_batch_management_commands_parse() {
+        let cli = parse_cli(["agent", "remote", "batch", "list"]).unwrap();
+        let RemoteCommand::Batch {
+            command: RemoteBatchCommand::List,
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote batch list command");
+        };
+
+        let cli = parse_cli(["agent", "remote", "batch", "show", "batch-1"]).unwrap();
+        let RemoteCommand::Batch {
+            command: RemoteBatchCommand::Show { batch_id },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote batch show command");
+        };
+        assert_eq!(batch_id, "batch-1");
+
+        let cli = parse_cli(["agent", "remote", "batch", "delete", "batch-1"]).unwrap();
+        let RemoteCommand::Batch {
+            command: RemoteBatchCommand::Delete { batch_id },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote batch delete command");
+        };
+        assert_eq!(batch_id, "batch-1");
+    }
+
+    #[test]
+    fn remote_batch_run_accepts_file_sources() {
+        let cli = parse_cli(["agent", "remote", "batch", "run", "--file", "/tmp/a.txt"]).unwrap();
+        let RemoteCommand::Batch {
+            command:
+                RemoteBatchCommand::Run {
+                    items,
+                    item_keys,
+                    files,
+                    folders,
+                    demo,
+                },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote batch run command");
+        };
+        assert!(items.is_empty());
+        assert!(item_keys.is_empty());
+        assert_eq!(files, vec!["/tmp/a.txt".to_string()]);
+        assert!(folders.is_empty());
+        assert_eq!(demo, "echo");
+    }
+
+    #[test]
+    fn remote_batch_run_accepts_folder_sources() {
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "batch",
+            "run",
+            "--folder",
+            "/tmp/batch-dir",
+        ])
+        .unwrap();
+        let RemoteCommand::Batch {
+            command:
+                RemoteBatchCommand::Run {
+                    items,
+                    item_keys,
+                    files,
+                    folders,
+                    demo,
+                },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote batch run command");
+        };
+        assert!(items.is_empty());
+        assert!(item_keys.is_empty());
+        assert!(files.is_empty());
+        assert_eq!(folders, vec!["/tmp/batch-dir".to_string()]);
+        assert_eq!(demo, "echo");
+    }
+
+    #[test]
     fn remote_run_events_accepts_after_cursor() {
         let cli = parse_cli([
             "agent",
@@ -5447,6 +6380,7 @@ mod cli_parse_tests {
         assert_eq!(parsed_id, run_id);
         assert_eq!(from_event, Some(7));
         assert!(json);
+        assert!(parse_cli(["agent", "resume", run_id, "--from-event", "0"]).is_err());
 
         let cli = parse_cli([
             "agent",
@@ -5468,6 +6402,7 @@ mod cli_parse_tests {
         assert_eq!(parsed_id, run_id);
         assert_eq!(from_event, Some(8));
         assert!(json);
+        assert!(parse_cli(["agent", "resume-plan", run_id, "--from-event", "0"]).is_err());
 
         let cli = parse_cli([
             "agent",
@@ -5490,6 +6425,19 @@ mod cli_parse_tests {
         };
         assert_eq!(parsed_id, run_id);
         assert_eq!(from_event, Some(3));
+        assert!(
+            parse_cli([
+                "agent",
+                "remote",
+                "--url",
+                "http://127.0.0.1:7878",
+                "resume",
+                run_id,
+                "--from-event",
+                "0",
+            ])
+            .is_err()
+        );
 
         let cli = parse_cli(["agent", "remote", "cancel", run_id, "--mode", "discard"]).unwrap();
         let RemoteCommand::Cancel {
@@ -5522,6 +6470,17 @@ mod cli_parse_tests {
         };
         assert_eq!(parsed_id, run_id);
         assert_eq!(from_event, Some(4));
+        assert!(
+            parse_cli([
+                "agent",
+                "remote",
+                "resume-start",
+                run_id,
+                "--from-event",
+                "0",
+            ])
+            .is_err()
+        );
 
         let cli = parse_cli([
             "agent",
@@ -5541,6 +6500,17 @@ mod cli_parse_tests {
         };
         assert_eq!(parsed_id, run_id);
         assert_eq!(from_event, Some(5));
+        assert!(
+            parse_cli([
+                "agent",
+                "remote",
+                "resume-plan",
+                run_id,
+                "--from-event",
+                "0",
+            ])
+            .is_err()
+        );
     }
 
     #[test]
@@ -5606,6 +6576,26 @@ mod cli_parse_tests {
         assert_eq!(text, "Review carefully.");
         assert_eq!(agent.as_deref(), Some("critic"));
 
+        let cli = parse_cli([
+            "agent",
+            "prompt",
+            "export",
+            "daily",
+            "/tmp/daily.prompt.json",
+            "--agent",
+            "critic",
+        ])
+        .unwrap();
+        let Command::Prompt {
+            command: PromptCommand::Export { name, path, agent },
+        } = into_command(cli)
+        else {
+            panic!("expected prompt export command");
+        };
+        assert_eq!(name, "daily");
+        assert_eq!(path, "/tmp/daily.prompt.json");
+        assert_eq!(agent.as_deref(), Some("critic"));
+
         let cli = parse_cli(["agent", "remote", "prompt", "list", "--agent", "critic"]).unwrap();
         let RemoteCommand::Prompt {
             command: RemotePromptCommand::List { agent },
@@ -5614,6 +6604,25 @@ mod cli_parse_tests {
             panic!("expected remote prompt list command");
         };
         assert_eq!(agent.as_deref(), Some("critic"));
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "prompt",
+            "import",
+            "/tmp/daily.prompt.json",
+            "--agent",
+            "builder",
+        ])
+        .unwrap();
+        let RemoteCommand::Prompt {
+            command: RemotePromptCommand::Import { path, agent },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote prompt import command");
+        };
+        assert_eq!(path, "/tmp/daily.prompt.json");
+        assert_eq!(agent.as_deref(), Some("builder"));
     }
 
     #[test]
@@ -5633,17 +6642,26 @@ mod cli_parse_tests {
             "export",
             "./memory.md",
             "--user",
+            "--agent",
+            "critic",
             "--json",
         ])
         .unwrap();
         let Command::Memory {
-            command: MemoryCommand::Export { path, user, json },
+            command:
+                MemoryCommand::Export {
+                    path,
+                    user,
+                    agent,
+                    json,
+                },
         } = into_command(cli)
         else {
             panic!("expected memory export command");
         };
         assert_eq!(path, "./memory.md");
         assert!(user);
+        assert_eq!(agent.as_deref(), Some("critic"));
         assert!(json);
 
         let cli = parse_cli([
@@ -5747,6 +6765,26 @@ mod cli_parse_tests {
         assert!(user);
         assert_eq!(agent.as_deref(), Some("critic"));
 
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "memory",
+            "export",
+            "./memory.md",
+            "--agent",
+            "critic",
+        ])
+        .unwrap();
+        let RemoteCommand::Memory {
+            command: RemoteMemoryCommand::Export { path, user, agent },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote memory export command");
+        };
+        assert_eq!(path, "./memory.md");
+        assert!(!user);
+        assert_eq!(agent.as_deref(), Some("critic"));
+
         let cli = parse_cli(["agent", "remote", "memory", "backends"]).unwrap();
         let RemoteCommand::Memory {
             command: RemoteMemoryCommand::Backends,
@@ -5754,6 +6792,25 @@ mod cli_parse_tests {
         else {
             panic!("expected remote memory backends command");
         };
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "memory",
+            "probe",
+            "external-command-v0",
+            "--topic",
+            "team",
+        ])
+        .unwrap();
+        let RemoteCommand::Memory {
+            command: RemoteMemoryCommand::Probe { backend, topics },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote memory probe command");
+        };
+        assert_eq!(backend.as_deref(), Some("external-command-v0"));
+        assert_eq!(topics, vec!["team"]);
 
         let cli = parse_cli([
             "agent", "remote", "memory", "access", "--topic", "finance", "--topic", "ops",
@@ -5787,6 +6844,7 @@ mod cli_parse_tests {
                     user,
                     limit,
                     topics,
+                    guidance,
                 },
         } = into_remote_command(cli)
         else {
@@ -5795,6 +6853,7 @@ mod cli_parse_tests {
         assert!(user);
         assert_eq!(limit, Some(3));
         assert_eq!(topics, vec!["finance", "ops"]);
+        assert!(guidance.is_none());
 
         let cli = parse_cli([
             "agent",
@@ -5888,6 +6947,31 @@ mod cli_parse_tests {
         let cli = parse_cli([
             "agent",
             "ingest",
+            "probe-source",
+            "scan.pdf",
+            "--vision-model",
+            "gpt-4o",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Ingest {
+            command:
+                IngestCommand::ProbeSource {
+                    path,
+                    vision_model,
+                    json,
+                },
+        } = into_command(cli)
+        else {
+            panic!("expected ingest probe-source command");
+        };
+        assert_eq!(path, "scan.pdf");
+        assert_eq!(vision_model.as_deref(), Some("gpt-4o"));
+        assert!(json);
+
+        let cli = parse_cli([
+            "agent",
+            "ingest",
             "add",
             "doc.md",
             "--backend",
@@ -5964,6 +7048,25 @@ mod cli_parse_tests {
 
         let cli = parse_cli([
             "agent",
+            "remote",
+            "ingest",
+            "probe-source",
+            "scan.pdf",
+            "--vision-model",
+            "gpt-4o",
+        ])
+        .unwrap();
+        let RemoteCommand::Ingest {
+            command: RemoteIngestCommand::ProbeSource { path, vision_model },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote ingest probe-source command");
+        };
+        assert_eq!(path, "scan.pdf");
+        assert_eq!(vision_model.as_deref(), Some("gpt-4o"));
+
+        let cli = parse_cli([
+            "agent",
             "ingest",
             "review",
             "ingest-local-v0-abc",
@@ -6003,6 +7106,41 @@ mod cli_parse_tests {
 
     #[test]
     fn artifact_commands_parse() {
+        let cli = parse_cli([
+            "agent",
+            "artifact",
+            "generate",
+            "pdf",
+            "--title",
+            "Report",
+            "--content",
+            "Hello",
+            "--filename",
+            "report",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Artifact {
+            command:
+                ArtifactCommand::Generate {
+                    format,
+                    title,
+                    content,
+                    rows_json,
+                    filename,
+                    json,
+                },
+        } = into_command(cli)
+        else {
+            panic!("expected artifact generate command");
+        };
+        assert_eq!(format, "pdf");
+        assert_eq!(title.as_deref(), Some("Report"));
+        assert_eq!(content.as_deref(), Some("Hello"));
+        assert_eq!(rows_json, None);
+        assert_eq!(filename.as_deref(), Some("report"));
+        assert!(json);
+
         let cli = parse_cli(["agent", "artifact", "open", "report.pdf", "--json"]).unwrap();
         let Command::Artifact {
             command: ArtifactCommand::Open { id, json },
@@ -6013,6 +7151,84 @@ mod cli_parse_tests {
         assert_eq!(id, "report.pdf");
         assert!(json);
 
+        let cli = parse_cli([
+            "agent",
+            "artifact",
+            "export",
+            "report.pdf",
+            "/tmp/report.pdf",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Artifact {
+            command: ArtifactCommand::Export { id, path, json },
+        } = into_command(cli)
+        else {
+            panic!("expected artifact export command");
+        };
+        assert_eq!(id, "report.pdf");
+        assert_eq!(path, "/tmp/report.pdf");
+        assert!(json);
+
+        let cli = parse_cli(["agent", "artifact", "download", "report.pdf"]).unwrap();
+        let Command::Artifact {
+            command: ArtifactCommand::Download { id, path, json },
+        } = into_command(cli)
+        else {
+            panic!("expected artifact download command");
+        };
+        assert_eq!(id, "report.pdf");
+        assert_eq!(path, None);
+        assert!(!json);
+
+        let cli = parse_cli([
+            "agent",
+            "artifact",
+            "download",
+            "report.pdf",
+            "/tmp/report.pdf",
+            "--json",
+        ])
+        .unwrap();
+        let Command::Artifact {
+            command: ArtifactCommand::Download { id, path, json },
+        } = into_command(cli)
+        else {
+            panic!("expected artifact download command with path");
+        };
+        assert_eq!(id, "report.pdf");
+        assert_eq!(path.as_deref(), Some("/tmp/report.pdf"));
+        assert!(json);
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "artifact",
+            "generate",
+            "xlsx",
+            "--rows-json",
+            "[[\"name\"],[\"Ada\"]]",
+        ])
+        .unwrap();
+        let RemoteCommand::Artifact {
+            command:
+                RemoteArtifactCommand::Generate {
+                    format,
+                    title,
+                    content,
+                    rows_json,
+                    filename,
+                },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote artifact generate command");
+        };
+        assert_eq!(format, "xlsx");
+        assert_eq!(title, None);
+        assert_eq!(content, None);
+        assert_eq!(rows_json.as_deref(), Some("[[\"name\"],[\"Ada\"]]"));
+        assert_eq!(filename, None);
+
         let cli = parse_cli(["agent", "remote", "artifact", "show", "report.pdf"]).unwrap();
         let RemoteCommand::Artifact {
             command: RemoteArtifactCommand::Show { id },
@@ -6021,6 +7237,52 @@ mod cli_parse_tests {
             panic!("expected remote artifact show command");
         };
         assert_eq!(id, "report.pdf");
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "artifact",
+            "export",
+            "report.pdf",
+            "/tmp/report.pdf",
+        ])
+        .unwrap();
+        let RemoteCommand::Artifact {
+            command: RemoteArtifactCommand::Export { id, path },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote artifact export command");
+        };
+        assert_eq!(id, "report.pdf");
+        assert_eq!(path, "/tmp/report.pdf");
+
+        let cli = parse_cli(["agent", "remote", "artifact", "download", "report.pdf"]).unwrap();
+        let RemoteCommand::Artifact {
+            command: RemoteArtifactCommand::Download { id, path },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote artifact download command");
+        };
+        assert_eq!(id, "report.pdf");
+        assert_eq!(path, None);
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "artifact",
+            "download",
+            "report.pdf",
+            "/tmp/report.pdf",
+        ])
+        .unwrap();
+        let RemoteCommand::Artifact {
+            command: RemoteArtifactCommand::Download { id, path },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote artifact download command with path");
+        };
+        assert_eq!(id, "report.pdf");
+        assert_eq!(path.as_deref(), Some("/tmp/report.pdf"));
     }
 
     #[test]
@@ -6326,11 +7588,17 @@ async fn main() -> anyhow::Result<()> {
                 },
         } => headless::call_tool(name, input, json, require_approval, auto_approve).await,
         Command::Trace {
+            command: TraceCommand::List { limit, json },
+        } => headless::trace_list(limit, json).await,
+        Command::Trace {
             command: TraceCommand::Show { run_id, json },
         } => headless::trace_show(run_id, json).await,
         Command::Trace {
             command: TraceCommand::Summary { run_id, json },
         } => headless::trace_summary(run_id, json).await,
+        Command::Trace {
+            command: TraceCommand::Prompt { run_id, json },
+        } => headless::trace_prompt(run_id, json).await,
         Command::Trace {
             command: TraceCommand::Tree { run_id, json },
         } => headless::trace_tree(run_id, json).await,
@@ -6511,12 +7779,43 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         Command::Batch { command } => match command {
-            BatchCommand::Run { items, demo, json } => headless::batch_run(items, demo, json).await,
+            BatchCommand::List { json } => headless::batch_list(json).await,
+            BatchCommand::Show { batch_id, json } => headless::batch_show(batch_id, json).await,
+            BatchCommand::Run {
+                items,
+                item_keys,
+                files,
+                folders,
+                demo,
+                json,
+                runtime,
+            } => {
+                headless::batch_run_with_options(
+                    items,
+                    explicit_item_keys(item_keys),
+                    files,
+                    folders,
+                    demo,
+                    json,
+                    runtime.into_runtime_options(),
+                )
+                .await
+            }
             BatchCommand::Resume {
                 batch_id,
                 demo,
                 json,
-            } => headless::batch_resume(batch_id, demo, json).await,
+                runtime,
+            } => {
+                headless::batch_resume_with_options(
+                    batch_id,
+                    demo,
+                    json,
+                    runtime.into_runtime_options(),
+                )
+                .await
+            }
+            BatchCommand::Delete { batch_id, json } => headless::batch_delete(batch_id, json).await,
         },
         Command::Compact { command } => match command {
             CompactCommand::Create {
@@ -6661,6 +7960,7 @@ async fn main() -> anyhow::Result<()> {
                 compact_guidance,
                 compact_max_output_tokens,
                 memory_first,
+                memory_guidance,
                 memory_user,
             } => {
                 let options = headless::ConversationDeleteOptions {
@@ -6669,6 +7969,7 @@ async fn main() -> anyhow::Result<()> {
                     compact_guidance,
                     compact_max_output_tokens,
                     memory_first,
+                    memory_guidance,
                     memory_user,
                 };
                 headless::conversation_delete(id, options).await
@@ -6683,6 +7984,7 @@ async fn main() -> anyhow::Result<()> {
                 compact_guidance,
                 compact_max_output_tokens,
                 memory_first,
+                memory_guidance,
                 memory_user,
             } => {
                 let options = headless::ConversationDeleteOptions {
@@ -6691,6 +7993,7 @@ async fn main() -> anyhow::Result<()> {
                     compact_guidance,
                     compact_max_output_tokens,
                     memory_first,
+                    memory_guidance,
                     memory_user,
                 };
                 headless::conversation_delete_agent(agent, options).await
@@ -6711,7 +8014,11 @@ async fn main() -> anyhow::Result<()> {
                 conversation,
                 agent,
                 topics,
-            } => headless::memory_generate(text, user, range, conversation, agent, topics).await,
+                guidance,
+            } => {
+                headless::memory_generate(text, user, range, conversation, agent, topics, guidance)
+                    .await
+            }
             MemoryCommand::GenerateConversation {
                 id,
                 from,
@@ -6719,10 +8026,19 @@ async fn main() -> anyhow::Result<()> {
                 user,
                 agent,
                 topics,
-            } => headless::memory_generate_conversation(id, from, to, user, agent, topics).await,
+                guidance,
+            } => {
+                headless::memory_generate_conversation(id, from, to, user, agent, topics, guidance)
+                    .await
+            }
             MemoryCommand::List { json } => headless::memory_list(json).await,
             MemoryCommand::Access { topics, json } => headless::memory_access(topics, json).await,
             MemoryCommand::Backends { json } => headless::memory_backends(json).await,
+            MemoryCommand::Probe {
+                backend,
+                topics,
+                json,
+            } => headless::memory_backend_probe(backend, topics, json).await,
             MemoryCommand::Classify {
                 id,
                 model,
@@ -6732,9 +8048,12 @@ async fn main() -> anyhow::Result<()> {
             MemoryCommand::Edit { id, content } => headless::memory_edit(id, content).await,
             MemoryCommand::Delete { id } => headless::memory_delete(id).await,
             MemoryCommand::Rollback { user } => headless::memory_rollback(user).await,
-            MemoryCommand::Export { path, user, json } => {
-                headless::memory_export(path, user, json).await
-            }
+            MemoryCommand::Export {
+                path,
+                user,
+                agent,
+                json,
+            } => headless::memory_export(path, user, agent, json).await,
             MemoryCommand::Import {
                 path,
                 user,
@@ -6763,6 +8082,10 @@ async fn main() -> anyhow::Result<()> {
             PromptCommand::Show { name, json, agent } => {
                 headless::prompt_show(name, json, agent).await
             }
+            PromptCommand::Export { name, path, agent } => {
+                headless::prompt_export(name, path, agent).await
+            }
+            PromptCommand::Import { path, agent } => headless::prompt_import(path, agent).await,
             PromptCommand::Delete { name, agent } => headless::prompt_delete(name, agent).await,
         },
         Command::Agent { command } => match command {
@@ -6959,6 +8282,11 @@ async fn main() -> anyhow::Result<()> {
             IngestCommand::ProbeVision { path, model, json } => {
                 headless::ingest_probe_vision(path, model, json).await
             }
+            IngestCommand::ProbeSource {
+                path,
+                vision_model,
+                json,
+            } => headless::ingest_probe_source(path, vision_model, json).await,
             IngestCommand::Add {
                 path,
                 backend,
@@ -6983,8 +8311,24 @@ async fn main() -> anyhow::Result<()> {
         },
         Command::Artifact { command } => match command {
             ArtifactCommand::List { json } => headless::artifact_list(json).await,
+            ArtifactCommand::Generate {
+                format,
+                title,
+                content,
+                rows_json,
+                filename,
+                json,
+            } => {
+                headless::artifact_generate(format, title, content, rows_json, filename, json).await
+            }
             ArtifactCommand::Show { id, json } => headless::artifact_show(id, json).await,
             ArtifactCommand::Open { id, json } => headless::artifact_open(id, json).await,
+            ArtifactCommand::Export { id, path, json } => {
+                headless::artifact_export(id, path, json).await
+            }
+            ArtifactCommand::Download { id, path, json } => {
+                headless::artifact_download(id, path, json).await
+            }
             ArtifactCommand::Delete { id, json } => headless::artifact_delete(id, json).await,
         },
         Command::Adapter { command } => match command {
@@ -7264,6 +8608,9 @@ async fn main() -> anyhow::Result<()> {
                 prune_cache_days,
                 apply,
             } => headless::remote_storage_report(url, prune_cache_days, apply).await,
+            RemoteCommand::Bridges { command } => match command {
+                RemoteBridgeCommand::Status => headless::remote_bridge_status(url).await,
+            },
             RemoteCommand::BridgeDeliveries { command } => match command {
                 RemoteBridgeDeliveryCommand::List => {
                     headless::remote_bridge_delivery_list(url).await
@@ -7271,16 +8618,40 @@ async fn main() -> anyhow::Result<()> {
                 RemoteBridgeDeliveryCommand::Retry { id } => {
                     headless::remote_bridge_delivery_retry(url, id).await
                 }
+                RemoteBridgeDeliveryCommand::Delete { id, confirm } => {
+                    headless::remote_bridge_delivery_delete(url, id, confirm).await
+                }
                 RemoteBridgeDeliveryCommand::RetryAll => {
                     headless::remote_bridge_delivery_retry_all(url).await
                 }
             },
             RemoteCommand::Batch { command } => match command {
-                RemoteBatchCommand::Run { items, demo } => {
-                    headless::remote_batch_run(url, items, demo).await
+                RemoteBatchCommand::List => headless::remote_batch_list(url).await,
+                RemoteBatchCommand::Show { batch_id } => {
+                    headless::remote_batch_show(url, batch_id).await
+                }
+                RemoteBatchCommand::Run {
+                    items,
+                    item_keys,
+                    files,
+                    folders,
+                    demo,
+                } => {
+                    headless::remote_batch_run(
+                        url,
+                        items,
+                        explicit_item_keys(item_keys),
+                        files,
+                        folders,
+                        demo,
+                    )
+                    .await
                 }
                 RemoteBatchCommand::Resume { batch_id, demo } => {
                     headless::remote_batch_resume(url, batch_id, demo).await
+                }
+                RemoteBatchCommand::Delete { batch_id } => {
+                    headless::remote_batch_delete(url, batch_id).await
                 }
             },
             RemoteCommand::Tool {
@@ -7289,9 +8660,13 @@ async fn main() -> anyhow::Result<()> {
                 require_approval,
                 auto_approve,
             } => headless::remote_tool(url, name, input, require_approval, auto_approve).await,
+            RemoteCommand::TraceList { limit } => headless::remote_trace_list(url, limit).await,
             RemoteCommand::Trace { run_id } => headless::remote_trace(url, run_id).await,
             RemoteCommand::TraceSummary { run_id } => {
                 headless::remote_trace_summary(url, run_id).await
+            }
+            RemoteCommand::TracePrompt { run_id, json } => {
+                headless::remote_trace_prompt(url, run_id, json).await
             }
             RemoteCommand::TraceTree { run_id, json } => {
                 headless::remote_trace_tree(url, run_id, json).await
@@ -7496,6 +8871,9 @@ async fn main() -> anyhow::Result<()> {
                     headless::remote_memory_access(url, topics).await
                 }
                 RemoteMemoryCommand::Backends => headless::remote_memory_backends(url).await,
+                RemoteMemoryCommand::Probe { backend, topics } => {
+                    headless::remote_memory_backend_probe(url, backend, topics).await
+                }
                 RemoteMemoryCommand::Create {
                     content,
                     user,
@@ -7508,7 +8886,13 @@ async fn main() -> anyhow::Result<()> {
                     range,
                     agent,
                     topics,
-                } => headless::remote_memory_generate(url, text, user, range, agent, topics).await,
+                    guidance,
+                } => {
+                    headless::remote_memory_generate(
+                        url, text, user, range, agent, topics, guidance,
+                    )
+                    .await
+                }
                 RemoteMemoryCommand::GenerateConversation {
                     id,
                     from,
@@ -7516,9 +8900,10 @@ async fn main() -> anyhow::Result<()> {
                     user,
                     agent,
                     topics,
+                    guidance,
                 } => {
                     headless::remote_memory_generate_conversation(
-                        url, id, from, to, user, agent, topics,
+                        url, id, from, to, user, agent, topics, guidance,
                     )
                     .await
                 }
@@ -7526,7 +8911,11 @@ async fn main() -> anyhow::Result<()> {
                     user,
                     limit,
                     topics,
-                } => headless::remote_memory_generate_pending(url, user, limit, topics).await,
+                    guidance,
+                } => {
+                    headless::remote_memory_generate_pending(url, user, limit, topics, guidance)
+                        .await
+                }
                 RemoteMemoryCommand::Classify {
                     id,
                     model,
@@ -7540,8 +8929,8 @@ async fn main() -> anyhow::Result<()> {
                 RemoteMemoryCommand::Rollback { user } => {
                     headless::remote_memory_rollback(url, user).await
                 }
-                RemoteMemoryCommand::Export { path, user } => {
-                    headless::remote_memory_export(url, path, user).await
+                RemoteMemoryCommand::Export { path, user, agent } => {
+                    headless::remote_memory_export(url, path, user, agent).await
                 }
                 RemoteMemoryCommand::Import { path, user, agent } => {
                     headless::remote_memory_import(url, path, user, agent).await
@@ -7646,6 +9035,12 @@ async fn main() -> anyhow::Result<()> {
                 }
                 RemotePromptCommand::Show { name, agent } => {
                     headless::remote_prompt_show(url, name, agent).await
+                }
+                RemotePromptCommand::Export { name, path, agent } => {
+                    headless::remote_prompt_export(url, name, path, agent).await
+                }
+                RemotePromptCommand::Import { path, agent } => {
+                    headless::remote_prompt_import(url, path, agent).await
                 }
                 RemotePromptCommand::Delete { name, agent } => {
                     headless::remote_prompt_delete(url, name, agent).await
@@ -7836,6 +9231,9 @@ async fn main() -> anyhow::Result<()> {
                 RemoteIngestCommand::ProbeVision { path, model } => {
                     headless::remote_ingest_probe_vision(url, path, model).await
                 }
+                RemoteIngestCommand::ProbeSource { path, vision_model } => {
+                    headless::remote_ingest_probe_source(url, path, vision_model).await
+                }
                 RemoteIngestCommand::Add {
                     path,
                     backend,
@@ -7865,8 +9263,26 @@ async fn main() -> anyhow::Result<()> {
             },
             RemoteCommand::Artifact { command } => match command {
                 RemoteArtifactCommand::List => headless::remote_artifact_list(url).await,
+                RemoteArtifactCommand::Generate {
+                    format,
+                    title,
+                    content,
+                    rows_json,
+                    filename,
+                } => {
+                    headless::remote_artifact_generate(
+                        url, format, title, content, rows_json, filename,
+                    )
+                    .await
+                }
                 RemoteArtifactCommand::Show { id } => headless::remote_artifact_show(url, id).await,
                 RemoteArtifactCommand::Open { id } => headless::remote_artifact_open(url, id).await,
+                RemoteArtifactCommand::Export { id, path } => {
+                    headless::remote_artifact_export(url, id, path).await
+                }
+                RemoteArtifactCommand::Download { id, path } => {
+                    headless::remote_artifact_download(url, id, path).await
+                }
                 RemoteArtifactCommand::Delete { id } => {
                     headless::remote_artifact_delete(url, id).await
                 }

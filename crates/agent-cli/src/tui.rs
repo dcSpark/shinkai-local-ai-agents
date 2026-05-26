@@ -975,7 +975,7 @@ fn global_slash_help_text() -> &'static str {
      - /budget <n> - set the max tool-call budget for future TUI runs\n\
      - /visibility full|descriptions|names|config - set tool visibility for future TUI runs\n\
      - /cost input|output|both|clear|status - set token cost overrides for future TUI runs\n\
-     - /memory on|off|status, /skills on|off|status - toggle runtime memory or skill context loading\n\
+     - /memory on|off|status|preview, /skills on|off|status|preview - toggle or preview runtime memory/skill context loading\n\
      - /preview <prompt> - inspect context before running\n\
      - /guide <text> - steer the active run at the next checkpoint\n\
      - /stop [default|--summarise|--discard] [reason], /stop status - stop or inspect the active run\n\
@@ -1356,7 +1356,7 @@ fn handle_slash_command(
         return true;
     }
     if let Some(rest) = memory_slash_rest(trimmed) {
-        handle_memory_slash(app, rest, agent, line_tx, options);
+        handle_memory_slash(app, rest, registry, agent, line_tx, options);
         return true;
     }
     if let Some(rest) = capabilities_slash_rest(trimmed) {
@@ -1411,7 +1411,7 @@ fn handle_slash_command(
         return true;
     }
     if let Some(rest) = skills_slash_rest(trimmed) {
-        handle_skills_slash(app, rest, agent, options);
+        handle_skills_slash(app, rest, registry, agent, options);
         return true;
     }
     if let Some(rest) = storage_slash_rest(trimmed) {
@@ -3325,6 +3325,7 @@ fn adapters_slash_rest(trimmed: &str) -> Option<&str> {
 fn handle_memory_slash(
     app: &mut App,
     rest: &str,
+    registry: &Arc<ToolRegistry>,
     agent: &mut AgentConfig,
     line_tx: &UnboundedSender<TranscriptLine>,
     options: &mut setup::RuntimeOptions,
@@ -3334,7 +3335,8 @@ fn handle_memory_slash(
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
-                "/memory on|off|status",
+                "/memory on|off|status|preview",
+                "/memory preview [prompt]",
                 "/memory create [--user] [--agent <agent>] [--conversation <id>] [--topic <topic>] <content>",
                 "/memory generate [--user] [--agent <agent>] [--conversation <id>] [--range <range>] [--topic <topic>] <text> [--guidance <text>]",
                 "/memory list",
@@ -3353,7 +3355,8 @@ fn handle_memory_slash(
         });
         return;
     }
-    match rest.to_lowercase().as_str() {
+    let rest_lower = rest.to_lowercase();
+    match rest_lower.as_str() {
         "on" | "enable" | "enabled" => {
             options.load_memory = true;
             refresh_agent_runtime_policy(app, agent, options);
@@ -3387,6 +3390,16 @@ fn handle_memory_slash(
             return;
         }
         _ => {}
+    }
+    if rest_lower == "preview" || rest_lower.starts_with("preview ") {
+        let prompt = rest
+            .get("preview".len()..)
+            .map(str::trim)
+            .unwrap_or_default();
+        options.load_memory = true;
+        refresh_agent_runtime_policy(app, agent, options);
+        push_context_preview(app, registry, agent, prompt);
+        return;
     }
     let (command, args) = rest
         .split_once(char::is_whitespace)
@@ -3754,7 +3767,7 @@ fn handle_memory_slash(
         },
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Memory command needs create, generate, list, access, show, edit, delete, rollback, classify, backends, probe, export, import, or help.".into(),
+            text: "Memory command needs on, off, status, preview, create, generate, list, access, show, edit, delete, rollback, classify, backends, probe, export, import, or help.".into(),
         }),
     }
 }
@@ -7263,6 +7276,7 @@ fn prompt_summary(prompt: &PromptDoc) -> serde_json::Value {
 fn handle_skills_slash(
     app: &mut App,
     rest: &str,
+    registry: &Arc<ToolRegistry>,
     agent: &mut AgentConfig,
     options: &mut setup::RuntimeOptions,
 ) {
@@ -7271,7 +7285,8 @@ fn handle_skills_slash(
         app.transcript.push(TranscriptLine {
             kind: LineKind::Assistant,
             text: [
-                "/skills on|off|status",
+                "/skills on|off|status|preview",
+                "/skills preview [prompt]",
                 "/skills list",
                 "/skills show <id>",
                 "/skills inspect <id>",
@@ -7286,7 +7301,8 @@ fn handle_skills_slash(
         });
         return;
     }
-    match rest.to_lowercase().as_str() {
+    let rest_lower = rest.to_lowercase();
+    match rest_lower.as_str() {
         "on" | "enable" | "enabled" => {
             options.load_skills = true;
             refresh_agent_runtime_policy(app, agent, options);
@@ -7320,6 +7336,16 @@ fn handle_skills_slash(
             return;
         }
         _ => {}
+    }
+    if rest_lower == "preview" || rest_lower.starts_with("preview ") {
+        let prompt = rest
+            .get("preview".len()..)
+            .map(str::trim)
+            .unwrap_or_default();
+        options.load_skills = true;
+        refresh_agent_runtime_policy(app, agent, options);
+        push_context_preview(app, registry, agent, prompt);
+        return;
     }
     let (command, args) = rest
         .split_once(char::is_whitespace)
@@ -7415,7 +7441,7 @@ fn handle_skills_slash(
         "allow" | "quarantine" => handle_skill_review_slash(app, command, args),
         _ => app.transcript.push(TranscriptLine {
             kind: LineKind::Error,
-            text: "Skills command needs list, show, inspect, import-openclaw, import-doc, export, allow, quarantine, or help.".into(),
+            text: "Skills command needs on, off, status, preview, list, show, inspect, import-openclaw, import-doc, export, allow, quarantine, or help.".into(),
         }),
     }
 }
@@ -11751,8 +11777,8 @@ mod tests {
         assert!(global_slash_help_text().contains("/budget <n>"));
         assert!(global_slash_help_text().contains("/visibility full|descriptions|names|config"));
         assert!(global_slash_help_text().contains("/cost input|output|both|clear|status"));
-        assert!(global_slash_help_text().contains("/memory on|off|status"));
-        assert!(global_slash_help_text().contains("/skills on|off|status"));
+        assert!(global_slash_help_text().contains("/memory on|off|status|preview"));
+        assert!(global_slash_help_text().contains("/skills on|off|status|preview"));
         assert!(global_slash_help_text().contains("/batch <line-delimited prompts>"));
         assert_eq!(memory_slash_rest("/memory --help"), Some("--help"));
         assert_eq!(agents_slash_rest("/agents --help"), Some("--help"));
@@ -12015,6 +12041,7 @@ mod tests {
         assert_eq!(conversation_slash_rest("/conversations tree"), Some("tree"));
         assert_eq!(conversation_slash_rest("/conversationx"), None);
         assert_eq!(memory_slash_rest("/memory list"), Some("list"));
+        assert_eq!(memory_slash_rest("/memory preview"), Some("preview"));
         assert_eq!(memory_slash_rest("/memory"), Some(""));
         assert_eq!(memory_slash_rest("/memories"), None);
         assert_eq!(capabilities_slash_rest("/capabilities list"), Some("list"));
@@ -12093,6 +12120,7 @@ mod tests {
         assert_eq!(prompts_slash_rest("/prompt"), Some(""));
         assert_eq!(prompts_slash_rest("/promptx"), None);
         assert_eq!(skills_slash_rest("/skills list"), Some("list"));
+        assert_eq!(skills_slash_rest("/skills preview"), Some("preview"));
         assert_eq!(skills_slash_rest("/skill list"), Some("list"));
         assert_eq!(skills_slash_rest("/skills"), Some(""));
         assert_eq!(skills_slash_rest("/skill"), Some(""));
@@ -12542,8 +12570,8 @@ mod tests {
         assert!(help.contains("/budget <n>"));
         assert!(help.contains("/visibility full|descriptions|names|config"));
         assert!(help.contains("/cost input|output|both|clear|status"));
-        assert!(help.contains("/memory on|off|status"));
-        assert!(help.contains("/skills on|off|status"));
+        assert!(help.contains("/memory on|off|status|preview"));
+        assert!(help.contains("/skills on|off|status|preview"));
         assert!(help.contains("/conversation"));
     }
 
@@ -13135,16 +13163,37 @@ mod tests {
         let mut app = App::default();
         let mut options = setup::RuntimeOptions::default();
         let mut agent = setup::build_agent(&options);
+        let registry = setup::build_registry(
+            options.enable_shell,
+            options.enable_subagent,
+            options.enable_capability_drafts,
+            options.agent_id.as_deref(),
+            options.conversation_id.as_deref(),
+        );
         let (line_tx, _line_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        handle_memory_slash(&mut app, "status", &mut agent, &line_tx, &mut options);
+        handle_memory_slash(
+            &mut app,
+            "status",
+            &registry,
+            &mut agent,
+            &line_tx,
+            &mut options,
+        );
         assert!(
             app.transcript
                 .iter()
                 .any(|line| line.text.contains("Runtime memory loading is disabled."))
         );
 
-        handle_memory_slash(&mut app, "on", &mut agent, &line_tx, &mut options);
+        handle_memory_slash(
+            &mut app,
+            "on",
+            &registry,
+            &mut agent,
+            &line_tx,
+            &mut options,
+        );
         assert!(options.load_memory);
         assert!(
             app.transcript
@@ -13152,7 +13201,14 @@ mod tests {
                 .any(|line| line.text.contains("Runtime memory loading enabled"))
         );
 
-        handle_memory_slash(&mut app, "off", &mut agent, &line_tx, &mut options);
+        handle_memory_slash(
+            &mut app,
+            "off",
+            &registry,
+            &mut agent,
+            &line_tx,
+            &mut options,
+        );
         assert!(!options.load_memory);
         assert!(
             app.transcript
@@ -13160,14 +13216,14 @@ mod tests {
                 .any(|line| line.text.contains("Runtime memory loading disabled"))
         );
 
-        handle_skills_slash(&mut app, "status", &mut agent, &mut options);
+        handle_skills_slash(&mut app, "status", &registry, &mut agent, &mut options);
         assert!(
             app.transcript
                 .iter()
                 .any(|line| line.text.contains("Runtime skill loading is disabled."))
         );
 
-        handle_skills_slash(&mut app, "on", &mut agent, &mut options);
+        handle_skills_slash(&mut app, "on", &registry, &mut agent, &mut options);
         assert!(options.load_skills);
         assert!(
             app.transcript
@@ -13175,12 +13231,62 @@ mod tests {
                 .any(|line| line.text.contains("Runtime skill loading enabled"))
         );
 
-        handle_skills_slash(&mut app, "off", &mut agent, &mut options);
+        handle_skills_slash(&mut app, "off", &registry, &mut agent, &mut options);
         assert!(!options.load_skills);
         assert!(
             app.transcript
                 .iter()
                 .any(|line| line.text.contains("Runtime skill loading disabled"))
+        );
+    }
+
+    #[test]
+    fn memory_and_skill_slash_preview_context_loading() {
+        let _home = HarnessHomeGuard::new();
+        let mut app = App::default();
+        let mut options = setup::RuntimeOptions::default();
+        let mut agent = setup::build_agent(&options);
+        let registry = setup::build_registry(
+            options.enable_shell,
+            options.enable_subagent,
+            options.enable_capability_drafts,
+            options.agent_id.as_deref(),
+            options.conversation_id.as_deref(),
+        );
+        let (line_tx, _line_rx) = tokio::sync::mpsc::unbounded_channel();
+
+        handle_memory_slash(
+            &mut app,
+            "preview memory test",
+            &registry,
+            &mut agent,
+            &line_tx,
+            &mut options,
+        );
+        assert!(options.load_memory);
+        assert!(
+            app.transcript
+                .iter()
+                .any(|line| line.text.contains("Preview:"))
+        );
+        assert!(
+            app.transcript
+                .iter()
+                .any(|line| line.text.contains("memory test"))
+        );
+
+        handle_skills_slash(
+            &mut app,
+            "preview skills test",
+            &registry,
+            &mut agent,
+            &mut options,
+        );
+        assert!(options.load_skills);
+        assert!(
+            app.transcript
+                .iter()
+                .any(|line| line.text.contains("skills test"))
         );
     }
 

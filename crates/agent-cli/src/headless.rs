@@ -13738,12 +13738,21 @@ fn parse_compact_slash_rest(rest: &str) -> anyhow::Result<CompactSlashCommand> {
             Ok(CompactSlashCommand::Rm { id })
         }
         "keep-run" => {
-            let run_id = next_required(&mut parts, "compact keep-run needs last or a run id")?;
+            let mut option_parts = parts.collect::<Vec<_>>();
+            let run_id = if option_parts
+                .first()
+                .is_some_and(|part| !part.starts_with("--"))
+            {
+                option_parts.remove(0).to_string()
+            } else {
+                "last".into()
+            };
             if run_id != "last" {
                 let _ = uuid::Uuid::parse_str(&run_id)?;
             }
             let mut conversation = None;
             let mut guidance = None;
+            let mut parts = option_parts.into_iter();
             while let Some(part) = parts.next() {
                 match part {
                     "--conversation" => {
@@ -16504,6 +16513,18 @@ mod slash_tests {
         match parse_slash_command("/compact keep-run last").unwrap() {
             Some(SlashCommand::Compact(CompactSlashCommand::KeepRun { run_id, .. })) => {
                 assert_eq!(run_id, "last");
+            }
+            _ => panic!("expected compact keep-run shortcut"),
+        }
+        match parse_slash_command("/compactions keep-run --conversation branch-1").unwrap() {
+            Some(SlashCommand::Compact(CompactSlashCommand::KeepRun {
+                run_id,
+                conversation,
+                guidance,
+            })) => {
+                assert_eq!(run_id, "last");
+                assert_eq!(conversation.as_deref(), Some("branch-1"));
+                assert_eq!(guidance, None);
             }
             _ => panic!("expected compact keep-run shortcut"),
         }

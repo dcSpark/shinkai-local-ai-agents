@@ -1557,6 +1557,12 @@ enum ArtifactCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Preview a generated artifact as a scoped data URL payload.
+    Preview {
+        id: String,
+        #[arg(long)]
+        json: bool,
+    },
     /// Open a generated artifact in the OS default app.
     Open {
         id: String,
@@ -7188,6 +7194,16 @@ mod cli_parse_tests {
         assert_eq!(filename.as_deref(), Some("report"));
         assert!(json);
 
+        let cli = parse_cli(["agent", "artifact", "preview", "report.pdf", "--json"]).unwrap();
+        let Command::Artifact {
+            command: ArtifactCommand::Preview { id, json },
+        } = into_command(cli)
+        else {
+            panic!("expected artifact preview command");
+        };
+        assert_eq!(id, "report.pdf");
+        assert!(json);
+
         let cli = parse_cli(["agent", "artifact", "open", "report.pdf", "--json"]).unwrap();
         let Command::Artifact {
             command: ArtifactCommand::Open { id, json },
@@ -8396,6 +8412,7 @@ async fn main() -> anyhow::Result<()> {
                 headless::artifact_generate(format, title, content, rows_json, filename, json).await
             }
             ArtifactCommand::Show { id, json } => headless::artifact_show(id, json).await,
+            ArtifactCommand::Preview { id, json } => headless::artifact_preview(id, json).await,
             ArtifactCommand::Open { id, json } => headless::artifact_open(id, json).await,
             ArtifactCommand::Export { id, path, json } => {
                 headless::artifact_export(id, path, json).await

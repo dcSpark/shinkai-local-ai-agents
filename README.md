@@ -161,8 +161,9 @@ artifacts inline, open cached artifacts in the OS default app, download artifact
 to the current device with `/artifacts download <id>`, and export cached
 artifacts with the Artifacts panel or `/artifacts export <id> <path>`. CLI users
 can copy cached files out of the managed artifact cache with `agent artifact
-export <id> <path>` or `agent artifact download <id> [path]`; TUI/headless slash
-users can use `/artifacts preview <id>` or `/artifacts download <id> [path]`.
+preview <id>`, `agent artifact export <id> <path>`, or `agent artifact download
+<id> [path]`; TUI/headless slash users can use `/artifacts preview <id>` or
+`/artifacts download <id> [path]`.
 Daemon-hosted artifacts can be previewed with `agent remote artifact preview
 <id>`, retrieved with `agent remote artifact export <id> <path>` or `agent
 remote artifact download <id> [path]`, and daemon/web clients can fetch raw

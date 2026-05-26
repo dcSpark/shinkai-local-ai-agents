@@ -97,6 +97,8 @@ init_platform() {
   preflight_platform "$target"
 
   if [[ "$preflight_only" == true ]]; then
+    echo "verifying ${target} mobile packaging preflight"
+    scripts/verify-mobile-packaging.sh --strict --preflight-only "--platform=${target}"
     echo "${target} mobile packaging prerequisites are ready"
     return
   fi

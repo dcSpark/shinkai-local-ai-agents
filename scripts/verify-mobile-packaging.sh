@@ -17,10 +17,12 @@ function fail(message) {
 }
 
 function usage() {
-  console.log(`usage: scripts/verify-mobile-packaging.sh [--strict] [--platform=android|ios]
+  console.log(`usage: scripts/verify-mobile-packaging.sh [--strict] [--preflight-only] [--platform=android|ios]
 
 Verifies native mobile packaging metadata. With --strict, also checks generated
-Tauri mobile projects, platform SDK tools, and installed Rust mobile targets.`);
+Tauri mobile projects, platform SDK tools, and installed Rust mobile targets.
+With --strict --preflight-only, checks platform SDK tools and Rust mobile
+targets without requiring generated Tauri mobile projects.`);
 }
 
 for (const arg of rawArgs) {
@@ -28,7 +30,7 @@ for (const arg of rawArgs) {
     usage();
     process.exit(0);
   }
-  if (arg === "--strict") continue;
+  if (arg === "--strict" || arg === "--preflight-only") continue;
   if (arg.startsWith("--platform=")) {
     if (!arg.slice("--platform=".length).trim()) fail("--platform needs android or ios");
     continue;
@@ -37,6 +39,8 @@ for (const arg of rawArgs) {
 }
 
 const strict = args.has("--strict");
+const preflightOnly = args.has("--preflight-only");
+if (preflightOnly && !strict) fail("--preflight-only requires --strict");
 const platformArg = process.argv
   .slice(2)
   .find((arg) => arg.startsWith("--platform="))
@@ -215,6 +219,10 @@ const initScript = fs.readFileSync("scripts/init-mobile-packaging.sh", "utf8");
 assert(initScript.includes('run tauri -- "$target" init'), "mobile init helper must call Tauri mobile init");
 assert(initScript.includes("preflight_platform"), "mobile init helper must preflight platform prerequisites");
 assert(initScript.includes("--preflight-only"), "mobile init helper must expose a preflight-only mode");
+assert(
+  initScript.includes("--strict --preflight-only"),
+  "mobile init helper must verify strict packaging prerequisites in preflight-only mode",
+);
 assert(initScript.includes("--ci --skip-targets-install"), "mobile init helper must run Tauri init non-interactively after target preflight");
 assert(initScript.includes("init_platform android"), "mobile init helper must initialize Android");
 assert(initScript.includes("init_platform ios"), "mobile init helper must initialize iOS");
@@ -283,14 +291,14 @@ for (const glob of [
 if (strict) {
   if (checkAndroid) {
     const androidProject = "crates/agent-tauri/gen/android";
-    requireGeneratedProject(androidProject, "Android");
+    if (!preflightOnly) requireGeneratedProject(androidProject, "Android");
     requireStrict(process.env.ANDROID_HOME && fs.existsSync(process.env.ANDROID_HOME), "ANDROID_HOME must point at the Android SDK");
     requireStrict(process.env.NDK_HOME && fs.existsSync(process.env.NDK_HOME), "NDK_HOME must point at the Android NDK");
     requireStrict(commandExists("java"), "Java must be installed for Android packaging");
   }
   if (checkIos) {
     const iosProject = "crates/agent-tauri/gen/apple";
-    requireGeneratedProject(iosProject, "iOS");
+    if (!preflightOnly) requireGeneratedProject(iosProject, "iOS");
     requireStrict(commandExists("pod"), "CocoaPods must be installed for iOS packaging");
     requireStrict(commandExists("xcodebuild", ["-version"]), "Xcode must be installed for iOS packaging");
   }
@@ -319,5 +327,11 @@ if (strict) {
   }
 }
 
-console.log(strict ? "native mobile packaging verified" : "native mobile packaging metadata verified");
+console.log(
+  strict
+    ? preflightOnly
+      ? "native mobile packaging prerequisites verified"
+      : "native mobile packaging verified"
+    : "native mobile packaging metadata verified",
+);
 NODE

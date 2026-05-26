@@ -3308,12 +3308,20 @@ enum RemoteBatchCommand {
 
         #[arg(long, default_value = "echo")]
         demo: String,
+
+        /// Runtime options applied by the daemon to each child run.
+        #[command(flatten)]
+        runtime: BatchRuntimeArgs,
     },
     Resume {
         batch_id: String,
 
         #[arg(long, default_value = "echo")]
         demo: String,
+
+        /// Runtime options applied by the daemon to each retried child run.
+        #[command(flatten)]
+        runtime: BatchRuntimeArgs,
     },
     Delete {
         batch_id: String,
@@ -6035,6 +6043,7 @@ mod cli_parse_tests {
                     files,
                     folders,
                     demo,
+                    ..
                 },
         } = into_remote_command(cli)
         else {
@@ -6048,6 +6057,141 @@ mod cli_parse_tests {
         assert!(files.is_empty());
         assert!(folders.is_empty());
         assert_eq!(demo, "echo");
+    }
+
+    #[test]
+    fn remote_batch_run_and_resume_accept_runtime_flags() {
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "batch",
+            "run",
+            "--item",
+            "one",
+            "--agent",
+            "critic",
+            "--provider-id",
+            "local-openai",
+            "--model",
+            "qwen3.5",
+            "--api-base-url",
+            "http://127.0.0.1:11434/v1",
+            "--api-key-env",
+            "LOCAL_KEY",
+            "--max-output-tokens",
+            "256",
+            "--temperature",
+            "0.2",
+            "--input-cost-per-million",
+            "0.1",
+            "--output-cost-per-million",
+            "0.2",
+            "--max-tool-calls",
+            "4",
+            "--max-tokens-before-compaction",
+            "1000",
+            "--max-compaction-output-tokens",
+            "200",
+            "--compaction-guidance",
+            "keep facts",
+            "--allow-tool-category",
+            "fs",
+            "--allow-skill-category",
+            "docs",
+            "--tool-visibility",
+            "name-only",
+            "--skill-visibility",
+            "name-and-description",
+            "--enable-shell",
+            "--enable-subagent",
+            "--enable-capability-drafts",
+            "--load-memory",
+            "--memory-topic",
+            "work",
+            "--load-skills",
+            "--conversation",
+            "conv-1",
+            "--include-compact",
+            "compact-1",
+            "--include-ingest",
+            "ingest-1",
+            "--allow-unsafe-ingest",
+            "--refine-prompt",
+            "--refinement-instructions",
+            "clean it up",
+            "--refinement-model",
+            "small",
+            "--refinement-aware",
+            "--require-approval",
+            "--raw-tool-output",
+        ])
+        .unwrap();
+        let RemoteCommand::Batch {
+            command: RemoteBatchCommand::Run { runtime, .. },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote batch run command");
+        };
+        let options = runtime.into_runtime_options();
+        assert_eq!(options.agent_id.as_deref(), Some("critic"));
+        assert_eq!(options.provider_id.as_deref(), Some("local-openai"));
+        assert_eq!(options.model.as_deref(), Some("qwen3.5"));
+        assert_eq!(options.api_key_env, "LOCAL_KEY");
+        assert_eq!(options.max_output_tokens, Some(256));
+        assert_eq!(options.temperature, Some(0.2));
+        assert_eq!(options.input_cost_per_million, Some(0.1));
+        assert_eq!(options.output_cost_per_million, Some(0.2));
+        assert_eq!(options.max_tool_calls, Some(4));
+        assert_eq!(options.max_tokens_before_compaction, Some(1000));
+        assert_eq!(options.max_compaction_output_tokens, Some(200));
+        assert_eq!(options.compaction_guidance.as_deref(), Some("keep facts"));
+        assert_eq!(options.allowed_tool_categories, vec!["fs".to_string()]);
+        assert_eq!(options.allowed_skill_categories, vec!["docs".to_string()]);
+        assert_eq!(options.tool_visibility, Some(VisibilityLevel::NameOnly));
+        assert_eq!(
+            options.skill_visibility,
+            Some(VisibilityLevel::NameAndDescription)
+        );
+        assert!(options.enable_shell);
+        assert!(options.enable_subagent);
+        assert!(options.enable_capability_drafts);
+        assert!(options.load_memory);
+        assert_eq!(options.memory_topics, vec!["work".to_string()]);
+        assert!(options.load_skills);
+        assert_eq!(options.conversation_id.as_deref(), Some("conv-1"));
+        assert_eq!(options.include_compact.as_deref(), Some("compact-1"));
+        assert_eq!(options.include_ingest, vec!["ingest-1".to_string()]);
+        assert!(options.allow_unsafe_ingest);
+        assert!(options.enable_prompt_refinement);
+        assert_eq!(
+            options.prompt_refinement_instructions.as_deref(),
+            Some("clean it up")
+        );
+        assert_eq!(options.prompt_refinement_model.as_deref(), Some("small"));
+        assert!(options.prompt_refinement_agent_awareness);
+        assert!(options.require_approval);
+        assert!(options.raw_tool_output);
+
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "batch",
+            "resume",
+            "batch-1",
+            "--agent",
+            "critic",
+            "--enable-shell",
+        ])
+        .unwrap();
+        let RemoteCommand::Batch {
+            command: RemoteBatchCommand::Resume { runtime, .. },
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote batch resume command");
+        };
+        let options = runtime.into_runtime_options();
+        assert_eq!(options.agent_id.as_deref(), Some("critic"));
+        assert!(options.enable_shell);
     }
 
     #[test]
@@ -6090,6 +6234,7 @@ mod cli_parse_tests {
                     files,
                     folders,
                     demo,
+                    ..
                 },
         } = into_remote_command(cli)
         else {
@@ -6121,6 +6266,7 @@ mod cli_parse_tests {
                     files,
                     folders,
                     demo,
+                    ..
                 },
         } = into_remote_command(cli)
         else {
@@ -9195,6 +9341,7 @@ async fn main() -> anyhow::Result<()> {
                     files,
                     folders,
                     demo,
+                    runtime,
                 } => {
                     headless::remote_batch_run(
                         url,
@@ -9203,11 +9350,22 @@ async fn main() -> anyhow::Result<()> {
                         files,
                         folders,
                         demo,
+                        runtime.into_runtime_options(),
                     )
                     .await
                 }
-                RemoteBatchCommand::Resume { batch_id, demo } => {
-                    headless::remote_batch_resume(url, batch_id, demo).await
+                RemoteBatchCommand::Resume {
+                    batch_id,
+                    demo,
+                    runtime,
+                } => {
+                    headless::remote_batch_resume(
+                        url,
+                        batch_id,
+                        demo,
+                        runtime.into_runtime_options(),
+                    )
+                    .await
                 }
                 RemoteBatchCommand::Delete { batch_id } => {
                     headless::remote_batch_delete(url, batch_id).await

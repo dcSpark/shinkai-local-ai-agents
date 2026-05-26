@@ -5787,7 +5787,7 @@ export default function App() {
       "/models list",
       "/models show <id>",
       "/models probe <id>",
-      "/models save <id> [json]",
+      "/models save [--top-p <0..1>] [--top-k <n>] [--reasoning-effort <value>] <id> [json]",
       "/models save-current",
       "/models export <id> <path>",
       "/models import <path> --confirm",
@@ -5818,6 +5818,129 @@ export default function App() {
       return null;
     }
     return { path, confirmed };
+  }
+
+  function parseModelSaveShortcut(body: string) {
+    let rest = body.trim();
+    const providerOptions: Record<string, unknown> = {};
+    const seen = new Set<string>();
+    const readFlagValue = (flag: string) => {
+      if (rest === flag || rest.startsWith(`${flag} `)) {
+        const tail = rest.slice(flag.length).trimStart();
+        const splitAt = tail.search(/\s/);
+        const value = splitAt === -1 ? tail : tail.slice(0, splitAt);
+        const next = splitAt === -1 ? "" : tail.slice(splitAt).trimStart();
+        return { value, next };
+      }
+      if (rest.startsWith(`${flag}=`)) {
+        const tail = rest.slice(flag.length + 1);
+        const splitAt = tail.search(/\s/);
+        const value = splitAt === -1 ? tail : tail.slice(0, splitAt);
+        const next = splitAt === -1 ? "" : tail.slice(splitAt).trimStart();
+        return { value, next };
+      }
+      return null;
+    };
+    const setOnce = (key: string) => {
+      if (seen.has(key)) {
+        appendLine("error", `Models save shortcut accepts --${key.replace("_", "-")} once.`);
+        return false;
+      }
+      seen.add(key);
+      return true;
+    };
+
+    while (rest.startsWith("--")) {
+      const topP = readFlagValue("--top-p");
+      if (topP) {
+        if (!setOnce("top_p")) return null;
+        if (!topP.value || topP.value.startsWith("--")) {
+          appendLine("error", "Models save --top-p needs a value.");
+          return null;
+        }
+        const value = Number(topP.value);
+        if (!Number.isFinite(value) || value < 0 || value > 1) {
+          appendLine("error", "Models save --top-p must be a number from 0.0 to 1.0.");
+          return null;
+        }
+        providerOptions.top_p = value;
+        rest = topP.next;
+        continue;
+      }
+      const topK = readFlagValue("--top-k");
+      if (topK) {
+        if (!setOnce("top_k")) return null;
+        if (!topK.value || topK.value.startsWith("--")) {
+          appendLine("error", "Models save --top-k needs a value.");
+          return null;
+        }
+        const value = Number(topK.value);
+        if (!Number.isInteger(value) || value <= 0) {
+          appendLine("error", "Models save --top-k must be a positive integer.");
+          return null;
+        }
+        providerOptions.top_k = value;
+        rest = topK.next;
+        continue;
+      }
+      const effort = readFlagValue("--reasoning-effort");
+      if (effort) {
+        if (!setOnce("reasoning_effort")) return null;
+        const value = effort.value.trim();
+        if (!value || value.startsWith("--")) {
+          appendLine("error", "Models save --reasoning-effort needs a value.");
+          return null;
+        }
+        providerOptions.reasoning_effort = value;
+        rest = effort.next;
+        continue;
+      }
+      const flag = rest.split(/\s+/, 1)[0] || rest;
+      appendLine("error", `Unknown models save option: ${flag}.`);
+      return null;
+    }
+
+    const splitAt = rest.search(/\s/);
+    const id = splitAt === -1 ? rest : rest.slice(0, splitAt).trim();
+    const inputText = splitAt === -1 ? "" : rest.slice(splitAt).trim();
+    if (!id) {
+      appendLine("error", "Models save shortcut needs a model id.");
+      return null;
+    }
+    const input = parseJsonObject("Model save", inputText);
+    if (!input) return null;
+    if (Object.keys(providerOptions).length) {
+      const metadata = input.metadata;
+      if (
+        metadata !== undefined &&
+        (!metadata || typeof metadata !== "object" || Array.isArray(metadata))
+      ) {
+        appendLine(
+          "error",
+          "Model save metadata must be a JSON object when provider-option flags are used.",
+        );
+        return null;
+      }
+      const metadataDoc = {
+        ...((metadata as Record<string, unknown> | undefined) ?? {}),
+      };
+      const existingOptions = metadataDoc.provider_options;
+      if (
+        existingOptions !== undefined &&
+        (!existingOptions ||
+          typeof existingOptions !== "object" ||
+          Array.isArray(existingOptions))
+      ) {
+        appendLine("error", "Model save metadata.provider_options must be a JSON object.");
+        return null;
+      }
+      metadataDoc.provider_options = {
+        ...((existingOptions as Record<string, unknown> | undefined) ?? {}),
+        ...providerOptions,
+      };
+      input.metadata = metadataDoc;
+    }
+    return { id, input };
   }
 
   function parseModelDeleteShortcut(args: string[]) {
@@ -9001,16 +9124,9 @@ export default function App() {
         }
       } else if (modelPrompt.startsWith("/models save ")) {
         const body = modelPrompt.slice("/models save ".length).trim();
-        const splitAt = body.search(/\s/);
-        const id = splitAt === -1 ? body : body.slice(0, splitAt).trim();
-        const inputText = splitAt === -1 ? "" : body.slice(splitAt).trim();
-        if (!id) {
-          appendLine("error", "Models save shortcut needs a model id.");
-        } else {
-          const input = parseJsonObject("Model save", inputText);
-          if (input) {
-            await saveModel(id, input);
-          }
+        const parsed = parseModelSaveShortcut(body);
+        if (parsed) {
+          await saveModel(parsed.id, parsed.input);
         }
       } else if (modelPrompt === "/models save-current") {
         await saveCurrentModelFromControls();

@@ -15734,6 +15734,55 @@ export default function App() {
     });
   }
 
+  function storageReportSummary(report: StorageReport) {
+    const existingBuckets = report.buckets.filter((bucket) => bucket.exists);
+    const largestBucket = existingBuckets.reduce<StorageBucket | null>(
+      (largest, bucket) =>
+        largest === null || bucket.bytes > largest.bytes ? bucket : largest,
+      null,
+    );
+    const quotaBytes = report.quota_bytes ?? null;
+    const quotaUsedPercent =
+      quotaBytes !== null && quotaBytes > 0
+        ? (report.total_bytes / quotaBytes) * 100
+        : null;
+    return {
+      cacheBucket: report.buckets.find((bucket) => bucket.name === "cache") ?? null,
+      largestBucket,
+      missingBuckets: report.buckets.filter((bucket) => !bucket.exists),
+      quotaUsedPercent,
+    };
+  }
+
+  function storageQuotaStatus(report: StorageReport) {
+    const quotaBytes = report.quota_bytes ?? null;
+    if (quotaBytes === null) {
+      return "quota not configured";
+    }
+    if (quotaBytes <= 0) {
+      return "quota 0 B configured";
+    }
+    const remaining = report.quota_remaining_bytes ?? quotaBytes - report.total_bytes;
+    const status = report.quota_exceeded ? "over quota" : "remaining";
+    return `${status} ${formatBytes(Math.abs(remaining))} of ${formatBytes(quotaBytes)}`;
+  }
+
+  function storagePruneSummary(result: StorageRetentionResult) {
+    const candidateCount = result.plan.candidates.length;
+    const shownCount = Math.min(candidateCount, 8);
+    const hiddenCount = Math.max(candidateCount - shownCount, 0);
+    const action = result.dry_run ? "would remove" : "deleted";
+    const actionCount = result.dry_run ? candidateCount : result.deleted_files;
+    const actionBytes = result.dry_run ? result.plan.total_bytes : result.deleted_bytes;
+    return [
+      `${actionCount} cache files ${action} ${formatBytes(actionBytes)}`,
+      `retention ${result.plan.retention_days} days`,
+      hiddenCount ? `showing ${shownCount}, ${hiddenCount} more` : null,
+    ]
+      .filter(Boolean)
+      .join(" / ");
+  }
+
   function formatCost(cost: number | null) {
     return cost === null ? "n/a" : `$${cost.toFixed(6)}`;
   }
@@ -15990,6 +16039,16 @@ export default function App() {
       unitIndex += 1;
     }
     return `${value.toFixed(value >= 10 ? 1 : 2)} ${units[unitIndex]}`;
+  }
+
+  function formatPercent(value: number) {
+    if (!Number.isFinite(value)) {
+      return "n/a";
+    }
+    if (value >= 100 || value === 0) {
+      return `${value.toFixed(0)}%`;
+    }
+    return `${value.toFixed(value >= 10 ? 1 : 2)}%`;
   }
 
   function estimatedPreviewInputCost(snapshot: ContextSnapshot) {
@@ -22490,6 +22549,42 @@ export default function App() {
               </div>
               {storageReport ? (
                 <div className="storage-report">
+                  {(() => {
+                    const summary = storageReportSummary(storageReport);
+                    return (
+                      <div className="bundle-card">
+                        <div className="bundle-card-head">
+                          <strong>Storage summary</strong>
+                          <span>{storageReport.total_files} files</span>
+                        </div>
+                        <span title={storageReport.root}>{storageReport.root}</span>
+                        <span>
+                          {summary.quotaUsedPercent !== null
+                            ? `quota ${formatPercent(summary.quotaUsedPercent)} used / `
+                            : ""}
+                          {storageQuotaStatus(storageReport)}
+                        </span>
+                        <span>
+                          cache{" "}
+                          {summary.cacheBucket
+                            ? formatBytes(summary.cacheBucket.bytes)
+                            : "missing"}{" "}
+                          / largest bucket{" "}
+                          {summary.largestBucket
+                            ? `${summary.largestBucket.name} ${formatBytes(summary.largestBucket.bytes)}`
+                            : "none"}
+                        </span>
+                        <span>
+                          missing buckets{" "}
+                          {summary.missingBuckets.length
+                            ? summary.missingBuckets
+                                .map((bucket) => bucket.name)
+                                .join(", ")
+                            : "none"}
+                        </span>
+                      </div>
+                    );
+                  })()}
                   <div className="storage-total">
                     <strong>{formatBytes(storageReport.total_bytes)}</strong>
                     <span>
@@ -22552,6 +22647,18 @@ export default function App() {
               ) : null}
               {storagePruneResult ? (
                 <div className="storage-report">
+                  <div className="bundle-card">
+                    <div className="bundle-card-head">
+                      <strong>
+                        Cache prune {storagePruneResult.dry_run ? "plan" : "result"}
+                      </strong>
+                      <span>{storagePruneResult.plan.retention_days} days</span>
+                    </div>
+                    <span>{storagePruneSummary(storagePruneResult)}</span>
+                    <span title={storagePruneResult.plan.root}>
+                      {storagePruneResult.plan.root}
+                    </span>
+                  </div>
                   <div className="storage-total">
                     <strong>
                       {storagePruneResult.dry_run ? "plan" : "applied"}

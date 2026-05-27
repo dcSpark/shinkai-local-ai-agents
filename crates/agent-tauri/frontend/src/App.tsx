@@ -64,6 +64,7 @@ import type {
   StopRetentionMode,
   TraceRunRecord,
   TraceTreeNode,
+  ToolView,
   ToolVisibility,
 } from "./types";
 
@@ -655,6 +656,7 @@ export default function App() {
   const [traceCompareRunId, setTraceCompareRunId] = useState("");
   const [hookPolicy, setHookPolicy] = useState<HookPolicyRecord | null>(null);
   const [hookCatalog, setHookCatalog] = useState<HookCatalogRecord[]>([]);
+  const [visibleTools, setVisibleTools] = useState<ToolView[] | null>(null);
   const [storageReport, setStorageReport] = useState<StorageReport | null>(null);
   const [storagePruneResult, setStoragePruneResult] =
     useState<StorageRetentionResult | null>(null);
@@ -11079,8 +11081,9 @@ export default function App() {
     try {
       const tools =
         transport === "daemon"
-          ? await daemonJson<unknown>("/explain-tools", runtimeOptions())
-          : await invoke<unknown>("explain_tools", { options: runtimeOptions() });
+          ? await daemonJson<ToolView[]>("/explain-tools", runtimeOptions())
+          : await invoke<ToolView[]>("explain_tools", { options: runtimeOptions() });
+      setVisibleTools(tools);
       appendJson("Visible tools", tools);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -16969,6 +16972,30 @@ export default function App() {
     ];
   }
 
+  function visibleToolCatalogSummary(tools: ToolView[]) {
+    const categories = Array.from(
+      new Set(tools.flatMap((tool) => tool.categories)),
+    ).sort();
+    return {
+      categories,
+      codeTools: tools.filter((tool) =>
+        ["code_python", "code_typescript"].includes(tool.id),
+      ).length,
+      paymentTools: tools.filter(
+        (tool) =>
+          tool.id.startsWith("payment_") ||
+          tool.categories.includes("payment") ||
+          tool.categories.includes("wallet"),
+      ).length,
+      shellTools: tools.filter(
+        (tool) => tool.id === "shell" || tool.categories.includes("shell"),
+      ).length,
+      rawOutputTools: tools.filter((tool) => tool.output_mode === "raw").length,
+      guidedOutputTools: tools.filter((tool) => tool.output_interpretation_guidance)
+        .length,
+    };
+  }
+
   function sectionClass(section: ActiveSection) {
     return activeSection === section ? "rail-item active" : "rail-item";
   }
@@ -22064,7 +22091,76 @@ export default function App() {
                 >
                   Call Tool
                 </button>
+                <button
+                  type="button"
+                  title="Load the visible tool catalog for the current runtime policy."
+                  onClick={() => void explainCurrentTools()}
+                  disabled={running}
+                >
+                  List Tools
+                </button>
               </div>
+              {visibleTools ? (
+                <>
+                  {(() => {
+                    const summary = visibleToolCatalogSummary(visibleTools);
+                    return (
+                      <div className="bundle-card">
+                        <div className="bundle-card-head">
+                          <strong>Visible tools</strong>
+                          <span>{visibleTools.length}</span>
+                        </div>
+                        <span>
+                          code {summary.codeTools} / payment {summary.paymentTools} / shell{" "}
+                          {summary.shellTools}
+                        </span>
+                        <span>
+                          raw output {summary.rawOutputTools} / guided output{" "}
+                          {summary.guidedOutputTools}
+                        </span>
+                        <span>
+                          categories{" "}
+                          {summary.categories.length
+                            ? summary.categories.join(", ")
+                            : "none"}
+                        </span>
+                      </div>
+                    );
+                  })()}
+                  {visibleTools.length ? (
+                    <div className="context-cards">
+                      {visibleTools.map((tool) => (
+                        <div className="context-card compact" key={tool.id}>
+                          <strong>{tool.name || tool.id}</strong>
+                          <span>{tool.id}</span>
+                          <span>
+                            {tool.visibility} / output {tool.output_mode}
+                          </span>
+                          {tool.categories.length ? (
+                            <span>categories {tool.categories.join(", ")}</span>
+                          ) : null}
+                          {tool.provenance ? <span>{tool.provenance}</span> : null}
+                          {tool.description ? (
+                            <p>{previewText(tool.description, 180)}</p>
+                          ) : null}
+                          <div className="mini-actions">
+                            <button
+                              type="button"
+                              title="Stage this tool in Id and Value for a direct manual call."
+                              onClick={() => void stageToolFromPreview(tool)}
+                              disabled={running}
+                            >
+                              Use Tool
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="empty-note">No visible tools loaded.</div>
+                  )}
+                </>
+              ) : null}
             </div>
             ) : null}
 

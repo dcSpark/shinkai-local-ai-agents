@@ -14241,6 +14241,28 @@ export default function App() {
     appendEvent(`Loaded saved model ${doc.id} into model controls.`);
   }
 
+  function applyProviderDescriptorToControls(descriptor: ModelProviderDescriptor) {
+    setProvider(descriptor.id);
+    setModel(descriptor.default_model);
+    setApiBaseUrl(descriptor.api_base_url ?? "");
+    setApiKeyEnv(descriptor.api_key_env ?? defaultApiKeyEnvForProvider(descriptor.id));
+    setModelSupportsImage(descriptor.available_modalities.includes("image"));
+    setModelModalities(descriptor.available_modalities.join(", "));
+    setModelToolSupport(
+      descriptor.tool_support == null
+        ? ""
+        : descriptor.tool_support
+          ? "true"
+          : "false",
+    );
+    setProviderTopP("");
+    setProviderTopK("");
+    setProviderReasoningEffort("");
+    setProviderFrequencyPenalty("");
+    setProviderPresencePenalty("");
+    appendEvent(`Applied provider ${descriptor.id} defaults to model controls.`);
+  }
+
   function modelProviderOptionControlValue(value: JsonValue | undefined) {
     if (typeof value === "string") {
       return value;
@@ -20271,6 +20293,72 @@ export default function App() {
                   No saved models loaded. List models, or save the current controls.
                 </div>
               )}
+              {modelProviderDescriptors.length ? (
+                <div className="ingestion-review">
+                  {modelProviderDescriptors.map((descriptor) => {
+                    const runtimeOptions = descriptor.option_schema
+                      .filter((option) => option.target === "runtime")
+                      .map((option) => option.key)
+                      .sort();
+                    const providerOptions = descriptor.option_schema
+                      .filter((option) => option.target === "provider_options")
+                      .map((option) => option.key)
+                      .sort();
+                    return (
+                      <div className="ingestion-card" key={descriptor.id}>
+                        <div className="ingestion-card-head">
+                          <strong>{descriptor.name}</strong>
+                          <span>{descriptor.id}</span>
+                        </div>
+                        <span>default model {descriptor.default_model}</span>
+                        {descriptor.api_base_url ? (
+                          <span>{descriptor.api_base_url}</span>
+                        ) : null}
+                        <span>
+                          {descriptor.local
+                            ? "local provider"
+                            : descriptor.native
+                              ? "native provider"
+                              : "remote provider"}
+                        </span>
+                        {descriptor.available_modalities.length ? (
+                          <span>
+                            modalities {descriptor.available_modalities.join(", ")}
+                          </span>
+                        ) : null}
+                        {descriptor.reasoning_modes.length ? (
+                          <span>
+                            reasoning modes {descriptor.reasoning_modes.join(", ")}
+                          </span>
+                        ) : null}
+                        {descriptor.tool_support != null ? (
+                          <span>
+                            tool calls{" "}
+                            {descriptor.tool_support ? "supported" : "not supported"}
+                          </span>
+                        ) : null}
+                        {runtimeOptions.length ? (
+                          <span>runtime options {runtimeOptions.join(", ")}</span>
+                        ) : null}
+                        {providerOptions.length ? (
+                          <span>provider options {providerOptions.join(", ")}</span>
+                        ) : null}
+                        {descriptor.notes ? <p>{descriptor.notes}</p> : null}
+                        <div className="mini-actions">
+                          <button
+                            type="button"
+                            title="Apply this provider descriptor to the model controls."
+                            onClick={() => applyProviderDescriptorToControls(descriptor)}
+                            disabled={running}
+                          >
+                            Use
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
             </div>
             ) : null}
 

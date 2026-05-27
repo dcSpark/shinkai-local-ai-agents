@@ -2574,6 +2574,14 @@ enum RemoteCommand {
         #[arg(long, default_value = "OPENAI_API_KEY")]
         api_key_env: String,
 
+        /// Optional daemon max output tokens for model providers.
+        #[arg(long)]
+        max_output_tokens: Option<u64>,
+
+        /// Optional daemon temperature for model providers.
+        #[arg(long)]
+        temperature: Option<f64>,
+
         /// Estimated input-token price in USD per 1M tokens.
         #[arg(long)]
         input_cost_per_million: Option<f64>,
@@ -2713,6 +2721,14 @@ enum RemoteCommand {
         /// Environment variable containing the API key in the daemon process.
         #[arg(long, default_value = "OPENAI_API_KEY")]
         api_key_env: String,
+
+        /// Optional daemon max output tokens for model providers.
+        #[arg(long)]
+        max_output_tokens: Option<u64>,
+
+        /// Optional daemon temperature for model providers.
+        #[arg(long)]
+        temperature: Option<f64>,
 
         /// Estimated input-token price in USD per 1M tokens.
         #[arg(long)]
@@ -5362,6 +5378,10 @@ mod cli_parse_tests {
             "hello",
             "--provider-id",
             "custom-openai",
+            "--max-output-tokens",
+            "96",
+            "--temperature",
+            "0.2",
             "--allow-tool-category",
             "mcp",
             "--allow-skill-category",
@@ -5394,6 +5414,8 @@ mod cli_parse_tests {
             refinement_model,
             refinement_aware,
             provider_id,
+            max_output_tokens,
+            temperature,
             ..
         } = into_remote_command(cli)
         else {
@@ -5410,6 +5432,34 @@ mod cli_parse_tests {
         assert_eq!(refinement_model.as_deref(), Some("fake-refiner"));
         assert!(refinement_aware);
         assert_eq!(provider_id.as_deref(), Some("custom-openai"));
+        assert_eq!(max_output_tokens, Some(96));
+        assert_eq!(temperature, Some(0.2));
+    }
+
+    #[test]
+    fn remote_run_start_accepts_generation_limits() {
+        let cli = parse_cli([
+            "agent",
+            "remote",
+            "run-start",
+            "--input",
+            "hello",
+            "--max-output-tokens",
+            "128",
+            "--temperature",
+            "0.3",
+        ])
+        .unwrap();
+        let RemoteCommand::RunStart {
+            max_output_tokens,
+            temperature,
+            ..
+        } = into_remote_command(cli)
+        else {
+            panic!("expected remote run-start command");
+        };
+        assert_eq!(max_output_tokens, Some(128));
+        assert_eq!(temperature, Some(0.3));
     }
 
     #[test]
@@ -9114,6 +9164,8 @@ async fn main() -> anyhow::Result<()> {
                 model,
                 api_base_url,
                 api_key_env,
+                max_output_tokens,
+                temperature,
                 input_cost_per_million,
                 output_cost_per_million,
                 max_tool_calls,
@@ -9149,8 +9201,8 @@ async fn main() -> anyhow::Result<()> {
                     model,
                     api_base_url,
                     api_key_env,
-                    max_output_tokens: None,
-                    temperature: None,
+                    max_output_tokens,
+                    temperature,
                     input_cost_per_million,
                     output_cost_per_million,
                     max_tool_calls,
@@ -9190,6 +9242,8 @@ async fn main() -> anyhow::Result<()> {
                 model,
                 api_base_url,
                 api_key_env,
+                max_output_tokens,
+                temperature,
                 input_cost_per_million,
                 output_cost_per_million,
                 max_tool_calls,
@@ -9225,8 +9279,8 @@ async fn main() -> anyhow::Result<()> {
                     model,
                     api_base_url,
                     api_key_env,
-                    max_output_tokens: None,
-                    temperature: None,
+                    max_output_tokens,
+                    temperature,
                     input_cost_per_million,
                     output_cost_per_million,
                     max_tool_calls,

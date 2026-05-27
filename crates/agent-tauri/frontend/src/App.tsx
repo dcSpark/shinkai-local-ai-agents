@@ -15686,6 +15686,17 @@ export default function App() {
   }
 
   function bridgeStatusEventSummary(status: BridgeStatusResponse) {
+    const summary = bridgeStatusSummary(status);
+    return [
+      `Bridge status: ${summary.bridgeCount} surfaces`,
+      `${summary.authConfigured} auth configured`,
+      `${summary.x402Enabled} x402 enabled`,
+      `${summary.runtimeOverrides} runtime overrides`,
+      `delivery worker ${summary.workerEnabled ? "on" : "off"}`,
+    ].join(", ");
+  }
+
+  function bridgeStatusSummary(status: BridgeStatusResponse) {
     const bridges = status.bridges ?? [];
     const authConfigured = bridges.filter(
       (bridge) => jsonObject(bridge.auth)?.configured === true,
@@ -15697,13 +15708,15 @@ export default function App() {
       bridgeRuntimeHasOverride(bridge.runtime),
     ).length;
     const workerEnabled = jsonObject(status.delivery_worker)?.enabled === true;
-    return [
-      `Bridge status: ${bridges.length} surfaces`,
-      `${authConfigured} auth configured`,
-      `${x402Enabled} x402 enabled`,
-      `${runtimeOverrides} runtime overrides`,
-      `delivery worker ${workerEnabled ? "on" : "off"}`,
-    ].join(", ");
+    const daemonX402Enabled = jsonObject(status.daemon_x402)?.enabled === true;
+    return {
+      bridgeCount: bridges.length,
+      authConfigured,
+      x402Enabled,
+      runtimeOverrides,
+      workerEnabled,
+      daemonX402Enabled,
+    };
   }
 
   function bridgeRuntimeHasOverride(runtime: JsonValue | undefined) {
@@ -22281,16 +22294,52 @@ export default function App() {
                 </button>
               </div>
               {bridgeStatus ? (
-                <div className="storage-buckets">
-                  {bridgeStatus.bridges.map((bridge) => (
-                    <div className="storage-bucket" key={bridge.platform}>
-                      <strong>{bridge.platform}</strong>
-                      <span>{(bridge.inbound ?? bridge.targets ?? []).join(", ")}</span>
-                      <span>{bridgeReadinessSummary(bridge)}</span>
-                      <span>{previewText(previewJson(bridge), 220)}</span>
-                    </div>
-                  ))}
-                </div>
+                <>
+                  <div className="bundle-card">
+                    {(() => {
+                      const summary = bridgeStatusSummary(bridgeStatus);
+                      return (
+                        <>
+                          <div className="bundle-card-head">
+                            <strong>Bridge status</strong>
+                            <span>{summary.bridgeCount} surfaces</span>
+                          </div>
+                          <span>
+                            {summary.authConfigured} auth configured /{" "}
+                            {summary.x402Enabled} bridge x402 enabled
+                          </span>
+                          <span>
+                            {summary.runtimeOverrides} runtime overrides / delivery worker{" "}
+                            {summary.workerEnabled ? "on" : "off"} / daemon x402{" "}
+                            {summary.daemonX402Enabled ? "on" : "off"}
+                          </span>
+                          {bridgeStatus.delivery_worker ? (
+                            <span>
+                              delivery worker{" "}
+                              {previewText(previewJson(bridgeStatus.delivery_worker), 180)}
+                            </span>
+                          ) : null}
+                          {bridgeStatus.daemon_x402 ? (
+                            <span>
+                              daemon x402{" "}
+                              {previewText(previewJson(bridgeStatus.daemon_x402), 180)}
+                            </span>
+                          ) : null}
+                        </>
+                      );
+                    })()}
+                  </div>
+                  <div className="storage-buckets">
+                    {bridgeStatus.bridges.map((bridge) => (
+                      <div className="storage-bucket" key={bridge.platform}>
+                        <strong>{bridge.platform}</strong>
+                        <span>{(bridge.inbound ?? bridge.targets ?? []).join(", ")}</span>
+                        <span>{bridgeReadinessSummary(bridge)}</span>
+                        <span>{previewText(previewJson(bridge), 220)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
               ) : null}
               {bridgeDeliveries.length ? (
                 <div className="storage-buckets">

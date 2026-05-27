@@ -156,6 +156,14 @@ type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
+const MODEL_PROVIDER_OPTION_KEYS = [
+  "top_p",
+  "top_k",
+  "reasoning_effort",
+  "frequency_penalty",
+  "presence_penalty",
+] as const;
+
 interface SavedModelConfig {
   id: string;
   provider?: string | null;
@@ -570,6 +578,7 @@ export default function App() {
   const [modelToolSupport, setModelToolSupport] = useState("");
   const [modelPrivacyLevel, setModelPrivacyLevel] = useState("");
   const [modelCostTier, setModelCostTier] = useState("");
+  const [modelMetadataJson, setModelMetadataJson] = useState("");
   const [inputCostPerMillion, setInputCostPerMillion] = useState("");
   const [outputCostPerMillion, setOutputCostPerMillion] = useState("");
   const [maxToolCalls, setMaxToolCalls] = useState("");
@@ -14212,6 +14221,7 @@ export default function App() {
     );
     setModelPrivacyLevel(doc.privacy_level ?? "");
     setModelCostTier(doc.cost_tier ?? "");
+    setModelMetadataJson(modelMetadataControlValue(metadata));
     setInputCostPerMillion(numberControlValue(doc.input_cost_per_million));
     setOutputCostPerMillion(numberControlValue(doc.output_cost_per_million));
     setProviderTopP(modelProviderOptionControlValue(optionRecord.top_p));
@@ -14239,6 +14249,10 @@ export default function App() {
       return String(value);
     }
     return "";
+  }
+
+  function modelMetadataControlValue(metadata: { [key: string]: JsonValue }) {
+    return Object.keys(metadata).length ? JSON.stringify(metadata, null, 2) : "";
   }
 
   function currentModelModalities() {
@@ -14312,10 +14326,8 @@ export default function App() {
     const id = model.trim() || defaultModelForProvider(provider);
     const providerOptions = providerOptionsFromControls();
     if (providerOptions === false) return;
-    const metadata =
-      providerOptions && Object.keys(providerOptions).length
-        ? { provider_options: providerOptions }
-        : {};
+    const metadata = modelMetadataFromControls(providerOptions);
+    if (!metadata) return;
     const modelDoc = {
       id,
       provider,
@@ -14339,6 +14351,8 @@ export default function App() {
             : null,
       privacy_level: modelPrivacyLevel.trim() || null,
       cost_tier: modelCostTier.trim() || null,
+      input_cost_per_million: parseOptionalNonNegativeFloat(inputCostPerMillion),
+      output_cost_per_million: parseOptionalNonNegativeFloat(outputCostPerMillion),
       metadata,
     };
     try {
@@ -14395,16 +14409,45 @@ export default function App() {
 
   function providerOptionsFromControls(): Record<string, unknown> | false | null {
     const options: Record<string, unknown> = {};
-    if (
-      !addProviderOption(options, "top_p", providerTopP) ||
-      !addProviderOption(options, "top_k", providerTopK) ||
-      !addProviderOption(options, "reasoning_effort", providerReasoningEffort) ||
-      !addProviderOption(options, "frequency_penalty", providerFrequencyPenalty) ||
-      !addProviderOption(options, "presence_penalty", providerPresencePenalty)
-    ) {
-      return false;
+    const controlValues: Record<(typeof MODEL_PROVIDER_OPTION_KEYS)[number], string> = {
+      top_p: providerTopP,
+      top_k: providerTopK,
+      reasoning_effort: providerReasoningEffort,
+      frequency_penalty: providerFrequencyPenalty,
+      presence_penalty: providerPresencePenalty,
+    };
+    for (const key of MODEL_PROVIDER_OPTION_KEYS) {
+      if (!addProviderOption(options, key, controlValues[key])) {
+        return false;
+      }
     }
     return Object.keys(options).length ? options : null;
+  }
+
+  function modelMetadataFromControls(providerOptions: Record<string, unknown> | null) {
+    const parsed = parseJsonObject("Model metadata", modelMetadataJson.trim());
+    if (!parsed) return null;
+    const metadata = { ...parsed };
+    const existingOptions = metadata.provider_options;
+    if (existingOptions != null && !isUnknownRecord(existingOptions)) {
+      appendLine("error", "Model metadata.provider_options must be a JSON object.");
+      return null;
+    }
+    const mergedOptions: Record<string, unknown> = isUnknownRecord(existingOptions)
+      ? { ...existingOptions }
+      : {};
+    for (const key of MODEL_PROVIDER_OPTION_KEYS) {
+      delete mergedOptions[key];
+    }
+    if (providerOptions) {
+      Object.assign(mergedOptions, providerOptions);
+    }
+    if (Object.keys(mergedOptions).length) {
+      metadata.provider_options = mergedOptions;
+    } else {
+      delete metadata.provider_options;
+    }
+    return metadata;
   }
 
   function addProviderOption(
@@ -17300,6 +17343,16 @@ export default function App() {
             />
           </label>
           <label>
+            Metadata JSON
+            <textarea
+              value={modelMetadataJson}
+              onChange={(e) => setModelMetadataJson(e.target.value)}
+              placeholder='{"owner":"team-a"}'
+              rows={3}
+              disabled={running || provider === "fake"}
+            />
+          </label>
+          <label>
             API base
             <input
               value={apiBaseUrl}
@@ -20013,7 +20066,7 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Save the current provider, model, API settings, and provider options."
+                  title="Save the current provider, model, API settings, metadata, and provider options."
                   onClick={() => void saveCurrentModelFromControls()}
                   disabled={running || provider === "fake"}
                 >

@@ -14217,6 +14217,12 @@ export default function App() {
       api_base_url: supportsApiBaseUrl ? apiBaseUrl.trim() || null : null,
       api_key_env: apiKeyEnv.trim() || defaultApiKeyEnvForProvider(provider),
       allow_missing_api_key: providerAllowsMissingApiKey(provider) ? true : null,
+      max_output_tokens: supportsMaxOutputTokens
+        ? parseOptionalPositiveInt(runMaxOutputTokens)
+        : null,
+      default_temperature: supportsTemperature
+        ? parseOptionalNonNegativeFloat(runTemperature)
+        : null,
       available_modalities: modelSupportsImage ? ["text", "image"] : [],
       metadata,
     };

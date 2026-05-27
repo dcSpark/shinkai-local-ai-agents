@@ -2589,6 +2589,14 @@ fn validate_saved_model_config_fields(model: &ModelConfig) -> Result<(), ConfigE
             )));
         }
     }
+    if let Some(value) = model.default_temperature
+        && (!value.is_finite() || !(0.0..=2.0).contains(&value))
+    {
+        return Err(ConfigError::InvalidInput(format!(
+            "model config {} default_temperature must be between 0 and 2",
+            model.id
+        )));
+    }
     Ok(())
 }
 
@@ -6151,6 +6159,15 @@ system_prompt = "Review carefully."
         assert!(err.to_string().contains(
             "model config negative-cost input_cost_per_million must be a non-negative finite number"
         ));
+
+        let mut high_temperature = ModelConfig::for_id("high-temperature");
+        high_temperature.default_temperature = Some(2.1);
+        let err = resolver.save_model(&high_temperature).unwrap_err();
+        assert!(
+            err.to_string().contains(
+                "model config high-temperature default_temperature must be between 0 and 2"
+            )
+        );
 
         let _ = std::fs::remove_dir_all(dir);
     }

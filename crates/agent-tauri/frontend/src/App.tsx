@@ -535,6 +535,7 @@ export default function App() {
   const [apiBaseUrl, setApiBaseUrl] = useState("");
   const [apiKeyEnv, setApiKeyEnv] = useState("OPENAI_API_KEY");
   const [apiKey, setApiKey] = useState("");
+  const [modelMaxContextTokens, setModelMaxContextTokens] = useState("");
   const [runMaxOutputTokens, setRunMaxOutputTokens] = useState("");
   const [runTemperature, setRunTemperature] = useState("");
   const [modelProviderDescriptors, setModelProviderDescriptors] = useState<
@@ -14217,6 +14218,7 @@ export default function App() {
       api_base_url: supportsApiBaseUrl ? apiBaseUrl.trim() || null : null,
       api_key_env: apiKeyEnv.trim() || defaultApiKeyEnvForProvider(provider),
       allow_missing_api_key: providerAllowsMissingApiKey(provider) ? true : null,
+      max_context_tokens: parseOptionalPositiveInt(modelMaxContextTokens),
       max_output_tokens: supportsMaxOutputTokens
         ? parseOptionalPositiveInt(runMaxOutputTokens)
         : null,
@@ -17075,6 +17077,19 @@ export default function App() {
               onChange={(e) => setModel(e.target.value)}
               placeholder={defaultModelForProvider(provider)}
               disabled={running}
+            />
+          </label>
+          <label>
+            Max context
+            <input
+              type="number"
+              min="1"
+              step="1"
+              value={modelMaxContextTokens}
+              onChange={(e) => setModelMaxContextTokens(e.target.value)}
+              placeholder="catalog default"
+              inputMode="numeric"
+              disabled={running || provider === "fake"}
             />
           </label>
           <label>

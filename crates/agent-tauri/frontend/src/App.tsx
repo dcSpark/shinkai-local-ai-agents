@@ -5755,6 +5755,18 @@ export default function App() {
     return "";
   }
 
+  function hookPolicySummaryCounts() {
+    const catalogDisabled = hookCatalog.filter((hook) => hook.disabled).length;
+    return {
+      catalogDisabled,
+      catalogEnabled: Math.max(hookCatalog.length - catalogDisabled, 0),
+      effectiveDisabled: hookPolicy?.disabled_lifecycle_hooks.length ?? catalogDisabled,
+      globalDisabled: hookPolicy?.global_disabled_lifecycle_hooks?.length ?? 0,
+      profileDisabled: hookPolicy?.profile_disabled_lifecycle_hooks?.length ?? 0,
+      agentDisabled: hookPolicy?.agent_disabled_lifecycle_hooks?.length ?? 0,
+    };
+  }
+
   function confirmLocalChange(action: string) {
     const confirmed = window.confirm(`${action}? This changes local harness data.`);
     if (!confirmed) {
@@ -18768,7 +18780,42 @@ export default function App() {
               >
                 List Hooks
               </button>
+              <button
+                type="button"
+                title="Load persisted lifecycle hook policy for the active agent/profile."
+                onClick={() => void refreshHookPolicy()}
+              >
+                Refresh Policy
+              </button>
             </div>
+            {hookCatalog.length > 0 || hookPolicy ? (
+              (() => {
+                const counts = hookPolicySummaryCounts();
+                return (
+                  <div className="bundle-card">
+                    <div className="bundle-card-head">
+                      <strong>Hook policy</strong>
+                      <span>{hookPolicy?.effective_source ?? "catalog only"}</span>
+                    </div>
+                    <span>
+                      {hookCatalog.length} declared / {counts.catalogEnabled} enabled /{" "}
+                      {counts.catalogDisabled} catalog disabled
+                    </span>
+                    <span>
+                      effective disabled {counts.effectiveDisabled} / global{" "}
+                      {counts.globalDisabled} / profile {counts.profileDisabled} / agent{" "}
+                      {counts.agentDisabled}
+                    </span>
+                    {hookPolicy ? (
+                      <span>
+                        profile {hookPolicy.profile}
+                        {hookPolicy.agent_id ? ` / agent ${hookPolicy.agent_id}` : ""}
+                      </span>
+                    ) : null}
+                  </div>
+                );
+              })()
+            ) : null}
             {hookCatalog.length ? (
               <div className="context-cards">
                 {hookCatalog.map((hook) => (

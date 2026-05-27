@@ -717,6 +717,8 @@ export default function App() {
   const [skillDocs, setSkillDocs] = useState<SkillDoc[]>([]);
   const [agentConfigs, setAgentConfigs] = useState<AgentConfigEntry[]>([]);
   const [modelConfigs, setModelConfigs] = useState<SavedModelConfig[]>([]);
+  const [modelDoctorReport, setModelDoctorReport] =
+    useState<ModelDoctorReport | null>(null);
   const [profileSummaries, setProfileSummaries] = useState<ProfileSummary[]>([]);
   const [currentProfile, setCurrentProfile] = useState<ProfileSummary | null>(null);
   const [profileGrants, setProfileGrants] = useState<ProfileGrant[]>([]);
@@ -14116,6 +14118,7 @@ export default function App() {
         transport === "daemon"
           ? await daemonJson<ModelDoctorReport>("/models/doctor")
           : await invoke<ModelDoctorReport>("model_doctor");
+      setModelDoctorReport(report);
       appendJson("Model doctor", report);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -20214,6 +20217,83 @@ export default function App() {
                   Delete Model
                 </button>
               </div>
+              {modelDoctorReport ? (
+                <div className="bundle-card">
+                  <div className="bundle-card-head">
+                    <strong>Model doctor {modelDoctorReport.status}</strong>
+                    <span>{modelDoctorReport.active_profile}</span>
+                  </div>
+                  <span>
+                    {modelDoctorReport.saved_model_count} saved models /{" "}
+                    {modelDoctorReport.provider_count} providers
+                  </span>
+                  <span>
+                    metadata catalog{" "}
+                    {modelDoctorReport.metadata_catalog_source ?? "bundled fallback"} /{" "}
+                    {modelDoctorReport.metadata_catalog_models} configured /{" "}
+                    {modelDoctorReport.bundled_metadata_models} bundled
+                  </span>
+                  <span>
+                    provider catalog{" "}
+                    {modelDoctorReport.provider_catalog_configured
+                      ? "configured"
+                      : "bundled fallback"}
+                  </span>
+                  {modelDoctorReport.errors.length ? (
+                    <div className="finding-list">
+                      {modelDoctorReport.errors.slice(0, 5).map((error) => (
+                        <span className="finding high" key={error}>
+                          {error}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {modelDoctorReport.warnings.length ? (
+                    <div className="finding-list">
+                      {modelDoctorReport.warnings.slice(0, 5).map((warning) => (
+                        <span className="finding warning" key={warning}>
+                          {warning}
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {modelDoctorReport.saved_models.length ? (
+                    <div className="finding-list">
+                      {modelDoctorReport.saved_models.map((doc) => {
+                        const state =
+                          doc.validation_status === "error"
+                            ? "high"
+                            : doc.validation_status === "warning" ||
+                                !doc.provider_known ||
+                                !doc.metadata_present
+                              ? "warning"
+                              : "none";
+                        const declared = doc.declared_modalities.length
+                          ? `declared ${doc.declared_modalities.join(", ")}`
+                          : "declared none";
+                        const catalog = doc.metadata_modalities.length
+                          ? `catalog ${doc.metadata_modalities.join(", ")}`
+                          : "catalog none";
+                        return (
+                          <span
+                            className={`finding ${state}`}
+                            key={`model-doctor:${doc.id}`}
+                            title={doc.validation_error ?? undefined}
+                          >
+                            {doc.id}: {doc.provider}
+                            {doc.provider_known ? "" : " / unknown provider"}
+                            {doc.validation_status !== "ok"
+                              ? ` / ${doc.validation_status}`
+                              : ""}
+                            {` / ${declared} / ${catalog}`}
+                            {doc.metadata_source ? ` / ${doc.metadata_source}` : ""}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               {modelConfigs.length ? (
                 <div className="ingestion-review">
                   {modelConfigs.map((doc) => {

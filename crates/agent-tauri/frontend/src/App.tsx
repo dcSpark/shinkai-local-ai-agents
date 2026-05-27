@@ -565,6 +565,7 @@ export default function App() {
   const [providerFrequencyPenalty, setProviderFrequencyPenalty] = useState("");
   const [providerPresencePenalty, setProviderPresencePenalty] = useState("");
   const [modelSupportsImage, setModelSupportsImage] = useState(false);
+  const [modelModalities, setModelModalities] = useState("");
   const [modelReasoningMode, setModelReasoningMode] = useState("");
   const [modelToolSupport, setModelToolSupport] = useState("");
   const [modelPrivacyLevel, setModelPrivacyLevel] = useState("");
@@ -14204,6 +14205,7 @@ export default function App() {
     setRunMaxOutputTokens(numberControlValue(doc.max_output_tokens));
     setRunTemperature(numberControlValue(doc.default_temperature));
     setModelSupportsImage((doc.available_modalities ?? []).includes("image"));
+    setModelModalities((doc.available_modalities ?? []).join(", "));
     setModelReasoningMode(doc.reasoning_mode ?? "");
     setModelToolSupport(
       doc.tool_support == null ? "" : doc.tool_support ? "true" : "false",
@@ -14237,6 +14239,32 @@ export default function App() {
       return String(value);
     }
     return "";
+  }
+
+  function currentModelModalities() {
+    const modalities = parsedCategoryList(modelModalities);
+    if (modalities.length) {
+      return modalities;
+    }
+    return modelSupportsImage ? ["text", "image"] : [];
+  }
+
+  function toggleImageModality(checked: boolean) {
+    setModelSupportsImage(checked);
+    setModelModalities((current) => {
+      const modalities = parsedCategoryList(current);
+      if (!modalities.length) {
+        return checked ? "text, image" : "";
+      }
+      const withoutImage = modalities.filter((item) => item !== "image");
+      if (!checked) {
+        return withoutImage.join(", ");
+      }
+      const next = withoutImage.includes("text")
+        ? [...withoutImage, "image"]
+        : ["text", ...withoutImage, "image"];
+      return next.join(", ");
+    });
   }
 
   async function probeModelFromOps(explicitId?: string) {
@@ -14301,7 +14329,7 @@ export default function App() {
       default_temperature: supportsTemperature
         ? parseOptionalNonNegativeFloat(runTemperature)
         : null,
-      available_modalities: modelSupportsImage ? ["text", "image"] : [],
+      available_modalities: currentModelModalities(),
       reasoning_mode: modelReasoningMode.trim() || null,
       tool_support:
         modelToolSupport === "true"
@@ -17209,7 +17237,20 @@ export default function App() {
             <input
               type="checkbox"
               checked={modelSupportsImage}
-              onChange={(e) => setModelSupportsImage(e.target.checked)}
+              onChange={(e) => toggleImageModality(e.target.checked)}
+              disabled={running || provider === "fake"}
+            />
+          </label>
+          <label>
+            Modalities
+            <input
+              value={modelModalities}
+              onChange={(e) => {
+                const next = e.target.value;
+                setModelModalities(next);
+                setModelSupportsImage(parsedCategoryList(next).includes("image"));
+              }}
+              placeholder="text, image"
               disabled={running || provider === "fake"}
             />
           </label>

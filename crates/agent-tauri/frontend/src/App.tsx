@@ -21366,6 +21366,38 @@ export default function App() {
                   Stage TTS
                 </button>
               </div>
+              <div className="bundle-card">
+                <div className="bundle-card-head">
+                  <strong>Voice status</strong>
+                  <span>
+                    {recordingVoice
+                      ? "recording"
+                      : voiceOutputBusy
+                        ? "speaking"
+                        : "idle"}
+                  </span>
+                </div>
+                <span>
+                  input {voiceTriStateStatus(voiceInputEnabled)} /{" "}
+                  {voiceInputBackend.trim() || "configured backend"} /{" "}
+                  {voiceInputModel.trim() || "configured model"}
+                </span>
+                <span>
+                  output {voiceTriStateStatus(voiceOutputEnabled)} /{" "}
+                  {voiceOutputBackend.trim() || "configured backend"} /{" "}
+                  {voiceTtsModel.trim() || "configured model"}
+                </span>
+                <span>
+                  capture{" "}
+                  {voiceCaptureArtifact
+                    ? `${voiceCaptureArtifact.id} ${formatBytes(voiceCaptureArtifact.bytes)}`
+                    : "none"}{" "}
+                  / speech{" "}
+                  {voiceOutputArtifact
+                    ? `${voiceOutputArtifact.id} ${formatBytes(voiceOutputArtifact.bytes)}`
+                    : "none"}
+                </span>
+              </div>
               {voicePreviewUrl || voiceCaptureArtifact ? (
                 <div className="voice-capture">
                   {voicePreviewUrl ? (

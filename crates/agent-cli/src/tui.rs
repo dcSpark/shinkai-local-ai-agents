@@ -6041,7 +6041,7 @@ fn handle_models_slash(app: &mut App, rest: &str) {
                 "/models list",
                 "/models show <id>",
                 "/models probe <id>",
-                "/models save [--top-p <0..1>] [--top-k <n>] [--reasoning-effort <value>] <id> [json]",
+                "/models save [--top-p <0..1>] [--top-k <n>] [--reasoning-effort <value>] [--frequency-penalty <-2..2>] [--presence-penalty <-2..2>] <id> [json]",
                 "/models export <id> <path>",
                 "/models import <path> --confirm",
                 "/models delete <id> --confirm",
@@ -13823,7 +13823,7 @@ mod tests {
         assert_eq!(model.provider.as_deref(), Some("openai-compatible"));
         assert_eq!(model.available_modalities, vec!["text"]);
         let typed_model = model_save_args(
-            r#"--top-p 0.7 --top-k=40 --reasoning-effort high gpt-test {"metadata":{"provider_options":{"existing":true}}}"#,
+            r#"--top-p 0.7 --top-k=40 --reasoning-effort high --frequency-penalty 0.2 --presence-penalty=-0.1 gpt-test {"metadata":{"provider_options":{"existing":true}}}"#,
         )
         .unwrap();
         assert_eq!(typed_model.id, "gpt-test");
@@ -13833,7 +13833,9 @@ mod tests {
                 "existing": true,
                 "top_p": 0.7,
                 "top_k": 40,
-                "reasoning_effort": "high"
+                "reasoning_effort": "high",
+                "frequency_penalty": 0.2,
+                "presence_penalty": -0.1
             }))
         );
         assert_eq!(model_save_args("gpt-test").unwrap().id, "gpt-test");
@@ -13843,6 +13845,7 @@ mod tests {
         assert!(model_save_args("gpt-test []").is_err());
         assert!(model_save_args("gpt-test {").is_err());
         assert!(model_save_args("--top-p 1.5 gpt-test").is_err());
+        assert!(model_save_args("--presence-penalty 2.5 gpt-test").is_err());
         assert!(model_save_args("--unknown gpt-test").is_err());
         assert_eq!(
             model_export_args("gpt-test ./model.toml").unwrap(),

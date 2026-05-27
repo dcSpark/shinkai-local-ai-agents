@@ -1381,6 +1381,12 @@ enum ModelCommand {
         /// Provider-specific reasoning effort merged into metadata.provider_options.
         #[arg(long)]
         reasoning_effort: Option<String>,
+        /// Provider-specific frequency penalty merged into metadata.provider_options.
+        #[arg(long, allow_hyphen_values = true)]
+        frequency_penalty: Option<f64>,
+        /// Provider-specific presence penalty merged into metadata.provider_options.
+        #[arg(long, allow_hyphen_values = true)]
+        presence_penalty: Option<f64>,
         /// Arbitrary metadata as a JSON object.
         #[arg(long)]
         metadata_json: Option<String>,
@@ -3922,6 +3928,12 @@ enum RemoteModelCommand {
         /// Provider-specific reasoning effort merged into metadata.provider_options.
         #[arg(long)]
         reasoning_effort: Option<String>,
+        /// Provider-specific frequency penalty merged into metadata.provider_options.
+        #[arg(long, allow_hyphen_values = true)]
+        frequency_penalty: Option<f64>,
+        /// Provider-specific presence penalty merged into metadata.provider_options.
+        #[arg(long, allow_hyphen_values = true)]
+        presence_penalty: Option<f64>,
         /// Arbitrary metadata as a JSON object.
         #[arg(long)]
         metadata_json: Option<String>,
@@ -6622,6 +6634,10 @@ mod cli_parse_tests {
             "40",
             "--reasoning-effort",
             "medium",
+            "--frequency-penalty",
+            "0.2",
+            "--presence-penalty",
+            "-0.1",
         ])
         .unwrap();
         let Command::Model {
@@ -6635,6 +6651,8 @@ mod cli_parse_tests {
                     top_p,
                     top_k,
                     reasoning_effort,
+                    frequency_penalty,
+                    presence_penalty,
                     ..
                 },
         } = into_command(cli)
@@ -6649,6 +6667,8 @@ mod cli_parse_tests {
         assert_eq!(top_p, Some(0.7));
         assert_eq!(top_k, Some(40));
         assert_eq!(reasoning_effort.as_deref(), Some("medium"));
+        assert_eq!(frequency_penalty, Some(0.2));
+        assert_eq!(presence_penalty, Some(-0.1));
 
         let cli = parse_cli([
             "agent",
@@ -6661,6 +6681,8 @@ mod cli_parse_tests {
             "--allow-missing-api-key",
             "--top-p",
             "0.8",
+            "--presence-penalty",
+            "0.3",
         ])
         .unwrap();
         let RemoteCommand::Model {
@@ -6670,6 +6692,7 @@ mod cli_parse_tests {
                     provider,
                     allow_missing_api_key,
                     top_p,
+                    presence_penalty,
                     ..
                 },
         } = into_remote_command(cli)
@@ -6680,6 +6703,7 @@ mod cli_parse_tests {
         assert_eq!(provider.as_deref(), Some("llama_cpp"));
         assert!(allow_missing_api_key);
         assert_eq!(top_p, Some(0.8));
+        assert_eq!(presence_penalty, Some(0.3));
 
         let cli = parse_cli(["agent", "model", "providers", "--json"]).unwrap();
         let Command::Model {
@@ -9011,6 +9035,8 @@ async fn main() -> anyhow::Result<()> {
                 top_p,
                 top_k,
                 reasoning_effort,
+                frequency_penalty,
+                presence_penalty,
                 metadata_json,
             } => {
                 headless::model_save(
@@ -9032,6 +9058,8 @@ async fn main() -> anyhow::Result<()> {
                     top_p,
                     top_k,
                     reasoning_effort,
+                    frequency_penalty,
+                    presence_penalty,
                     metadata_json,
                 )
                 .await
@@ -10047,6 +10075,8 @@ async fn main() -> anyhow::Result<()> {
                     top_p,
                     top_k,
                     reasoning_effort,
+                    frequency_penalty,
+                    presence_penalty,
                     metadata_json,
                 } => {
                     headless::remote_model_save(
@@ -10069,6 +10099,8 @@ async fn main() -> anyhow::Result<()> {
                         top_p,
                         top_k,
                         reasoning_effort,
+                        frequency_penalty,
+                        presence_penalty,
                         metadata_json,
                     )
                     .await

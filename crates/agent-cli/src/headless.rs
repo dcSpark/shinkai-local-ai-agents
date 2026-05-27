@@ -5379,6 +5379,8 @@ pub async fn model_save(
     top_p: Option<f64>,
     top_k: Option<u64>,
     reasoning_effort: Option<String>,
+    frequency_penalty: Option<f64>,
+    presence_penalty: Option<f64>,
     metadata_json: Option<String>,
 ) -> anyhow::Result<()> {
     let model = model_config_from_parts(
@@ -5400,6 +5402,8 @@ pub async fn model_save(
         top_p,
         top_k,
         reasoning_effort,
+        frequency_penalty,
+        presence_penalty,
         metadata_json,
     )?;
     println!(
@@ -8203,6 +8207,8 @@ pub async fn remote_model_save(
     top_p: Option<f64>,
     top_k: Option<u64>,
     reasoning_effort: Option<String>,
+    frequency_penalty: Option<f64>,
+    presence_penalty: Option<f64>,
     metadata_json: Option<String>,
 ) -> anyhow::Result<()> {
     let model = model_config_from_parts(
@@ -8224,6 +8230,8 @@ pub async fn remote_model_save(
         top_p,
         top_k,
         reasoning_effort,
+        frequency_penalty,
+        presence_penalty,
         metadata_json,
     )?;
     print_remote(DaemonHttpClient::new(url).post_json("/models", serde_json::to_value(model)?)?)
@@ -8310,6 +8318,8 @@ fn model_config_from_parts(
     top_p: Option<f64>,
     top_k: Option<u64>,
     reasoning_effort: Option<String>,
+    frequency_penalty: Option<f64>,
+    presence_penalty: Option<f64>,
     metadata_json: Option<String>,
 ) -> anyhow::Result<ModelConfig> {
     let mut metadata = match metadata_json {
@@ -8325,7 +8335,14 @@ fn model_config_from_parts(
         }
         None => BTreeMap::new(),
     };
-    merge_provider_option_flags(&mut metadata, top_p, top_k, reasoning_effort)?;
+    merge_provider_option_flags(
+        &mut metadata,
+        top_p,
+        top_k,
+        reasoning_effort,
+        frequency_penalty,
+        presence_penalty,
+    )?;
     let available_modalities = available_modalities
         .into_iter()
         .map(|modality| modality.trim().to_string())
@@ -8356,6 +8373,8 @@ fn merge_provider_option_flags(
     top_p: Option<f64>,
     top_k: Option<u64>,
     reasoning_effort: Option<String>,
+    frequency_penalty: Option<f64>,
+    presence_penalty: Option<f64>,
 ) -> anyhow::Result<()> {
     let mut provider_options = match metadata.remove("provider_options") {
         Some(serde_json::Value::Object(object)) => object,
@@ -8378,6 +8397,24 @@ fn merge_provider_option_flags(
         provider_options.insert(
             "reasoning_effort".into(),
             serde_json::json!(reasoning_effort),
+        );
+    }
+    if let Some(frequency_penalty) = frequency_penalty {
+        if !(-2.0..=2.0).contains(&frequency_penalty) {
+            anyhow::bail!("--frequency-penalty must be between -2.0 and 2.0");
+        }
+        provider_options.insert(
+            "frequency_penalty".into(),
+            serde_json::json!(frequency_penalty),
+        );
+    }
+    if let Some(presence_penalty) = presence_penalty {
+        if !(-2.0..=2.0).contains(&presence_penalty) {
+            anyhow::bail!("--presence-penalty must be between -2.0 and 2.0");
+        }
+        provider_options.insert(
+            "presence_penalty".into(),
+            serde_json::json!(presence_penalty),
         );
     }
     if !provider_options.is_empty() {
@@ -13450,6 +13487,8 @@ pub(crate) fn parse_model_save_slash_args(args: &str) -> anyhow::Result<ModelCon
     let mut top_p = None;
     let mut top_k = None;
     let mut reasoning_effort = None;
+    let mut frequency_penalty = None;
+    let mut presence_penalty = None;
     loop {
         if let Some(after_flag) = save_flag_value_rest(rest, "--top-p") {
             if top_p.is_some() {
@@ -13486,6 +13525,32 @@ pub(crate) fn parse_model_save_slash_args(args: &str) -> anyhow::Result<ModelCon
             rest = tail.trim_start();
             continue;
         }
+        if let Some(after_flag) = save_flag_value_rest(rest, "--frequency-penalty") {
+            if frequency_penalty.is_some() {
+                anyhow::bail!("models save accepts --frequency-penalty once");
+            }
+            let (value, tail) = take_save_option_value(after_flag, "--frequency-penalty")?;
+            frequency_penalty = Some(
+                value
+                    .parse::<f64>()
+                    .map_err(|_| anyhow::anyhow!("--frequency-penalty must be a number"))?,
+            );
+            rest = tail.trim_start();
+            continue;
+        }
+        if let Some(after_flag) = save_flag_value_rest(rest, "--presence-penalty") {
+            if presence_penalty.is_some() {
+                anyhow::bail!("models save accepts --presence-penalty once");
+            }
+            let (value, tail) = take_save_option_value(after_flag, "--presence-penalty")?;
+            presence_penalty = Some(
+                value
+                    .parse::<f64>()
+                    .map_err(|_| anyhow::anyhow!("--presence-penalty must be a number"))?,
+            );
+            rest = tail.trim_start();
+            continue;
+        }
         if rest.starts_with("--") {
             let flag = rest.split_whitespace().next().unwrap_or(rest);
             anyhow::bail!("unknown models save option: {flag}");
@@ -13511,7 +13576,14 @@ pub(crate) fn parse_model_save_slash_args(args: &str) -> anyhow::Result<ModelCon
     object.insert("id".into(), serde_json::Value::String(id.into()));
     let mut model = serde_json::from_value::<ModelConfig>(value)
         .map_err(|err| anyhow::anyhow!("models save JSON does not match ModelConfig: {err}"))?;
-    merge_provider_option_flags(&mut model.metadata, top_p, top_k, reasoning_effort)?;
+    merge_provider_option_flags(
+        &mut model.metadata,
+        top_p,
+        top_k,
+        reasoning_effort,
+        frequency_penalty,
+        presence_penalty,
+    )?;
     Ok(model)
 }
 
@@ -17010,7 +17082,7 @@ mod slash_tests {
             _ => panic!("expected model save shortcut"),
         }
         match parse_slash_command(
-            r#"/models save --top-p 0.7 --top-k=40 --reasoning-effort high gpt-typed {"metadata":{"provider_options":{"existing":true}}}"#,
+            r#"/models save --top-p 0.7 --top-k=40 --reasoning-effort high --frequency-penalty 0.2 --presence-penalty=-0.1 gpt-typed {"metadata":{"provider_options":{"existing":true}}}"#,
         )
         .unwrap()
         {
@@ -17022,7 +17094,9 @@ mod slash_tests {
                         "existing": true,
                         "top_p": 0.7,
                         "top_k": 40,
-                        "reasoning_effort": "high"
+                        "reasoning_effort": "high",
+                        "frequency_penalty": 0.2,
+                        "presence_penalty": -0.1
                     }))
                 );
             }
@@ -17093,6 +17167,7 @@ mod slash_tests {
         assert!(parse_slash_command("/models save").is_err());
         assert!(parse_slash_command("/models save gpt []").is_err());
         assert!(parse_slash_command("/models save --top-p 1.5 gpt").is_err());
+        assert!(parse_slash_command("/models save --frequency-penalty 2.5 gpt").is_err());
         assert!(parse_slash_command("/models save --unknown gpt").is_err());
         assert!(parse_slash_command("/models delete gpt").is_err());
         assert!(parse_slash_command("/models import /tmp/gpt.toml").is_err());
@@ -17899,6 +17974,8 @@ mod slash_tests {
             Some(0.7),
             Some(40),
             Some("high".into()),
+            Some(0.2),
+            Some(-0.1),
             Some(r#"{"provider_options":{"existing":true},"owner":"test"}"#.into()),
         )
         .unwrap();
@@ -17913,7 +17990,9 @@ mod slash_tests {
                 "existing": true,
                 "top_p": 0.7,
                 "top_k": 40,
-                "reasoning_effort": "high"
+                "reasoning_effort": "high",
+                "frequency_penalty": 0.2,
+                "presence_penalty": -0.1
             }))
         );
     }
@@ -17937,6 +18016,8 @@ mod slash_tests {
             None,
             None,
             Some(1.5),
+            None,
+            None,
             None,
             None,
             None,

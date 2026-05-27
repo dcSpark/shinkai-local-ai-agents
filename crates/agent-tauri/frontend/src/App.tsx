@@ -5827,7 +5827,7 @@ export default function App() {
       "/models list",
       "/models show <id>",
       "/models probe <id>",
-      "/models save [--top-p <0..1>] [--top-k <n>] [--reasoning-effort <value>] <id> [json]",
+      "/models save [--top-p <0..1>] [--top-k <n>] [--reasoning-effort <value>] [--frequency-penalty <-2..2>] [--presence-penalty <-2..2>] <id> [json]",
       "/models save-current",
       "/models export <id> <path>",
       "/models import <path> --confirm",
@@ -5933,6 +5933,44 @@ export default function App() {
         }
         providerOptions.reasoning_effort = value;
         rest = effort.next;
+        continue;
+      }
+      const frequencyPenalty = readFlagValue("--frequency-penalty");
+      if (frequencyPenalty) {
+        if (!setOnce("frequency_penalty")) return null;
+        if (!frequencyPenalty.value || frequencyPenalty.value.startsWith("--")) {
+          appendLine("error", "Models save --frequency-penalty needs a value.");
+          return null;
+        }
+        const value = Number(frequencyPenalty.value);
+        if (!Number.isFinite(value) || value < -2 || value > 2) {
+          appendLine(
+            "error",
+            "Models save --frequency-penalty must be a number from -2.0 to 2.0.",
+          );
+          return null;
+        }
+        providerOptions.frequency_penalty = value;
+        rest = frequencyPenalty.next;
+        continue;
+      }
+      const presencePenalty = readFlagValue("--presence-penalty");
+      if (presencePenalty) {
+        if (!setOnce("presence_penalty")) return null;
+        if (!presencePenalty.value || presencePenalty.value.startsWith("--")) {
+          appendLine("error", "Models save --presence-penalty needs a value.");
+          return null;
+        }
+        const value = Number(presencePenalty.value);
+        if (!Number.isFinite(value) || value < -2 || value > 2) {
+          appendLine(
+            "error",
+            "Models save --presence-penalty must be a number from -2.0 to 2.0.",
+          );
+          return null;
+        }
+        providerOptions.presence_penalty = value;
+        rest = presencePenalty.next;
         continue;
       }
       const flag = rest.split(/\s+/, 1)[0] || rest;

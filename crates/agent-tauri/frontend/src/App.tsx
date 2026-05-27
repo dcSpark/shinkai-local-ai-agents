@@ -797,10 +797,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (transport === "in-process") {
-      void refreshModelProviderDescriptors(true);
-    }
-  }, [transport]);
+    void refreshModelProviderDescriptors(true);
+  }, [transport, daemonUrl]);
 
   useEffect(() => {
     const transcriptEl = transcriptRef.current;

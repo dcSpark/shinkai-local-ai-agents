@@ -547,6 +547,10 @@ export default function App() {
   const [providerFrequencyPenalty, setProviderFrequencyPenalty] = useState("");
   const [providerPresencePenalty, setProviderPresencePenalty] = useState("");
   const [modelSupportsImage, setModelSupportsImage] = useState(false);
+  const [modelReasoningMode, setModelReasoningMode] = useState("");
+  const [modelToolSupport, setModelToolSupport] = useState("");
+  const [modelPrivacyLevel, setModelPrivacyLevel] = useState("");
+  const [modelCostTier, setModelCostTier] = useState("");
   const [inputCostPerMillion, setInputCostPerMillion] = useState("");
   const [outputCostPerMillion, setOutputCostPerMillion] = useState("");
   const [maxToolCalls, setMaxToolCalls] = useState("");
@@ -14226,6 +14230,15 @@ export default function App() {
         ? parseOptionalNonNegativeFloat(runTemperature)
         : null,
       available_modalities: modelSupportsImage ? ["text", "image"] : [],
+      reasoning_mode: modelReasoningMode.trim() || null,
+      tool_support:
+        modelToolSupport === "true"
+          ? true
+          : modelToolSupport === "false"
+            ? false
+            : null,
+      privacy_level: modelPrivacyLevel.trim() || null,
+      cost_tier: modelCostTier.trim() || null,
       metadata,
     };
     try {
@@ -17125,6 +17138,51 @@ export default function App() {
               type="checkbox"
               checked={modelSupportsImage}
               onChange={(e) => setModelSupportsImage(e.target.checked)}
+              disabled={running || provider === "fake"}
+            />
+          </label>
+          <label>
+            Tool calls
+            <select
+              value={modelToolSupport}
+              onChange={(e) => setModelToolSupport(e.target.value)}
+              disabled={running || provider === "fake"}
+            >
+              <option value="">Provider default</option>
+              <option value="true">Supported</option>
+              <option value="false">Not supported</option>
+            </select>
+          </label>
+          <label>
+            Reasoning mode
+            <input
+              value={modelReasoningMode}
+              onChange={(e) => setModelReasoningMode(e.target.value)}
+              placeholder="provider default"
+              list="model-reasoning-mode-options"
+              disabled={running || provider === "fake"}
+            />
+            <datalist id="model-reasoning-mode-options">
+              {(selectedProviderDescriptor?.reasoning_modes ?? []).map((value) => (
+                <option key={value} value={value} />
+              ))}
+            </datalist>
+          </label>
+          <label>
+            Privacy
+            <input
+              value={modelPrivacyLevel}
+              onChange={(e) => setModelPrivacyLevel(e.target.value)}
+              placeholder="cloud, local, private"
+              disabled={running || provider === "fake"}
+            />
+          </label>
+          <label>
+            Cost tier
+            <input
+              value={modelCostTier}
+              onChange={(e) => setModelCostTier(e.target.value)}
+              placeholder="cheap, standard, premium"
               disabled={running || provider === "fake"}
             />
           </label>

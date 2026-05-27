@@ -535,6 +535,8 @@ export default function App() {
   const [apiBaseUrl, setApiBaseUrl] = useState("");
   const [apiKeyEnv, setApiKeyEnv] = useState("OPENAI_API_KEY");
   const [apiKey, setApiKey] = useState("");
+  const [runMaxOutputTokens, setRunMaxOutputTokens] = useState("");
+  const [runTemperature, setRunTemperature] = useState("");
   const [modelProviderDescriptors, setModelProviderDescriptors] = useState<
     ModelProviderDescriptor[]
   >([]);
@@ -732,6 +734,8 @@ export default function App() {
   const providerSelectItems = providerSelectOptions();
   const memoryBackendSelectItems = memoryBackendSelectOptions();
   const supportsApiBaseUrl = providerSupportsRuntimeOption("api_base_url");
+  const supportsMaxOutputTokens = providerSupportsRuntimeOption("max_output_tokens");
+  const supportsTemperature = providerSupportsRuntimeOption("temperature");
   const supportsTopP = providerSupportsProviderOption("top_p");
   const supportsTopK = providerSupportsProviderOption("top_k");
   const supportsReasoningEffort = providerSupportsProviderOption("reasoning_effort");
@@ -1150,8 +1154,12 @@ export default function App() {
       api_base_url: apiBaseUrl.trim() || null,
       api_key_env: apiKeyEnv.trim() || "OPENAI_API_KEY",
       api_key: apiKey.trim() || null,
-      max_output_tokens: null,
-      temperature: null,
+      max_output_tokens: supportsMaxOutputTokens
+        ? parseOptionalPositiveInt(runMaxOutputTokens)
+        : null,
+      temperature: supportsTemperature
+        ? parseOptionalNonNegativeFloat(runTemperature)
+        : null,
       input_cost_per_million: parseOptionalNonNegativeFloat(inputCostPerMillion),
       output_cost_per_million: parseOptionalNonNegativeFloat(outputCostPerMillion),
       max_tool_calls: parseOptionalNonNegativeInt(maxToolCalls),
@@ -17061,6 +17069,33 @@ export default function App() {
               onChange={(e) => setModel(e.target.value)}
               placeholder={defaultModelForProvider(provider)}
               disabled={running}
+            />
+          </label>
+          <label>
+            Max output
+            <input
+              type="number"
+              min={runtimeOptionDescriptor("max_output_tokens")?.min ?? 1}
+              step="1"
+              value={runMaxOutputTokens}
+              onChange={(e) => setRunMaxOutputTokens(e.target.value)}
+              placeholder="model default"
+              inputMode="numeric"
+              disabled={running || !supportsMaxOutputTokens}
+            />
+          </label>
+          <label>
+            Temperature
+            <input
+              type="number"
+              min={runtimeOptionDescriptor("temperature")?.min ?? 0}
+              max={runtimeOptionDescriptor("temperature")?.max ?? undefined}
+              step="0.1"
+              value={runTemperature}
+              onChange={(e) => setRunTemperature(e.target.value)}
+              placeholder="model default"
+              inputMode="decimal"
+              disabled={running || !supportsTemperature}
             />
           </label>
           <label>

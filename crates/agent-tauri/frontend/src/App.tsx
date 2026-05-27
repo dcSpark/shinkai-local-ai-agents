@@ -156,6 +156,24 @@ type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue };
 
+interface SavedModelConfig {
+  id: string;
+  provider?: string | null;
+  api_base_url?: string | null;
+  api_key_env?: string | null;
+  max_context_tokens?: number | null;
+  max_output_tokens?: number | null;
+  default_temperature?: number | null;
+  available_modalities?: string[];
+  reasoning_mode?: string | null;
+  tool_support?: boolean | null;
+  privacy_level?: string | null;
+  cost_tier?: string | null;
+  input_cost_per_million?: number | null;
+  output_cost_per_million?: number | null;
+  metadata?: { [key: string]: JsonValue };
+}
+
 interface RemoteRunStart {
   run_id: string;
   status: string;
@@ -14158,13 +14176,67 @@ export default function App() {
     try {
       const doc =
         transport === "daemon"
-          ? await daemonJson<unknown>(`/models/${encodeURIComponent(id)}`)
-          : await invoke<unknown>("model_show", { id });
+          ? await daemonJson<SavedModelConfig>(`/models/${encodeURIComponent(id)}`)
+          : await invoke<SavedModelConfig>("model_show", { id });
+      applyModelConfigToControls(doc);
       appendJson("Model", doc);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Model show failed: ${msg}`);
     }
+  }
+
+  function applyModelConfigToControls(doc: SavedModelConfig) {
+    const providerId = doc.provider?.trim() || provider;
+    const metadata = doc.metadata ?? {};
+    const providerOptions = metadata.provider_options;
+    const optionRecord = providerOptions && isJsonRecord(providerOptions)
+      ? providerOptions
+      : {};
+    setOpsId(doc.id);
+    setModel(doc.id);
+    if (doc.provider?.trim()) {
+      setProvider(doc.provider.trim());
+    }
+    setApiBaseUrl(doc.api_base_url ?? "");
+    setApiKeyEnv(doc.api_key_env ?? defaultApiKeyEnvForProvider(providerId));
+    setModelMaxContextTokens(numberControlValue(doc.max_context_tokens));
+    setRunMaxOutputTokens(numberControlValue(doc.max_output_tokens));
+    setRunTemperature(numberControlValue(doc.default_temperature));
+    setModelSupportsImage((doc.available_modalities ?? []).includes("image"));
+    setModelReasoningMode(doc.reasoning_mode ?? "");
+    setModelToolSupport(
+      doc.tool_support == null ? "" : doc.tool_support ? "true" : "false",
+    );
+    setModelPrivacyLevel(doc.privacy_level ?? "");
+    setModelCostTier(doc.cost_tier ?? "");
+    setInputCostPerMillion(numberControlValue(doc.input_cost_per_million));
+    setOutputCostPerMillion(numberControlValue(doc.output_cost_per_million));
+    setProviderTopP(modelProviderOptionControlValue(optionRecord.top_p));
+    setProviderTopK(modelProviderOptionControlValue(optionRecord.top_k));
+    setProviderReasoningEffort(
+      modelProviderOptionControlValue(optionRecord.reasoning_effort),
+    );
+    setProviderFrequencyPenalty(
+      modelProviderOptionControlValue(optionRecord.frequency_penalty),
+    );
+    setProviderPresencePenalty(
+      modelProviderOptionControlValue(optionRecord.presence_penalty),
+    );
+    appendEvent(`Loaded saved model ${doc.id} into model controls.`);
+  }
+
+  function modelProviderOptionControlValue(value: JsonValue | undefined) {
+    if (typeof value === "string") {
+      return value;
+    }
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
+    }
+    if (typeof value === "boolean") {
+      return String(value);
+    }
+    return "";
   }
 
   async function probeModelFromOps(explicitId?: string) {
@@ -19876,7 +19948,7 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Show model Id."
+                  title="Show model Id and load it into the model controls."
                   onClick={() => void showModelFromOps()}
                   disabled={running || !opsId.trim()}
                 >

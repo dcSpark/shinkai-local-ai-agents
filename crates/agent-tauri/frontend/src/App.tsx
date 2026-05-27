@@ -716,6 +716,7 @@ export default function App() {
     useState<ConversationDeletePlan | null>(null);
   const [skillDocs, setSkillDocs] = useState<SkillDoc[]>([]);
   const [agentConfigs, setAgentConfigs] = useState<AgentConfigEntry[]>([]);
+  const [modelConfigs, setModelConfigs] = useState<SavedModelConfig[]>([]);
   const [profileSummaries, setProfileSummaries] = useState<ProfileSummary[]>([]);
   const [currentProfile, setCurrentProfile] = useState<ProfileSummary | null>(null);
   const [profileGrants, setProfileGrants] = useState<ProfileGrant[]>([]);
@@ -14036,8 +14037,9 @@ export default function App() {
     try {
       const models =
         transport === "daemon"
-          ? await daemonJson<unknown>("/models")
-          : await invoke<unknown>("model_list");
+          ? await daemonJson<SavedModelConfig[]>("/models")
+          : await invoke<SavedModelConfig[]>("model_list");
+      setModelConfigs(models);
       appendJson("Models", models);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -14188,6 +14190,7 @@ export default function App() {
         transport === "daemon"
           ? await daemonJson<SavedModelConfig>(`/models/${encodeURIComponent(id)}`)
           : await invoke<SavedModelConfig>("model_show", { id });
+      setModelConfigs((docs) => upsertSavedModelConfig(docs, doc));
       applyModelConfigToControls(doc);
       appendJson("Model", doc);
     } catch (err: unknown) {
@@ -14255,6 +14258,17 @@ export default function App() {
     return Object.keys(metadata).length ? JSON.stringify(metadata, null, 2) : "";
   }
 
+  function savedModelMetadataKeys(doc: SavedModelConfig) {
+    return Object.keys(doc.metadata ?? {})
+      .filter((key) => key !== "provider_options")
+      .sort();
+  }
+
+  function savedModelProviderOptionKeys(doc: SavedModelConfig) {
+    const options = doc.metadata?.provider_options;
+    return options && isJsonRecord(options) ? Object.keys(options).sort() : [];
+  }
+
   function currentModelModalities() {
     const modalities = parsedCategoryList(modelModalities);
     if (modalities.length) {
@@ -14309,8 +14323,9 @@ export default function App() {
     try {
       const doc =
         transport === "daemon"
-          ? await daemonJson<unknown>("/models", modelDoc)
-          : await invoke<unknown>("model_save", { model: modelDoc });
+          ? await daemonJson<SavedModelConfig>("/models", modelDoc)
+          : await invoke<SavedModelConfig>("model_save", { model: modelDoc });
+      setModelConfigs((docs) => upsertSavedModelConfig(docs, doc));
       appendJson("Model saved", doc);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -14358,8 +14373,9 @@ export default function App() {
     try {
       const doc =
         transport === "daemon"
-          ? await daemonJson<unknown>("/models", modelDoc)
-          : await invoke<unknown>("model_save", { model: modelDoc });
+          ? await daemonJson<SavedModelConfig>("/models", modelDoc)
+          : await invoke<SavedModelConfig>("model_save", { model: modelDoc });
+      setModelConfigs((docs) => upsertSavedModelConfig(docs, doc));
       appendJson("Model saved", doc);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -14398,8 +14414,9 @@ export default function App() {
     try {
       const doc =
         transport === "daemon"
-          ? await daemonJson<unknown>("/models/import", { path })
-          : await invoke<unknown>("model_import", { path });
+          ? await daemonJson<SavedModelConfig>("/models/import", { path })
+          : await invoke<SavedModelConfig>("model_import", { path });
+      setModelConfigs((docs) => upsertSavedModelConfig(docs, doc));
       appendJson("Model imported", doc);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -14512,6 +14529,7 @@ export default function App() {
         transport === "daemon"
           ? await daemonJson<unknown>(`/models/${encodeURIComponent(id)}/delete`, {})
           : await invoke<unknown>("model_delete", { id });
+      setModelConfigs((docs) => docs.filter((doc) => doc.id !== id));
       appendJson("Model deleted", output);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -16363,6 +16381,14 @@ export default function App() {
   }
 
   function upsertAgentConfig(docs: AgentConfigEntry[], doc: AgentConfigEntry) {
+    const rest = docs.filter((item) => item.id !== doc.id);
+    return [doc, ...rest].sort((a, b) => a.id.localeCompare(b.id));
+  }
+
+  function upsertSavedModelConfig(
+    docs: SavedModelConfig[],
+    doc: SavedModelConfig,
+  ) {
     const rest = docs.filter((item) => item.id !== doc.id);
     return [doc, ...rest].sort((a, b) => a.id.localeCompare(b.id));
   }
@@ -20130,6 +20156,121 @@ export default function App() {
                   Delete Model
                 </button>
               </div>
+              {modelConfigs.length ? (
+                <div className="ingestion-review">
+                  {modelConfigs.map((doc) => {
+                    const metadataKeys = savedModelMetadataKeys(doc);
+                    const providerOptionKeys = savedModelProviderOptionKeys(doc);
+                    return (
+                      <div className="ingestion-card" key={doc.id}>
+                        <div className="ingestion-card-head">
+                          <strong>{doc.id}</strong>
+                          <span>{doc.provider || "provider default"}</span>
+                        </div>
+                        {doc.api_base_url ? (
+                          <span>{doc.api_base_url}</span>
+                        ) : null}
+                        {doc.available_modalities?.length ? (
+                          <span>
+                            modalities {doc.available_modalities.join(", ")}
+                          </span>
+                        ) : (
+                          <span>modalities from catalog</span>
+                        )}
+                        {doc.max_context_tokens != null ||
+                        doc.max_output_tokens != null ? (
+                          <span>
+                            {`tokens context ${doc.max_context_tokens ?? "default"} / output ${doc.max_output_tokens ?? "default"}`}
+                          </span>
+                        ) : null}
+                        {doc.default_temperature != null ? (
+                          <span>temperature {doc.default_temperature}</span>
+                        ) : null}
+                        {doc.tool_support != null ? (
+                          <span>
+                            tool calls {doc.tool_support ? "supported" : "not supported"}
+                          </span>
+                        ) : null}
+                        {doc.reasoning_mode ? (
+                          <span>reasoning {doc.reasoning_mode}</span>
+                        ) : null}
+                        {doc.privacy_level || doc.cost_tier ? (
+                          <span>
+                            {`policy privacy ${doc.privacy_level ?? "default"} / cost ${doc.cost_tier ?? "default"}`}
+                          </span>
+                        ) : null}
+                        {doc.input_cost_per_million != null ||
+                        doc.output_cost_per_million != null ? (
+                          <span>
+                            {`pricing ${doc.input_cost_per_million ?? "default"}/${doc.output_cost_per_million ?? "default"} $/M`}
+                          </span>
+                        ) : null}
+                        {providerOptionKeys.length ? (
+                          <span>provider options {providerOptionKeys.join(", ")}</span>
+                        ) : null}
+                        {metadataKeys.length ? (
+                          <span>metadata {metadataKeys.join(", ")}</span>
+                        ) : null}
+                        <div className="mini-actions">
+                          <button
+                            type="button"
+                            title="Move this model id into the Id field."
+                            onClick={() => setOpsId(doc.id)}
+                            disabled={running}
+                          >
+                            Set Id
+                          </button>
+                          <button
+                            type="button"
+                            title="Apply this saved model to the visible model controls."
+                            onClick={() => applyModelConfigToControls(doc)}
+                            disabled={running}
+                          >
+                            Use
+                          </button>
+                          <button
+                            type="button"
+                            title="Show this saved model and reload it from storage."
+                            onClick={() => void showModelFromOps(doc.id)}
+                            disabled={running}
+                          >
+                            Show
+                          </button>
+                          <button
+                            type="button"
+                            title="Probe this saved model."
+                            onClick={() => void probeModelFromOps(doc.id)}
+                            disabled={running}
+                          >
+                            Probe
+                          </button>
+                          <button
+                            type="button"
+                            title="Export this saved model to the Value path."
+                            onClick={() => void exportModel(doc.id, opsValue.trim())}
+                            disabled={running || !opsValue.trim()}
+                          >
+                            Export
+                          </button>
+                          <button
+                            type="button"
+                            className="danger"
+                            title="Delete this saved model."
+                            onClick={() => void deleteModelFromOps(doc.id)}
+                            disabled={running}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="empty-note">
+                  No saved models loaded. List models, or save the current controls.
+                </div>
+              )}
             </div>
             ) : null}
 

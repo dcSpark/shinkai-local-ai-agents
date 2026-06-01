@@ -16809,6 +16809,14 @@ export default function App() {
     return `/tmp/skill-${generatedArtifactFileName(skill.id)}.json`;
   }
 
+  function defaultProviderCatalogExportPath() {
+    return "/tmp/model-provider-catalog.json";
+  }
+
+  function defaultMetadataCatalogExportPath() {
+    return "/tmp/model-metadata-catalog.json";
+  }
+
   function defaultSavedModelExportPath(id: string) {
     return `/tmp/model-${generatedArtifactFileName(id)}.json`;
   }
@@ -20663,9 +20671,14 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Export provider catalog JSON to the path in Value."
-                  onClick={() => void exportModelProviderCatalogFromOps()}
-                  disabled={running || !opsValue.trim()}
+                  title="Export provider catalog JSON to Value, or to /tmp when Value is blank."
+                  onClick={() => {
+                    const path =
+                      opsValue.trim() || defaultProviderCatalogExportPath();
+                    setOpsValue(path);
+                    void exportModelProviderCatalogFromOps(path);
+                  }}
+                  disabled={running}
                 >
                   Export Providers
                 </button>
@@ -20679,9 +20692,14 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Export metadata catalog JSON to the path in Value."
-                  onClick={() => void exportModelMetadataCatalogFromOps()}
-                  disabled={running || !opsValue.trim()}
+                  title="Export metadata catalog JSON to Value, or to /tmp when Value is blank."
+                  onClick={() => {
+                    const path =
+                      opsValue.trim() || defaultMetadataCatalogExportPath();
+                    setOpsValue(path);
+                    void exportModelMetadataCatalogFromOps(path);
+                  }}
+                  disabled={running}
                 >
                   Export Metadata
                 </button>

@@ -16795,6 +16795,14 @@ export default function App() {
     return `/tmp/${promptExportFileName(prompt)}`;
   }
 
+  function defaultSavedModelExportPath(id: string) {
+    return `/tmp/model-${generatedArtifactFileName(id)}.json`;
+  }
+
+  function defaultSavedAgentExportPath(id: string) {
+    return `/tmp/agent-${generatedArtifactFileName(id)}.json`;
+  }
+
   function hasHighRiskFindings(artifact: IngestionArtifact) {
     return artifact.findings.some((finding) => finding.severity === "high");
   }
@@ -20848,9 +20856,26 @@ export default function App() {
                           </button>
                           <button
                             type="button"
-                            title="Export this saved model to the Value path."
-                            onClick={() => void exportModel(doc.id, opsValue.trim())}
-                            disabled={running || !opsValue.trim()}
+                            title="Set Value to a default export path for this saved model."
+                            onClick={() => {
+                              setOpsId(doc.id);
+                              setOpsValue(defaultSavedModelExportPath(doc.id));
+                            }}
+                            disabled={running}
+                          >
+                            Path
+                          </button>
+                          <button
+                            type="button"
+                            title="Export this saved model to Value, or to /tmp when Value is blank."
+                            onClick={() => {
+                              const path =
+                                opsValue.trim() || defaultSavedModelExportPath(doc.id);
+                              setOpsId(doc.id);
+                              setOpsValue(path);
+                              void exportModel(doc.id, path);
+                            }}
+                            disabled={running}
                           >
                             Export
                           </button>
@@ -22379,9 +22404,26 @@ export default function App() {
                           </button>
                           <button
                             type="button"
-                            title="Export this saved agent to the Value path."
-                            onClick={() => void exportAgentFromOps(doc.id)}
-                            disabled={running || !opsValue.trim()}
+                            title="Set Value to a default export path for this saved agent."
+                            onClick={() => {
+                              setOpsId(doc.id);
+                              setOpsValue(defaultSavedAgentExportPath(doc.id));
+                            }}
+                            disabled={running}
+                          >
+                            Path
+                          </button>
+                          <button
+                            type="button"
+                            title="Export this saved agent to Value, or to /tmp when Value is blank."
+                            onClick={() => {
+                              const path =
+                                opsValue.trim() || defaultSavedAgentExportPath(doc.id);
+                              setOpsId(doc.id);
+                              setOpsValue(path);
+                              void exportAgent(doc.id, path);
+                            }}
+                            disabled={running}
                           >
                             Export
                           </button>

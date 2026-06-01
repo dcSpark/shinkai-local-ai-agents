@@ -256,6 +256,8 @@ assert(
 );
 assert(fs.existsSync("scripts/prepare-mobile-signing.sh"), "mobile signing prep helper is missing");
 const signingScript = fs.readFileSync("scripts/prepare-mobile-signing.sh", "utf8");
+assert(signingScript.includes("decodeRequiredBase64"), "mobile signing prep must validate base64 secret payloads before writing signing files");
+assert(signingScript.includes("must be canonical base64"), "mobile signing prep must reject malformed base64 secret payloads");
 assert(signingScript.includes("keystore.properties"), "mobile signing prep must write Android keystore.properties");
 assert(signingScript.includes("rootProject.file(\"keystore.properties\")"), "mobile signing prep must patch Android Gradle signing config");
 assert(signingScript.includes("buildTypesMatch"), "mobile signing prep must locate Android buildTypes robustly");

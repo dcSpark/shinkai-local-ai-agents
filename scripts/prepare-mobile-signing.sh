@@ -49,12 +49,29 @@ function requireEnv(name) {
   return value;
 }
 
+function decodeRequiredBase64(name) {
+  const normalized = requireEnv(name).replace(/\s+/g, "");
+  if (
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(normalized) ||
+    normalized.length % 4 === 1
+  ) {
+    fail(`${name} must be valid base64`);
+  }
+  const decoded = Buffer.from(normalized, "base64");
+  if (decoded.length === 0) fail(`${name} decoded to an empty file`);
+  const canonical = decoded.toString("base64").replace(/=+$/u, "");
+  if (canonical !== normalized.replace(/=+$/u, "")) {
+    fail(`${name} must be canonical base64`);
+  }
+  return decoded;
+}
+
 const androidDir = "crates/agent-tauri/gen/android";
 const appGradle = path.join(androidDir, "app/build.gradle.kts");
 if (!fs.existsSync(androidDir)) fail("generated Android Tauri project is missing");
 if (!fs.existsSync(appGradle)) fail("generated Android app/build.gradle.kts is missing");
 
-const keystoreBase64 = requireEnv("ANDROID_KEYSTORE_BASE64");
+const keystoreBytes = decodeRequiredBase64("ANDROID_KEYSTORE_BASE64");
 const keystorePassword = requireEnv("ANDROID_KEYSTORE_PASSWORD");
 const keyAlias = requireEnv("ANDROID_KEY_ALIAS");
 const keyPassword = requireEnv("ANDROID_KEY_PASSWORD");
@@ -62,7 +79,7 @@ const runnerTemp = process.env.RUNNER_TEMP || path.join(process.cwd(), "target/m
 fs.mkdirSync(runnerTemp, { recursive: true });
 
 const keystorePath = path.join(runnerTemp, "shinkai-upload-keystore.jks");
-fs.writeFileSync(keystorePath, Buffer.from(keystoreBase64, "base64"), { mode: 0o600 });
+fs.writeFileSync(keystorePath, keystoreBytes, { mode: 0o600 });
 
 const properties = [
   `keyAlias=${keyAlias}`,
@@ -134,19 +151,36 @@ function requireEnv(name) {
   return value;
 }
 
+function decodeRequiredBase64(name) {
+  const normalized = requireEnv(name).replace(/\s+/g, "");
+  if (
+    !/^[A-Za-z0-9+/]+={0,2}$/.test(normalized) ||
+    normalized.length % 4 === 1
+  ) {
+    fail(`${name} must be valid base64`);
+  }
+  const decoded = Buffer.from(normalized, "base64");
+  if (decoded.length === 0) fail(`${name} decoded to an empty file`);
+  const canonical = decoded.toString("base64").replace(/=+$/u, "");
+  if (canonical !== normalized.replace(/=+$/u, "")) {
+    fail(`${name} must be canonical base64`);
+  }
+  return decoded;
+}
+
 if (!fs.existsSync("crates/agent-tauri/gen/apple")) {
   fail("generated iOS Tauri project is missing");
 }
 
 const apiKeyId = requireEnv("APPLE_API_KEY");
 const apiIssuer = requireEnv("APPLE_API_ISSUER");
-const apiKeyBase64 = requireEnv("APPLE_API_KEY_BASE64");
+const apiKeyBytes = decodeRequiredBase64("APPLE_API_KEY_BASE64");
 const teamId = requireEnv("APPLE_TEAM_ID");
 const runnerTemp = process.env.RUNNER_TEMP || path.join(process.cwd(), "target/mobile-signing");
 fs.mkdirSync(runnerTemp, { recursive: true });
 
 const apiKeyPath = path.join(runnerTemp, `AuthKey_${apiKeyId}.p8`);
-fs.writeFileSync(apiKeyPath, Buffer.from(apiKeyBase64, "base64"), { mode: 0o600 });
+fs.writeFileSync(apiKeyPath, apiKeyBytes, { mode: 0o600 });
 
 const exports = [
   `APPLE_API_KEY_PATH=${apiKeyPath}`,

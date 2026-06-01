@@ -18921,40 +18921,52 @@ export default function App() {
             ) : null}
             {hookCatalog.length ? (
               <div className="context-cards">
-                {hookCatalog.map((hook) => (
-                  <div
-                    className={`context-card compact ${hook.disabled ? "warning" : ""}`}
-                    key={hook.id}
-                  >
-                    <strong>{hook.id}</strong>
-                    <span>
-                      {hook.triggers.join(", ") || "no triggers"} - {hook.provenance}
-                      {hook.disabled
-                        ? ` - disabled by ${hook.disabled_source ?? "policy"}`
-                        : ""}
-                    </span>
-                    <div className="mini-actions">
-                      <button
-                        type="button"
-                        title="Persistently skip this lifecycle hook for future runs in the active profile."
-                        onClick={() =>
-                          void setPersistentHookDisabled(hook.id, true, "profile")
-                        }
-                      >
-                        Disable Profile
-                      </button>
-                      <button
-                        type="button"
-                        title="Persistently skip this lifecycle hook for the active agent config."
-                        onClick={() =>
-                          void setPersistentHookDisabled(hook.id, true, "agent")
-                        }
-                      >
-                        Disable Agent
-                      </button>
+                {hookCatalog.map((hook) => {
+                  const profileDisabled = hookIsProfileDisabled(hook.id);
+                  const agentDisabled = hookIsAgentDisabled(hook.id);
+                  return (
+                    <div
+                      className={`context-card compact ${hook.disabled ? "warning" : ""}`}
+                      key={hook.id}
+                    >
+                      <strong>{hook.id}</strong>
+                      <span>
+                        {hook.triggers.join(", ") || "no triggers"} - {hook.provenance}
+                        {hook.disabled
+                          ? ` - disabled by ${hook.disabled_source ?? "policy"}`
+                          : ""}
+                      </span>
+                      <div className="mini-actions">
+                        <button
+                          type="button"
+                          title="Persistently skip or re-enable this lifecycle hook for future runs in the active profile."
+                          onClick={() =>
+                            void setPersistentHookDisabled(
+                              hook.id,
+                              !profileDisabled,
+                              "profile",
+                            )
+                          }
+                        >
+                          {profileDisabled ? "Enable Profile" : "Disable Profile"}
+                        </button>
+                        <button
+                          type="button"
+                          title="Persistently skip or re-enable this lifecycle hook for the active agent config."
+                          onClick={() =>
+                            void setPersistentHookDisabled(
+                              hook.id,
+                              !agentDisabled,
+                              "agent",
+                            )
+                          }
+                        >
+                          {agentDisabled ? "Enable Agent" : "Disable Agent"}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : null}
           </section>

@@ -20285,6 +20285,14 @@ export default function App() {
                         >
                           Edit
                         </button>
+                        <button
+                          type="button"
+                          title="Classify this memory with the selected model or configured default."
+                          onClick={() => void classifyMemoryFromOps(record.id)}
+                          disabled={running}
+                        >
+                          Classify
+                        </button>
                       </div>
                     </div>
                   ))}

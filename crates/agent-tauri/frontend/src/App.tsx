@@ -16805,6 +16805,10 @@ export default function App() {
     )}.json`;
   }
 
+  function defaultSkillExportPath(skill: SkillDoc) {
+    return `/tmp/skill-${generatedArtifactFileName(skill.id)}.json`;
+  }
+
   function defaultSavedModelExportPath(id: string) {
     return `/tmp/model-${generatedArtifactFileName(id)}.json`;
   }
@@ -21337,6 +21341,31 @@ export default function App() {
                             disabled={running || !skill.quarantined || highRisk}
                           >
                             Allow
+                          </button>
+                          <button
+                            type="button"
+                            title="Stage a default /tmp export path for this skill."
+                            onClick={() => {
+                              setOpsId(skill.id);
+                              setOpsValue(defaultSkillExportPath(skill));
+                            }}
+                            disabled={running}
+                          >
+                            Path
+                          </button>
+                          <button
+                            type="button"
+                            title="Export this skill to Value, or to /tmp when Value is blank."
+                            onClick={() => {
+                              const path =
+                                opsValue.trim() || defaultSkillExportPath(skill);
+                              setOpsId(skill.id);
+                              setOpsValue(path);
+                              void exportSkillFromOps(skill.id, path);
+                            }}
+                            disabled={running}
+                          >
+                            Export
                           </button>
                           <button
                             type="button"

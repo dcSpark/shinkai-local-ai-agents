@@ -11013,6 +11013,7 @@ export default function App() {
   async function exportCompactionFromOps(explicitId?: string, explicitPath?: string) {
     const id = explicitId?.trim() || requireOpsId("Compaction export");
     if (!id) return;
+    if (explicitId?.trim()) setOpsId(id);
     const path = explicitPath?.trim() || opsValue.trim() || defaultCompactionPath(id);
     setOpsValue(path);
     await exportCompactionToPath(id, path);
@@ -12145,6 +12146,7 @@ export default function App() {
   async function exportCapabilityFromOps(explicitId?: string, explicitPath?: string) {
     const id = explicitId ?? requireOpsId("Capability export");
     if (!id) return;
+    if (explicitId?.trim()) setOpsId(id);
     const path =
       explicitPath?.trim() ||
       opsValue.trim() ||
@@ -14749,6 +14751,7 @@ export default function App() {
   async function exportSkillFromOps(explicitId?: string, explicitPath?: string) {
     const id = explicitId ?? requireOpsId("Skill export");
     if (!id) return;
+    if (explicitId?.trim()) setOpsId(id);
     const path =
       explicitPath?.trim() || opsValue.trim() || defaultSkillExportPathForId(id);
     setOpsValue(path);
@@ -15412,6 +15415,7 @@ export default function App() {
   async function exportAdapterFromOps(explicitId?: string, explicitPath?: string) {
     const id = explicitId ?? requireOpsId("Adapter export");
     if (!id) return;
+    if (explicitId?.trim()) setOpsId(id);
     const path =
       explicitPath?.trim() || opsValue.trim() || defaultAdapterExportPathForId(id);
     setOpsValue(path);

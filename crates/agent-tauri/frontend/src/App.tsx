@@ -32,6 +32,7 @@ import type {
   GeneratedArtifactExport,
   IngestionArtifact,
   IngestionBackendDescriptor,
+  IngestionBackendSourceProbe,
   IngestionFindingReviewDecision,
   IngestionGuardrailMode,
   IngestionResult,
@@ -14887,6 +14888,34 @@ export default function App() {
     }
   }
 
+  function stageIngestSourceProbe(
+    probe: IngestionSourceProbeReport,
+    backendId?: string,
+  ) {
+    setOpsValue(probe.source);
+    if (backendId) {
+      setIngestBackend(backendId);
+    }
+    if (probe.vision_model?.model) {
+      setIngestVisionModel(probe.vision_model.model);
+    }
+  }
+
+  function sourceProbeDirectIngestBlocked(probe: IngestionSourceProbeReport) {
+    return probe.vision_model?.supported === false;
+  }
+
+  async function ingestSourceProbeBackend(
+    probe: IngestionSourceProbeReport,
+    backend: IngestionBackendSourceProbe,
+  ) {
+    stageIngestSourceProbe(probe, backend.backend_id);
+    await ingestPathFromOps(probe.source, {
+      backend: backend.backend_id,
+      visionModel: probe.vision_model?.model ?? (ingestVisionModel.trim() || null),
+    });
+  }
+
   async function rerunIngestFromOps(
     explicitId?: string,
     options: IngestModelOptions = {},
@@ -21674,28 +21703,76 @@ export default function App() {
                         {ingestionSourceProbe.vision_model.reason}
                       </span>
                     ) : null}
+                    <div className="mini-actions">
+                      <button
+                        type="button"
+                        title="Move this probed source path into Value."
+                        onClick={() => stageIngestSourceProbe(ingestionSourceProbe)}
+                        disabled={running}
+                      >
+                        Use Path
+                      </button>
+                    </div>
                     <div className="finding-list">
                       {ingestionSourceProbe.backends.map((backend) => (
-                        <span
-                          className={`finding ${
-                            backend.status === "ready"
-                              ? "none"
-                              : backend.supported
-                                ? "warning"
-                                : "high"
-                          }`}
-                          key={backend.backend_id}
-                          title={backend.notes}
-                        >
-                          {backend.backend_id}: {backend.status}
-                          {backend.extraction ? ` / ${backend.extraction}` : ""}
-                          {backend.missing_optional_tools.length
-                            ? ` / missing ${backend.missing_optional_tools.join(", ")}`
-                            : ""}
-                          {backend.model_requirements.length
-                            ? ` / model ${backend.model_requirements.join(", ")}`
-                            : ""}
-                        </span>
+                        <div className="probe-backend-row" key={backend.backend_id}>
+                          <span
+                            className={`finding ${
+                              backend.status === "ready"
+                                ? "none"
+                                : backend.supported
+                                  ? "warning"
+                                  : "high"
+                            }`}
+                            title={backend.notes}
+                          >
+                            {backend.backend_id}: {backend.status}
+                            {backend.extraction ? ` / ${backend.extraction}` : ""}
+                            {backend.missing_optional_tools.length
+                              ? ` / missing ${backend.missing_optional_tools.join(", ")}`
+                              : ""}
+                            {backend.model_requirements.length
+                              ? ` / model ${backend.model_requirements.join(", ")}`
+                              : ""}
+                          </span>
+                          {backend.supported ? (
+                            <div className="mini-actions">
+                              <button
+                                type="button"
+                                title={`Use ${backend.backend_id} for this probed source.`}
+                                onClick={() =>
+                                  stageIngestSourceProbe(
+                                    ingestionSourceProbe,
+                                    backend.backend_id,
+                                  )
+                                }
+                                disabled={running}
+                              >
+                                Use
+                              </button>
+                              <button
+                                type="button"
+                                title={
+                                  sourceProbeDirectIngestBlocked(ingestionSourceProbe)
+                                    ? "Cannot ingest directly with the unsupported probed vision model."
+                                    : `Ingest this probed source with ${backend.backend_id}.`
+                                }
+                                onClick={() =>
+                                  void ingestSourceProbeBackend(
+                                    ingestionSourceProbe,
+                                    backend,
+                                  )
+                                }
+                                disabled={
+                                  running ||
+                                  sourceProbeDirectIngestBlocked(ingestionSourceProbe)
+                                }
+                              >
+                                Ingest
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
                       ))}
                     </div>
                   </div>

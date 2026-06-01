@@ -17148,6 +17148,67 @@ export default function App() {
     return agentId.trim() || agentDisplayName(demo);
   }
 
+  function isSavedAgentConfig(doc: AgentConfigEntry): doc is AgentConfigFile {
+    return "system_prompt" in doc;
+  }
+
+  function savedAgentTone(doc: AgentConfigEntry): ContextReviewCard["tone"] {
+    if (isSavedAgentConfig(doc) && doc.capability_drafts_enabled) return "warning";
+    if (agentSharedProfile(doc)) return "ok";
+    return "neutral";
+  }
+
+  function savedAgentModelLabel(doc: AgentConfigEntry) {
+    if (!isSavedAgentConfig(doc)) return "list only";
+    return doc.model?.trim() || "default";
+  }
+
+  function savedAgentBudgetLabel(doc: AgentConfigEntry) {
+    if (!isSavedAgentConfig(doc)) return "list only";
+    if (doc.max_tool_calls == null) return "default";
+    if (doc.max_tool_calls === 0) return "answer";
+    if (doc.max_tool_calls === 1) return "1 call";
+    return `${doc.max_tool_calls} calls`;
+  }
+
+  function savedAgentContextLabel(doc: AgentConfigEntry) {
+    if (!isSavedAgentConfig(doc)) return "list only";
+    const parts = [
+      doc.load_memory ? "memory" : null,
+      doc.load_skills ? "skills" : null,
+      doc.max_tokens_before_compaction != null ? "compact" : null,
+    ].filter(Boolean);
+    return parts.length ? parts.join(" + ") : "default";
+  }
+
+  function savedAgentSafetyLabel(doc: AgentConfigEntry) {
+    const sharedFrom = agentSharedProfile(doc);
+    if (!isSavedAgentConfig(doc)) return sharedFrom ? "grant" : "list only";
+    const parts = [
+      doc.approval_controller_agent ? "approval" : null,
+      doc.ingestion_guardrail ? doc.ingestion_guardrail : null,
+      doc.capability_drafts_enabled ? "drafts" : null,
+    ].filter(Boolean);
+    return parts.length ? parts.join(" + ") : "default";
+  }
+
+  function savedAgentBudgetTone(doc: AgentConfigEntry): ContextReviewCard["tone"] {
+    if (!isSavedAgentConfig(doc) || doc.max_tool_calls == null) return "neutral";
+    if (doc.max_tool_calls === 0) return "neutral";
+    if (doc.max_tool_calls === 1) return "ok";
+    return "warning";
+  }
+
+  function savedAgentSafetyTone(doc: AgentConfigEntry): ContextReviewCard["tone"] {
+    if (!isSavedAgentConfig(doc)) return agentSharedProfile(doc) ? "ok" : "neutral";
+    if (doc.capability_drafts_enabled) return "warning";
+    if (doc.approval_controller_agent || doc.ingestion_guardrail === "block") {
+      return "ok";
+    }
+    if (doc.ingestion_guardrail === "warn") return "warning";
+    return "neutral";
+  }
+
   function flattenConversationTree(
     nodes: ConversationTreeNode[],
     depth = 0,
@@ -23571,11 +23632,56 @@ export default function App() {
                 <div className="ingestion-review">
                   {agentConfigs.map((doc) => {
                     const sharedFrom = agentSharedProfile(doc);
+                    const agentTone = savedAgentTone(doc);
                     return (
-                      <div className="ingestion-card" key={doc.id}>
-                        <div className="ingestion-card-head">
-                          <strong>{doc.name || doc.id}</strong>
-                          <span>{doc.id}</span>
+                      <div className={`agent-card ${agentTone}`} key={doc.id}>
+                        <div className="agent-card-head with-icon">
+                          <span className={`agent-card-icon ${agentTone}`} aria-hidden="true">
+                            <AppIcon name={sharedFrom ? "profile" : "brand"} />
+                          </span>
+                          <div className="agent-card-title">
+                            <strong>{doc.name || doc.id}</strong>
+                            <span>{doc.id}</span>
+                          </div>
+                        </div>
+                        <div className="agent-metrics">
+                          <VisualMetric
+                            icon="brand"
+                            label="model"
+                            value={savedAgentModelLabel(doc)}
+                            section="chat"
+                            tone={
+                              isSavedAgentConfig(doc) && doc.model ? "ok" : "neutral"
+                            }
+                          />
+                          <VisualMetric
+                            icon="tools"
+                            label="budget"
+                            value={savedAgentBudgetLabel(doc)}
+                            section="chat"
+                            tone={savedAgentBudgetTone(doc)}
+                          />
+                          <VisualMetric
+                            icon="context"
+                            label="context"
+                            value={savedAgentContextLabel(doc)}
+                            section="chat"
+                            tone={
+                              isSavedAgentConfig(doc) &&
+                              (doc.load_memory ||
+                                doc.load_skills ||
+                                doc.max_tokens_before_compaction != null)
+                                ? "ok"
+                                : "neutral"
+                            }
+                          />
+                          <VisualMetric
+                            icon="approval"
+                            label="safety"
+                            value={savedAgentSafetyLabel(doc)}
+                            section="chat"
+                            tone={savedAgentSafetyTone(doc)}
+                          />
                         </div>
                         {sharedFrom ? (
                           <span>
@@ -23585,7 +23691,7 @@ export default function App() {
                         ) : doc.profile ? (
                           <span>profile {doc.profile}</span>
                         ) : null}
-                        {"system_prompt" in doc ? (
+                        {isSavedAgentConfig(doc) ? (
                           <>
                             <span>
                               {doc.model ? `model ${doc.model}` : "default model"}

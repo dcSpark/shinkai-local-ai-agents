@@ -17292,6 +17292,31 @@ export default function App() {
     ];
   }
 
+  function approvalTone(approval: ApprovalRecord): ContextReviewCard["tone"] {
+    if (approval.status === "approved") return "ok";
+    if (approval.status === "rejected") return "danger";
+    if (approval.status === "pending") return "warning";
+    return "neutral";
+  }
+
+  function approvalAssessmentTone(
+    assessment: ApprovalAssessment | null | undefined,
+  ): ContextReviewCard["tone"] {
+    const recommendation = assessment?.recommendation?.toLowerCase();
+    if (recommendation === "approve") return "ok";
+    if (recommendation === "reject") return "danger";
+    if (recommendation === "needs-human" || recommendation === "needs_human") {
+      return "warning";
+    }
+    return assessment ? "neutral" : "warning";
+  }
+
+  function approvalAssessmentLabel(approval: ApprovalRecord) {
+    return approval.assessment?.recommendation ??
+      approval.assessment?.status ??
+      "not assessed";
+  }
+
   function defaultCompactionPath(id: string) {
     return `/tmp/${id || "compacted-context"}.json`;
   }
@@ -18000,7 +18025,7 @@ export default function App() {
           title="Approvals"
           aria-label="Approvals"
           onClick={() => setActiveSection("approvals")}
-          disabled={running || !lastRunId}
+          disabled={running}
           style={sectionThemeStyle("approvals")}
         >
           <SectionIcon section="approvals" />
@@ -24638,14 +24663,50 @@ export default function App() {
             approvals.length ? (
               <div className="approval-list">
                 {approvals.map((approval) => (
-                  <div className="approval-card" key={approval.approval_id}>
-                    <div className="approval-card-head">
-                      <strong>{approval.action ?? approval.approval_id}</strong>
+                  <div
+                    className={`approval-card ${approvalTone(approval)}`}
+                    key={approval.approval_id}
+                  >
+                    <div className="approval-card-head with-icon">
+                      <span
+                        className={`approval-card-icon ${approvalTone(approval)}`}
+                        aria-hidden="true"
+                      >
+                        <AppIcon name="approval" />
+                      </span>
+                      <div className="approval-card-title">
+                        <strong>{approval.action ?? approval.approval_id}</strong>
+                        <span className="approval-id">{approval.approval_id}</span>
+                      </div>
                       <span className={`approval-status ${approval.status}`}>
                         {approval.status}
                       </span>
                     </div>
-                    <span className="approval-id">{approval.approval_id}</span>
+                    <div className="approval-metrics">
+                      <VisualMetric
+                        icon="approval"
+                        label="status"
+                        value={approval.status}
+                        section="approvals"
+                        tone={approvalTone(approval)}
+                      />
+                      <VisualMetric
+                        icon="tools"
+                        label="scope"
+                        value={approval.controller_scope?.length ?? 0}
+                        section="approvals"
+                        tone={
+                          approval.controller_scope?.length ? "ok" : "neutral"
+                        }
+                      />
+                      <VisualMetric
+                        icon="profile"
+                        label="assessment"
+                        value={approvalAssessmentLabel(approval)}
+                        section="approvals"
+                        tone={approvalAssessmentTone(approval.assessment)}
+                      />
+                    </div>
                     {approval.reason ? (
                       <p>{previewText(approval.reason, 180)}</p>
                     ) : null}

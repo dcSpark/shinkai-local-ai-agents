@@ -15466,8 +15466,8 @@ export default function App() {
   }
 
   async function exportBundleFromOps(explicitPath?: string) {
-    const path = explicitPath?.trim() || requireOpsValue("Bundle export");
-    if (!path) return;
+    const path = explicitPath?.trim() || opsValue.trim() || defaultBundlePath();
+    setOpsValue(path);
     await exportBundleToPath(path);
   }
 
@@ -19873,9 +19873,9 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Export the active profile/config/cache bundle to the path in Value."
+                  title="Export the active profile/config/cache bundle to Value, or to a timestamped /tmp path when Value is blank."
                   onClick={() => void exportBundleFromOps()}
-                  disabled={running || !opsValue.trim()}
+                  disabled={running}
                 >
                   Export Bundle
                 </button>
@@ -23189,9 +23189,9 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Export bundle to the path in Value."
+                  title="Export bundle to Value, or to a timestamped /tmp path when Value is blank."
                   onClick={() => void exportBundleFromOps()}
-                  disabled={running || !opsValue.trim()}
+                  disabled={running}
                 >
                   Export
                 </button>

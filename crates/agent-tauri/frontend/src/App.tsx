@@ -714,6 +714,8 @@ export default function App() {
   );
   const [expandedConversation, setExpandedConversation] =
     useState<ExpandedConversation | null>(null);
+  const [conversationRecoveryPlan, setConversationRecoveryPlan] =
+    useState<ConversationRecoveryPlan | null>(null);
   const [conversationDeletePlan, setConversationDeletePlan] =
     useState<ConversationDeletePlan | null>(null);
   const [skillDocs, setSkillDocs] = useState<SkillDoc[]>([]);
@@ -12408,6 +12410,7 @@ export default function App() {
       setConversationDocs(conversations);
       setConversationTree(tree);
       setConversationDeletePlan(null);
+      setConversationRecoveryPlan(null);
       appendEvent(
         `Conversations: ${conversations.length} total, ${tree.length} root branches`,
       );
@@ -12468,6 +12471,7 @@ export default function App() {
     try {
       const plan = await fetchConversationRecovery(id);
       const suggested = plan.suggested_run;
+      setConversationRecoveryPlan(plan);
       setOpsId(suggested.conversation_id || plan.conversation_id);
       setConversationId(suggested.conversation_id || plan.conversation_id);
       setAgentId(plan.agent_id.trim());
@@ -15888,6 +15892,20 @@ export default function App() {
     return parts.length ? parts.join("; ") : "default policy";
   }
 
+  function conversationRecoverySummary(plan: ConversationRecoveryPlan) {
+    const suggested = plan.suggested_run;
+    return [
+      `${plan.expanded_message_count} expanded messages`,
+      `${plan.linked_compactions.length} compactions`,
+      `${plan.linked_memories.length} memories`,
+      `${plan.linked_generated_artifacts.length} artifacts`,
+      suggested.load_memory ? "memory on" : "memory off",
+      suggested.compacted_context?.trim() ? "compact context ready" : null,
+    ]
+      .filter(Boolean)
+      .join(" / ");
+  }
+
   function compactionMetrics(snapshot: ContextSnapshot): CompactionMetrics | null {
     const compacted = snapshot.compacted?.trim();
     if (!compacted) {
@@ -19193,6 +19211,95 @@ export default function App() {
                           {id}
                         </span>
                       ))}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
+              {conversationRecoveryPlan ? (
+                <div className="ingestion-review">
+                  <div className="ingestion-card">
+                    <div className="ingestion-card-head">
+                      <strong>Recovery plan</strong>
+                      <span>{conversationRecoveryPlan.title}</span>
+                    </div>
+                    <span>{conversationRecoveryPlan.conversation_id}</span>
+                    <span>agent {conversationRecoveryPlan.agent_id}</span>
+                    <span>{conversationRecoverySummary(conversationRecoveryPlan)}</span>
+                    <span>
+                      suggested run{" "}
+                      {conversationRecoveryPlan.suggested_run.conversation_id ||
+                        conversationRecoveryPlan.conversation_id}
+                    </span>
+                    {conversationRecoveryPlan.suggested_run.include_compact ? (
+                      <span>
+                        include compact{" "}
+                        {conversationRecoveryPlan.suggested_run.include_compact}
+                      </span>
+                    ) : null}
+                    {conversationRecoveryPlan.linked_compactions.length ? (
+                      <div className="finding-list">
+                        {conversationRecoveryPlan.linked_compactions
+                          .slice(0, 4)
+                          .map((record) => (
+                            <span
+                              className="finding"
+                              key={`recovery-compaction:${record.id}`}
+                              title={record.content_preview}
+                            >
+                              compact {record.id}
+                            </span>
+                          ))}
+                      </div>
+                    ) : null}
+                    {conversationRecoveryPlan.linked_memories.length ? (
+                      <div className="finding-list">
+                        {conversationRecoveryPlan.linked_memories
+                          .slice(0, 4)
+                          .map((record) => (
+                            <span
+                              className="finding"
+                              key={`recovery-memory:${record.id}`}
+                              title={record.content_preview}
+                            >
+                              memory {record.id}
+                            </span>
+                          ))}
+                      </div>
+                    ) : null}
+                    {conversationRecoveryPlan.linked_generated_artifacts.length ? (
+                      <div className="finding-list">
+                        {conversationRecoveryPlan.linked_generated_artifacts
+                          .slice(0, 4)
+                          .map((artifact) => (
+                            <span
+                              className="finding"
+                              key={`recovery-artifact:${artifact.id}`}
+                              title={artifact.path}
+                            >
+                              {artifact.format} {fileName(artifact.path)}
+                            </span>
+                          ))}
+                      </div>
+                    ) : null}
+                    <div className="mini-actions">
+                      <button
+                        type="button"
+                        title="Move the recovery conversation id into the Id field."
+                        onClick={() =>
+                          setOpsId(conversationRecoveryPlan.conversation_id)
+                        }
+                        disabled={running}
+                      >
+                        Set Id
+                      </button>
+                      <button
+                        type="button"
+                        title="Preview the next context with the recovered run settings."
+                        onClick={() => void previewCurrentContext()}
+                        disabled={running}
+                      >
+                        Preview
+                      </button>
                     </div>
                   </div>
                 </div>

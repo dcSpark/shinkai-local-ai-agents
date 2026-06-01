@@ -16799,6 +16799,12 @@ export default function App() {
     return `/tmp/capability-${draft.kind}-${generatedArtifactFileName(draft.id)}.json`;
   }
 
+  function defaultAdapterExportPath(adapterPackage: AdapterPackage) {
+    return `/tmp/adapter-${adapterPackage.adapter}-${generatedArtifactFileName(
+      adapterPackage.id,
+    )}.json`;
+  }
+
   function defaultSavedModelExportPath(id: string) {
     return `/tmp/model-${generatedArtifactFileName(id)}.json`;
   }
@@ -22849,6 +22855,32 @@ export default function App() {
                             }
                           >
                             Install Skill
+                          </button>
+                          <button
+                            type="button"
+                            title="Stage a default /tmp export path for this adapter."
+                            onClick={() => {
+                              setOpsId(adapterPackage.id);
+                              setOpsValue(defaultAdapterExportPath(adapterPackage));
+                            }}
+                            disabled={running}
+                          >
+                            Path
+                          </button>
+                          <button
+                            type="button"
+                            title="Export this adapter to Value, or to /tmp when Value is blank."
+                            onClick={() => {
+                              const path =
+                                opsValue.trim() ||
+                                defaultAdapterExportPath(adapterPackage);
+                              setOpsId(adapterPackage.id);
+                              setOpsValue(path);
+                              void exportAdapterFromOps(adapterPackage.id, path);
+                            }}
+                            disabled={running}
+                          >
+                            Export
                           </button>
                           <button
                             type="button"

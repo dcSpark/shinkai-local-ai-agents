@@ -79,6 +79,12 @@ textarea:disabled {
   background: #12151a;
 }
 
+.app-icon {
+  display: block;
+  width: 1.12rem;
+  height: 1.12rem;
+}
+
 .rail {
   display: flex;
   flex-direction: column;
@@ -97,14 +103,15 @@ textarea:disabled {
   width: 100%;
   min-height: 3.2rem;
   padding: 0.45rem 0.65rem;
-  border: 1px solid #1d7882;
+  border: 1px solid var(--section-accent);
   border-radius: 8px;
-  background: #102f33;
-  color: #8fe8f0;
+  background: var(--section-surface);
+  color: var(--section-accent);
   font-weight: 800;
 }
 
 .rail-item {
+  position: relative;
   display: grid;
   grid-template-columns: 2rem minmax(0, 1fr);
   align-items: center;
@@ -112,21 +119,40 @@ textarea:disabled {
   width: 100%;
   min-height: 3.1rem;
   padding: 0.45rem 0.65rem;
+  border: 1px solid transparent;
   border-radius: 8px;
+  background: transparent;
   color: #aeb5bd;
   font-weight: 700;
   text-align: left;
+  overflow: hidden;
 }
 
-.rail-letter {
+.rail-item::before {
+  content: "";
+  position: absolute;
+  top: 0.55rem;
+  bottom: 0.55rem;
+  left: 0;
+  width: 3px;
+  border-radius: 0 999px 999px 0;
+  background: var(--section-accent);
+  opacity: 0;
+}
+
+.rail-icon {
   display: inline-grid;
-  min-width: 2rem;
-  min-height: 2rem;
+  width: 2rem;
+  height: 2rem;
   place-items: center;
   border: 1px solid #333a42;
   border-radius: 8px;
   background: #171b20;
-  font-weight: 800;
+  color: var(--section-accent);
+}
+
+.rail-icon.brand {
+  background: #163f46;
 }
 
 .rail-copy {
@@ -152,20 +178,29 @@ textarea:disabled {
 }
 
 .rail-item.active {
-  border-color: #23919c;
-  background: #123238;
+  border-color: var(--section-accent);
+  background: var(--section-surface);
   color: #e2fbff;
 }
 
-.rail-item.active .rail-letter,
-.rail-mark .rail-letter {
-  border-color: #2598a5;
-  background: #163f46;
-  color: #9df1f6;
+.rail-item.active::before {
+  opacity: 1;
+}
+
+.rail-item:hover:not(:disabled) {
+  border-color: var(--section-accent);
+  background: #171d22;
+}
+
+.rail-item.active .rail-icon,
+.rail-mark .rail-icon {
+  border-color: var(--section-accent);
+  background: #171b20;
+  color: var(--section-accent);
 }
 
 .rail-item.active .rail-hint {
-  color: #9bcfd4;
+  color: #c8d1d6;
 }
 
 .rail-bottom {
@@ -182,40 +217,133 @@ textarea:disabled {
 }
 
 .topbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(18rem, 1.1fr) minmax(0, 2fr);
   align-items: center;
-  justify-content: space-between;
   gap: 1rem;
-  min-height: 5.7rem;
+  min-height: 6.4rem;
   padding: 1.05rem 1.55rem;
   border-bottom: 1px solid #2a2f39;
   background: #181c22;
+}
+
+.topbar-identity {
+  display: grid;
+  grid-template-columns: 4.2rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.8rem;
+  min-width: 0;
+}
+
+.topbar-copy {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.topbar-kicker {
+  min-width: 0;
+  color: var(--section-accent);
+  font-size: 0.72rem;
+  font-weight: 850;
+  overflow: hidden;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .topbar h1 {
   margin: 0;
   font-size: 1.45rem;
   line-height: 1.2;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.topbar > div:first-child {
-  flex: 0 0 auto;
-  min-width: 10rem;
+.feature-visual {
+  position: relative;
+  display: grid;
+  width: 4.2rem;
+  height: 4.2rem;
+  place-items: center;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+  color: var(--section-accent);
+  overflow: hidden;
+}
+
+.feature-line {
+  position: absolute;
+  height: 1px;
+  background: #47515d;
+}
+
+.feature-line.main {
+  width: 3rem;
+  transform: rotate(-28deg);
+}
+
+.feature-line.cross {
+  width: 2.3rem;
+  transform: rotate(38deg);
+}
+
+.feature-node {
+  position: absolute;
+  display: grid;
+  width: 1.7rem;
+  height: 1.7rem;
+  place-items: center;
+  border: 1px solid #3d4650;
+  border-radius: 8px;
+  background: #11151a;
+  color: #cfd7dd;
+}
+
+.feature-node .app-icon {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.feature-node.primary {
+  top: 0.55rem;
+  left: 0.55rem;
+  border-color: var(--section-accent);
+  color: var(--section-accent);
+}
+
+.feature-node.secondary {
+  right: 0.48rem;
+  bottom: 0.62rem;
+}
+
+.feature-node.tertiary {
+  right: 0.7rem;
+  top: 0.65rem;
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.feature-node.tertiary .app-icon {
+  width: 0.72rem;
+  height: 0.72rem;
 }
 
 .run-meta {
-  margin-top: 0.3rem;
   color: #99a2ad;
   font-size: 0.86rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .status-pills {
   display: flex;
-  flex: 1 1 auto;
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.5rem;
+  min-width: 0;
 }
 
 .pill {
@@ -523,9 +651,37 @@ textarea:disabled {
 }
 
 .panel-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
   color: #f4f5f2;
   font-size: 0.96rem;
   font-weight: 800;
+}
+
+.panel-title-icon {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 1.9rem;
+  height: 1.9rem;
+  place-items: center;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+  color: var(--section-accent);
+}
+
+.panel-title-icon .app-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.visual-title > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .panel label {
@@ -1878,8 +2034,14 @@ textarea:disabled {
     gap: 0.5rem;
   }
 
-  .rail-letter {
-    min-width: 1.8rem;
+  .rail-icon {
+    width: 1.8rem;
+    height: 1.8rem;
+  }
+
+  .rail-icon .app-icon {
+    width: 0.95rem;
+    height: 0.95rem;
   }
 }
 
@@ -1899,12 +2061,38 @@ textarea:disabled {
   .workspace {
     min-height: 0;
   }
+
+  .topbar {
+    grid-template-columns: 1fr;
+  }
+
+  .status-pills {
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 720px) {
   .topbar {
     align-items: flex-start;
-    flex-direction: column;
+  }
+
+  .topbar-identity {
+    grid-template-columns: 3.4rem minmax(0, 1fr);
+  }
+
+  .feature-visual {
+    width: 3.4rem;
+    height: 3.4rem;
+  }
+
+  .feature-node {
+    width: 1.45rem;
+    height: 1.45rem;
+  }
+
+  .feature-node.tertiary {
+    width: 1.1rem;
+    height: 1.1rem;
   }
 
   .line {

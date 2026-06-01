@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
@@ -95,6 +95,23 @@ type ActiveSection =
   | "artifacts"
   | "adapters"
   | "approvals";
+type IconName =
+  | "adapter"
+  | "approval"
+  | "artifact"
+  | "brand"
+  | "chat"
+  | "context"
+  | "control"
+  | "conversation"
+  | "ingest"
+  | "memory"
+  | "profile"
+  | "prompt"
+  | "setup"
+  | "skill"
+  | "tools"
+  | "trace";
 type AgentMode = "answer" | "action" | "workflow" | "custom";
 type AgentConfigEntry = AgentConfigFile | AgentSummary;
 type AgentDeleteResult = { id?: string; deleted?: boolean };
@@ -132,6 +149,15 @@ interface ContextReviewCard {
   tone: "neutral" | "ok" | "warning" | "danger";
 }
 
+interface SectionVisual {
+  label: string;
+  hint: string;
+  icon: IconName;
+  secondaryIcon: IconName;
+  accent: string;
+  surface: string;
+}
+
 interface ConversationTreeRow {
   node: ConversationTreeNode;
   depth: number;
@@ -165,6 +191,357 @@ const MODEL_PROVIDER_OPTION_KEYS = [
   "frequency_penalty",
   "presence_penalty",
 ] as const;
+
+const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
+  chat: {
+    label: "Chat",
+    hint: "Ask, run, and guide agents",
+    icon: "chat",
+    secondaryIcon: "tools",
+    accent: "#7ed68d",
+    surface: "#16251a",
+  },
+  trace: {
+    label: "Trace",
+    hint: "Inspect runs and compare paths",
+    icon: "trace",
+    secondaryIcon: "context",
+    accent: "#8db7ff",
+    surface: "#151f33",
+  },
+  conversations: {
+    label: "Conversations",
+    hint: "Browse branches and recover context",
+    icon: "conversation",
+    secondaryIcon: "context",
+    accent: "#caa5ff",
+    surface: "#251c35",
+  },
+  profiles: {
+    label: "Profiles",
+    hint: "Manage grants, bundles, and secrets",
+    icon: "profile",
+    secondaryIcon: "approval",
+    accent: "#f0bf63",
+    surface: "#2d2312",
+  },
+  memory: {
+    label: "Memory",
+    hint: "Load durable context and topics",
+    icon: "memory",
+    secondaryIcon: "context",
+    accent: "#61d6bd",
+    surface: "#102923",
+  },
+  skills: {
+    label: "Skills",
+    hint: "Review capabilities and drafts",
+    icon: "skill",
+    secondaryIcon: "tools",
+    accent: "#ff9f7a",
+    surface: "#321f18",
+  },
+  prompts: {
+    label: "Prompts",
+    hint: "Reuse prompts and model profiles",
+    icon: "prompt",
+    secondaryIcon: "setup",
+    accent: "#f2df72",
+    surface: "#2d2914",
+  },
+  ingest: {
+    label: "Ingest",
+    hint: "Prepare files, OCR, and guardrails",
+    icon: "ingest",
+    secondaryIcon: "artifact",
+    accent: "#65d4ff",
+    surface: "#102837",
+  },
+  artifacts: {
+    label: "Artifacts",
+    hint: "Preview generated files and voice",
+    icon: "artifact",
+    secondaryIcon: "prompt",
+    accent: "#ff8fb1",
+    surface: "#321a24",
+  },
+  adapters: {
+    label: "Adapters",
+    hint: "Connect tools, bridges, and storage",
+    icon: "adapter",
+    secondaryIcon: "tools",
+    accent: "#9ddc6f",
+    surface: "#1c2a14",
+  },
+  approvals: {
+    label: "Approvals",
+    hint: "Assess and resolve gated actions",
+    icon: "approval",
+    secondaryIcon: "control",
+    accent: "#ff7e86",
+    surface: "#32191f",
+  },
+};
+
+function sectionVisual(section: ActiveSection) {
+  return SECTION_VISUALS[section];
+}
+
+function visualStyle(accent: string, surface: string): CSSProperties {
+  return {
+    "--section-accent": accent,
+    "--section-surface": surface,
+  } as CSSProperties;
+}
+
+function sectionThemeStyle(section: ActiveSection): CSSProperties {
+  const visual = sectionVisual(section);
+  return visualStyle(visual.accent, visual.surface);
+}
+
+function brandThemeStyle(): CSSProperties {
+  return visualStyle("#8fe8f0", "#102f33");
+}
+
+function AppIcon({ name, className }: { name: IconName; className?: string }) {
+  let body: ReactNode;
+  switch (name) {
+    case "adapter":
+      body = (
+        <>
+          <path d="M8 7V4" />
+          <path d="M16 7V4" />
+          <path d="M7 9h10v3a5 5 0 0 1-10 0V9Z" />
+          <path d="M12 17v3" />
+          <path d="M9.5 20h5" />
+        </>
+      );
+      break;
+    case "approval":
+      body = (
+        <>
+          <path d="M12 3 5 6v5c0 4.5 2.7 7.6 7 10 4.3-2.4 7-5.5 7-10V6l-7-3Z" />
+          <path d="m8.5 12 2.2 2.2 4.8-5" />
+        </>
+      );
+      break;
+    case "artifact":
+      body = (
+        <>
+          <path d="M5 4.5h10.5L19 8v11.5H5V4.5Z" />
+          <path d="M15.5 4.5V8H19" />
+          <path d="m8 16 2.5-3 2 2 1.5-1.8 2.5 2.8" />
+          <path d="M8.5 9.2h.1" />
+        </>
+      );
+      break;
+    case "brand":
+      body = (
+        <>
+          <path d="M12 3.5 5 7.5v9l7 4 7-4v-9l-7-4Z" />
+          <path d="M8.2 9.8 12 7.6l3.8 2.2" />
+          <path d="M8.2 14.2 12 16.4l3.8-2.2" />
+          <path d="M12 7.6v8.8" />
+        </>
+      );
+      break;
+    case "chat":
+      body = (
+        <>
+          <path d="M5 6.5h10.5a3.5 3.5 0 0 1 0 7H11l-4 3v-3H5V6.5Z" />
+          <path d="M8 9.2h7" />
+          <path d="M8 11.5h4.5" />
+        </>
+      );
+      break;
+    case "context":
+      body = (
+        <>
+          <path d="m12 4 7 3.5-7 3.5-7-3.5L12 4Z" />
+          <path d="m5 11 7 3.5 7-3.5" />
+          <path d="m5 14.8 7 3.5 7-3.5" />
+        </>
+      );
+      break;
+    case "control":
+      body = (
+        <>
+          <path d="M6 5v14" />
+          <path d="M12 5v14" />
+          <path d="M18 5v14" />
+          <path d="M4.5 9h3" />
+          <path d="M10.5 15h3" />
+          <path d="M16.5 11h3" />
+        </>
+      );
+      break;
+    case "conversation":
+      body = (
+        <>
+          <path d="M6 5h7a3 3 0 0 1 0 6H9l-3 2.5V5Z" />
+          <path d="M14 12h4v6l-2.5-2H11a2.5 2.5 0 0 1-2.5-2.5" />
+          <path d="M13 8h3" />
+        </>
+      );
+      break;
+    case "ingest":
+      body = (
+        <>
+          <path d="M6 4.5h7.5L18 9v10.5H6V4.5Z" />
+          <path d="M13.5 4.5V9H18" />
+          <path d="M9 13h6" />
+          <path d="m12 10.5 3 2.5-3 2.5" />
+        </>
+      );
+      break;
+    case "memory":
+      body = (
+        <>
+          <path d="M6 7c0-1.4 2.7-2.5 6-2.5s6 1.1 6 2.5-2.7 2.5-6 2.5S6 8.4 6 7Z" />
+          <path d="M6 7v5c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V7" />
+          <path d="M6 12v5c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5v-5" />
+        </>
+      );
+      break;
+    case "profile":
+      body = (
+        <>
+          <path d="M12 12a3.8 3.8 0 1 0 0-7.6 3.8 3.8 0 0 0 0 7.6Z" />
+          <path d="M5.5 20a6.7 6.7 0 0 1 13 0" />
+          <path d="M17.5 8.5h2.5" />
+          <path d="M18.8 7.2v2.6" />
+        </>
+      );
+      break;
+    case "prompt":
+      body = (
+        <>
+          <path d="M6 4.5h12v15H6v-15Z" />
+          <path d="M9 8h6" />
+          <path d="M9 11.5h6" />
+          <path d="M9 15h3.5" />
+        </>
+      );
+      break;
+    case "setup":
+      body = (
+        <>
+          <path d="M5 7h14" />
+          <path d="M5 12h14" />
+          <path d="M5 17h14" />
+          <path d="M9 5.5v3" />
+          <path d="M15 10.5v3" />
+          <path d="M11.5 15.5v3" />
+        </>
+      );
+      break;
+    case "skill":
+      body = (
+        <>
+          <path d="M12 4.5 14 9l4.5.5-3.4 3.1 1 4.4-4.1-2.3L7.9 17l1-4.4L5.5 9.5 10 9l2-4.5Z" />
+          <path d="M12 8.5v3.8" />
+          <path d="M10.2 10.4h3.6" />
+        </>
+      );
+      break;
+    case "tools":
+      body = (
+        <>
+          <path d="M14.8 5.5a4.2 4.2 0 0 0 4.7 4.7l-8.4 8.4a2.2 2.2 0 0 1-3.1-3.1l8.4-8.4Z" />
+          <path d="m7.3 16.2 1.5 1.5" />
+        </>
+      );
+      break;
+    case "trace":
+      body = (
+        <>
+          <path d="M6 6h5v5H6V6Z" />
+          <path d="M14 4h4v4h-4V4Z" />
+          <path d="M14 16h4v4h-4v-4Z" />
+          <path d="M11 8.5h3" />
+          <path d="M11 8.5c2.2 0 3 2 3 4.5v5" />
+        </>
+      );
+      break;
+  }
+  return (
+    <svg
+      className={className ? `app-icon ${className}` : "app-icon"}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      focusable="false"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {body}
+    </svg>
+  );
+}
+
+function SectionIcon({ section }: { section: ActiveSection }) {
+  return (
+    <span className="rail-icon" aria-hidden="true">
+      <AppIcon name={sectionVisual(section).icon} />
+    </span>
+  );
+}
+
+function BrandIcon() {
+  return (
+    <span className="rail-icon brand" aria-hidden="true">
+      <AppIcon name="brand" />
+    </span>
+  );
+}
+
+function PanelTitle({
+  title,
+  section,
+  icon,
+}: {
+  title: string;
+  section?: ActiveSection;
+  icon?: IconName;
+}) {
+  const iconName = icon ?? (section ? sectionVisual(section).icon : "brand");
+  return (
+    <div
+      className="panel-title visual-title"
+      style={section ? sectionThemeStyle(section) : brandThemeStyle()}
+    >
+      <span className="panel-title-icon" aria-hidden="true">
+        <AppIcon name={iconName} />
+      </span>
+      <span>{title}</span>
+    </div>
+  );
+}
+
+function FeatureVisual({ section }: { section: ActiveSection }) {
+  const visual = sectionVisual(section);
+  return (
+    <div
+      className="feature-visual"
+      style={sectionThemeStyle(section)}
+      aria-hidden="true"
+    >
+      <span className="feature-line main" />
+      <span className="feature-line cross" />
+      <span className="feature-node primary">
+        <AppIcon name={visual.icon} />
+      </span>
+      <span className="feature-node secondary">
+        <AppIcon name={visual.secondaryIcon} />
+      </span>
+      <span className="feature-node tertiary">
+        <AppIcon name="brand" />
+      </span>
+    </div>
+  );
+}
 
 interface SavedModelConfig {
   id: string;
@@ -17317,12 +17694,18 @@ export default function App() {
 
   const conversationStats = conversationTreeStats(conversationTree);
   const canGuideRun = Boolean(activeGuidanceRunId() && input.trim());
+  const activeVisual = sectionVisual(activeSection);
 
   return (
     <div className="app-shell">
       <aside className="rail" aria-label="Agent workspace sections">
-        <div className="rail-mark" title="Shinkai Agents" aria-label="Shinkai Agents">
-          <span className="rail-letter">AI</span>
+        <div
+          className="rail-mark"
+          title="Shinkai Agents"
+          aria-label="Shinkai Agents"
+          style={brandThemeStyle()}
+        >
+          <BrandIcon />
           <span className="rail-copy">
             <span className="rail-label">Shinkai</span>
             <span className="rail-hint">Agents</span>
@@ -17334,8 +17717,9 @@ export default function App() {
           title="Chat"
           aria-label="Chat transcript"
           onClick={() => setActiveSection("chat")}
+          style={sectionThemeStyle("chat")}
         >
-          <span className="rail-letter">C</span>
+          <SectionIcon section="chat" />
           <span className="rail-copy">
             <span className="rail-label">Chat</span>
             <span className="rail-hint">Ask an agent</span>
@@ -17351,8 +17735,9 @@ export default function App() {
             if (lastRunId && !running) void loadLastTrace();
           }}
           disabled={running || !lastRunId}
+          style={sectionThemeStyle("trace")}
         >
-          <span className="rail-letter">T</span>
+          <SectionIcon section="trace" />
           <span className="rail-copy">
             <span className="rail-label">Trace</span>
             <span className="rail-hint">Inspect runs</span>
@@ -17368,8 +17753,9 @@ export default function App() {
             if (!running && !conversationTree.length) void reviewConversations();
           }}
           disabled={running}
+          style={sectionThemeStyle("conversations")}
         >
-          <span className="rail-letter">B</span>
+          <SectionIcon section="conversations" />
           <span className="rail-copy">
             <span className="rail-label">Conversations</span>
             <span className="rail-hint">Branches</span>
@@ -17389,8 +17775,9 @@ export default function App() {
             }
           }}
           disabled={running}
+          style={sectionThemeStyle("profiles")}
         >
-          <span className="rail-letter">R</span>
+          <SectionIcon section="profiles" />
           <span className="rail-copy">
             <span className="rail-label">Profiles</span>
             <span className="rail-hint">Grants</span>
@@ -17403,8 +17790,9 @@ export default function App() {
           aria-label="Memory records"
           onClick={() => setActiveSection("memory")}
           disabled={running}
+          style={sectionThemeStyle("memory")}
         >
-          <span className="rail-letter">M</span>
+          <SectionIcon section="memory" />
           <span className="rail-copy">
             <span className="rail-label">Memory</span>
             <span className="rail-hint">Saved context</span>
@@ -17417,8 +17805,9 @@ export default function App() {
           aria-label="Skill library"
           onClick={() => setActiveSection("skills")}
           disabled={running}
+          style={sectionThemeStyle("skills")}
         >
-          <span className="rail-letter">S</span>
+          <SectionIcon section="skills" />
           <span className="rail-copy">
             <span className="rail-label">Skills</span>
             <span className="rail-hint">Capabilities</span>
@@ -17431,8 +17820,9 @@ export default function App() {
           aria-label="Saved prompts"
           onClick={() => setActiveSection("prompts")}
           disabled={running}
+          style={sectionThemeStyle("prompts")}
         >
-          <span className="rail-letter">P</span>
+          <SectionIcon section="prompts" />
           <span className="rail-copy">
             <span className="rail-label">Prompts</span>
             <span className="rail-hint">Reusable tasks</span>
@@ -17445,8 +17835,9 @@ export default function App() {
           aria-label="Ingestion artifacts"
           onClick={() => setActiveSection("ingest")}
           disabled={running}
+          style={sectionThemeStyle("ingest")}
         >
-          <span className="rail-letter">I</span>
+          <SectionIcon section="ingest" />
           <span className="rail-copy">
             <span className="rail-label">Ingest</span>
             <span className="rail-hint">Documents</span>
@@ -17459,8 +17850,9 @@ export default function App() {
           aria-label="Generated artifacts"
           onClick={() => setActiveSection("artifacts")}
           disabled={running}
+          style={sectionThemeStyle("artifacts")}
         >
-          <span className="rail-letter">G</span>
+          <SectionIcon section="artifacts" />
           <span className="rail-copy">
             <span className="rail-label">Artifacts</span>
             <span className="rail-hint">Generated files</span>
@@ -17473,8 +17865,9 @@ export default function App() {
           aria-label="Adapter manifests"
           onClick={() => setActiveSection("adapters")}
           disabled={running}
+          style={sectionThemeStyle("adapters")}
         >
-          <span className="rail-letter">A</span>
+          <SectionIcon section="adapters" />
           <span className="rail-copy">
             <span className="rail-label">Adapters</span>
             <span className="rail-hint">Integrations</span>
@@ -17487,8 +17880,9 @@ export default function App() {
           aria-label="Approvals"
           onClick={() => setActiveSection("approvals")}
           disabled={running || !lastRunId}
+          style={sectionThemeStyle("approvals")}
         >
-          <span className="rail-letter">!</span>
+          <SectionIcon section="approvals" />
           <span className="rail-copy">
             <span className="rail-label">Approvals</span>
             <span className="rail-hint">Review actions</span>
@@ -17498,10 +17892,19 @@ export default function App() {
 
       <main className="workspace">
         <header className="topbar">
-          <div>
-            <h1>Shinkai Agents</h1>
-            <div className="run-meta">
-              {lastRunId ? `Run ${runLabel}` : "Ready for a new run"}
+          <div
+            className="topbar-identity"
+            style={sectionThemeStyle(activeSection)}
+          >
+            <FeatureVisual section={activeSection} />
+            <div className="topbar-copy">
+              <span className="topbar-kicker">Shinkai V2</span>
+              <h1>{activeVisual.label}</h1>
+              <div className="run-meta">
+                {activeVisual.hint}
+                {" / "}
+                {lastRunId ? `Run ${runLabel}` : "Ready for a new run"}
+              </div>
             </div>
           </div>
           <div className="status-pills">
@@ -17633,7 +18036,7 @@ export default function App() {
       <aside className="inspector">
         {activeSection === "chat" ? (
         <section className="panel">
-          <div className="panel-title">Agent setup</div>
+          <PanelTitle title="Agent setup" section="chat" icon="setup" />
           <label>
             Transport
             <select
@@ -17946,7 +18349,7 @@ export default function App() {
 
         {activeSection === "chat" ? (
         <section className="panel">
-          <div className="panel-title">Context</div>
+          <PanelTitle title="Context" section="chat" icon="context" />
           <div className="run-readiness-grid">
             {runReadinessCards().map((card) => (
               <div className={`run-readiness-card ${card.tone}`} key={card.title}>
@@ -18841,7 +19244,7 @@ export default function App() {
 
         {activeSection === "trace" ? (
         <section className="panel">
-          <div className="panel-title">Trace</div>
+          <PanelTitle title="Trace" section="trace" />
           <div className="context-actions">
             <button
               type="button"
@@ -19356,7 +19759,7 @@ export default function App() {
 
         {showOperationsPanel() ? (
         <section className="panel">
-          <div className="panel-title">{operationsTitle()}</div>
+          <PanelTitle title={operationsTitle()} section={activeSection} />
           <label>
             Value
             <textarea
@@ -23794,7 +24197,11 @@ export default function App() {
 
         {activeSection === "chat" || activeSection === "approvals" ? (
         <section className="panel">
-          <div className="panel-title">Control</div>
+          <PanelTitle
+            title="Control"
+            section={activeSection === "approvals" ? "approvals" : "chat"}
+            icon="control"
+          />
           {activeSection === "approvals" ? (
             <>
               <label>

@@ -16795,6 +16795,10 @@ export default function App() {
     return `/tmp/${promptExportFileName(prompt)}`;
   }
 
+  function defaultCapabilityDraftExportPath(draft: CapabilityDraft) {
+    return `/tmp/capability-${draft.kind}-${generatedArtifactFileName(draft.id)}.json`;
+  }
+
   function defaultSavedModelExportPath(id: string) {
     return `/tmp/model-${generatedArtifactFileName(id)}.json`;
   }
@@ -21212,12 +21216,26 @@ export default function App() {
                         </button>
                         <button
                           type="button"
-                          title="Export this draft to the Value path."
+                          title="Stage a default /tmp export path for this draft."
                           onClick={() => {
                             setOpsId(draft.id);
-                            void exportCapabilityFromOps(draft.id);
+                            setOpsValue(defaultCapabilityDraftExportPath(draft));
                           }}
-                          disabled={running || !opsValue.trim()}
+                          disabled={running}
+                        >
+                          Path
+                        </button>
+                        <button
+                          type="button"
+                          title="Export this draft to Value, or to /tmp when Value is blank."
+                          onClick={() => {
+                            const path =
+                              opsValue.trim() || defaultCapabilityDraftExportPath(draft);
+                            setOpsId(draft.id);
+                            setOpsValue(path);
+                            void exportCapabilityFromOps(draft.id, path);
+                          }}
+                          disabled={running}
                         >
                           Export
                         </button>

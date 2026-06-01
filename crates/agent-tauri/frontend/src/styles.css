@@ -894,9 +894,37 @@ textarea:disabled {
 }
 
 .operation-title {
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-width: 0;
   color: #cfd4dc;
   font-size: 0.78rem;
   font-weight: 800;
+}
+
+.operation-title-icon {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 1.55rem;
+  height: 1.55rem;
+  place-items: center;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+  color: var(--section-accent);
+}
+
+.operation-title-icon .app-icon {
+  width: 0.82rem;
+  height: 0.82rem;
+}
+
+.operation-title > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .voice-capture {

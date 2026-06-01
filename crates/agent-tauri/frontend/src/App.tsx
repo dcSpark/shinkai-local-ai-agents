@@ -520,6 +520,26 @@ function PanelTitle({
   );
 }
 
+function OperationTitle({
+  title,
+  section,
+  icon,
+}: {
+  title: string;
+  section: ActiveSection;
+  icon?: IconName;
+}) {
+  const iconName = icon ?? sectionVisual(section).icon;
+  return (
+    <div className="operation-title visual-title" style={sectionThemeStyle(section)}>
+      <span className="operation-title-icon" aria-hidden="true">
+        <AppIcon name={iconName} />
+      </span>
+      <span>{title}</span>
+    </div>
+  );
+}
+
 function FeatureVisual({ section }: { section: ActiveSection }) {
   const visual = sectionVisual(section);
   return (
@@ -19792,7 +19812,7 @@ export default function App() {
           <div className="operation-groups">
             {activeSection === "conversations" ? (
             <div className="operation-group">
-              <div className="operation-title">Conversations</div>
+              <OperationTitle title="Conversations" section="conversations" />
               <div className="button-grid">
                 <button
                   type="button"
@@ -20135,7 +20155,11 @@ export default function App() {
 
             {activeSection === "conversations" && expandedConversation ? (
             <div className="operation-group">
-              <div className="operation-title">Selected Conversation</div>
+              <OperationTitle
+                title="Selected Conversation"
+                section="conversations"
+                icon="context"
+              />
               <div className="ingestion-review">
                 <div className="ingestion-card">
                   <div className="ingestion-card-head">
@@ -20252,7 +20276,7 @@ export default function App() {
 
             {activeSection === "profiles" ? (
             <div className="operation-group">
-              <div className="operation-title">Profiles</div>
+              <OperationTitle title="Profiles" section="profiles" />
               <label>
                 Secret label
                 <input
@@ -20598,7 +20622,7 @@ export default function App() {
 
             {activeSection === "memory" ? (
             <div className="operation-group">
-              <div className="operation-title">Memory</div>
+              <OperationTitle title="Memory" section="memory" />
               <label>
                 Source range
                 <input
@@ -20955,7 +20979,7 @@ export default function App() {
 
             {activeSection === "prompts" ? (
             <div className="operation-group">
-              <div className="operation-title">Prompts</div>
+              <OperationTitle title="Prompts" section="prompts" />
               <div className="button-grid">
                 <button
                   type="button"
@@ -21036,7 +21060,7 @@ export default function App() {
 
             {activeSection === "prompts" ? (
             <div className="operation-group">
-              <div className="operation-title">Prompt Library</div>
+              <OperationTitle title="Prompt Library" section="prompts" icon="prompt" />
               {promptDocs.length ? (
                 <div className="ingestion-review">
                   {promptDocs.map((prompt) => (
@@ -21149,7 +21173,7 @@ export default function App() {
 
             {activeSection === "prompts" ? (
             <div className="operation-group">
-              <div className="operation-title">Models</div>
+              <OperationTitle title="Models" section="prompts" icon="setup" />
               <div className="button-grid">
                 <button
                   type="button"
@@ -21627,7 +21651,7 @@ export default function App() {
 
             {activeSection === "skills" ? (
             <div className="operation-group">
-              <div className="operation-title">Skills</div>
+              <OperationTitle title="Skills" section="skills" />
               <div className="button-grid">
                 <button
                   type="button"
@@ -21686,7 +21710,7 @@ export default function App() {
                   Quarantine
                 </button>
               </div>
-              <div className="operation-title">Capability Drafts</div>
+              <OperationTitle title="Capability Drafts" section="skills" icon="tools" />
               <label>
                 Draft kind
                 <select
@@ -22041,7 +22065,7 @@ export default function App() {
 
             {activeSection === "ingest" ? (
             <div className="operation-group">
-              <div className="operation-title">Ingestion</div>
+              <OperationTitle title="Ingestion" section="ingest" />
               <label>
                 Backend
                 <select
@@ -22456,7 +22480,7 @@ export default function App() {
 
             {activeSection === "artifacts" ? (
             <div className="operation-group">
-              <div className="operation-title">Voice</div>
+              <OperationTitle title="Voice" section="artifacts" icon="control" />
               <div className="button-grid">
                 <button
                   type="button"
@@ -22560,7 +22584,7 @@ export default function App() {
 
             {activeSection === "artifacts" ? (
             <div className="operation-group">
-              <div className="operation-title">Artifacts</div>
+              <OperationTitle title="Artifacts" section="artifacts" />
               <div className="button-grid">
                 <button
                   type="button"
@@ -22811,7 +22835,7 @@ export default function App() {
 
             {activeSection === "chat" ? (
             <div className="operation-group">
-              <div className="operation-title">Compactions</div>
+              <OperationTitle title="Compactions" section="chat" icon="context" />
               <div className="button-grid">
                 <button
                   type="button"
@@ -22974,7 +22998,7 @@ export default function App() {
 
             {activeSection === "chat" ? (
             <div className="operation-group">
-              <div className="operation-title">Agents</div>
+              <OperationTitle title="Agents" section="chat" />
               <div className="button-grid">
                 <button
                   type="button"
@@ -23218,7 +23242,7 @@ export default function App() {
 
             {activeSection === "chat" ? (
             <div className="operation-group">
-              <div className="operation-title">Tools</div>
+              <OperationTitle title="Tools" section="chat" icon="tools" />
               <div className="button-grid">
                 <button
                   type="button"
@@ -23303,7 +23327,7 @@ export default function App() {
 
             {activeSection === "adapters" ? (
             <div className="operation-group">
-              <div className="operation-title">Adapters</div>
+              <OperationTitle title="Adapters" section="adapters" />
               <div className="button-grid">
                 <button
                   type="button"
@@ -23778,7 +23802,11 @@ export default function App() {
 
             {activeSection === "adapters" ? (
             <div className="operation-group">
-              <div className="operation-title">Bridge Deliveries</div>
+              <OperationTitle
+                title="Bridge Deliveries"
+                section="adapters"
+                icon="conversation"
+              />
               <div className="button-grid">
                 <button
                   type="button"
@@ -23938,7 +23966,7 @@ export default function App() {
 
             {activeSection === "adapters" ? (
             <div className="operation-group">
-              <div className="operation-title">Bundles</div>
+              <OperationTitle title="Bundles" section="adapters" icon="artifact" />
               <div className="button-grid">
                 <button
                   type="button"
@@ -23988,7 +24016,7 @@ export default function App() {
 
             {activeSection === "adapters" ? (
             <div className="operation-group">
-              <div className="operation-title">Storage</div>
+              <OperationTitle title="Storage" section="adapters" icon="memory" />
               <div className="button-grid">
                 <button
                   type="button"

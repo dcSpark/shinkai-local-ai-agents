@@ -16781,6 +16781,20 @@ export default function App() {
     return `/tmp/${generatedArtifactFileName(artifactOrId)}`;
   }
 
+  function promptExportFileName(prompt: PromptDoc) {
+    const scope = prompt.agent_id ? `agent-${prompt.agent_id}` : "profile";
+    return (
+      `prompt-${scope}-${prompt.name}.json`
+        .replace(/[\x00-\x1f\x7f/\\]+/g, "-")
+        .replace(/"/g, "_")
+        .replace(/^-+|-+$/g, "") || "prompt.json"
+    );
+  }
+
+  function defaultPromptExportPath(prompt: PromptDoc) {
+    return `/tmp/${promptExportFileName(prompt)}`;
+  }
+
   function hasHighRiskFindings(artifact: IngestionArtifact) {
     return artifact.findings.some((finding) => finding.severity === "high");
   }
@@ -20482,6 +20496,35 @@ export default function App() {
                           disabled={running}
                         >
                           Set Id
+                        </button>
+                        <button
+                          type="button"
+                          title="Set Value to a default export path for this prompt."
+                          onClick={() => {
+                            setOpsId(prompt.name);
+                            setOpsValue(defaultPromptExportPath(prompt));
+                          }}
+                          disabled={running}
+                        >
+                          Path
+                        </button>
+                        <button
+                          type="button"
+                          title="Export this saved prompt to Value, or to /tmp when Value is blank."
+                          onClick={() => {
+                            const path =
+                              opsValue.trim() || defaultPromptExportPath(prompt);
+                            setOpsId(prompt.name);
+                            setOpsValue(path);
+                            void exportPromptByName(
+                              prompt.name,
+                              path,
+                              prompt.agent_id ?? null,
+                            );
+                          }}
+                          disabled={running}
+                        >
+                          Export
                         </button>
                         <button
                           type="button"

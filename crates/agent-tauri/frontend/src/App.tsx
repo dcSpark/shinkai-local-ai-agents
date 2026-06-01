@@ -16769,6 +16769,25 @@ export default function App() {
     );
   }
 
+  function firstUnreviewedFindingIndex(artifact: IngestionArtifact) {
+    const unreviewed = artifact.findings.findIndex(
+      (_finding, index) => !reviewForFinding(artifact, index),
+    );
+    if (unreviewed >= 0) return unreviewed;
+    return artifact.findings.length ? 0 : null;
+  }
+
+  function stageIngestFindingReview(artifact: IngestionArtifact) {
+    const index = firstUnreviewedFindingIndex(artifact);
+    if (index == null) {
+      appendLine("error", "Ingestion artifact has no findings to review.");
+      return;
+    }
+    setOpsId(artifact.id);
+    setIngestFindingIndex(String(index));
+    appendEvent(`Staged ingestion finding #${index} for ${artifact.id}.`);
+  }
+
   function hasUnapprovedHighRiskFindings(artifact: IngestionArtifact) {
     return artifact.findings.some(
       (finding, index) =>
@@ -21542,6 +21561,16 @@ export default function App() {
                         >
                           Set Id
                         </button>
+                        {artifact.findings.length ? (
+                          <button
+                            type="button"
+                            title="Move this artifact id and first unreviewed finding index into the review controls."
+                            onClick={() => stageIngestFindingReview(artifact)}
+                            disabled={running}
+                          >
+                            Stage Finding
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           title="Re-run this artifact with the selected backend."

@@ -11237,15 +11237,22 @@ export default function App() {
     }
   }
 
-  async function previewWithMemoryFromOps(explicitPrompt?: string) {
-    const prompt =
-      explicitPrompt === undefined
-        ? input.trim() || "preview"
-        : explicitPrompt.trim() || "preview";
-    const options = {
-      ...runtimeOptions(),
-      load_memory: true,
-    };
+  function stageMemoryBackendSelection(backend: string, topics?: string[]) {
+    setMemoryBackend(backend);
+    if (topics !== undefined) {
+      setMemoryTopics(topics.join(", "));
+    }
+  }
+
+  function stageMemoryBackendProbe(report: MemoryBackendProbeReport) {
+    stageMemoryBackendSelection(report.backend, report.topics);
+  }
+
+  async function previewMemoryContext(
+    prompt: string,
+    options: RunOptions,
+    label = "Memory preview",
+  ) {
     setLoadMemory(true);
     try {
       const snapshot =
@@ -11263,12 +11270,45 @@ export default function App() {
       setContextCopyStatus("");
       setActiveSection("chat");
       appendEvent(
-        `Memory preview: ${snapshot.loaded_memory.length} memory fragments, ~${snapshot.estimated_input_tokens} input tokens`,
+        `${label}: ${snapshot.loaded_memory.length} memory fragments, ~${snapshot.estimated_input_tokens} input tokens`,
       );
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Memory preview failed: ${msg}`);
     }
+  }
+
+  async function previewWithMemoryFromOps(explicitPrompt?: string) {
+    const prompt =
+      explicitPrompt === undefined
+        ? input.trim() || "preview"
+        : explicitPrompt.trim() || "preview";
+    const options = {
+      ...runtimeOptions(),
+      load_memory: true,
+    };
+    await previewMemoryContext(prompt, options);
+  }
+
+  async function previewMemoryBackend(backend: string, topics?: string[]) {
+    const selectedBackend = backend.trim();
+    if (!selectedBackend) {
+      await previewWithMemoryFromOps();
+      return;
+    }
+    stageMemoryBackendSelection(selectedBackend, topics);
+    const prompt = input.trim() || "preview";
+    const options = {
+      ...runtimeOptions(),
+      load_memory: true,
+      memory_backend: selectedBackend,
+      memory_topics: topics ?? parsedMemoryTopics(),
+    };
+    await previewMemoryContext(
+      prompt,
+      options,
+      `Memory preview (${selectedBackend})`,
+    );
   }
 
   async function reviewSkills() {
@@ -20355,6 +20395,32 @@ export default function App() {
                         </span>
                       </div>
                       <p>{backend.description}</p>
+                      <div className="mini-actions">
+                        <button
+                          type="button"
+                          title="Use this backend for subsequent runs and memory operations."
+                          onClick={() => stageMemoryBackendSelection(backend.id)}
+                          disabled={running}
+                        >
+                          Use
+                        </button>
+                        <button
+                          type="button"
+                          title="Probe this backend with the current topic filter."
+                          onClick={() => void probeMemoryBackend(backend.id)}
+                          disabled={running}
+                        >
+                          Probe
+                        </button>
+                        <button
+                          type="button"
+                          title="Preview the next context with this backend and current topic filter."
+                          onClick={() => void previewMemoryBackend(backend.id)}
+                          disabled={running}
+                        >
+                          Preview
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -20382,6 +20448,29 @@ export default function App() {
                     {memoryBackendProbe.error ? (
                       <p>{memoryBackendProbe.error}</p>
                     ) : null}
+                    <div className="mini-actions">
+                      <button
+                        type="button"
+                        title="Use this probed backend and topic filter for subsequent runs."
+                        onClick={() => stageMemoryBackendProbe(memoryBackendProbe)}
+                        disabled={running}
+                      >
+                        Use
+                      </button>
+                      <button
+                        type="button"
+                        title="Preview the next context with this probed backend and topic filter."
+                        onClick={() =>
+                          void previewMemoryBackend(
+                            memoryBackendProbe.backend,
+                            memoryBackendProbe.topics,
+                          )
+                        }
+                        disabled={running || !memoryBackendProbe.ok}
+                      >
+                        Preview
+                      </button>
+                    </div>
                   </div>
                 </div>
               ) : null}

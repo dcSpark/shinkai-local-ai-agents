@@ -22268,6 +22268,20 @@ export default function App() {
                         </button>
                         <button
                           type="button"
+                          title="Export this compacted context to Value, or to /tmp when Value is blank."
+                          onClick={() => {
+                            const path =
+                              opsValue.trim() || defaultCompactionPath(record.id);
+                            setOpsId(record.id);
+                            setOpsValue(path);
+                            void exportCompactionFromOps(record.id, path);
+                          }}
+                          disabled={running}
+                        >
+                          Export
+                        </button>
+                        <button
+                          type="button"
                           className="danger"
                           title="Delete this compacted context artifact."
                           onClick={() => void deleteCompactionFromOps(record.id)}

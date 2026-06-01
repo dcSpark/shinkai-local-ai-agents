@@ -13939,12 +13939,6 @@ export default function App() {
     };
   }
 
-  async function exportMemoryFromControls() {
-    const args = memoryFileArgsFromControls("Memory export");
-    if (!args) return;
-    await exportMemoryFromOps(args);
-  }
-
   async function importMemoryFromOps(args: {
     path: string;
     user: boolean;
@@ -16815,6 +16809,12 @@ export default function App() {
 
   function defaultMetadataCatalogExportPath() {
     return "/tmp/model-metadata-catalog.json";
+  }
+
+  function defaultMemoryExportPath(user: boolean, agent: string | null) {
+    if (user) return "/tmp/memory-user.json";
+    if (agent) return `/tmp/memory-agent-${generatedArtifactFileName(agent)}.json`;
+    return "/tmp/memory-profile.json";
   }
 
   function defaultSavedModelExportPath(id: string) {
@@ -20237,9 +20237,20 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Export memory records to the file path in Value, scoped by User memory and active Agent id."
-                  onClick={() => void exportMemoryFromControls()}
-                  disabled={running || !opsValue.trim()}
+                  title="Export memory records to Value, or to a scoped /tmp path when Value is blank."
+                  onClick={() => {
+                    const agent = agentId.trim() || null;
+                    const path =
+                      opsValue.trim() ||
+                      defaultMemoryExportPath(opsUserMemory, agent);
+                    setOpsValue(path);
+                    void exportMemoryFromOps({
+                      path,
+                      user: opsUserMemory,
+                      agentId: agent,
+                    });
+                  }}
+                  disabled={running}
                 >
                   Export Mem
                 </button>

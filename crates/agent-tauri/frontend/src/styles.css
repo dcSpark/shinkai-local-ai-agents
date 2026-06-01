@@ -799,15 +799,39 @@ textarea:disabled {
 
 .run-readiness-card {
   display: grid;
+  grid-template-columns: 1.65rem minmax(0, 1fr);
   gap: 0.25rem;
   min-width: 0;
+  align-items: start;
   padding: 0.6rem;
   border: 1px solid #2a2d34;
   border-radius: 8px;
   background: #15171b;
 }
 
-.run-readiness-card span {
+.run-readiness-icon {
+  display: inline-grid;
+  width: 1.65rem;
+  height: 1.65rem;
+  place-items: center;
+  border: 1px solid #3d4650;
+  border-radius: 8px;
+  background: #111215;
+  color: #8db7ff;
+}
+
+.run-readiness-icon .app-icon {
+  width: 0.88rem;
+  height: 0.88rem;
+}
+
+.run-readiness-copy {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.run-readiness-copy > span {
   min-width: 0;
   color: #8e949f;
   font-size: 0.7rem;
@@ -815,14 +839,14 @@ textarea:disabled {
   overflow-wrap: anywhere;
 }
 
-.run-readiness-card strong {
+.run-readiness-copy strong {
   min-width: 0;
   color: #f1f2f4;
   font-size: 0.8rem;
   overflow-wrap: anywhere;
 }
 
-.run-readiness-card p {
+.run-readiness-copy p {
   margin: 0;
   color: #c3c8d0;
   font-size: 0.72rem;
@@ -835,14 +859,32 @@ textarea:disabled {
   background: #13201a;
 }
 
+.run-readiness-card.ok .run-readiness-icon {
+  border-color: #275c43;
+  background: #13281d;
+  color: #78dda7;
+}
+
 .run-readiness-card.warning {
   border-color: #816a2d;
   background: #251f12;
 }
 
+.run-readiness-card.warning .run-readiness-icon {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
 .run-readiness-card.danger {
   border-color: #7d3c45;
   background: #26171c;
+}
+
+.run-readiness-card.danger .run-readiness-icon {
+  border-color: #7d3c45;
+  background: #32191f;
+  color: #ffb4c0;
 }
 
 .included-list {
@@ -940,6 +982,21 @@ textarea:disabled {
   background: #15171b;
 }
 
+.visual-metric.ok {
+  border-color: #275c43;
+  background: #13201a;
+}
+
+.visual-metric.warning {
+  border-color: #816a2d;
+  background: #251f12;
+}
+
+.visual-metric.danger {
+  border-color: #7d3c45;
+  background: #26171c;
+}
+
 .visual-metric-icon {
   display: inline-grid;
   width: 1.65rem;
@@ -949,6 +1006,24 @@ textarea:disabled {
   border-radius: 8px;
   background: var(--section-surface);
   color: var(--section-accent);
+}
+
+.visual-metric.ok .visual-metric-icon {
+  border-color: #275c43;
+  background: #13281d;
+  color: #78dda7;
+}
+
+.visual-metric.warning .visual-metric-icon {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
+.visual-metric.danger .visual-metric-icon {
+  border-color: #7d3c45;
+  background: #32191f;
+  color: #ffb4c0;
 }
 
 .visual-metric-icon .app-icon {
@@ -1078,11 +1153,11 @@ textarea:disabled {
 
 .context-summary {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(7.2rem, 1fr));
   gap: 0.4rem;
 }
 
-.context-summary span {
+.context-summary > span:not(.visual-metric) {
   min-width: 0;
   padding: 0.45rem 0.5rem;
   border: 1px solid #2a2d34;
@@ -1129,27 +1204,51 @@ textarea:disabled {
 
 .context-review-card {
   display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr);
   gap: 0.28rem;
   min-width: 0;
+  align-items: start;
   padding: 0.65rem;
   border: 1px solid #2a2d34;
   border-radius: 8px;
   background: #111215;
 }
 
-.context-review-card span {
+.context-review-icon {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border: 1px solid #3d4650;
+  border-radius: 8px;
+  background: #15171b;
+  color: #8db7ff;
+}
+
+.context-review-icon .app-icon {
+  width: 0.92rem;
+  height: 0.92rem;
+}
+
+.context-review-copy {
+  display: grid;
+  gap: 0.24rem;
+  min-width: 0;
+}
+
+.context-review-copy > span {
   color: #8e949f;
   font-size: 0.72rem;
   font-weight: 800;
 }
 
-.context-review-card strong {
+.context-review-copy strong {
   color: #f1f2f4;
   font-size: 0.84rem;
   overflow-wrap: anywhere;
 }
 
-.context-review-card p {
+.context-review-copy p {
   margin: 0;
   color: #c3c8d0;
   font-size: 0.74rem;
@@ -1162,14 +1261,32 @@ textarea:disabled {
   background: #13201a;
 }
 
+.context-review-card.ok .context-review-icon {
+  border-color: #275c43;
+  background: #13281d;
+  color: #78dda7;
+}
+
 .context-review-card.warning {
   border-color: #816a2d;
   background: #251f12;
 }
 
+.context-review-card.warning .context-review-icon {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
 .context-review-card.danger {
   border-color: #7d3c45;
   background: #26171c;
+}
+
+.context-review-card.danger .context-review-icon {
+  border-color: #7d3c45;
+  background: #32191f;
+  color: #ffb4c0;
 }
 
 .compaction-review {

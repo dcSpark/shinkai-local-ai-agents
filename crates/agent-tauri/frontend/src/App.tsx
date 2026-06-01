@@ -146,6 +146,7 @@ interface ContextReviewCard {
   title: string;
   value: string;
   detail: string;
+  icon: IconName;
   tone: "neutral" | "ok" | "warning" | "danger";
 }
 
@@ -545,14 +546,19 @@ function VisualMetric({
   label,
   value,
   section,
+  tone,
 }: {
   icon: IconName;
   label: string;
   value: string | number;
   section: ActiveSection;
+  tone?: ContextReviewCard["tone"];
 }) {
   return (
-    <span className="visual-metric" style={sectionThemeStyle(section)}>
+    <span
+      className={tone ? `visual-metric ${tone}` : "visual-metric"}
+      style={sectionThemeStyle(section)}
+    >
       <span className="visual-metric-icon" aria-hidden="true">
         <AppIcon name={icon} />
       </span>
@@ -16739,6 +16745,7 @@ export default function App() {
         title: "Agent",
         value: activeAgentLabel(),
         detail: `${provider} provider / ${modelName}`,
+        icon: "brand",
         tone: "neutral",
       },
       {
@@ -16748,6 +16755,7 @@ export default function App() {
             ? "Answer only"
             : `${effectiveMaxToolCalls} calls max`,
         detail: `tools ${toolVisibility || "config"}; skills ${skillVisibility || "config"}; ${remainingToolCalls} remaining now.`,
+        icon: "tools",
         tone:
           effectiveMaxToolCalls === 0
             ? "neutral"
@@ -16763,12 +16771,14 @@ export default function App() {
             ? "Shell access is enabled and gated."
             : "Shell access is enabled without a pause."
           : "Shell access is disabled.",
+        icon: "approval",
         tone: safetyTone,
       },
       {
         title: "Context Sources",
         value: `${loadMemory ? "Memory on" : "Memory off"} / ${loadSkills ? "Skills on" : "Skills off"}`,
         detail: `${memoryBackend.trim() || "default memory backend"}; ${manualCompactedContext.trim() ? "Compacted context active" : "No compacted context"}; ${hasConversationContext ? `conversation ${conversationId.trim()}` : "no conversation branch"}; ${includeIngestIds.length} ingest artifacts selected.`,
+        icon: "context",
         tone:
           loadMemory || loadSkills || manualCompactedContext.trim() || hasConversationContext
             ? "ok"
@@ -16782,12 +16792,14 @@ export default function App() {
         detail: includedHighRisk
           ? `${includedHighRisk} high-risk artifacts; guardrail ${guardrailMode}.`
           : `Prompt-injection guardrail ${guardrailMode}.`,
+        icon: "ingest",
         tone: externalTone,
       },
       {
         title: "Prompt Prep",
         value: preparationEnabled ? "Preprocessing active" : "Direct prompt",
         detail: `${enablePromptRefinement ? "Refinement on" : "Refinement off"}; rules ${promptRefinementsJson.trim() ? "set" : "none"}; awareness ${promptRefinementAgentAwareness ? "on" : "off"}; output ${rawToolOutput ? "raw" : "interpreted"}.`,
+        icon: "prompt",
         tone: preparationEnabled ? "ok" : "neutral",
       },
     ];
@@ -17632,12 +17644,14 @@ export default function App() {
           contextPreviewPrompt === null
             ? "Loaded from an existing trace snapshot."
             : `Preview prompt: ${contextPreviewPrompt ?? "none"}`,
+        icon: "prompt",
         tone: promptTone,
       },
       {
         title: "Context Size",
         value: `~${snapshot.estimated_input_tokens} input tokens`,
         detail: `${costText}; ${snapshot.conversation.length} conversation messages.`,
+        icon: "context",
         tone: "neutral",
       },
       {
@@ -17647,6 +17661,7 @@ export default function App() {
             ? "Tool calls disabled"
             : `${remaining}/${max} tool calls left`,
         detail: `${snapshot.visible_tools.length} visible tools; ${visibilitySummary(snapshot)}.`,
+        icon: "tools",
         tone: toolTone,
       },
       {
@@ -17657,6 +17672,7 @@ export default function App() {
         detail: snapshot.loaded_memory.length
           ? "Memory will be included in the next LLM context."
           : "Memory loading is off or no records are available.",
+        icon: "memory",
         tone: snapshot.loaded_memory.length ? "ok" : "neutral",
       },
       {
@@ -17667,6 +17683,7 @@ export default function App() {
         detail: highRiskFindings.length
           ? `${highRiskFindings.length} high-risk findings; guardrail ${guardrailMode}.`
           : "Prompt-injection guardrails found no high-risk included content.",
+        icon: "ingest",
         tone: artifactTone,
       },
       ...(compaction
@@ -17675,6 +17692,7 @@ export default function App() {
               title: "Compaction",
               value: compactionCardValue(compaction),
               detail: compactionCardDetail(compaction),
+              icon: "context" as const,
               tone: "ok" as const,
             },
           ]
@@ -17685,6 +17703,7 @@ export default function App() {
         detail: snapshot.provenance.length
           ? "Sources are attached to the context snapshot."
           : "No extra context sources are attached.",
+        icon: "trace",
         tone: snapshot.provenance.length ? "ok" : "neutral",
       },
     ];
@@ -18418,9 +18437,14 @@ export default function App() {
           <div className="run-readiness-grid">
             {runReadinessCards().map((card) => (
               <div className={`run-readiness-card ${card.tone}`} key={card.title}>
-                <span>{card.title}</span>
-                <strong>{card.value}</strong>
-                <p>{card.detail}</p>
+                <span className="run-readiness-icon" aria-hidden="true">
+                  <AppIcon name={card.icon} />
+                </span>
+                <div className="run-readiness-copy">
+                  <span>{card.title}</span>
+                  <strong>{card.value}</strong>
+                  <p>{card.detail}</p>
+                </div>
               </div>
             ))}
           </div>
@@ -19068,26 +19092,86 @@ export default function App() {
           {contextPreview ? (
             <div className="context-preview">
               <div className="context-summary">
-                {contextPreviewDraftStatus() ? (
-                  <span className={contextPreviewDraftStatus()?.className}>
-                    {contextPreviewDraftStatus()?.label}
-                  </span>
-                ) : null}
-                <span>~{contextPreview.estimated_input_tokens} input tokens</span>
+                <VisualMetric
+                  icon="prompt"
+                  label="prompt"
+                  value={contextPreviewDraftStatus()?.label ?? "preview"}
+                  section="chat"
+                  tone={
+                    contextPreviewDraftStatus()?.className.includes("stale")
+                      ? "warning"
+                      : "ok"
+                  }
+                />
+                <VisualMetric
+                  icon="context"
+                  label="input tokens"
+                  value={`~${contextPreview.estimated_input_tokens}`}
+                  section="chat"
+                />
                 {estimatedPreviewInputCost(contextPreview) !== null ? (
-                  <span>
-                    est ${estimatedPreviewInputCost(contextPreview)?.toFixed(6)}
-                  </span>
+                  <VisualMetric
+                    icon="profile"
+                    label="est input cost"
+                    value={`$${estimatedPreviewInputCost(contextPreview)?.toFixed(6)}`}
+                    section="chat"
+                  />
                 ) : null}
-                <span>messages {contextPreview.conversation.length}</span>
-                <span>compacted {contextPreview.compacted ? "on" : "off"}</span>
-                <span>user {conversationRoleCount("user")}</span>
-                <span>assistant {conversationRoleCount("assistant")}</span>
-                <span>tools {contextPreview.visible_tools.length}</span>
-                <span>skills {contextPreview.visible_skills.length}</span>
-                <span>memory {contextPreview.loaded_memory.length}</span>
-                <span>artifacts {contextPreview.loaded_artifacts.length}</span>
-                <span>provenance {contextPreview.provenance.length}</span>
+                <VisualMetric
+                  icon="conversation"
+                  label="messages"
+                  value={contextPreview.conversation.length}
+                  section="chat"
+                />
+                <VisualMetric
+                  icon="context"
+                  label="compacted"
+                  value={contextPreview.compacted ? "on" : "off"}
+                  section="chat"
+                  tone={contextPreview.compacted ? "ok" : "neutral"}
+                />
+                <VisualMetric
+                  icon="chat"
+                  label="user msgs"
+                  value={conversationRoleCount("user")}
+                  section="chat"
+                />
+                <VisualMetric
+                  icon="chat"
+                  label="assistant msgs"
+                  value={conversationRoleCount("assistant")}
+                  section="chat"
+                />
+                <VisualMetric
+                  icon="tools"
+                  label="tools"
+                  value={contextPreview.visible_tools.length}
+                  section="chat"
+                />
+                <VisualMetric
+                  icon="skill"
+                  label="skills"
+                  value={contextPreview.visible_skills.length}
+                  section="chat"
+                />
+                <VisualMetric
+                  icon="memory"
+                  label="memory"
+                  value={contextPreview.loaded_memory.length}
+                  section="chat"
+                />
+                <VisualMetric
+                  icon="artifact"
+                  label="artifacts"
+                  value={contextPreview.loaded_artifacts.length}
+                  section="chat"
+                />
+                <VisualMetric
+                  icon="trace"
+                  label="provenance"
+                  value={contextPreview.provenance.length}
+                  section="chat"
+                />
               </div>
               <div className="context-preview-toolbar">
                 <button
@@ -19122,9 +19206,14 @@ export default function App() {
                     className={`context-review-card ${card.tone}`}
                     key={card.title}
                   >
-                    <span>{card.title}</span>
-                    <strong>{card.value}</strong>
-                    <p>{card.detail}</p>
+                    <span className="context-review-icon" aria-hidden="true">
+                      <AppIcon name={card.icon} />
+                    </span>
+                    <div className="context-review-copy">
+                      <span>{card.title}</span>
+                      <strong>{card.value}</strong>
+                      <p>{card.detail}</p>
+                    </div>
                   </div>
                 ))}
               </div>

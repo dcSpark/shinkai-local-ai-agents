@@ -540,6 +540,30 @@ function OperationTitle({
   );
 }
 
+function VisualMetric({
+  icon,
+  label,
+  value,
+  section,
+}: {
+  icon: IconName;
+  label: string;
+  value: string | number;
+  section: ActiveSection;
+}) {
+  return (
+    <span className="visual-metric" style={sectionThemeStyle(section)}>
+      <span className="visual-metric-icon" aria-hidden="true">
+        <AppIcon name={icon} />
+      </span>
+      <span className="visual-metric-copy">
+        <strong>{value}</strong>
+        <span>{label}</span>
+      </span>
+    </span>
+  );
+}
+
 function FeatureVisual({ section }: { section: ActiveSection }) {
   const visual = sectionVisual(section);
   return (
@@ -17050,6 +17074,18 @@ export default function App() {
     };
   }
 
+  function conversationTreeNodeRole(node: ConversationTreeNode, depth: number) {
+    if (depth === 0) return "root";
+    return node.children.length ? "branch" : "leaf";
+  }
+
+  function conversationTreeNodeIcon(node: ConversationTreeNode, depth: number): IconName {
+    const role = conversationTreeNodeRole(node, depth);
+    if (role === "root") return "brand";
+    if (role === "branch") return "conversation";
+    return "chat";
+  }
+
   function filterConversationTree(
     nodes: ConversationTreeNode[],
     deleted: Set<string>,
@@ -20023,126 +20059,169 @@ export default function App() {
                 </div>
               ) : null}
               {conversationTree.length ? (
-                <div className="conversation-tree-panel">
+                <div
+                  className="conversation-tree-panel"
+                  style={sectionThemeStyle("conversations")}
+                >
                   <div className="conversation-tree-summary">
-                    <span>
-                      <strong>{conversationStats.total}</strong> conversations
-                    </span>
-                    <span>
-                      <strong>{conversationStats.roots}</strong> roots
-                    </span>
-                    <span>
-                      <strong>{conversationStats.branchPoints}</strong> branch points
-                    </span>
-                    <span>
-                      <strong>{conversationStats.leaves}</strong> leaves
-                    </span>
-                    <span>
-                      <strong>{conversationStats.maxDepth}</strong> max depth
-                    </span>
+                    <VisualMetric
+                      icon="conversation"
+                      label="conversations"
+                      value={conversationStats.total}
+                      section="conversations"
+                    />
+                    <VisualMetric
+                      icon="brand"
+                      label="roots"
+                      value={conversationStats.roots}
+                      section="conversations"
+                    />
+                    <VisualMetric
+                      icon="context"
+                      label="branch points"
+                      value={conversationStats.branchPoints}
+                      section="conversations"
+                    />
+                    <VisualMetric
+                      icon="chat"
+                      label="leaves"
+                      value={conversationStats.leaves}
+                      section="conversations"
+                    />
+                    <VisualMetric
+                      icon="trace"
+                      label="max depth"
+                      value={conversationStats.maxDepth}
+                      section="conversations"
+                    />
                   </div>
                   <div className="conversation-tree-list">
-                    {flattenConversationTree(conversationTree).map(({ node, depth }) => (
-                      <div
-                        className={`conversation-tree-row${
-                          expandedConversation?.conversation.id === node.id ? " selected" : ""
-                        }`}
-                        key={node.id}
-                        style={{ paddingLeft: `${Math.min(depth, 6) * 0.85}rem` }}
-                      >
-                        <div className="conversation-tree-rail" aria-hidden="true">
-                          <span>{depth}</span>
-                        </div>
-                        <div className="conversation-tree-card">
-                          <div className="conversation-tree-head">
-                            <strong>{node.title}</strong>
-                            <span>{depth ? `branch ${depth}` : "root"}</span>
+                    {flattenConversationTree(conversationTree).map(({ node, depth }) => {
+                      const selected =
+                        expandedConversation?.conversation.id === node.id;
+                      const role = conversationTreeNodeRole(node, depth);
+                      return (
+                        <div
+                          className={`conversation-tree-row ${role}${
+                            selected ? " selected" : ""
+                          }`}
+                          key={node.id}
+                          style={{ paddingLeft: `${Math.min(depth, 6) * 0.85}rem` }}
+                        >
+                          <div className="conversation-tree-rail" aria-hidden="true">
+                            <span className="conversation-tree-marker">
+                              <AppIcon name={conversationTreeNodeIcon(node, depth)} />
+                              <span>{depth}</span>
+                            </span>
                           </div>
-                          <div className="conversation-tree-meta">
-                            <span>{node.id}</span>
-                            <span>agent {node.agent_id}</span>
-                            <span>{node.own_message_count} own</span>
-                            <span>{node.expanded_message_count} expanded</span>
-                            {node.branch_point !== undefined && node.branch_point !== null ? (
-                              <span>branch point {node.branch_point}</span>
+                          <div className="conversation-tree-card">
+                            <div className="conversation-tree-head">
+                              <strong>{node.title}</strong>
+                              <span className="conversation-tree-kind">
+                                {depth ? `branch ${depth}` : "root"}
+                              </span>
+                            </div>
+                            <div className="conversation-tree-meta">
+                              <span>{node.id}</span>
+                              <span>agent {node.agent_id}</span>
+                              <span>{node.own_message_count} own</span>
+                              <span>{node.expanded_message_count} expanded</span>
+                              {node.branch_point !== undefined &&
+                              node.branch_point !== null ? (
+                                <span>branch point {node.branch_point}</span>
+                              ) : null}
+                              <span>
+                                {node.children.length
+                                  ? `${node.children.length} children`
+                                  : "leaf"}
+                              </span>
+                            </div>
+                            {node.parent_id ? (
+                              <span className="conversation-tree-parent">
+                                parent {node.parent_id}
+                              </span>
                             ) : null}
-                            <span>
-                              {node.children.length
-                                ? `${node.children.length} children`
-                                : "leaf"}
-                            </span>
-                          </div>
-                          {node.parent_id ? (
-                            <span className="conversation-tree-parent">
-                              parent {node.parent_id}
-                            </span>
-                          ) : null}
-                          {node.topic_preview ? (
-                            <p>
-                              <span className="conversation-tree-note-label">topic:</span>{" "}
-                              {previewText(node.topic_preview, 180)}
-                            </p>
-                          ) : null}
-                          {node.branch_reason ? (
-                            <p>
-                              <span className="conversation-tree-note-label">reason:</span>{" "}
-                              {previewText(node.branch_reason, 180)}
-                            </p>
-                          ) : null}
-                          <div className="mini-actions">
-                            <button
-                              type="button"
-                              title="Move this conversation id into the Id field."
-                              onClick={() => setOpsId(node.id)}
-                              disabled={running}
-                            >
-                              Set Id
-                            </button>
-                            <button
-                              type="button"
-                              title="Show expanded conversation messages."
-                              onClick={() => void showConversation(node.id)}
-                              disabled={running}
-                            >
-                              Show
-                            </button>
-                            <button
-                              type="button"
-                              title="Build a recovery plan and apply suggested run settings."
-                              onClick={() => void recoverConversation(node.id)}
-                              disabled={running}
-                            >
-                              Recover
-                            </button>
-                            <button
-                              type="button"
-                              title="Preview deletion impact for this branch."
-                              onClick={() => void previewConversationDelete(node.id, false)}
-                              disabled={running}
-                            >
-                              Plan
-                            </button>
-                            <button
-                              type="button"
-                              title="Preview recursive deletion impact for this branch."
-                              onClick={() => void previewConversationDelete(node.id, true)}
-                              disabled={running}
-                            >
-                              Plan Rec
-                            </button>
-                            <button
-                              type="button"
-                              className="danger"
-                              title="Delete this leaf conversation."
-                              onClick={() => void deleteConversation(node.id, false)}
-                              disabled={running}
-                            >
-                              Delete
-                            </button>
+                            {node.topic_preview ? (
+                              <p className="conversation-tree-note">
+                                <AppIcon name="prompt" />
+                                <span className="conversation-tree-note-body">
+                                  <span className="conversation-tree-note-label">
+                                    topic:
+                                  </span>{" "}
+                                  {previewText(node.topic_preview, 180)}
+                                </span>
+                              </p>
+                            ) : null}
+                            {node.branch_reason ? (
+                              <p className="conversation-tree-note">
+                                <AppIcon name="conversation" />
+                                <span className="conversation-tree-note-body">
+                                  <span className="conversation-tree-note-label">
+                                    reason:
+                                  </span>{" "}
+                                  {previewText(node.branch_reason, 180)}
+                                </span>
+                              </p>
+                            ) : null}
+                            <div className="mini-actions">
+                              <button
+                                type="button"
+                                title="Move this conversation id into the Id field."
+                                onClick={() => setOpsId(node.id)}
+                                disabled={running}
+                              >
+                                Set Id
+                              </button>
+                              <button
+                                type="button"
+                                title="Show expanded conversation messages."
+                                onClick={() => void showConversation(node.id)}
+                                disabled={running}
+                              >
+                                Show
+                              </button>
+                              <button
+                                type="button"
+                                title="Build a recovery plan and apply suggested run settings."
+                                onClick={() => void recoverConversation(node.id)}
+                                disabled={running}
+                              >
+                                Recover
+                              </button>
+                              <button
+                                type="button"
+                                title="Preview deletion impact for this branch."
+                                onClick={() =>
+                                  void previewConversationDelete(node.id, false)
+                                }
+                                disabled={running}
+                              >
+                                Plan
+                              </button>
+                              <button
+                                type="button"
+                                title="Preview recursive deletion impact for this branch."
+                                onClick={() =>
+                                  void previewConversationDelete(node.id, true)
+                                }
+                                disabled={running}
+                              >
+                                Plan Rec
+                              </button>
+                              <button
+                                type="button"
+                                className="danger"
+                                title="Delete this leaf conversation."
+                                onClick={() => void deleteConversation(node.id, false)}
+                                disabled={running}
+                              >
+                                Delete
+                              </button>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ) : (

@@ -797,6 +797,10 @@ textarea:disabled {
   gap: 0.5rem;
 }
 
+.model-setup-grid {
+  grid-template-columns: 1fr;
+}
+
 .run-readiness-card {
   display: grid;
   grid-template-columns: 1.65rem minmax(0, 1fr);

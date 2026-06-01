@@ -16805,6 +16805,96 @@ export default function App() {
     ];
   }
 
+  function modelSetupCards(): ContextReviewCard[] {
+    const modelName = model.trim() || defaultModelForProvider(provider);
+    const modalities = currentModelModalities();
+    const descriptorModalities = selectedProviderDescriptor?.available_modalities ?? [];
+    const visibleModalities = modalities.length ? modalities : descriptorModalities;
+    const apiTarget =
+      apiBaseUrl.trim() ||
+      defaultApiBaseUrlForProvider(provider) ||
+      (selectedProviderDescriptor?.local ? "local runtime" : "native provider");
+    const hasRuntimeOptions =
+      Boolean(runMaxOutputTokens.trim()) ||
+      Boolean(runTemperature.trim()) ||
+      Boolean(providerTopP.trim()) ||
+      Boolean(providerTopK.trim()) ||
+      Boolean(providerReasoningEffort.trim()) ||
+      Boolean(providerFrequencyPenalty.trim()) ||
+      Boolean(providerPresencePenalty.trim());
+    const hasCostMetadata =
+      parseOptionalNonNegativeFloat(inputCostPerMillion) !== null ||
+      parseOptionalNonNegativeFloat(outputCostPerMillion) !== null ||
+      Boolean(modelPrivacyLevel.trim()) ||
+      Boolean(modelCostTier.trim());
+    const toolSupport =
+      modelToolSupport === "true"
+        ? "tools supported"
+        : modelToolSupport === "false"
+          ? "tools disabled"
+          : selectedProviderDescriptor?.tool_support == null
+            ? "tool support default"
+            : selectedProviderDescriptor.tool_support
+              ? "tools supported"
+              : "tools disabled";
+    const keyLabel =
+      provider === "fake"
+        ? "no key needed"
+        : apiKey.trim()
+          ? "inline key for this run"
+          : apiKeyEnv.trim()
+            ? `key env ${apiKeyEnv.trim()}`
+            : providerAllowsMissingApiKey(provider)
+              ? "local key optional"
+              : "key env missing";
+
+    return [
+      {
+        title: "Provider",
+        value: selectedProviderDescriptor?.name || provider,
+        detail: `${apiTarget}; ${keyLabel}.`,
+        icon: "setup",
+        tone:
+          keyLabel === "key env missing"
+            ? "warning"
+            : provider === "fake"
+              ? "neutral"
+              : "ok",
+      },
+      {
+        title: "Model",
+        value: modelName,
+        detail: `context ${modelMaxContextTokens.trim() || "catalog"}; output ${runMaxOutputTokens.trim() || "default"}.`,
+        icon: "brand",
+        tone: model.trim() ? "ok" : "neutral",
+      },
+      {
+        title: "Modalities",
+        value: visibleModalities.length ? visibleModalities.join(", ") : "provider default",
+        detail: `${toolSupport}; reasoning ${modelReasoningMode.trim() || "provider default"}.`,
+        icon: modelSupportsImage ? "artifact" : "context",
+        tone:
+          modelSupportsImage || modelToolSupport === "true" || modalities.length
+            ? "ok"
+            : "neutral",
+      },
+      {
+        title: "Runtime",
+        value: hasRuntimeOptions ? "Overrides set" : "Provider defaults",
+        detail: `temperature ${runTemperature.trim() || "default"}; options ${providerOptionKeys || "none"}.`,
+        icon: "control",
+        tone: hasRuntimeOptions ? "ok" : "neutral",
+      },
+      {
+        title: "Cost",
+        value: hasCostMetadata ? "Metadata set" : "Unpriced",
+        detail: `in ${inputCostPerMillion.trim() || "default"} / out ${outputCostPerMillion.trim() || "default"} $/M; ${modelPrivacyLevel.trim() || "privacy default"} / ${modelCostTier.trim() || "cost default"}.`,
+        icon: "profile",
+        tone: hasCostMetadata ? "ok" : "warning",
+      },
+    ];
+  }
+
   function descriptorForProvider(value: Provider) {
     return modelProviderDescriptors.find((descriptor) => descriptor.id === value);
   }
@@ -18183,6 +18273,20 @@ export default function App() {
         {activeSection === "chat" ? (
         <section className="panel">
           <PanelTitle title="Agent setup" section="chat" icon="setup" />
+          <div className="run-readiness-grid model-setup-grid">
+            {modelSetupCards().map((card) => (
+              <div className={`run-readiness-card ${card.tone}`} key={card.title}>
+                <span className="run-readiness-icon" aria-hidden="true">
+                  <AppIcon name={card.icon} />
+                </span>
+                <div className="run-readiness-copy">
+                  <span>{card.title}</span>
+                  <strong>{card.value}</strong>
+                  <p>{card.detail}</p>
+                </div>
+              </div>
+            ))}
+          </div>
           <label>
             Transport
             <select

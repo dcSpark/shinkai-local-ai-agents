@@ -5445,6 +5445,39 @@ export default function App() {
           >
             Load
           </button>
+          <button
+            type="button"
+            title="Use this run as the comparison target."
+            onClick={() => setTraceCompareRunId(node.run_id)}
+            disabled={running || !node.trace_available}
+          >
+            Compare
+          </button>
+          <button
+            type="button"
+            title="Replay this run's original prompt."
+            onClick={() =>
+              void replayTracePromptWithOptions({
+                runId: node.run_id,
+              })
+            }
+            disabled={running || !node.trace_available}
+          >
+            Replay
+          </button>
+          <button
+            type="button"
+            title="Replay this run and compare the replay against it."
+            onClick={() =>
+              void replayTracePromptWithOptions({
+                runId: node.run_id,
+                compareSource: true,
+              })
+            }
+            disabled={running || !node.trace_available}
+          >
+            Replay Compare
+          </button>
         </div>
         {children.length && !collapsed ? (
           <div className="trace-tree-children">

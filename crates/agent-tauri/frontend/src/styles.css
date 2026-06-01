@@ -1558,11 +1558,70 @@ textarea:disabled {
   background: #211317;
 }
 
+.ingestion-card.ok {
+  border-color: #275c43;
+  background: #13201a;
+}
+
+.ingestion-card.warning {
+  border-color: #816a2d;
+  background: #251f12;
+}
+
+.ingestion-card.danger {
+  border-color: #7d3c45;
+  background: #211317;
+}
+
 .ingestion-card-head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 0.5rem;
   align-items: center;
+}
+
+.ingestion-card-head.with-icon {
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+}
+
+.ingestion-card-icon {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border: 1px solid #3d4650;
+  border-radius: 8px;
+  background: #15171b;
+  color: #65d4ff;
+}
+
+.ingestion-card-icon.ok {
+  border-color: #275c43;
+  background: #13281d;
+  color: #78dda7;
+}
+
+.ingestion-card-icon.warning {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
+.ingestion-card-icon.danger {
+  border-color: #7d3c45;
+  background: #32191f;
+  color: #ffb4c0;
+}
+
+.ingestion-card-icon .app-icon {
+  width: 0.92rem;
+  height: 0.92rem;
+}
+
+.ingestion-card-title {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
 }
 
 .ingestion-card strong,
@@ -1587,6 +1646,34 @@ textarea:disabled {
   font-size: 0.76rem;
   line-height: 1.35;
   overflow-wrap: anywhere;
+}
+
+.ingestion-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.2rem, 1fr));
+  gap: 0.4rem;
+}
+
+.ingestion-card .visual-metric .visual-metric-icon {
+  font-family: inherit;
+  color: var(--section-accent);
+}
+
+.ingestion-card .visual-metric.ok .visual-metric-icon {
+  color: #78dda7;
+}
+
+.ingestion-card .visual-metric.warning .visual-metric-icon {
+  color: #ffce6b;
+}
+
+.ingestion-card .visual-metric.danger .visual-metric-icon {
+  color: #ffb4c0;
+}
+
+.ingestion-card .visual-metric-copy span {
+  color: #8e949f;
+  font-family: inherit;
 }
 
 .artifact-preview {

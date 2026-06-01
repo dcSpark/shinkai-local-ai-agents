@@ -17423,6 +17423,43 @@ export default function App() {
     );
   }
 
+  function ingestionSourceProbeCounts(probe: IngestionSourceProbeReport) {
+    const ready = probe.backends.filter((backend) => backend.status === "ready")
+      .length;
+    const supported = probe.backends.filter((backend) => backend.supported).length;
+    return {
+      ready,
+      supported,
+      blocked: probe.backends.length - supported,
+    };
+  }
+
+  function ingestionSourceProbeTone(
+    probe: IngestionSourceProbeReport,
+  ): ContextReviewCard["tone"] {
+    if (probe.vision_model && !probe.vision_model.supported) return "danger";
+    const counts = ingestionSourceProbeCounts(probe);
+    if (counts.ready > 0) return "ok";
+    if (counts.supported > 0) return "warning";
+    return "danger";
+  }
+
+  function ingestionBackendTone(
+    backend: IngestionBackendDescriptor,
+  ): ContextReviewCard["tone"] {
+    if (backend.compatibility?.length) return "ok";
+    if (backend.modalities.length) return "neutral";
+    return "warning";
+  }
+
+  function ingestionArtifactTone(
+    artifact: IngestionArtifact,
+  ): ContextReviewCard["tone"] {
+    if (hasUnapprovedHighRiskFindings(artifact)) return "danger";
+    if (artifact.findings.length) return "warning";
+    return "ok";
+  }
+
   function guardrailStateForArtifact(id: string) {
     const artifact = ingestionArtifacts.find((item) => item.id === id);
     if (!artifact) return "unknown artifact; review ingestion before running";
@@ -22495,13 +22532,59 @@ export default function App() {
               </div>
               {ingestionSourceProbe ? (
                 <div className="ingestion-review">
-                  <div className="ingestion-card">
-                    <div className="ingestion-card-head">
-                      <strong>{fileName(ingestionSourceProbe.source)}</strong>
-                      <span>
-                        {ingestionSourceProbe.source_kind} /{" "}
-                        {formatBytes(ingestionSourceProbe.bytes)}
+                  <div
+                    className={`ingestion-card ${ingestionSourceProbeTone(
+                      ingestionSourceProbe,
+                    )}`}
+                  >
+                    <div className="ingestion-card-head with-icon">
+                      <span
+                        className={`ingestion-card-icon ${ingestionSourceProbeTone(
+                          ingestionSourceProbe,
+                        )}`}
+                        aria-hidden="true"
+                      >
+                        <AppIcon name="ingest" />
                       </span>
+                      <div className="ingestion-card-title">
+                        <strong>{fileName(ingestionSourceProbe.source)}</strong>
+                        <span>
+                          {ingestionSourceProbe.source_kind} /{" "}
+                          {formatBytes(ingestionSourceProbe.bytes)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="ingestion-metrics">
+                      <VisualMetric
+                        icon="ingest"
+                        label="ready"
+                        value={ingestionSourceProbeCounts(ingestionSourceProbe).ready}
+                        section="ingest"
+                        tone={
+                          ingestionSourceProbeCounts(ingestionSourceProbe).ready
+                            ? "ok"
+                            : "warning"
+                        }
+                      />
+                      <VisualMetric
+                        icon="tools"
+                        label="supported"
+                        value={
+                          ingestionSourceProbeCounts(ingestionSourceProbe).supported
+                        }
+                        section="ingest"
+                      />
+                      <VisualMetric
+                        icon="approval"
+                        label="blocked"
+                        value={ingestionSourceProbeCounts(ingestionSourceProbe).blocked}
+                        section="ingest"
+                        tone={
+                          ingestionSourceProbeCounts(ingestionSourceProbe).blocked
+                            ? "warning"
+                            : "ok"
+                        }
+                      />
                     </div>
                     {ingestionSourceProbe.vision_model ? (
                       <span
@@ -22593,10 +22676,23 @@ export default function App() {
               {ingestionBackends.length ? (
                 <div className="ingestion-review">
                   {ingestionBackends.map((backend) => (
-                    <div className="ingestion-card" key={backend.id}>
-                      <div className="ingestion-card-head">
-                        <strong>{backend.id}</strong>
-                        <span>{backend.name}</span>
+                    <div
+                      className={`ingestion-card ${ingestionBackendTone(backend)}`}
+                      key={backend.id}
+                    >
+                      <div className="ingestion-card-head with-icon">
+                        <span
+                          className={`ingestion-card-icon ${ingestionBackendTone(
+                            backend,
+                          )}`}
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="ingest" />
+                        </span>
+                        <div className="ingestion-card-title">
+                          <strong>{backend.id}</strong>
+                          <span>{backend.name}</span>
+                        </div>
                       </div>
                       <span>
                         {backend.modalities.length
@@ -22630,16 +22726,52 @@ export default function App() {
                 <div className="ingestion-review">
                   {ingestionArtifacts.map((artifact) => (
                     <div
-                      className={`ingestion-card ${
+                      className={`ingestion-card ${ingestionArtifactTone(artifact)} ${
                         hasUnapprovedHighRiskFindings(artifact)
                           ? "high-risk"
                           : ""
                       }`}
                       key={artifact.id}
                     >
-                      <div className="ingestion-card-head">
-                        <strong>{artifact.id}</strong>
-                        <span>{artifact.backend}</span>
+                      <div className="ingestion-card-head with-icon">
+                        <span
+                          className={`ingestion-card-icon ${ingestionArtifactTone(
+                            artifact,
+                          )}`}
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="artifact" />
+                        </span>
+                        <div className="ingestion-card-title">
+                          <strong>{artifact.id}</strong>
+                          <span>{artifact.backend}</span>
+                        </div>
+                      </div>
+                      <div className="ingestion-metrics">
+                        <VisualMetric
+                          icon="context"
+                          label="sections"
+                          value={artifact.sections.length}
+                          section="ingest"
+                        />
+                        <VisualMetric
+                          icon="approval"
+                          label="findings"
+                          value={artifact.findings.length}
+                          section="ingest"
+                          tone={artifact.findings.length ? "warning" : "ok"}
+                        />
+                        <VisualMetric
+                          icon="ingest"
+                          label="guardrail"
+                          value={
+                            hasUnapprovedHighRiskFindings(artifact)
+                              ? activeIngestionGuardrailMode()
+                              : "clear"
+                          }
+                          section="ingest"
+                          tone={ingestionArtifactTone(artifact)}
+                        />
                       </div>
                       <span title={artifact.source}>
                         {fileName(artifact.source)} / {artifact.sections.length} sections

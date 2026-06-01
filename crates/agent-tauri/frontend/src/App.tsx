@@ -14748,8 +14748,10 @@ export default function App() {
 
   async function exportSkillFromOps(explicitId?: string, explicitPath?: string) {
     const id = explicitId ?? requireOpsId("Skill export");
-    const path = explicitPath ?? requireOpsValue("Skill export");
-    if (!id || !path) return;
+    if (!id) return;
+    const path =
+      explicitPath?.trim() || opsValue.trim() || defaultSkillExportPathForId(id);
+    setOpsValue(path);
     try {
       const doc =
         transport === "daemon"
@@ -16826,6 +16828,12 @@ export default function App() {
 
   function defaultSkillExportPath(skill: SkillDoc) {
     return `/tmp/skill-${generatedArtifactFileName(skill.id)}.json`;
+  }
+
+  function defaultSkillExportPathForId(id: string) {
+    const skill = skillDocs.find((item) => item.id === id);
+    if (skill) return defaultSkillExportPath(skill);
+    return `/tmp/skill-${generatedArtifactFileName(id)}.json`;
   }
 
   function defaultProviderCatalogExportPath() {
@@ -21062,6 +21070,14 @@ export default function App() {
                   disabled={running || !opsId.trim()}
                 >
                   Show Skill
+                </button>
+                <button
+                  type="button"
+                  title="Export quarantined or allowed skill Id to Value, or to /tmp when Value is blank."
+                  onClick={() => void exportSkillFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  Export Skill
                 </button>
                 <button
                   type="button"

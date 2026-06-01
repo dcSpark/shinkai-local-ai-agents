@@ -20946,19 +20946,75 @@ export default function App() {
                           ? `catalog ${doc.metadata_modalities.join(", ")}`
                           : "catalog none";
                         return (
-                          <span
-                            className={`finding ${state}`}
+                          <div
+                            className="finding-action-row"
                             key={`model-doctor:${doc.id}`}
-                            title={doc.validation_error ?? undefined}
                           >
-                            {doc.id}: {doc.provider}
-                            {doc.provider_known ? "" : " / unknown provider"}
-                            {doc.validation_status !== "ok"
-                              ? ` / ${doc.validation_status}`
-                              : ""}
-                            {` / ${declared} / ${catalog}`}
-                            {doc.metadata_source ? ` / ${doc.metadata_source}` : ""}
-                          </span>
+                            <span
+                              className={`finding ${state}`}
+                              title={doc.validation_error ?? undefined}
+                            >
+                              {doc.id}: {doc.provider}
+                              {doc.provider_known ? "" : " / unknown provider"}
+                              {doc.validation_status !== "ok"
+                                ? ` / ${doc.validation_status}`
+                                : ""}
+                              {` / ${declared} / ${catalog}`}
+                              {doc.metadata_source ? ` / ${doc.metadata_source}` : ""}
+                            </span>
+                            <div className="mini-actions">
+                              <button
+                                type="button"
+                                title="Move this model id into the Id field."
+                                onClick={() => setOpsId(doc.id)}
+                                disabled={running}
+                              >
+                                Set Id
+                              </button>
+                              <button
+                                type="button"
+                                title="Show this saved model and load it into the model controls."
+                                onClick={() => void showModelFromOps(doc.id)}
+                                disabled={running}
+                              >
+                                Show
+                              </button>
+                              <button
+                                type="button"
+                                title="Probe declared and live capabilities for this saved model."
+                                onClick={() => void probeModelFromOps(doc.id)}
+                                disabled={running}
+                              >
+                                Probe
+                              </button>
+                              <button
+                                type="button"
+                                title="Set Value to a default export path for this saved model."
+                                onClick={() => {
+                                  setOpsId(doc.id);
+                                  setOpsValue(defaultSavedModelExportPath(doc.id));
+                                }}
+                                disabled={running}
+                              >
+                                Path
+                              </button>
+                              <button
+                                type="button"
+                                title="Export this saved model to Value, or to /tmp when Value is blank."
+                                onClick={() => {
+                                  const path =
+                                    opsValue.trim() ||
+                                    defaultSavedModelExportPath(doc.id);
+                                  setOpsId(doc.id);
+                                  setOpsValue(path);
+                                  void exportModel(doc.id, path);
+                                }}
+                                disabled={running}
+                              >
+                                Export
+                              </button>
+                            </div>
+                          </div>
                         );
                       })}
                     </div>

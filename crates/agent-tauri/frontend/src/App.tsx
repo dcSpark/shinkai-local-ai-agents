@@ -12144,8 +12144,12 @@ export default function App() {
 
   async function exportCapabilityFromOps(explicitId?: string, explicitPath?: string) {
     const id = explicitId ?? requireOpsId("Capability export");
-    const path = explicitPath ?? requireOpsValue("Capability export");
-    if (!id || !path) return;
+    if (!id) return;
+    const path =
+      explicitPath?.trim() ||
+      opsValue.trim() ||
+      defaultCapabilityDraftExportPathForId(id);
+    setOpsValue(path);
     try {
       const draft =
         transport === "daemon"
@@ -15404,8 +15408,10 @@ export default function App() {
 
   async function exportAdapterFromOps(explicitId?: string, explicitPath?: string) {
     const id = explicitId ?? requireOpsId("Adapter export");
-    const path = explicitPath ?? requireOpsValue("Adapter export");
-    if (!id || !path) return;
+    if (!id) return;
+    const path =
+      explicitPath?.trim() || opsValue.trim() || defaultAdapterExportPathForId(id);
+    setOpsValue(path);
     try {
       const manifest =
         transport === "daemon"
@@ -16800,10 +16806,22 @@ export default function App() {
     return `/tmp/capability-${draft.kind}-${generatedArtifactFileName(draft.id)}.json`;
   }
 
+  function defaultCapabilityDraftExportPathForId(id: string) {
+    const draft = capabilityDrafts.find((item) => item.id === id);
+    if (draft) return defaultCapabilityDraftExportPath(draft);
+    return `/tmp/capability-${generatedArtifactFileName(id)}.json`;
+  }
+
   function defaultAdapterExportPath(adapterPackage: AdapterPackage) {
     return `/tmp/adapter-${adapterPackage.adapter}-${generatedArtifactFileName(
       adapterPackage.id,
     )}.json`;
+  }
+
+  function defaultAdapterExportPathForId(id: string) {
+    const adapterPackage = adapterPackages.find((item) => item.id === id);
+    if (adapterPackage) return defaultAdapterExportPath(adapterPackage);
+    return `/tmp/adapter-${generatedArtifactFileName(id)}.json`;
   }
 
   function defaultSkillExportPath(skill: SkillDoc) {
@@ -21121,9 +21139,9 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Export capability draft Id to Value path."
+                  title="Export capability draft Id to Value, or to /tmp when Value is blank."
                   onClick={() => void exportCapabilityFromOps()}
-                  disabled={running || !opsId.trim() || !opsValue.trim()}
+                  disabled={running || !opsId.trim()}
                 >
                   Export Draft
                 </button>
@@ -22683,9 +22701,9 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Export adapter package Id to the path in Value."
+                  title="Export adapter package Id to Value, or to /tmp when Value is blank."
                   onClick={() => void exportAdapterFromOps()}
-                  disabled={running || !opsId.trim() || !opsValue.trim()}
+                  disabled={running || !opsId.trim()}
                 >
                   Export Adapter
                 </button>

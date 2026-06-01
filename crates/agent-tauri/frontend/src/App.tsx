@@ -633,6 +633,7 @@ export default function App() {
     useState("");
   const [stopRetentionMode, setStopRetentionMode] =
     useState<StopRetentionMode | null>(null);
+  const [resumeFromEvent, setResumeFromEvent] = useState("");
   const [resumePlan, setResumePlan] = useState<ResumePlan | null>(null);
   const [manualCompactedContext, setManualCompactedContext] = useState("");
   const [lastRunId, setLastRunId] = useState<string | null>(null);
@@ -13200,9 +13201,31 @@ export default function App() {
     }
   }
 
+  function parseResumeFromEventInput() {
+    const trimmed = resumeFromEvent.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const parsed = Number(trimmed);
+    if (!Number.isInteger(parsed) || parsed < 1) {
+      appendLine("error", "Resume From event needs a positive event id.");
+      return undefined;
+    }
+    return parsed;
+  }
+
   async function resumeLastRun() {
     const sourceRunId = opsId.trim() || lastRunId || "";
-    await resumeRun(sourceRunId);
+    const fromEvent = parseResumeFromEventInput();
+    if (fromEvent === undefined) return;
+    await resumeRun(sourceRunId, fromEvent);
+  }
+
+  async function reviewResumePlanFromControls() {
+    const sourceRunId = opsId.trim() || lastRunId || "";
+    const fromEvent = parseResumeFromEventInput();
+    if (fromEvent === undefined) return;
+    await reviewResumePlan(sourceRunId, fromEvent);
   }
 
   async function reviewApprovals(explicitRunId?: string) {
@@ -23144,6 +23167,25 @@ export default function App() {
                   : "Stopped tasks retain only a summary artifact."}
             </div>
           </fieldset>
+          <fieldset className="operation-group">
+            <legend>Resume cursor</legend>
+            <label>
+              From event
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={resumeFromEvent}
+                onChange={(e) => setResumeFromEvent(e.target.value)}
+                placeholder="auto"
+                inputMode="numeric"
+                disabled={running}
+              />
+            </label>
+            <div className="mode-note">
+              Empty uses the latest resumable event.
+            </div>
+          </fieldset>
           {resumePlan ? (
             <div className="bundle-card">
               <div className="bundle-card-head">
@@ -23251,9 +23293,7 @@ export default function App() {
             <button
               type="button"
               title="Preview the generated resume prompt for Id, or the last run when Id is blank."
-              onClick={() =>
-                void reviewResumePlan(opsId.trim() || lastRunId || "")
-              }
+              onClick={() => void reviewResumePlanFromControls()}
               disabled={running || (!opsId.trim() && !lastRunId)}
             >
               Resume Plan

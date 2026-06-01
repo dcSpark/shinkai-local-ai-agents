@@ -304,12 +304,29 @@ for (const glob of [
   "crates/agent-tauri/gen/android/app/build/outputs/bundle/**/*.aab",
 ]) {
   assert(android.artifact_globs?.includes(glob), `Android artifact glob is missing ${glob}`);
+  assertIncludes(
+    workflow,
+    glob,
+    `mobile workflow Android upload path must include manifest glob ${glob}`,
+  );
 }
 for (const glob of [
   "crates/agent-tauri/gen/apple/build/**/*.ipa",
   "crates/agent-tauri/gen/apple/build/**/*.xcarchive",
 ]) {
   assert(ios.artifact_globs?.includes(glob), `iOS artifact glob is missing ${glob}`);
+  assertIncludes(
+    workflow,
+    glob,
+    `mobile workflow iOS upload path must include manifest glob ${glob}`,
+  );
+}
+for (const glob of manifest.updater.artifact_globs || []) {
+  assertIncludes(
+    workflow,
+    glob,
+    `mobile workflow upload path must include updater manifest glob ${glob}`,
+  );
 }
 
 if (strict) {

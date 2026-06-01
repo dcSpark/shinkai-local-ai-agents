@@ -1330,6 +1330,16 @@ textarea:disabled {
   grid-template-columns: repeat(2, minmax(4.5rem, 1fr));
 }
 
+.finding-action-row {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.finding-action-row .mini-actions {
+  grid-template-columns: repeat(auto-fit, minmax(4.5rem, 1fr));
+}
+
 .finding {
   min-width: 0;
   padding: 0.35rem 0.45rem;

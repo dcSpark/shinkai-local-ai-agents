@@ -22961,22 +22961,104 @@ export default function App() {
                   ) : null}
                   {adapterDoctorReport.packages.length ? (
                     <div className="finding-list">
-                      {adapterDoctorReport.packages.map((pkg) => (
-                        <span
-                          className={`finding ${
-                            pkg.status === "error"
-                              ? "high"
-                              : pkg.status === "warning"
-                                ? "warning"
-                                : "none"
-                          }`}
-                          key={`adapter-doctor:${pkg.id}`}
-                        >
-                          {pkg.id}: {pkg.ready_capability_count} ready /{" "}
-                          {pkg.installable_skill_count} installable skills /{" "}
-                          {pkg.unsupported_capability_count} unsupported
-                        </span>
-                      ))}
+                      {adapterDoctorReport.packages.map((pkg) => {
+                        const packageHighRisk = pkg.high_risk_finding_count > 0;
+                        return (
+                          <div
+                            className="finding-action-row"
+                            key={`adapter-doctor:${pkg.id}`}
+                          >
+                            <span
+                              className={`finding ${
+                                pkg.status === "error"
+                                  ? "high"
+                                  : pkg.status === "warning"
+                                    ? "warning"
+                                    : "none"
+                              }`}
+                            >
+                              {pkg.id}: {pkg.ready_capability_count} ready /{" "}
+                              {pkg.installable_skill_count} installable skills /{" "}
+                              {pkg.unsupported_capability_count} unsupported
+                            </span>
+                            <div className="mini-actions">
+                              <button
+                                type="button"
+                                title="Move this adapter package id into the Id field."
+                                onClick={() => setOpsId(pkg.id)}
+                                disabled={running}
+                              >
+                                Set Id
+                              </button>
+                              <button
+                                type="button"
+                                title="Show this adapter package."
+                                onClick={() => {
+                                  setOpsId(pkg.id);
+                                  void showAdapterFromOps(pkg.id);
+                                }}
+                                disabled={running}
+                              >
+                                Show
+                              </button>
+                              <button
+                                type="button"
+                                title="Stage a default export path for this adapter package."
+                                onClick={() => {
+                                  setOpsId(pkg.id);
+                                  setOpsValue(defaultAdapterExportPathForId(pkg.id));
+                                }}
+                                disabled={running}
+                              >
+                                Path
+                              </button>
+                              <button
+                                type="button"
+                                title="Export this adapter package to Value, or to /tmp when Value is blank."
+                                onClick={() => {
+                                  const path =
+                                    opsValue.trim() ||
+                                    defaultAdapterExportPathForId(pkg.id);
+                                  setOpsId(pkg.id);
+                                  setOpsValue(path);
+                                  void exportAdapterFromOps(pkg.id, path);
+                                }}
+                                disabled={running}
+                              >
+                                Export
+                              </button>
+                              <button
+                                type="button"
+                                title="Install this package's installable adapter skills."
+                                onClick={() => {
+                                  setOpsId(pkg.id);
+                                  void installAdapterSkillFromOps(pkg.id);
+                                }}
+                                disabled={running || pkg.installable_skill_count === 0}
+                              >
+                                Install Skill
+                              </button>
+                              <button
+                                type="button"
+                                title={
+                                  packageHighRisk
+                                    ? "High-risk findings block adapter activation."
+                                    : "Allow this quarantined adapter package."
+                                }
+                                onClick={() => {
+                                  setOpsId(pkg.id);
+                                  void setAdapterQuarantine(true, pkg.id);
+                                }}
+                                disabled={
+                                  running || !pkg.quarantined || packageHighRisk
+                                }
+                              >
+                                Allow
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   ) : null}
                   {adapterDoctorReport.packages.some(
@@ -22998,18 +23080,67 @@ export default function App() {
                           const detail = [runtime, notes]
                             .filter(Boolean)
                             .join(" / ");
+                          const packageHighRisk = pkg.high_risk_finding_count > 0;
                           return (
-                            <span
-                              className={`finding ${state}`}
+                            <div
+                              className="finding-action-row"
                               key={`adapter-doctor-capability:${pkg.id}:${capability.id}`}
-                              title={detail || capability.name}
                             >
-                              {pkg.id}/{capability.id}: {capability.support}
-                              {capability.installable_as_skill ? " / installable" : ""}
-                              {capability.quarantined ? " / quarantined" : ""}
-                              {runtime ? ` / ${runtime}` : ""}
-                              {notes ? ` / ${compactPreview(notes, 140)}` : ""}
-                            </span>
+                              <span
+                                className={`finding ${state}`}
+                                title={detail || capability.name}
+                              >
+                                {pkg.id}/{capability.id}: {capability.support}
+                                {capability.installable_as_skill
+                                  ? " / installable"
+                                  : ""}
+                                {capability.quarantined ? " / quarantined" : ""}
+                                {runtime ? ` / ${runtime}` : ""}
+                                {notes ? ` / ${compactPreview(notes, 140)}` : ""}
+                              </span>
+                              <div className="mini-actions">
+                                <button
+                                  type="button"
+                                  title="Move this adapter package id into the Id field."
+                                  onClick={() => setOpsId(pkg.id)}
+                                  disabled={running}
+                                >
+                                  Set Pkg
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Install this package's installable adapter skills."
+                                  onClick={() => {
+                                    setOpsId(pkg.id);
+                                    void installAdapterSkillFromOps(pkg.id);
+                                  }}
+                                  disabled={
+                                    running || !capability.installable_as_skill
+                                  }
+                                >
+                                  Install Skill
+                                </button>
+                                <button
+                                  type="button"
+                                  title={
+                                    packageHighRisk
+                                      ? "High-risk findings block adapter activation."
+                                      : "Allow this quarantined adapter package."
+                                  }
+                                  onClick={() => {
+                                    setOpsId(pkg.id);
+                                    void setAdapterQuarantine(true, pkg.id);
+                                  }}
+                                  disabled={
+                                    running ||
+                                    !pkg.quarantined ||
+                                    packageHighRisk
+                                  }
+                                >
+                                  Allow Pkg
+                                </button>
+                              </div>
+                            </div>
                           );
                         }),
                       )}

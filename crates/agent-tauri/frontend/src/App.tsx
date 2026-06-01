@@ -18734,6 +18734,31 @@ export default function App() {
                       </button>
                       <button
                         type="button"
+                        title="Replay this run's original prompt."
+                        onClick={() =>
+                          void replayTracePromptWithOptions({
+                            runId: record.run_id,
+                          })
+                        }
+                        disabled={running}
+                      >
+                        Replay
+                      </button>
+                      <button
+                        type="button"
+                        title="Replay this run and compare the replay against it."
+                        onClick={() =>
+                          void replayTracePromptWithOptions({
+                            runId: record.run_id,
+                            compareSource: true,
+                          })
+                        }
+                        disabled={running}
+                      >
+                        Replay Compare
+                      </button>
+                      <button
+                        type="button"
                         title="Move this run id into the Id field."
                         onClick={() => setOpsId(record.run_id)}
                         disabled={running}

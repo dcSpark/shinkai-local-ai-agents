@@ -23325,6 +23325,24 @@ export default function App() {
                     <span title={storagePruneResult.plan.root}>
                       {storagePruneResult.plan.root}
                     </span>
+                    {storagePruneResult.dry_run ? (
+                      <div className="mini-actions">
+                        <button
+                          type="button"
+                          className="danger"
+                          title="Apply this cache prune plan using the same retention window."
+                          onClick={() =>
+                            void storagePruneCacheFromOps(
+                              true,
+                              storagePruneResult.plan.retention_days,
+                            )
+                          }
+                          disabled={running}
+                        >
+                          Apply Plan
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                   <div className="storage-total">
                     <strong>

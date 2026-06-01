@@ -11584,8 +11584,9 @@ export default function App() {
 
   async function exportAgentFromOps(explicitId?: string) {
     const id = explicitId ?? requireOpsId("Agent export");
-    const path = requireOpsValue("Agent export");
-    if (!id || !path) return;
+    if (!id) return;
+    const path = opsValue.trim() || defaultSavedAgentExportPath(id);
+    setOpsValue(path);
     await exportAgent(id, path);
   }
 
@@ -14062,9 +14063,11 @@ export default function App() {
 
   async function exportPromptFromOps() {
     const name = requireOpsId("Prompt export");
-    const path = requireOpsValue("Prompt export");
-    if (!name || !path) return;
-    await exportPromptByName(name, path, promptScopeAgentId());
+    if (!name) return;
+    const agent = promptScopeAgentId();
+    const path = opsValue.trim() || defaultPromptExportPathForTarget(name, agent);
+    setOpsValue(path);
+    await exportPromptByName(name, path, agent);
   }
 
   async function exportPromptByName(
@@ -14540,8 +14543,8 @@ export default function App() {
   async function exportModelFromOps() {
     const id = requireOpsId("Model export");
     if (!id) return;
-    const path = requireOpsValue("Model export");
-    if (!path) return;
+    const path = opsValue.trim() || defaultSavedModelExportPath(id);
+    setOpsValue(path);
     await exportModel(id, path);
   }
 
@@ -16787,6 +16790,10 @@ export default function App() {
 
   function defaultPromptExportPath(prompt: PromptDoc) {
     return `/tmp/${promptExportFileName(prompt)}`;
+  }
+
+  function defaultPromptExportPathForTarget(name: string, agent: string | null) {
+    return defaultPromptExportPath({ name, body: "", agent_id: agent });
   }
 
   function defaultCapabilityDraftExportPath(draft: CapabilityDraft) {
@@ -20448,9 +20455,9 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Export saved prompt Id to the path in Value."
+                  title="Export saved prompt Id to Value, or to /tmp when Value is blank."
                   onClick={() => void exportPromptFromOps()}
-                  disabled={running || !opsValue.trim() || !opsId.trim()}
+                  disabled={running || !opsId.trim()}
                 >
                   Export Prompt
                 </button>
@@ -20666,9 +20673,9 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Export model Id to the path in Value."
+                  title="Export model Id to Value, or to /tmp when Value is blank."
                   onClick={() => void exportModelFromOps()}
-                  disabled={running || !opsId.trim() || !opsValue.trim()}
+                  disabled={running || !opsId.trim()}
                 >
                   Export Model
                 </button>
@@ -22339,9 +22346,9 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Export saved agent Id to Value path."
+                  title="Export saved agent Id to Value, or to /tmp when Value is blank."
                   onClick={() => void exportAgentFromOps()}
-                  disabled={running || !opsId.trim() || !opsValue.trim()}
+                  disabled={running || !opsId.trim()}
                 >
                   Export Agent
                 </button>

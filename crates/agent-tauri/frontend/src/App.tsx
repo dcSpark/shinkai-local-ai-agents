@@ -13929,6 +13929,22 @@ export default function App() {
     }
   }
 
+  function memoryFileArgsFromControls(label: string) {
+    const path = requireOpsValue(label);
+    if (!path) return null;
+    return {
+      path,
+      user: opsUserMemory,
+      agentId: agentId.trim() || null,
+    };
+  }
+
+  async function exportMemoryFromControls() {
+    const args = memoryFileArgsFromControls("Memory export");
+    if (!args) return;
+    await exportMemoryFromOps(args);
+  }
+
   async function importMemoryFromOps(args: {
     path: string;
     user: boolean;
@@ -13953,6 +13969,12 @@ export default function App() {
       const msg = err instanceof Error ? err.message : String(err);
       appendLine("error", `Memory import failed: ${msg}`);
     }
+  }
+
+  async function importMemoryFromControls() {
+    const args = memoryFileArgsFromControls("Memory import");
+    if (!args) return;
+    await importMemoryFromOps(args);
   }
 
   async function savePromptFromOps() {
@@ -20168,6 +20190,22 @@ export default function App() {
                   disabled={running}
                 >
                   Rollback
+                </button>
+                <button
+                  type="button"
+                  title="Export memory records to the file path in Value, scoped by User memory and active Agent id."
+                  onClick={() => void exportMemoryFromControls()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Export Mem
+                </button>
+                <button
+                  type="button"
+                  title="Import memory records from the file path in Value, scoped by User memory and active Agent id."
+                  onClick={() => void importMemoryFromControls()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  Import Mem
                 </button>
               </div>
               {memoryBackends.length ? (

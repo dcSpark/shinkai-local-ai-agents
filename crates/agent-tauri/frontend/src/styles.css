@@ -1847,11 +1847,11 @@ textarea:disabled {
 
 .trace-summary {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(7.2rem, 1fr));
   gap: 0.45rem;
 }
 
-.trace-summary span {
+.trace-summary > span:not(.visual-metric) {
   min-width: 0;
   padding: 0.5rem;
   border: 1px solid #2a2d34;
@@ -1949,7 +1949,7 @@ textarea:disabled {
 
 .trace-tree-node-main {
   display: grid;
-  grid-template-columns: 1.65rem minmax(0, 1fr) auto;
+  grid-template-columns: 1.65rem 1.7rem minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.55rem;
   min-width: 0;
@@ -1970,6 +1970,37 @@ textarea:disabled {
   background: transparent;
   color: transparent;
   opacity: 1;
+}
+
+.trace-tree-marker {
+  display: inline-grid;
+  width: 1.7rem;
+  height: 1.7rem;
+  place-items: center;
+  border: 1px solid #3d4650;
+  border-radius: 8px;
+  background: #11151a;
+  color: #8db7ff;
+}
+
+.trace-tree-marker .app-icon {
+  width: 0.92rem;
+  height: 0.92rem;
+}
+
+.trace-tree-node.ok .trace-tree-marker {
+  border-color: #275c43;
+  color: #78dda7;
+}
+
+.trace-tree-node.warning .trace-tree-marker {
+  border-color: #816a2d;
+  color: #ffce6b;
+}
+
+.trace-tree-node.danger .trace-tree-marker {
+  border-color: #7d3c45;
+  color: #ffb4c0;
 }
 
 .trace-tree-title {

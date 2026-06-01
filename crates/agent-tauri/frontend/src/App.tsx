@@ -5796,6 +5796,12 @@ export default function App() {
     return "root run";
   }
 
+  function traceTreeNodeIcon(node: TraceTreeNode): IconName {
+    if (node.agent_id?.startsWith("external-agent:")) return "adapter";
+    if (node.link_event_id != null) return "trace";
+    return "brand";
+  }
+
   function traceTreeNodeAvailability(node: TraceTreeNode) {
     if (node.trace_available) return `${node.event_count} events`;
     if (node.agent_id?.startsWith("external-agent:")) return "remote trace link";
@@ -5834,6 +5840,9 @@ export default function App() {
           >
             {hasChildren ? (collapsed ? "+" : "-") : ""}
           </button>
+          <span className="trace-tree-marker" aria-hidden="true">
+            <AppIcon name={traceTreeNodeIcon(node)} />
+          </span>
           <div className="trace-tree-title">
             <strong>{agent}</strong>
             <code>{node.run_id}</code>
@@ -19456,38 +19465,101 @@ export default function App() {
             </section>
           ) : null}
           {traceSummary ? (
-            <div className="trace-summary">
-              <span>events {traceSummary.events}</span>
-              <span>contexts {traceSummary.context_snapshots}</span>
-              <span>llm {traceSummary.llm_calls}</span>
-              <span>tools {traceSummary.tool_calls}</span>
-              <span>tokens {traceSummary.tokens_in}/{traceSummary.tokens_out}</span>
-              <span>
-                cost{" "}
-                {traceSummary.cost_usd === null
-                  ? "n/a"
-                  : `$${traceSummary.cost_usd.toFixed(6)}`}
-              </span>
-              <span>
-                time{" "}
-                {traceSummary.duration_ms === null
-                  ? "n/a"
-                  : `${traceSummary.duration_ms}ms`}
-              </span>
-              <span>approvals {traceSummary.approvals}</span>
-              <span>guidance {traceSummary.guidance_injections}</span>
-              <span>
-                scores {traceSummary.quality_scores}
-                {traceSummary.quality_score_average == null
-                  ? ""
-                  : ` avg ${traceSummary.quality_score_average.toFixed(1)}`}
-              </span>
-              <span>memory {traceSummary.memory_fragments}</span>
-              <span>artifacts {traceSummary.artifact_refs}</span>
-              <span>
-                hooks {traceSummary.hooks}
-                {traceSummary.hook_failures ? ` / ${traceSummary.hook_failures} failed` : ""}
-              </span>
+            <div className="trace-summary" style={sectionThemeStyle("trace")}>
+              <VisualMetric
+                icon="trace"
+                label="events"
+                value={traceSummary.events}
+                section="trace"
+              />
+              <VisualMetric
+                icon="context"
+                label="contexts"
+                value={traceSummary.context_snapshots}
+                section="trace"
+              />
+              <VisualMetric
+                icon="prompt"
+                label="LLM calls"
+                value={traceSummary.llm_calls}
+                section="trace"
+              />
+              <VisualMetric
+                icon="tools"
+                label="tool calls"
+                value={traceSummary.tool_calls}
+                section="trace"
+              />
+              <VisualMetric
+                icon="setup"
+                label="tokens in/out"
+                value={`${traceSummary.tokens_in}/${traceSummary.tokens_out}`}
+                section="trace"
+              />
+              <VisualMetric
+                icon="profile"
+                label="cost"
+                value={
+                  traceSummary.cost_usd === null
+                    ? "n/a"
+                    : `$${traceSummary.cost_usd.toFixed(6)}`
+                }
+                section="trace"
+              />
+              <VisualMetric
+                icon="control"
+                label="duration"
+                value={
+                  traceSummary.duration_ms === null
+                    ? "n/a"
+                    : `${traceSummary.duration_ms}ms`
+                }
+                section="trace"
+              />
+              <VisualMetric
+                icon="approval"
+                label="approvals"
+                value={traceSummary.approvals}
+                section="trace"
+              />
+              <VisualMetric
+                icon="chat"
+                label="guidance"
+                value={traceSummary.guidance_injections}
+                section="trace"
+              />
+              <VisualMetric
+                icon="skill"
+                label={
+                  traceSummary.quality_score_average == null
+                    ? "quality scores"
+                    : `quality avg ${traceSummary.quality_score_average.toFixed(1)}`
+                }
+                value={traceSummary.quality_scores}
+                section="trace"
+              />
+              <VisualMetric
+                icon="memory"
+                label="memory"
+                value={traceSummary.memory_fragments}
+                section="trace"
+              />
+              <VisualMetric
+                icon="artifact"
+                label="artifacts"
+                value={traceSummary.artifact_refs}
+                section="trace"
+              />
+              <VisualMetric
+                icon="adapter"
+                label={traceSummary.hook_failures ? "hooks / failed" : "hooks"}
+                value={
+                  traceSummary.hook_failures
+                    ? `${traceSummary.hooks}/${traceSummary.hook_failures}`
+                    : traceSummary.hooks
+                }
+                section="trace"
+              />
             </div>
           ) : (
             <div className="empty-note">No trace loaded.</div>

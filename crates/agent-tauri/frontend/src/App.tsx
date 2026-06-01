@@ -633,6 +633,7 @@ export default function App() {
     useState("");
   const [stopRetentionMode, setStopRetentionMode] =
     useState<StopRetentionMode | null>(null);
+  const [resumePlan, setResumePlan] = useState<ResumePlan | null>(null);
   const [manualCompactedContext, setManualCompactedContext] = useState("");
   const [lastRunId, setLastRunId] = useState<string | null>(null);
   const [contextPreview, setContextPreview] = useState<ContextSnapshot | null>(
@@ -13125,6 +13126,7 @@ export default function App() {
               runId: sourceRunId,
               fromEvent,
             });
+      setResumePlan(plan);
       setOpsId(plan.source_run_id);
       setOpsValue(plan.prompt);
       appendEvent(
@@ -15904,6 +15906,14 @@ export default function App() {
     ]
       .filter(Boolean)
       .join(" / ");
+  }
+
+  function resumePlanSummary(plan: ResumePlan) {
+    return [
+      `event ${plan.selected_event_id}`,
+      `${plan.omitted_events} omitted events`,
+      `prompt ~${estimateLocalTokens(plan.prompt)} tokens`,
+    ].join(" / ");
   }
 
   function compactionMetrics(snapshot: ContextSnapshot): CompactionMetrics | null {
@@ -23134,6 +23144,36 @@ export default function App() {
                   : "Stopped tasks retain only a summary artifact."}
             </div>
           </fieldset>
+          {resumePlan ? (
+            <div className="bundle-card">
+              <div className="bundle-card-head">
+                <strong>Resume plan</strong>
+                <span>{resumePlan.agent_id}</span>
+              </div>
+              <span>{resumePlan.source_run_id}</span>
+              <span>{resumePlanSummary(resumePlan)}</span>
+              <span>original {previewText(resumePlan.original_input, 180)}</span>
+              <p>{previewText(resumePlan.prompt, 260)}</p>
+              <div className="mini-actions">
+                <button
+                  type="button"
+                  title="Move the resume source run id into the Id field."
+                  onClick={() => setOpsId(resumePlan.source_run_id)}
+                  disabled={running}
+                >
+                  Set Id
+                </button>
+                <button
+                  type="button"
+                  title="Copy the generated resume prompt into Value."
+                  onClick={() => setOpsValue(resumePlan.prompt)}
+                  disabled={running}
+                >
+                  Use Prompt
+                </button>
+              </div>
+            </div>
+          ) : null}
           <div className="button-grid">
             <button
               type="button"
@@ -23207,6 +23247,16 @@ export default function App() {
               disabled={running || (!opsId.trim() && !lastRunId)}
             >
               Resume
+            </button>
+            <button
+              type="button"
+              title="Preview the generated resume prompt for Id, or the last run when Id is blank."
+              onClick={() =>
+                void reviewResumePlan(opsId.trim() || lastRunId || "")
+              }
+              disabled={running || (!opsId.trim() && !lastRunId)}
+            >
+              Resume Plan
             </button>
             <button
               type="button"

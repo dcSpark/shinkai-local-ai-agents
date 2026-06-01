@@ -15113,6 +15113,7 @@ export default function App() {
   ) {
     const id = explicitId?.trim() || requireOpsId("Artifact export");
     if (!id) return;
+    if (explicitId?.trim()) setOpsId(id);
     const artifact = generatedArtifacts.find((item) => item.id === id);
     const path =
       explicitPath?.trim() ||

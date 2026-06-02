@@ -635,6 +635,9 @@ textarea:disabled {
 
 .slash-command-menu button {
   display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: center;
   min-height: 3rem;
   padding: 0.55rem 0.65rem;
   text-align: left;
@@ -645,13 +648,41 @@ textarea:disabled {
   background: #123238;
 }
 
-.slash-command-menu span,
+.slash-command-menu button.selected .slash-command-icon {
+  border-color: #23919c;
+  background: #0f343b;
+  color: #8fe8f0;
+}
+
+.slash-command-copy,
+.slash-command-copy span,
 .slash-command-menu small {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.slash-command-menu span {
+.slash-command-icon {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border: 1px solid #324150;
+  border-radius: 8px;
+  background: #121a22;
+  color: #8db7ff;
+}
+
+.slash-command-icon .app-icon {
+  width: 0.92rem;
+  height: 0.92rem;
+}
+
+.slash-command-copy {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.slash-command-copy span {
   color: #f4f5f2;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.82rem;

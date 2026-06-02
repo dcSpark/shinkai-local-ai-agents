@@ -19044,8 +19044,13 @@ export default function App() {
                   onMouseEnter={() => setSlashCommandIndex(index)}
                   title={item.label}
                 >
-                  <span>{item.command}</span>
-                  <small>{item.label}</small>
+                  <span className="slash-command-icon" aria-hidden="true">
+                    <AppIcon name={slashCommandIcon(item.command)} />
+                  </span>
+                  <span className="slash-command-copy">
+                    <span>{item.command}</span>
+                    <small>{item.label}</small>
+                  </span>
                 </button>
               ))}
             </div>
@@ -26611,6 +26616,110 @@ function lineIcon(kind: LineKind): IconName {
     case "error":
       return "approval";
   }
+}
+
+function slashCommandIcon(command: string): IconName {
+  const normalized = command.trim().toLowerCase();
+  if (normalized === "/help" || normalized === "/?") return "prompt";
+  if (
+    normalized.startsWith("/preview") ||
+    normalized.startsWith("/compact") ||
+    normalized.startsWith("/compactions")
+  ) {
+    return "context";
+  }
+  if (normalized.startsWith("/agent")) return "chat";
+  if (
+    normalized.startsWith("/run") ||
+    normalized.startsWith("/prompt") ||
+    normalized.startsWith("/prompts") ||
+    normalized.startsWith("/refine") ||
+    normalized.startsWith("/guide")
+  ) {
+    return "prompt";
+  }
+  if (normalized.startsWith("/model") || normalized.startsWith("/models")) {
+    return "setup";
+  }
+  if (
+    normalized.startsWith("/raw") ||
+    normalized.startsWith("/simple") ||
+    normalized.startsWith("/router") ||
+    normalized.startsWith("/answer") ||
+    normalized.startsWith("/action") ||
+    normalized.startsWith("/workflow") ||
+    normalized.startsWith("/budget") ||
+    normalized.startsWith("/visibility") ||
+    normalized.startsWith("/shell") ||
+    normalized.startsWith("/python") ||
+    normalized.startsWith("/typescript") ||
+    normalized.startsWith("/ts") ||
+    normalized.startsWith("/stop")
+  ) {
+    return "control";
+  }
+  if (
+    normalized.startsWith("/approval") ||
+    normalized.startsWith("/approvals") ||
+    normalized.startsWith("/x402") ||
+    normalized.startsWith("/payment") ||
+    normalized.startsWith("/secret") ||
+    normalized.startsWith("/secrets")
+  ) {
+    return "approval";
+  }
+  if (normalized.startsWith("/memory") || normalized.startsWith("/storage")) {
+    return "memory";
+  }
+  if (normalized.startsWith("/skill") || normalized.startsWith("/skills")) {
+    return "skill";
+  }
+  if (normalized.startsWith("/tool")) return "tools";
+  if (normalized.startsWith("/subagent") || normalized.startsWith("/batch")) {
+    return "tools";
+  }
+  if (normalized.startsWith("/ingest")) return "ingest";
+  if (
+    normalized.startsWith("/artifact") ||
+    normalized.startsWith("/artifacts") ||
+    normalized.startsWith("/voice") ||
+    normalized.startsWith("/bundle") ||
+    normalized.startsWith("/bundles") ||
+    normalized.startsWith("/export")
+  ) {
+    return "artifact";
+  }
+  if (
+    normalized.startsWith("/conversation") ||
+    normalized.startsWith("/conversations")
+  ) {
+    return "conversation";
+  }
+  if (
+    normalized.startsWith("/adapter") ||
+    normalized.startsWith("/adapters") ||
+    normalized.startsWith("/clawhub") ||
+    normalized.startsWith("/bridge") ||
+    normalized.startsWith("/bridges")
+  ) {
+    return "adapter";
+  }
+  if (
+    normalized.startsWith("/trace") ||
+    normalized.startsWith("/usage") ||
+    normalized.startsWith("/compare") ||
+    normalized.startsWith("/replay") ||
+    normalized.startsWith("/resume") ||
+    normalized.startsWith("/resume-plan") ||
+    normalized.startsWith("/hooks") ||
+    normalized.startsWith("/hook")
+  ) {
+    return "trace";
+  }
+  if (normalized.startsWith("/profile") || normalized.startsWith("/profiles")) {
+    return "profile";
+  }
+  return "prompt";
 }
 
 function renderLineContent(line: TranscriptLine) {

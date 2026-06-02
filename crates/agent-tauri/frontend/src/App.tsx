@@ -20278,20 +20278,70 @@ export default function App() {
             {hookCatalog.length > 0 || hookPolicy ? (
               (() => {
                 const counts = hookPolicySummaryCounts();
+                const policyTone: ContextReviewCard["tone"] =
+                  counts.effectiveDisabled > 0 || counts.catalogDisabled > 0
+                    ? "warning"
+                    : "ok";
                 return (
-                  <div className="bundle-card">
-                    <div className="bundle-card-head">
-                      <strong>Hook policy</strong>
-                      <span>{hookPolicy?.effective_source ?? "catalog only"}</span>
+                  <div
+                    className={`hook-policy-card ${policyTone}`}
+                    style={sectionThemeStyle("trace")}
+                  >
+                    <div className="hook-policy-head with-icon">
+                      <span
+                        className={`hook-policy-icon ${policyTone}`}
+                        aria-hidden="true"
+                      >
+                        <AppIcon name="adapter" />
+                      </span>
+                      <div className="hook-policy-title">
+                        <strong>Hook policy</strong>
+                        <span>{hookPolicy?.effective_source ?? "catalog only"}</span>
+                      </div>
+                    </div>
+                    <div className="hook-policy-metrics">
+                      <VisualMetric
+                        icon="adapter"
+                        label="declared"
+                        value={hookCatalog.length}
+                        section="trace"
+                        tone={hookCatalog.length ? "ok" : "neutral"}
+                      />
+                      <VisualMetric
+                        icon="approval"
+                        label="enabled"
+                        value={counts.catalogEnabled}
+                        section="trace"
+                        tone={counts.catalogEnabled ? "ok" : "warning"}
+                      />
+                      <VisualMetric
+                        icon="control"
+                        label="disabled"
+                        value={counts.effectiveDisabled}
+                        section="trace"
+                        tone={counts.effectiveDisabled ? "warning" : "ok"}
+                      />
+                      <VisualMetric
+                        icon="profile"
+                        label="layers"
+                        value={`${counts.globalDisabled}/${counts.profileDisabled}/${counts.agentDisabled}`}
+                        section="trace"
+                        tone={
+                          counts.globalDisabled ||
+                          counts.profileDisabled ||
+                          counts.agentDisabled
+                            ? "warning"
+                            : "ok"
+                        }
+                      />
                     </div>
                     <span>
-                      {hookCatalog.length} declared / {counts.catalogEnabled} enabled /{" "}
-                      {counts.catalogDisabled} catalog disabled
+                      catalog disabled {counts.catalogDisabled} / effective disabled{" "}
+                      {counts.effectiveDisabled}
                     </span>
                     <span>
-                      effective disabled {counts.effectiveDisabled} / global{" "}
-                      {counts.globalDisabled} / profile {counts.profileDisabled} / agent{" "}
-                      {counts.agentDisabled}
+                      layer order global {counts.globalDisabled} / profile{" "}
+                      {counts.profileDisabled} / agent {counts.agentDisabled}
                     </span>
                     {hookPolicy ? (
                       <span>

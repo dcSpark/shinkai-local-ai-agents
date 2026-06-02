@@ -1895,6 +1895,119 @@ textarea:disabled {
   min-width: 0;
 }
 
+.hook-policy-card {
+  display: grid;
+  gap: 0.42rem;
+  min-width: 0;
+  padding: 0.55rem;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+}
+
+.hook-policy-card.warning {
+  border-color: #816a2d;
+  background: #251f12;
+}
+
+.hook-policy-card.danger {
+  border-color: #7d3c45;
+  background: #211317;
+}
+
+.hook-policy-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.hook-policy-head.with-icon {
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+}
+
+.hook-policy-icon {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+  color: var(--section-accent);
+}
+
+.hook-policy-icon.warning {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
+.hook-policy-icon.danger {
+  border-color: #7d3c45;
+  background: #32191f;
+  color: #ffb4c0;
+}
+
+.hook-policy-icon .app-icon {
+  width: 0.92rem;
+  height: 0.92rem;
+}
+
+.hook-policy-title {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.hook-policy-card strong,
+.hook-policy-card span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.hook-policy-card strong {
+  color: #f1f2f4;
+}
+
+.hook-policy-card span {
+  color: #9da3ad;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+}
+
+.hook-policy-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.2rem, 1fr));
+  gap: 0.4rem;
+}
+
+.hook-policy-card .visual-metric {
+  font-family: inherit;
+}
+
+.hook-policy-card .visual-metric .visual-metric-icon {
+  font-family: inherit;
+  color: var(--section-accent);
+}
+
+.hook-policy-card .visual-metric.ok .visual-metric-icon {
+  color: #78dda7;
+}
+
+.hook-policy-card .visual-metric.warning .visual-metric-icon {
+  color: #ffce6b;
+}
+
+.hook-policy-card .visual-metric.danger .visual-metric-icon {
+  color: #ffb4c0;
+}
+
+.hook-policy-card .visual-metric-copy span {
+  color: #8e949f;
+  font-family: inherit;
+}
+
 .tool-parameters {
   display: grid;
   gap: 0.35rem;

@@ -24156,7 +24156,7 @@ export default function App() {
                   onClick={() => void reviewGeneratedArtifacts()}
                   disabled={running}
                 >
-                  List Artifacts
+                  <ButtonLabel icon="artifact">List Artifacts</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24164,7 +24164,7 @@ export default function App() {
                   onClick={() => void generateArtifactFromOps()}
                   disabled={running || !opsId.trim() || !opsValue.trim()}
                 >
-                  Generate Artifact
+                  <ButtonLabel icon="prompt">Generate Artifact</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24172,7 +24172,7 @@ export default function App() {
                   onClick={() => void showGeneratedArtifactFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Show Artifact
+                  <ButtonLabel icon="artifact">Show Artifact</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24180,7 +24180,7 @@ export default function App() {
                   onClick={() => void openGeneratedArtifactFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Open Artifact
+                  <ButtonLabel icon="context">Open Artifact</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24188,7 +24188,7 @@ export default function App() {
                   onClick={() => void downloadGeneratedArtifactFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Download Artifact
+                  <ButtonLabel icon="artifact">Download Artifact</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24196,7 +24196,7 @@ export default function App() {
                   onClick={() => void exportGeneratedArtifactFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Export Artifact
+                  <ButtonLabel icon="artifact">Export Artifact</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24204,7 +24204,7 @@ export default function App() {
                   onClick={() => void deleteGeneratedArtifactFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Delete Artifact
+                  <ButtonLabel icon="approval">Delete Artifact</ButtonLabel>
                 </button>
               </div>
               {artifactExportStatus ? (

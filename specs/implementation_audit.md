@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App status-note icon visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx` | Loaded-conversation count, delete-impact linked-asset summary, and active-profile status notes now use the section-aware EmptyNote icon treatment instead of bare text-only empty-note blocks. |
 | App conversation branch note visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Conversation tree topic/reason notes and selected-conversation id, policy, parent, and branch-reason copy now render as icon-bearing conversation detail rows/spans instead of paragraph or loose metadata text. |
 | App icon-card note copy visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Bundle credential reminders, secret redaction notes, trace timeline details, saved prompt bodies, provider descriptor notes, and capability doctor previews now render as named compact span copy inside existing icon cards/detail rows instead of paragraph islands. |
 | App readiness-card detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Agent setup, run-readiness, and context-review cards now render explanatory detail as named compact span copy after their icon label/value pairs instead of paragraph islands in first-viewport summary cards. |

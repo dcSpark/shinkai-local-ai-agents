@@ -23579,9 +23579,9 @@ export default function App() {
                 </button>
               </div>
               {conversationDocs.length ? (
-                <div className="empty-note">
+                <EmptyNote section="conversations" icon="conversation">
                   Loaded {conversationDocs.length} conversation records.
-                </div>
+                </EmptyNote>
               ) : null}
               {conversationDeletePlan ? (
                 <div className="ingestion-review">
@@ -23639,11 +23639,11 @@ export default function App() {
                         }
                       />
                     </div>
-                    <div className="empty-note">
+                    <EmptyNote section="conversations" icon="artifact">
                       {conversationDeletePlan.linked_compactions.length} compactions,{" "}
                       {conversationDeletePlan.linked_memories.length} memories,{" "}
                       {conversationDeletePlan.linked_generated_artifacts.length} generated artifacts
-                    </div>
+                    </EmptyNote>
                     <div className="conversation-detail-list">
                       {conversationDeletePlan.delete_ids.map((id) => (
                         <div className="conversation-detail-row warning" key={id}>
@@ -24541,9 +24541,9 @@ export default function App() {
                 </button>
               </div>
               {currentProfile ? (
-                <div className="empty-note">
+                <EmptyNote section="profiles" icon="profile">
                   Active profile: {currentProfile.name || currentProfile.id} ({currentProfile.id})
-                </div>
+                </EmptyNote>
               ) : null}
               {profileSummaries.length ? (
                 <div className="ingestion-review">

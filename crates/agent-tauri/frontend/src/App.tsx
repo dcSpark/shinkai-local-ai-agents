@@ -11915,7 +11915,56 @@ export default function App() {
             tone={artifact.modified_ms ? "ok" : "neutral"}
           />
         </div>
-        <span title={status.output_path}>{status.output_path}</span>
+        <div className="artifact-export-detail-list">
+          <div
+            className={`artifact-export-detail-row ${
+              status.bytes > 0 ? "ok" : "warning"
+            }`}
+          >
+            <span
+              className={`artifact-export-detail-icon ${
+                status.bytes > 0 ? "ok" : "warning"
+              }`}
+              aria-hidden="true"
+            >
+              <AppIcon name="artifact" />
+            </span>
+            <div className="artifact-export-detail-copy">
+              <strong>Output path</strong>
+              <span title={status.output_path}>{status.output_path}</span>
+            </div>
+          </div>
+          <div className={`artifact-export-detail-row ${tone}`}>
+            <span
+              className={`artifact-export-detail-icon ${tone}`}
+              aria-hidden="true"
+            >
+              <AppIcon name="context" />
+            </span>
+            <div className="artifact-export-detail-copy">
+              <strong>Source artifact</strong>
+              <span title={artifact.path}>{artifact.path}</span>
+            </div>
+          </div>
+          <div
+            className={`artifact-export-detail-row ${
+              artifact.modified_ms ? "ok" : "warning"
+            }`}
+          >
+            <span
+              className={`artifact-export-detail-icon ${
+                artifact.modified_ms ? "ok" : "warning"
+              }`}
+              aria-hidden="true"
+            >
+              <AppIcon name="trace" />
+            </span>
+            <div className="artifact-export-detail-copy">
+              <strong>Modified</strong>
+              <span>{generatedArtifactModifiedDetail(artifact)}</span>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

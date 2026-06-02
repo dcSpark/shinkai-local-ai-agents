@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App artifact-export detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Generated artifact export result cards now render output path, source artifact path, and modified-time detail as icon-bearing rows after the existing format, bytes, preview, and modified metrics. |
 | App compaction-transfer detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Compaction export/import result cards now render transfer path, compaction source, and created timestamp as icon-bearing detail rows before the surrounding compaction operations. |
 | App secret-result detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Secret operation result cards now render stored secret id, fingerprint, update time, delete metadata state, and redacted-value posture as icon-bearing detail rows before the raw JSON inspector. |
 | App bundle status detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Bundle export/import status cards now render bundle path, export time, credential reminder posture, omitted credential paths, and extra reminder counts as icon-bearing detail rows before the existing bundle operations. |

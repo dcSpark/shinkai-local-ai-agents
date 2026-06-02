@@ -25267,7 +25267,7 @@ export default function App() {
                                 onClick={() => setOpsId(pkg.id)}
                                 disabled={running}
                               >
-                                Set Id
+                                <ButtonLabel icon="adapter">Set Id</ButtonLabel>
                               </button>
                               <button
                                 type="button"
@@ -25278,7 +25278,7 @@ export default function App() {
                                 }}
                                 disabled={running}
                               >
-                                Show
+                                <ButtonLabel icon="adapter">Show</ButtonLabel>
                               </button>
                               <button
                                 type="button"
@@ -25289,7 +25289,7 @@ export default function App() {
                                 }}
                                 disabled={running}
                               >
-                                Path
+                                <ButtonLabel icon="artifact">Path</ButtonLabel>
                               </button>
                               <button
                                 type="button"
@@ -25304,7 +25304,7 @@ export default function App() {
                                 }}
                                 disabled={running}
                               >
-                                Export
+                                <ButtonLabel icon="artifact">Export</ButtonLabel>
                               </button>
                               <button
                                 type="button"
@@ -25315,7 +25315,7 @@ export default function App() {
                                 }}
                                 disabled={running || pkg.installable_skill_count === 0}
                               >
-                                Install Skill
+                                <ButtonLabel icon="skill">Install Skill</ButtonLabel>
                               </button>
                               <button
                                 type="button"
@@ -25332,7 +25332,7 @@ export default function App() {
                                   running || !pkg.quarantined || packageHighRisk
                                 }
                               >
-                                Allow
+                                <ButtonLabel icon="approval">Allow</ButtonLabel>
                               </button>
                             </div>
                           </div>
@@ -25384,7 +25384,7 @@ export default function App() {
                                   onClick={() => setOpsId(pkg.id)}
                                   disabled={running}
                                 >
-                                  Set Pkg
+                                  <ButtonLabel icon="adapter">Set Pkg</ButtonLabel>
                                 </button>
                                 <button
                                   type="button"
@@ -25397,7 +25397,7 @@ export default function App() {
                                     running || !capability.installable_as_skill
                                   }
                                 >
-                                  Install Skill
+                                  <ButtonLabel icon="skill">Install Skill</ButtonLabel>
                                 </button>
                                 <button
                                   type="button"
@@ -25416,7 +25416,7 @@ export default function App() {
                                     packageHighRisk
                                   }
                                 >
-                                  Allow Pkg
+                                  <ButtonLabel icon="approval">Allow Pkg</ButtonLabel>
                                 </button>
                               </div>
                             </div>
@@ -25519,7 +25519,7 @@ export default function App() {
                             onClick={() => setOpsId(adapterPackage.id)}
                             disabled={running}
                           >
-                            Set Id
+                            <ButtonLabel icon="adapter">Set Id</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -25534,7 +25534,7 @@ export default function App() {
                             }}
                             disabled={running || highRisk}
                           >
-                            Allow
+                            <ButtonLabel icon="approval">Allow</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -25548,7 +25548,7 @@ export default function App() {
                               adapterPackage.adapter !== "open_claw_agent_skills"
                             }
                           >
-                            Install Skill
+                            <ButtonLabel icon="skill">Install Skill</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -25559,7 +25559,7 @@ export default function App() {
                             }}
                             disabled={running}
                           >
-                            Path
+                            <ButtonLabel icon="artifact">Path</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -25574,7 +25574,7 @@ export default function App() {
                             }}
                             disabled={running}
                           >
-                            Export
+                            <ButtonLabel icon="artifact">Export</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -25585,7 +25585,7 @@ export default function App() {
                             }}
                             disabled={running}
                           >
-                            Block
+                            <ButtonLabel icon="approval">Block</ButtonLabel>
                           </button>
                         </div>
                       </div>

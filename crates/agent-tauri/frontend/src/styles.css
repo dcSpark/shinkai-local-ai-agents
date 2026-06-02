@@ -2059,6 +2059,95 @@ textarea:disabled {
   font-family: inherit;
 }
 
+.compaction-transfer-card {
+  display: grid;
+  gap: 0.42rem;
+  min-width: 0;
+  padding: 0.55rem;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+}
+
+.compaction-transfer-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.compaction-transfer-head.with-icon {
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+}
+
+.compaction-transfer-icon {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+  color: var(--section-accent);
+}
+
+.compaction-transfer-icon.ok {
+  border-color: #376d4b;
+  background: #15271d;
+  color: #78dda7;
+}
+
+.compaction-transfer-icon .app-icon {
+  width: 0.92rem;
+  height: 0.92rem;
+}
+
+.compaction-transfer-title {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.compaction-transfer-card strong,
+.compaction-transfer-card span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.compaction-transfer-card strong {
+  color: #f1f2f4;
+}
+
+.compaction-transfer-card span {
+  color: #9da3ad;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+}
+
+.compaction-transfer-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.2rem, 1fr));
+  gap: 0.4rem;
+}
+
+.compaction-transfer-card .visual-metric {
+  font-family: inherit;
+}
+
+.compaction-transfer-card .visual-metric .visual-metric-icon {
+  font-family: inherit;
+  color: var(--section-accent);
+}
+
+.compaction-transfer-card .visual-metric.ok .visual-metric-icon {
+  color: #78dda7;
+}
+
+.compaction-transfer-card .visual-metric-copy span {
+  color: #8e949f;
+  font-family: inherit;
+}
+
 .storage-total,
 .storage-largest,
 .storage-bucket,

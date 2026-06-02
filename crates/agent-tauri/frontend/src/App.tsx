@@ -300,6 +300,10 @@ function sectionThemeStyle(section: ActiveSection): CSSProperties {
   return visualStyle(visual.accent, visual.surface);
 }
 
+function estimateStaticTokens(text: string) {
+  return Math.max(1, Math.ceil(text.trim().length / 4));
+}
+
 function brandThemeStyle(): CSSProperties {
   return visualStyle("#8fe8f0", "#102f33");
 }
@@ -1131,6 +1135,63 @@ function SecretResultCard({ status }: { status: JsonValue }) {
         <span>secret values are not returned by this app surface</span>
       )}
       <pre>{JSON.stringify(status, null, 2)}</pre>
+    </div>
+  );
+}
+
+function CompactionTransferCard({ status }: { status: CompactionTransferStatus }) {
+  const record = status.record;
+  const tokenEstimate = Math.min(
+    record.max_output_tokens,
+    estimateStaticTokens(record.content),
+  );
+  return (
+    <div
+      className="compaction-transfer-card ok"
+      style={sectionThemeStyle("chat")}
+    >
+      <div className="compaction-transfer-head with-icon">
+        <span className="compaction-transfer-icon ok" aria-hidden="true">
+          <AppIcon name="context" />
+        </span>
+        <div className="compaction-transfer-title">
+          <strong>Compaction {status.operation}</strong>
+          <span>{record.id}</span>
+        </div>
+      </div>
+      <div className="compaction-transfer-metrics">
+        <VisualMetric
+          icon="artifact"
+          label="operation"
+          value={status.operation}
+          section="chat"
+          tone="ok"
+        />
+        <VisualMetric
+          icon="context"
+          label="tokens"
+          value={tokenEstimate}
+          section="chat"
+          tone="ok"
+        />
+        <VisualMetric
+          icon="conversation"
+          label="conversation"
+          value={record.conversation_id ? "linked" : "none"}
+          section="chat"
+          tone={record.conversation_id ? "ok" : "neutral"}
+        />
+        <VisualMetric
+          icon="prompt"
+          label="guidance"
+          value={record.guidance?.trim() ? "set" : "none"}
+          section="chat"
+          tone={record.guidance?.trim() ? "ok" : "neutral"}
+        />
+      </div>
+      <span title={status.path}>{status.path}</span>
+      <span>{record.source}</span>
+      <span>{record.created_at}</span>
     </div>
   );
 }
@@ -24190,19 +24251,7 @@ export default function App() {
                 </button>
               </div>
               {compactionTransferStatus ? (
-                <div className="bundle-card">
-                  <div className="bundle-card-head">
-                    <strong>
-                      Compaction {compactionTransferStatus.operation}
-                    </strong>
-                    <span>{compactionTransferStatus.record.id}</span>
-                  </div>
-                  <span title={compactionTransferStatus.path}>
-                    {compactionTransferStatus.path}
-                  </span>
-                  <span>{compactionTransferStatus.record.source}</span>
-                  <span>{compactionTransferStatus.record.created_at}</span>
-                </div>
+                <CompactionTransferCard status={compactionTransferStatus} />
               ) : null}
               {compactionRecords.length ? (
                 <div className="memory-review">

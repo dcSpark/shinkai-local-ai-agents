@@ -29595,8 +29595,32 @@ export default function App() {
                           section="adapters"
                         />
                       </div>
-                      <span>updated {formatUnixMs(delivery.updated_ms)}</span>
-                      <span title={delivery.url}>url {delivery.url}</span>
+                      <div className="bridge-detail-list">
+                        <div className={`bridge-detail-row ${bridgeDeliveryTone(delivery)}`}>
+                          <span
+                            className={`bridge-detail-icon ${bridgeDeliveryTone(delivery)}`}
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="trace" />
+                          </span>
+                          <div className="bridge-detail-copy">
+                            <strong>Updated at</strong>
+                            <span>{formatUnixMs(delivery.updated_ms)}</span>
+                          </div>
+                        </div>
+                        <div className={`bridge-detail-row ${bridgeDeliveryTone(delivery)}`}>
+                          <span
+                            className={`bridge-detail-icon ${bridgeDeliveryTone(delivery)}`}
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="conversation" />
+                          </span>
+                          <div className="bridge-detail-copy">
+                            <strong>Delivery URL</strong>
+                            <span title={delivery.url}>{delivery.url}</span>
+                          </div>
+                        </div>
+                      </div>
                       <div className="mini-actions">
                         <button
                           type="button"

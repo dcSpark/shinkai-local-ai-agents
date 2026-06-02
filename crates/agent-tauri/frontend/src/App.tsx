@@ -25835,7 +25835,7 @@ export default function App() {
                           onClick={() => setOpsId(delivery.id)}
                           disabled={running}
                         >
-                          Set Id
+                          <ButtonLabel icon="conversation">Set Id</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -25846,7 +25846,7 @@ export default function App() {
                           }}
                           disabled={running || transport !== "daemon"}
                         >
-                          Retry
+                          <ButtonLabel icon="trace">Retry</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -25857,7 +25857,7 @@ export default function App() {
                           }}
                           disabled={running || transport !== "daemon"}
                         >
-                          Delete
+                          <ButtonLabel icon="approval">Delete</ButtonLabel>
                         </button>
                       </div>
                     </div>
@@ -26163,7 +26163,7 @@ export default function App() {
                           }
                           disabled={running}
                         >
-                          Apply Plan
+                          <ButtonLabel icon="approval">Apply Plan</ButtonLabel>
                         </button>
                       </div>
                     ) : null}

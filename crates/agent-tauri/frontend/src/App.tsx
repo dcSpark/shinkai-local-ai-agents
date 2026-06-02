@@ -27933,7 +27933,7 @@ export default function App() {
                               ? "vision model supported"
                               : "vision model blocked"}
                           </span>
-                          <p>{ingestionSourceProbe.vision_model.reason}</p>
+                          <span>{ingestionSourceProbe.vision_model.reason}</span>
                         </div>
                       </div>
                     ) : null}
@@ -28023,7 +28023,7 @@ export default function App() {
                                   />
                                 </div>
                                 {backend.notes ? (
-                                  <p>{previewText(backend.notes, 180)}</p>
+                                  <span>{previewText(backend.notes, 180)}</span>
                                 ) : null}
                               </div>
                             </div>
@@ -28092,68 +28092,81 @@ export default function App() {
                           <span>{backend.name}</span>
                         </div>
                       </div>
-                      <span>
-                        {backend.modalities.length
-                          ? backend.modalities.join(", ")
-                          : "no modalities"}
-                      </span>
-                      <p>{backend.description}</p>
-                      {backend.compatibility?.length ? (
-                        <div className="ingestion-detail-list">
-                          {backend.compatibility.map((item) => {
-                            const meta = ingestionCompatibilityMeta(item);
-                            const compatibilityTone =
-                              ingestionCompatibilityTone(item);
-                            return (
-                              <div
-                                className={`ingestion-detail-row ${compatibilityTone}`}
-                                key={`${backend.id}:${item.source_kind}:${item.extraction}`}
-                                title={item.notes}
-                              >
-                                <span
-                                  className={`ingestion-detail-icon ${compatibilityTone}`}
-                                  aria-hidden="true"
-                                >
-                                  <AppIcon name="artifact" />
-                                </span>
-                                <div className="ingestion-detail-copy">
-                                  <strong>
-                                    {item.source_kind} {"->"} {item.extraction}
-                                  </strong>
-                                  <div className="ingestion-detail-metrics">
-                                    <VisualMetric
-                                      icon="tools"
-                                      label="tools"
-                                      value={item.optional_tools.length}
-                                      section="ingest"
-                                      tone={
-                                        item.optional_tools.length
-                                          ? "warning"
-                                          : "ok"
-                                      }
-                                    />
-                                    <VisualMetric
-                                      icon="prompt"
-                                      label="models"
-                                      value={item.model_requirements.length}
-                                      section="ingest"
-                                      tone={
-                                        item.model_requirements.length
-                                          ? "warning"
-                                          : "neutral"
-                                      }
-                                    />
-                                  </div>
-                                  {meta ? <span>{meta}</span> : null}
-                                  {item.notes ? (
-                                    <p>{previewText(item.notes, 180)}</p>
-                                  ) : null}
-                                </div>
-                              </div>
-                            );
-                          })}
+                      <div className="ingestion-detail-list">
+                        <div
+                          className={`ingestion-detail-row ${ingestionBackendTone(
+                            backend,
+                          )}`}
+                        >
+                          <span
+                            className={`ingestion-detail-icon ${ingestionBackendTone(
+                              backend,
+                            )}`}
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="ingest" />
+                          </span>
+                          <div className="ingestion-detail-copy">
+                            <strong>Backend description</strong>
+                            <span>
+                              {backend.modalities.length
+                                ? `Modalities: ${backend.modalities.join(", ")}`
+                                : "No modalities declared"}
+                            </span>
+                            <span>{backend.description}</span>
+                          </div>
                         </div>
-                      ) : null}
+                        {backend.compatibility?.map((item) => {
+                          const meta = ingestionCompatibilityMeta(item);
+                          const compatibilityTone =
+                            ingestionCompatibilityTone(item);
+                          return (
+                            <div
+                              className={`ingestion-detail-row ${compatibilityTone}`}
+                              key={`${backend.id}:${item.source_kind}:${item.extraction}`}
+                              title={item.notes}
+                            >
+                              <span
+                                className={`ingestion-detail-icon ${compatibilityTone}`}
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="artifact" />
+                              </span>
+                              <div className="ingestion-detail-copy">
+                                <strong>
+                                  {item.source_kind} {"->"} {item.extraction}
+                                </strong>
+                                <div className="ingestion-detail-metrics">
+                                  <VisualMetric
+                                    icon="tools"
+                                    label="tools"
+                                    value={item.optional_tools.length}
+                                    section="ingest"
+                                    tone={
+                                      item.optional_tools.length ? "warning" : "ok"
+                                    }
+                                  />
+                                  <VisualMetric
+                                    icon="prompt"
+                                    label="models"
+                                    value={item.model_requirements.length}
+                                    section="ingest"
+                                    tone={
+                                      item.model_requirements.length
+                                        ? "warning"
+                                        : "neutral"
+                                    }
+                                  />
+                                </div>
+                                {meta ? <span>{meta}</span> : null}
+                                {item.notes ? (
+                                  <span>{previewText(item.notes, 180)}</span>
+                                ) : null}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -28209,9 +28222,21 @@ export default function App() {
                           tone={ingestionArtifactTone(artifact)}
                         />
                       </div>
-                      <span title={artifact.source}>
-                        {fileName(artifact.source)} / {artifact.sections.length} sections
-                      </span>
+                      <div className="ingestion-detail-row">
+                        <span
+                          className="ingestion-detail-icon"
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="artifact" />
+                        </span>
+                        <div className="ingestion-detail-copy">
+                          <strong>Source</strong>
+                          <span title={artifact.source}>
+                            {fileName(artifact.source)} /{" "}
+                            {artifact.sections.length} sections
+                          </span>
+                        </div>
+                      </div>
                       {artifact.findings.length ? (
                         <div className="ingestion-detail-list">
                           {artifact.findings.map((finding, index) => {
@@ -28267,7 +28292,7 @@ export default function App() {
                                     />
                                   </div>
                                   {review?.note ? (
-                                    <p>{previewText(review.note, 160)}</p>
+                                    <span>{previewText(review.note, 160)}</span>
                                   ) : null}
                                 </div>
                               </div>
@@ -28289,7 +28314,24 @@ export default function App() {
                         </div>
                       )}
                       {artifact.extracted_text ? (
-                        <p>{previewText(artifact.extracted_text)}</p>
+                        <div
+                          className={`ingestion-detail-row ${ingestionArtifactTone(
+                            artifact,
+                          )}`}
+                        >
+                          <span
+                            className={`ingestion-detail-icon ${ingestionArtifactTone(
+                              artifact,
+                            )}`}
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="prompt" />
+                          </span>
+                          <div className="ingestion-detail-copy">
+                            <strong>Extracted text</strong>
+                            <span>{previewText(artifact.extracted_text)}</span>
+                          </div>
+                        </div>
                       ) : null}
                       <div className="mini-actions">
                         <button

@@ -32578,6 +32578,7 @@ function renderLineContent(line: TranscriptLine) {
     return line.text;
   }
   const rows = structuredRows(parsed);
+  const mediaPreview = structuredMediaPreview(parsed);
   return (
     <div className="structured-result">
       <div className="structured-head">
@@ -32599,6 +32600,7 @@ function renderLineContent(line: TranscriptLine) {
           ))}
         </dl>
       ) : null}
+      {mediaPreview}
       <details>
         <summary>Raw JSON</summary>
         <pre>{JSON.stringify(parsed, null, 2)}</pre>
@@ -32838,14 +32840,145 @@ function structuredRows(value: JsonValue): Array<[string, string]> {
     "final_output",
     "text",
   ];
+  const hidden = new Set(["body", "content", "data_url", "extracted_text"]);
   const keys = [
     ...preferred.filter((key) => key in value),
     ...Object.keys(value).filter((key) => !preferred.includes(key)),
   ];
   return keys
-    .filter((key) => !["body", "content", "extracted_text"].includes(key))
+    .filter((key) => !hidden.has(key))
     .slice(0, 6)
     .map((key) => [key, previewJsonValue(value[key])]);
+}
+
+function structuredMediaPreview(value: JsonValue): ReactNode | null {
+  const subject = structuredMediaSubject(value);
+  if (!subject) return null;
+  const dataUrl = scalarText(subject.data_url);
+  if (!dataUrl?.startsWith("data:")) return null;
+  const mediaType = scalarText(subject.media_type) ?? dataUrlMediaType(dataUrl);
+  const artifact = isJsonRecord(subject.artifact) ? subject.artifact : null;
+  const format =
+    scalarText(subject.format) ?? scalarText(artifact?.format) ?? formatFromMediaType(mediaType);
+  const id = scalarText(subject.id) ?? scalarText(artifact?.id) ?? "inline artifact";
+  const bytes =
+    typeof subject.bytes === "number"
+      ? subject.bytes
+      : typeof artifact?.bytes === "number"
+        ? artifact.bytes
+        : null;
+  const label = [format?.toUpperCase(), bytes == null ? null : formatStructuredBytes(bytes)]
+    .filter(Boolean)
+    .join(" / ");
+  const kind = structuredMediaKind(mediaType, format);
+  if (!kind) return null;
+  return (
+    <div className={`structured-media ${kind}`}>
+      <div className="structured-media-head">
+        <span className="structured-media-icon" aria-hidden="true">
+          <AppIcon name={kind === "text" ? "prompt" : "artifact"} />
+        </span>
+        <div>
+          <strong>{id}</strong>
+          <span>{label || mediaType || "inline preview"}</span>
+        </div>
+      </div>
+      {kind === "audio" ? (
+        <audio src={dataUrl} controls />
+      ) : kind === "image" ? (
+        <img src={dataUrl} alt={`Inline artifact preview ${id}`} />
+      ) : kind === "text" ? (
+        <pre>{textFromStructuredDataUrl(dataUrl)}</pre>
+      ) : (
+        <iframe
+          title={`Inline artifact preview ${id}`}
+          src={dataUrl}
+          sandbox="allow-same-origin"
+        />
+      )}
+    </div>
+  );
+}
+
+function structuredMediaSubject(value: JsonValue): { [key: string]: JsonValue } | null {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const subject = structuredMediaSubject(item);
+      if (subject) return subject;
+    }
+    return null;
+  }
+  if (!isJsonRecord(value)) return null;
+  if (scalarText(value.data_url)) return value;
+  const output = nestedOutputRecord(value);
+  if (output) return structuredMediaSubject(output);
+  const artifact = value.artifact;
+  if (isJsonRecord(artifact) && scalarText(artifact.data_url)) {
+    return artifact;
+  }
+  return null;
+}
+
+function structuredMediaKind(mediaType: string | null, format: string | null) {
+  const normalizedMedia = (mediaType ?? "").toLowerCase();
+  const normalizedFormat = (format ?? "").toLowerCase().replace(/^\./, "");
+  if (
+    normalizedMedia.startsWith("image/") ||
+    ["svg", "png", "jpg", "jpeg", "gif", "webp"].includes(normalizedFormat)
+  ) {
+    return "image";
+  }
+  if (
+    normalizedMedia.startsWith("audio/") ||
+    ["mp3", "wav", "webm", "m4a", "ogg"].includes(normalizedFormat)
+  ) {
+    return "audio";
+  }
+  if (
+    normalizedMedia === "application/pdf" ||
+    normalizedMedia === "text/html" ||
+    ["pdf", "html"].includes(normalizedFormat)
+  ) {
+    return "frame";
+  }
+  if (
+    normalizedMedia.startsWith("text/") ||
+    normalizedMedia === "application/json" ||
+    ["txt", "md", "csv", "json"].includes(normalizedFormat)
+  ) {
+    return "text";
+  }
+  return null;
+}
+
+function dataUrlMediaType(dataUrl: string) {
+  const match = /^data:([^;,]+)/i.exec(dataUrl);
+  return match?.[1] ?? null;
+}
+
+function formatFromMediaType(mediaType: string | null) {
+  if (!mediaType) return null;
+  const subtype = mediaType.split("/")[1]?.split(";")[0]?.trim();
+  return subtype || null;
+}
+
+function textFromStructuredDataUrl(dataUrl: string) {
+  const marker = ";base64,";
+  const markerIndex = dataUrl.indexOf(marker);
+  if (markerIndex < 0) return "";
+  try {
+    const base64 = dataUrl.slice(markerIndex + marker.length);
+    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  } catch {
+    return "";
+  }
+}
+
+function formatStructuredBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function previewJsonValue(value: JsonValue) {

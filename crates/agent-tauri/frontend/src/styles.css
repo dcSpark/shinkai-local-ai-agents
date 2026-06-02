@@ -760,6 +760,90 @@ textarea:disabled {
   white-space: pre-wrap;
 }
 
+.structured-media {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+  padding: 0.6rem;
+  border: 1px solid #27464b;
+  border-radius: 8px;
+  background: #0f1e22;
+}
+
+.structured-media-head {
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: center;
+  min-width: 0;
+}
+
+.structured-media-icon {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border: 1px solid #2f6268;
+  border-radius: 8px;
+  background: #102d32;
+  color: #8fe8f0;
+}
+
+.structured-media-icon .app-icon {
+  width: 0.92rem;
+  height: 0.92rem;
+}
+
+.structured-media-head div {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.structured-media-head strong,
+.structured-media-head span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.structured-media-head strong {
+  color: #effeff;
+}
+
+.structured-media-head span {
+  color: #96c8ce;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+}
+
+.structured-media audio {
+  width: 100%;
+}
+
+.structured-media img {
+  display: block;
+  max-width: 100%;
+  max-height: 22rem;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #071014;
+}
+
+.structured-media iframe {
+  width: 100%;
+  min-height: 20rem;
+  border: 1px solid #27464b;
+  border-radius: 8px;
+  background: #071014;
+}
+
+.structured-media > pre {
+  margin: 0;
+  max-height: 14rem;
+}
+
 .composer {
   display: grid;
   position: sticky;

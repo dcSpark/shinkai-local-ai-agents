@@ -18562,6 +18562,25 @@ export default function App() {
     return (skill.findings ?? []).length ? "warning" : "ok";
   }
 
+  function memoryBackendTone(
+    backend: MemoryBackendDescriptor,
+  ): ContextReviewCard["tone"] {
+    return backend.supports_write ? "ok" : "warning";
+  }
+
+  function memoryProbeTone(
+    probe: MemoryBackendProbeReport,
+  ): ContextReviewCard["tone"] {
+    if (!probe.ok) return "danger";
+    return probe.configured ? "ok" : "warning";
+  }
+
+  function memoryRecordTone(record: MemoryRecord): ContextReviewCard["tone"] {
+    return record.classification?.tasks?.length || record.topics?.length
+      ? "ok"
+      : "neutral";
+  }
+
   function capabilityStatusTone(
     status: CapabilityDraft["status"],
   ): ContextReviewCard["tone"] {
@@ -22475,10 +22494,57 @@ export default function App() {
               {memoryBackends.length ? (
                 <div className="memory-review">
                   {memoryBackends.map((backend) => (
-                    <div className="memory-card" key={backend.id}>
-                      <div className="memory-card-head">
-                        <strong>{backend.id}</strong>
-                        <span>{backend.name}</span>
+                    <div
+                      className={`memory-card ${memoryBackendTone(backend)}`}
+                      key={backend.id}
+                    >
+                      <div className="memory-card-head with-icon">
+                        <span
+                          className={`memory-card-icon ${memoryBackendTone(backend)}`}
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="memory" />
+                        </span>
+                        <div className="memory-card-title">
+                          <strong>{backend.id}</strong>
+                          <span>{backend.name}</span>
+                        </div>
+                      </div>
+                      <div className="memory-metrics">
+                        <VisualMetric
+                          icon="memory"
+                          label="write"
+                          value={backend.supports_write ? "yes" : "read-only"}
+                          section="memory"
+                          tone={backend.supports_write ? "ok" : "warning"}
+                        />
+                        <VisualMetric
+                          icon="prompt"
+                          label="edit / delete"
+                          value={`${backend.supports_edit ? 1 : 0}/${backend.supports_delete ? 1 : 0}`}
+                          section="memory"
+                          tone={
+                            backend.supports_edit || backend.supports_delete
+                              ? "ok"
+                              : "neutral"
+                          }
+                        />
+                        <VisualMetric
+                          icon="tools"
+                          label="generate"
+                          value={backend.supports_generation ? "yes" : "no"}
+                          section="memory"
+                          tone={
+                            backend.supports_generation ? "ok" : "neutral"
+                          }
+                        />
+                        <VisualMetric
+                          icon="trace"
+                          label="rollback"
+                          value={backend.supports_rollback ? "yes" : "no"}
+                          section="memory"
+                          tone={backend.supports_rollback ? "ok" : "neutral"}
+                        />
                       </div>
                       <div className="memory-meta">
                         <span>{backend.supports_write ? "write" : "read-only"}</span>
@@ -22529,10 +22595,54 @@ export default function App() {
               ) : null}
               {memoryBackendProbe ? (
                 <div className="memory-review">
-                  <div className="memory-card">
-                    <div className="memory-card-head">
-                      <strong>{memoryBackendProbe.backend}</strong>
-                      <span>{memoryBackendProbe.ok ? "ok" : "failed"}</span>
+                  <div className={`memory-card ${memoryProbeTone(memoryBackendProbe)}`}>
+                    <div className="memory-card-head with-icon">
+                      <span
+                        className={`memory-card-icon ${memoryProbeTone(
+                          memoryBackendProbe,
+                        )}`}
+                        aria-hidden="true"
+                      >
+                        <AppIcon name="trace" />
+                      </span>
+                      <div className="memory-card-title">
+                        <strong>{memoryBackendProbe.backend}</strong>
+                        <span>{memoryBackendProbe.ok ? "ok" : "failed"}</span>
+                      </div>
+                    </div>
+                    <div className="memory-metrics">
+                      <VisualMetric
+                        icon="trace"
+                        label="status"
+                        value={memoryBackendProbe.ok ? "ok" : "failed"}
+                        section="memory"
+                        tone={memoryProbeTone(memoryBackendProbe)}
+                      />
+                      <VisualMetric
+                        icon="setup"
+                        label="configured"
+                        value={memoryBackendProbe.configured ? "yes" : "no"}
+                        section="memory"
+                        tone={
+                          memoryBackendProbe.configured ? "ok" : "warning"
+                        }
+                      />
+                      <VisualMetric
+                        icon="memory"
+                        label="records"
+                        value={memoryBackendProbe.records}
+                        section="memory"
+                        tone={memoryBackendProbe.records ? "ok" : "neutral"}
+                      />
+                      <VisualMetric
+                        icon="context"
+                        label="matching"
+                        value={memoryBackendProbe.matching_records}
+                        section="memory"
+                        tone={
+                          memoryBackendProbe.matching_records ? "ok" : "neutral"
+                        }
+                      />
                     </div>
                     <div className="memory-meta">
                       <span>
@@ -22579,10 +22689,60 @@ export default function App() {
               {memoryRecords.length ? (
                 <div className="memory-review">
                   {memoryRecords.map((record) => (
-                    <div className="memory-card" key={record.id}>
-                      <div className="memory-card-head">
-                        <strong>{record.id}</strong>
-                        <span>{record.target}</span>
+                    <div
+                      className={`memory-card ${memoryRecordTone(record)}`}
+                      key={record.id}
+                    >
+                      <div className="memory-card-head with-icon">
+                        <span
+                          className={`memory-card-icon ${memoryRecordTone(record)}`}
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="memory" />
+                        </span>
+                        <div className="memory-card-title">
+                          <strong>{record.id}</strong>
+                          <span>{record.target}</span>
+                        </div>
+                      </div>
+                      <div className="memory-metrics">
+                        <VisualMetric
+                          icon="memory"
+                          label="target"
+                          value={record.target}
+                          section="memory"
+                          tone={memoryRecordTone(record)}
+                        />
+                        <VisualMetric
+                          icon="profile"
+                          label="owner"
+                          value={record.owning_agent ? "agent" : "profile"}
+                          section="memory"
+                          tone={record.owning_agent ? "ok" : "neutral"}
+                        />
+                        <VisualMetric
+                          icon="prompt"
+                          label="tokens"
+                          value={estimateLocalTokens(record.content)}
+                          section="memory"
+                          tone={record.content.trim() ? "ok" : "warning"}
+                        />
+                        <VisualMetric
+                          icon="context"
+                          label="topics"
+                          value={record.topics?.length ?? 0}
+                          section="memory"
+                          tone={record.topics?.length ? "ok" : "neutral"}
+                        />
+                        <VisualMetric
+                          icon="skill"
+                          label="tasks"
+                          value={record.classification?.tasks?.length ?? 0}
+                          section="memory"
+                          tone={
+                            record.classification?.tasks?.length ? "ok" : "neutral"
+                          }
+                        />
                       </div>
                       <div className="memory-meta">
                         <span>{record.author}</span>

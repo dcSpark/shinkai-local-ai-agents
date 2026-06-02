@@ -18762,6 +18762,11 @@ export default function App() {
     : 0;
   const runControlVisualSection: ActiveSection =
     activeSection === "approvals" ? "approvals" : "chat";
+  const showSessionOverview =
+    transcript.length === 1 &&
+    transcript[0]?.kind === "event" &&
+    transcript[0]?.text.startsWith("Welcome.");
+  const sessionOverviewCards = runReadinessCards().slice(0, 4);
 
   return (
     <div className="app-shell">
@@ -19010,6 +19015,26 @@ export default function App() {
         </header>
 
         <section className="transcript" aria-live="polite" ref={transcriptRef}>
+          {showSessionOverview ? (
+            <div className="session-overview" style={sectionThemeStyle("chat")}>
+              <div className="session-overview-visual" aria-hidden="true">
+                <FeatureVisual section="chat" />
+              </div>
+              <div className="session-overview-grid">
+                {sessionOverviewCards.map((card) => (
+                  <div className={`session-overview-card ${card.tone}`} key={card.title}>
+                    <span className="session-overview-icon" aria-hidden="true">
+                      <AppIcon name={card.icon} />
+                    </span>
+                    <div className="session-overview-copy">
+                      <span>{card.title}</span>
+                      <strong>{card.value}</strong>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {transcript.map((line, i) => (
             <div key={i} className={`line line-${line.kind}`}>
               <span className="prefix">

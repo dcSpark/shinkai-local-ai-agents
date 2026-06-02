@@ -426,6 +426,121 @@ textarea:disabled {
   padding: 1.45rem 1.55rem;
 }
 
+.session-overview {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  gap: 0.8rem;
+  align-items: stretch;
+  width: min(100%, 64rem);
+  margin: 0 auto 1rem;
+  color: #d8dbe0;
+}
+
+.session-overview-visual {
+  display: grid;
+  place-items: center;
+  min-width: 0;
+}
+
+.session-overview-visual .feature-visual {
+  width: 4.5rem;
+  height: 4.5rem;
+}
+
+.session-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.session-overview-card {
+  display: grid;
+  grid-template-columns: 1.8rem minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+  min-width: 0;
+  min-height: 4.5rem;
+  padding: 0.65rem;
+  border: 1px solid #2a2d34;
+  border-radius: 8px;
+  background: #15171b;
+}
+
+.session-overview-icon {
+  display: inline-grid;
+  width: 1.8rem;
+  height: 1.8rem;
+  place-items: center;
+  border: 1px solid #3d4650;
+  border-radius: 8px;
+  background: #111215;
+  color: #8db7ff;
+}
+
+.session-overview-icon .app-icon {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.session-overview-copy {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.session-overview-copy span,
+.session-overview-copy strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-overview-copy span {
+  color: #8e949f;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.session-overview-copy strong {
+  color: #f1f2f4;
+  font-size: 0.82rem;
+}
+
+.session-overview-card.ok {
+  border-color: #275c43;
+  background: #13201a;
+}
+
+.session-overview-card.ok .session-overview-icon {
+  border-color: #275c43;
+  background: #13281d;
+  color: #78dda7;
+}
+
+.session-overview-card.warning {
+  border-color: #816a2d;
+  background: #251f12;
+}
+
+.session-overview-card.warning .session-overview-icon {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
+.session-overview-card.danger {
+  border-color: #7d3c45;
+  background: #26171c;
+}
+
+.session-overview-card.danger .session-overview-icon {
+  border-color: #7d3c45;
+  background: #32191f;
+  color: #ffb4c0;
+}
+
 .line {
   display: grid;
   grid-template-columns: 5rem minmax(0, 1fr);
@@ -4583,6 +4698,18 @@ textarea:disabled {
 
   .line {
     grid-template-columns: 2.4rem minmax(0, 1fr);
+  }
+
+  .session-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .session-overview-visual {
+    justify-content: start;
+  }
+
+  .session-overview-grid {
+    grid-template-columns: 1fr;
   }
 
   .composer-actions {

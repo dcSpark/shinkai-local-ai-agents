@@ -560,7 +560,30 @@ function EmptyNote({
       <span className="empty-note-icon" aria-hidden="true">
         <AppIcon name={iconName} />
       </span>
-      <span className="empty-note-copy">{children}</span>
+      <div className="empty-note-copy">{children}</div>
+    </div>
+  );
+}
+
+function ModeNote({
+  section,
+  icon,
+  className,
+  children,
+}: {
+  section: ActiveSection;
+  icon?: IconName;
+  className?: string;
+  children: ReactNode;
+}) {
+  const iconName = icon ?? sectionVisual(section).icon;
+  const classNames = ["mode-note", "with-icon", className].filter(Boolean).join(" ");
+  return (
+    <div className={classNames} style={sectionThemeStyle(section)}>
+      <span className="mode-note-icon" aria-hidden="true">
+        <AppIcon name={iconName} />
+      </span>
+      <div className="mode-note-copy">{children}</div>
     </div>
   );
 }
@@ -19459,9 +19482,9 @@ export default function App() {
             </button>
           </div>
           {agentMode === "custom" ? (
-            <div className="mode-note">
+            <ModeNote section="chat" icon="tools">
               Custom budget: {effectiveMaxToolCalls} calls
-            </div>
+            </ModeNote>
           ) : null}
           <label className="switch">
             <input
@@ -19904,9 +19927,9 @@ export default function App() {
             </button>
           </div>
           {rawToolOutput ? (
-            <div className="mode-note">
+            <ModeNote section="chat" icon="prompt">
               Raw output preserves original tool results and skips interpretation.
-            </div>
+            </ModeNote>
           ) : null}
           <label>
             Router model
@@ -20042,7 +20065,7 @@ export default function App() {
             </button>
           </div>
           {postRunCompactionPrompt ? (
-            <div className="mode-note compaction-prompt">
+            <ModeNote section="chat" icon="context" className="compaction-prompt">
               <span>
                 Auto compaction ready from run {postRunCompactionPrompt.runId.slice(0, 8)}
                 {compactionSavingsLabel(postRunCompactionPrompt.snapshot)
@@ -20065,7 +20088,7 @@ export default function App() {
                   Dismiss
                 </button>
               </div>
-            </div>
+            </ModeNote>
           ) : null}
           {contextPreview ? (
             <div className="context-preview">
@@ -26360,13 +26383,13 @@ export default function App() {
                 Summarise
               </button>
             </div>
-            <div className="mode-note">
+            <ModeNote section={runControlVisualSection} icon="control">
               {stopRetentionMode === null
                 ? "Stopped tasks follow the resolved policy."
                 : stopRetentionMode === "discard"
                   ? "Stopped tasks keep no attempted context."
                   : "Stopped tasks retain only a summary artifact."}
-            </div>
+            </ModeNote>
           </fieldset>
           <fieldset className="operation-group">
             <legend>Resume cursor</legend>
@@ -26383,9 +26406,9 @@ export default function App() {
                 disabled={running}
               />
             </label>
-            <div className="mode-note">
+            <ModeNote section={runControlVisualSection} icon="trace">
               Empty uses the latest resumable event.
-            </div>
+            </ModeNote>
           </fieldset>
           {resumePlan ? (
             <div

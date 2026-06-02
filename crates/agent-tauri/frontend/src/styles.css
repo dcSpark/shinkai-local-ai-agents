@@ -795,12 +795,44 @@ textarea:disabled {
   font-weight: 800;
 }
 
-.mode-note.compaction-prompt {
+.mode-note.with-icon {
   display: grid;
+  grid-template-columns: 1.55rem minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: center;
+  border-color: var(--section-accent);
+  background: var(--section-surface);
+  color: #c3c8d0;
+}
+
+.mode-note-icon {
+  display: inline-grid;
+  width: 1.55rem;
+  height: 1.55rem;
+  place-items: center;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.16);
+  color: var(--section-accent);
+}
+
+.mode-note-icon .app-icon {
+  width: 0.84rem;
+  height: 0.84rem;
+}
+
+.mode-note-copy {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mode-note.compaction-prompt {
   gap: 0.5rem;
 }
 
-.mode-note.compaction-prompt .mini-actions {
+.mode-note-copy .mini-actions {
   margin-top: 0;
 }
 

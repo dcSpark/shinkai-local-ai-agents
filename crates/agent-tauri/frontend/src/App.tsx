@@ -26031,40 +26031,172 @@ export default function App() {
                             }
                           />
                         </div>
-                        <span>default model {descriptor.default_model}</span>
-                        {descriptor.api_base_url ? (
-                          <span>{descriptor.api_base_url}</span>
-                        ) : null}
-                        <span>
-                          {descriptor.local
-                            ? "local provider"
-                            : descriptor.native
-                              ? "native provider"
-                              : "remote provider"}
-                        </span>
-                        {descriptor.available_modalities.length ? (
-                          <span>
-                            modalities {descriptor.available_modalities.join(", ")}
-                          </span>
-                        ) : null}
-                        {descriptor.reasoning_modes.length ? (
-                          <span>
-                            reasoning modes {descriptor.reasoning_modes.join(", ")}
-                          </span>
-                        ) : null}
-                        {descriptor.tool_support != null ? (
-                          <span>
-                            tool calls{" "}
-                            {descriptor.tool_support ? "supported" : "not supported"}
-                          </span>
-                        ) : null}
-                        {runtimeOptions.length ? (
-                          <span>runtime options {runtimeOptions.join(", ")}</span>
-                        ) : null}
-                        {providerOptions.length ? (
-                          <span>provider options {providerOptions.join(", ")}</span>
-                        ) : null}
-                        {descriptor.notes ? <p>{descriptor.notes}</p> : null}
+                        <div className="ingestion-detail-list">
+                          <div
+                            className={
+                              descriptor.default_model
+                                ? "ingestion-detail-row ok"
+                                : "ingestion-detail-row warning"
+                            }
+                          >
+                            <span
+                              className={
+                                descriptor.default_model
+                                  ? "ingestion-detail-icon ok"
+                                  : "ingestion-detail-icon warning"
+                              }
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="prompt" />
+                            </span>
+                            <div className="ingestion-detail-copy">
+                              <strong>Default model</strong>
+                              <span>{descriptor.default_model || "not declared"}</span>
+                            </div>
+                          </div>
+                          {descriptor.api_base_url ? (
+                            <div className="ingestion-detail-row">
+                              <span
+                                className="ingestion-detail-icon"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="artifact" />
+                              </span>
+                              <div className="ingestion-detail-copy">
+                                <strong>API base URL</strong>
+                                <span>{descriptor.api_base_url}</span>
+                              </div>
+                            </div>
+                          ) : null}
+                          <div
+                            className={
+                              descriptor.local || descriptor.native
+                                ? "ingestion-detail-row ok"
+                                : "ingestion-detail-row"
+                            }
+                          >
+                            <span
+                              className={
+                                descriptor.local || descriptor.native
+                                  ? "ingestion-detail-icon ok"
+                                  : "ingestion-detail-icon"
+                              }
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="setup" />
+                            </span>
+                            <div className="ingestion-detail-copy">
+                              <strong>Provider kind</strong>
+                              <span>
+                                {descriptor.local
+                                  ? "local provider"
+                                  : descriptor.native
+                                    ? "native provider"
+                                    : "remote provider"}
+                              </span>
+                            </div>
+                          </div>
+                          {descriptor.available_modalities.length ? (
+                            <div className="ingestion-detail-row ok">
+                              <span
+                                className="ingestion-detail-icon ok"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="context" />
+                              </span>
+                              <div className="ingestion-detail-copy">
+                                <strong>Modalities</strong>
+                                <span>
+                                  {descriptor.available_modalities.join(", ")}
+                                </span>
+                              </div>
+                            </div>
+                          ) : null}
+                          {descriptor.reasoning_modes.length ? (
+                            <div className="ingestion-detail-row">
+                              <span
+                                className="ingestion-detail-icon"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="trace" />
+                              </span>
+                              <div className="ingestion-detail-copy">
+                                <strong>Reasoning modes</strong>
+                                <span>{descriptor.reasoning_modes.join(", ")}</span>
+                              </div>
+                            </div>
+                          ) : null}
+                          {descriptor.tool_support != null ? (
+                            <div
+                              className={
+                                descriptor.tool_support
+                                  ? "ingestion-detail-row ok"
+                                  : "ingestion-detail-row warning"
+                              }
+                            >
+                              <span
+                                className={
+                                  descriptor.tool_support
+                                    ? "ingestion-detail-icon ok"
+                                    : "ingestion-detail-icon warning"
+                                }
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="tools" />
+                              </span>
+                              <div className="ingestion-detail-copy">
+                                <strong>Tool calls</strong>
+                                <span>
+                                  {descriptor.tool_support
+                                    ? "supported"
+                                    : "not supported"}
+                                </span>
+                              </div>
+                            </div>
+                          ) : null}
+                          {runtimeOptions.length ? (
+                            <div className="ingestion-detail-row ok">
+                              <span
+                                className="ingestion-detail-icon ok"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="control" />
+                              </span>
+                              <div className="ingestion-detail-copy">
+                                <strong>Runtime options</strong>
+                                <span>{runtimeOptions.join(", ")}</span>
+                              </div>
+                            </div>
+                          ) : null}
+                          {providerOptions.length ? (
+                            <div className="ingestion-detail-row ok">
+                              <span
+                                className="ingestion-detail-icon ok"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="profile" />
+                              </span>
+                              <div className="ingestion-detail-copy">
+                                <strong>Provider options</strong>
+                                <span>{providerOptions.join(", ")}</span>
+                              </div>
+                            </div>
+                          ) : null}
+                          {descriptor.notes ? (
+                            <div className="ingestion-detail-row">
+                              <span
+                                className="ingestion-detail-icon"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="memory" />
+                              </span>
+                              <div className="ingestion-detail-copy">
+                                <strong>Notes</strong>
+                                <p>{descriptor.notes}</p>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
                         <div className="mini-actions">
                           <button
                             type="button"

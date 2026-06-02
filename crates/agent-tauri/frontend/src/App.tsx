@@ -11003,6 +11003,35 @@ export default function App() {
     );
   }
 
+  function generatedArtifactTone(
+    artifact: GeneratedArtifact,
+  ): ContextReviewCard["tone"] {
+    if (artifact.bytes <= 0) return "warning";
+    return isInlineArtifactFormat(artifact.format) ? "ok" : "neutral";
+  }
+
+  function generatedArtifactFormatLabel(format: string) {
+    return format.trim() ? format.trim().toUpperCase() : "FILE";
+  }
+
+  function generatedArtifactPreviewLabel(format: string) {
+    if (isAudioFormat(format)) return "audio";
+    if (isImageArtifactFormat(format)) return "image";
+    if (isTextArtifactFormat(format)) return "text";
+    if (["html", "pdf"].includes(format.toLowerCase())) return "inline";
+    return "open";
+  }
+
+  function generatedArtifactModifiedLabel(artifact: GeneratedArtifact) {
+    if (!artifact.modified_ms) return "unknown";
+    return new Date(artifact.modified_ms).toLocaleDateString();
+  }
+
+  function generatedArtifactModifiedDetail(artifact: GeneratedArtifact) {
+    if (!artifact.modified_ms) return "modified time unavailable";
+    return `modified ${new Date(artifact.modified_ms).toLocaleString()}`;
+  }
+
   function isImageArtifactFormat(format: string) {
     return ["svg", "png", "jpg", "jpeg", "gif", "webp"].includes(
       format.toLowerCase(),
@@ -23321,100 +23350,137 @@ export default function App() {
               ) : null}
               {generatedArtifacts.length ? (
                 <div className="ingestion-review">
-                  {generatedArtifacts.map((artifact) => (
-                    <div className="ingestion-card" key={artifact.id}>
-                      <div className="ingestion-card-head">
-                        <strong>{artifact.id}</strong>
-                        <span>{artifact.format}</span>
-                      </div>
-                      <span title={artifact.path}>
-                        {fileName(artifact.path)} / {formatBytes(artifact.bytes)}
-                      </span>
-                      {artifact.modified_ms ? (
-                        <span>
-                          modified {new Date(artifact.modified_ms).toLocaleString()}
+                  {generatedArtifacts.map((artifact) => {
+                    const tone = generatedArtifactTone(artifact);
+                    const previewable = isInlineArtifactFormat(artifact.format);
+                    return (
+                      <div className={`artifact-card ${tone}`} key={artifact.id}>
+                        <div className="artifact-card-head with-icon">
+                          <span className={`artifact-card-icon ${tone}`} aria-hidden="true">
+                            <AppIcon name="artifact" />
+                          </span>
+                          <div className="artifact-card-title">
+                            <strong>{fileName(artifact.path)}</strong>
+                            <span>{artifact.id}</span>
+                          </div>
+                        </div>
+                        <div className="artifact-metrics">
+                          <VisualMetric
+                            icon="artifact"
+                            label="format"
+                            value={generatedArtifactFormatLabel(artifact.format)}
+                            section="artifacts"
+                            tone={tone}
+                          />
+                          <VisualMetric
+                            icon="context"
+                            label="size"
+                            value={formatBytes(artifact.bytes)}
+                            section="artifacts"
+                            tone={artifact.bytes > 0 ? "ok" : "warning"}
+                          />
+                          <VisualMetric
+                            icon={previewable ? "prompt" : "control"}
+                            label="preview"
+                            value={generatedArtifactPreviewLabel(artifact.format)}
+                            section="artifacts"
+                            tone={previewable ? "ok" : "neutral"}
+                          />
+                          <VisualMetric
+                            icon="trace"
+                            label="modified"
+                            value={generatedArtifactModifiedLabel(artifact)}
+                            section="artifacts"
+                            tone={artifact.modified_ms ? "neutral" : "warning"}
+                          />
+                        </div>
+                        <span title={artifact.path}>
+                          cache {fileName(artifact.path)}
                         </span>
-                      ) : null}
-                      <div className="mini-actions">
-                        <button
-                          type="button"
-                          title="Move this artifact id into the Id field."
-                          onClick={() => setOpsId(artifact.id)}
-                          disabled={running}
-                        >
-                          Set Id
-                        </button>
-                        <button
-                          type="button"
-                          title="Show this generated artifact."
-                          onClick={() => void showGeneratedArtifact(artifact.id)}
-                          disabled={running}
-                        >
-                          Show
-                        </button>
-                        <button
-                          type="button"
-                          title="Open this generated artifact in the OS default app."
-                          onClick={() => void openGeneratedArtifact(artifact.id)}
-                          disabled={running}
-                        >
-                          Open
-                        </button>
-                        <button
-                          type="button"
-                          title="Download this generated artifact to this device."
-                          onClick={() =>
-                            void downloadGeneratedArtifactFromOps(artifact.id, artifact)
-                          }
-                          disabled={running}
-                        >
-                          Download
-                        </button>
-                        <button
-                          type="button"
-                          title="Set Value to a default export path for this artifact."
-                          onClick={() => {
-                            setOpsId(artifact.id);
-                            setOpsValue(defaultGeneratedArtifactPath(artifact));
-                          }}
-                          disabled={running}
-                        >
-                          Path
-                        </button>
-                        <button
-                          type="button"
-                          title="Export this generated artifact to Value, or to /tmp when Value is blank."
-                          onClick={() =>
-                            void exportGeneratedArtifactFromOps(
-                              artifact.id,
-                              opsValue.trim() || defaultGeneratedArtifactPath(artifact),
-                            )
-                          }
-                          disabled={running}
-                        >
-                          Export
-                        </button>
-                        {isInlineArtifactFormat(artifact.format) ? (
+                        <span title={generatedArtifactModifiedDetail(artifact)}>
+                          {generatedArtifactModifiedDetail(artifact)}
+                        </span>
+                        <div className="mini-actions">
                           <button
                             type="button"
-                            title="Preview this generated artifact inline."
-                            onClick={() => void previewGeneratedArtifact(artifact)}
+                            title="Move this artifact id into the Id field."
+                            onClick={() => setOpsId(artifact.id)}
                             disabled={running}
                           >
-                            {isAudioFormat(artifact.format) ? "Play" : "Preview"}
+                            Set Id
                           </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          title="Delete this generated artifact from the local artifact cache."
-                          onClick={() => void deleteGeneratedArtifact(artifact.id)}
-                          disabled={running}
-                        >
-                          Delete
-                        </button>
+                          <button
+                            type="button"
+                            title="Show this generated artifact."
+                            onClick={() => void showGeneratedArtifact(artifact.id)}
+                            disabled={running}
+                          >
+                            Show
+                          </button>
+                          <button
+                            type="button"
+                            title="Open this generated artifact in the OS default app."
+                            onClick={() => void openGeneratedArtifact(artifact.id)}
+                            disabled={running}
+                          >
+                            Open
+                          </button>
+                          <button
+                            type="button"
+                            title="Download this generated artifact to this device."
+                            onClick={() =>
+                              void downloadGeneratedArtifactFromOps(artifact.id, artifact)
+                            }
+                            disabled={running}
+                          >
+                            Download
+                          </button>
+                          <button
+                            type="button"
+                            title="Set Value to a default export path for this artifact."
+                            onClick={() => {
+                              setOpsId(artifact.id);
+                              setOpsValue(defaultGeneratedArtifactPath(artifact));
+                            }}
+                            disabled={running}
+                          >
+                            Path
+                          </button>
+                          <button
+                            type="button"
+                            title="Export this generated artifact to Value, or to /tmp when Value is blank."
+                            onClick={() =>
+                              void exportGeneratedArtifactFromOps(
+                                artifact.id,
+                                opsValue.trim() || defaultGeneratedArtifactPath(artifact),
+                              )
+                            }
+                            disabled={running}
+                          >
+                            Export
+                          </button>
+                          {previewable ? (
+                            <button
+                              type="button"
+                              title="Preview this generated artifact inline."
+                              onClick={() => void previewGeneratedArtifact(artifact)}
+                              disabled={running}
+                            >
+                              {isAudioFormat(artifact.format) ? "Play" : "Preview"}
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            title="Delete this generated artifact from the local artifact cache."
+                            onClick={() => void deleteGeneratedArtifact(artifact.id)}
+                            disabled={running}
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : null}
               {artifactPreview ? (

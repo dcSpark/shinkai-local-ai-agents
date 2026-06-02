@@ -21345,22 +21345,41 @@ export default function App() {
             </section>
           ) : null}
           <section className="hook-remediation-list">
-            <strong>Hook Catalog</strong>
-            <div className="mini-actions">
-              <button
-                type="button"
-                title="List allowed lifecycle hooks and their effective policy state."
-                onClick={() => void refreshHookCatalog()}
+            <div className="trace-section-head">
+              <div
+                className="trace-section-title with-icon"
+                style={sectionThemeStyle("trace")}
               >
-                <ButtonLabel icon="adapter">List Hooks</ButtonLabel>
-              </button>
-              <button
-                type="button"
-                title="Load persisted lifecycle hook policy for the active agent/profile."
-                onClick={() => void refreshHookPolicy()}
-              >
-                <ButtonLabel icon="approval">Refresh Policy</ButtonLabel>
-              </button>
+                <span className="trace-section-icon" aria-hidden="true">
+                  <AppIcon name="adapter" />
+                </span>
+                <div>
+                  <strong>Hook Catalog</strong>
+                  <span>
+                    {hookCatalog.length
+                      ? `${hookCatalog.length} lifecycle hook${
+                          hookCatalog.length === 1 ? "" : "s"
+                        } loaded`
+                      : "load lifecycle hooks and effective policy"}
+                  </span>
+                </div>
+              </div>
+              <div className="mini-actions">
+                <button
+                  type="button"
+                  title="List allowed lifecycle hooks and their effective policy state."
+                  onClick={() => void refreshHookCatalog()}
+                >
+                  <ButtonLabel icon="adapter">List Hooks</ButtonLabel>
+                </button>
+                <button
+                  type="button"
+                  title="Load persisted lifecycle hook policy for the active agent/profile."
+                  onClick={() => void refreshHookPolicy()}
+                >
+                  <ButtonLabel icon="approval">Refresh Policy</ButtonLabel>
+                </button>
+              </div>
             </div>
             {hookCatalog.length > 0 || hookPolicy ? (
               (() => {
@@ -21443,20 +21462,72 @@ export default function App() {
             {hookCatalog.length ? (
               <div className="context-cards">
                 {hookCatalog.map((hook) => {
+                  const globalDisabled = hookIsGlobalDisabled(hook.id);
                   const profileDisabled = hookIsProfileDisabled(hook.id);
                   const agentDisabled = hookIsAgentDisabled(hook.id);
+                  const tone: ContextReviewCard["tone"] = hook.disabled
+                    ? "warning"
+                    : "ok";
+                  const policyLayers = [
+                    globalDisabled ? "global" : null,
+                    profileDisabled ? "profile" : null,
+                    agentDisabled ? "agent" : null,
+                  ].filter(Boolean);
                   return (
                     <div
-                      className={`context-card compact ${hook.disabled ? "warning" : ""}`}
+                      className={`trace-detail-card ${tone}`}
                       key={hook.id}
+                      style={sectionThemeStyle("trace")}
                     >
-                      <strong>{hook.id}</strong>
-                      <span>
-                        {hook.triggers.join(", ") || "no triggers"} - {hook.provenance}
-                        {hook.disabled
-                          ? ` - disabled by ${hook.disabled_source ?? "policy"}`
-                          : ""}
-                      </span>
+                      <div className="trace-detail-head">
+                        <span
+                          className={`trace-detail-icon ${tone}`}
+                          aria-hidden="true"
+                        >
+                          <AppIcon name={hook.disabled ? "control" : "adapter"} />
+                        </span>
+                        <div className="trace-detail-title">
+                          <strong>{hook.id}</strong>
+                          <span>{hook.triggers.join(", ") || "no triggers"}</span>
+                        </div>
+                      </div>
+                      <div className="trace-detail-metrics">
+                        <VisualMetric
+                          icon={hook.disabled ? "control" : "approval"}
+                          label="effective state"
+                          value={hook.disabled ? "disabled" : "enabled"}
+                          section="trace"
+                          tone={tone}
+                        />
+                        <VisualMetric
+                          icon="trace"
+                          label="triggers"
+                          value={hook.triggers.length}
+                          section="trace"
+                          tone={hook.triggers.length ? "ok" : "neutral"}
+                        />
+                        <VisualMetric
+                          icon="adapter"
+                          label="provenance"
+                          value={hook.provenance}
+                          section="trace"
+                          tone="neutral"
+                        />
+                        <VisualMetric
+                          icon="profile"
+                          label="policy layers"
+                          value={policyLayers.length ? policyLayers.join("/") : "none"}
+                          section="trace"
+                          tone={policyLayers.length ? "warning" : "ok"}
+                        />
+                        <VisualMetric
+                          icon="control"
+                          label="disabled by"
+                          value={hook.disabled_source ?? "none"}
+                          section="trace"
+                          tone={hook.disabled_source ? "warning" : "neutral"}
+                        />
+                      </div>
                       <div className="mini-actions">
                         <button
                           type="button"

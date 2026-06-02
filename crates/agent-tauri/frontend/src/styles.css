@@ -3948,6 +3948,37 @@ textarea:disabled {
   font-size: 0.82rem;
 }
 
+.empty-note.with-icon {
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: center;
+  border-color: var(--section-accent);
+  background: var(--section-surface);
+  color: #c3c8d0;
+}
+
+.empty-note-icon {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.16);
+  color: var(--section-accent);
+}
+
+.empty-note-icon .app-icon {
+  width: 0.92rem;
+  height: 0.92rem;
+}
+
+.empty-note-copy {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
 .trace-summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(7.2rem, 1fr));

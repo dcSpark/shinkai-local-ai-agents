@@ -545,6 +545,26 @@ function OperationTitle({
   );
 }
 
+function EmptyNote({
+  section,
+  icon,
+  children,
+}: {
+  section: ActiveSection;
+  icon?: IconName;
+  children: ReactNode;
+}) {
+  const iconName = icon ?? sectionVisual(section).icon;
+  return (
+    <div className="empty-note with-icon" style={sectionThemeStyle(section)}>
+      <span className="empty-note-icon" aria-hidden="true">
+        <AppIcon name={iconName} />
+      </span>
+      <span className="empty-note-copy">{children}</span>
+    </div>
+  );
+}
+
 function VisualMetric({
   icon,
   label,
@@ -20609,7 +20629,7 @@ export default function App() {
               />
             </div>
           ) : (
-            <div className="empty-note">No trace loaded.</div>
+            <EmptyNote section="trace" icon="trace">No trace loaded.</EmptyNote>
           )}
           {traceTree ? (
             <section className="trace-tree">
@@ -21394,9 +21414,9 @@ export default function App() {
                   </div>
                 </div>
               ) : (
-                <div className="empty-note">
+                <EmptyNote section="conversations" icon="conversation">
                   No conversation tree loaded. List conversations to review branches.
-                </div>
+                </EmptyNote>
               )}
             </div>
             ) : null}
@@ -22430,9 +22450,9 @@ export default function App() {
                   })}
                 </div>
               ) : (
-                <div className="empty-note">
+                <EmptyNote section="prompts" icon="prompt">
                   No saved prompts loaded. List prompts, or save one with Id and Value.
-                </div>
+                </EmptyNote>
               )}
             </div>
             ) : null}
@@ -22915,9 +22935,9 @@ export default function App() {
                   })}
                 </div>
               ) : (
-                <div className="empty-note">
+                <EmptyNote section="prompts" icon="setup">
                   No saved models loaded. List models, or save the current controls.
-                </div>
+                </EmptyNote>
               )}
               {modelProviderDescriptors.length ? (
                 <div className="ingestion-review">
@@ -24500,9 +24520,9 @@ export default function App() {
                   ))}
                 </div>
               ) : (
-                <div className="empty-note">
+                <EmptyNote section="chat" icon="context">
                   No compacted-context artifacts loaded. List saved artifacts or keep one from preview.
-                </div>
+                </EmptyNote>
               )}
             </div>
             ) : null}
@@ -24949,7 +24969,7 @@ export default function App() {
                       ))}
                     </div>
                   ) : (
-                    <div className="empty-note">No visible tools loaded.</div>
+                    <EmptyNote section="chat" icon="tools">No visible tools loaded.</EmptyNote>
                   )}
                 </>
               ) : null}
@@ -25791,9 +25811,9 @@ export default function App() {
                   ))}
                 </div>
               ) : (
-                <div className="empty-note">
+                <EmptyNote section="adapters" icon="conversation">
                   No bridge delivery dead letters loaded.
-                </div>
+                </EmptyNote>
               )}
               {bridgeDeliveryResult ? (
                 bridgeDeliveryResultCard(bridgeDeliveryResult)
@@ -25833,9 +25853,9 @@ export default function App() {
               {bundleStatus ? (
                 <BundleStatusCard status={bundleStatus} section="adapters" />
               ) : (
-                <div className="empty-note">
+                <EmptyNote section="adapters" icon="artifact">
                   No bundle activity yet. Export a backup or import a bundle.
-                </div>
+                </EmptyNote>
               )}
             </div>
             ) : null}
@@ -26307,9 +26327,9 @@ export default function App() {
                 ))}
               </div>
             ) : (
-              <div className="empty-note">
+              <EmptyNote section="approvals" icon="approval">
                 No approvals loaded. Use Review after a run requests approval.
-              </div>
+              </EmptyNote>
             )
           ) : null}
           <fieldset className="operation-group">

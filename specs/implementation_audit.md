@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App generated-artifact inventory visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Generated artifact inventory cards now render cache path and modified-time detail as icon-bearing rows before Set Id, Show, Open, Download, Export, Preview, and Delete actions. |
 | App bridge-delivery result visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Bridge delivery retry/delete result cards now render delivery target, outcome, queue posture, and compact result payload as icon-bearing rows after the existing operation, status, resolution, and queue metrics. |
 | App artifact-export detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Generated artifact export result cards now render output path, source artifact path, and modified-time detail as icon-bearing rows after the existing format, bytes, preview, and modified metrics. |
 | App compaction-transfer detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Compaction export/import result cards now render transfer path, compaction source, and created timestamp as icon-bearing detail rows before the surrounding compaction operations. |

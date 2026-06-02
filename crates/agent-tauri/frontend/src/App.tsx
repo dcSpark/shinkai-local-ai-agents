@@ -27592,12 +27592,40 @@ export default function App() {
                             tone={artifact.modified_ms ? "neutral" : "warning"}
                           />
                         </div>
-                        <span title={artifact.path}>
-                          cache {fileName(artifact.path)}
-                        </span>
-                        <span title={generatedArtifactModifiedDetail(artifact)}>
-                          {generatedArtifactModifiedDetail(artifact)}
-                        </span>
+                        <div className="artifact-detail-list">
+                          <div className={`artifact-detail-row ${tone}`}>
+                            <span
+                              className={`artifact-detail-icon ${tone}`}
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="artifact" />
+                            </span>
+                            <div className="artifact-detail-copy">
+                              <strong>Cache path</strong>
+                              <span title={artifact.path}>{artifact.path}</span>
+                            </div>
+                          </div>
+                          <div
+                            className={`artifact-detail-row ${
+                              artifact.modified_ms ? "ok" : "warning"
+                            }`}
+                          >
+                            <span
+                              className={`artifact-detail-icon ${
+                                artifact.modified_ms ? "ok" : "warning"
+                              }`}
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="trace" />
+                            </span>
+                            <div className="artifact-detail-copy">
+                              <strong>Modified</strong>
+                              <span title={generatedArtifactModifiedDetail(artifact)}>
+                                {generatedArtifactModifiedDetail(artifact)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
                         <div className="mini-actions">
                           <button
                             type="button"

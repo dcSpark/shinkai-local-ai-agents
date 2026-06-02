@@ -5271,6 +5271,68 @@ textarea:disabled {
   font-family: inherit;
 }
 
+.artifact-detail-list {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.artifact-detail-row {
+  display: grid;
+  grid-template-columns: 1.55rem minmax(0, 1fr);
+  gap: 0.4rem;
+  align-items: start;
+  min-width: 0;
+  padding: 0.42rem;
+  border: 1px solid #2a2d34;
+  border-radius: 8px;
+  background: #111215;
+}
+
+.artifact-detail-row.ok {
+  border-color: #7a3f58;
+  background: #23141c;
+}
+
+.artifact-detail-row.warning {
+  border-color: #816a2d;
+  background: #251f12;
+}
+
+.artifact-detail-icon {
+  display: inline-grid;
+  width: 1.55rem;
+  height: 1.55rem;
+  place-items: center;
+  border: 1px solid #7a3f58;
+  border-radius: 8px;
+  background: #321a24;
+  color: #ff8fb1;
+}
+
+.artifact-detail-icon.ok {
+  border-color: #7a3f58;
+  background: #3a1d2a;
+  color: #ff8fb1;
+}
+
+.artifact-detail-icon.warning {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
+.artifact-detail-icon .app-icon {
+  width: 0.82rem;
+  height: 0.82rem;
+}
+
+.artifact-detail-copy {
+  display: grid;
+  gap: 0.14rem;
+  min-width: 0;
+}
+
 .artifact-export-card {
   display: grid;
   gap: 0.42rem;

@@ -844,6 +844,78 @@ textarea:disabled {
   max-height: 14rem;
 }
 
+.structured-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: center;
+  min-width: 0;
+  padding: 0.55rem;
+  border: 1px solid #27464b;
+  border-radius: 8px;
+  background: #0f1e22;
+}
+
+.structured-actions-copy {
+  display: grid;
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: center;
+  min-width: 0;
+}
+
+.structured-actions-icon {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border: 1px solid #2f6268;
+  border-radius: 8px;
+  background: #102d32;
+  color: #8fe8f0;
+}
+
+.structured-actions-icon .app-icon {
+  width: 0.92rem;
+  height: 0.92rem;
+}
+
+.structured-actions-copy div {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.structured-actions-copy strong,
+.structured-actions-copy span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.structured-actions-copy strong {
+  color: #effeff;
+}
+
+.structured-actions-copy span {
+  color: #96c8ce;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+}
+
+.structured-actions-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.45rem;
+}
+
+.structured-actions-buttons button {
+  min-height: 2.15rem;
+  padding: 0 0.65rem;
+}
+
 .composer {
   display: grid;
   position: sticky;
@@ -7436,6 +7508,18 @@ textarea:disabled {
 
   .session-overview-grid {
     grid-template-columns: 1fr;
+  }
+
+  .structured-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .structured-actions-buttons {
+    justify-content: stretch;
+  }
+
+  .structured-actions-buttons button {
+    flex: 1 1 7rem;
   }
 
   .composer-actions {

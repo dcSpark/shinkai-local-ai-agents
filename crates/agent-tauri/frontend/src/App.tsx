@@ -19838,7 +19838,13 @@ export default function App() {
                 </span>
                 <span>{prefixFor(line.kind)}</span>
               </span>
-              <div className="content">{renderLineContent(line)}</div>
+              <div className="content">
+                {renderLineContent(line, {
+                  running,
+                  onOpenArtifact: (id) => void openGeneratedArtifact(id),
+                  onPreviewArtifact: (id) => void previewGeneratedArtifactById(id),
+                })}
+              </div>
             </div>
           ))}
         </section>
@@ -32569,7 +32575,21 @@ function slashCommandIcon(command: string): IconName {
   return "prompt";
 }
 
-function renderLineContent(line: TranscriptLine) {
+interface StructuredResultActions {
+  running: boolean;
+  onOpenArtifact: (id: string) => void;
+  onPreviewArtifact: (id: string) => void;
+}
+
+interface StructuredArtifactAction {
+  id: string;
+  format: string | null;
+  path: string | null;
+  bytes: number | null;
+  previewable: boolean;
+}
+
+function renderLineContent(line: TranscriptLine, actions?: StructuredResultActions) {
   if (line.kind !== "assistant") {
     return line.text;
   }
@@ -32579,6 +32599,7 @@ function renderLineContent(line: TranscriptLine) {
   }
   const rows = structuredRows(parsed);
   const mediaPreview = structuredMediaPreview(parsed);
+  const artifactAction = structuredArtifactAction(parsed);
   return (
     <div className="structured-result">
       <div className="structured-head">
@@ -32601,6 +32622,7 @@ function renderLineContent(line: TranscriptLine) {
         </dl>
       ) : null}
       {mediaPreview}
+      {artifactAction ? structuredArtifactActionRow(artifactAction, actions) : null}
       <details>
         <summary>Raw JSON</summary>
         <pre>{JSON.stringify(parsed, null, 2)}</pre>
@@ -32901,6 +32923,10 @@ function structuredMediaPreview(value: JsonValue): ReactNode | null {
 }
 
 function structuredMediaSubject(value: JsonValue): { [key: string]: JsonValue } | null {
+  const artifactSubject = structuredArtifactSubject(value);
+  if (artifactSubject && scalarText(artifactSubject.data_url)) {
+    return artifactSubject;
+  }
   if (Array.isArray(value)) {
     for (const item of value) {
       const subject = structuredMediaSubject(item);
@@ -32912,11 +32938,97 @@ function structuredMediaSubject(value: JsonValue): { [key: string]: JsonValue } 
   if (scalarText(value.data_url)) return value;
   const output = nestedOutputRecord(value);
   if (output) return structuredMediaSubject(output);
+  return null;
+}
+
+function structuredArtifactAction(value: JsonValue): StructuredArtifactAction | null {
+  const subject = structuredArtifactSubject(value);
+  if (!subject) return null;
+  const id = scalarText(subject.id) ?? scalarText(subject.artifact_id);
+  if (!id) return null;
+  const mediaType = scalarText(subject.media_type) ?? dataUrlMediaType(scalarText(subject.data_url) ?? "");
+  const format = scalarText(subject.format) ?? formatFromMediaType(mediaType);
+  const bytes = typeof subject.bytes === "number" ? subject.bytes : null;
+  const previewable = Boolean(structuredMediaKind(mediaType, format));
+  return {
+    id,
+    format,
+    path: scalarText(subject.path) ?? scalarText(subject.output_path),
+    bytes,
+    previewable,
+  };
+}
+
+function structuredArtifactSubject(value: JsonValue): { [key: string]: JsonValue } | null {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const subject = structuredArtifactSubject(item);
+      if (subject) return subject;
+    }
+    return null;
+  }
+  if (!isJsonRecord(value)) return null;
+  const output = nestedOutputRecord(value);
+  if (output) return structuredArtifactSubject(output);
   const artifact = value.artifact;
-  if (isJsonRecord(artifact) && scalarText(artifact.data_url)) {
-    return artifact;
+  if (isJsonRecord(artifact)) {
+    const nested = structuredArtifactSubject(artifact);
+    if (nested) return nested;
+  }
+  const id = scalarText(value.id) ?? scalarText(value.artifact_id);
+  const format = scalarText(value.format);
+  const path = scalarText(value.path);
+  const dataUrl = scalarText(value.data_url);
+  if (id && (format || path || dataUrl || typeof value.bytes === "number")) {
+    return value;
   }
   return null;
+}
+
+function structuredArtifactActionRow(
+  artifact: StructuredArtifactAction,
+  actions?: StructuredResultActions,
+) {
+  const detail = [
+    artifact.format?.toUpperCase(),
+    artifact.bytes == null ? null : formatStructuredBytes(artifact.bytes),
+    artifact.path,
+  ]
+    .filter(Boolean)
+    .join(" / ");
+  return (
+    <div className="structured-actions">
+      <div className="structured-actions-copy">
+        <span className="structured-actions-icon" aria-hidden="true">
+          <AppIcon name="artifact" />
+        </span>
+        <div>
+          <strong>{artifact.id}</strong>
+          <span title={detail}>{detail || "generated artifact"}</span>
+        </div>
+      </div>
+      <div className="structured-actions-buttons">
+        {artifact.previewable ? (
+          <button
+            type="button"
+            onClick={() => actions?.onPreviewArtifact(artifact.id)}
+            disabled={!actions || actions.running}
+            title="Preview this generated artifact inline."
+          >
+            <ButtonLabel icon="prompt">Preview</ButtonLabel>
+          </button>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => actions?.onOpenArtifact(artifact.id)}
+          disabled={!actions || actions.running}
+          title="Open this generated artifact in the OS default app."
+        >
+          <ButtonLabel icon="control">Open</ButtonLabel>
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function structuredMediaKind(mediaType: string | null, format: string | null) {

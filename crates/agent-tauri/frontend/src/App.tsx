@@ -22289,7 +22289,7 @@ export default function App() {
                   onClick={() => void reviewPrompts()}
                   disabled={running}
                 >
-                  List Prompts
+                  <ButtonLabel icon="prompt">List Prompts</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22297,7 +22297,7 @@ export default function App() {
                   onClick={() => void savePromptFromOps()}
                   disabled={running || !opsValue.trim() || !opsId.trim()}
                 >
-                  Save Prompt
+                  <ButtonLabel icon="prompt">Save Prompt</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22305,7 +22305,7 @@ export default function App() {
                   onClick={() => void showPromptFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Show Prompt
+                  <ButtonLabel icon="prompt">Show Prompt</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22313,7 +22313,7 @@ export default function App() {
                   onClick={() => void usePromptFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Use Prompt
+                  <ButtonLabel icon="chat">Use Prompt</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22321,7 +22321,7 @@ export default function App() {
                   onClick={() => void runPromptFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Run Prompt
+                  <ButtonLabel icon="control">Run Prompt</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22329,7 +22329,7 @@ export default function App() {
                   onClick={() => void previewPromptFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Preview Prompt
+                  <ButtonLabel icon="context">Preview Prompt</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22337,7 +22337,7 @@ export default function App() {
                   onClick={() => void exportPromptFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Export Prompt
+                  <ButtonLabel icon="artifact">Export Prompt</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22345,7 +22345,7 @@ export default function App() {
                   onClick={() => void importPromptFromOps()}
                   disabled={running || !opsValue.trim()}
                 >
-                  Import Prompt
+                  <ButtonLabel icon="artifact">Import Prompt</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22354,7 +22354,7 @@ export default function App() {
                   onClick={() => void deletePromptFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Delete Prompt
+                  <ButtonLabel icon="approval">Delete Prompt</ButtonLabel>
                 </button>
               </div>
             </div>

@@ -19058,7 +19058,8 @@ export default function App() {
               disabled={running || !input.trim()}
               title="Send"
             >
-              Ask Agent
+              <AppIcon name="chat" />
+              <span>Ask Agent</span>
             </button>
             <button
               type="button"
@@ -19066,28 +19067,32 @@ export default function App() {
               disabled={running}
               title="Preview context"
             >
-              Preview
+              <AppIcon name="context" />
+              <span>Preview</span>
             </button>
             <button
               type="button"
               onClick={() => void callShell()}
               disabled={running || !input.trim()}
             >
-              Shell
+              <AppIcon name="control" />
+              <span>Shell</span>
             </button>
             <button
               type="button"
               onClick={() => void runBatchFromInput()}
               disabled={running || !input.trim()}
             >
-              Batch
+              <AppIcon name="tools" />
+              <span>Batch</span>
             </button>
             <button
               type="button"
               onClick={() => void resumeBatchFromOps()}
               disabled={running || !opsId.trim()}
             >
-              Resume Batch
+              <AppIcon name="artifact" />
+              <span>Resume Batch</span>
             </button>
             <button
               type="button"
@@ -19095,7 +19100,8 @@ export default function App() {
               onClick={() => void resumeLastRun()}
               disabled={running || (!opsId.trim() && !lastRunId)}
             >
-              Resume Run
+              <AppIcon name="trace" />
+              <span>Resume Run</span>
             </button>
             <button
               type="button"
@@ -19103,7 +19109,8 @@ export default function App() {
               disabled={!canGuideRun}
               title="Guide the active run"
             >
-              Guide
+              <AppIcon name="prompt" />
+              <span>Guide</span>
             </button>
           </div>
         </footer>

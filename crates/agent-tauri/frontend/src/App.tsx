@@ -159,6 +159,13 @@ interface SectionVisual {
   surface: string;
 }
 
+interface SectionCue {
+  value: string;
+  label: string;
+  icon: IconName;
+  tone?: ContextReviewCard["tone"];
+}
+
 interface ConversationTreeRow {
   node: ConversationTreeNode;
   depth: number;
@@ -282,6 +289,64 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
     accent: "#ff7e86",
     surface: "#32191f",
   },
+};
+
+const SECTION_CUES: Record<ActiveSection, SectionCue[]> = {
+  chat: [
+    { value: "Ask", label: "agent chat", icon: "chat", tone: "ok" },
+    { value: "Preview", label: "context", icon: "context" },
+    { value: "Guide", label: "live run", icon: "prompt" },
+  ],
+  trace: [
+    { value: "Replay", label: "run paths", icon: "trace", tone: "ok" },
+    { value: "Compare", label: "outputs", icon: "context" },
+    { value: "Usage", label: "cost and tokens", icon: "control" },
+  ],
+  conversations: [
+    { value: "Tree", label: "branches", icon: "conversation", tone: "ok" },
+    { value: "Recover", label: "context", icon: "context" },
+    { value: "Prune", label: "ranges", icon: "approval", tone: "warning" },
+  ],
+  profiles: [
+    { value: "Grants", label: "shared scope", icon: "approval", tone: "ok" },
+    { value: "Secrets", label: "handles", icon: "profile" },
+    { value: "Bundles", label: "portable config", icon: "artifact" },
+  ],
+  memory: [
+    { value: "Records", label: "durable facts", icon: "memory", tone: "ok" },
+    { value: "Topics", label: "filters", icon: "context" },
+    { value: "Backends", label: "sources", icon: "adapter" },
+  ],
+  skills: [
+    { value: "Review", label: "trusted skills", icon: "approval", tone: "warning" },
+    { value: "Drafts", label: "new tools", icon: "skill" },
+    { value: "Policy", label: "visibility", icon: "tools" },
+  ],
+  prompts: [
+    { value: "Library", label: "saved tasks", icon: "prompt", tone: "ok" },
+    { value: "Models", label: "provider setup", icon: "setup" },
+    { value: "Context", label: "preview", icon: "context" },
+  ],
+  ingest: [
+    { value: "Sources", label: "files", icon: "ingest", tone: "ok" },
+    { value: "Guard", label: "findings", icon: "approval", tone: "warning" },
+    { value: "OCR", label: "layout", icon: "artifact" },
+  ],
+  artifacts: [
+    { value: "Files", label: "generated", icon: "artifact", tone: "ok" },
+    { value: "Preview", label: "openable", icon: "context" },
+    { value: "Voice", label: "capture", icon: "control" },
+  ],
+  adapters: [
+    { value: "Packages", label: "review", icon: "adapter", tone: "warning" },
+    { value: "Bridges", label: "messaging", icon: "conversation" },
+    { value: "Storage", label: "cache", icon: "memory" },
+  ],
+  approvals: [
+    { value: "Pending", label: "gated actions", icon: "approval", tone: "warning" },
+    { value: "Risk", label: "assessment", icon: "context" },
+    { value: "Resolve", label: "decisions", icon: "control" },
+  ],
 };
 
 function sectionVisual(section: ActiveSection) {
@@ -646,6 +711,35 @@ function FeatureVisual({ section }: { section: ActiveSection }) {
         <AppIcon name="brand" />
       </span>
     </div>
+  );
+}
+
+function SectionOverview({ section }: { section: ActiveSection }) {
+  const visual = sectionVisual(section);
+  const cues = SECTION_CUES[section];
+  return (
+    <section className="section-overview" style={sectionThemeStyle(section)}>
+      <div className="section-overview-head">
+        <FeatureVisual section={section} />
+        <div className="section-overview-copy">
+          <span className="section-overview-kicker">Workspace</span>
+          <strong>{visual.label}</strong>
+          <span>{visual.hint}</span>
+        </div>
+      </div>
+      <div className="section-overview-cues">
+        {cues.map((cue) => (
+          <VisualMetric
+            key={`${section}:${cue.value}`}
+            icon={cue.icon}
+            label={cue.label}
+            value={cue.value}
+            section={section}
+            tone={cue.tone}
+          />
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -19212,6 +19306,7 @@ export default function App() {
       </main>
 
       <aside className="inspector">
+        <SectionOverview section={activeSection} />
         {activeSection === "chat" ? (
         <section className="panel">
           <PanelTitle title="Agent setup" section="chat" icon="setup" />

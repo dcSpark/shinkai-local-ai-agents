@@ -99,19 +99,23 @@ type IconName =
   | "adapter"
   | "approval"
   | "artifact"
+  | "audio"
   | "brand"
   | "chat"
+  | "code"
   | "collapse"
   | "context"
   | "control"
   | "conversation"
   | "expand"
+  | "image"
   | "ingest"
   | "memory"
   | "profile"
   | "prompt"
   | "setup"
   | "skill"
+  | "table"
   | "tools"
   | "trace";
 type AgentMode = "answer" | "action" | "workflow" | "custom";
@@ -428,6 +432,17 @@ function AppIcon({ name, className }: { name: IconName; className?: string }) {
         </>
       );
       break;
+    case "audio":
+      body = (
+        <>
+          <path d="M4 10v4" />
+          <path d="M8 7v10" />
+          <path d="M12 5v14" />
+          <path d="M16 8v8" />
+          <path d="M20 11v2" />
+        </>
+      );
+      break;
     case "brand":
       body = (
         <>
@@ -444,6 +459,15 @@ function AppIcon({ name, className }: { name: IconName; className?: string }) {
           <path d="M5 6.5h10.5a3.5 3.5 0 0 1 0 7H11l-4 3v-3H5V6.5Z" />
           <path d="M8 9.2h7" />
           <path d="M8 11.5h4.5" />
+        </>
+      );
+      break;
+    case "code":
+      body = (
+        <>
+          <path d="m8 9-4 3 4 3" />
+          <path d="m16 9 4 3-4 3" />
+          <path d="m14 5-4 14" />
         </>
       );
       break;
@@ -490,6 +514,15 @@ function AppIcon({ name, className }: { name: IconName; className?: string }) {
         <>
           <path d="m10 7 5 5-5 5" />
           <path d="M5 12h9" />
+        </>
+      );
+      break;
+    case "image":
+      body = (
+        <>
+          <path d="M5 5h14v14H5V5Z" />
+          <path d="m8 15 3-3 2 2 2-3 3 4" />
+          <path d="M9 9.4h.1" />
         </>
       );
       break;
@@ -550,6 +583,17 @@ function AppIcon({ name, className }: { name: IconName; className?: string }) {
           <path d="M12 4.5 14 9l4.5.5-3.4 3.1 1 4.4-4.1-2.3L7.9 17l1-4.4L5.5 9.5 10 9l2-4.5Z" />
           <path d="M12 8.5v3.8" />
           <path d="M10.2 10.4h3.6" />
+        </>
+      );
+      break;
+    case "table":
+      body = (
+        <>
+          <path d="M5 5h14v14H5V5Z" />
+          <path d="M5 10h14" />
+          <path d="M5 15h14" />
+          <path d="M10 5v14" />
+          <path d="M15 5v14" />
         </>
       );
       break;
@@ -11924,7 +11968,7 @@ export default function App() {
       <div className={`artifact-export-card ${tone}`} style={sectionThemeStyle("artifacts")}>
         <div className="artifact-export-head with-icon">
           <span className={`artifact-export-icon ${tone}`} aria-hidden="true">
-            <AppIcon name="artifact" />
+            <AppIcon name={artifactFormatIcon(artifact.format)} />
           </span>
           <div className="artifact-export-title">
             <strong>Artifact exported</strong>
@@ -11933,7 +11977,7 @@ export default function App() {
         </div>
         <div className="artifact-export-metrics">
           <VisualMetric
-            icon="artifact"
+            icon={artifactFormatIcon(artifact.format)}
             label="format"
             value={generatedArtifactFormatLabel(artifact.format)}
             section="artifacts"
@@ -11985,7 +12029,7 @@ export default function App() {
               className={`artifact-export-detail-icon ${tone}`}
               aria-hidden="true"
             >
-              <AppIcon name="context" />
+              <AppIcon name={artifactFormatIcon(artifact.format)} />
             </span>
             <div className="artifact-export-detail-copy">
               <strong>Source artifact</strong>
@@ -28668,14 +28712,14 @@ export default function App() {
                     tone={voiceOutputEnabled === "off" ? "warning" : "neutral"}
                   />
                   <VisualMetric
-                    icon="artifact"
+                    icon="audio"
                     label="capture"
                     value={voiceArtifactMetric(voiceCaptureArtifact)}
                     section="artifacts"
                     tone={voiceCaptureArtifact ? "ok" : "neutral"}
                   />
                   <VisualMetric
-                    icon="artifact"
+                    icon="audio"
                     label="speech"
                     value={voiceArtifactMetric(voiceOutputArtifact)}
                     section="artifacts"
@@ -28734,7 +28778,7 @@ export default function App() {
                       }`}
                       aria-hidden="true"
                     >
-                      <AppIcon name="control" />
+                      <AppIcon name="audio" />
                     </span>
                     <div className="artifact-detail-copy">
                       <strong>Capture artifact</strong>
@@ -28754,7 +28798,7 @@ export default function App() {
                       }`}
                       aria-hidden="true"
                     >
-                      <AppIcon name="artifact" />
+                      <AppIcon name="audio" />
                     </span>
                     <div className="artifact-detail-copy">
                       <strong>Speech artifact</strong>
@@ -28865,7 +28909,7 @@ export default function App() {
                       <div className={`artifact-card ${tone}`} key={artifact.id}>
                         <div className="artifact-card-head with-icon">
                           <span className={`artifact-card-icon ${tone}`} aria-hidden="true">
-                            <AppIcon name="artifact" />
+                            <AppIcon name={artifactFormatIcon(artifact.format)} />
                           </span>
                           <div className="artifact-card-title">
                             <strong>{fileName(artifact.path)}</strong>
@@ -28874,7 +28918,7 @@ export default function App() {
                         </div>
                         <div className="artifact-metrics">
                           <VisualMetric
-                            icon="artifact"
+                            icon={artifactFormatIcon(artifact.format)}
                             label="format"
                             value={generatedArtifactFormatLabel(artifact.format)}
                             section="artifacts"
@@ -28908,7 +28952,7 @@ export default function App() {
                               className={`artifact-detail-icon ${tone}`}
                               aria-hidden="true"
                             >
-                              <AppIcon name="artifact" />
+                              <AppIcon name={artifactFormatIcon(artifact.format)} />
                             </span>
                             <div className="artifact-detail-copy">
                               <strong>Cache path</strong>
@@ -29023,8 +29067,16 @@ export default function App() {
               ) : null}
               {artifactPreview ? (
                 <div className="artifact-preview">
-                  <div className="artifact-preview-head">
-                    <div>
+                  <div className="artifact-preview-head with-icon">
+                    <span
+                      className={`artifact-preview-icon ${generatedArtifactTone(
+                        artifactPreview.artifact,
+                      )}`}
+                      aria-hidden="true"
+                    >
+                      <AppIcon name={artifactFormatIcon(artifactPreview.artifact.format)} />
+                    </span>
+                    <div className="artifact-preview-title">
                       <strong>{artifactPreview.artifact.id}</strong>
                       <span>
                         {artifactPreview.artifact.format} /{" "}
@@ -32909,7 +32961,7 @@ function structuredMediaPreview(value: JsonValue): ReactNode | null {
     <div className={`structured-media ${kind}`}>
       <div className="structured-media-head">
         <span className="structured-media-icon" aria-hidden="true">
-          <AppIcon name={kind === "text" ? "prompt" : "artifact"} />
+          <AppIcon name={artifactFormatIcon(format, mediaType)} />
         </span>
         <div>
           <strong>{id}</strong>
@@ -33011,7 +33063,7 @@ function structuredArtifactActionRow(
     <div className="structured-actions">
       <div className="structured-actions-copy">
         <span className="structured-actions-icon" aria-hidden="true">
-          <AppIcon name="artifact" />
+          <AppIcon name={artifactFormatIcon(artifact.format)} />
         </span>
         <div>
           <strong>{artifact.id}</strong>
@@ -33040,6 +33092,38 @@ function structuredArtifactActionRow(
       </div>
     </div>
   );
+}
+
+function artifactFormatIcon(format: string | null | undefined, mediaType?: string | null): IconName {
+  const normalized = (format ?? "").toLowerCase().replace(/^\./, "");
+  const normalizedMedia = (mediaType ?? "").toLowerCase();
+  if (
+    normalizedMedia.startsWith("audio/") ||
+    ["mp3", "wav", "webm", "m4a", "ogg"].includes(normalized)
+  ) {
+    return "audio";
+  }
+  if (
+    normalizedMedia.startsWith("image/") ||
+    ["svg", "png", "jpg", "jpeg", "gif", "webp"].includes(normalized)
+  ) {
+    return "image";
+  }
+  if (["csv", "tsv", "xls", "xlsx"].includes(normalized)) return "table";
+  if (
+    ["html", "json", "xml", "js", "jsx", "ts", "tsx"].includes(normalized) ||
+    normalizedMedia.includes("json") ||
+    normalizedMedia.includes("html")
+  ) {
+    return "code";
+  }
+  if (
+    normalizedMedia.startsWith("text/") ||
+    ["txt", "md", "markdown", "doc", "docx"].includes(normalized)
+  ) {
+    return "prompt";
+  }
+  return "artifact";
 }
 
 function structuredMediaKind(mediaType: string | null, format: string | null) {

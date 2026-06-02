@@ -6457,7 +6457,39 @@ textarea:disabled {
   align-items: center;
 }
 
-.artifact-preview-head div:first-child {
+.artifact-preview-head.with-icon {
+  grid-template-columns: 1.75rem minmax(0, 1fr) auto;
+}
+
+.artifact-preview-icon {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border: 1px solid #7a3f58;
+  border-radius: 8px;
+  background: #321a24;
+  color: #ff8fb1;
+}
+
+.artifact-preview-icon.ok {
+  border-color: #7a3f58;
+  background: #3a1d2a;
+  color: #ff8fb1;
+}
+
+.artifact-preview-icon.warning {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
+.artifact-preview-icon .app-icon {
+  width: 0.92rem;
+  height: 0.92rem;
+}
+
+.artifact-preview-title {
   display: grid;
   gap: 0.18rem;
   min-width: 0;
@@ -7701,6 +7733,14 @@ textarea:disabled {
 
   .structured-actions-buttons button {
     flex: 1 1 7rem;
+  }
+
+  .artifact-preview-head.with-icon {
+    grid-template-columns: 1.75rem minmax(0, 1fr);
+  }
+
+  .artifact-preview-head .mini-actions {
+    grid-column: 1 / -1;
   }
 
   .composer-actions {

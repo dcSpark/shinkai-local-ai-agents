@@ -4225,6 +4225,91 @@ textarea:disabled {
   font-family: inherit;
 }
 
+.memory-detail-list {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.memory-detail-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: start;
+  min-width: 0;
+  padding: 0.42rem;
+  border: 1px solid #242a34;
+  border-radius: 7px;
+  background: #15181d;
+}
+
+.memory-detail-row.ok {
+  border-color: #275c43;
+  background: #122019;
+}
+
+.memory-detail-row.warning {
+  border-color: #816a2d;
+  background: #241d10;
+}
+
+.memory-detail-row.danger {
+  border-color: #7d3c45;
+  background: #25151b;
+}
+
+.memory-detail-icon {
+  display: inline-grid;
+  width: 1.6rem;
+  height: 1.6rem;
+  place-items: center;
+  border: 1px solid var(--section-accent);
+  border-radius: 7px;
+  background: var(--section-surface);
+  color: var(--section-accent);
+}
+
+.memory-detail-icon.ok {
+  border-color: #275c43;
+  background: #13281d;
+  color: #78dda7;
+}
+
+.memory-detail-icon.warning {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
+.memory-detail-icon.danger {
+  border-color: #7d3c45;
+  background: #32191f;
+  color: #ffb4c0;
+}
+
+.memory-detail-icon .app-icon {
+  width: 0.82rem;
+  height: 0.82rem;
+}
+
+.memory-detail-copy {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.memory-detail-copy strong {
+  color: #f1f2f4;
+  font-size: 0.76rem;
+}
+
+.memory-detail-copy span {
+  color: #a8b0bb;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
 .memory-meta {
   display: flex;
   flex-wrap: wrap;

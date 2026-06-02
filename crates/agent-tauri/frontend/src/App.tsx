@@ -24849,23 +24849,62 @@ export default function App() {
                           tone={backend.supports_rollback ? "ok" : "neutral"}
                         />
                       </div>
-                      <div className="memory-meta">
-                        <span>{backend.supports_write ? "write" : "read-only"}</span>
-                        <span>{backend.supports_edit ? "edit" : "no edit"}</span>
-                        <span>{backend.supports_delete ? "delete" : "no delete"}</span>
-                        <span>
-                          {backend.supports_generation
-                            ? "generation"
-                            : "no generation"}
-                        </span>
-                        <span>
-                          {backend.supports_rollback ? "rollback" : "no rollback"}
-                        </span>
-                        <span title={backend.storage}>
-                          storage {fileName(backend.storage)}
-                        </span>
+                      <div className="memory-detail-list">
+                        <div
+                          className={
+                            backend.supports_write
+                              ? "memory-detail-row ok"
+                              : "memory-detail-row warning"
+                          }
+                        >
+                          <span
+                            className={
+                              backend.supports_write
+                                ? "memory-detail-icon ok"
+                                : "memory-detail-icon warning"
+                            }
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="tools" />
+                          </span>
+                          <div className="memory-detail-copy">
+                            <strong>Backend capabilities</strong>
+                            <span>
+                              {[
+                                backend.supports_write ? "write" : "read-only",
+                                backend.supports_edit ? "edit" : "no edit",
+                                backend.supports_delete ? "delete" : "no delete",
+                                backend.supports_generation
+                                  ? "generation"
+                                  : "no generation",
+                                backend.supports_rollback
+                                  ? "rollback"
+                                  : "no rollback",
+                              ].join(" / ")}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="memory-detail-row">
+                          <span className="memory-detail-icon" aria-hidden="true">
+                            <AppIcon name="memory" />
+                          </span>
+                          <div className="memory-detail-copy">
+                            <strong>Storage</strong>
+                            <span title={backend.storage}>
+                              {fileName(backend.storage)}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="memory-detail-row">
+                          <span className="memory-detail-icon" aria-hidden="true">
+                            <AppIcon name="prompt" />
+                          </span>
+                          <div className="memory-detail-copy">
+                            <strong>Description</strong>
+                            <span>{backend.description}</span>
+                          </div>
+                        </div>
                       </div>
-                      <p>{backend.description}</p>
                       <div className="mini-actions">
                         <button
                           type="button"
@@ -24947,22 +24986,95 @@ export default function App() {
                         }
                       />
                     </div>
-                    <div className="memory-meta">
-                      <span>
-                        {memoryBackendProbe.configured
-                          ? "configured"
-                          : "not configured"}
-                      </span>
-                      <span>{memoryBackendProbe.records} records</span>
-                      <span>{memoryBackendProbe.matching_records} matching</span>
+                    <div className="memory-detail-list">
+                      <div
+                        className={
+                          memoryBackendProbe.configured
+                            ? "memory-detail-row ok"
+                            : "memory-detail-row warning"
+                        }
+                      >
+                        <span
+                          className={
+                            memoryBackendProbe.configured
+                              ? "memory-detail-icon ok"
+                              : "memory-detail-icon warning"
+                          }
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="setup" />
+                        </span>
+                        <div className="memory-detail-copy">
+                          <strong>Configuration</strong>
+                          <span>
+                            {memoryBackendProbe.configured
+                              ? "configured"
+                              : "not configured"}
+                          </span>
+                        </div>
+                      </div>
+                      <div
+                        className={
+                          memoryBackendProbe.matching_records
+                            ? "memory-detail-row ok"
+                            : "memory-detail-row"
+                        }
+                      >
+                        <span
+                          className={
+                            memoryBackendProbe.matching_records
+                              ? "memory-detail-icon ok"
+                              : "memory-detail-icon"
+                          }
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="context" />
+                        </span>
+                        <div className="memory-detail-copy">
+                          <strong>Record coverage</strong>
+                          <span>
+                            {`${memoryBackendProbe.records} records / ${memoryBackendProbe.matching_records} matching`}
+                          </span>
+                        </div>
+                      </div>
                       {memoryBackendProbe.topics?.length ? (
-                        <span>topics {memoryBackendProbe.topics.join(", ")}</span>
+                        <div className="memory-detail-row ok">
+                          <span
+                            className="memory-detail-icon ok"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="memory" />
+                          </span>
+                          <div className="memory-detail-copy">
+                            <strong>Topic filter</strong>
+                            <span>{memoryBackendProbe.topics.join(", ")}</span>
+                          </div>
+                        </div>
+                      ) : null}
+                      <div className="memory-detail-row">
+                        <span className="memory-detail-icon" aria-hidden="true">
+                          <AppIcon name="prompt" />
+                        </span>
+                        <div className="memory-detail-copy">
+                          <strong>Backend description</strong>
+                          <span>{memoryBackendProbe.descriptor.description}</span>
+                        </div>
+                      </div>
+                      {memoryBackendProbe.error ? (
+                        <div className="memory-detail-row danger">
+                          <span
+                            className="memory-detail-icon danger"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="approval" />
+                          </span>
+                          <div className="memory-detail-copy">
+                            <strong>Probe error</strong>
+                            <span>{memoryBackendProbe.error}</span>
+                          </div>
+                        </div>
                       ) : null}
                     </div>
-                    <p>{memoryBackendProbe.descriptor.description}</p>
-                    {memoryBackendProbe.error ? (
-                      <p>{memoryBackendProbe.error}</p>
-                    ) : null}
                     <div className="mini-actions">
                       <button
                         type="button"

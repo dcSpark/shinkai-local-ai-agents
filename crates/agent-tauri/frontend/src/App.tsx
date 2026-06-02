@@ -23087,11 +23087,20 @@ export default function App() {
                       {conversationDeletePlan.linked_memories.length} memories,{" "}
                       {conversationDeletePlan.linked_generated_artifacts.length} generated artifacts
                     </div>
-                    <div className="finding-list">
+                    <div className="conversation-detail-list">
                       {conversationDeletePlan.delete_ids.map((id) => (
-                        <span className="finding warning" key={id}>
-                          {id}
-                        </span>
+                        <div className="conversation-detail-row warning" key={id}>
+                          <span
+                            className="conversation-detail-icon warning"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="conversation" />
+                          </span>
+                          <div className="conversation-detail-copy">
+                            <strong>Delete target</strong>
+                            <span>{id}</span>
+                          </div>
+                        </div>
                       ))}
                     </div>
                   </div>
@@ -23168,62 +23177,129 @@ export default function App() {
                         }
                       />
                     </div>
-                    <span>{conversationRecoveryPlan.conversation_id}</span>
-                    <span>agent {conversationRecoveryPlan.agent_id}</span>
-                    <span>{conversationRecoverySummary(conversationRecoveryPlan)}</span>
-                    <span>
-                      suggested run{" "}
-                      {conversationRecoveryPlan.suggested_run.conversation_id ||
-                        conversationRecoveryPlan.conversation_id}
-                    </span>
+                    <div className="conversation-detail-list">
+                      <div className="conversation-detail-row ok">
+                        <span
+                          className="conversation-detail-icon ok"
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="conversation" />
+                        </span>
+                        <div className="conversation-detail-copy">
+                          <strong>Conversation</strong>
+                          <span>{conversationRecoveryPlan.conversation_id}</span>
+                          <p>agent {conversationRecoveryPlan.agent_id}</p>
+                        </div>
+                      </div>
+                      <div className="conversation-detail-row ok">
+                        <span
+                          className="conversation-detail-icon ok"
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="chat" />
+                        </span>
+                        <div className="conversation-detail-copy">
+                          <strong>Recovery scope</strong>
+                          <span>
+                            {conversationRecoverySummary(conversationRecoveryPlan)}
+                          </span>
+                          <p>
+                            suggested run{" "}
+                            {conversationRecoveryPlan.suggested_run
+                              .conversation_id ||
+                              conversationRecoveryPlan.conversation_id}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
                     {conversationRecoveryPlan.suggested_run.include_compact ? (
-                      <span>
-                        include compact{" "}
-                        {conversationRecoveryPlan.suggested_run.include_compact}
-                      </span>
+                      <div className="conversation-detail-row ok">
+                        <span
+                          className="conversation-detail-icon ok"
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="context" />
+                        </span>
+                        <div className="conversation-detail-copy">
+                          <strong>Include compacted context</strong>
+                          <span>
+                            {conversationRecoveryPlan.suggested_run.include_compact}
+                          </span>
+                        </div>
+                      </div>
                     ) : null}
                     {conversationRecoveryPlan.linked_compactions.length ? (
-                      <div className="finding-list">
+                      <div className="conversation-detail-list">
                         {conversationRecoveryPlan.linked_compactions
                           .slice(0, 4)
                           .map((record) => (
-                            <span
-                              className="finding"
+                            <div
+                              className="conversation-detail-row ok"
                               key={`recovery-compaction:${record.id}`}
                               title={record.content_preview}
                             >
-                              compact {record.id}
-                            </span>
+                              <span
+                                className="conversation-detail-icon ok"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="context" />
+                              </span>
+                              <div className="conversation-detail-copy">
+                                <strong>Compaction</strong>
+                                <span>{record.id}</span>
+                                <p>{record.content_preview}</p>
+                              </div>
+                            </div>
                           ))}
                       </div>
                     ) : null}
                     {conversationRecoveryPlan.linked_memories.length ? (
-                      <div className="finding-list">
+                      <div className="conversation-detail-list">
                         {conversationRecoveryPlan.linked_memories
                           .slice(0, 4)
                           .map((record) => (
-                            <span
-                              className="finding"
+                            <div
+                              className="conversation-detail-row ok"
                               key={`recovery-memory:${record.id}`}
                               title={record.content_preview}
                             >
-                              memory {record.id}
-                            </span>
+                              <span
+                                className="conversation-detail-icon ok"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="memory" />
+                              </span>
+                              <div className="conversation-detail-copy">
+                                <strong>Memory</strong>
+                                <span>{record.id}</span>
+                                <p>{record.content_preview}</p>
+                              </div>
+                            </div>
                           ))}
                       </div>
                     ) : null}
                     {conversationRecoveryPlan.linked_generated_artifacts.length ? (
-                      <div className="finding-list">
+                      <div className="conversation-detail-list">
                         {conversationRecoveryPlan.linked_generated_artifacts
                           .slice(0, 4)
                           .map((artifact) => (
-                            <span
-                              className="finding"
+                            <div
+                              className="conversation-detail-row ok"
                               key={`recovery-artifact:${artifact.id}`}
                               title={artifact.path}
                             >
-                              {artifact.format} {fileName(artifact.path)}
-                            </span>
+                              <span
+                                className="conversation-detail-icon ok"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="artifact" />
+                              </span>
+                              <div className="conversation-detail-copy">
+                                <strong>{artifact.format} artifact</strong>
+                                <span>{fileName(artifact.path)}</span>
+                                <p>{formatBytes(artifact.bytes)}</p>
+                              </div>
+                            </div>
                           ))}
                       </div>
                     ) : null}

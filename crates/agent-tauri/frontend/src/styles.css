@@ -4234,6 +4234,79 @@ textarea:disabled {
   font-family: inherit;
 }
 
+.skill-detail-list {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.skill-detail-row {
+  display: grid;
+  grid-template-columns: 1.55rem minmax(0, 1fr);
+  gap: 0.4rem;
+  align-items: start;
+  min-width: 0;
+  padding: 0.42rem;
+  border: 1px solid #2a2d34;
+  border-radius: 8px;
+  background: #111215;
+}
+
+.skill-detail-row.ok {
+  border-color: #275c43;
+  background: #13201a;
+}
+
+.skill-detail-row.warning {
+  border-color: #816a2d;
+  background: #251f12;
+}
+
+.skill-detail-row.danger {
+  border-color: #7d3c45;
+  background: #211317;
+}
+
+.skill-detail-icon {
+  display: inline-grid;
+  width: 1.55rem;
+  height: 1.55rem;
+  place-items: center;
+  border: 1px solid #7a4a37;
+  border-radius: 8px;
+  background: #321f18;
+  color: #ff9f7a;
+}
+
+.skill-detail-icon.ok {
+  border-color: #275c43;
+  background: #13281d;
+  color: #78dda7;
+}
+
+.skill-detail-icon.warning {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
+.skill-detail-icon.danger {
+  border-color: #7d3c45;
+  background: #32191f;
+  color: #ffb4c0;
+}
+
+.skill-detail-icon .app-icon {
+  width: 0.82rem;
+  height: 0.82rem;
+}
+
+.skill-detail-copy {
+  display: grid;
+  gap: 0.14rem;
+  min-width: 0;
+}
+
 .capability-doctor-detail-list,
 .capability-doctor-draft-list {
   display: grid;

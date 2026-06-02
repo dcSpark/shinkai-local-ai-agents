@@ -18794,6 +18794,14 @@ export default function App() {
     return (skill.findings ?? []).length ? "warning" : "ok";
   }
 
+  function skillFindingSeverityTone(
+    severity: NonNullable<SkillDoc["findings"]>[number]["severity"],
+  ): ContextReviewCard["tone"] {
+    if (severity === "high") return "danger";
+    if (severity === "warning") return "warning";
+    return "ok";
+  }
+
   function memoryBackendTone(
     backend: MemoryBackendDescriptor,
   ): ContextReviewCard["tone"] {
@@ -26075,41 +26083,128 @@ export default function App() {
                           />
                         </div>
                         {skill.source_path ? (
-                          <span title={skill.source_path}>
-                            source {fileName(skill.source_path)}
-                          </span>
+                          <div className="skill-detail-row ok">
+                            <span
+                              className="skill-detail-icon ok"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="artifact" />
+                            </span>
+                            <div className="skill-detail-copy">
+                              <strong>Source</strong>
+                              <span title={skill.source_path}>
+                                {fileName(skill.source_path)}
+                              </span>
+                            </div>
+                          </div>
                         ) : (
-                          <span className="finding none">no source path</span>
+                          <div className="skill-detail-row warning">
+                            <span
+                              className="skill-detail-icon warning"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="artifact" />
+                            </span>
+                            <div className="skill-detail-copy">
+                              <strong>Source</strong>
+                              <span>no source path</span>
+                            </div>
+                          </div>
                         )}
                         {skill.digest ? (
-                          <span title={skill.digest}>digest pin {skillDigestLabel(skill)}</span>
+                          <div className="skill-detail-row ok">
+                            <span
+                              className="skill-detail-icon ok"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="profile" />
+                            </span>
+                            <div className="skill-detail-copy">
+                              <strong>Digest pin</strong>
+                              <span title={skill.digest}>
+                                {skillDigestLabel(skill)}
+                              </span>
+                            </div>
+                          </div>
                         ) : (
-                          <span className="finding warning">
-                            legacy skill without digest pin
-                          </span>
+                          <div className="skill-detail-row warning">
+                            <span
+                              className="skill-detail-icon warning"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="profile" />
+                            </span>
+                            <div className="skill-detail-copy">
+                              <strong>Digest pin</strong>
+                              <span>legacy skill without digest pin</span>
+                            </div>
+                          </div>
                         )}
                         <span>~{skill.estimated_tokens} tokens</span>
                         {skill.categories.length ? (
                           <span>categories {skill.categories.join(", ")}</span>
                         ) : null}
                         {highRisk ? (
-                          <span className="finding high">
-                            activation blocked by high-risk prompt-injection findings
-                          </span>
+                          <div className="skill-detail-row danger">
+                            <span
+                              className="skill-detail-icon danger"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="trace" />
+                            </span>
+                            <div className="skill-detail-copy">
+                              <strong>Activation blocked</strong>
+                              <span>
+                                High-risk prompt-injection findings must be resolved
+                                before this skill can enter context.
+                              </span>
+                            </div>
+                          </div>
                         ) : null}
                         {findings.length ? (
-                          <div className="finding-list">
-                            {findings.map((finding) => (
-                              <span
-                                className={`finding ${finding.severity}`}
-                                key={`${skill.id}:${finding.severity}:${finding.message}`}
-                              >
-                                {finding.severity}: {finding.message}
-                              </span>
-                            ))}
+                          <div className="skill-detail-list">
+                            {findings.map((finding) => {
+                              const findingTone = skillFindingSeverityTone(
+                                finding.severity,
+                              );
+                              return (
+                                <div
+                                  className={`skill-detail-row ${findingTone}`}
+                                  key={`${skill.id}:${finding.severity}:${finding.message}`}
+                                >
+                                  <span
+                                    className={`skill-detail-icon ${findingTone}`}
+                                    aria-hidden="true"
+                                  >
+                                    <AppIcon
+                                      name={
+                                        finding.severity === "high"
+                                          ? "trace"
+                                          : "approval"
+                                      }
+                                    />
+                                  </span>
+                                  <div className="skill-detail-copy">
+                                    <strong>{finding.severity}</strong>
+                                    <span>{previewText(finding.message, 180)}</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
                           </div>
                         ) : (
-                          <span className="finding none">no scan findings</span>
+                          <div className="skill-detail-row ok">
+                            <span
+                              className="skill-detail-icon ok"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="approval" />
+                            </span>
+                            <div className="skill-detail-copy">
+                              <strong>Scan findings</strong>
+                              <span>none</span>
+                            </div>
+                          </div>
                         )}
                         <p>{skill.description}</p>
                         <p>{previewText(skill.body)}</p>

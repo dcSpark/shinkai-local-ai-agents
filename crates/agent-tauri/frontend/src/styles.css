@@ -2150,8 +2150,7 @@ textarea:disabled {
 
 .storage-total,
 .storage-largest,
-.storage-bucket,
-.bundle-card {
+.storage-bucket {
   display: grid;
   gap: 0.25rem;
   min-width: 0;
@@ -2161,17 +2160,9 @@ textarea:disabled {
   background: #111215;
 }
 
-.bundle-card-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.5rem;
-  align-items: center;
-}
-
 .storage-total strong,
 .storage-largest strong,
-.storage-bucket strong,
-.bundle-card strong {
+.storage-bucket strong {
   min-width: 0;
   color: #f1f2f4;
   overflow-wrap: anywhere;
@@ -2179,8 +2170,7 @@ textarea:disabled {
 
 .storage-total span,
 .storage-largest span,
-.storage-bucket span,
-.bundle-card span {
+.storage-bucket span {
   min-width: 0;
   color: #9da3ad;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;

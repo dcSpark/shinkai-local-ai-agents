@@ -16694,6 +16694,113 @@ export default function App() {
     return deliveryStatusLabel(value);
   }
 
+  function bridgeDeliveryResultCard(value: JsonValue) {
+    const record = jsonObject(value);
+    const deliveryRecord = jsonObject(record?.delivery);
+    const delivery = jsonObject(deliveryRecord?.last_delivery) ?? deliveryRecord;
+    const attempted =
+      typeof record?.attempted === "number" ? record.attempted : null;
+    const resolved = typeof record?.resolved === "number" ? record.resolved : null;
+    const remaining =
+      typeof record?.remaining === "number" ? record.remaining : null;
+    const deleted = record?.deleted === true;
+    const singleResolved = record?.resolved === true;
+    const delivered = delivery?.delivered;
+    const operation = deleted
+      ? "delete"
+      : attempted !== null
+        ? "retry all"
+        : record?.id
+          ? "retry"
+          : "result";
+    const status = deleted
+      ? "deleted"
+      : attempted !== null
+        ? "batch"
+        : delivery
+          ? deliveryStatusLabel(delivery)
+          : bridgeRetrySummary(value);
+    const resolution =
+      attempted !== null && resolved !== null
+        ? `${resolved}/${attempted}`
+        : singleResolved
+          ? "resolved"
+          : record?.resolved === false
+            ? "pending"
+            : deleted
+              ? "removed"
+              : "n/a";
+    const queue =
+      remaining !== null
+        ? `${remaining} left`
+        : typeof delivery?.attempts === "number"
+          ? `${delivery.attempts} tries`
+          : "n/a";
+    const target =
+      typeof deliveryRecord?.target === "string"
+        ? deliveryRecord.target
+        : typeof delivery?.target === "string"
+          ? delivery.target
+          : typeof record?.id === "string"
+            ? record.id
+            : "bridge delivery";
+    const tone: ContextReviewCard["tone"] =
+      deleted ||
+      singleResolved ||
+      delivered === true ||
+      (attempted !== null && remaining === 0)
+        ? "ok"
+        : delivered === false || record?.resolved === false || (remaining ?? 0) > 0
+          ? "warning"
+          : "neutral";
+    const queueTone: ContextReviewCard["tone"] =
+      remaining === null ? "neutral" : remaining > 0 ? "warning" : "ok";
+    return (
+      <div className={`bridge-card ${tone}`} style={sectionThemeStyle("adapters")}>
+        <div className="bridge-card-head with-icon">
+          <span className={`bridge-card-icon ${tone}`} aria-hidden="true">
+            <AppIcon name="conversation" />
+          </span>
+          <div className="bridge-card-title">
+            <strong>Bridge delivery result</strong>
+            <span>{target}</span>
+          </div>
+        </div>
+        <div className="bridge-metrics">
+          <VisualMetric
+            icon="adapter"
+            label="operation"
+            value={operation}
+            section="adapters"
+            tone={tone}
+          />
+          <VisualMetric
+            icon="approval"
+            label="status"
+            value={status}
+            section="adapters"
+            tone={tone}
+          />
+          <VisualMetric
+            icon="trace"
+            label="resolved"
+            value={resolution}
+            section="adapters"
+            tone={tone}
+          />
+          <VisualMetric
+            icon="control"
+            label="queue"
+            value={queue}
+            section="adapters"
+            tone={queueTone}
+          />
+        </div>
+        <span>{previewText(previewJson(value), 260)}</span>
+      </div>
+    );
+  }
+
   function configuredLabel(value: JsonValue | undefined, key = "configured") {
     const record = jsonObject(value);
     const configured = record?.[key];
@@ -25676,13 +25783,7 @@ export default function App() {
                 </div>
               )}
               {bridgeDeliveryResult ? (
-                <div className="bundle-card">
-                  <div className="bundle-card-head">
-                    <strong>Last bridge retry</strong>
-                    <span>{bridgeRetrySummary(bridgeDeliveryResult)}</span>
-                  </div>
-                  <span>{previewText(previewJson(bridgeDeliveryResult), 240)}</span>
-                </div>
+                bridgeDeliveryResultCard(bridgeDeliveryResult)
               ) : null}
             </div>
             ) : null}

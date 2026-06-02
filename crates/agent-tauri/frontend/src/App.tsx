@@ -22416,7 +22416,7 @@ export default function App() {
                             onClick={() => void usePromptByName(prompt.name)}
                             disabled={running}
                           >
-                            Use
+                            <ButtonLabel icon="chat">Use</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -22426,7 +22426,7 @@ export default function App() {
                             }
                             disabled={running}
                           >
-                            Run
+                            <ButtonLabel icon="control">Run</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -22436,7 +22436,7 @@ export default function App() {
                             }
                             disabled={running}
                           >
-                            Preview
+                            <ButtonLabel icon="context">Preview</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -22447,7 +22447,7 @@ export default function App() {
                             }}
                             disabled={running}
                           >
-                            Edit
+                            <ButtonLabel icon="prompt">Edit</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -22455,7 +22455,7 @@ export default function App() {
                             onClick={() => setOpsId(prompt.name)}
                             disabled={running}
                           >
-                            Set Id
+                            <ButtonLabel icon="prompt">Set Id</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -22466,7 +22466,7 @@ export default function App() {
                             }}
                             disabled={running}
                           >
-                            Path
+                            <ButtonLabel icon="artifact">Path</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -22484,7 +22484,7 @@ export default function App() {
                             }}
                             disabled={running}
                           >
-                            Export
+                            <ButtonLabel icon="artifact">Export</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -22493,7 +22493,7 @@ export default function App() {
                             onClick={() => void deletePromptByName(prompt.name)}
                             disabled={running}
                           >
-                            Delete
+                            <ButtonLabel icon="approval">Delete</ButtonLabel>
                           </button>
                         </div>
                       </div>

@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App prompt-card action visual identity | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Prompt library cards now use compact icons for use, run, preview, edit, set-id, path, export, and delete actions, so saved prompt cards stay visually scannable through both metrics and card-specific actions. |
 | App shared operations switch visual identity | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | The shared Operations panel now uses a compact memory icon for the User memory switch, making scoped user-memory writes easier to identify beside the Value and Id controls. |
 | App setup switch visual identity | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | The Chat setup switches now use compact icons for shell, subagent, draft tool, memory, skills, unsafe ingest, approval gate, and prompt refinement toggles, making enabled subsystems easier to scan in the default workspace. |
 | App stop-mode control visual identity | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | The Stop mode segmented control now uses compact icons for default policy, discard, and summarise retention choices, making cancellation recovery posture scannable beside the run-control actions. |

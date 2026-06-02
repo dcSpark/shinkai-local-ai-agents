@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App icon-card note copy visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Bundle credential reminders, secret redaction notes, trace timeline details, saved prompt bodies, provider descriptor notes, and capability doctor previews now render as named compact span copy inside existing icon cards/detail rows instead of paragraph islands. |
 | App readiness-card detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Agent setup, run-readiness, and context-review cards now render explanatory detail as named compact span copy after their icon label/value pairs instead of paragraph islands in first-viewport summary cards. |
 | App detail-copy paragraph consistency visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Capability draft bodies/guidance, skill descriptions/prompt bodies, saved-agent prompts, and resume-plan prompt previews now render as labeled detail-copy spans inside their icon rows instead of paragraph islands. |
 | App visible-tool catalog copy detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx` | Chat-side visible tool catalog descriptions and output guidance now render as labeled tool detail-row copy instead of paragraph islands inside already icon-bearing tool cards. |

@@ -2348,6 +2348,7 @@ textarea:disabled {
   min-width: 0;
 }
 
+.bundle-visual-detail-note,
 .bundle-visual-detail-copy p {
   margin: 0;
   color: #c3c8d0;
@@ -2974,6 +2975,7 @@ textarea:disabled {
   min-width: 0;
 }
 
+.secret-result-detail-note,
 .secret-result-detail-copy p {
   margin: 0;
   color: #c3c8d0;
@@ -5333,6 +5335,7 @@ textarea:disabled {
   min-width: 0;
 }
 
+.capability-doctor-detail-note,
 .capability-doctor-detail-row p {
   margin: 0;
   color: #c3c8d0;
@@ -5658,6 +5661,7 @@ textarea:disabled {
   min-width: 0;
 }
 
+.ingestion-detail-note,
 .ingestion-detail-copy p {
   margin: 0;
   color: #c3c8d0;
@@ -7161,6 +7165,7 @@ textarea:disabled {
   overflow-wrap: anywhere;
 }
 
+.trace-timeline-detail,
 .trace-timeline-item p {
   margin: 0;
   color: #c3c8d0;

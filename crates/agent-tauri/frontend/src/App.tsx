@@ -1308,7 +1308,7 @@ function BundleStatusCard({
             <div className="bundle-visual-detail-copy">
               <strong>Omitted credential</strong>
               <span>{reminder.path}</span>
-              <p>{reminder.reason}</p>
+              <span className="bundle-visual-detail-note">{reminder.reason}</span>
             </div>
           </div>
         ))}
@@ -1420,7 +1420,9 @@ function SecretResultCard({ status }: { status: JsonValue }) {
             <div className="secret-result-detail-copy">
               <strong>Secret value</strong>
               <span>withheld</span>
-              <p>Secret values stay redacted on this app surface.</p>
+              <span className="secret-result-detail-note">
+                Secret values stay redacted on this app surface.
+              </span>
             </div>
           </div>
         </div>
@@ -1477,7 +1479,9 @@ function SecretResultCard({ status }: { status: JsonValue }) {
             <div className="secret-result-detail-copy">
               <strong>Secret values</strong>
               <span>not returned</span>
-              <p>This app surface keeps secret values redacted.</p>
+              <span className="secret-result-detail-note">
+                This app surface keeps secret values redacted.
+              </span>
             </div>
           </div>
         </div>
@@ -23348,7 +23352,7 @@ export default function App() {
                     <div>
                       <strong>{item.title}</strong>
                       <span>{item.meta}</span>
-                      <p>{item.detail}</p>
+                      <span className="trace-timeline-detail">{item.detail}</span>
                     </div>
                   </div>
                 ))}
@@ -25691,11 +25695,11 @@ export default function App() {
                             </span>
                             <div className="prompt-detail-copy">
                               <strong>Prompt Body</strong>
-                              <p>
+                              <span>
                                 {prompt.body.trim()
                                   ? previewText(prompt.body, 220)
                                   : "Prompt body is empty."}
-                              </p>
+                              </span>
                             </div>
                           </div>
                         </div>
@@ -26723,7 +26727,9 @@ export default function App() {
                               </span>
                               <div className="ingestion-detail-copy">
                                 <strong>Notes</strong>
-                                <p>{descriptor.notes}</p>
+                                <span className="ingestion-detail-note">
+                                  {descriptor.notes}
+                                </span>
                               </div>
                             </div>
                           ) : null}
@@ -27177,11 +27183,11 @@ export default function App() {
                                   </span>
                                   <div>
                                     <strong>Body preview</strong>
-                                    <p>
+                                    <span className="capability-doctor-detail-note">
                                       {draft.body_preview.trim()
                                         ? previewText(draft.body_preview, 180)
                                         : "Draft body preview is empty."}
-                                    </p>
+                                    </span>
                                   </div>
                                 </div>
                                 {draft.guidance_preview ? (
@@ -27194,9 +27200,9 @@ export default function App() {
                                     </span>
                                     <div>
                                       <strong>Guidance preview</strong>
-                                      <p>
+                                      <span className="capability-doctor-detail-note">
                                         {previewText(draft.guidance_preview, 160)}
-                                      </p>
+                                      </span>
                                     </div>
                                   </div>
                                 ) : null}

@@ -21610,7 +21610,7 @@ export default function App() {
                   onClick={() => void showCurrentProfileFromOps()}
                   disabled={running}
                 >
-                  Current
+                  <ButtonLabel icon="profile">Current</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21618,7 +21618,7 @@ export default function App() {
                   onClick={() => void listProfilesFromOps()}
                   disabled={running}
                 >
-                  List
+                  <ButtonLabel icon="profile">List</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21626,7 +21626,7 @@ export default function App() {
                   onClick={() => void showProfileFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Show
+                  <ButtonLabel icon="profile">Show</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21634,7 +21634,7 @@ export default function App() {
                   onClick={() => void createProfileFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Create
+                  <ButtonLabel icon="profile">Create</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21654,7 +21654,7 @@ export default function App() {
                     currentProfile?.id === opsId.trim()
                   }
                 >
-                  Delete
+                  <ButtonLabel icon="approval">Delete</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21662,7 +21662,7 @@ export default function App() {
                   onClick={() => void listProfileGrantsForOps()}
                   disabled={running}
                 >
-                  List Grants
+                  <ButtonLabel icon="approval">List Grants</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21670,7 +21670,7 @@ export default function App() {
                   onClick={() => void grantProfileFromOps()}
                   disabled={running || !opsId.trim() || !opsValue.trim()}
                 >
-                  Grant
+                  <ButtonLabel icon="approval">Grant</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21679,7 +21679,7 @@ export default function App() {
                   onClick={() => void revokeProfileGrantFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Revoke Grant
+                  <ButtonLabel icon="approval">Revoke Grant</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21687,7 +21687,7 @@ export default function App() {
                   onClick={() => void backupBundleNow()}
                   disabled={running}
                 >
-                  Backup
+                  <ButtonLabel icon="artifact">Backup</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21695,7 +21695,7 @@ export default function App() {
                   onClick={() => void exportBundleFromOps()}
                   disabled={running}
                 >
-                  Export Bundle
+                  <ButtonLabel icon="artifact">Export Bundle</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21703,7 +21703,7 @@ export default function App() {
                   onClick={() => void importBundleFromOps()}
                   disabled={running || !opsValue.trim()}
                 >
-                  Import Bundle
+                  <ButtonLabel icon="artifact">Import Bundle</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21711,7 +21711,7 @@ export default function App() {
                   onClick={() => void listSecretBackendsFromOps()}
                   disabled={running}
                 >
-                  Secret Backends
+                  <ButtonLabel icon="setup">Secret Backends</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21719,7 +21719,7 @@ export default function App() {
                   onClick={() => void listSecretsFromOps()}
                   disabled={running}
                 >
-                  List Secrets
+                  <ButtonLabel icon="control">List Secrets</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21727,7 +21727,7 @@ export default function App() {
                   onClick={() => void showSecretFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Show Secret
+                  <ButtonLabel icon="control">Show Secret</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21735,7 +21735,7 @@ export default function App() {
                   onClick={() => void setSecretFromOps()}
                   disabled={running || !opsId.trim() || !opsValue.trim()}
                 >
-                  Store Secret
+                  <ButtonLabel icon="control">Store Secret</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21743,7 +21743,7 @@ export default function App() {
                   onClick={() => void rotateSecretFromOps()}
                   disabled={running || !opsId.trim() || !opsValue.trim()}
                 >
-                  Rotate Secret
+                  <ButtonLabel icon="control">Rotate Secret</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21752,7 +21752,7 @@ export default function App() {
                   onClick={() => void deleteSecretFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Delete Secret
+                  <ButtonLabel icon="approval">Delete Secret</ButtonLabel>
                 </button>
               </div>
               {currentProfile ? (

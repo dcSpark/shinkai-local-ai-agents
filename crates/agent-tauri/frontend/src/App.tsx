@@ -26496,11 +26496,107 @@ export default function App() {
                           tone={draft.guidance ? "ok" : "neutral"}
                         />
                       </div>
-                      <span>{draft.id}</span>
-                      <span>{draft.kind}</span>
-                      <span>{draft.created_by}</span>
-                      <p>{previewText(draft.body)}</p>
-                      {draft.guidance ? <p>{previewText(draft.guidance)}</p> : null}
+                      <div className="capability-draft-detail-list">
+                        <div className="capability-draft-detail-row">
+                          <span
+                            className="capability-draft-detail-icon"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="tools" />
+                          </span>
+                          <div className="capability-draft-detail-copy">
+                            <strong>Draft id</strong>
+                            <span>{draft.id}</span>
+                          </div>
+                        </div>
+                        <div className="capability-draft-detail-row">
+                          <span
+                            className="capability-draft-detail-icon"
+                            aria-hidden="true"
+                          >
+                            <AppIcon
+                              name={
+                                draft.kind === "agent" || draft.kind === "subagent"
+                                  ? "brand"
+                                  : draft.kind === "skill"
+                                    ? "skill"
+                                    : "tools"
+                              }
+                            />
+                          </span>
+                          <div className="capability-draft-detail-copy">
+                            <strong>Capability kind</strong>
+                            <span>{draft.kind}</span>
+                          </div>
+                        </div>
+                        <div className="capability-draft-detail-row">
+                          <span
+                            className="capability-draft-detail-icon"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="profile" />
+                          </span>
+                          <div className="capability-draft-detail-copy">
+                            <strong>Created by</strong>
+                            <span>{draft.created_by}</span>
+                            <span>{draft.created_at}</span>
+                          </div>
+                        </div>
+                        {draft.provenance ? (
+                          <div className="capability-draft-detail-row">
+                            <span
+                              className="capability-draft-detail-icon"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="trace" />
+                            </span>
+                            <div className="capability-draft-detail-copy">
+                              <strong>Provenance</strong>
+                              <span>{previewText(draft.provenance, 140)}</span>
+                            </div>
+                          </div>
+                        ) : null}
+                        <div
+                          className={
+                            draft.body.trim()
+                              ? "capability-draft-detail-row ok"
+                              : "capability-draft-detail-row warning"
+                          }
+                        >
+                          <span
+                            className={
+                              draft.body.trim()
+                                ? "capability-draft-detail-icon ok"
+                                : "capability-draft-detail-icon warning"
+                            }
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="prompt" />
+                          </span>
+                          <div className="capability-draft-detail-copy">
+                            <strong>Draft body</strong>
+                            <p>
+                              {draft.body.trim()
+                                ? previewText(draft.body)
+                                : "Draft body is empty."}
+                            </p>
+                          </div>
+                        </div>
+                        {draft.guidance ? (
+                          <div className="capability-draft-detail-row ok">
+                            <span
+                              className="capability-draft-detail-icon ok"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="context" />
+                            </span>
+                            <div className="capability-draft-detail-copy">
+                              <strong>Guidance</strong>
+                              <p>{previewText(draft.guidance)}</p>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
                       <div className="mini-actions">
                         <button
                           type="button"

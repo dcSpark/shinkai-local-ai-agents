@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App voice status detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx` | Voice status cards now render input model, output model, capture artifact, and speech artifact readiness as icon-bearing artifact detail rows after the existing activity/input/output/capture/speech metrics. |
 | App generated-artifact inventory visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Generated artifact inventory cards now render cache path and modified-time detail as icon-bearing rows before Set Id, Show, Open, Download, Export, Preview, and Delete actions. |
 | App bridge-delivery result visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Bridge delivery retry/delete result cards now render delivery target, outcome, queue posture, and compact result payload as icon-bearing rows after the existing operation, status, resolution, and queue metrics. |
 | App artifact-export detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Generated artifact export result cards now render output path, source artifact path, and modified-time detail as icon-bearing rows after the existing format, bytes, preview, and modified metrics. |

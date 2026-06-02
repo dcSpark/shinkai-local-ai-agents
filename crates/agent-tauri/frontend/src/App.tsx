@@ -27442,18 +27442,88 @@ export default function App() {
                     tone={voiceOutputArtifact ? "ok" : "neutral"}
                   />
                 </div>
-                <span>
-                  input model {voiceControlLabel(voiceInputModel, "configured model")}
-                </span>
-                <span>
-                  output model {voiceControlLabel(voiceTtsModel, "configured model")}
-                </span>
-                <span title={voiceCaptureArtifact?.path ?? undefined}>
-                  capture {voiceArtifactDetail(voiceCaptureArtifact)}
-                </span>
-                <span title={voiceOutputArtifact?.path ?? undefined}>
-                  speech {voiceArtifactDetail(voiceOutputArtifact)}
-                </span>
+                <div className="artifact-detail-list">
+                  <div
+                    className={`artifact-detail-row ${
+                      voiceInputEnabled === "off" ? "warning" : ""
+                    }`}
+                  >
+                    <span
+                      className={`artifact-detail-icon ${
+                        voiceInputEnabled === "off" ? "warning" : ""
+                      }`}
+                      aria-hidden="true"
+                    >
+                      <AppIcon name="context" />
+                    </span>
+                    <div className="artifact-detail-copy">
+                      <strong>Input model</strong>
+                      <span>
+                        {voiceControlLabel(voiceInputModel, "configured model")}
+                      </span>
+                    </div>
+                  </div>
+                  <div
+                    className={`artifact-detail-row ${
+                      voiceOutputEnabled === "off" ? "warning" : ""
+                    }`}
+                  >
+                    <span
+                      className={`artifact-detail-icon ${
+                        voiceOutputEnabled === "off" ? "warning" : ""
+                      }`}
+                      aria-hidden="true"
+                    >
+                      <AppIcon name="prompt" />
+                    </span>
+                    <div className="artifact-detail-copy">
+                      <strong>Output model</strong>
+                      <span>
+                        {voiceControlLabel(voiceTtsModel, "configured model")}
+                      </span>
+                    </div>
+                  </div>
+                  <div
+                    className={`artifact-detail-row ${
+                      voiceCaptureArtifact ? "ok" : ""
+                    }`}
+                  >
+                    <span
+                      className={`artifact-detail-icon ${
+                        voiceCaptureArtifact ? "ok" : ""
+                      }`}
+                      aria-hidden="true"
+                    >
+                      <AppIcon name="control" />
+                    </span>
+                    <div className="artifact-detail-copy">
+                      <strong>Capture artifact</strong>
+                      <span title={voiceCaptureArtifact?.path ?? undefined}>
+                        {voiceArtifactDetail(voiceCaptureArtifact)}
+                      </span>
+                    </div>
+                  </div>
+                  <div
+                    className={`artifact-detail-row ${
+                      voiceOutputArtifact ? "ok" : ""
+                    }`}
+                  >
+                    <span
+                      className={`artifact-detail-icon ${
+                        voiceOutputArtifact ? "ok" : ""
+                      }`}
+                      aria-hidden="true"
+                    >
+                      <AppIcon name="artifact" />
+                    </span>
+                    <div className="artifact-detail-copy">
+                      <strong>Speech artifact</strong>
+                      <span title={voiceOutputArtifact?.path ?? undefined}>
+                        {voiceArtifactDetail(voiceOutputArtifact)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
               {voicePreviewUrl || voiceCaptureArtifact ? (
                 <div className="voice-capture">

@@ -1292,22 +1292,51 @@ textarea:disabled {
 }
 
 .included-list {
+  border-color: #244453;
+  background: #11181d;
+}
+
+.included-ingest-items {
   display: grid;
-  gap: 0.4rem;
-  padding: 0.65rem;
-  border: 1px solid #2a2d34;
-  border-radius: 8px;
-  background: #15171b;
+  gap: 0.35rem;
 }
 
-.included-list strong {
-  color: #dfe3ea;
-  font-size: 0.78rem;
-}
-
-.included-list span {
+.included-ingest-row {
+  display: grid;
+  grid-template-columns: 1.65rem minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: start;
   min-width: 0;
-  color: #bac8d8;
+  padding-top: 0.35rem;
+  border-top: 1px solid #243241;
+}
+
+.included-ingest-row .ingestion-card-icon {
+  width: 1.65rem;
+  height: 1.65rem;
+}
+
+.included-ingest-row .ingestion-card-icon .app-icon {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.included-ingest-row-copy {
+  display: grid;
+  gap: 0.14rem;
+  min-width: 0;
+}
+
+.included-ingest-row-copy strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.74rem;
+}
+
+.included-ingest-row-copy span {
+  min-width: 0;
+  color: #9da3ad;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.72rem;
   overflow-wrap: anywhere;

@@ -18585,6 +18585,15 @@ export default function App() {
     return "ok";
   }
 
+  function includedIngestArtifact(id: string) {
+    return ingestionArtifacts.find((item) => item.id === id) ?? null;
+  }
+
+  function includedIngestTone(id: string): ContextReviewCard["tone"] {
+    const artifact = includedIngestArtifact(id);
+    return artifact ? ingestionArtifactTone(artifact) : "warning";
+  }
+
   function guardrailStateForArtifact(id: string) {
     const artifact = ingestionArtifacts.find((item) => item.id === id);
     if (!artifact) return "unknown artifact; review ingestion before running";
@@ -20570,23 +20579,121 @@ export default function App() {
               </label>
             </>
           ) : null}
-          {includeIngestIds.length ? (
-            <div className="included-list">
-              <strong>Included ingest</strong>
-              {includeIngestIds.map((id) => (
-                <span key={id} title={guardrailStateForArtifact(id)}>
-                  {id} - {guardrailStateForArtifact(id)}
-                </span>
-              ))}
-              <button
-                type="button"
-                onClick={clearIncludedIngest}
-                disabled={running}
-              >
-                <ButtonLabel icon="approval">Clear Ingest</ButtonLabel>
-              </button>
-            </div>
-          ) : null}
+          {includeIngestIds.length
+            ? (() => {
+                const guardrailMode = activeIngestionGuardrailMode();
+                const includedArtifacts = includeIngestIds.map((id) => ({
+                  id,
+                  artifact: includedIngestArtifact(id),
+                  state: guardrailStateForArtifact(id),
+                  tone: includedIngestTone(id),
+                }));
+                const highRiskCount = includedArtifacts.filter(({ artifact }) =>
+                  artifact ? hasHighRiskFindings(artifact) : false,
+                ).length;
+                const unapprovedHighRiskCount = includedArtifacts.filter(
+                  ({ artifact }) =>
+                    artifact ? hasUnapprovedHighRiskFindings(artifact) : false,
+                ).length;
+                const unknownCount = includedArtifacts.filter(
+                  ({ artifact }) => !artifact,
+                ).length;
+                const guardrailTone: ContextReviewCard["tone"] = unknownCount
+                  ? "warning"
+                  : unapprovedHighRiskCount
+                    ? guardrailMode === "block"
+                      ? "danger"
+                      : "warning"
+                    : "ok";
+                return (
+                  <div
+                    className="included-list ingestion-card"
+                    style={sectionThemeStyle("ingest")}
+                  >
+                    <div className="ingestion-card-head with-icon">
+                      <span
+                        className={`ingestion-card-icon ${guardrailTone}`}
+                        aria-hidden="true"
+                      >
+                        <AppIcon name="ingest" />
+                      </span>
+                      <div className="ingestion-card-title">
+                        <strong>Included ingest</strong>
+                        <span>
+                          {includeIngestIds.length} artifact
+                          {includeIngestIds.length === 1 ? "" : "s"} queued for
+                          context
+                        </span>
+                      </div>
+                    </div>
+                    <div className="ingestion-metrics">
+                      <VisualMetric
+                        icon="ingest"
+                        label="selected"
+                        value={includeIngestIds.length}
+                        section="ingest"
+                        tone="ok"
+                      />
+                      <VisualMetric
+                        icon="approval"
+                        label="guardrail"
+                        value={guardrailMode}
+                        section="ingest"
+                        tone={guardrailTone}
+                      />
+                      <VisualMetric
+                        icon="approval"
+                        label="high risk"
+                        value={highRiskCount}
+                        section="ingest"
+                        tone={highRiskCount ? "warning" : "ok"}
+                      />
+                      <VisualMetric
+                        icon="artifact"
+                        label="unknown"
+                        value={unknownCount}
+                        section="ingest"
+                        tone={unknownCount ? "warning" : "ok"}
+                      />
+                    </div>
+                    <div className="included-ingest-items">
+                      {includedArtifacts.map(({ id, artifact, state, tone }) => (
+                        <div
+                          className={`included-ingest-row ${tone}`}
+                          key={id}
+                          title={state}
+                        >
+                          <span
+                            className={`ingestion-card-icon ${tone}`}
+                            aria-hidden="true"
+                          >
+                            <AppIcon name={artifact ? "artifact" : "approval"} />
+                          </span>
+                          <div className="included-ingest-row-copy">
+                            <strong>{id}</strong>
+                            <span>
+                              {artifact
+                                ? `${artifact.backend} / ${artifact.sections.length} sections / ${artifact.findings.length} findings`
+                                : "artifact not loaded"}
+                            </span>
+                            <span>{state}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mini-actions">
+                      <button
+                        type="button"
+                        onClick={clearIncludedIngest}
+                        disabled={running}
+                      >
+                        <ButtonLabel icon="approval">Clear Ingest</ButtonLabel>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()
+            : null}
           <div className="context-actions">
             <button
               type="button"

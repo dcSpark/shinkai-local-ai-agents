@@ -1938,6 +1938,127 @@ textarea:disabled {
   background: #111215;
 }
 
+.resume-plan-card {
+  display: grid;
+  gap: 0.42rem;
+  min-width: 0;
+  padding: 0.55rem;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+}
+
+.resume-plan-card.warning {
+  border-color: #816a2d;
+  background: #251f12;
+}
+
+.resume-plan-card.danger {
+  border-color: #7d3c45;
+  background: #211317;
+}
+
+.resume-plan-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.resume-plan-head.with-icon {
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+}
+
+.resume-plan-icon {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+  color: var(--section-accent);
+}
+
+.resume-plan-icon.warning {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
+.resume-plan-icon.danger {
+  border-color: #7d3c45;
+  background: #32191f;
+  color: #ffb4c0;
+}
+
+.resume-plan-icon .app-icon {
+  width: 0.92rem;
+  height: 0.92rem;
+}
+
+.resume-plan-title {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.resume-plan-card strong,
+.resume-plan-card span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.resume-plan-card strong {
+  color: #f1f2f4;
+}
+
+.resume-plan-card span {
+  color: #9da3ad;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+}
+
+.resume-plan-card p {
+  margin: 0;
+  color: #c5cbd3;
+  font-size: 0.78rem;
+  line-height: 1.38;
+  overflow-wrap: anywhere;
+}
+
+.resume-plan-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.2rem, 1fr));
+  gap: 0.4rem;
+}
+
+.resume-plan-card .visual-metric {
+  font-family: inherit;
+}
+
+.resume-plan-card .visual-metric .visual-metric-icon {
+  font-family: inherit;
+  color: var(--section-accent);
+}
+
+.resume-plan-card .visual-metric.ok .visual-metric-icon {
+  color: #78dda7;
+}
+
+.resume-plan-card .visual-metric.warning .visual-metric-icon {
+  color: #ffce6b;
+}
+
+.resume-plan-card .visual-metric.danger .visual-metric-icon {
+  color: #ffb4c0;
+}
+
+.resume-plan-card .visual-metric-copy span {
+  color: #8e949f;
+  font-family: inherit;
+}
+
 .storage-total,
 .storage-largest,
 .storage-bucket,

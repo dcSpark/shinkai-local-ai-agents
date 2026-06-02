@@ -18491,6 +18491,8 @@ export default function App() {
   const modelDoctorMissingMetadata = modelDoctorReport
     ? modelDoctorMissingMetadataCount(modelDoctorReport)
     : 0;
+  const runControlVisualSection: ActiveSection =
+    activeSection === "approvals" ? "approvals" : "chat";
 
   return (
     <div className="app-shell">
@@ -26163,10 +26165,48 @@ export default function App() {
             </div>
           </fieldset>
           {resumePlan ? (
-            <div className="bundle-card">
-              <div className="bundle-card-head">
-                <strong>Resume plan</strong>
-                <span>{resumePlan.agent_id}</span>
+            <div
+              className="resume-plan-card ok"
+              style={sectionThemeStyle(runControlVisualSection)}
+            >
+              <div className="resume-plan-head with-icon">
+                <span className="resume-plan-icon ok" aria-hidden="true">
+                  <AppIcon name="trace" />
+                </span>
+                <div className="resume-plan-title">
+                  <strong>Resume plan</strong>
+                  <span>{resumePlan.agent_id}</span>
+                </div>
+              </div>
+              <div className="resume-plan-metrics">
+                <VisualMetric
+                  icon="trace"
+                  label="event"
+                  value={resumePlan.selected_event_id}
+                  section={runControlVisualSection}
+                  tone="ok"
+                />
+                <VisualMetric
+                  icon="context"
+                  label="omitted"
+                  value={resumePlan.omitted_events}
+                  section={runControlVisualSection}
+                  tone={resumePlan.omitted_events ? "warning" : "ok"}
+                />
+                <VisualMetric
+                  icon="prompt"
+                  label="prompt tokens"
+                  value={estimateLocalTokens(resumePlan.prompt)}
+                  section={runControlVisualSection}
+                  tone="ok"
+                />
+                <VisualMetric
+                  icon="conversation"
+                  label="original tokens"
+                  value={estimateLocalTokens(resumePlan.original_input)}
+                  section={runControlVisualSection}
+                  tone="neutral"
+                />
               </div>
               <span>{resumePlan.source_run_id}</span>
               <span>{resumePlanSummary(resumePlan)}</span>

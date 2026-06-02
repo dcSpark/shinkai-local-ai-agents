@@ -22806,7 +22806,7 @@ export default function App() {
                                 onClick={() => setOpsId(doc.id)}
                                 disabled={running}
                               >
-                                Set Id
+                                <ButtonLabel icon="setup">Set Id</ButtonLabel>
                               </button>
                               <button
                                 type="button"
@@ -22814,7 +22814,7 @@ export default function App() {
                                 onClick={() => void showModelFromOps(doc.id)}
                                 disabled={running}
                               >
-                                Show
+                                <ButtonLabel icon="setup">Show</ButtonLabel>
                               </button>
                               <button
                                 type="button"
@@ -22822,7 +22822,7 @@ export default function App() {
                                 onClick={() => void probeModelFromOps(doc.id)}
                                 disabled={running}
                               >
-                                Probe
+                                <ButtonLabel icon="trace">Probe</ButtonLabel>
                               </button>
                               <button
                                 type="button"
@@ -22833,7 +22833,7 @@ export default function App() {
                                 }}
                                 disabled={running}
                               >
-                                Path
+                                <ButtonLabel icon="artifact">Path</ButtonLabel>
                               </button>
                               <button
                                 type="button"
@@ -22848,7 +22848,7 @@ export default function App() {
                                 }}
                                 disabled={running}
                               >
-                                Export
+                                <ButtonLabel icon="artifact">Export</ButtonLabel>
                               </button>
                             </div>
                           </div>
@@ -22920,7 +22920,7 @@ export default function App() {
                             onClick={() => setOpsId(doc.id)}
                             disabled={running}
                           >
-                            Set Id
+                            <ButtonLabel icon="setup">Set Id</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -22928,7 +22928,7 @@ export default function App() {
                             onClick={() => applyModelConfigToControls(doc)}
                             disabled={running}
                           >
-                            Use
+                            <ButtonLabel icon="setup">Use</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -22936,7 +22936,7 @@ export default function App() {
                             onClick={() => void showModelFromOps(doc.id)}
                             disabled={running}
                           >
-                            Show
+                            <ButtonLabel icon="setup">Show</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -22944,7 +22944,7 @@ export default function App() {
                             onClick={() => void probeModelFromOps(doc.id)}
                             disabled={running}
                           >
-                            Probe
+                            <ButtonLabel icon="trace">Probe</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -22955,7 +22955,7 @@ export default function App() {
                             }}
                             disabled={running}
                           >
-                            Path
+                            <ButtonLabel icon="artifact">Path</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -22969,7 +22969,7 @@ export default function App() {
                             }}
                             disabled={running}
                           >
-                            Export
+                            <ButtonLabel icon="artifact">Export</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -22978,7 +22978,7 @@ export default function App() {
                             onClick={() => void deleteModelFromOps(doc.id)}
                             disabled={running}
                           >
-                            Delete
+                            <ButtonLabel icon="approval">Delete</ButtonLabel>
                           </button>
                         </div>
                       </div>
@@ -23048,7 +23048,7 @@ export default function App() {
                             onClick={() => applyProviderDescriptorToControls(descriptor)}
                             disabled={running}
                           >
-                            Use
+                            <ButtonLabel icon="setup">Use</ButtonLabel>
                           </button>
                         </div>
                       </div>

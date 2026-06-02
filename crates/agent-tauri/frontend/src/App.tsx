@@ -17508,6 +17508,25 @@ export default function App() {
     return defaultPromptExportPath({ name, body: "", agent_id: agent });
   }
 
+  function promptTone(prompt: PromptDoc): ContextReviewCard["tone"] {
+    if (!prompt.body.trim()) return "warning";
+    return prompt.agent_id ? "ok" : "neutral";
+  }
+
+  function promptScopeValue(prompt: PromptDoc) {
+    return prompt.agent_id ? `agent ${prompt.agent_id}` : "profile";
+  }
+
+  function promptLineCount(prompt: PromptDoc) {
+    const body = prompt.body.trim();
+    return body ? body.split(/\r\n|\r|\n/).length : 0;
+  }
+
+  function promptWordCount(prompt: PromptDoc) {
+    const body = prompt.body.trim();
+    return body ? body.split(/\s+/).length : 0;
+  }
+
   function defaultCapabilityDraftExportPath(draft: CapabilityDraft) {
     return `/tmp/capability-${draft.kind}-${generatedArtifactFileName(draft.id)}.json`;
   }
@@ -21530,105 +21549,138 @@ export default function App() {
               <OperationTitle title="Prompt Library" section="prompts" icon="prompt" />
               {promptDocs.length ? (
                 <div className="ingestion-review">
-                  {promptDocs.map((prompt) => (
-                    <div className="ingestion-card" key={prompt.name}>
-                      <div className="ingestion-card-head">
-                        <strong>{prompt.name}</strong>
-                        <span>
-                          {prompt.agent_id ? `agent ${prompt.agent_id}` : "profile"} /{" "}
-                          {prompt.body.length} chars
-                        </span>
+                  {promptDocs.map((prompt) => {
+                    const tone = promptTone(prompt);
+                    return (
+                      <div className={`prompt-card ${tone}`} key={prompt.name}>
+                        <div className="prompt-card-head with-icon">
+                          <span className={`prompt-card-icon ${tone}`} aria-hidden="true">
+                            <AppIcon name="prompt" />
+                          </span>
+                          <div className="prompt-card-title">
+                            <strong>{prompt.name}</strong>
+                            <span>{promptScopeValue(prompt)}</span>
+                          </div>
+                        </div>
+                        <div className="prompt-metrics">
+                          <VisualMetric
+                            icon="profile"
+                            label="scope"
+                            value={promptScopeValue(prompt)}
+                            section="prompts"
+                            tone={prompt.agent_id ? "ok" : "neutral"}
+                          />
+                          <VisualMetric
+                            icon="context"
+                            label="chars"
+                            value={prompt.body.length}
+                            section="prompts"
+                            tone={prompt.body.trim() ? "ok" : "warning"}
+                          />
+                          <VisualMetric
+                            icon="conversation"
+                            label="lines"
+                            value={promptLineCount(prompt)}
+                            section="prompts"
+                          />
+                          <VisualMetric
+                            icon="tools"
+                            label="words"
+                            value={promptWordCount(prompt)}
+                            section="prompts"
+                          />
+                        </div>
+                        <p>{previewText(prompt.body, 220)}</p>
+                        <div className="mini-actions">
+                          <button
+                            type="button"
+                            title="Load this saved prompt into the composer."
+                            onClick={() => void usePromptByName(prompt.name)}
+                            disabled={running}
+                          >
+                            Use
+                          </button>
+                          <button
+                            type="button"
+                            title="Run this saved prompt immediately."
+                            onClick={() =>
+                              void runPromptByName(prompt.name, prompt.body)
+                            }
+                            disabled={running}
+                          >
+                            Run
+                          </button>
+                          <button
+                            type="button"
+                            title="Preview the exact context for this saved prompt."
+                            onClick={() =>
+                              void previewPromptByName(prompt.name, prompt.body)
+                            }
+                            disabled={running}
+                          >
+                            Preview
+                          </button>
+                          <button
+                            type="button"
+                            title="Move this prompt into the edit fields."
+                            onClick={() => {
+                              setOpsId(prompt.name);
+                              setOpsValue(prompt.body);
+                            }}
+                            disabled={running}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            title="Move this prompt name into the Id field."
+                            onClick={() => setOpsId(prompt.name)}
+                            disabled={running}
+                          >
+                            Set Id
+                          </button>
+                          <button
+                            type="button"
+                            title="Set Value to a default export path for this prompt."
+                            onClick={() => {
+                              setOpsId(prompt.name);
+                              setOpsValue(defaultPromptExportPath(prompt));
+                            }}
+                            disabled={running}
+                          >
+                            Path
+                          </button>
+                          <button
+                            type="button"
+                            title="Export this saved prompt to Value, or to /tmp when Value is blank."
+                            onClick={() => {
+                              const path =
+                                opsValue.trim() || defaultPromptExportPath(prompt);
+                              setOpsId(prompt.name);
+                              setOpsValue(path);
+                              void exportPromptByName(
+                                prompt.name,
+                                path,
+                                prompt.agent_id ?? null,
+                              );
+                            }}
+                            disabled={running}
+                          >
+                            Export
+                          </button>
+                          <button
+                            type="button"
+                            className="danger"
+                            title="Delete this saved prompt."
+                            onClick={() => void deletePromptByName(prompt.name)}
+                            disabled={running}
+                          >
+                            Delete
+                          </button>
+                        </div>
                       </div>
-                      <p>{previewText(prompt.body, 220)}</p>
-                      <div className="mini-actions">
-                        <button
-                          type="button"
-                          title="Load this saved prompt into the composer."
-                          onClick={() => void usePromptByName(prompt.name)}
-                          disabled={running}
-                        >
-                          Use
-                        </button>
-                        <button
-                          type="button"
-                          title="Run this saved prompt immediately."
-                          onClick={() =>
-                            void runPromptByName(prompt.name, prompt.body)
-                          }
-                          disabled={running}
-                        >
-                          Run
-                        </button>
-                        <button
-                          type="button"
-                          title="Preview the exact context for this saved prompt."
-                          onClick={() =>
-                            void previewPromptByName(prompt.name, prompt.body)
-                          }
-                          disabled={running}
-                        >
-                          Preview
-                        </button>
-                        <button
-                          type="button"
-                          title="Move this prompt into the edit fields."
-                          onClick={() => {
-                            setOpsId(prompt.name);
-                            setOpsValue(prompt.body);
-                          }}
-                          disabled={running}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          title="Move this prompt name into the Id field."
-                          onClick={() => setOpsId(prompt.name)}
-                          disabled={running}
-                        >
-                          Set Id
-                        </button>
-                        <button
-                          type="button"
-                          title="Set Value to a default export path for this prompt."
-                          onClick={() => {
-                            setOpsId(prompt.name);
-                            setOpsValue(defaultPromptExportPath(prompt));
-                          }}
-                          disabled={running}
-                        >
-                          Path
-                        </button>
-                        <button
-                          type="button"
-                          title="Export this saved prompt to Value, or to /tmp when Value is blank."
-                          onClick={() => {
-                            const path =
-                              opsValue.trim() || defaultPromptExportPath(prompt);
-                            setOpsId(prompt.name);
-                            setOpsValue(path);
-                            void exportPromptByName(
-                              prompt.name,
-                              path,
-                              prompt.agent_id ?? null,
-                            );
-                          }}
-                          disabled={running}
-                        >
-                          Export
-                        </button>
-                        <button
-                          type="button"
-                          className="danger"
-                          title="Delete this saved prompt."
-                          onClick={() => void deletePromptByName(prompt.name)}
-                          disabled={running}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="empty-note">

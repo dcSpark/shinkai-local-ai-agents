@@ -25721,25 +25721,103 @@ export default function App() {
                       {capabilityDoctorReport.allowed_count} allowed /{" "}
                       {capabilityDoctorReport.rejected_count} rejected
                     </span>
-                    {capabilityDoctorReport.warnings.map((warning) => (
-                      <span className="finding warning" key={warning}>
-                        {warning}
-                      </span>
-                    ))}
-                    {capabilityDoctorReport.drafts.slice(0, 8).map((draft) => (
-                      <span key={draft.id}>
-                        {draft.id} {draft.status}
-                        {" -> "}
-                        {capabilityPromotionLabel(draft.promotion_target)}
-                        {` / source ${draft.created_by}`}
-                        {` / created ${draft.created_at}`}
-                        {` / ${previewText(draft.provenance, 80)}`}
-                        {` / body ${previewText(draft.body_preview, 80)}`}
-                        {draft.guidance_preview
-                          ? ` / guidance ${previewText(draft.guidance_preview, 80)}`
-                          : ""}
-                      </span>
-                    ))}
+                    {capabilityDoctorReport.warnings.length ? (
+                      <div className="capability-doctor-detail-list">
+                        {capabilityDoctorReport.warnings.map((warning) => (
+                          <div
+                            className="capability-doctor-detail-row warning"
+                            key={warning}
+                          >
+                            <span
+                              className="capability-doctor-row-icon warning"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="approval" />
+                            </span>
+                            <div>
+                              <strong>Warning</strong>
+                              <span>{previewText(warning, 180)}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                    {capabilityDoctorReport.drafts.length ? (
+                      <div className="capability-doctor-draft-list">
+                        {capabilityDoctorReport.drafts.slice(0, 8).map((draft) => {
+                          const tone = capabilityStatusTone(draft.status);
+                          return (
+                            <div
+                              className={`capability-doctor-draft-row ${tone}`}
+                              key={draft.id}
+                            >
+                              <div className="capability-doctor-draft-main">
+                                <span
+                                  className={`capability-doctor-row-icon ${tone}`}
+                                  aria-hidden="true"
+                                >
+                                  <AppIcon
+                                    name={
+                                      draft.promotion_target === "agent_config"
+                                        ? "brand"
+                                        : draft.promotion_target === "skill_doc"
+                                          ? "skill"
+                                          : "adapter"
+                                    }
+                                  />
+                                </span>
+                                <div className="capability-doctor-draft-copy">
+                                  <strong>{draft.name}</strong>
+                                  <span>
+                                    {draft.id} / {draft.status} /{" "}
+                                    {capabilityPromotionLabel(draft.promotion_target)}
+                                  </span>
+                                  <span>
+                                    source {draft.created_by} / created{" "}
+                                    {draft.created_at}
+                                  </span>
+                                  <span>{previewText(draft.provenance, 120)}</span>
+                                </div>
+                              </div>
+                              <div className="ingestion-metrics">
+                                <VisualMetric
+                                  icon="approval"
+                                  label="review"
+                                  value={draft.needs_review ? "needed" : "clear"}
+                                  section="skills"
+                                  tone={draft.needs_review ? "warning" : "ok"}
+                                />
+                                <VisualMetric
+                                  icon="tools"
+                                  label="kind"
+                                  value={draft.kind}
+                                  section="skills"
+                                  tone="neutral"
+                                />
+                                <VisualMetric
+                                  icon="context"
+                                  label="notes"
+                                  value={draft.notes.length}
+                                  section="skills"
+                                  tone={draft.notes.length ? "warning" : "neutral"}
+                                />
+                                <VisualMetric
+                                  icon="prompt"
+                                  label="guidance"
+                                  value={draft.guidance_preview ? "set" : "none"}
+                                  section="skills"
+                                  tone={draft.guidance_preview ? "ok" : "neutral"}
+                                />
+                              </div>
+                              <p>{previewText(draft.body_preview, 180)}</p>
+                              {draft.guidance_preview ? (
+                                <p>{previewText(draft.guidance_preview, 160)}</p>
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ) : null}

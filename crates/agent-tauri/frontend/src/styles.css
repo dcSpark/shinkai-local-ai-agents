@@ -883,6 +883,10 @@ textarea:disabled {
   accent-color: #ff5c64;
 }
 
+.switch .button-label.with-icon {
+  justify-content: flex-start;
+}
+
 .segmented-control {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

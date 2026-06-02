@@ -19519,7 +19519,7 @@ export default function App() {
               onChange={(e) => setEnableShell(e.target.checked)}
               disabled={running}
             />
-            <span>Shell</span>
+            <ButtonLabel icon="control">Shell</ButtonLabel>
           </label>
           <label>
             Max tool calls
@@ -19630,7 +19630,7 @@ export default function App() {
               onChange={(e) => setEnableSubagent(e.target.checked)}
               disabled={running}
             />
-            <span>Subagent</span>
+            <ButtonLabel icon="conversation">Subagent</ButtonLabel>
           </label>
           <label>
             Max subagent depth
@@ -19663,7 +19663,7 @@ export default function App() {
               onChange={(e) => setEnableCapabilityDrafts(e.target.checked)}
               disabled={running}
             />
-            <span>Draft tool</span>
+            <ButtonLabel icon="tools">Draft tool</ButtonLabel>
           </label>
           <label>
             Draft guidance
@@ -19715,7 +19715,7 @@ export default function App() {
               onChange={(e) => setLoadMemory(e.target.checked)}
               disabled={running}
             />
-            <span>Memory</span>
+            <ButtonLabel icon="memory">Memory</ButtonLabel>
           </label>
           <label>
             Memory backend
@@ -19862,7 +19862,7 @@ export default function App() {
               onChange={(e) => setLoadSkills(e.target.checked)}
               disabled={running}
             />
-            <span>Skills</span>
+            <ButtonLabel icon="skill">Skills</ButtonLabel>
           </label>
           <label className="switch">
             <input
@@ -19871,7 +19871,7 @@ export default function App() {
               onChange={(e) => toggleUnsafeIngest(e.target.checked)}
               disabled={running || !includeIngestIds.length}
             />
-            <span>Unsafe ingest</span>
+            <ButtonLabel icon="approval">Unsafe ingest</ButtonLabel>
           </label>
           <label>
             Ingest guardrail
@@ -19897,7 +19897,7 @@ export default function App() {
               onChange={(e) => setRequireApproval(e.target.checked)}
               disabled={running}
             />
-            <span>Approval gate</span>
+            <ButtonLabel icon="approval">Approval gate</ButtonLabel>
           </label>
           <label>
             Approval controller
@@ -19999,7 +19999,7 @@ export default function App() {
               onChange={(e) => setEnablePromptRefinement(e.target.checked)}
               disabled={running}
             />
-            <span>Refine prompt</span>
+            <ButtonLabel icon="prompt">Refine prompt</ButtonLabel>
           </label>
           {enablePromptRefinement ? (
             <>
@@ -20012,7 +20012,9 @@ export default function App() {
                   }
                   disabled={running}
                 />
-                <span>Agent sees refinement guidance</span>
+                <ButtonLabel icon="profile">
+                  Agent sees refinement guidance
+                </ButtonLabel>
               </label>
               <label>
                 Refiner model

@@ -21778,7 +21778,7 @@ export default function App() {
                           onClick={() => setOpsId(profile.id)}
                           disabled={running}
                         >
-                          Set Id
+                          <ButtonLabel icon="profile">Set Id</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -21786,7 +21786,7 @@ export default function App() {
                           onClick={() => void showProfileFromOps(profile.id)}
                           disabled={running}
                         >
-                          Show
+                          <ButtonLabel icon="profile">Show</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -21794,7 +21794,7 @@ export default function App() {
                           onClick={() => void listProfileGrantsFromOps(profile.id)}
                           disabled={running}
                         >
-                          Grants
+                          <ButtonLabel icon="approval">Grants</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -21813,7 +21813,7 @@ export default function App() {
                             currentProfile?.id === profile.id
                           }
                         >
-                          Delete
+                          <ButtonLabel icon="approval">Delete</ButtonLabel>
                         </button>
                       </div>
                     </div>
@@ -21856,7 +21856,7 @@ export default function App() {
                           onClick={() => setOpsId(record.id)}
                           disabled={running}
                         >
-                          Set Id
+                          <ButtonLabel icon="control">Set Id</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -21864,7 +21864,7 @@ export default function App() {
                           onClick={() => void showSecretFromOps(record.id)}
                           disabled={running}
                         >
-                          Show
+                          <ButtonLabel icon="control">Show</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -21873,7 +21873,7 @@ export default function App() {
                           onClick={() => void deleteSecretFromOps(record.id)}
                           disabled={running}
                         >
-                          Delete
+                          <ButtonLabel icon="approval">Delete</ButtonLabel>
                         </button>
                       </div>
                     </div>
@@ -21902,7 +21902,7 @@ export default function App() {
                           onClick={() => setOpsId(grant.id)}
                           disabled={running}
                         >
-                          Set Id
+                          <ButtonLabel icon="approval">Set Id</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -21911,7 +21911,7 @@ export default function App() {
                           onClick={() => void revokeProfileGrantFromOps(grant.id)}
                           disabled={running}
                         >
-                          Revoke
+                          <ButtonLabel icon="approval">Revoke</ButtonLabel>
                         </button>
                       </div>
                     </div>

@@ -23768,7 +23768,7 @@ export default function App() {
                         onClick={() => stageIngestSourceProbe(ingestionSourceProbe)}
                         disabled={running}
                       >
-                        Use Path
+                        <ButtonLabel icon="artifact">Use Path</ButtonLabel>
                       </button>
                     </div>
                     <div className="finding-list">
@@ -23806,7 +23806,7 @@ export default function App() {
                                 }
                                 disabled={running}
                               >
-                                Use
+                                <ButtonLabel icon="setup">Use</ButtonLabel>
                               </button>
                               <button
                                 type="button"
@@ -23826,7 +23826,7 @@ export default function App() {
                                   sourceProbeDirectIngestBlocked(ingestionSourceProbe)
                                 }
                               >
-                                Ingest
+                                <ButtonLabel icon="ingest">Ingest</ButtonLabel>
                               </button>
                             </div>
                           ) : null}
@@ -23969,7 +23969,7 @@ export default function App() {
                           onClick={() => includeIngestId(artifact.id)}
                           disabled={running}
                         >
-                          Use
+                          <ButtonLabel icon="context">Use</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -23977,7 +23977,7 @@ export default function App() {
                           onClick={() => void previewWithIngest(artifact.id)}
                           disabled={running}
                         >
-                          Preview
+                          <ButtonLabel icon="context">Preview</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -23985,7 +23985,7 @@ export default function App() {
                           onClick={() => setOpsId(artifact.id)}
                           disabled={running}
                         >
-                          Set Id
+                          <ButtonLabel icon="artifact">Set Id</ButtonLabel>
                         </button>
                         {artifact.findings.length ? (
                           <button
@@ -23994,7 +23994,7 @@ export default function App() {
                             onClick={() => stageIngestFindingReview(artifact)}
                             disabled={running}
                           >
-                            Stage Finding
+                            <ButtonLabel icon="approval">Stage Finding</ButtonLabel>
                           </button>
                         ) : null}
                         <button
@@ -24003,7 +24003,7 @@ export default function App() {
                           onClick={() => void rerunIngestId(artifact.id)}
                           disabled={running}
                         >
-                          Rerun
+                          <ButtonLabel icon="trace">Rerun</ButtonLabel>
                         </button>
                       </div>
                     </div>

@@ -21083,7 +21083,7 @@ export default function App() {
               onChange={(e) => setOpsUserMemory(e.target.checked)}
               disabled={running}
             />
-            <span>User memory</span>
+            <ButtonLabel icon="memory">User memory</ButtonLabel>
           </label>
           <div className="operation-groups">
             {activeSection === "conversations" ? (

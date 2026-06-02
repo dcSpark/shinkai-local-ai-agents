@@ -1537,9 +1537,44 @@ function CompactionTransferCard({ status }: { status: CompactionTransferStatus }
           tone={record.guidance?.trim() ? "ok" : "neutral"}
         />
       </div>
-      <span title={status.path}>{status.path}</span>
-      <span>{record.source}</span>
-      <span>{record.created_at}</span>
+      <div className="compaction-transfer-detail-list">
+        <div className="compaction-transfer-detail-row ok">
+          <span
+            className="compaction-transfer-detail-icon ok"
+            aria-hidden="true"
+          >
+            <AppIcon name="artifact" />
+          </span>
+          <div className="compaction-transfer-detail-copy">
+            <strong>Transfer path</strong>
+            <span title={status.path}>{status.path}</span>
+          </div>
+        </div>
+        <div className="compaction-transfer-detail-row ok">
+          <span
+            className="compaction-transfer-detail-icon ok"
+            aria-hidden="true"
+          >
+            <AppIcon name="context" />
+          </span>
+          <div className="compaction-transfer-detail-copy">
+            <strong>Source</strong>
+            <span>{record.source}</span>
+          </div>
+        </div>
+        <div className="compaction-transfer-detail-row ok">
+          <span
+            className="compaction-transfer-detail-icon ok"
+            aria-hidden="true"
+          >
+            <AppIcon name="trace" />
+          </span>
+          <div className="compaction-transfer-detail-copy">
+            <strong>Created at</strong>
+            <span>{record.created_at}</span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

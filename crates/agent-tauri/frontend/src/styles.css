@@ -4080,28 +4080,6 @@ textarea:disabled {
   font-family: inherit;
 }
 
-.tool-parameters {
-  display: grid;
-  gap: 0.35rem;
-}
-
-.tool-parameter {
-  display: grid;
-  gap: 0.18rem;
-  min-width: 0;
-  padding: 0.42rem;
-  border: 1px solid #2a2d34;
-  border-radius: 6px;
-  background: #15171b;
-}
-
-.tool-parameter-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 0.45rem;
-  align-items: center;
-}
-
 .ingestion-review {
   display: grid;
   gap: 0.5rem;

@@ -21702,36 +21702,107 @@ export default function App() {
                               tone={tool.provenance ? "ok" : "neutral"}
                             />
                           </div>
-                          {tool.categories.length ? (
-                            <span>categories {tool.categories.join(", ")}</span>
-                          ) : null}
-                          {tool.description ? <p>{tool.description}</p> : null}
-                          {tool.input_schema ? (
-                            <div className="tool-parameters">
-                              {parameters.length ? (
-                                parameters.map((parameter) => (
-                                  <div className="tool-parameter" key={parameter.name}>
-                                    <div className="tool-parameter-head">
-                                      <strong>{parameter.name}</strong>
-                                      <span>
-                                        {parameter.type}
-                                        {parameter.required ? " / required" : ""}
-                                      </span>
-                                    </div>
-                                    {parameter.description ? (
-                                      <p>{parameter.description}</p>
-                                    ) : null}
+                          {tool.categories.length ||
+                          tool.description ||
+                          tool.input_schema ||
+                          tool.output_interpretation_guidance ? (
+                            <div className="context-source-detail-list">
+                              {tool.categories.length ? (
+                                <div className="context-source-detail-row">
+                                  <span
+                                    className="context-source-detail-icon"
+                                    aria-hidden="true"
+                                  >
+                                    <AppIcon name="context" />
+                                  </span>
+                                  <div className="context-source-detail-copy">
+                                    <strong>Categories</strong>
+                                    <span>{tool.categories.join(", ")}</span>
                                   </div>
-                                ))
-                              ) : (
-                                <span>schema available</span>
-                              )}
+                                </div>
+                              ) : null}
+                              {tool.description ? (
+                                <div className="context-source-detail-row">
+                                  <span
+                                    className="context-source-detail-icon"
+                                    aria-hidden="true"
+                                  >
+                                    <AppIcon name="tools" />
+                                  </span>
+                                  <div className="context-source-detail-copy">
+                                    <strong>Description</strong>
+                                    <p>{tool.description}</p>
+                                  </div>
+                                </div>
+                              ) : null}
+                              {tool.input_schema ? (
+                                parameters.length ? (
+                                  parameters.map((parameter) => (
+                                    <div
+                                      className={
+                                        parameter.required
+                                          ? "context-source-detail-row warning"
+                                          : "context-source-detail-row"
+                                      }
+                                      key={parameter.name}
+                                    >
+                                      <span
+                                        className={
+                                          parameter.required
+                                            ? "context-source-detail-icon warning"
+                                            : "context-source-detail-icon"
+                                        }
+                                        aria-hidden="true"
+                                      >
+                                        <AppIcon name="setup" />
+                                      </span>
+                                      <div className="context-source-detail-copy">
+                                        <strong>{parameter.name}</strong>
+                                        <span>
+                                          {parameter.type}
+                                          {parameter.required ? " / required" : ""}
+                                        </span>
+                                        {parameter.description ? (
+                                          <p>{parameter.description}</p>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <div className="context-source-detail-row">
+                                    <span
+                                      className="context-source-detail-icon"
+                                      aria-hidden="true"
+                                    >
+                                      <AppIcon name="setup" />
+                                    </span>
+                                    <div className="context-source-detail-copy">
+                                      <strong>Input schema</strong>
+                                      <span>schema available</span>
+                                    </div>
+                                  </div>
+                                )
+                              ) : null}
+                              {tool.output_interpretation_guidance ? (
+                                <div className="context-source-detail-row">
+                                  <span
+                                    className="context-source-detail-icon"
+                                    aria-hidden="true"
+                                  >
+                                    <AppIcon name="control" />
+                                  </span>
+                                  <div className="context-source-detail-copy">
+                                    <strong>Output guidance</strong>
+                                    <p>
+                                      {previewText(
+                                        tool.output_interpretation_guidance,
+                                        180,
+                                      )}
+                                    </p>
+                                  </div>
+                                </div>
+                              ) : null}
                             </div>
-                          ) : null}
-                          {tool.output_interpretation_guidance ? (
-                            <p>
-                              {previewText(tool.output_interpretation_guidance, 180)}
-                            </p>
                           ) : null}
                           <div className="mini-actions">
                             <button
@@ -21850,10 +21921,54 @@ export default function App() {
                               tone={skill.provenance ? "ok" : "neutral"}
                             />
                           </div>
-                          {skill.categories.length ? (
-                            <span>categories {skill.categories.join(", ")}</span>
+                          {skill.categories.length ||
+                          skill.provenance ||
+                          skill.description ? (
+                            <div className="context-source-detail-list">
+                              {skill.categories.length ? (
+                                <div className="context-source-detail-row">
+                                  <span
+                                    className="context-source-detail-icon"
+                                    aria-hidden="true"
+                                  >
+                                    <AppIcon name="context" />
+                                  </span>
+                                  <div className="context-source-detail-copy">
+                                    <strong>Categories</strong>
+                                    <span>{skill.categories.join(", ")}</span>
+                                  </div>
+                                </div>
+                              ) : null}
+                              {skill.provenance ? (
+                                <div className="context-source-detail-row">
+                                  <span
+                                    className="context-source-detail-icon"
+                                    aria-hidden="true"
+                                  >
+                                    <AppIcon name="trace" />
+                                  </span>
+                                  <div className="context-source-detail-copy">
+                                    <strong>Provenance</strong>
+                                    <span>{contextSourcePreview(skill.provenance)}</span>
+                                  </div>
+                                </div>
+                              ) : null}
+                              {skill.description ? (
+                                <div className="context-source-detail-row">
+                                  <span
+                                    className="context-source-detail-icon"
+                                    aria-hidden="true"
+                                  >
+                                    <AppIcon name="skill" />
+                                  </span>
+                                  <div className="context-source-detail-copy">
+                                    <strong>Description</strong>
+                                    <p>{skill.description}</p>
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
                           ) : null}
-                          {skill.description ? <p>{skill.description}</p> : null}
                           <div className="mini-actions">
                             <button
                               type="button"

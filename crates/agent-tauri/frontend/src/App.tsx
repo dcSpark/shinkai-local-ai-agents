@@ -16352,6 +16352,56 @@ export default function App() {
     return `auth ${auth}; ${x402}`;
   }
 
+  function bridgeEndpointCount(bridge: BridgeStatusRecord) {
+    return new Set([...(bridge.inbound ?? []), ...(bridge.targets ?? [])]).size;
+  }
+
+  function bridgeAuthTone(bridge: BridgeStatusRecord): ContextReviewCard["tone"] {
+    return configuredLabel(bridge.auth) === "configured" ? "ok" : "warning";
+  }
+
+  function bridgeX402Label(bridge: BridgeStatusRecord) {
+    const x402 = jsonObject(bridge.x402);
+    if (x402?.enabled !== true) return "off";
+    return x402.valid === false ? "invalid" : "on";
+  }
+
+  function bridgeX402Tone(bridge: BridgeStatusRecord): ContextReviewCard["tone"] {
+    const label = bridgeX402Label(bridge);
+    if (label === "invalid") return "danger";
+    return label === "on" ? "ok" : "neutral";
+  }
+
+  function bridgeRuntimeLabel(bridge: BridgeStatusRecord) {
+    return bridgeRuntimeHasOverride(bridge.runtime) ? "custom" : "default";
+  }
+
+  function bridgeOutboundSignals(bridge: BridgeStatusRecord) {
+    const outbound = jsonObject(bridge.outbound);
+    if (!outbound) return 0;
+    return Object.values(outbound).filter((value) => value === true).length;
+  }
+
+  function bridgeDeliveryTone(delivery: BridgeDeliveryRecord): ContextReviewCard["tone"] {
+    const record = jsonObject(delivery.last_delivery);
+    return record?.delivered === true ? "ok" : "warning";
+  }
+
+  function bridgeDeliveryUpdatedLabel(delivery: BridgeDeliveryRecord) {
+    if (!Number.isFinite(delivery.updated_ms) || delivery.updated_ms <= 0) {
+      return "unknown";
+    }
+    const date = new Date(delivery.updated_ms);
+    const options: Intl.DateTimeFormatOptions = {
+      month: "short",
+      day: "numeric",
+    };
+    if (date.getFullYear() !== new Date().getFullYear()) {
+      options.year = "numeric";
+    }
+    return date.toLocaleDateString(undefined, options);
+  }
+
   function bridgeStatusEventSummary(status: BridgeStatusResponse) {
     const summary = bridgeStatusSummary(status);
     return [
@@ -24795,67 +24845,187 @@ export default function App() {
               </div>
               {bridgeStatus ? (
                 <>
-                  <div className="bundle-card">
-                    {(() => {
-                      const summary = bridgeStatusSummary(bridgeStatus);
-                      return (
-                        <>
-                          <div className="bundle-card-head">
+                  {(() => {
+                    const summary = bridgeStatusSummary(bridgeStatus);
+                    return (
+                      <div className="bridge-card ok">
+                        <div className="bridge-card-head with-icon">
+                          <span className="bridge-card-icon ok" aria-hidden="true">
+                            <AppIcon name="conversation" />
+                          </span>
+                          <div className="bridge-card-title">
                             <strong>Bridge status</strong>
                             <span>{summary.bridgeCount} surfaces</span>
                           </div>
-                          <span>
-                            {summary.authConfigured} auth configured /{" "}
-                            {summary.x402Enabled} bridge x402 enabled
+                        </div>
+                        <div className="bridge-metrics">
+                          <VisualMetric
+                            icon="conversation"
+                            label="surfaces"
+                            value={summary.bridgeCount}
+                            section="adapters"
+                            tone={summary.bridgeCount ? "ok" : "warning"}
+                          />
+                          <VisualMetric
+                            icon="approval"
+                            label="auth"
+                            value={summary.authConfigured}
+                            section="adapters"
+                            tone={
+                              summary.authConfigured === summary.bridgeCount
+                                ? "ok"
+                                : "warning"
+                            }
+                          />
+                          <VisualMetric
+                            icon="tools"
+                            label="runtime"
+                            value={summary.runtimeOverrides}
+                            section="adapters"
+                          />
+                          <VisualMetric
+                            icon="artifact"
+                            label="bridge x402"
+                            value={summary.x402Enabled}
+                            section="adapters"
+                            tone={summary.x402Enabled ? "ok" : "neutral"}
+                          />
+                          <VisualMetric
+                            icon="trace"
+                            label="worker"
+                            value={summary.workerEnabled ? "on" : "off"}
+                            section="adapters"
+                            tone={summary.workerEnabled ? "ok" : "neutral"}
+                          />
+                        </div>
+                        <span>
+                          daemon x402 {summary.daemonX402Enabled ? "on" : "off"}
+                        </span>
+                        {bridgeStatus.delivery_worker ? (
+                          <span title={previewJson(bridgeStatus.delivery_worker)}>
+                            delivery worker{" "}
+                            {previewText(previewJson(bridgeStatus.delivery_worker), 180)}
                           </span>
-                          <span>
-                            {summary.runtimeOverrides} runtime overrides / delivery worker{" "}
-                            {summary.workerEnabled ? "on" : "off"} / daemon x402{" "}
-                            {summary.daemonX402Enabled ? "on" : "off"}
+                        ) : null}
+                        {bridgeStatus.daemon_x402 ? (
+                          <span title={previewJson(bridgeStatus.daemon_x402)}>
+                            daemon x402{" "}
+                            {previewText(previewJson(bridgeStatus.daemon_x402), 180)}
                           </span>
-                          {bridgeStatus.delivery_worker ? (
-                            <span>
-                              delivery worker{" "}
-                              {previewText(previewJson(bridgeStatus.delivery_worker), 180)}
-                            </span>
-                          ) : null}
-                          {bridgeStatus.daemon_x402 ? (
-                            <span>
-                              daemon x402{" "}
-                              {previewText(previewJson(bridgeStatus.daemon_x402), 180)}
-                            </span>
-                          ) : null}
-                        </>
-                      );
-                    })()}
-                  </div>
-                  <div className="storage-buckets">
+                        ) : null}
+                      </div>
+                    );
+                  })()}
+                  <div className="bridge-list">
                     {bridgeStatus.bridges.map((bridge) => (
-                      <div className="storage-bucket" key={bridge.platform}>
-                        <strong>{bridge.platform}</strong>
-                        <span>{(bridge.inbound ?? bridge.targets ?? []).join(", ")}</span>
-                        <span>{bridgeReadinessSummary(bridge)}</span>
-                        <span>{previewText(previewJson(bridge), 220)}</span>
+                      <div
+                        className={`bridge-card ${bridgeAuthTone(bridge)}`}
+                        key={bridge.platform}
+                      >
+                        <div className="bridge-card-head with-icon">
+                          <span
+                            className={`bridge-card-icon ${bridgeAuthTone(bridge)}`}
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="adapter" />
+                          </span>
+                          <div className="bridge-card-title">
+                            <strong>{bridge.platform}</strong>
+                            <span>{bridgeReadinessSummary(bridge)}</span>
+                          </div>
+                        </div>
+                        <div className="bridge-metrics">
+                          <VisualMetric
+                            icon="conversation"
+                            label="endpoints"
+                            value={bridgeEndpointCount(bridge)}
+                            section="adapters"
+                            tone={bridgeEndpointCount(bridge) ? "ok" : "warning"}
+                          />
+                          <VisualMetric
+                            icon="approval"
+                            label="auth"
+                            value={configuredLabel(bridge.auth)}
+                            section="adapters"
+                            tone={bridgeAuthTone(bridge)}
+                          />
+                          <VisualMetric
+                            icon="artifact"
+                            label="x402"
+                            value={bridgeX402Label(bridge)}
+                            section="adapters"
+                            tone={bridgeX402Tone(bridge)}
+                          />
+                          <VisualMetric
+                            icon="tools"
+                            label="runtime"
+                            value={bridgeRuntimeLabel(bridge)}
+                            section="adapters"
+                            tone={
+                              bridgeRuntimeHasOverride(bridge.runtime)
+                                ? "ok"
+                                : "neutral"
+                            }
+                          />
+                          <VisualMetric
+                            icon="trace"
+                            label="outbound"
+                            value={bridgeOutboundSignals(bridge)}
+                            section="adapters"
+                            tone={bridgeOutboundSignals(bridge) ? "ok" : "neutral"}
+                          />
+                        </div>
+                        <span>
+                          inbound {(bridge.inbound ?? []).join(", ") || "none"}
+                        </span>
+                        <span>
+                          targets {(bridge.targets ?? []).join(", ") || "none"}
+                        </span>
+                        <span title={previewJson(bridge)}>
+                          {previewText(previewJson(bridge), 220)}
+                        </span>
                       </div>
                     ))}
                   </div>
                 </>
               ) : null}
               {bridgeDeliveries.length ? (
-                <div className="storage-buckets">
+                <div className="bridge-list">
                   {bridgeDeliveries.map((delivery) => (
                     <div
-                      className="storage-bucket"
+                      className={`bridge-card ${bridgeDeliveryTone(delivery)}`}
                       key={delivery.id}
                       title={delivery.url}
                     >
-                      <strong>{delivery.target}</strong>
-                      <span>{delivery.id}</span>
-                      <span>{delivery.url}</span>
-                      <span>
-                        updated {formatUnixMs(delivery.updated_ms)} /{" "}
-                        {deliveryStatusLabel(delivery.last_delivery)}
-                      </span>
+                      <div className="bridge-card-head with-icon">
+                        <span
+                          className={`bridge-card-icon ${bridgeDeliveryTone(delivery)}`}
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="conversation" />
+                        </span>
+                        <div className="bridge-card-title">
+                          <strong>{delivery.target}</strong>
+                          <span>{delivery.id}</span>
+                        </div>
+                      </div>
+                      <div className="bridge-metrics">
+                        <VisualMetric
+                          icon="approval"
+                          label="status"
+                          value={deliveryStatusLabel(delivery.last_delivery)}
+                          section="adapters"
+                          tone={bridgeDeliveryTone(delivery)}
+                        />
+                        <VisualMetric
+                          icon="trace"
+                          label="updated"
+                          value={bridgeDeliveryUpdatedLabel(delivery)}
+                          section="adapters"
+                        />
+                      </div>
+                      <span>updated {formatUnixMs(delivery.updated_ms)}</span>
+                      <span title={delivery.url}>url {delivery.url}</span>
                       <div className="mini-actions">
                         <button
                           type="button"

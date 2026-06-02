@@ -101,9 +101,11 @@ type IconName =
   | "artifact"
   | "brand"
   | "chat"
+  | "collapse"
   | "context"
   | "control"
   | "conversation"
+  | "expand"
   | "ingest"
   | "memory"
   | "profile"
@@ -424,6 +426,14 @@ function AppIcon({ name, className }: { name: IconName; className?: string }) {
         </>
       );
       break;
+    case "collapse":
+      body = (
+        <>
+          <path d="m7 10 5 5 5-5" />
+          <path d="M12 5v9" />
+        </>
+      );
+      break;
     case "context":
       body = (
         <>
@@ -451,6 +461,14 @@ function AppIcon({ name, className }: { name: IconName; className?: string }) {
           <path d="M6 5h7a3 3 0 0 1 0 6H9l-3 2.5V5Z" />
           <path d="M14 12h4v6l-2.5-2H11a2.5 2.5 0 0 1-2.5-2.5" />
           <path d="M13 8h3" />
+        </>
+      );
+      break;
+    case "expand":
+      body = (
+        <>
+          <path d="m10 7 5 5-5 5" />
+          <path d="M5 12h9" />
         </>
       );
       break;
@@ -6646,14 +6664,16 @@ export default function App() {
         <div className="trace-tree-node-main">
           <button
             type="button"
-            className="trace-tree-toggle"
+            className={`trace-tree-toggle ${hasChildren ? "has-children" : "leaf-run"}`}
             title={hasChildren ? (collapsed ? "Expand branch" : "Collapse branch") : "Leaf run"}
             aria-label={hasChildren ? (collapsed ? "Expand branch" : "Collapse branch") : "Leaf run"}
             aria-expanded={hasChildren ? !collapsed : undefined}
             onClick={() => toggleTraceTreeNode(node.run_id)}
             disabled={running || !hasChildren}
           >
-            {hasChildren ? (collapsed ? "+" : "-") : ""}
+            {hasChildren ? (
+              <AppIcon name={collapsed ? "expand" : "collapse"} />
+            ) : null}
           </button>
           <span className="trace-tree-marker" aria-hidden="true">
             <AppIcon name={traceTreeNodeIcon(node)} />

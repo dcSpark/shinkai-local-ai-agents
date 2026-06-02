@@ -20755,14 +20755,14 @@ export default function App() {
                 title="List allowed lifecycle hooks and their effective policy state."
                 onClick={() => void refreshHookCatalog()}
               >
-                List Hooks
+                <ButtonLabel icon="adapter">List Hooks</ButtonLabel>
               </button>
               <button
                 type="button"
                 title="Load persisted lifecycle hook policy for the active agent/profile."
                 onClick={() => void refreshHookPolicy()}
               >
-                Refresh Policy
+                <ButtonLabel icon="approval">Refresh Policy</ButtonLabel>
               </button>
             </div>
             {hookCatalog.length > 0 || hookPolicy ? (
@@ -20872,7 +20872,9 @@ export default function App() {
                             )
                           }
                         >
-                          {profileDisabled ? "Enable Profile" : "Disable Profile"}
+                          <ButtonLabel icon="profile">
+                            {profileDisabled ? "Enable Profile" : "Disable Profile"}
+                          </ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -20885,7 +20887,9 @@ export default function App() {
                             )
                           }
                         >
-                          {agentDisabled ? "Enable Agent" : "Disable Agent"}
+                          <ButtonLabel icon="brand">
+                            {agentDisabled ? "Enable Agent" : "Disable Agent"}
+                          </ButtonLabel>
                         </button>
                       </div>
                     </div>
@@ -20903,7 +20907,7 @@ export default function App() {
                   title="Load persisted lifecycle hook policy for the active agent/profile."
                   onClick={() => void refreshHookPolicy()}
                 >
-                  Refresh Policy
+                  <ButtonLabel icon="approval">Refresh Policy</ButtonLabel>
                 </button>
                 {hookPolicy ? (
                   <span>
@@ -20949,7 +20953,7 @@ export default function App() {
                           onClick={() => void loadTracePromptToComposer()}
                           disabled={running || !traceOriginalPrompt(traceEvents)}
                         >
-                          Load Prompt
+                          <ButtonLabel icon="prompt">Load Prompt</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -20957,7 +20961,7 @@ export default function App() {
                           onClick={() => void replayTracePrompt()}
                           disabled={running || !traceOriginalPrompt(traceEvents)}
                         >
-                          Replay
+                          <ButtonLabel icon="trace">Replay</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -20965,7 +20969,7 @@ export default function App() {
                           onClick={() => void replayTracePromptWithoutHooks()}
                           disabled={running || !traceOriginalPrompt(traceEvents)}
                         >
-                          Skip Hooks
+                          <ButtonLabel icon="approval">Skip Hooks</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -20978,7 +20982,9 @@ export default function App() {
                             )
                           }
                         >
-                          {profileDisabled ? "Enable Profile" : "Disable Profile"}
+                          <ButtonLabel icon="profile">
+                            {profileDisabled ? "Enable Profile" : "Disable Profile"}
+                          </ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -20991,7 +20997,9 @@ export default function App() {
                             )
                           }
                         >
-                          {agentDisabled ? "Enable Agent" : "Disable Agent"}
+                          <ButtonLabel icon="brand">
+                            {agentDisabled ? "Enable Agent" : "Disable Agent"}
+                          </ButtonLabel>
                         </button>
                       </div>
                     </div>

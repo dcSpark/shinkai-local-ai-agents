@@ -5169,10 +5169,20 @@ textarea:disabled {
   align-items: start;
 }
 
+.capability-doctor-detail-row.ok {
+  border-color: #275c43;
+  background: #13201a;
+}
+
 .capability-doctor-detail-row.warning,
 .capability-doctor-draft-row.warning {
   border-color: #816a2d;
   background: #251f12;
+}
+
+.capability-doctor-detail-row.danger {
+  border-color: #7d3c45;
+  background: #211317;
 }
 
 .capability-doctor-draft-row.ok {
@@ -5232,6 +5242,15 @@ textarea:disabled {
   display: grid;
   gap: 0.14rem;
   min-width: 0;
+}
+
+.capability-doctor-detail-row p {
+  margin: 0;
+  color: #c3c8d0;
+  font-family: inherit;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .capability-doctor-draft-row p {

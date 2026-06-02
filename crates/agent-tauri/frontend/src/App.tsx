@@ -26323,20 +26323,89 @@ export default function App() {
                         }
                       />
                     </div>
-                    <span>
-                      {capabilityDoctorReport.draft_count} drafts /{" "}
-                      {capabilityDoctorReport.review_needed_count} review needed
-                    </span>
-                    <span>
-                      {capabilityDoctorReport.adapter_pack_candidate_count} adapter pack /{" "}
-                      {capabilityDoctorReport.skill_candidate_count} skill /{" "}
-                      {capabilityDoctorReport.agent_candidate_count} agent
-                    </span>
-                    <span>
-                      {capabilityDoctorReport.quarantined_count} quarantined /{" "}
-                      {capabilityDoctorReport.allowed_count} allowed /{" "}
-                      {capabilityDoctorReport.rejected_count} rejected
-                    </span>
+                    <div className="capability-doctor-detail-list">
+                      <div
+                        className={
+                          capabilityDoctorReport.review_needed_count
+                            ? "capability-doctor-detail-row warning"
+                            : "capability-doctor-detail-row ok"
+                        }
+                      >
+                        <span
+                          className={
+                            capabilityDoctorReport.review_needed_count
+                              ? "capability-doctor-row-icon warning"
+                              : "capability-doctor-row-icon ok"
+                          }
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="approval" />
+                        </span>
+                        <div>
+                          <strong>Review load</strong>
+                          <span>
+                            {capabilityDoctorReport.draft_count} drafts /{" "}
+                            {capabilityDoctorReport.review_needed_count} review needed
+                          </span>
+                        </div>
+                      </div>
+                      <div
+                        className={
+                          capabilityDoctorReport.adapter_pack_candidate_count ||
+                          capabilityDoctorReport.skill_candidate_count ||
+                          capabilityDoctorReport.agent_candidate_count
+                            ? "capability-doctor-detail-row ok"
+                            : "capability-doctor-detail-row"
+                        }
+                      >
+                        <span
+                          className={
+                            capabilityDoctorReport.adapter_pack_candidate_count ||
+                            capabilityDoctorReport.skill_candidate_count ||
+                            capabilityDoctorReport.agent_candidate_count
+                              ? "capability-doctor-row-icon ok"
+                              : "capability-doctor-row-icon"
+                          }
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="adapter" />
+                        </span>
+                        <div>
+                          <strong>Promotion targets</strong>
+                          <span>
+                            {capabilityDoctorReport.adapter_pack_candidate_count} adapter
+                            pack / {capabilityDoctorReport.skill_candidate_count} skill /{" "}
+                            {capabilityDoctorReport.agent_candidate_count} agent
+                          </span>
+                        </div>
+                      </div>
+                      <div
+                        className={
+                          capabilityDoctorReport.quarantined_count
+                            ? "capability-doctor-detail-row warning"
+                            : "capability-doctor-detail-row ok"
+                        }
+                      >
+                        <span
+                          className={
+                            capabilityDoctorReport.quarantined_count
+                              ? "capability-doctor-row-icon warning"
+                              : "capability-doctor-row-icon ok"
+                          }
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="tools" />
+                        </span>
+                        <div>
+                          <strong>Draft states</strong>
+                          <span>
+                            {capabilityDoctorReport.quarantined_count} quarantined /{" "}
+                            {capabilityDoctorReport.allowed_count} allowed /{" "}
+                            {capabilityDoctorReport.rejected_count} rejected
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                     {capabilityDoctorReport.warnings.length ? (
                       <div className="capability-doctor-detail-list">
                         {capabilityDoctorReport.warnings.map((warning) => (
@@ -26425,10 +26494,67 @@ export default function App() {
                                   tone={draft.guidance_preview ? "ok" : "neutral"}
                                 />
                               </div>
-                              <p>{previewText(draft.body_preview, 180)}</p>
-                              {draft.guidance_preview ? (
-                                <p>{previewText(draft.guidance_preview, 160)}</p>
-                              ) : null}
+                              <div className="capability-doctor-detail-list">
+                                <div
+                                  className={
+                                    draft.body_preview.trim()
+                                      ? "capability-doctor-detail-row ok"
+                                      : "capability-doctor-detail-row warning"
+                                  }
+                                >
+                                  <span
+                                    className={
+                                      draft.body_preview.trim()
+                                        ? "capability-doctor-row-icon ok"
+                                        : "capability-doctor-row-icon warning"
+                                    }
+                                    aria-hidden="true"
+                                  >
+                                    <AppIcon name="prompt" />
+                                  </span>
+                                  <div>
+                                    <strong>Body preview</strong>
+                                    <p>
+                                      {draft.body_preview.trim()
+                                        ? previewText(draft.body_preview, 180)
+                                        : "Draft body preview is empty."}
+                                    </p>
+                                  </div>
+                                </div>
+                                {draft.guidance_preview ? (
+                                  <div className="capability-doctor-detail-row ok">
+                                    <span
+                                      className="capability-doctor-row-icon ok"
+                                      aria-hidden="true"
+                                    >
+                                      <AppIcon name="context" />
+                                    </span>
+                                    <div>
+                                      <strong>Guidance preview</strong>
+                                      <p>
+                                        {previewText(draft.guidance_preview, 160)}
+                                      </p>
+                                    </div>
+                                  </div>
+                                ) : null}
+                                {draft.notes.map((note) => (
+                                  <div
+                                    className="capability-doctor-detail-row warning"
+                                    key={`${draft.id}:note:${note}`}
+                                  >
+                                    <span
+                                      className="capability-doctor-row-icon warning"
+                                      aria-hidden="true"
+                                    >
+                                      <AppIcon name="trace" />
+                                    </span>
+                                    <div>
+                                      <strong>Review note</strong>
+                                      <span>{previewText(note, 180)}</span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
                             </div>
                           );
                         })}

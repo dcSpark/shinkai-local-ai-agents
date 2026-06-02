@@ -26364,7 +26364,7 @@ export default function App() {
                         onClick={() => void assessApproval(approval.approval_id)}
                         disabled={running || approval.status !== "pending"}
                       >
-                        Assess
+                        <ButtonLabel icon="profile">Assess</ButtonLabel>
                       </button>
                       <button
                         type="button"
@@ -26372,7 +26372,7 @@ export default function App() {
                         onClick={() => void decideApproval(approval.approval_id, true)}
                         disabled={running || approval.status !== "pending"}
                       >
-                        Approve
+                        <ButtonLabel icon="approval">Approve</ButtonLabel>
                       </button>
                       <button
                         type="button"
@@ -26381,7 +26381,7 @@ export default function App() {
                         onClick={() => void decideApproval(approval.approval_id, false)}
                         disabled={running || approval.status !== "pending"}
                       >
-                        Reject
+                        <ButtonLabel icon="approval">Reject</ButtonLabel>
                       </button>
                     </div>
                   </div>

@@ -25035,7 +25035,7 @@ export default function App() {
                   onClick={() => void reviewAdapters()}
                   disabled={running}
                 >
-                  List Adapters
+                  <ButtonLabel icon="adapter">List Adapters</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -25043,7 +25043,7 @@ export default function App() {
                   onClick={() => void adapterDoctorFromOps()}
                   disabled={running}
                 >
-                  Doctor
+                  <ButtonLabel icon="trace">Doctor</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -25051,7 +25051,7 @@ export default function App() {
                   onClick={() => void importAdapterFromOps()}
                   disabled={running || !opsValue.trim()}
                 >
-                  Import Adapter
+                  <ButtonLabel icon="artifact">Import Adapter</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -25059,7 +25059,7 @@ export default function App() {
                   onClick={() => void importAdapterManifestFromOps()}
                   disabled={running || !opsValue.trim()}
                 >
-                  Import Manifest
+                  <ButtonLabel icon="artifact">Import Manifest</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -25067,7 +25067,7 @@ export default function App() {
                   onClick={() => void showAdapterFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Show Adapter
+                  <ButtonLabel icon="adapter">Show Adapter</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -25075,7 +25075,7 @@ export default function App() {
                   onClick={() => void exportAdapterFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Export Adapter
+                  <ButtonLabel icon="artifact">Export Adapter</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -25083,7 +25083,7 @@ export default function App() {
                   onClick={() => void installAdapterSkillFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Install Skill
+                  <ButtonLabel icon="skill">Install Skill</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -25091,7 +25091,7 @@ export default function App() {
                   onClick={() => void setAdapterQuarantine(true)}
                   disabled={running || !opsId.trim()}
                 >
-                  Allow Adapter
+                  <ButtonLabel icon="approval">Allow Adapter</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -25099,7 +25099,7 @@ export default function App() {
                   onClick={() => void setAdapterQuarantine(false)}
                   disabled={running || !opsId.trim()}
                 >
-                  Block Adapter
+                  <ButtonLabel icon="approval">Block Adapter</ButtonLabel>
                 </button>
               </div>
               {adapterDoctorReport ? (
@@ -25606,7 +25606,7 @@ export default function App() {
                   onClick={() => void bridgeStatusFromOps()}
                   disabled={running || transport !== "daemon"}
                 >
-                  Status
+                  <ButtonLabel icon="conversation">Status</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -25614,7 +25614,7 @@ export default function App() {
                   onClick={() => void listBridgeDeliveriesFromOps()}
                   disabled={running || transport !== "daemon"}
                 >
-                  List Deliveries
+                  <ButtonLabel icon="conversation">List Deliveries</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -25622,7 +25622,7 @@ export default function App() {
                   onClick={() => void retryBridgeDeliveryFromOps()}
                   disabled={running || transport !== "daemon" || !opsId.trim()}
                 >
-                  Retry Id
+                  <ButtonLabel icon="trace">Retry Id</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -25630,7 +25630,7 @@ export default function App() {
                   onClick={() => void deleteBridgeDeliveryFromOps()}
                   disabled={running || transport !== "daemon" || !opsId.trim()}
                 >
-                  Delete Id
+                  <ButtonLabel icon="approval">Delete Id</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -25638,7 +25638,7 @@ export default function App() {
                   onClick={() => void retryAllBridgeDeliveriesFromOps()}
                   disabled={running || transport !== "daemon"}
                 >
-                  Retry All
+                  <ButtonLabel icon="trace">Retry All</ButtonLabel>
                 </button>
               </div>
               {bridgeStatus ? (
@@ -25880,7 +25880,7 @@ export default function App() {
                   onClick={() => void backupBundleNow()}
                   disabled={running}
                 >
-                  Backup Now
+                  <ButtonLabel icon="artifact">Backup Now</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -25888,7 +25888,7 @@ export default function App() {
                   onClick={() => void exportBundleFromOps()}
                   disabled={running}
                 >
-                  Export
+                  <ButtonLabel icon="artifact">Export</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -25896,7 +25896,7 @@ export default function App() {
                   onClick={() => void importBundleFromOps()}
                   disabled={running || !opsValue.trim()}
                 >
-                  Import
+                  <ButtonLabel icon="artifact">Import</ButtonLabel>
                 </button>
               </div>
               {bundleStatus ? (
@@ -25919,7 +25919,7 @@ export default function App() {
                   onClick={() => void storageReportFromOps()}
                   disabled={running}
                 >
-                  Report
+                  <ButtonLabel icon="memory">Report</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -25927,7 +25927,7 @@ export default function App() {
                   onClick={() => void storagePruneCacheFromOps(false)}
                   disabled={running || !opsValue.trim()}
                 >
-                  Prune Plan
+                  <ButtonLabel icon="trace">Prune Plan</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -25936,7 +25936,7 @@ export default function App() {
                   onClick={() => void storagePruneCacheFromOps(true)}
                   disabled={running || !opsValue.trim()}
                 >
-                  Prune Apply
+                  <ButtonLabel icon="approval">Prune Apply</ButtonLabel>
                 </button>
               </div>
               {storageReport ? (

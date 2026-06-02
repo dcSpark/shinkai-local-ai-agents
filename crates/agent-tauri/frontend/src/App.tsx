@@ -24021,7 +24021,7 @@ export default function App() {
                   onClick={() => void startVoiceCapture()}
                   disabled={running || recordingVoice}
                 >
-                  Record
+                  <ButtonLabel icon="control">Record</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24029,7 +24029,7 @@ export default function App() {
                   onClick={stopVoiceCapture}
                   disabled={!recordingVoice}
                 >
-                  Stop
+                  <ButtonLabel icon="approval">Stop</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24037,7 +24037,7 @@ export default function App() {
                   onClick={() => void transcribeVoiceCapture()}
                   disabled={running || recordingVoice || !voiceCaptureArtifact}
                 >
-                  Transcribe
+                  <ButtonLabel icon="prompt">Transcribe</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24045,7 +24045,7 @@ export default function App() {
                   onClick={() => void speakVoiceOutput()}
                   disabled={running || recordingVoice || voiceOutputBusy}
                 >
-                  Speak
+                  <ButtonLabel icon="artifact">Speak</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24053,7 +24053,7 @@ export default function App() {
                   onClick={() => stageVoiceSpeak()}
                   disabled={running || recordingVoice}
                 >
-                  Stage TTS
+                  <ButtonLabel icon="tools">Stage TTS</ButtonLabel>
                 </button>
               </div>
               <div className={`artifact-card ${voiceActivityTone()}`}>

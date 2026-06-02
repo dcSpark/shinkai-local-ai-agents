@@ -29884,7 +29884,9 @@ export default function App() {
                                   </span>
                                   <div className="tool-detail-copy">
                                     <strong>Description</strong>
-                                    <p>{previewText(tool.description, 180)}</p>
+                                    <span>
+                                      {previewText(tool.description, 180)}
+                                    </span>
                                   </div>
                                 </div>
                               ) : null}
@@ -29900,12 +29902,12 @@ export default function App() {
                                   </span>
                                   <div className="tool-detail-copy">
                                     <strong>Output Guidance</strong>
-                                    <p>
+                                    <span>
                                       {previewText(
                                         tool.output_interpretation_guidance,
                                         180,
                                       )}
-                                    </p>
+                                    </span>
                                   </div>
                                 </div>
                               ) : null}

@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App visible-tool catalog copy detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx` | Chat-side visible tool catalog descriptions and output guidance now render as labeled tool detail-row copy instead of paragraph islands inside already icon-bearing tool cards. |
 | App context-preview tool-skill copy detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx` | Context preview tool descriptions, parameter descriptions, output guidance, and skill descriptions now render as labeled context detail-row copy instead of paragraph islands inside already icon-bearing source cards. |
 | App conversation recovery asset detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx` | Conversation recovery cards now render agent ids, suggested run ids, linked compaction/memory previews, and generated-artifact sizes as labeled conversation detail-row copy instead of loose paragraphs inside recovery rows. |
 | App context-preview artifact content detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx` | Context preview loaded-artifact cards now render artifact content and high-risk guardrail posture inside icon-bearing context detail rows/copy instead of a loose content preview paragraph and guardrail paragraph. |

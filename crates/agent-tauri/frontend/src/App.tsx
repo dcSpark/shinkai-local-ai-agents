@@ -22241,9 +22241,9 @@ export default function App() {
                                       </strong>
                                       <span>{previewText(finding, 180)}</span>
                                       {highRisk ? (
-                                        <p>
+                                        <span>
                                           guardrail {activeIngestionGuardrailMode()}
-                                        </p>
+                                        </span>
                                       ) : null}
                                     </div>
                                   </div>
@@ -22251,7 +22251,30 @@ export default function App() {
                               })}
                             </div>
                           ) : null}
-                          <p>{previewText(artifact.content)}</p>
+                          <div className="context-source-detail-list">
+                            <div
+                              className={
+                                artifact.content.trim()
+                                  ? "context-source-detail-row"
+                                  : "context-source-detail-row warning"
+                              }
+                            >
+                              <span
+                                className={
+                                  artifact.content.trim()
+                                    ? "context-source-detail-icon"
+                                    : "context-source-detail-icon warning"
+                                }
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="artifact" />
+                              </span>
+                              <div className="context-source-detail-copy">
+                                <strong>Artifact content</strong>
+                                <span>{previewText(artifact.content)}</span>
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       );
                     })}

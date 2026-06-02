@@ -23967,7 +23967,7 @@ export default function App() {
                               </span>
                             ) : null}
                             {node.topic_preview ? (
-                              <p className="conversation-tree-note">
+                              <div className="conversation-tree-note">
                                 <AppIcon name="prompt" />
                                 <span className="conversation-tree-note-body">
                                   <span className="conversation-tree-note-label">
@@ -23975,10 +23975,10 @@ export default function App() {
                                   </span>{" "}
                                   {previewText(node.topic_preview, 180)}
                                 </span>
-                              </p>
+                              </div>
                             ) : null}
                             {node.branch_reason ? (
-                              <p className="conversation-tree-note">
+                              <div className="conversation-tree-note">
                                 <AppIcon name="conversation" />
                                 <span className="conversation-tree-note-body">
                                   <span className="conversation-tree-note-label">
@@ -23986,7 +23986,7 @@ export default function App() {
                                   </span>{" "}
                                   {previewText(node.branch_reason, 180)}
                                 </span>
-                              </p>
+                              </div>
                             ) : null}
                             <div className="mini-actions">
                               <button
@@ -24122,28 +24122,89 @@ export default function App() {
                       }
                     />
                   </div>
-                  <span>{expandedConversation.conversation.id}</span>
-                  <span>agent {expandedConversation.conversation.agent_id}</span>
-                  <span>
-                    policy{" "}
-                    {conversationPolicySummary(
-                      expandedConversation.conversation.policy,
-                    )}
-                  </span>
-                  {expandedConversation.conversation.parent ? (
-                    <span>
-                      parent {expandedConversation.conversation.parent.conversation_id} @{" "}
-                      {expandedConversation.conversation.parent.parent_message_count}
-                    </span>
-                  ) : null}
-                  {expandedConversation.conversation.branch_reason ? (
-                    <p>
-                      {previewText(
-                        expandedConversation.conversation.branch_reason,
-                        220,
-                      )}
-                    </p>
-                  ) : null}
+                  <div className="conversation-detail-list">
+                    <div className="conversation-detail-row ok">
+                      <span
+                        className="conversation-detail-icon ok"
+                        aria-hidden="true"
+                      >
+                        <AppIcon name="conversation" />
+                      </span>
+                      <div className="conversation-detail-copy">
+                        <strong>Conversation</strong>
+                        <span>{expandedConversation.conversation.id}</span>
+                        <span>agent {expandedConversation.conversation.agent_id}</span>
+                      </div>
+                    </div>
+                    <div
+                      className={
+                        expandedConversation.conversation.policy
+                          ? "conversation-detail-row warning"
+                          : "conversation-detail-row"
+                      }
+                    >
+                      <span
+                        className={
+                          expandedConversation.conversation.policy
+                            ? "conversation-detail-icon warning"
+                            : "conversation-detail-icon"
+                        }
+                        aria-hidden="true"
+                      >
+                        <AppIcon name="approval" />
+                      </span>
+                      <div className="conversation-detail-copy">
+                        <strong>Policy</strong>
+                        <span>
+                          {conversationPolicySummary(
+                            expandedConversation.conversation.policy,
+                          )}
+                        </span>
+                      </div>
+                    </div>
+                    {expandedConversation.conversation.parent ? (
+                      <div className="conversation-detail-row warning">
+                        <span
+                          className="conversation-detail-icon warning"
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="context" />
+                        </span>
+                        <div className="conversation-detail-copy">
+                          <strong>Parent branch</strong>
+                          <span>
+                            {expandedConversation.conversation.parent.conversation_id}
+                          </span>
+                          <span>
+                            message{" "}
+                            {
+                              expandedConversation.conversation.parent
+                                .parent_message_count
+                            }
+                          </span>
+                        </div>
+                      </div>
+                    ) : null}
+                    {expandedConversation.conversation.branch_reason ? (
+                      <div className="conversation-detail-row warning">
+                        <span
+                          className="conversation-detail-icon warning"
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="prompt" />
+                        </span>
+                        <div className="conversation-detail-copy">
+                          <strong>Branch reason</strong>
+                          <span>
+                            {previewText(
+                              expandedConversation.conversation.branch_reason,
+                              220,
+                            )}
+                          </span>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
                   <div className="mini-actions">
                     <button
                       type="button"

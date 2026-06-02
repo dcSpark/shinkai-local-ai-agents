@@ -6311,6 +6311,7 @@ textarea:disabled {
   min-width: 0;
 }
 
+.conversation-detail-copy span,
 .conversation-detail-copy p {
   margin: 0;
   color: #c3c8d0;
@@ -6500,6 +6501,7 @@ textarea:disabled {
   overflow-wrap: anywhere;
 }
 
+.conversation-tree-note,
 .conversation-tree-card p {
   margin: 0;
   color: #c3c8d0;
@@ -6524,6 +6526,7 @@ textarea:disabled {
 
 .conversation-tree-note-body {
   min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .conversation-tree-note-label {

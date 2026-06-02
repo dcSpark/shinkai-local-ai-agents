@@ -18099,6 +18099,21 @@ export default function App() {
     return `${index + 1}. ${message.role} / ${message.created_at}${run}`;
   }
 
+  function conversationMessageIcon(message: ConversationMessage): IconName {
+    if (message.role === "assistant") return "chat";
+    if (message.role === "tool") return "tools";
+    if (message.role === "system") return "setup";
+    return "prompt";
+  }
+
+  function conversationMessageTone(
+    message: ConversationMessage,
+  ): ContextReviewCard["tone"] {
+    if (message.role === "assistant") return "ok";
+    if (message.role === "tool") return "warning";
+    return message.run_id ? "ok" : "neutral";
+  }
+
   function upsertArtifact(
     artifacts: IngestionArtifact[],
     artifact: IngestionArtifact,
@@ -21585,9 +21600,58 @@ export default function App() {
               {conversationDeletePlan ? (
                 <div className="ingestion-review">
                   <div className="ingestion-card high-risk">
-                    <div className="ingestion-card-head">
-                      <strong>Delete impact</strong>
-                      <span>{conversationDeletePlan.delete_count} conversations</span>
+                    <div className="ingestion-card-head with-icon">
+                      <span className="ingestion-card-icon danger" aria-hidden="true">
+                        <AppIcon name="approval" />
+                      </span>
+                      <div className="ingestion-card-title">
+                        <strong>Delete impact</strong>
+                        <span>{conversationDeletePlan.delete_count} conversations</span>
+                      </div>
+                    </div>
+                    <div className="ingestion-metrics">
+                      <VisualMetric
+                        icon="conversation"
+                        label="delete"
+                        value={conversationDeletePlan.delete_count}
+                        section="conversations"
+                        tone="danger"
+                      />
+                      <VisualMetric
+                        icon="context"
+                        label="compactions"
+                        value={conversationDeletePlan.linked_compactions.length}
+                        section="conversations"
+                        tone={
+                          conversationDeletePlan.linked_compactions.length
+                            ? "warning"
+                            : "neutral"
+                        }
+                      />
+                      <VisualMetric
+                        icon="memory"
+                        label="memories"
+                        value={conversationDeletePlan.linked_memories.length}
+                        section="conversations"
+                        tone={
+                          conversationDeletePlan.linked_memories.length
+                            ? "warning"
+                            : "neutral"
+                        }
+                      />
+                      <VisualMetric
+                        icon="artifact"
+                        label="artifacts"
+                        value={
+                          conversationDeletePlan.linked_generated_artifacts.length
+                        }
+                        section="conversations"
+                        tone={
+                          conversationDeletePlan.linked_generated_artifacts.length
+                            ? "warning"
+                            : "neutral"
+                        }
+                      />
                     </div>
                     <div className="empty-note">
                       {conversationDeletePlan.linked_compactions.length} compactions,{" "}
@@ -21607,9 +21671,73 @@ export default function App() {
               {conversationRecoveryPlan ? (
                 <div className="ingestion-review">
                   <div className="ingestion-card">
-                    <div className="ingestion-card-head">
-                      <strong>Recovery plan</strong>
-                      <span>{conversationRecoveryPlan.title}</span>
+                    <div className="ingestion-card-head with-icon">
+                      <span className="ingestion-card-icon ok" aria-hidden="true">
+                        <AppIcon name="context" />
+                      </span>
+                      <div className="ingestion-card-title">
+                        <strong>Recovery plan</strong>
+                        <span>{conversationRecoveryPlan.title}</span>
+                      </div>
+                    </div>
+                    <div className="ingestion-metrics">
+                      <VisualMetric
+                        icon="chat"
+                        label="messages"
+                        value={conversationRecoveryPlan.expanded_message_count}
+                        section="conversations"
+                        tone="ok"
+                      />
+                      <VisualMetric
+                        icon="context"
+                        label="compactions"
+                        value={conversationRecoveryPlan.linked_compactions.length}
+                        section="conversations"
+                        tone={
+                          conversationRecoveryPlan.linked_compactions.length
+                            ? "ok"
+                            : "neutral"
+                        }
+                      />
+                      <VisualMetric
+                        icon="memory"
+                        label="memories"
+                        value={conversationRecoveryPlan.linked_memories.length}
+                        section="conversations"
+                        tone={
+                          conversationRecoveryPlan.linked_memories.length
+                            ? "ok"
+                            : "neutral"
+                        }
+                      />
+                      <VisualMetric
+                        icon="artifact"
+                        label="artifacts"
+                        value={
+                          conversationRecoveryPlan.linked_generated_artifacts.length
+                        }
+                        section="conversations"
+                        tone={
+                          conversationRecoveryPlan.linked_generated_artifacts.length
+                            ? "ok"
+                            : "neutral"
+                        }
+                      />
+                      <VisualMetric
+                        icon="memory"
+                        label="memory"
+                        value={
+                          conversationRecoveryPlan.suggested_run.load_memory
+                            ? "on"
+                            : "off"
+                        }
+                        section="conversations"
+                        tone={
+                          conversationRecoveryPlan.suggested_run.load_memory
+                            ? "ok"
+                            : "neutral"
+                        }
+                      />
                     </div>
                     <span>{conversationRecoveryPlan.conversation_id}</span>
                     <span>agent {conversationRecoveryPlan.agent_id}</span>
@@ -21876,9 +22004,61 @@ export default function App() {
               />
               <div className="ingestion-review">
                 <div className="ingestion-card">
-                  <div className="ingestion-card-head">
-                    <strong>{expandedConversation.conversation.title}</strong>
-                    <span>{expandedConversation.messages.length} messages</span>
+                  <div className="ingestion-card-head with-icon">
+                    <span className="ingestion-card-icon ok" aria-hidden="true">
+                      <AppIcon name="conversation" />
+                    </span>
+                    <div className="ingestion-card-title">
+                      <strong>{expandedConversation.conversation.title}</strong>
+                      <span>{expandedConversation.messages.length} messages</span>
+                    </div>
+                  </div>
+                  <div className="ingestion-metrics">
+                    <VisualMetric
+                      icon="chat"
+                      label="messages"
+                      value={expandedConversation.messages.length}
+                      section="conversations"
+                      tone="ok"
+                    />
+                    <VisualMetric
+                      icon="brand"
+                      label="agent"
+                      value={previewText(
+                        expandedConversation.conversation.agent_id,
+                        18,
+                      )}
+                      section="conversations"
+                      tone="ok"
+                    />
+                    <VisualMetric
+                      icon="conversation"
+                      label="branch"
+                      value={
+                        expandedConversation.conversation.parent ? "child" : "root"
+                      }
+                      section="conversations"
+                      tone={
+                        expandedConversation.conversation.parent
+                          ? "warning"
+                          : "neutral"
+                      }
+                    />
+                    <VisualMetric
+                      icon="approval"
+                      label="policy"
+                      value={
+                        expandedConversation.conversation.policy
+                          ? "override"
+                          : "default"
+                      }
+                      section="conversations"
+                      tone={
+                        expandedConversation.conversation.policy
+                          ? "warning"
+                          : "neutral"
+                      }
+                    />
                   </div>
                   <span>{expandedConversation.conversation.id}</span>
                   <span>agent {expandedConversation.conversation.agent_id}</span>
@@ -21962,12 +22142,52 @@ export default function App() {
                 </div>
                 {expandedConversation.messages.map((message, index) => (
                   <div
-                    className="memory-card"
+                    className={`memory-card ${conversationMessageTone(message)}`}
                     key={`${expandedConversation.conversation.id}:${index}:${message.created_at}`}
                   >
-                    <div className="memory-card-head">
-                      <strong>{conversationMessageTitle(message, index)}</strong>
-                      <span>{message.role}</span>
+                    <div className="memory-card-head with-icon">
+                      <span
+                        className={`memory-card-icon ${conversationMessageTone(
+                          message,
+                        )}`}
+                        aria-hidden="true"
+                      >
+                        <AppIcon name={conversationMessageIcon(message)} />
+                      </span>
+                      <div className="memory-card-title">
+                        <strong>{conversationMessageTitle(message, index)}</strong>
+                        <span>{message.role}</span>
+                      </div>
+                    </div>
+                    <div className="memory-metrics">
+                      <VisualMetric
+                        icon={conversationMessageIcon(message)}
+                        label="role"
+                        value={message.role}
+                        section="conversations"
+                        tone={conversationMessageTone(message)}
+                      />
+                      <VisualMetric
+                        icon="prompt"
+                        label="tokens"
+                        value={estimateLocalTokens(message.content)}
+                        section="conversations"
+                        tone={message.content.trim() ? "ok" : "warning"}
+                      />
+                      <VisualMetric
+                        icon="trace"
+                        label="run"
+                        value={message.run_id ? "linked" : "none"}
+                        section="conversations"
+                        tone={message.run_id ? "ok" : "neutral"}
+                      />
+                      <VisualMetric
+                        icon="conversation"
+                        label="index"
+                        value={index + 1}
+                        section="conversations"
+                        tone="neutral"
+                      />
                     </div>
                     <p>{previewText(message.content, 420)}</p>
                     <div className="mini-actions">

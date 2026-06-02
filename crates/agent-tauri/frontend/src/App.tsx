@@ -30404,9 +30404,9 @@ export default function App() {
                                       }
                                     />
                                   </div>
-                                  {runtime ? <p>{runtime}</p> : null}
+                                  {runtime ? <span>runtime {runtime}</span> : null}
                                   {notes ? (
-                                    <p>{compactPreview(notes, 140)}</p>
+                                    <span>notes {compactPreview(notes, 140)}</span>
                                   ) : null}
                                 </div>
                               </div>
@@ -30542,12 +30542,36 @@ export default function App() {
                             }
                           />
                         </div>
-                        <span title={adapterPackage.source}>
-                          source {fileName(adapterPackage.source)}
-                        </span>
-                        <span title={adapterPackage.digest}>
-                          digest {adapterPackage.digest.slice(0, 16)}
-                        </span>
+                        <div className="adapter-inventory-list">
+                          <div className={`adapter-inventory-row ${packageTone}`}>
+                            <span
+                              className={`adapter-inventory-icon ${packageTone}`}
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="artifact" />
+                            </span>
+                            <div className="adapter-inventory-copy">
+                              <strong>Package source</strong>
+                              <span title={adapterPackage.source}>
+                                {fileName(adapterPackage.source)}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="adapter-inventory-row">
+                            <span
+                              className="adapter-inventory-icon"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="trace" />
+                            </span>
+                            <div className="adapter-inventory-copy">
+                              <strong>Digest</strong>
+                              <span title={adapterPackage.digest}>
+                                {adapterPackage.digest.slice(0, 16)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
                         {highRisk ? (
                           <div className="adapter-inventory-row danger">
                             <span
@@ -30621,7 +30645,7 @@ export default function App() {
                                       : "required"}
                                   </span>
                                   {secret.description ? (
-                                    <p>{previewText(secret.description, 140)}</p>
+                                    <span>{previewText(secret.description, 140)}</span>
                                   ) : null}
                                 </div>
                               </div>
@@ -30709,7 +30733,7 @@ export default function App() {
                                         ? "quarantined"
                                         : "allowed"}
                                     </span>
-                                    {runtime ? <p>{runtime}</p> : null}
+                                    {runtime ? <span>{runtime}</span> : null}
                                   </div>
                                 </div>
                               );

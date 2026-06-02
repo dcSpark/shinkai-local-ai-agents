@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App adapter package provenance detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx` | Adapter package source, digest, secret descriptions, capability runtimes, and adapter-doctor runtime/notes now stay inside icon-bearing adapter rows or labeled row copy instead of loose source/digest spans and paragraph previews. |
 | App trace prompt and hook detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Recent trace-run prompt/output previews and hook remediation policy/error/denial details now render as trace-colored icon detail rows instead of loose paragraphs inside trace cards. |
 | App ingestion content detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx` | Ingestion source probes, backend descriptors, compatibility notes, artifact sources, review notes, and extracted-text previews now render as icon-bearing ingestion detail rows or labeled row copy instead of loose preview paragraphs and source text. |
 | App context-preview loaded-memory detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx` | Context preview loaded-memory cards now render memory content and provenance as icon-bearing context detail rows after the existing content/provenance metrics instead of a plain memory preview paragraph. |

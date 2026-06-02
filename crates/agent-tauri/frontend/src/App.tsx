@@ -16458,16 +16458,10 @@ export default function App() {
         largest === null || bucket.bytes > largest.bytes ? bucket : largest,
       null,
     );
-    const quotaBytes = report.quota_bytes ?? null;
-    const quotaUsedPercent =
-      quotaBytes !== null && quotaBytes > 0
-        ? (report.total_bytes / quotaBytes) * 100
-        : null;
     return {
       cacheBucket: report.buckets.find((bucket) => bucket.name === "cache") ?? null,
       largestBucket,
       missingBuckets: report.buckets.filter((bucket) => !bucket.exists),
-      quotaUsedPercent,
     };
   }
 
@@ -16482,6 +16476,71 @@ export default function App() {
     const remaining = report.quota_remaining_bytes ?? quotaBytes - report.total_bytes;
     const status = report.quota_exceeded ? "over quota" : "remaining";
     return `${status} ${formatBytes(Math.abs(remaining))} of ${formatBytes(quotaBytes)}`;
+  }
+
+  function storageQuotaTone(report: StorageReport): ContextReviewCard["tone"] {
+    const quotaBytes = report.quota_bytes ?? null;
+    if (quotaBytes === null || quotaBytes <= 0) {
+      return "neutral";
+    }
+    if (report.quota_exceeded) {
+      return "danger";
+    }
+    const quotaUsedPercent = (report.total_bytes / quotaBytes) * 100;
+    return quotaUsedPercent >= 90 ? "warning" : "ok";
+  }
+
+  function storageQuotaMetric(report: StorageReport) {
+    const quotaBytes = report.quota_bytes ?? null;
+    if (quotaBytes === null) {
+      return "n/a";
+    }
+    if (quotaBytes <= 0) {
+      return "0 B";
+    }
+    return formatPercent((report.total_bytes / quotaBytes) * 100);
+  }
+
+  function storageBucketTone(bucket: StorageBucket): ContextReviewCard["tone"] {
+    if (!bucket.exists) {
+      return "warning";
+    }
+    return bucket.files > 0 || bucket.bytes > 0 ? "ok" : "neutral";
+  }
+
+  function storageBucketStatusLabel(bucket: StorageBucket) {
+    if (!bucket.exists) {
+      return "missing";
+    }
+    return bucket.files > 0 || bucket.bytes > 0 ? "active" : "empty";
+  }
+
+  function storagePruneTone(result: StorageRetentionResult): ContextReviewCard["tone"] {
+    if ((result.errors ?? []).length > 0) {
+      return "danger";
+    }
+    return result.dry_run ? "warning" : "ok";
+  }
+
+  function storageRetentionCutoffLabel(plan: StorageRetentionPlan) {
+    if (!Number.isFinite(plan.cutoff_unix_seconds) || plan.cutoff_unix_seconds <= 0) {
+      return "unknown";
+    }
+    return new Date(plan.cutoff_unix_seconds * 1000).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+  }
+
+  function storageCandidateModifiedLabel(candidate: StorageRetentionCandidate) {
+    const seconds = candidate.modified_unix_seconds ?? null;
+    if (seconds === null || !Number.isFinite(seconds) || seconds <= 0) {
+      return "unknown";
+    }
+    return new Date(seconds * 1000).toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
   }
 
   function storagePruneSummary(result: StorageRetentionResult) {
@@ -25163,111 +25222,206 @@ export default function App() {
                   {(() => {
                     const summary = storageReportSummary(storageReport);
                     return (
-                      <div className="bundle-card">
-                        <div className="bundle-card-head">
-                          <strong>Storage summary</strong>
-                          <span>{storageReport.total_files} files</span>
+                      <>
+                        <div className={`storage-card ${storageQuotaTone(storageReport)}`}>
+                          <div className="storage-card-head with-icon">
+                            <span
+                              className={`storage-card-icon ${storageQuotaTone(storageReport)}`}
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="memory" />
+                            </span>
+                            <div className="storage-card-title">
+                              <strong>Storage summary</strong>
+                              <span>{storageReport.total_files} files</span>
+                            </div>
+                          </div>
+                          <div className="storage-metrics">
+                            <VisualMetric
+                              icon="memory"
+                              label="footprint"
+                              value={formatBytes(storageReport.total_bytes)}
+                              section="adapters"
+                              tone={storageReport.total_bytes > 0 ? "ok" : "neutral"}
+                            />
+                            <VisualMetric
+                              icon="artifact"
+                              label="files"
+                              value={storageReport.total_files}
+                              section="adapters"
+                              tone={storageReport.total_files > 0 ? "ok" : "neutral"}
+                            />
+                            <VisualMetric
+                              icon="context"
+                              label="dirs"
+                              value={storageReport.total_directories}
+                              section="adapters"
+                            />
+                            <VisualMetric
+                              icon="approval"
+                              label="quota"
+                              value={storageQuotaMetric(storageReport)}
+                              section="adapters"
+                              tone={storageQuotaTone(storageReport)}
+                            />
+                            <VisualMetric
+                              icon="trace"
+                              label="cache"
+                              value={
+                                summary.cacheBucket
+                                  ? formatBytes(summary.cacheBucket.bytes)
+                                  : "missing"
+                              }
+                              section="adapters"
+                              tone={summary.cacheBucket ? "ok" : "warning"}
+                            />
+                          </div>
+                          <span title={storageReport.root}>root {storageReport.root}</span>
+                          <span>{storageQuotaStatus(storageReport)}</span>
+                          <span>
+                            largest bucket{" "}
+                            {summary.largestBucket
+                              ? `${summary.largestBucket.name} ${formatBytes(summary.largestBucket.bytes)}`
+                              : "none"}
+                          </span>
+                          {storageReport.largest_file ? (
+                            <span title={storageReport.largest_file}>
+                              largest file {fileName(storageReport.largest_file)}{" "}
+                              {formatBytes(storageReport.largest_file_bytes)}
+                            </span>
+                          ) : null}
+                          <span>
+                            missing buckets{" "}
+                            {summary.missingBuckets.length
+                              ? summary.missingBuckets
+                                  .map((bucket) => bucket.name)
+                                  .join(", ")
+                              : "none"}
+                          </span>
                         </div>
-                        <span title={storageReport.root}>{storageReport.root}</span>
-                        <span>
-                          {summary.quotaUsedPercent !== null
-                            ? `quota ${formatPercent(summary.quotaUsedPercent)} used / `
-                            : ""}
-                          {storageQuotaStatus(storageReport)}
-                        </span>
-                        <span>
-                          cache{" "}
-                          {summary.cacheBucket
-                            ? formatBytes(summary.cacheBucket.bytes)
-                            : "missing"}{" "}
-                          / largest bucket{" "}
-                          {summary.largestBucket
-                            ? `${summary.largestBucket.name} ${formatBytes(summary.largestBucket.bytes)}`
-                            : "none"}
-                        </span>
-                        <span>
-                          missing buckets{" "}
-                          {summary.missingBuckets.length
-                            ? summary.missingBuckets
-                                .map((bucket) => bucket.name)
-                                .join(", ")
-                            : "none"}
-                        </span>
-                      </div>
+                        <div className="storage-list">
+                          {storageReport.buckets.map((bucket) => (
+                            <div
+                              className={`storage-card ${storageBucketTone(bucket)}`}
+                              key={bucket.name}
+                              title={bucket.path}
+                            >
+                              <div className="storage-card-head with-icon">
+                                <span
+                                  className={`storage-card-icon ${storageBucketTone(bucket)}`}
+                                  aria-hidden="true"
+                                >
+                                  <AppIcon name="memory" />
+                                </span>
+                                <div className="storage-card-title">
+                                  <strong>{bucket.name}</strong>
+                                  <span>{storageBucketStatusLabel(bucket)}</span>
+                                </div>
+                              </div>
+                              <div className="storage-metrics">
+                                <VisualMetric
+                                  icon="memory"
+                                  label="size"
+                                  value={formatBytes(bucket.bytes)}
+                                  section="adapters"
+                                  tone={storageBucketTone(bucket)}
+                                />
+                                <VisualMetric
+                                  icon="artifact"
+                                  label="files"
+                                  value={bucket.files}
+                                  section="adapters"
+                                  tone={bucket.files > 0 ? "ok" : "neutral"}
+                                />
+                                <VisualMetric
+                                  icon="context"
+                                  label="dirs"
+                                  value={bucket.directories}
+                                  section="adapters"
+                                />
+                                <VisualMetric
+                                  icon="trace"
+                                  label="largest"
+                                  value={
+                                    bucket.largest_file
+                                      ? formatBytes(bucket.largest_file_bytes)
+                                      : storageBucketStatusLabel(bucket)
+                                  }
+                                  section="adapters"
+                                  tone={bucket.largest_file ? "ok" : storageBucketTone(bucket)}
+                                />
+                              </div>
+                              <span title={bucket.path}>path {bucket.path}</span>
+                              {bucket.largest_file ? (
+                                <span title={bucket.largest_file}>
+                                  max {fileName(bucket.largest_file)}
+                                </span>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      </>
                     );
                   })()}
-                  <div className="storage-total">
-                    <strong>{formatBytes(storageReport.total_bytes)}</strong>
-                    <span>
-                      {storageReport.total_files} files /{" "}
-                      {storageReport.total_directories} dirs
-                    </span>
-                  </div>
-                  {storageReport.quota_bytes !== undefined &&
-                  storageReport.quota_bytes !== null ? (
-                    <div
-                      className={
-                        storageReport.quota_exceeded
-                          ? "storage-largest warning"
-                          : "storage-largest"
-                      }
-                    >
-                      <span>quota</span>
-                      <strong>{formatBytes(storageReport.quota_bytes)}</strong>
-                      <span>
-                        {storageReport.quota_exceeded ? "over" : "left"}{" "}
-                        {formatBytes(
-                          Math.abs(storageReport.quota_remaining_bytes ?? 0),
-                        )}
-                      </span>
-                    </div>
-                  ) : null}
-                  {storageReport.largest_file ? (
-                    <div className="storage-largest">
-                      <span>largest</span>
-                      <strong title={storageReport.largest_file}>
-                        {fileName(storageReport.largest_file)}
-                      </strong>
-                      <span>{formatBytes(storageReport.largest_file_bytes)}</span>
-                    </div>
-                  ) : null}
-                  <div className="storage-buckets">
-                    {storageReport.buckets.map((bucket) => (
-                      <div
-                        className={`storage-bucket ${bucket.exists ? "" : "missing"}`}
-                        key={bucket.name}
-                        title={bucket.path}
-                      >
-                        <strong>{bucket.name}</strong>
-                        <span>{formatBytes(bucket.bytes)}</span>
-                        <span>
-                          {bucket.files} files / {bucket.directories} dirs
-                        </span>
-                        {bucket.largest_file ? (
-                          <span title={bucket.largest_file}>
-                            max {fileName(bucket.largest_file)}{" "}
-                            {formatBytes(bucket.largest_file_bytes)}
-                          </span>
-                        ) : (
-                          <span>{bucket.exists ? "empty" : "missing"}</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
                 </div>
               ) : null}
               {storagePruneResult ? (
                 <div className="storage-report">
-                  <div className="bundle-card">
-                    <div className="bundle-card-head">
-                      <strong>
-                        Cache prune {storagePruneResult.dry_run ? "plan" : "result"}
-                      </strong>
-                      <span>{storagePruneResult.plan.retention_days} days</span>
+                  <div className={`storage-card ${storagePruneTone(storagePruneResult)}`}>
+                    <div className="storage-card-head with-icon">
+                      <span
+                        className={`storage-card-icon ${storagePruneTone(storagePruneResult)}`}
+                        aria-hidden="true"
+                      >
+                        <AppIcon name="trace" />
+                      </span>
+                      <div className="storage-card-title">
+                        <strong>
+                          Cache prune {storagePruneResult.dry_run ? "plan" : "result"}
+                        </strong>
+                        <span>{storagePruneResult.plan.retention_days} days</span>
+                      </div>
+                    </div>
+                    <div className="storage-metrics">
+                      <VisualMetric
+                        icon="artifact"
+                        label="candidates"
+                        value={storagePruneResult.plan.total_files}
+                        section="adapters"
+                        tone={
+                          storagePruneResult.plan.total_files > 0
+                            ? storagePruneTone(storagePruneResult)
+                            : "neutral"
+                        }
+                      />
+                      <VisualMetric
+                        icon="memory"
+                        label={storagePruneResult.dry_run ? "would free" : "deleted"}
+                        value={
+                          storagePruneResult.dry_run
+                            ? formatBytes(storagePruneResult.plan.total_bytes)
+                            : formatBytes(storagePruneResult.deleted_bytes)
+                        }
+                        section="adapters"
+                        tone={storagePruneTone(storagePruneResult)}
+                      />
+                      <VisualMetric
+                        icon="context"
+                        label="cutoff"
+                        value={storageRetentionCutoffLabel(storagePruneResult.plan)}
+                        section="adapters"
+                      />
+                      <VisualMetric
+                        icon="approval"
+                        label="errors"
+                        value={storagePruneResult.errors?.length ?? 0}
+                        section="adapters"
+                        tone={(storagePruneResult.errors ?? []).length ? "danger" : "ok"}
+                      />
                     </div>
                     <span>{storagePruneSummary(storagePruneResult)}</span>
                     <span title={storagePruneResult.plan.root}>
-                      {storagePruneResult.plan.root}
+                      root {storagePruneResult.plan.root}
                     </span>
                     {storagePruneResult.dry_run ? (
                       <div className="mini-actions">
@@ -25288,26 +25442,17 @@ export default function App() {
                       </div>
                     ) : null}
                   </div>
-                  <div className="storage-total">
-                    <strong>
-                      {storagePruneResult.dry_run ? "plan" : "applied"}
-                    </strong>
-                    <span>
-                      {storagePruneResult.plan.total_files} files /{" "}
-                      {formatBytes(storagePruneResult.plan.total_bytes)}
-                    </span>
-                  </div>
-                  {!storagePruneResult.dry_run ? (
-                    <div className="storage-largest">
-                      <span>deleted</span>
-                      <strong>{storagePruneResult.deleted_files} files</strong>
-                      <span>{formatBytes(storagePruneResult.deleted_bytes)}</span>
-                    </div>
-                  ) : null}
                   {(storagePruneResult.errors ?? []).length ? (
-                    <div className="storage-largest warning">
-                      <span>errors</span>
-                      <strong>{storagePruneResult.errors?.length ?? 0}</strong>
+                    <div className="storage-card danger">
+                      <div className="storage-card-head with-icon">
+                        <span className="storage-card-icon danger" aria-hidden="true">
+                          <AppIcon name="approval" />
+                        </span>
+                        <div className="storage-card-title">
+                          <strong>Prune errors</strong>
+                          <span>{storagePruneResult.errors?.length ?? 0}</span>
+                        </div>
+                      </div>
                       <span>
                         {previewText(
                           (storagePruneResult.errors ?? []).join("; "),
@@ -25316,16 +25461,45 @@ export default function App() {
                       </span>
                     </div>
                   ) : null}
-                  <div className="storage-buckets">
+                  <div className="storage-list">
                     {storagePruneResult.plan.candidates.slice(0, 8).map((candidate) => (
                       <div
-                        className="storage-bucket"
+                        className={`storage-card ${
+                          storagePruneResult.dry_run ? "warning" : "ok"
+                        }`}
                         key={candidate.path}
                         title={candidate.path}
                       >
-                        <strong>{candidate.bucket}</strong>
-                        <span>{formatBytes(candidate.bytes)}</span>
-                        <span>{fileName(candidate.path)}</span>
+                        <div className="storage-card-head with-icon">
+                          <span
+                            className={`storage-card-icon ${
+                              storagePruneResult.dry_run ? "warning" : "ok"
+                            }`}
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="artifact" />
+                          </span>
+                          <div className="storage-card-title">
+                            <strong>{candidate.bucket}</strong>
+                            <span>{fileName(candidate.path)}</span>
+                          </div>
+                        </div>
+                        <div className="storage-metrics">
+                          <VisualMetric
+                            icon="memory"
+                            label="size"
+                            value={formatBytes(candidate.bytes)}
+                            section="adapters"
+                            tone={storagePruneResult.dry_run ? "warning" : "ok"}
+                          />
+                          <VisualMetric
+                            icon="trace"
+                            label="modified"
+                            value={storageCandidateModifiedLabel(candidate)}
+                            section="adapters"
+                          />
+                        </div>
+                        <span title={candidate.path}>path {candidate.path}</span>
                       </div>
                     ))}
                   </div>

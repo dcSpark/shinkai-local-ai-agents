@@ -20106,14 +20106,14 @@ export default function App() {
                   onClick={() => void keepPostRunCompaction()}
                   disabled={running}
                 >
-                  Keep
+                  <ButtonLabel icon="context">Keep</ButtonLabel>
                 </button>
                 <button
                   type="button"
                   onClick={() => setPostRunCompactionPrompt(null)}
                   disabled={running}
                 >
-                  Dismiss
+                  <ButtonLabel icon="approval">Dismiss</ButtonLabel>
                 </button>
               </div>
             </ModeNote>
@@ -20209,7 +20209,7 @@ export default function App() {
                   disabled={running}
                   title="Copy the exact preview snapshot as JSON."
                 >
-                  Copy JSON
+                  <ButtonLabel icon="artifact">Copy JSON</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -20217,7 +20217,7 @@ export default function App() {
                   disabled={running}
                   title="Put the exact preview snapshot into the Value field."
                 >
-                  Send to Value
+                  <ButtonLabel icon="context">Send to Value</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -20225,7 +20225,7 @@ export default function App() {
                   disabled={running || !contextPreview.compacted}
                   title="Save the compacted context as a portable artifact."
                 >
-                  Keep Compact
+                  <ButtonLabel icon="context">Keep Compact</ButtonLabel>
                 </button>
                 {contextCopyStatus ? <span>{contextCopyStatus}</span> : null}
               </div>

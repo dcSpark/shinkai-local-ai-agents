@@ -1881,6 +1881,37 @@ textarea:disabled {
   gap: 0.4rem;
 }
 
+.storage-error-list {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.storage-error-row {
+  display: grid;
+  grid-template-columns: 1.45rem minmax(0, 1fr);
+  gap: 0.4rem;
+  align-items: start;
+  min-width: 0;
+  padding-top: 0.35rem;
+  border-top: 1px solid #4d2630;
+}
+
+.storage-error-row-icon {
+  display: inline-grid;
+  width: 1.45rem;
+  height: 1.45rem;
+  place-items: center;
+  border: 1px solid #7d3c45;
+  border-radius: 8px;
+  background: #32191f;
+  color: #ffb4c0;
+}
+
+.storage-error-row-icon .app-icon {
+  width: 0.78rem;
+  height: 0.78rem;
+}
+
 .storage-card .visual-metric {
   font-family: inherit;
 }

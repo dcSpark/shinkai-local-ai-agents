@@ -28701,12 +28701,60 @@ export default function App() {
                           <span>{storagePruneResult.errors?.length ?? 0}</span>
                         </div>
                       </div>
-                      <span>
-                        {previewText(
-                          (storagePruneResult.errors ?? []).join("; "),
-                          160,
-                        )}
-                      </span>
+                      <div className="storage-metrics">
+                        <VisualMetric
+                          icon="approval"
+                          label="errors"
+                          value={storagePruneResult.errors?.length ?? 0}
+                          section="adapters"
+                          tone="danger"
+                        />
+                        <VisualMetric
+                          icon="artifact"
+                          label="candidates"
+                          value={storagePruneResult.plan.total_files}
+                          section="adapters"
+                          tone={
+                            storagePruneResult.plan.total_files ? "warning" : "neutral"
+                          }
+                        />
+                        <VisualMetric
+                          icon="memory"
+                          label={storagePruneResult.dry_run ? "would free" : "deleted"}
+                          value={
+                            storagePruneResult.dry_run
+                              ? formatBytes(storagePruneResult.plan.total_bytes)
+                              : formatBytes(storagePruneResult.deleted_bytes)
+                          }
+                          section="adapters"
+                          tone="warning"
+                        />
+                        <VisualMetric
+                          icon="context"
+                          label="retention"
+                          value={`${storagePruneResult.plan.retention_days}d`}
+                          section="adapters"
+                        />
+                      </div>
+                      <div className="storage-error-list">
+                        {(storagePruneResult.errors ?? []).slice(0, 6).map((error, index) => (
+                          <div className="storage-error-row" key={`${index}:${error}`}>
+                            <span className="storage-error-row-icon" aria-hidden="true">
+                              <AppIcon name="approval" />
+                            </span>
+                            <span>{previewText(error, 180)}</span>
+                          </div>
+                        ))}
+                        {(storagePruneResult.errors ?? []).length > 6 ? (
+                          <span>
+                            +{(storagePruneResult.errors ?? []).length - 6} more prune
+                            error
+                            {(storagePruneResult.errors ?? []).length - 6 === 1
+                              ? ""
+                              : "s"}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                   ) : null}
                   <div className="storage-list">

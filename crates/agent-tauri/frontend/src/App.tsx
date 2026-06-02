@@ -24271,7 +24271,7 @@ export default function App() {
                             onClick={() => setOpsId(artifact.id)}
                             disabled={running}
                           >
-                            Set Id
+                            <ButtonLabel icon="artifact">Set Id</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -24279,7 +24279,7 @@ export default function App() {
                             onClick={() => void showGeneratedArtifact(artifact.id)}
                             disabled={running}
                           >
-                            Show
+                            <ButtonLabel icon="artifact">Show</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -24287,7 +24287,7 @@ export default function App() {
                             onClick={() => void openGeneratedArtifact(artifact.id)}
                             disabled={running}
                           >
-                            Open
+                            <ButtonLabel icon="control">Open</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -24297,7 +24297,7 @@ export default function App() {
                             }
                             disabled={running}
                           >
-                            Download
+                            <ButtonLabel icon="artifact">Download</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -24308,7 +24308,7 @@ export default function App() {
                             }}
                             disabled={running}
                           >
-                            Path
+                            <ButtonLabel icon="artifact">Path</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -24321,7 +24321,7 @@ export default function App() {
                             }
                             disabled={running}
                           >
-                            Export
+                            <ButtonLabel icon="artifact">Export</ButtonLabel>
                           </button>
                           {previewable ? (
                             <button
@@ -24330,7 +24330,9 @@ export default function App() {
                               onClick={() => void previewGeneratedArtifact(artifact)}
                               disabled={running}
                             >
-                              {isAudioFormat(artifact.format) ? "Play" : "Preview"}
+                              <ButtonLabel icon="prompt">
+                                {isAudioFormat(artifact.format) ? "Play" : "Preview"}
+                              </ButtonLabel>
                             </button>
                           ) : null}
                           <button
@@ -24339,7 +24341,7 @@ export default function App() {
                             onClick={() => void deleteGeneratedArtifact(artifact.id)}
                             disabled={running}
                           >
-                            Delete
+                            <ButtonLabel icon="approval">Delete</ButtonLabel>
                           </button>
                         </div>
                       </div>
@@ -24364,7 +24366,7 @@ export default function App() {
                         onClick={() => void openGeneratedArtifact(artifactPreview.artifact.id)}
                         disabled={running}
                       >
-                        Open
+                        <ButtonLabel icon="control">Open</ButtonLabel>
                       </button>
                       <button
                         type="button"
@@ -24377,7 +24379,7 @@ export default function App() {
                         }
                         disabled={running}
                       >
-                        Download
+                        <ButtonLabel icon="artifact">Download</ButtonLabel>
                       </button>
                       <button
                         type="button"
@@ -24391,14 +24393,14 @@ export default function App() {
                         }
                         disabled={running}
                       >
-                        Export
+                        <ButtonLabel icon="artifact">Export</ButtonLabel>
                       </button>
                       <button
                         type="button"
                         title="Close the inline artifact preview."
                         onClick={() => setArtifactPreview(null)}
                       >
-                        Close
+                        <ButtonLabel icon="approval">Close</ButtonLabel>
                       </button>
                     </div>
                   </div>

@@ -26687,10 +26687,6 @@ export default function App() {
                             </div>
                           </div>
                         )}
-                        <span>~{skill.estimated_tokens} tokens</span>
-                        {skill.categories.length ? (
-                          <span>categories {skill.categories.join(", ")}</span>
-                        ) : null}
                         {highRisk ? (
                           <div className="skill-detail-row danger">
                             <span
@@ -26753,8 +26749,54 @@ export default function App() {
                             </div>
                           </div>
                         )}
-                        <p>{skill.description}</p>
-                        <p>{previewText(skill.body)}</p>
+                        {skill.categories.length ||
+                        skill.description ||
+                        skill.body.trim() ? (
+                          <div className="skill-detail-list">
+                            {skill.categories.length ? (
+                              <div className="skill-detail-row">
+                                <span
+                                  className="skill-detail-icon"
+                                  aria-hidden="true"
+                                >
+                                  <AppIcon name="context" />
+                                </span>
+                                <div className="skill-detail-copy">
+                                  <strong>Categories</strong>
+                                  <span>{skill.categories.join(", ")}</span>
+                                </div>
+                              </div>
+                            ) : null}
+                            {skill.description ? (
+                              <div className="skill-detail-row">
+                                <span
+                                  className="skill-detail-icon"
+                                  aria-hidden="true"
+                                >
+                                  <AppIcon name="skill" />
+                                </span>
+                                <div className="skill-detail-copy">
+                                  <strong>Description</strong>
+                                  <p>{skill.description}</p>
+                                </div>
+                              </div>
+                            ) : null}
+                            {skill.body.trim() ? (
+                              <div className="skill-detail-row">
+                                <span
+                                  className="skill-detail-icon"
+                                  aria-hidden="true"
+                                >
+                                  <AppIcon name="prompt" />
+                                </span>
+                                <div className="skill-detail-copy">
+                                  <strong>Prompt body</strong>
+                                  <p>{previewText(skill.body)}</p>
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
                         <div className="mini-actions">
                           <button
                             type="button"

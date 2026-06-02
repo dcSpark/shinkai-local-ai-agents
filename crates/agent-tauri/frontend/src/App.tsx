@@ -10763,6 +10763,30 @@ export default function App() {
     return value || "config";
   }
 
+  function voiceActivityLabel() {
+    if (recordingVoice) return "recording";
+    if (voiceOutputBusy) return "speaking";
+    return "idle";
+  }
+
+  function voiceActivityTone(): ContextReviewCard["tone"] {
+    return recordingVoice || voiceOutputBusy ? "ok" : "neutral";
+  }
+
+  function voiceControlLabel(value: string, fallback: string) {
+    return value.trim() || fallback;
+  }
+
+  function voiceArtifactMetric(artifact: GeneratedArtifact | null) {
+    return artifact ? formatBytes(artifact.bytes) : "none";
+  }
+
+  function voiceArtifactDetail(artifact: GeneratedArtifact | null) {
+    return artifact
+      ? `${artifact.id} / ${fileName(artifact.path)}`
+      : "no audio artifact";
+  }
+
   function currentVoiceControlStatus() {
     return {
       input_enabled: voiceTriStateStatus(voiceInputEnabled),
@@ -23216,36 +23240,67 @@ export default function App() {
                   Stage TTS
                 </button>
               </div>
-              <div className="bundle-card">
-                <div className="bundle-card-head">
-                  <strong>Voice status</strong>
-                  <span>
-                    {recordingVoice
-                      ? "recording"
-                      : voiceOutputBusy
-                        ? "speaking"
-                        : "idle"}
+              <div className={`artifact-card ${voiceActivityTone()}`}>
+                <div className="artifact-card-head with-icon">
+                  <span
+                    className={`artifact-card-icon ${voiceActivityTone()}`}
+                    aria-hidden="true"
+                  >
+                    <AppIcon name="control" />
                   </span>
+                  <div className="artifact-card-title">
+                    <strong>Voice status</strong>
+                    <span>{activeAgentLabel()}</span>
+                  </div>
+                </div>
+                <div className="artifact-metrics">
+                  <VisualMetric
+                    icon="control"
+                    label="activity"
+                    value={voiceActivityLabel()}
+                    section="artifacts"
+                    tone={voiceActivityTone()}
+                  />
+                  <VisualMetric
+                    icon="context"
+                    label={`input ${voiceTriStateStatus(voiceInputEnabled)}`}
+                    value={voiceControlLabel(voiceInputBackend, "config")}
+                    section="artifacts"
+                    tone={voiceInputEnabled === "off" ? "warning" : "neutral"}
+                  />
+                  <VisualMetric
+                    icon="prompt"
+                    label={`output ${voiceTriStateStatus(voiceOutputEnabled)}`}
+                    value={voiceControlLabel(voiceOutputBackend, "config")}
+                    section="artifacts"
+                    tone={voiceOutputEnabled === "off" ? "warning" : "neutral"}
+                  />
+                  <VisualMetric
+                    icon="artifact"
+                    label="capture"
+                    value={voiceArtifactMetric(voiceCaptureArtifact)}
+                    section="artifacts"
+                    tone={voiceCaptureArtifact ? "ok" : "neutral"}
+                  />
+                  <VisualMetric
+                    icon="artifact"
+                    label="speech"
+                    value={voiceArtifactMetric(voiceOutputArtifact)}
+                    section="artifacts"
+                    tone={voiceOutputArtifact ? "ok" : "neutral"}
+                  />
                 </div>
                 <span>
-                  input {voiceTriStateStatus(voiceInputEnabled)} /{" "}
-                  {voiceInputBackend.trim() || "configured backend"} /{" "}
-                  {voiceInputModel.trim() || "configured model"}
+                  input model {voiceControlLabel(voiceInputModel, "configured model")}
                 </span>
                 <span>
-                  output {voiceTriStateStatus(voiceOutputEnabled)} /{" "}
-                  {voiceOutputBackend.trim() || "configured backend"} /{" "}
-                  {voiceTtsModel.trim() || "configured model"}
+                  output model {voiceControlLabel(voiceTtsModel, "configured model")}
                 </span>
-                <span>
-                  capture{" "}
-                  {voiceCaptureArtifact
-                    ? `${voiceCaptureArtifact.id} ${formatBytes(voiceCaptureArtifact.bytes)}`
-                    : "none"}{" "}
-                  / speech{" "}
-                  {voiceOutputArtifact
-                    ? `${voiceOutputArtifact.id} ${formatBytes(voiceOutputArtifact.bytes)}`
-                    : "none"}
+                <span title={voiceCaptureArtifact?.path ?? undefined}>
+                  capture {voiceArtifactDetail(voiceCaptureArtifact)}
+                </span>
+                <span title={voiceOutputArtifact?.path ?? undefined}>
+                  speech {voiceArtifactDetail(voiceOutputArtifact)}
                 </span>
               </div>
               {voicePreviewUrl || voiceCaptureArtifact ? (

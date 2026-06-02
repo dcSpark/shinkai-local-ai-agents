@@ -23274,7 +23274,7 @@ export default function App() {
                           onClick={() => setOpsId(draft.id)}
                           disabled={running}
                         >
-                          Set Id
+                          <ButtonLabel icon="tools">Set Id</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -23286,7 +23286,7 @@ export default function App() {
                           }}
                           disabled={running}
                         >
-                          Edit
+                          <ButtonLabel icon="prompt">Edit</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -23297,7 +23297,7 @@ export default function App() {
                           }}
                           disabled={running || draft.status === "allowed"}
                         >
-                          Allow
+                          <ButtonLabel icon="approval">Allow</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -23308,7 +23308,7 @@ export default function App() {
                           }}
                           disabled={running || draft.status === "rejected"}
                         >
-                          Reject
+                          <ButtonLabel icon="approval">Reject</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -23319,7 +23319,7 @@ export default function App() {
                           }}
                           disabled={running}
                         >
-                          Path
+                          <ButtonLabel icon="artifact">Path</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -23333,7 +23333,7 @@ export default function App() {
                           }}
                           disabled={running}
                         >
-                          Export
+                          <ButtonLabel icon="artifact">Export</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -23342,7 +23342,7 @@ export default function App() {
                           onClick={() => void deleteCapabilityFromOps(draft.id)}
                           disabled={running}
                         >
-                          Delete
+                          <ButtonLabel icon="approval">Delete</ButtonLabel>
                         </button>
                       </div>
                     </div>
@@ -23441,7 +23441,7 @@ export default function App() {
                             onClick={() => setOpsId(skill.id)}
                             disabled={running}
                           >
-                            Set Id
+                            <ButtonLabel icon="skill">Set Id</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -23456,7 +23456,7 @@ export default function App() {
                             }}
                             disabled={running || !skill.quarantined || highRisk}
                           >
-                            Allow
+                            <ButtonLabel icon="approval">Allow</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -23467,7 +23467,7 @@ export default function App() {
                             }}
                             disabled={running}
                           >
-                            Path
+                            <ButtonLabel icon="artifact">Path</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -23481,7 +23481,7 @@ export default function App() {
                             }}
                             disabled={running}
                           >
-                            Export
+                            <ButtonLabel icon="artifact">Export</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -23492,7 +23492,7 @@ export default function App() {
                             }}
                             disabled={running || skill.quarantined}
                           >
-                            Quarantine
+                            <ButtonLabel icon="approval">Quarantine</ButtonLabel>
                           </button>
                         </div>
                       </div>

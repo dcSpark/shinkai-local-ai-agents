@@ -28582,11 +28582,34 @@ export default function App() {
                             section="chat"
                           />
                         </div>
-                        <span>
-                          categories {summary.categories.length
-                            ? summary.categories.join(", ")
-                            : "none"}
-                        </span>
+                        <div className="tool-detail-list">
+                          <div
+                            className={
+                              summary.categories.length
+                                ? "tool-detail-row ok"
+                                : "tool-detail-row"
+                            }
+                          >
+                            <span
+                              className={
+                                summary.categories.length
+                                  ? "tool-detail-icon ok"
+                                  : "tool-detail-icon"
+                              }
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="trace" />
+                            </span>
+                            <div className="tool-detail-copy">
+                              <strong>Categories</strong>
+                              <span>
+                                {summary.categories.length
+                                  ? summary.categories.join(", ")
+                                  : "none"}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     );
                   })()}
@@ -28636,15 +28659,75 @@ export default function App() {
                               tone={toolSensitivityTone(tool)}
                             />
                           </div>
-                          {tool.categories.length ? (
-                            <span>categories {tool.categories.join(", ")}</span>
-                          ) : null}
-                          {tool.provenance ? <span>{tool.provenance}</span> : null}
-                          {tool.description ? (
-                            <p>{previewText(tool.description, 180)}</p>
-                          ) : null}
-                          {tool.output_interpretation_guidance ? (
-                            <p>{previewText(tool.output_interpretation_guidance, 180)}</p>
+                          {tool.categories.length ||
+                          tool.provenance ||
+                          tool.description ||
+                          tool.output_interpretation_guidance ? (
+                            <div className="tool-detail-list">
+                              {tool.categories.length ? (
+                                <div className="tool-detail-row ok">
+                                  <span
+                                    className="tool-detail-icon ok"
+                                    aria-hidden="true"
+                                  >
+                                    <AppIcon name="trace" />
+                                  </span>
+                                  <div className="tool-detail-copy">
+                                    <strong>Categories</strong>
+                                    <span>{tool.categories.join(", ")}</span>
+                                  </div>
+                                </div>
+                              ) : null}
+                              {tool.provenance ? (
+                                <div className="tool-detail-row">
+                                  <span
+                                    className="tool-detail-icon"
+                                    aria-hidden="true"
+                                  >
+                                    <AppIcon name="artifact" />
+                                  </span>
+                                  <div className="tool-detail-copy">
+                                    <strong>Provenance</strong>
+                                    <span>{tool.provenance}</span>
+                                  </div>
+                                </div>
+                              ) : null}
+                              {tool.description ? (
+                                <div className="tool-detail-row ok">
+                                  <span
+                                    className="tool-detail-icon ok"
+                                    aria-hidden="true"
+                                  >
+                                    <AppIcon name="prompt" />
+                                  </span>
+                                  <div className="tool-detail-copy">
+                                    <strong>Description</strong>
+                                    <p>{previewText(tool.description, 180)}</p>
+                                  </div>
+                                </div>
+                              ) : null}
+                              {tool.output_interpretation_guidance ? (
+                                <div
+                                  className={`tool-detail-row ${toolOutputTone(tool)}`}
+                                >
+                                  <span
+                                    className={`tool-detail-icon ${toolOutputTone(tool)}`}
+                                    aria-hidden="true"
+                                  >
+                                    <AppIcon name="context" />
+                                  </span>
+                                  <div className="tool-detail-copy">
+                                    <strong>Output Guidance</strong>
+                                    <p>
+                                      {previewText(
+                                        tool.output_interpretation_guidance,
+                                        180,
+                                      )}
+                                    </p>
+                                  </div>
+                                </div>
+                              ) : null}
+                            </div>
                           ) : null}
                           <div className="mini-actions">
                             <button

@@ -1615,6 +1615,94 @@ textarea:disabled {
   gap: 0.4rem;
 }
 
+.tool-detail-list {
+  display: grid;
+  gap: 0.38rem;
+  min-width: 0;
+}
+
+.tool-detail-row {
+  display: grid;
+  grid-template-columns: 1.55rem minmax(0, 1fr);
+  gap: 0.45rem;
+  align-items: start;
+  min-width: 0;
+  padding: 0.45rem;
+  border: 1px solid #2e3540;
+  border-radius: 8px;
+  background: #151a20;
+}
+
+.tool-detail-row.ok {
+  border-color: #2d6844;
+  background: #122219;
+}
+
+.tool-detail-row.warning {
+  border-color: #816a2d;
+  background: #2b2112;
+}
+
+.tool-detail-row.danger {
+  border-color: #7d3c45;
+  background: #2b171d;
+}
+
+.tool-detail-icon {
+  display: inline-grid;
+  width: 1.55rem;
+  height: 1.55rem;
+  place-items: center;
+  border: 1px solid #2d6844;
+  border-radius: 8px;
+  background: #16251a;
+  color: #7ed68d;
+}
+
+.tool-detail-icon.ok {
+  border-color: #2d6844;
+  background: #17321f;
+  color: #78dda7;
+}
+
+.tool-detail-icon.warning {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
+.tool-detail-icon.danger {
+  border-color: #7d3c45;
+  background: #35181f;
+  color: #ffb4c0;
+}
+
+.tool-detail-icon .app-icon {
+  width: 0.82rem;
+  height: 0.82rem;
+}
+
+.tool-detail-copy {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
+}
+
+.tool-detail-copy strong {
+  color: #f1f2f4;
+  font-size: 0.72rem;
+}
+
+.tool-detail-copy span,
+.tool-detail-copy p {
+  margin: 0;
+  color: #c3c8d0;
+  font-family: inherit;
+  font-size: 0.78rem;
+  line-height: 1.38;
+  overflow-wrap: anywhere;
+}
+
 .tool-card .visual-metric {
   font-family: inherit;
 }

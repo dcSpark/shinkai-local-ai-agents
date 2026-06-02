@@ -511,22 +511,49 @@ textarea:disabled {
 }
 
 .structured-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+  display: grid;
+  grid-template-columns: 1.85rem minmax(0, 1fr);
+  align-items: start;
+  gap: 0.7rem;
   min-width: 0;
 }
 
-.structured-head strong {
+.structured-icon {
+  display: inline-grid;
+  width: 1.85rem;
+  height: 1.85rem;
+  place-items: center;
+  border: 1px solid #2f6268;
+  border-radius: 8px;
+  background: #102d32;
+  color: #8fe8f0;
+}
+
+.structured-icon .app-icon {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.structured-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.45rem 0.65rem;
+  min-width: 0;
+}
+
+.structured-title strong {
+  flex: 1 1 12rem;
   min-width: 0;
   color: #f0ffff;
   font-size: 0.98rem;
   overflow-wrap: anywhere;
 }
 
-.structured-head span {
+.structured-title span {
   flex: 0 0 auto;
+  max-width: 100%;
   padding: 0.24rem 0.48rem;
   border: 1px solid #33565b;
   border-radius: 999px;

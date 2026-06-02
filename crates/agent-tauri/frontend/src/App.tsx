@@ -26734,8 +26734,13 @@ function renderLineContent(line: TranscriptLine) {
   return (
     <div className="structured-result">
       <div className="structured-head">
-        <strong>{structuredTitle(parsed)}</strong>
-        <span>{structuredMeta(parsed)}</span>
+        <span className="structured-icon" aria-hidden="true">
+          <AppIcon name={structuredResultIcon(parsed)} />
+        </span>
+        <div className="structured-title">
+          <strong>{structuredTitle(parsed)}</strong>
+          <span>{structuredMeta(parsed)}</span>
+        </div>
       </div>
       {rows.length ? (
         <dl className="structured-fields">
@@ -26811,6 +26816,145 @@ function structuredMeta(value: JsonValue) {
     return parts.length ? parts.join(" / ") : `${Object.keys(value).length} fields`;
   }
   return "";
+}
+
+function structuredResultIcon(value: JsonValue): IconName {
+  if (Array.isArray(value)) {
+    const firstRecord = value.find((item) => isJsonRecord(item));
+    return firstRecord ? structuredResultIcon(firstRecord) : "context";
+  }
+  if (!isJsonRecord(value)) {
+    return "prompt";
+  }
+  const output = nestedOutputRecord(value);
+  const subject = output ?? value;
+  const keys = new Set(Object.keys(subject).map((key) => key.toLowerCase()));
+  if (
+    hasAnyKey(keys, [
+      "tool",
+      "tool_id",
+      "tools",
+      "visible_tools",
+      "input_schema",
+      "output_interpretation_guidance",
+    ])
+  ) {
+    return "tools";
+  }
+  if (
+    hasAnyKey(keys, [
+      "approval",
+      "approval_id",
+      "approvals",
+      "approved",
+      "assessment",
+      "controller_agent",
+      "payment",
+      "x402",
+    ])
+  ) {
+    return "approval";
+  }
+  if (
+    hasAnyKey(keys, [
+      "artifact",
+      "artifacts",
+      "bytes",
+      "data_url",
+      "destination_path",
+      "format",
+      "output_path",
+    ])
+  ) {
+    return "artifact";
+  }
+  if (
+    hasAnyKey(keys, [
+      "memory",
+      "memory_id",
+      "memories",
+      "records",
+      "tasks",
+      "topics",
+    ])
+  ) {
+    return "memory";
+  }
+  if (
+    hasAnyKey(keys, [
+      "branch",
+      "conversation",
+      "conversation_id",
+      "delete_ids",
+      "messages",
+      "tree",
+    ])
+  ) {
+    return "conversation";
+  }
+  if (
+    hasAnyKey(keys, [
+      "base_url",
+      "metadata_catalog",
+      "model",
+      "models",
+      "provider",
+      "provider_catalog",
+      "providers",
+    ])
+  ) {
+    return "setup";
+  }
+  if (
+    hasAnyKey(keys, [
+      "adapter",
+      "adapters",
+      "bridge",
+      "bridges",
+      "capabilities",
+      "deliveries",
+      "delivery",
+      "package_id",
+      "packages",
+    ])
+  ) {
+    return "adapter";
+  }
+  if (
+    hasAnyKey(keys, [
+      "cost",
+      "duration_ms",
+      "events",
+      "run_id",
+      "run_ids",
+      "tokens_in",
+      "tokens_out",
+      "trace",
+      "trace_id",
+      "usage",
+    ])
+  ) {
+    return "trace";
+  }
+  if (
+    hasAnyKey(keys, [
+      "grant_id",
+      "grants",
+      "profile",
+      "profiles",
+      "secret",
+      "secrets",
+    ])
+  ) {
+    return "profile";
+  }
+  if (hasAnyKey(keys, ["skill", "skills"])) {
+    return "skill";
+  }
+  if (hasAnyKey(keys, ["backend", "findings", "guardrail", "source", "source_path"])) {
+    return "ingest";
+  }
+  return output ? "tools" : "prompt";
 }
 
 function structuredRows(value: JsonValue): Array<[string, string]> {
@@ -26910,6 +27054,10 @@ function nestedOutputRecord(value: { [key: string]: JsonValue }) {
 
 function humanLabel(key: string) {
   return key.replace(/_/g, " ");
+}
+
+function hasAnyKey(keys: Set<string>, candidates: string[]) {
+  return candidates.some((key) => keys.has(key));
 }
 
 function parseOptionalNonNegativeInt(value: string): number | null {

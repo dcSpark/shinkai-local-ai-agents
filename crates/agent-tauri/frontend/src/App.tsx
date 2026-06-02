@@ -18924,22 +18924,35 @@ export default function App() {
           </div>
           <div className="status-pills">
             <span className="pill" title="Active agent">
-              Agent {activeAgentLabel()}
+              <AppIcon name="profile" />
+              <span>Agent {activeAgentLabel()}</span>
             </span>
             <span className={running ? "pill running" : "pill idle"}>
-              {running ? "Running" : "Idle"}
+              <AppIcon name="approval" />
+              <span>{running ? "Running" : "Idle"}</span>
             </span>
             <span className="pill" title="Tool output mode">
-              Output {rawToolOutput ? "Raw" : "Interpreted"}
+              <AppIcon name="prompt" />
+              <span>Output {rawToolOutput ? "Raw" : "Interpreted"}</span>
             </span>
-            <span className="pill">Tokens {tokensIn}/{tokensOut}</span>
-            <span className="pill">Cost ${costUsd.toFixed(6)}</span>
-            <span className="pill">Time {formatDuration(elapsedMs)}</span>
+            <span className="pill">
+              <AppIcon name="context" />
+              <span>Tokens {tokensIn}/{tokensOut}</span>
+            </span>
+            <span className="pill">
+              <AppIcon name="trace" />
+              <span>Cost ${costUsd.toFixed(6)}</span>
+            </span>
+            <span className="pill">
+              <AppIcon name="control" />
+              <span>Time {formatDuration(elapsedMs)}</span>
+            </span>
             <span
               className={budgetPillClass}
               title={`Tool-call budget: ${remainingToolCalls} remaining of ${effectiveMaxToolCalls}`}
             >
-              Tools {remainingToolCalls} left
+              <AppIcon name="tools" />
+              <span>Tools {remainingToolCalls} left</span>
             </span>
           </div>
         </header>

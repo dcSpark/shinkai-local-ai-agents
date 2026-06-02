@@ -349,6 +349,7 @@ textarea:disabled {
 .pill {
   display: inline-flex;
   align-items: center;
+  gap: 0.38rem;
   min-height: 2.15rem;
   padding: 0 0.85rem;
   border: 1px solid #333844;
@@ -358,6 +359,18 @@ textarea:disabled {
   font-size: 0.84rem;
   font-weight: 700;
   white-space: nowrap;
+}
+
+.pill .app-icon {
+  flex: 0 0 auto;
+  width: 0.88rem;
+  height: 0.88rem;
+}
+
+.pill > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pill.running {

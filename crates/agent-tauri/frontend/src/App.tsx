@@ -916,6 +916,24 @@ function adapterDoctorReadinessTone(
     : "warning";
 }
 
+function modelDoctorTone(report: ModelDoctorReport): ContextReviewCard["tone"] {
+  if (report.status === "error" || report.errors.length > 0) {
+    return "danger";
+  }
+  if (report.status === "warning" || report.warnings.length > 0) {
+    return "warning";
+  }
+  return "ok";
+}
+
+function modelDoctorUnknownProviderCount(report: ModelDoctorReport) {
+  return report.saved_models.filter((model) => !model.provider_known).length;
+}
+
+function modelDoctorMissingMetadataCount(report: ModelDoctorReport) {
+  return report.saved_models.filter((model) => !model.metadata_present).length;
+}
+
 function BundleStatusCard({
   status,
   section,
@@ -18337,6 +18355,15 @@ export default function App() {
   const adapterDoctorReadyTone = adapterDoctorReport
     ? adapterDoctorReadinessTone(adapterDoctorReport)
     : "neutral";
+  const modelDoctorCardTone = modelDoctorReport
+    ? modelDoctorTone(modelDoctorReport)
+    : "neutral";
+  const modelDoctorUnknownProviders = modelDoctorReport
+    ? modelDoctorUnknownProviderCount(modelDoctorReport)
+    : 0;
+  const modelDoctorMissingMetadata = modelDoctorReport
+    ? modelDoctorMissingMetadataCount(modelDoctorReport)
+    : 0;
 
   return (
     <div className="app-shell">
@@ -22202,10 +22229,83 @@ export default function App() {
                 </button>
               </div>
               {modelDoctorReport ? (
-                <div className="bundle-card">
-                  <div className="bundle-card-head">
-                    <strong>Model doctor {modelDoctorReport.status}</strong>
-                    <span>{modelDoctorReport.active_profile}</span>
+                <div
+                  className={`model-doctor-card ${modelDoctorCardTone}`}
+                  style={sectionThemeStyle("prompts")}
+                >
+                  <div className="model-doctor-head with-icon">
+                    <span
+                      className={`model-doctor-icon ${modelDoctorCardTone}`}
+                      aria-hidden="true"
+                    >
+                      <AppIcon name="setup" />
+                    </span>
+                    <div className="model-doctor-title">
+                      <strong>Model doctor {modelDoctorReport.status}</strong>
+                      <span>{modelDoctorReport.active_profile}</span>
+                    </div>
+                  </div>
+                  <div className="model-doctor-metrics">
+                    <VisualMetric
+                      icon="prompt"
+                      label="saved"
+                      value={modelDoctorReport.saved_model_count}
+                      section="prompts"
+                      tone={modelDoctorReport.saved_model_count ? "ok" : "neutral"}
+                    />
+                    <VisualMetric
+                      icon="setup"
+                      label="providers"
+                      value={modelDoctorReport.provider_count}
+                      section="prompts"
+                      tone={modelDoctorReport.provider_count ? "ok" : "warning"}
+                    />
+                    <VisualMetric
+                      icon="context"
+                      label="metadata"
+                      value={modelDoctorReport.metadata_catalog_models}
+                      section="prompts"
+                      tone={
+                        modelDoctorReport.metadata_catalog_models ? "ok" : "warning"
+                      }
+                    />
+                    <VisualMetric
+                      icon="memory"
+                      label="bundled"
+                      value={modelDoctorReport.bundled_metadata_models}
+                      section="prompts"
+                      tone={
+                        modelDoctorReport.bundled_metadata_models ? "ok" : "warning"
+                      }
+                    />
+                    <VisualMetric
+                      icon="control"
+                      label="unknown"
+                      value={modelDoctorUnknownProviders}
+                      section="prompts"
+                      tone={modelDoctorUnknownProviders ? "warning" : "ok"}
+                    />
+                    <VisualMetric
+                      icon="trace"
+                      label="missing"
+                      value={modelDoctorMissingMetadata}
+                      section="prompts"
+                      tone={modelDoctorMissingMetadata ? "warning" : "ok"}
+                    />
+                    <VisualMetric
+                      icon="approval"
+                      label="warnings"
+                      value={modelDoctorReport.warnings.length}
+                      section="prompts"
+                      tone={modelDoctorReport.warnings.length ? "warning" : "ok"}
+                    />
+                    <VisualMetric
+                      icon="approval"
+                      label="errors"
+                      value={modelDoctorReport.errors.length}
+                      section="prompts"
+                      tone={modelDoctorReport.errors.length ? "danger" : "ok"}
+                    />
                   </div>
                   <span>
                     {modelDoctorReport.saved_model_count} saved models /{" "}

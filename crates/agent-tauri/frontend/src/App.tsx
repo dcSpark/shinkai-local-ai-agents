@@ -25019,58 +25019,88 @@ export default function App() {
                       ? "configured"
                       : "bundled fallback"}
                   </span>
-                  {modelDoctorReport.errors.length ? (
-                    <div className="finding-list">
+                  {modelDoctorReport.errors.length ||
+                  modelDoctorReport.warnings.length ? (
+                    <div className="model-doctor-detail-list">
                       {modelDoctorReport.errors.slice(0, 5).map((error) => (
-                        <span className="finding high" key={error}>
-                          {error}
-                        </span>
+                        <div className="model-doctor-detail-row danger" key={error}>
+                          <span
+                            className="model-doctor-row-icon danger"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="approval" />
+                          </span>
+                          <div>
+                            <strong>Error</strong>
+                            <span>{previewText(error, 180)}</span>
+                          </div>
+                        </div>
                       ))}
-                    </div>
-                  ) : null}
-                  {modelDoctorReport.warnings.length ? (
-                    <div className="finding-list">
                       {modelDoctorReport.warnings.slice(0, 5).map((warning) => (
-                        <span className="finding warning" key={warning}>
-                          {warning}
-                        </span>
+                        <div className="model-doctor-detail-row warning" key={warning}>
+                          <span
+                            className="model-doctor-row-icon warning"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="trace" />
+                          </span>
+                          <div>
+                            <strong>Warning</strong>
+                            <span>{previewText(warning, 180)}</span>
+                          </div>
+                        </div>
                       ))}
                     </div>
                   ) : null}
                   {modelDoctorReport.saved_models.length ? (
-                    <div className="finding-list">
+                    <div className="model-doctor-model-list">
                       {modelDoctorReport.saved_models.map((doc) => {
-                        const state =
+                        const tone: ContextReviewCard["tone"] =
                           doc.validation_status === "error"
-                            ? "high"
+                            ? "danger"
                             : doc.validation_status === "warning" ||
                                 !doc.provider_known ||
                                 !doc.metadata_present
                               ? "warning"
-                              : "none";
+                              : "ok";
                         const declared = doc.declared_modalities.length
                           ? `declared ${doc.declared_modalities.join(", ")}`
                           : "declared none";
                         const catalog = doc.metadata_modalities.length
                           ? `catalog ${doc.metadata_modalities.join(", ")}`
                           : "catalog none";
+                        const metadata = doc.metadata_present
+                          ? doc.metadata_source ?? "metadata present"
+                          : "metadata missing";
                         return (
                           <div
-                            className="finding-action-row"
+                            className={`model-doctor-model-row ${tone}`}
                             key={`model-doctor:${doc.id}`}
                           >
-                            <span
-                              className={`finding ${state}`}
-                              title={doc.validation_error ?? undefined}
-                            >
-                              {doc.id}: {doc.provider}
-                              {doc.provider_known ? "" : " / unknown provider"}
-                              {doc.validation_status !== "ok"
-                                ? ` / ${doc.validation_status}`
-                                : ""}
-                              {` / ${declared} / ${catalog}`}
-                              {doc.metadata_source ? ` / ${doc.metadata_source}` : ""}
-                            </span>
+                            <div className="model-doctor-model-main">
+                              <span
+                                className={`model-doctor-row-icon ${tone}`}
+                                aria-hidden="true"
+                              >
+                                <AppIcon
+                                  name={tone === "danger" ? "approval" : "setup"}
+                                />
+                              </span>
+                              <div className="model-doctor-model-copy">
+                                <strong>{doc.id}</strong>
+                                <span>
+                                  {doc.provider}
+                                  {doc.provider_known ? "" : " / unknown provider"} /{" "}
+                                  {doc.validation_status}
+                                </span>
+                                <span>
+                                  {declared} / {catalog} / {metadata}
+                                </span>
+                                {doc.validation_error ? (
+                                  <span>{previewText(doc.validation_error, 160)}</span>
+                                ) : null}
+                              </div>
+                            </div>
                             <div className="mini-actions">
                               <button
                                 type="button"

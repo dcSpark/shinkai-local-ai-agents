@@ -24111,7 +24111,50 @@ export default function App() {
                         tone="neutral"
                       />
                     </div>
-                    <p>{previewText(message.content, 420)}</p>
+                    <div className="conversation-detail-list">
+                      <div
+                        className={`conversation-detail-row ${conversationMessageTone(
+                          message,
+                        )}`}
+                      >
+                        <span
+                          className={`conversation-detail-icon ${conversationMessageTone(
+                            message,
+                          )}`}
+                          aria-hidden="true"
+                        >
+                          <AppIcon name={conversationMessageIcon(message)} />
+                        </span>
+                        <div className="conversation-detail-copy">
+                          <strong>Message preview</strong>
+                          <span>{previewText(message.content, 420)}</span>
+                        </div>
+                      </div>
+                      <div className="conversation-detail-row">
+                        <span
+                          className="conversation-detail-icon"
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="trace" />
+                        </span>
+                        <div className="conversation-detail-copy">
+                          <strong>Run linkage</strong>
+                          <span>{message.run_id ?? "not linked"}</span>
+                        </div>
+                      </div>
+                      <div className="conversation-detail-row">
+                        <span
+                          className="conversation-detail-icon"
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="conversation" />
+                        </span>
+                        <div className="conversation-detail-copy">
+                          <strong>Message time</strong>
+                          <span>{message.created_at}</span>
+                        </div>
+                      </div>
+                    </div>
                     <div className="mini-actions">
                       <button
                         type="button"

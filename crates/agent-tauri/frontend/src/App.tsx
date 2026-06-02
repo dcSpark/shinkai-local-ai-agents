@@ -20822,7 +20822,9 @@ export default function App() {
             </button>
           </div>
           <label>
-            Compare run
+            <FieldLabel icon="trace" section="trace">
+              Compare run
+            </FieldLabel>
             <input
               aria-label="Compare run id"
               value={traceCompareRunId}

@@ -2164,6 +2164,123 @@ textarea:disabled {
   font-family: inherit;
 }
 
+.adapter-doctor-detail-list,
+.adapter-doctor-package-list,
+.adapter-doctor-capability-list {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.adapter-doctor-detail-row,
+.adapter-doctor-package-row,
+.adapter-doctor-capability-row {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0.45rem;
+  border: 1px solid #2a2d34;
+  border-radius: 8px;
+  background: #111215;
+}
+
+.adapter-doctor-detail-row {
+  grid-template-columns: 1.55rem minmax(0, 1fr);
+  align-items: start;
+}
+
+.adapter-doctor-package-row.ok,
+.adapter-doctor-capability-row.ok {
+  border-color: #275c43;
+  background: #13201a;
+}
+
+.adapter-doctor-detail-row.warning,
+.adapter-doctor-package-row.warning,
+.adapter-doctor-capability-row.warning {
+  border-color: #816a2d;
+  background: #251f12;
+}
+
+.adapter-doctor-detail-row.danger,
+.adapter-doctor-package-row.danger,
+.adapter-doctor-capability-row.danger {
+  border-color: #7d3c45;
+  background: #211317;
+}
+
+.adapter-doctor-package-main,
+.adapter-doctor-capability-main {
+  display: grid;
+  grid-template-columns: 1.55rem minmax(0, 1fr);
+  gap: 0.4rem;
+  align-items: start;
+  min-width: 0;
+}
+
+.adapter-doctor-row-icon {
+  display: inline-grid;
+  width: 1.55rem;
+  height: 1.55rem;
+  place-items: center;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+  color: var(--section-accent);
+}
+
+.adapter-doctor-row-icon.ok {
+  border-color: #275c43;
+  background: #13281d;
+  color: #78dda7;
+}
+
+.adapter-doctor-row-icon.warning {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
+.adapter-doctor-row-icon.danger {
+  border-color: #7d3c45;
+  background: #32191f;
+  color: #ffb4c0;
+}
+
+.adapter-doctor-row-icon .app-icon {
+  width: 0.82rem;
+  height: 0.82rem;
+}
+
+.adapter-doctor-detail-row > div,
+.adapter-doctor-package-copy,
+.adapter-doctor-capability-copy {
+  display: grid;
+  gap: 0.14rem;
+  min-width: 0;
+}
+
+.adapter-doctor-package-metrics,
+.adapter-doctor-capability-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(5.8rem, 1fr));
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.adapter-doctor-package-row .mini-actions,
+.adapter-doctor-capability-row .mini-actions {
+  grid-template-columns: repeat(auto-fit, minmax(4.8rem, 1fr));
+}
+
+.adapter-doctor-capability-row p {
+  margin: 0;
+  color: #c3c8d0;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .model-doctor-card {
   display: grid;
   gap: 0.42rem;

@@ -27851,45 +27851,138 @@ export default function App() {
                     {adapterDoctorReport.finding_count} scan findings
                   </span>
                   {adapterDoctorReport.errors?.length ? (
-                    <div className="finding-list">
+                    <div className="adapter-doctor-detail-list">
                       {adapterDoctorReport.errors.slice(0, 4).map((error) => (
-                        <span className="finding high" key={error}>
-                          {error}
-                        </span>
+                        <div
+                          className="adapter-doctor-detail-row danger"
+                          key={error}
+                        >
+                          <span
+                            className="adapter-doctor-row-icon danger"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="trace" />
+                          </span>
+                          <div>
+                            <strong>Error</strong>
+                            <span>{previewText(error, 180)}</span>
+                          </div>
+                        </div>
                       ))}
                     </div>
                   ) : null}
                   {adapterDoctorReport.warnings?.length ? (
-                    <div className="finding-list">
+                    <div className="adapter-doctor-detail-list">
                       {adapterDoctorReport.warnings.slice(0, 4).map((warning) => (
-                        <span className="finding warning" key={warning}>
-                          {warning}
-                        </span>
+                        <div
+                          className="adapter-doctor-detail-row warning"
+                          key={warning}
+                        >
+                          <span
+                            className="adapter-doctor-row-icon warning"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="approval" />
+                          </span>
+                          <div>
+                            <strong>Warning</strong>
+                            <span>{previewText(warning, 180)}</span>
+                          </div>
+                        </div>
                       ))}
                     </div>
                   ) : null}
                   {adapterDoctorReport.packages.length ? (
-                    <div className="finding-list">
+                    <div className="adapter-doctor-package-list">
                       {adapterDoctorReport.packages.map((pkg) => {
                         const packageHighRisk = pkg.high_risk_finding_count > 0;
+                        const packageTone: ContextReviewCard["tone"] =
+                          pkg.status === "error" || packageHighRisk
+                            ? "danger"
+                            : pkg.status === "warning" ||
+                                pkg.quarantined ||
+                                pkg.unsupported_capability_count > 0 ||
+                                pkg.secret_requirement_count > 0
+                              ? "warning"
+                              : "ok";
+                        const packagePosture = [
+                          pkg.quarantined ? "quarantined" : "allowed",
+                          `${pkg.capability_count} capabilities`,
+                          `${pkg.metadata_only_capability_count} metadata-only`,
+                          `${pkg.secret_requirement_count} secrets`,
+                          `${pkg.finding_count} findings`,
+                        ].join(" / ");
                         return (
                           <div
-                            className="finding-action-row"
+                            className={`adapter-doctor-package-row ${packageTone}`}
                             key={`adapter-doctor:${pkg.id}`}
                           >
-                            <span
-                              className={`finding ${
-                                pkg.status === "error"
-                                  ? "high"
-                                  : pkg.status === "warning"
-                                    ? "warning"
-                                    : "none"
-                              }`}
-                            >
-                              {pkg.id}: {pkg.ready_capability_count} ready /{" "}
-                              {pkg.installable_skill_count} installable skills /{" "}
-                              {pkg.unsupported_capability_count} unsupported
-                            </span>
+                            <div className="adapter-doctor-package-main">
+                              <span
+                                className={`adapter-doctor-row-icon ${packageTone}`}
+                                aria-hidden="true"
+                              >
+                                <AppIcon
+                                  name={
+                                    packageHighRisk
+                                      ? "trace"
+                                      : pkg.quarantined
+                                        ? "approval"
+                                        : "adapter"
+                                  }
+                                />
+                              </span>
+                              <div className="adapter-doctor-package-copy">
+                                <strong>{pkg.id}</strong>
+                                <span>
+                                  {pkg.adapter} / {pkg.status}
+                                </span>
+                                <div className="adapter-doctor-package-metrics">
+                                  <VisualMetric
+                                    icon="tools"
+                                    label="ready"
+                                    value={`${pkg.ready_capability_count}/${pkg.executable_capability_count}`}
+                                    section="adapters"
+                                    tone={
+                                      pkg.executable_capability_count === 0
+                                        ? "neutral"
+                                        : pkg.ready_capability_count >=
+                                            pkg.executable_capability_count
+                                          ? "ok"
+                                          : "warning"
+                                    }
+                                  />
+                                  <VisualMetric
+                                    icon="skill"
+                                    label="skills"
+                                    value={pkg.installable_skill_count}
+                                    section="adapters"
+                                    tone={
+                                      pkg.installable_skill_count ? "ok" : "neutral"
+                                    }
+                                  />
+                                  <VisualMetric
+                                    icon="trace"
+                                    label="unsupported"
+                                    value={pkg.unsupported_capability_count}
+                                    section="adapters"
+                                    tone={
+                                      pkg.unsupported_capability_count
+                                        ? "warning"
+                                        : "ok"
+                                    }
+                                  />
+                                  <VisualMetric
+                                    icon="approval"
+                                    label="risk"
+                                    value={pkg.high_risk_finding_count}
+                                    section="adapters"
+                                    tone={packageHighRisk ? "danger" : "ok"}
+                                  />
+                                </div>
+                                <span>{packagePosture}</span>
+                              </div>
+                            </div>
                             <div className="mini-actions">
                               <button
                                 type="button"
@@ -27973,40 +28066,100 @@ export default function App() {
                   {adapterDoctorReport.packages.some(
                     (pkg) => pkg.capabilities.length > 0,
                   ) ? (
-                    <div className="finding-list">
+                    <div className="adapter-doctor-capability-list">
                       {adapterDoctorReport.packages.flatMap((pkg) =>
                         pkg.capabilities.map((capability) => {
                           const runtime = adapterRuntimeSummary(capability.runtime);
                           const notes = (capability.notes ?? [])
                             .filter(Boolean)
                             .join("; ");
-                          const state =
+                          const capabilityTone: ContextReviewCard["tone"] =
                             capability.support === "unsupported"
-                              ? "high"
+                              ? "danger"
                               : capability.support === "metadata_only"
                                 ? "warning"
-                                : "none";
+                                : "ok";
                           const detail = [runtime, notes]
                             .filter(Boolean)
                             .join(" / ");
                           const packageHighRisk = pkg.high_risk_finding_count > 0;
+                          const supportLabel = capability.support.replace(
+                            /_/g,
+                            " ",
+                          );
                           return (
                             <div
-                              className="finding-action-row"
+                              className={`adapter-doctor-capability-row ${capabilityTone}`}
                               key={`adapter-doctor-capability:${pkg.id}:${capability.id}`}
                             >
-                              <span
-                                className={`finding ${state}`}
+                              <div
+                                className="adapter-doctor-capability-main"
                                 title={detail || capability.name}
                               >
-                                {pkg.id}/{capability.id}: {capability.support}
-                                {capability.installable_as_skill
-                                  ? " / installable"
-                                  : ""}
-                                {capability.quarantined ? " / quarantined" : ""}
-                                {runtime ? ` / ${runtime}` : ""}
-                                {notes ? ` / ${compactPreview(notes, 140)}` : ""}
-                              </span>
+                                <span
+                                  className={`adapter-doctor-row-icon ${capabilityTone}`}
+                                  aria-hidden="true"
+                                >
+                                  <AppIcon
+                                    name={
+                                      capability.support === "unsupported"
+                                        ? "trace"
+                                        : capability.installable_as_skill
+                                          ? "skill"
+                                          : "tools"
+                                    }
+                                  />
+                                </span>
+                                <div className="adapter-doctor-capability-copy">
+                                  <strong>
+                                    {capability.kind}: {capability.name}
+                                  </strong>
+                                  <span>
+                                    {pkg.id}/{capability.id}
+                                  </span>
+                                  <div className="adapter-doctor-capability-metrics">
+                                    <VisualMetric
+                                      icon="tools"
+                                      label="support"
+                                      value={supportLabel}
+                                      section="adapters"
+                                      tone={capabilityTone}
+                                    />
+                                    <VisualMetric
+                                      icon="skill"
+                                      label="skill"
+                                      value={
+                                        capability.installable_as_skill
+                                          ? "installable"
+                                          : "none"
+                                      }
+                                      section="adapters"
+                                      tone={
+                                        capability.installable_as_skill
+                                          ? "ok"
+                                          : "neutral"
+                                      }
+                                    />
+                                    <VisualMetric
+                                      icon="approval"
+                                      label="review"
+                                      value={
+                                        capability.quarantined
+                                          ? "quarantined"
+                                          : "allowed"
+                                      }
+                                      section="adapters"
+                                      tone={
+                                        capability.quarantined ? "warning" : "ok"
+                                      }
+                                    />
+                                  </div>
+                                  {runtime ? <p>{runtime}</p> : null}
+                                  {notes ? (
+                                    <p>{compactPreview(notes, 140)}</p>
+                                  ) : null}
+                                </div>
+                              </div>
                               <div className="mini-actions">
                                 <button
                                   type="button"

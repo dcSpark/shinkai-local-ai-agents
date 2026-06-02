@@ -22502,9 +22502,37 @@ export default function App() {
                           tone="neutral"
                         />
                       </div>
-                      {record.input_preview ? <p>{record.input_preview}</p> : null}
-                      {record.final_output_preview ? (
-                        <p>{record.final_output_preview}</p>
+                      {record.input_preview || record.final_output_preview ? (
+                        <div className="trace-detail-list">
+                          {record.input_preview ? (
+                            <div className={`trace-detail-row ${tone}`}>
+                              <span
+                                className={`trace-detail-row-icon ${tone}`}
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="prompt" />
+                              </span>
+                              <div className="trace-detail-row-copy">
+                                <strong>Prompt preview</strong>
+                                <span>{record.input_preview}</span>
+                              </div>
+                            </div>
+                          ) : null}
+                          {record.final_output_preview ? (
+                            <div className={`trace-detail-row ${tone}`}>
+                              <span
+                                className={`trace-detail-row-icon ${tone}`}
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="artifact" />
+                              </span>
+                              <div className="trace-detail-row-copy">
+                                <strong>Final output preview</strong>
+                                <span>{record.final_output_preview}</span>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
                       ) : null}
                       <div className="mini-actions">
                         <button
@@ -23147,12 +23175,62 @@ export default function App() {
                           }
                         />
                       </div>
-                      {policyScope ? <span>{policyScope}</span> : null}
-                      {conflictNote ? <p>{conflictNote}</p> : null}
-                      <p>{item.error}</p>
-                      {item.policy_denials.length ? (
-                        <p>{item.policy_denials.join(" | ")}</p>
-                      ) : null}
+                      <div className="trace-detail-list">
+                        {policyScope ? (
+                          <div className="trace-detail-row">
+                            <span
+                              className="trace-detail-row-icon"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="profile" />
+                            </span>
+                            <div className="trace-detail-row-copy">
+                              <strong>Hook policy</strong>
+                              <span>{policyScope}</span>
+                            </div>
+                          </div>
+                        ) : null}
+                        {conflictNote ? (
+                          <div className="trace-detail-row warning">
+                            <span
+                              className="trace-detail-row-icon warning"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="control" />
+                            </span>
+                            <div className="trace-detail-row-copy">
+                              <strong>Policy conflict</strong>
+                              <span>{conflictNote}</span>
+                            </div>
+                          </div>
+                        ) : null}
+                        <div className={`trace-detail-row ${tone}`}>
+                          <span
+                            className={`trace-detail-row-icon ${tone}`}
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="adapter" />
+                          </span>
+                          <div className="trace-detail-row-copy">
+                            <strong>Hook error</strong>
+                            <span>{item.error}</span>
+                          </div>
+                        </div>
+                        {item.policy_denials.length ? (
+                          <div className="trace-detail-row danger">
+                            <span
+                              className="trace-detail-row-icon danger"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="approval" />
+                            </span>
+                            <div className="trace-detail-row-copy">
+                              <strong>Policy denials</strong>
+                              <span>{item.policy_denials.join(" | ")}</span>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
                       <div className="mini-actions">
                         <button
                           type="button"

@@ -17571,6 +17571,27 @@ export default function App() {
     return `${prefix} compaction review: ~${before} before, ~${after} after, ~${saved} saved.`;
   }
 
+  function compactionReviewBeforeDetail(snapshot: ContextSnapshot) {
+    const review = snapshot.compaction_review;
+    if (!review) {
+      return "";
+    }
+    const count = review.before_messages.length;
+    const withheld = review.withheld_before_messages;
+    return `${count} message${count === 1 ? "" : "s"} before compaction${
+      withheld ? `, ${withheld} withheld by guardrails` : ""
+    }.`;
+  }
+
+  function compactionReviewAfterDetail(snapshot: ContextSnapshot) {
+    const review = snapshot.compaction_review;
+    if (!review) {
+      return "";
+    }
+    const visible = review.visible_messages.length;
+    return `${visible} visible message${visible === 1 ? "" : "s"} after compacted context.`;
+  }
+
   function currentUsageSummary() {
     return [
       `Current usage: tokens ${tokensIn}/${tokensOut}`,
@@ -20985,14 +21006,99 @@ export default function App() {
                     />
                   </div>
                   <div className="compaction-review-grid">
-                    <div>
-                      <strong>Before</strong>
+                    <ContextPreviewPane
+                      title="Before"
+                      icon="chat"
+                      detail={compactionReviewBeforeDetail(contextPreview)}
+                      tone={
+                        contextPreview.compaction_review.withheld_before_messages
+                          ? "warning"
+                          : "neutral"
+                      }
+                      metrics={
+                        <>
+                          <VisualMetric
+                            icon="chat"
+                            label="messages"
+                            value={contextPreview.compaction_review.before_messages.length}
+                            section="chat"
+                            tone="neutral"
+                          />
+                          <VisualMetric
+                            icon="approval"
+                            label="withheld"
+                            value={
+                              contextPreview.compaction_review.withheld_before_messages
+                            }
+                            section="chat"
+                            tone={
+                              contextPreview.compaction_review.withheld_before_messages
+                                ? "warning"
+                                : "ok"
+                            }
+                          />
+                          <VisualMetric
+                            icon="setup"
+                            label="tokens"
+                            value={`~${Math.max(
+                              0,
+                              Math.round(
+                                contextPreview.compaction_review.before_tokens,
+                              ),
+                            )}`}
+                            section="chat"
+                          />
+                        </>
+                      }
+                    >
                       <pre>{compactionReviewBeforeText(contextPreview)}</pre>
-                    </div>
-                    <div>
-                      <strong>After</strong>
+                    </ContextPreviewPane>
+                    <ContextPreviewPane
+                      title="After"
+                      icon="context"
+                      detail={compactionReviewAfterDetail(contextPreview)}
+                      tone="ok"
+                      metrics={
+                        <>
+                          <VisualMetric
+                            icon="context"
+                            label="compacted"
+                            value={contextPreview.compaction_review.compacted_context.trim()
+                              ? "ready"
+                              : "empty"}
+                            section="chat"
+                            tone={
+                              contextPreview.compaction_review.compacted_context.trim()
+                                ? "ok"
+                                : "warning"
+                            }
+                          />
+                          <VisualMetric
+                            icon="chat"
+                            label="visible msgs"
+                            value={
+                              contextPreview.compaction_review.visible_messages.length
+                            }
+                            section="chat"
+                            tone="neutral"
+                          />
+                          <VisualMetric
+                            icon="setup"
+                            label="tokens"
+                            value={`~${Math.max(
+                              0,
+                              Math.round(
+                                contextPreview.compaction_review.after_tokens,
+                              ),
+                            )}`}
+                            section="chat"
+                            tone="ok"
+                          />
+                        </>
+                      }
+                    >
                       <pre>{compactionReviewAfterText(contextPreview)}</pre>
-                    </div>
+                    </ContextPreviewPane>
                   </div>
                 </section>
               ) : null}

@@ -19484,7 +19484,7 @@ export default function App() {
               disabled={running}
               title="No tool calls. The agent answers from the visible context only."
             >
-              Answer
+              <ButtonLabel icon="chat">Answer</ButtonLabel>
             </button>
             <button
               type="button"
@@ -19494,7 +19494,7 @@ export default function App() {
               disabled={running}
               title="One tool call. Useful for routing a simple action."
             >
-              One action
+              <ButtonLabel icon="control">One action</ButtonLabel>
             </button>
             <button
               type="button"
@@ -19504,7 +19504,7 @@ export default function App() {
               disabled={running}
               title={`Default ${CALLS_MAX}-call budget for multi-step work.`}
             >
-              Workflow
+              <ButtonLabel icon="tools">Workflow</ButtonLabel>
             </button>
           </div>
           {agentMode === "custom" ? (
@@ -19939,7 +19939,7 @@ export default function App() {
               disabled={running}
               title="Let the agent interpret tool results before replying."
             >
-              Interpret
+              <ButtonLabel icon="prompt">Interpret</ButtonLabel>
             </button>
             <button
               type="button"
@@ -19949,7 +19949,7 @@ export default function App() {
               disabled={running}
               title="Show original tool results without interpretation."
             >
-              Raw
+              <ButtonLabel icon="artifact">Raw</ButtonLabel>
             </button>
           </div>
           {rawToolOutput ? (
@@ -20063,7 +20063,7 @@ export default function App() {
                 onClick={clearIncludedIngest}
                 disabled={running}
               >
-                Clear Ingest
+                <ButtonLabel icon="approval">Clear Ingest</ButtonLabel>
               </button>
             </div>
           ) : null}
@@ -20073,21 +20073,21 @@ export default function App() {
               onClick={() => void previewCurrentContext()}
               disabled={running}
             >
-              Preview Context
+              <ButtonLabel icon="context">Preview Context</ButtonLabel>
             </button>
             <button
               type="button"
               onClick={() => void explainCurrentConfig()}
               disabled={running}
             >
-              Explain Config
+              <ButtonLabel icon="setup">Explain Config</ButtonLabel>
             </button>
             <button
               type="button"
               onClick={() => void explainCurrentTools()}
               disabled={running}
             >
-              Explain Tools
+              <ButtonLabel icon="tools">Explain Tools</ButtonLabel>
             </button>
           </div>
           {postRunCompactionPrompt ? (

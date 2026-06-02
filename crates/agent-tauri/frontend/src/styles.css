@@ -414,13 +414,57 @@ textarea:disabled {
 }
 
 .line .prefix {
+  display: inline-flex;
+  gap: 0.4rem;
   align-self: start;
+  align-items: center;
+  justify-content: flex-end;
   padding-top: 0.68rem;
   color: #9099a5;
   font-size: 0.74rem;
   font-weight: 700;
   text-align: right;
   user-select: none;
+}
+
+.prefix-icon {
+  display: inline-grid;
+  width: 1.45rem;
+  height: 1.45rem;
+  place-items: center;
+  border: 1px solid #38414c;
+  border-radius: 8px;
+  background: #151a20;
+  color: #8db7ff;
+}
+
+.prefix-icon .app-icon {
+  width: 0.82rem;
+  height: 0.82rem;
+}
+
+.line-user .prefix-icon {
+  border-color: #7a5040;
+  background: #2c241f;
+  color: #ffbf99;
+}
+
+.line-assistant .prefix-icon {
+  border-color: #2b6268;
+  background: #172b2f;
+  color: #8fe8f0;
+}
+
+.line-event .prefix-icon {
+  border-color: #2c3a4a;
+  background: #18212b;
+  color: #8db7ff;
+}
+
+.line-error .prefix-icon {
+  border-color: #704044;
+  background: #2c1b1e;
+  color: #ffb6bc;
 }
 
 .line .content {

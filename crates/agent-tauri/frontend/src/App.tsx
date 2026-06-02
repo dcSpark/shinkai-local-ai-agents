@@ -19003,7 +19003,12 @@ export default function App() {
         <section className="transcript" aria-live="polite" ref={transcriptRef}>
           {transcript.map((line, i) => (
             <div key={i} className={`line line-${line.kind}`}>
-              <span className="prefix">{prefixFor(line.kind)}</span>
+              <span className="prefix">
+                <span className="prefix-icon" aria-hidden="true">
+                  <AppIcon name={lineIcon(line.kind)} />
+                </span>
+                <span>{prefixFor(line.kind)}</span>
+              </span>
               <div className="content">{renderLineContent(line)}</div>
             </div>
           ))}
@@ -26585,6 +26590,19 @@ function prefixFor(kind: LineKind): string {
       return "log";
     case "error":
       return "err";
+  }
+}
+
+function lineIcon(kind: LineKind): IconName {
+  switch (kind) {
+    case "user":
+      return "profile";
+    case "assistant":
+      return "brand";
+    case "event":
+      return "trace";
+    case "error":
+      return "approval";
   }
 }
 

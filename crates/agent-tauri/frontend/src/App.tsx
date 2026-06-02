@@ -21731,7 +21731,7 @@ export default function App() {
                                   </span>
                                   <div className="context-source-detail-copy">
                                     <strong>Description</strong>
-                                    <p>{tool.description}</p>
+                                    <span>{tool.description}</span>
                                   </div>
                                 </div>
                               ) : null}
@@ -21763,7 +21763,7 @@ export default function App() {
                                           {parameter.required ? " / required" : ""}
                                         </span>
                                         {parameter.description ? (
-                                          <p>{parameter.description}</p>
+                                          <span>{parameter.description}</span>
                                         ) : null}
                                       </div>
                                     </div>
@@ -21793,12 +21793,12 @@ export default function App() {
                                   </span>
                                   <div className="context-source-detail-copy">
                                     <strong>Output guidance</strong>
-                                    <p>
+                                    <span>
                                       {previewText(
                                         tool.output_interpretation_guidance,
                                         180,
                                       )}
-                                    </p>
+                                    </span>
                                   </div>
                                 </div>
                               ) : null}
@@ -21963,7 +21963,7 @@ export default function App() {
                                   </span>
                                   <div className="context-source-detail-copy">
                                     <strong>Description</strong>
-                                    <p>{skill.description}</p>
+                                    <span>{skill.description}</span>
                                   </div>
                                 </div>
                               ) : null}

@@ -23741,7 +23741,7 @@ export default function App() {
                         <div className="conversation-detail-copy">
                           <strong>Conversation</strong>
                           <span>{conversationRecoveryPlan.conversation_id}</span>
-                          <p>agent {conversationRecoveryPlan.agent_id}</p>
+                          <span>agent {conversationRecoveryPlan.agent_id}</span>
                         </div>
                       </div>
                       <div className="conversation-detail-row ok">
@@ -23756,12 +23756,12 @@ export default function App() {
                           <span>
                             {conversationRecoverySummary(conversationRecoveryPlan)}
                           </span>
-                          <p>
+                          <span>
                             suggested run{" "}
                             {conversationRecoveryPlan.suggested_run
                               .conversation_id ||
                               conversationRecoveryPlan.conversation_id}
-                          </p>
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -23800,7 +23800,7 @@ export default function App() {
                               <div className="conversation-detail-copy">
                                 <strong>Compaction</strong>
                                 <span>{record.id}</span>
-                                <p>{record.content_preview}</p>
+                                <span>preview {record.content_preview}</span>
                               </div>
                             </div>
                           ))}
@@ -23825,7 +23825,7 @@ export default function App() {
                               <div className="conversation-detail-copy">
                                 <strong>Memory</strong>
                                 <span>{record.id}</span>
-                                <p>{record.content_preview}</p>
+                                <span>preview {record.content_preview}</span>
                               </div>
                             </div>
                           ))}
@@ -23850,7 +23850,7 @@ export default function App() {
                               <div className="conversation-detail-copy">
                                 <strong>{artifact.format} artifact</strong>
                                 <span>{fileName(artifact.path)}</span>
-                                <p>{formatBytes(artifact.bytes)}</p>
+                                <span>{formatBytes(artifact.bytes)}</span>
                               </div>
                             </div>
                           ))}

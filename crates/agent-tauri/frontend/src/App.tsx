@@ -5756,6 +5756,31 @@ export default function App() {
     return [summary, ...lines].join("\n");
   }
 
+  function qualityScoreTone(score: number): ContextReviewCard["tone"] {
+    if (score >= 8) return "ok";
+    if (score >= 5) return "warning";
+    return "danger";
+  }
+
+  function qualityScoreLabel(score: number) {
+    if (score >= 8) return "strong";
+    if (score >= 5) return "watch";
+    return "low";
+  }
+
+  function traceTimelineIcon(tone: TraceTimelineItem["tone"]): IconName {
+    switch (tone) {
+      case "ok":
+        return "approval";
+      case "warning":
+        return "control";
+      case "danger":
+        return "adapter";
+      case "neutral":
+        return "trace";
+    }
+  }
+
   function traceTimelineItems(events: RunEvent[]): TraceTimelineItem[] {
     return events.map((event) => {
       const at = new Date(event.at).toLocaleTimeString();
@@ -21298,48 +21323,109 @@ export default function App() {
           </section>
           {hookRemediationsFromEvents(traceEvents).length ? (
             <section className="hook-remediation-list">
-              <strong>Hook Review</strong>
-              <div className="mini-actions">
-                <button
-                  type="button"
-                  title="Load persisted lifecycle hook policy for the active agent/profile."
-                  onClick={() => void refreshHookPolicy()}
+              <div className="trace-section-head">
+                <div
+                  className="trace-section-title with-icon"
+                  style={sectionThemeStyle("trace")}
                 >
-                  <ButtonLabel icon="approval">Refresh Policy</ButtonLabel>
-                </button>
-                {hookPolicy ? (
-                  <span>
-                    profile {hookPolicy.profile} - disabled{" "}
-                    {hookPolicy.disabled_lifecycle_hooks.length}
-                    {hookPolicy.effective_source
-                      ? ` - source ${hookPolicy.effective_source}`
-                      : ""}
-                    {hookPolicy.agent_id ? ` - agent ${hookPolicy.agent_id}` : ""}
+                  <span className="trace-section-icon warning" aria-hidden="true">
+                    <AppIcon name="adapter" />
                   </span>
-                ) : null}
+                  <div>
+                    <strong>Hook Review</strong>
+                    <span>
+                      {hookRemediationsFromEvents(traceEvents).length} remediation
+                      {hookRemediationsFromEvents(traceEvents).length === 1
+                        ? ""
+                        : "s"}{" "}
+                      from this run
+                    </span>
+                  </div>
+                </div>
+                <div className="mini-actions">
+                  <button
+                    type="button"
+                    title="Load persisted lifecycle hook policy for the active agent/profile."
+                    onClick={() => void refreshHookPolicy()}
+                  >
+                    <ButtonLabel icon="approval">Refresh Policy</ButtonLabel>
+                  </button>
+                  {hookPolicy ? (
+                    <span>
+                      profile {hookPolicy.profile} - disabled{" "}
+                      {hookPolicy.disabled_lifecycle_hooks.length}
+                      {hookPolicy.effective_source
+                        ? ` - source ${hookPolicy.effective_source}`
+                        : ""}
+                      {hookPolicy.agent_id ? ` - agent ${hookPolicy.agent_id}` : ""}
+                    </span>
+                  ) : null}
+                </div>
               </div>
               <div className="context-cards">
                 {hookRemediationsFromEvents(traceEvents).map((item) => {
                   const persistentlyDisabled = hookIsPersistentlyDisabled(item.hook_id);
                   const profileDisabled = hookIsProfileDisabled(item.hook_id);
                   const agentDisabled = hookIsAgentDisabled(item.hook_id);
+                  const policyScope = hookPolicyScopeSummary(item.hook_id).replace(
+                    /^ - /,
+                    "",
+                  );
+                  const conflictNote = hookPolicyConflictNote(item.hook_id);
+                  const tone: ContextReviewCard["tone"] = item.final_failure
+                    ? "danger"
+                    : "warning";
                   return (
                     <div
-                      className={`context-card compact ${item.final_failure ? "danger" : "warning"}`}
+                      className={`trace-detail-card ${tone}`}
                       key={`${item.hook_id}:${item.event_id}`}
+                      style={sectionThemeStyle("trace")}
                     >
-                      <strong>
-                        {item.hook_id} / {item.trigger}
-                      </strong>
-                      <span>
-                        event {item.event_id} - attempt {item.attempt} -{" "}
-                        {item.final_failure ? "final" : "retrying"}
-                        {persistentlyDisabled ? " - disabled for future runs" : ""}
-                        {hookPolicyScopeSummary(item.hook_id)}
-                      </span>
-                      {hookPolicyConflictNote(item.hook_id) ? (
-                        <p>{hookPolicyConflictNote(item.hook_id)}</p>
-                      ) : null}
+                      <div className="trace-detail-head">
+                        <span className={`trace-detail-icon ${tone}`} aria-hidden="true">
+                          <AppIcon name="adapter" />
+                        </span>
+                        <div className="trace-detail-title">
+                          <strong>{item.hook_id}</strong>
+                          <span>{item.trigger}</span>
+                        </div>
+                      </div>
+                      <div className="trace-detail-metrics">
+                        <VisualMetric
+                          icon="trace"
+                          label="event"
+                          value={item.event_id}
+                          section="trace"
+                          tone={tone}
+                        />
+                        <VisualMetric
+                          icon="approval"
+                          label={item.final_failure ? "final failure" : "retrying"}
+                          value={`attempt ${item.attempt}`}
+                          section="trace"
+                          tone={tone}
+                        />
+                        <VisualMetric
+                          icon="profile"
+                          label={
+                            persistentlyDisabled ? "future runs" : "future policy"
+                          }
+                          value={persistentlyDisabled ? "disabled" : "enabled"}
+                          section="trace"
+                          tone={persistentlyDisabled ? "warning" : "ok"}
+                        />
+                        <VisualMetric
+                          icon="control"
+                          label="policy denials"
+                          value={item.policy_denials.length}
+                          section="trace"
+                          tone={
+                            item.policy_denials.length ? "danger" : "neutral"
+                          }
+                        />
+                      </div>
+                      {policyScope ? <span>{policyScope}</span> : null}
+                      {conflictNote ? <p>{conflictNote}</p> : null}
                       <p>{item.error}</p>
                       {item.policy_denials.length ? (
                         <p>{item.policy_denials.join(" | ")}</p>
@@ -21408,14 +21494,33 @@ export default function App() {
           ) : null}
           {traceEvents.length ? (
             <section className="trace-timeline">
-              <strong>Run Timeline</strong>
+              <div className="trace-section-head">
+                <div
+                  className="trace-section-title with-icon"
+                  style={sectionThemeStyle("trace")}
+                >
+                  <span className="trace-section-icon" aria-hidden="true">
+                    <AppIcon name="trace" />
+                  </span>
+                  <div>
+                    <strong>Run Timeline</strong>
+                    <span>{traceEvents.length} ordered trace events</span>
+                  </div>
+                </div>
+              </div>
               <div className="trace-timeline-list">
                 {traceTimelineItems(traceEvents).map((item) => (
                   <div
                     className={`trace-timeline-item ${item.tone}`}
                     key={item.id}
                   >
-                    <span className="trace-timeline-marker">{item.id}</span>
+                    <span
+                      className="trace-timeline-marker"
+                      title={`event ${item.id}`}
+                    >
+                      <AppIcon name={traceTimelineIcon(item.tone)} />
+                      <small>{item.id}</small>
+                    </span>
                     <div>
                       <strong>{item.title}</strong>
                       <span>{item.meta}</span>
@@ -21428,18 +21533,71 @@ export default function App() {
           ) : null}
           {qualityScoresFromEvents(traceEvents).length ? (
             <section className="quality-score-list">
-              <strong>Quality Scores</strong>
-              <div className="context-cards">
-                {qualityScoresFromEvents(traceEvents).map((record) => (
-                  <div className="context-card compact" key={record.event_id}>
-                    <strong>
-                      {record.target} - {record.score}/10
-                    </strong>
+              <div className="trace-section-head">
+                <div
+                  className="trace-section-title with-icon"
+                  style={sectionThemeStyle("trace")}
+                >
+                  <span className="trace-section-icon ok" aria-hidden="true">
+                    <AppIcon name="skill" />
+                  </span>
+                  <div>
+                    <strong>Quality Scores</strong>
                     <span>
-                      event {record.event_id} - {record.at}
+                      {qualityScoresFromEvents(traceEvents).length} score
+                      {qualityScoresFromEvents(traceEvents).length === 1 ? "" : "s"}{" "}
+                      recorded
                     </span>
                   </div>
-                ))}
+                </div>
+              </div>
+              <div className="context-cards">
+                {qualityScoresFromEvents(traceEvents).map((record) => {
+                  const tone = qualityScoreTone(record.score);
+                  return (
+                    <div
+                      className={`trace-detail-card ${tone}`}
+                      key={record.event_id}
+                      style={sectionThemeStyle("trace")}
+                    >
+                      <div className="trace-detail-head">
+                        <span
+                          className={`trace-detail-icon ${tone}`}
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="skill" />
+                        </span>
+                        <div className="trace-detail-title">
+                          <strong>{record.target}</strong>
+                          <span>event {record.event_id}</span>
+                        </div>
+                      </div>
+                      <div className="trace-detail-metrics">
+                        <VisualMetric
+                          icon="skill"
+                          label={qualityScoreLabel(record.score)}
+                          value={`${record.score}/10`}
+                          section="trace"
+                          tone={tone}
+                        />
+                        <VisualMetric
+                          icon="trace"
+                          label="event"
+                          value={record.event_id}
+                          section="trace"
+                          tone="neutral"
+                        />
+                        <VisualMetric
+                          icon="control"
+                          label="recorded"
+                          value={new Date(record.at).toLocaleTimeString()}
+                          section="trace"
+                          tone="ok"
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </section>
           ) : null}

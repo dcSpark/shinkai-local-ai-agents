@@ -30019,10 +30019,37 @@ export default function App() {
                         tone={(storagePruneResult.errors ?? []).length ? "danger" : "ok"}
                       />
                     </div>
-                    <span>{storagePruneSummary(storagePruneResult)}</span>
-                    <span title={storagePruneResult.plan.root}>
-                      root {storagePruneResult.plan.root}
-                    </span>
+                    <div className="storage-detail-list">
+                      <div
+                        className={`storage-detail-row ${storagePruneTone(
+                          storagePruneResult,
+                        )}`}
+                      >
+                        <span
+                          className={`storage-detail-icon ${storagePruneTone(
+                            storagePruneResult,
+                          )}`}
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="trace" />
+                        </span>
+                        <div className="storage-detail-copy">
+                          <strong>Prune summary</strong>
+                          <span>{storagePruneSummary(storagePruneResult)}</span>
+                        </div>
+                      </div>
+                      <div className="storage-detail-row ok">
+                        <span className="storage-detail-icon ok" aria-hidden="true">
+                          <AppIcon name="memory" />
+                        </span>
+                        <div className="storage-detail-copy">
+                          <strong>Plan root</strong>
+                          <span title={storagePruneResult.plan.root}>
+                            {storagePruneResult.plan.root}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                     {storagePruneResult.dry_run ? (
                       <div className="mini-actions">
                         <button
@@ -30147,7 +30174,26 @@ export default function App() {
                             section="adapters"
                           />
                         </div>
-                        <span title={candidate.path}>path {candidate.path}</span>
+                        <div className="storage-detail-list">
+                          <div
+                            className={`storage-detail-row ${
+                              storagePruneResult.dry_run ? "warning" : "ok"
+                            }`}
+                          >
+                            <span
+                              className={`storage-detail-icon ${
+                                storagePruneResult.dry_run ? "warning" : "ok"
+                              }`}
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="artifact" />
+                            </span>
+                            <div className="storage-detail-copy">
+                              <strong>Candidate path</strong>
+                              <span title={candidate.path}>{candidate.path}</span>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>

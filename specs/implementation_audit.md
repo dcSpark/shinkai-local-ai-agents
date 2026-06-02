@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App storage prune detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx` | Storage prune plan/result cards now render prune summary, plan root, and each visible candidate path as icon-bearing storage detail rows before Apply Plan or candidate inspection. |
 | App storage report detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Storage report summary and bucket cards now render storage root, quota posture, largest bucket/file, missing bucket posture, bucket paths, and per-bucket largest files as icon-bearing detail rows after the existing footprint, file, directory, quota, cache, size, and largest metrics. |
 | App voice status detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx` | Voice status cards now render input model, output model, capture artifact, and speech artifact readiness as icon-bearing artifact detail rows after the existing activity/input/output/capture/speech metrics. |
 | App generated-artifact inventory visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Generated artifact inventory cards now render cache path and modified-time detail as icon-bearing rows before Set Id, Show, Open, Download, Export, Preview, and Delete actions. |

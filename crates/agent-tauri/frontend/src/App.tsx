@@ -23067,7 +23067,7 @@ export default function App() {
                   onClick={() => void reviewSkills()}
                   disabled={running}
                 >
-                  List Skills
+                  <ButtonLabel icon="skill">List Skills</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23075,7 +23075,7 @@ export default function App() {
                   onClick={() => void importSkillFromOps()}
                   disabled={running || !opsValue.trim()}
                 >
-                  Import Skill
+                  <ButtonLabel icon="artifact">Import Skill</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23083,7 +23083,7 @@ export default function App() {
                   onClick={() => void showSkillFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Show Skill
+                  <ButtonLabel icon="skill">Show Skill</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23091,7 +23091,7 @@ export default function App() {
                   onClick={() => void exportSkillFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Export Skill
+                  <ButtonLabel icon="artifact">Export Skill</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23099,7 +23099,7 @@ export default function App() {
                   onClick={() => void previewWithSkillsFromOps()}
                   disabled={running}
                 >
-                  Preview With Skills
+                  <ButtonLabel icon="context">Preview With Skills</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23107,7 +23107,7 @@ export default function App() {
                   onClick={() => void setSkillQuarantine(true)}
                   disabled={running || !opsId.trim()}
                 >
-                  Allow Skill
+                  <ButtonLabel icon="approval">Allow Skill</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23115,7 +23115,7 @@ export default function App() {
                   onClick={() => void setSkillQuarantine(false)}
                   disabled={running || !opsId.trim()}
                 >
-                  Quarantine
+                  <ButtonLabel icon="approval">Quarantine</ButtonLabel>
                 </button>
               </div>
               <OperationTitle title="Capability Drafts" section="skills" icon="tools" />
@@ -23141,7 +23141,7 @@ export default function App() {
                   onClick={() => void reviewCapabilities()}
                   disabled={running}
                 >
-                  List Drafts
+                  <ButtonLabel icon="tools">List Drafts</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23149,7 +23149,7 @@ export default function App() {
                   onClick={() => void capabilityDoctorFromOps()}
                   disabled={running}
                 >
-                  Doctor
+                  <ButtonLabel icon="trace">Doctor</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23157,7 +23157,7 @@ export default function App() {
                   onClick={() => void proposeCapabilityFromOps()}
                   disabled={running || !opsId.trim() || !opsValue.trim()}
                 >
-                  Propose Draft
+                  <ButtonLabel icon="tools">Propose Draft</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23165,7 +23165,7 @@ export default function App() {
                   onClick={() => void showCapabilityFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Show Draft
+                  <ButtonLabel icon="tools">Show Draft</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23173,7 +23173,7 @@ export default function App() {
                   onClick={() => void exportCapabilityFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Export Draft
+                  <ButtonLabel icon="artifact">Export Draft</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23181,7 +23181,7 @@ export default function App() {
                   onClick={() => void importCapabilityFromOps()}
                   disabled={running || !opsValue.trim()}
                 >
-                  Import Draft
+                  <ButtonLabel icon="artifact">Import Draft</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23189,7 +23189,7 @@ export default function App() {
                   onClick={() => void reviewCapabilityDraft(true)}
                   disabled={running || !opsId.trim()}
                 >
-                  Allow Draft
+                  <ButtonLabel icon="approval">Allow Draft</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23197,7 +23197,7 @@ export default function App() {
                   onClick={() => void reviewCapabilityDraft(false)}
                   disabled={running || !opsId.trim()}
                 >
-                  Reject Draft
+                  <ButtonLabel icon="approval">Reject Draft</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23206,7 +23206,7 @@ export default function App() {
                   onClick={() => void deleteCapabilityFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Delete Draft
+                  <ButtonLabel icon="approval">Delete Draft</ButtonLabel>
                 </button>
               </div>
               {capabilityDoctorReport ? (

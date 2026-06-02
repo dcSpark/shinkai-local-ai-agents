@@ -18762,6 +18762,26 @@ export default function App() {
     : 0;
   const runControlVisualSection: ActiveSection =
     activeSection === "approvals" ? "approvals" : "chat";
+  const pendingApprovalCount = approvals.filter(
+    (approval) => approval.status === "pending",
+  ).length;
+  const approvedApprovalCount = approvals.filter(
+    (approval) => approval.status === "approved",
+  ).length;
+  const rejectedApprovalCount = approvals.filter(
+    (approval) => approval.status === "rejected",
+  ).length;
+  const assessedApprovalCount = approvals.filter(
+    (approval) => approval.assessment,
+  ).length;
+  const approvalSummaryAssessmentTone: ContextReviewCard["tone"] =
+    approvals.length > 0 && assessedApprovalCount < approvals.length
+      ? "warning"
+      : assessedApprovalCount
+        ? "ok"
+        : "neutral";
+  const trimmedApprovalController = approvalControllerAgent.trim();
+  const approvalControllerValue = trimmedApprovalController || "manual";
   const showSessionOverview =
     transcript.length === 1 &&
     transcript[0]?.kind === "event" &&
@@ -26308,6 +26328,45 @@ export default function App() {
                 />
               </label>
             </>
+          ) : null}
+          {activeSection === "approvals" ? (
+            <div className="approval-summary">
+              <VisualMetric
+                icon="approval"
+                label="pending"
+                value={pendingApprovalCount}
+                section="approvals"
+                tone={pendingApprovalCount ? "warning" : "neutral"}
+              />
+              <VisualMetric
+                icon="approval"
+                label="approved"
+                value={approvedApprovalCount}
+                section="approvals"
+                tone={approvedApprovalCount ? "ok" : "neutral"}
+              />
+              <VisualMetric
+                icon="approval"
+                label="rejected"
+                value={rejectedApprovalCount}
+                section="approvals"
+                tone={rejectedApprovalCount ? "danger" : "neutral"}
+              />
+              <VisualMetric
+                icon="profile"
+                label="assessed"
+                value={assessedApprovalCount}
+                section="approvals"
+                tone={approvalSummaryAssessmentTone}
+              />
+              <VisualMetric
+                icon="profile"
+                label="controller"
+                value={approvalControllerValue}
+                section="approvals"
+                tone={trimmedApprovalController ? "ok" : "neutral"}
+              />
+            </div>
           ) : null}
           {activeSection === "approvals" ? (
             approvals.length ? (

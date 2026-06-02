@@ -2948,6 +2948,13 @@ textarea:disabled {
   background: #15171b;
 }
 
+.approval-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.2rem, 1fr));
+  gap: 0.45rem;
+  min-width: 0;
+}
+
 .approval-list {
   display: grid;
   gap: 0.55rem;

@@ -2516,12 +2516,14 @@ export default function App() {
       { command: "/x402", label: "Show x402 shortcuts" },
       { command: "/x402 help", label: "Show x402 shortcuts" },
       { command: "/x402 --help", label: "Show x402 shortcuts" },
+      { command: "/x402 status", label: "Inspect visible x402 readiness" },
       { command: "/x402 request ", label: "Probe an x402 endpoint" },
       { command: "/x402 required ", label: "Build an x402 payment challenge" },
       { command: "/x402 settle ", label: "Verify and settle an x402 payment" },
       { command: "/payment", label: "Show x402 payment aliases" },
       { command: "/payment help", label: "Show x402 payment aliases" },
       { command: "/payment --help", label: "Show x402 payment aliases" },
+      { command: "/payment x402-status", label: "Inspect visible x402 readiness" },
       { command: "/payment x402-request ", label: "Probe an x402 endpoint" },
       { command: "/payment x402-required ", label: "Build an x402 payment challenge" },
       { command: "/payment x402-settle ", label: "Verify and settle an x402 payment" },
@@ -3013,10 +3015,34 @@ export default function App() {
   function x402ShortcutHelpText() {
     return [
       "x402 shortcuts:",
+      "- /x402 status",
       "- /x402 request <url> [--method GET|POST] [--max-amount n] [--auto-pay] [--signature-secret id]",
       "- /x402 required --resource <url> --amount <n> --pay-to <addr> --asset <asset> --network <name>",
       "- /x402 settle <payment-signature> --facilitator <url> --resource <url> --amount <n> --pay-to <addr> --asset <asset> --network <name> [--mode verify|settle|verify-and-settle]",
-      "/payment x402-request, /payment x402-required, and /payment x402-settle are aliases.",
+      "/payment x402-status, /payment x402-request, /payment x402-required, and /payment x402-settle are aliases.",
+    ].join("\n");
+  }
+
+  function x402StatusText() {
+    const loaded = visibleTools !== null;
+    const tools = visibleTools ?? [];
+    const hasTool = (id: string) => tools.some((tool) => tool.id === id);
+    const paymentToolCount = tools.filter((tool) =>
+      tool.id.startsWith("payment_x402"),
+    ).length;
+    const bridgeSummary = bridgeStatus ? bridgeStatusSummary(bridgeStatus) : null;
+    return [
+      "x402 status:",
+      loaded
+        ? `visible payment tools: ${paymentToolCount}`
+        : "visible payment tools: not loaded; use /tools first",
+      `request tool: ${loaded && hasTool("payment_x402_request") ? "visible" : "not visible"}`,
+      `required tool: ${loaded && hasTool("payment_x402_required") ? "visible" : "not visible"}`,
+      `settle tool: ${loaded && hasTool("payment_x402_settle") ? "visible" : "not visible"}`,
+      bridgeSummary
+        ? `bridge x402: ${bridgeSummary.x402Enabled} bridges; daemon ${bridgeSummary.daemonX402Enabled ? "on" : "off"}`
+        : "bridge x402: not loaded; use /bridges status",
+      "Local env readiness is available from CLI/TUI /x402 status.",
     ].join("\n");
   }
 
@@ -8481,6 +8507,16 @@ export default function App() {
       return;
     }
     if (
+      prompt === "/x402 status" ||
+      prompt === "/payment status" ||
+      prompt === "/payment x402-status"
+    ) {
+      setInput("");
+      appendLine("user", prompt);
+      appendLine("assistant", x402StatusText());
+      return;
+    }
+    if (
       prompt === "/x402 request" ||
       prompt === "/x402 required" ||
       prompt === "/x402 settle" ||
@@ -8490,7 +8526,7 @@ export default function App() {
     ) {
       appendLine(
         "error",
-        "x402 shortcuts: /x402 request <url> [--method GET|POST] [--max-amount n] [--auto-pay] [--signature-secret id]; /x402 required --resource <url> --amount <n> --pay-to <addr> --asset <asset> --network <name>; /x402 settle <payment-signature> --facilitator <url> --resource <url> --amount <n> --pay-to <addr> --asset <asset> --network <name> [--mode verify|settle|verify-and-settle].",
+        "x402 shortcuts: /x402 status; /x402 request <url> [--method GET|POST] [--max-amount n] [--auto-pay] [--signature-secret id]; /x402 required --resource <url> --amount <n> --pay-to <addr> --asset <asset> --network <name>; /x402 settle <payment-signature> --facilitator <url> --resource <url> --amount <n> --pay-to <addr> --asset <asset> --network <name> [--mode verify|settle|verify-and-settle].",
       );
       return;
     }

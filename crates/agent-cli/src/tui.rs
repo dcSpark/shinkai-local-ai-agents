@@ -983,7 +983,7 @@ fn global_slash_help_text() -> &'static str {
      - /tool!<name> <json> - call a tool directly with manual JSON input\n\
      - /python <code>, /typescript <code>, /ts <code> - call native code tools directly\n\
      - /voice status, /voice transcribe <path>, /voice speak <text> - inspect voice config or call native voice tools directly\n\
-     - /x402 request|required|settle ... - call native x402 payment tools directly\n\
+     - /x402 status|request|required|settle ... - inspect or call native x402 payment tools directly\n\
      - /bridges status - inspect messaging bridge readiness without printing secrets\n\
      - /bridge-deliveries [list], /bridge-deliveries delete <id> --confirm - inspect or remove local bridge delivery dead letters\n\
      - /config - explain the effective runtime config\n\
@@ -10143,6 +10143,13 @@ fn handle_x402_slash(
         });
         return;
     }
+    if crate::x402_slash::is_status(rest) {
+        app.transcript.push(TranscriptLine {
+            kind: LineKind::Assistant,
+            text: crate::x402_slash::status_text(),
+        });
+        return;
+    }
     let (tool_name, input) = match crate::x402_slash::parse_tool_call(rest) {
         Ok(parsed) => parsed,
         Err(err) => {
@@ -12883,6 +12890,8 @@ mod tests {
             Some("x402-request https://example.test")
         );
         assert!(crate::x402_slash::is_help("--help"));
+        assert!(crate::x402_slash::is_status("status"));
+        assert!(crate::x402_slash::help_text().contains("/x402 status"));
         assert_eq!(crate::x402_slash::slash_rest("/payments"), None);
         assert_eq!(score_slash_rest("/score 7"), Some("7"));
         assert_eq!(score_slash_rest("/score"), Some(""));

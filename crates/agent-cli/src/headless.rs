@@ -222,6 +222,7 @@ pub async fn run(
             };
         }
         Some(SlashCommand::VoiceStatus) => return voice_status(&options, json),
+        Some(SlashCommand::X402Status) => return x402_status(json),
         Some(SlashCommand::Batch(command)) => {
             return match command {
                 BatchSlashCommand::List => batch_list(json).await,
@@ -9535,6 +9536,7 @@ enum SlashCommand {
     BridgeStatus,
     BridgeDelivery(BridgeDeliverySlashCommand),
     VoiceStatus,
+    X402Status,
     Batch(BatchSlashCommand),
     BatchRun {
         items: Vec<String>,
@@ -10470,6 +10472,9 @@ fn parse_slash_command(text: &str) -> anyhow::Result<Option<SlashCommand>> {
         if crate::x402_slash::is_help(rest) {
             return Ok(Some(SlashCommand::Help));
         }
+        if crate::x402_slash::is_status(rest) {
+            return Ok(Some(SlashCommand::X402Status));
+        }
         let (name, input) = parse_x402_slash_command(rest)?;
         return Ok(Some(SlashCommand::ToolManual {
             name: name.into(),
@@ -10605,6 +10610,18 @@ fn voice_status(options: &setup::RuntimeOptions, json: bool) -> anyhow::Result<(
     }
     println!("capture: app UI only; use /voice transcribe <path> for saved audio");
     println!("shortcuts: /voice transcribe <path>, /voice speak <text>");
+    Ok(())
+}
+
+fn x402_status(json: bool) -> anyhow::Result<()> {
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&crate::x402_slash::status_json())?
+        );
+    } else {
+        println!("{}", crate::x402_slash::status_text());
+    }
     Ok(())
 }
 
@@ -11091,7 +11108,7 @@ fn headless_slash_help_text() -> &'static str {
      - /tools - show visible tools for this run setup\n\
      - /python <code>, /typescript <code>, /ts <code> - call native code execution tools directly\n\
      - /voice status, /voice transcribe <path>, /voice speak <text> - inspect voice config or call native voice tools directly\n\
-     - /x402 request|required|settle ... - call native x402 payment tools directly\n\
+     - /x402 status|request|required|settle ... - inspect or call native x402 payment tools directly\n\
      - /shell status - inspect whether this run enables the shell tool; use --enable-shell to enable it\n\
      - /subagent status - inspect whether this run enables saved-agent-as-tool access; use --enable-subagent to enable it\n\
      - /resume [last|run-id] [--from-event N], /resume plan [last|run-id] [--from-event N]\n\
@@ -11539,7 +11556,7 @@ fn voice_slash_rest(trimmed: &str) -> Option<&str> {
 }
 
 fn parse_x402_slash_command(rest: &str) -> anyhow::Result<(&'static str, String)> {
-    if crate::x402_slash::is_help(rest) {
+    if crate::x402_slash::is_help(rest) || crate::x402_slash::is_status(rest) {
         anyhow::bail!("x402 shortcut needs request, required, or settle");
     }
     let (name, input) = crate::x402_slash::parse_tool_call(rest)?;
@@ -18197,6 +18214,14 @@ mod slash_tests {
 
     #[test]
     fn parses_x402_shortcuts_as_direct_tool_calls() {
+        assert!(matches!(
+            parse_slash_command("/x402 status").unwrap(),
+            Some(SlashCommand::X402Status)
+        ));
+        assert!(matches!(
+            parse_slash_command("/payment x402-status").unwrap(),
+            Some(SlashCommand::X402Status)
+        ));
         let parsed = parse_slash_command(
             "/x402 request https://example.test --method post --max-amount=5 --auto-pay",
         )

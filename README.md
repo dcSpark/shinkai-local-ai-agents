@@ -261,7 +261,10 @@ For outbound x402 payment retries, enable the native payment tools with
 `payment_required`, `url`, `method`, and `max_amount`, then prints either the raw
 `PAYMENT-SIGNATURE` value or JSON containing `payment_signature`.
 `AGENT_X402_WALLET_ARGS_JSON` and `AGENT_X402_WALLET_TIMEOUT_MS` customize the
-wallet process.
+wallet process. Use `/x402 status` in the TUI or headless slash input to inspect
+redacted local readiness for payment tools, spend limits, signature sources,
+wallet command configuration, and facilitator settlement before attempting a
+paid request.
 
 ## Verification
 

@@ -10,15 +10,70 @@ pub(crate) fn slash_rest(trimmed: &str) -> Option<&str> {
 
 pub(crate) fn help_text() -> &'static str {
     "x402 shortcuts:\n\
+     - /x402 status - inspect redacted local x402 payment readiness\n\
      - /x402 request <url> [--method GET|POST] [--max-amount n] [--auto-pay] [--signature-secret id]\n\
      - /x402 required --resource <url> --amount <n> --pay-to <addr> --asset <asset> --network <name>\n\
      - /x402 settle <payment-signature> --facilitator <url> --resource <url> --amount <n> --pay-to <addr> --asset <asset> --network <name> [--mode verify|settle|verify-and-settle]\n\
-     /payment x402-request, /payment x402-required, and /payment x402-settle are aliases."
+     /payment x402-status, /payment x402-request, /payment x402-required, and /payment x402-settle are aliases."
 }
 
 pub(crate) fn is_help(rest: &str) -> bool {
     let rest = rest.trim();
     matches!(rest, "help" | "--help")
+}
+
+pub(crate) fn is_status(rest: &str) -> bool {
+    let rest = rest.trim();
+    matches!(rest, "status" | "x402-status")
+}
+
+pub(crate) fn status_json() -> serde_json::Value {
+    status_json_from_lookup(|key| std::env::var(key).ok())
+}
+
+pub(crate) fn status_text() -> String {
+    let status = status_json();
+    let signature_env = status["signature_env_name"]
+        .as_str()
+        .unwrap_or("AGENT_X402_PAYMENT_SIGNATURE");
+    let wallet_args = status["wallet_args_count"].as_u64().unwrap_or_default();
+    [
+        "x402 payment status".to_string(),
+        format!(
+            "payment tools: {}",
+            bool_label(status["payment_tools_enabled"].as_bool().unwrap_or(false))
+        ),
+        format!(
+            "retry spend limit: {}",
+            bool_label(status["max_amount_configured"].as_bool().unwrap_or(false))
+        ),
+        format!(
+            "signature env {signature_env}: {}",
+            bool_label(status["signature_env_configured"].as_bool().unwrap_or(false))
+        ),
+        format!(
+            "signature secret handle: {}",
+            bool_label(status["signature_secret_configured"].as_bool().unwrap_or(false))
+        ),
+        format!(
+            "wallet command: {} (args {wallet_args}, timeout {})",
+            bool_label(status["wallet_command_configured"].as_bool().unwrap_or(false)),
+            bool_label(status["wallet_timeout_configured"].as_bool().unwrap_or(false))
+        ),
+        format!(
+            "facilitator: {}",
+            bool_label(status["facilitator_url_configured"].as_bool().unwrap_or(false))
+        ),
+        format!(
+            "auto-pay ready: {}",
+            bool_label(status["auto_pay_ready"].as_bool().unwrap_or(false))
+        ),
+        format!(
+            "settlement ready: {}",
+            bool_label(status["settlement_ready"].as_bool().unwrap_or(false))
+        ),
+    ]
+    .join("\n")
 }
 
 pub(crate) fn parse_tool_call(rest: &str) -> anyhow::Result<(&'static str, serde_json::Value)> {
@@ -36,9 +91,63 @@ pub(crate) fn parse_tool_call(rest: &str) -> anyhow::Result<(&'static str, serde
         }
         "settle" | "x402-settle" => parse_settle(args).map(|input| ("payment_x402_settle", input)),
         _ => Err(anyhow::anyhow!(
-            "x402 command needs request, required, settle, or help"
+            "x402 command needs status, request, required, settle, or help"
         )),
     }
+}
+
+fn status_json_from_lookup<F>(lookup: F) -> serde_json::Value
+where
+    F: Fn(&str) -> Option<String>,
+{
+    let env = |key: &str| lookup(key).and_then(clean_non_empty);
+    let signature_env = env("AGENT_X402_SIGNATURE_ENV")
+        .unwrap_or_else(|| "AGENT_X402_PAYMENT_SIGNATURE".into());
+    let signature_env_configured = env(&signature_env).is_some();
+    let signature_secret_configured = env("AGENT_X402_SIGNATURE_SECRET").is_some();
+    let wallet_command_configured = env("AGENT_X402_WALLET_COMMAND").is_some();
+    let wallet_args_count = env("AGENT_X402_WALLET_ARGS_JSON")
+        .and_then(|value| serde_json::from_str::<Vec<String>>(&value).ok())
+        .map_or(0, |args| args.len());
+    let payment_tools_enabled = env_flag_lookup(&lookup, "AGENT_PAYMENT_TOOLS");
+    let max_amount_configured = env("AGENT_PAYMENT_MAX_AMOUNT").is_some();
+    let facilitator_url_configured = env("AGENT_X402_FACILITATOR_URL").is_some();
+    serde_json::json!({
+        "payment_tools_enabled": payment_tools_enabled,
+        "max_amount_configured": max_amount_configured,
+        "max_response_bytes_configured": env("AGENT_PAYMENT_MAX_RESPONSE_BYTES").is_some(),
+        "timeout_ms_configured": env("AGENT_PAYMENT_TIMEOUT_MS").is_some(),
+        "signature_env_name": signature_env,
+        "signature_env_configured": signature_env_configured,
+        "signature_secret_configured": signature_secret_configured,
+        "facilitator_url_configured": facilitator_url_configured,
+        "wallet_command_configured": wallet_command_configured,
+        "wallet_args_configured": wallet_args_count > 0,
+        "wallet_args_count": wallet_args_count,
+        "wallet_timeout_configured": env("AGENT_X402_WALLET_TIMEOUT_MS").is_some(),
+        "auto_pay_ready": payment_tools_enabled
+            && max_amount_configured
+            && (signature_env_configured || signature_secret_configured || wallet_command_configured),
+        "settlement_ready": payment_tools_enabled && facilitator_url_configured
+    })
+}
+
+fn env_flag_lookup<F>(lookup: &F, key: &str) -> bool
+where
+    F: Fn(&str) -> Option<String>,
+{
+    lookup(key)
+        .and_then(clean_non_empty)
+        .is_some_and(|value| matches!(value.to_ascii_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+}
+
+fn clean_non_empty(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+fn bool_label(value: bool) -> &'static str {
+    if value { "configured" } else { "missing" }
 }
 
 fn parse_request(rest: &str) -> anyhow::Result<serde_json::Value> {
@@ -282,6 +391,8 @@ mod tests {
             Some("x402-request https://example.test")
         );
         assert_eq!(slash_rest("/payments"), None);
+        assert!(is_status("status"));
+        assert!(is_status("x402-status"));
     }
 
     #[test]
@@ -351,5 +462,26 @@ mod tests {
         assert!(parse_tool_call("request").is_err());
         assert!(parse_tool_call("required --resource only").is_err());
         assert!(parse_tool_call("settle signature").is_err());
+    }
+
+    #[test]
+    fn reports_redacted_payment_status() {
+        let status = status_json_from_lookup(|key| match key {
+            "AGENT_PAYMENT_TOOLS" => Some("1".into()),
+            "AGENT_PAYMENT_MAX_AMOUNT" => Some("10".into()),
+            "AGENT_X402_SIGNATURE_ENV" => Some("CUSTOM_PAYMENT_SIGNATURE".into()),
+            "CUSTOM_PAYMENT_SIGNATURE" => Some("secret-signature".into()),
+            "AGENT_X402_WALLET_COMMAND" => Some("/bin/wallet".into()),
+            "AGENT_X402_WALLET_ARGS_JSON" => Some(r#"["sign"]"#.into()),
+            "AGENT_X402_FACILITATOR_URL" => Some("https://facilitator.example".into()),
+            _ => None,
+        });
+        assert_eq!(status["payment_tools_enabled"], true);
+        assert_eq!(status["signature_env_name"], "CUSTOM_PAYMENT_SIGNATURE");
+        assert_eq!(status["signature_env_configured"], true);
+        assert_eq!(status["wallet_args_count"], 1);
+        assert_eq!(status["auto_pay_ready"], true);
+        assert_eq!(status["settlement_ready"], true);
+        assert!(!status.to_string().contains("secret-signature"));
     }
 }

@@ -25159,37 +25159,147 @@ export default function App() {
                           }
                         />
                       </div>
-                      <div className="memory-meta">
-                        <span>{record.author}</span>
-                        <span>profile {record.owning_profile}</span>
-                        {record.owning_agent ? (
-                          <span>agent {record.owning_agent}</span>
-                        ) : null}
-                        {record.source_range ? (
-                          <span>range {record.source_range}</span>
-                        ) : null}
-                        {record.generating_model ? (
-                          <span>model {record.generating_model}</span>
+                      <div className="memory-detail-list">
+                        <div className="memory-detail-row">
+                          <span className="memory-detail-icon" aria-hidden="true">
+                            <AppIcon name="profile" />
+                          </span>
+                          <div className="memory-detail-copy">
+                            <strong>Author and owner</strong>
+                            <span>
+                              {[
+                                record.author,
+                                `profile ${record.owning_profile}`,
+                                record.owning_agent
+                                  ? `agent ${record.owning_agent}`
+                                  : null,
+                              ]
+                                .filter(Boolean)
+                                .join(" / ")}
+                            </span>
+                          </div>
+                        </div>
+                        {record.source_conversation_id ||
+                        record.source_range ||
+                        record.generating_model ? (
+                          <div className="memory-detail-row">
+                            <span
+                              className="memory-detail-icon"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="conversation" />
+                            </span>
+                            <div className="memory-detail-copy">
+                              <strong>Source provenance</strong>
+                              <span>
+                                {[
+                                  record.source_conversation_id
+                                    ? `conversation ${record.source_conversation_id}`
+                                    : null,
+                                  record.source_range
+                                    ? `range ${record.source_range}`
+                                    : null,
+                                  record.generating_model
+                                    ? `model ${record.generating_model}`
+                                    : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" / ")}
+                              </span>
+                            </div>
+                          </div>
                         ) : null}
                         {record.generation_guidance ? (
-                          <span title={record.generation_guidance}>
-                            guidance {previewText(record.generation_guidance)}
-                          </span>
+                          <div className="memory-detail-row">
+                            <span
+                              className="memory-detail-icon"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="prompt" />
+                            </span>
+                            <div className="memory-detail-copy">
+                              <strong>Generation guidance</strong>
+                              <span title={record.generation_guidance}>
+                                {previewText(record.generation_guidance)}
+                              </span>
+                            </div>
+                          </div>
                         ) : null}
                         {record.topics?.length ? (
-                          <span>topics {record.topics.join(", ")}</span>
+                          <div className="memory-detail-row ok">
+                            <span
+                              className="memory-detail-icon ok"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="memory" />
+                            </span>
+                            <div className="memory-detail-copy">
+                              <strong>Topics</strong>
+                              <span>{record.topics.join(", ")}</span>
+                            </div>
+                          </div>
                         ) : null}
                         {record.classification?.tasks?.length ? (
-                          <span>tasks {record.classification.tasks.join(", ")}</span>
+                          <div className="memory-detail-row ok">
+                            <span
+                              className="memory-detail-icon ok"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="skill" />
+                            </span>
+                            <div className="memory-detail-copy">
+                              <strong>Tasks</strong>
+                              <span>{record.classification.tasks.join(", ")}</span>
+                            </div>
+                          </div>
                         ) : null}
                         {record.classification?.source ? (
-                          <span>class {record.classification.source}</span>
+                          <div className="memory-detail-row">
+                            <span
+                              className="memory-detail-icon"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="trace" />
+                            </span>
+                            <div className="memory-detail-copy">
+                              <strong>Classification source</strong>
+                              <span>{record.classification.source}</span>
+                            </div>
+                          </div>
                         ) : null}
-                      </div>
-                      <p>{previewText(record.content)}</p>
-                      <div className="memory-meta">
-                        <span>created {record.created_at}</span>
-                        <span>updated {record.updated_at}</span>
+                        <div
+                          className={
+                            record.content.trim()
+                              ? "memory-detail-row ok"
+                              : "memory-detail-row warning"
+                          }
+                        >
+                          <span
+                            className={
+                              record.content.trim()
+                                ? "memory-detail-icon ok"
+                                : "memory-detail-icon warning"
+                            }
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="prompt" />
+                          </span>
+                          <div className="memory-detail-copy">
+                            <strong>Content preview</strong>
+                            <span>{previewText(record.content)}</span>
+                          </div>
+                        </div>
+                        <div className="memory-detail-row">
+                          <span className="memory-detail-icon" aria-hidden="true">
+                            <AppIcon name="trace" />
+                          </span>
+                          <div className="memory-detail-copy">
+                            <strong>Timeline</strong>
+                            <span>
+                              {`created ${record.created_at} / updated ${record.updated_at}`}
+                            </span>
+                          </div>
+                        </div>
                       </div>
                       <div className="mini-actions">
                         <button

@@ -22516,7 +22516,7 @@ export default function App() {
                   onClick={() => void listModelsFromOps()}
                   disabled={running}
                 >
-                  List Models
+                  <ButtonLabel icon="setup">List Models</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22524,7 +22524,7 @@ export default function App() {
                   onClick={() => void listModelProvidersFromOps()}
                   disabled={running}
                 >
-                  Providers
+                  <ButtonLabel icon="setup">Providers</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22532,7 +22532,7 @@ export default function App() {
                   onClick={() => void modelDoctorFromOps()}
                   disabled={running}
                 >
-                  Doctor
+                  <ButtonLabel icon="trace">Doctor</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22540,7 +22540,7 @@ export default function App() {
                   onClick={() => void showModelProviderCatalogFromOps()}
                   disabled={running}
                 >
-                  Provider Catalog
+                  <ButtonLabel icon="setup">Provider Catalog</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22548,7 +22548,7 @@ export default function App() {
                   onClick={() => void showModelMetadataCatalogFromOps()}
                   disabled={running}
                 >
-                  Metadata Catalog
+                  <ButtonLabel icon="setup">Metadata Catalog</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22556,7 +22556,7 @@ export default function App() {
                   onClick={() => void showModelFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Show Model
+                  <ButtonLabel icon="setup">Show Model</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22564,7 +22564,7 @@ export default function App() {
                   onClick={() => void probeModelFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Probe Model
+                  <ButtonLabel icon="trace">Probe Model</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22572,7 +22572,7 @@ export default function App() {
                   onClick={() => void saveModelFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Save Model
+                  <ButtonLabel icon="setup">Save Model</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22580,7 +22580,7 @@ export default function App() {
                   onClick={() => void saveCurrentModelFromControls()}
                   disabled={running || provider === "fake"}
                 >
-                  Save Current
+                  <ButtonLabel icon="setup">Save Current</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22588,7 +22588,7 @@ export default function App() {
                   onClick={() => void exportModelFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Export Model
+                  <ButtonLabel icon="artifact">Export Model</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22596,7 +22596,7 @@ export default function App() {
                   onClick={() => void importModelFromOps()}
                   disabled={running || !opsValue.trim()}
                 >
-                  Import Model
+                  <ButtonLabel icon="artifact">Import Model</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22609,7 +22609,7 @@ export default function App() {
                   }}
                   disabled={running}
                 >
-                  Export Providers
+                  <ButtonLabel icon="artifact">Export Providers</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22617,7 +22617,7 @@ export default function App() {
                   onClick={() => void importModelProviderCatalogFromOps()}
                   disabled={running || !opsValue.trim()}
                 >
-                  Import Providers
+                  <ButtonLabel icon="artifact">Import Providers</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22630,7 +22630,7 @@ export default function App() {
                   }}
                   disabled={running}
                 >
-                  Export Metadata
+                  <ButtonLabel icon="artifact">Export Metadata</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22638,7 +22638,7 @@ export default function App() {
                   onClick={() => void importModelMetadataCatalogFromOps()}
                   disabled={running || !opsValue.trim()}
                 >
-                  Import Metadata
+                  <ButtonLabel icon="artifact">Import Metadata</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22647,7 +22647,7 @@ export default function App() {
                   onClick={() => void deleteModelFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Delete Model
+                  <ButtonLabel icon="approval">Delete Model</ButtonLabel>
                 </button>
               </div>
               {modelDoctorReport ? (

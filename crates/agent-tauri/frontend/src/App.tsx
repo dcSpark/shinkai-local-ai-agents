@@ -22056,7 +22056,42 @@ export default function App() {
                             tone="ok"
                           />
                         </div>
-                        <p>{previewText(memory.content)}</p>
+                        <div className="context-source-detail-list">
+                          <div
+                            className={
+                              memory.content.trim()
+                                ? "context-source-detail-row"
+                                : "context-source-detail-row warning"
+                            }
+                          >
+                            <span
+                              className={
+                                memory.content.trim()
+                                  ? "context-source-detail-icon"
+                                  : "context-source-detail-icon warning"
+                              }
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="memory" />
+                            </span>
+                            <div className="context-source-detail-copy">
+                              <strong>Memory content</strong>
+                              <span>{previewText(memory.content)}</span>
+                            </div>
+                          </div>
+                          <div className="context-source-detail-row">
+                            <span
+                              className="context-source-detail-icon"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="trace" />
+                            </span>
+                            <div className="context-source-detail-copy">
+                              <strong>Provenance</strong>
+                              <span>{contextSourcePreview(memory.provenance)}</span>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     ))}
                   </div>

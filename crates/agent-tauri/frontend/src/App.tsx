@@ -934,6 +934,67 @@ function modelDoctorMissingMetadataCount(report: ModelDoctorReport) {
   return report.saved_models.filter((model) => !model.metadata_present).length;
 }
 
+function secretRecordFromResult(value: JsonValue): SecretRecord | null {
+  if (!isJsonRecord(value) || !isJsonRecord(value.record)) {
+    return null;
+  }
+  const record = value.record;
+  const id = scalarText(record.id);
+  const backend = scalarText(record.backend);
+  const fingerprint = scalarText(record.value_fingerprint);
+  const created = scalarText(record.created_at);
+  const updated = scalarText(record.updated_at);
+  const version =
+    typeof record.current_version === "number" ? record.current_version : null;
+  if (!id || !backend || !fingerprint || !created || !updated || version === null) {
+    return null;
+  }
+  return {
+    id,
+    label: scalarText(record.label),
+    current_version: version,
+    created_at: created,
+    updated_at: updated,
+    backend,
+    value_fingerprint: fingerprint,
+  };
+}
+
+function secretDeletedState(value: JsonValue) {
+  if (!isJsonRecord(value) || typeof value.deleted !== "boolean") {
+    return null;
+  }
+  return {
+    id: scalarText(value.id) ?? "unknown",
+    deleted: value.deleted,
+  };
+}
+
+function secretResultTone(value: JsonValue): ContextReviewCard["tone"] {
+  const deleted = secretDeletedState(value);
+  if (deleted) {
+    return deleted.deleted ? "warning" : "danger";
+  }
+  return secretRecordFromResult(value) ? "ok" : "neutral";
+}
+
+function secretResultOperation(value: JsonValue) {
+  const deleted = secretDeletedState(value);
+  if (deleted) {
+    return deleted.deleted ? "deleted" : "missing";
+  }
+  const record = secretRecordFromResult(value);
+  if (record) {
+    return record.current_version > 1 ? "rotated" : "stored";
+  }
+  return "redacted";
+}
+
+function secretFingerprintLabel(record: SecretRecord | null) {
+  if (!record) return "redacted";
+  return record.value_fingerprint.slice(0, 12);
+}
+
 function BundleStatusCard({
   status,
   section,
@@ -1004,6 +1065,72 @@ function BundleStatusCard({
       {reminders.length > visible.length ? (
         <span>+{reminders.length - visible.length} more credential reminder(s)</span>
       ) : null}
+    </div>
+  );
+}
+
+function SecretResultCard({ status }: { status: JsonValue }) {
+  const record = secretRecordFromResult(status);
+  const deleted = secretDeletedState(status);
+  const tone = secretResultTone(status);
+  const title = record?.label || record?.id || deleted?.id || "Secret result";
+  return (
+    <div className={`secret-result-card ${tone}`} style={sectionThemeStyle("profiles")}>
+      <div className="secret-result-head with-icon">
+        <span className={`secret-result-icon ${tone}`} aria-hidden="true">
+          <AppIcon name="approval" />
+        </span>
+        <div className="secret-result-title">
+          <strong>{title}</strong>
+          <span>secret result / redacted</span>
+        </div>
+      </div>
+      <div className="secret-result-metrics">
+        <VisualMetric
+          icon="approval"
+          label="operation"
+          value={secretResultOperation(status)}
+          section="profiles"
+          tone={tone}
+        />
+        <VisualMetric
+          icon="profile"
+          label="backend"
+          value={record?.backend ?? "metadata"}
+          section="profiles"
+          tone={record ? "ok" : "neutral"}
+        />
+        <VisualMetric
+          icon="control"
+          label="version"
+          value={record?.current_version ?? (deleted?.deleted ? "removed" : "n/a")}
+          section="profiles"
+          tone={record ? "ok" : deleted?.deleted ? "warning" : "neutral"}
+        />
+        <VisualMetric
+          icon="trace"
+          label="fingerprint"
+          value={secretFingerprintLabel(record)}
+          section="profiles"
+          tone={record ? "ok" : "neutral"}
+        />
+      </div>
+      {record ? (
+        <>
+          <span>{record.id}</span>
+          <span title={record.value_fingerprint}>
+            fingerprint {record.value_fingerprint}
+          </span>
+          <span>updated {record.updated_at}</span>
+        </>
+      ) : deleted ? (
+        <span>
+          {deleted.id} {deleted.deleted ? "removed from metadata" : "was not removed"}
+        </span>
+      ) : (
+        <span>secret values are not returned by this app surface</span>
+      )}
+      <pre>{JSON.stringify(status, null, 2)}</pre>
     </div>
   );
 }
@@ -21451,13 +21578,7 @@ export default function App() {
                 </div>
               ) : null}
               {secretStatus ? (
-                <div className="bundle-card">
-                  <div className="bundle-card-head">
-                    <strong>Secret result</strong>
-                    <span>redacted</span>
-                  </div>
-                  <pre>{JSON.stringify(secretStatus, null, 2)}</pre>
-                </div>
+                <SecretResultCard status={secretStatus} />
               ) : null}
               {profileGrants.length ? (
                 <div className="ingestion-review">

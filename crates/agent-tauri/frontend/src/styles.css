@@ -1817,6 +1817,127 @@ textarea:disabled {
   font-family: inherit;
 }
 
+.secret-result-card {
+  display: grid;
+  gap: 0.42rem;
+  min-width: 0;
+  padding: 0.55rem;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+}
+
+.secret-result-card.warning {
+  border-color: #816a2d;
+  background: #251f12;
+}
+
+.secret-result-card.danger {
+  border-color: #7d3c45;
+  background: #211317;
+}
+
+.secret-result-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.secret-result-head.with-icon {
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+}
+
+.secret-result-icon {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+  color: var(--section-accent);
+}
+
+.secret-result-icon.warning {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
+.secret-result-icon.danger {
+  border-color: #7d3c45;
+  background: #32191f;
+  color: #ffb4c0;
+}
+
+.secret-result-icon .app-icon {
+  width: 0.92rem;
+  height: 0.92rem;
+}
+
+.secret-result-title {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.secret-result-card strong,
+.secret-result-card span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.secret-result-card strong {
+  color: #f1f2f4;
+}
+
+.secret-result-card span {
+  color: #9da3ad;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+}
+
+.secret-result-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.2rem, 1fr));
+  gap: 0.4rem;
+}
+
+.secret-result-card .visual-metric {
+  font-family: inherit;
+}
+
+.secret-result-card .visual-metric .visual-metric-icon {
+  font-family: inherit;
+  color: var(--section-accent);
+}
+
+.secret-result-card .visual-metric.ok .visual-metric-icon {
+  color: #78dda7;
+}
+
+.secret-result-card .visual-metric.warning .visual-metric-icon {
+  color: #ffce6b;
+}
+
+.secret-result-card .visual-metric.danger .visual-metric-icon {
+  color: #ffb4c0;
+}
+
+.secret-result-card .visual-metric-copy span {
+  color: #8e949f;
+  font-family: inherit;
+}
+
+.secret-result-card pre {
+  max-height: 12rem;
+  margin: 0;
+  overflow: auto;
+  border-color: #2a2d34;
+  background: #111215;
+}
+
 .storage-total,
 .storage-largest,
 .storage-bucket,

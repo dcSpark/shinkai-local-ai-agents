@@ -21936,7 +21936,9 @@ export default function App() {
             <div className="operation-group">
               <OperationTitle title="Profiles" section="profiles" />
               <label>
-                Secret label
+                <FieldLabel icon="control" section="profiles">
+                  Secret label
+                </FieldLabel>
                 <input
                   value={secretLabel}
                   onChange={(e) => setSecretLabel(e.target.value)}
@@ -22267,7 +22269,9 @@ export default function App() {
             <div className="operation-group">
               <OperationTitle title="Memory" section="memory" />
               <label>
-                Source range
+                <FieldLabel icon="conversation" section="memory">
+                  Source range
+                </FieldLabel>
                 <input
                   value={memorySourceRange}
                   onChange={(e) => setMemorySourceRange(e.target.value)}
@@ -22277,7 +22281,9 @@ export default function App() {
                 />
               </label>
               <label>
-                Topics
+                <FieldLabel icon="memory" section="memory">
+                  Topics
+                </FieldLabel>
                 <input
                   value={memoryTopics}
                   onChange={(e) => setMemoryTopics(e.target.value)}
@@ -22286,7 +22292,9 @@ export default function App() {
                 />
               </label>
               <label>
-                Generation guidance
+                <FieldLabel icon="prompt" section="memory">
+                  Generation guidance
+                </FieldLabel>
                 <input
                   value={memoryGenerationGuidance}
                   onChange={(e) => setMemoryGenerationGuidance(e.target.value)}
@@ -22295,7 +22303,9 @@ export default function App() {
                 />
               </label>
               <label>
-                Classification model
+                <FieldLabel icon="setup" section="memory">
+                  Classification model
+                </FieldLabel>
                 <input
                   value={memoryClassificationModel}
                   onChange={(e) => setMemoryClassificationModel(e.target.value)}

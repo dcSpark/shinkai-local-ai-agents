@@ -28087,6 +28087,81 @@ export default function App() {
                   {agentConfigs.map((doc) => {
                     const sharedFrom = agentSharedProfile(doc);
                     const agentTone = savedAgentTone(doc);
+                    const savedAgent = isSavedAgentConfig(doc) ? doc : null;
+                    const agentSummary = savedAgent ? null : (doc as AgentSummary);
+                    const savedAgentCostDetail =
+                      savedAgent &&
+                      (savedAgent.input_cost_per_million != null ||
+                        savedAgent.output_cost_per_million != null)
+                        ? ` / cost ${savedAgent.input_cost_per_million ?? "default"}/${savedAgent.output_cost_per_million ?? "default"} $/M`
+                        : "";
+                    const savedAgentVisibilityDetail = savedAgent
+                      ? [
+                          `tools ${savedAgent.tool_visibility ?? "default"}`,
+                          `skills ${savedAgent.skill_visibility ?? "default"}`,
+                          savedAgent.allowed_tools?.length
+                            ? `allowed tools ${savedAgent.allowed_tools.join(", ")}`
+                            : null,
+                          savedAgent.allowed_tool_categories?.length
+                            ? `tool categories ${savedAgent.allowed_tool_categories.join(", ")}`
+                            : null,
+                          savedAgent.allowed_skill_categories?.length
+                            ? `skill categories ${savedAgent.allowed_skill_categories.join(", ")}`
+                            : null,
+                          savedAgent.tool_overrides?.length
+                            ? `${savedAgent.tool_overrides.length} tool overrides`
+                            : null,
+                          savedAgent.skill_overrides?.length
+                            ? `${savedAgent.skill_overrides.length} skill overrides`
+                            : null,
+                        ]
+                          .filter((part): part is string => Boolean(part))
+                          .join(" / ")
+                      : "";
+                    const savedAgentHasCustomVisibility = Boolean(
+                      savedAgent &&
+                        (savedAgent.tool_visibility ||
+                          savedAgent.skill_visibility ||
+                          savedAgent.allowed_tools?.length ||
+                          savedAgent.allowed_tool_categories?.length ||
+                          savedAgent.allowed_skill_categories?.length ||
+                          savedAgent.tool_overrides?.length ||
+                          savedAgent.skill_overrides?.length),
+                    );
+                    const savedAgentSafetyDetail = savedAgent
+                      ? [
+                          savedAgent.approval_controller_agent
+                            ? `approval controller ${savedAgent.approval_controller_agent}`
+                            : null,
+                          savedAgent.approval_controller_allowed_tools?.length
+                            ? `controller tools ${savedAgent.approval_controller_allowed_tools.join(", ")}`
+                            : null,
+                          savedAgent.approval_controller_allowed_tool_categories
+                            ?.length
+                            ? `controller categories ${savedAgent.approval_controller_allowed_tool_categories.join(", ")}`
+                            : null,
+                          savedAgent.ingestion_guardrail
+                            ? `ingest guardrail ${savedAgent.ingestion_guardrail}`
+                            : null,
+                          savedAgent.ingestion_guardrail_model
+                            ? `guardrail model ${savedAgent.ingestion_guardrail_model}`
+                            : null,
+                          savedAgent.disabled_lifecycle_hooks?.length
+                            ? `disabled hooks ${savedAgent.disabled_lifecycle_hooks.join(", ")}`
+                            : null,
+                          savedAgent.capability_drafts_enabled ? "capability drafts on" : null,
+                        ]
+                          .filter((part): part is string => Boolean(part))
+                          .join(" / ")
+                      : "";
+                    const savedAgentVoiceDetail = savedAgent?.voice
+                      ? [
+                          `voice input ${savedAgent.voice.input_enabled ?? "default"}`,
+                          `output ${savedAgent.voice.output_enabled ?? "default"}`,
+                          `tts ${savedAgent.voice.tts_model ?? "default"}`,
+                          `voice ${savedAgent.voice.voice ?? "default"}`,
+                        ].join(" / ")
+                      : "";
                     return (
                       <div className={`agent-card ${agentTone}`} key={doc.id}>
                         <div className="agent-card-head with-icon">
@@ -28137,98 +28212,175 @@ export default function App() {
                             tone={savedAgentSafetyTone(doc)}
                           />
                         </div>
-                        {sharedFrom ? (
-                          <span>
-                            shared from {sharedFrom}
-                            {doc.grant_id ? ` / ${doc.grant_id}` : ""}
-                          </span>
-                        ) : doc.profile ? (
-                          <span>profile {doc.profile}</span>
-                        ) : null}
-                        {isSavedAgentConfig(doc) ? (
-                          <>
-                            <span>
-                              {doc.model ? `model ${doc.model}` : "default model"}
+                        <div className="agent-detail-list">
+                          <div
+                            className={
+                              sharedFrom ? "agent-detail-row ok" : "agent-detail-row"
+                            }
+                          >
+                            <span
+                              className={
+                                sharedFrom
+                                  ? "agent-detail-icon ok"
+                                  : "agent-detail-icon"
+                              }
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="profile" />
                             </span>
-                            <span>
-                              {doc.max_tool_calls == null
-                                ? "default tool budget"
-                                : `${doc.max_tool_calls} tool calls`}
-                            </span>
-                            {doc.input_cost_per_million != null ||
-                            doc.output_cost_per_million != null ? (
+                            <div className="agent-detail-copy">
+                              <strong>Scope</strong>
                               <span>
-                                {`cost ${doc.input_cost_per_million ?? "default"}/${doc.output_cost_per_million ?? "default"} $/M`}
+                                {sharedFrom
+                                  ? `shared from ${sharedFrom}${doc.grant_id ? ` / ${doc.grant_id}` : ""}`
+                                  : doc.profile
+                                    ? `profile ${doc.profile}`
+                                    : "profile default"}
                               </span>
-                            ) : null}
-                            {doc.tool_visibility || doc.skill_visibility ? (
-                              <span>
-                                {`visibility tools ${doc.tool_visibility ?? "default"} / skills ${doc.skill_visibility ?? "default"}`}
+                            </div>
+                          </div>
+                          {savedAgent ? (
+                            <>
+                              <div className="agent-detail-row">
+                                <span className="agent-detail-icon" aria-hidden="true">
+                                  <AppIcon name="brand" />
+                                </span>
+                                <div className="agent-detail-copy">
+                                  <strong>Execution</strong>
+                                  <span>
+                                    {savedAgent.model
+                                      ? `model ${savedAgent.model}`
+                                      : "default model"}{" "}
+                                    /{" "}
+                                    {savedAgent.max_tool_calls == null
+                                      ? "default tool budget"
+                                      : `${savedAgent.max_tool_calls} tool calls`}
+                                    {savedAgentCostDetail}
+                                  </span>
+                                </div>
+                              </div>
+                              {savedAgentHasCustomVisibility ? (
+                                <div className="agent-detail-row ok">
+                                  <span
+                                    className="agent-detail-icon ok"
+                                    aria-hidden="true"
+                                  >
+                                    <AppIcon name="tools" />
+                                  </span>
+                                  <div className="agent-detail-copy">
+                                    <strong>Visibility</strong>
+                                    <span>{savedAgentVisibilityDetail}</span>
+                                  </div>
+                                </div>
+                              ) : null}
+                              {savedAgent.max_subagent_depth != null ||
+                              savedAgent.max_recursion_depth != null ? (
+                                <div className="agent-detail-row warning">
+                                  <span
+                                    className="agent-detail-icon warning"
+                                    aria-hidden="true"
+                                  >
+                                    <AppIcon name="conversation" />
+                                  </span>
+                                  <div className="agent-detail-copy">
+                                    <strong>Delegation</strong>
+                                    <span>
+                                      {`subagent depth ${savedAgent.max_subagent_depth ?? "default"} / recursion ${savedAgent.max_recursion_depth ?? "default"}`}
+                                    </span>
+                                  </div>
+                                </div>
+                              ) : null}
+                              {savedAgentSafetyDetail ? (
+                                <div
+                                  className={`agent-detail-row ${savedAgentSafetyTone(
+                                    savedAgent,
+                                  )}`}
+                                >
+                                  <span
+                                    className={`agent-detail-icon ${savedAgentSafetyTone(
+                                      savedAgent,
+                                    )}`}
+                                    aria-hidden="true"
+                                  >
+                                    <AppIcon name="approval" />
+                                  </span>
+                                  <div className="agent-detail-copy">
+                                    <strong>Safety</strong>
+                                    <span>{savedAgentSafetyDetail}</span>
+                                  </div>
+                                </div>
+                              ) : null}
+                              <div
+                                className={
+                                  savedAgent.load_memory || savedAgent.memory_model
+                                    ? "agent-detail-row ok"
+                                    : "agent-detail-row"
+                                }
+                              >
+                                <span
+                                  className={
+                                    savedAgent.load_memory || savedAgent.memory_model
+                                      ? "agent-detail-icon ok"
+                                      : "agent-detail-icon"
+                                  }
+                                  aria-hidden="true"
+                                >
+                                  <AppIcon name="memory" />
+                                </span>
+                                <div className="agent-detail-copy">
+                                  <strong>Memory</strong>
+                                  <span>
+                                    {savedAgent.load_memory ? "loaded" : "manual"} /{" "}
+                                    {savedAgent.memory_backend
+                                      ? `backend ${savedAgent.memory_backend}`
+                                      : "default backend"}
+                                    {savedAgent.memory_model
+                                      ? ` / model ${savedAgent.memory_model}`
+                                      : ""}
+                                  </span>
+                                </div>
+                              </div>
+                              {savedAgentVoiceDetail ? (
+                                <div className="agent-detail-row">
+                                  <span
+                                    className="agent-detail-icon"
+                                    aria-hidden="true"
+                                  >
+                                    <AppIcon name="artifact" />
+                                  </span>
+                                  <div className="agent-detail-copy">
+                                    <strong>Voice</strong>
+                                    <span>{savedAgentVoiceDetail}</span>
+                                  </div>
+                                </div>
+                              ) : null}
+                              <div className="agent-detail-row ok">
+                                <span
+                                  className="agent-detail-icon ok"
+                                  aria-hidden="true"
+                                >
+                                  <AppIcon name="prompt" />
+                                </span>
+                                <div className="agent-detail-copy">
+                                  <strong>Prompt</strong>
+                                  <p>{previewText(savedAgent.system_prompt, 220)}</p>
+                                </div>
+                              </div>
+                            </>
+                          ) : agentSummary ? (
+                            <div className="agent-detail-row">
+                              <span className="agent-detail-icon" aria-hidden="true">
+                                <AppIcon name="artifact" />
                               </span>
-                            ) : null}
-                            {doc.allowed_tools?.length ? (
-                              <span>allowed tools {doc.allowed_tools.join(", ")}</span>
-                            ) : null}
-                            {doc.tool_overrides?.length ? (
-                              <span>{doc.tool_overrides.length} tool overrides</span>
-                            ) : null}
-                            {doc.skill_overrides?.length ? (
-                              <span>{doc.skill_overrides.length} skill overrides</span>
-                            ) : null}
-                            {doc.max_subagent_depth != null ||
-                            doc.max_recursion_depth != null ? (
-                              <span>
-                                {`subagents depth ${doc.max_subagent_depth ?? "default"} / recursion ${doc.max_recursion_depth ?? "default"}`}
-                              </span>
-                            ) : null}
-                            {doc.approval_controller_agent ? (
-                              <span>
-                                {`approval controller ${doc.approval_controller_agent}`}
-                              </span>
-                            ) : null}
-                            {doc.approval_controller_allowed_tools?.length ||
-                            doc.approval_controller_allowed_tool_categories
-                              ?.length ? (
-                              <span>
-                                {`controller scope tools ${doc.approval_controller_allowed_tools?.join(", ") || "default"} / categories ${doc.approval_controller_allowed_tool_categories?.join(", ") || "default"}`}
-                              </span>
-                            ) : null}
-                            {doc.ingestion_guardrail ? (
-                              <span>ingest guardrail {doc.ingestion_guardrail}</span>
-                            ) : null}
-                            {doc.ingestion_guardrail_model ? (
-                              <span>
-                                guardrail model {doc.ingestion_guardrail_model}
-                              </span>
-                            ) : null}
-                            {doc.disabled_lifecycle_hooks?.length ? (
-                              <span>
-                                disabled hooks {doc.disabled_lifecycle_hooks.join(", ")}
-                              </span>
-                            ) : null}
-                            <span>
-                              {doc.memory_backend
-                                ? `memory ${doc.memory_backend}`
-                                : "default memory backend"}
-                            </span>
-                            {doc.memory_model ? (
-                              <span>memory model {doc.memory_model}</span>
-                            ) : null}
-                            {doc.voice ? (
-                              <span>
-                                {`voice in ${doc.voice.input_enabled ?? "default"} / out ${doc.voice.output_enabled ?? "default"}`}
-                              </span>
-                            ) : null}
-                            {doc.voice?.tts_model || doc.voice?.voice ? (
-                              <span>
-                                {`tts ${doc.voice.tts_model ?? "default"} / voice ${doc.voice.voice ?? "default"}`}
-                              </span>
-                            ) : null}
-                            <p>{previewText(doc.system_prompt, 220)}</p>
-                          </>
-                        ) : (
-                          <span title={doc.path}>{fileName(doc.path)}</span>
-                        )}
+                              <div className="agent-detail-copy">
+                                <strong>Path</strong>
+                                <span title={agentSummary.path}>
+                                  {fileName(agentSummary.path)}
+                                </span>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
                         <div className="mini-actions">
                           <button
                             type="button"

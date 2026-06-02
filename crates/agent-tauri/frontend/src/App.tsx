@@ -25851,50 +25851,180 @@ export default function App() {
                             }
                           />
                         </div>
-                        {doc.api_base_url ? (
-                          <span>{doc.api_base_url}</span>
-                        ) : null}
-                        {doc.available_modalities?.length ? (
-                          <span>
-                            modalities {doc.available_modalities.join(", ")}
-                          </span>
-                        ) : (
-                          <span>modalities from catalog</span>
-                        )}
-                        {doc.max_context_tokens != null ||
-                        doc.max_output_tokens != null ? (
-                          <span>
-                            {`tokens context ${doc.max_context_tokens ?? "default"} / output ${doc.max_output_tokens ?? "default"}`}
-                          </span>
-                        ) : null}
-                        {doc.default_temperature != null ? (
-                          <span>temperature {doc.default_temperature}</span>
-                        ) : null}
-                        {doc.tool_support != null ? (
-                          <span>
-                            tool calls {doc.tool_support ? "supported" : "not supported"}
-                          </span>
-                        ) : null}
-                        {doc.reasoning_mode ? (
-                          <span>reasoning {doc.reasoning_mode}</span>
-                        ) : null}
-                        {doc.privacy_level || doc.cost_tier ? (
-                          <span>
-                            {`policy privacy ${doc.privacy_level ?? "default"} / cost ${doc.cost_tier ?? "default"}`}
-                          </span>
-                        ) : null}
-                        {doc.input_cost_per_million != null ||
-                        doc.output_cost_per_million != null ? (
-                          <span>
-                            {`pricing ${doc.input_cost_per_million ?? "default"}/${doc.output_cost_per_million ?? "default"} $/M`}
-                          </span>
-                        ) : null}
-                        {providerOptionKeys.length ? (
-                          <span>provider options {providerOptionKeys.join(", ")}</span>
-                        ) : null}
-                        {metadataKeys.length ? (
-                          <span>metadata {metadataKeys.join(", ")}</span>
-                        ) : null}
+                        <div className="ingestion-detail-list">
+                          {doc.api_base_url ? (
+                            <div className="ingestion-detail-row">
+                              <span
+                                className="ingestion-detail-icon"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="artifact" />
+                              </span>
+                              <div className="ingestion-detail-copy">
+                                <strong>API base URL</strong>
+                                <span>{doc.api_base_url}</span>
+                              </div>
+                            </div>
+                          ) : null}
+                          <div
+                            className={
+                              doc.available_modalities?.length
+                                ? "ingestion-detail-row ok"
+                                : "ingestion-detail-row"
+                            }
+                          >
+                            <span
+                              className={
+                                doc.available_modalities?.length
+                                  ? "ingestion-detail-icon ok"
+                                  : "ingestion-detail-icon"
+                              }
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="prompt" />
+                            </span>
+                            <div className="ingestion-detail-copy">
+                              <strong>Modalities</strong>
+                              <span>
+                                {doc.available_modalities?.length
+                                  ? doc.available_modalities.join(", ")
+                                  : "from catalog"}
+                              </span>
+                            </div>
+                          </div>
+                          {doc.max_context_tokens != null ||
+                          doc.max_output_tokens != null ? (
+                            <div className="ingestion-detail-row ok">
+                              <span
+                                className="ingestion-detail-icon ok"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="context" />
+                              </span>
+                              <div className="ingestion-detail-copy">
+                                <strong>Token limits</strong>
+                                <span>
+                                  {`context ${doc.max_context_tokens ?? "default"} / output ${doc.max_output_tokens ?? "default"}`}
+                                </span>
+                              </div>
+                            </div>
+                          ) : null}
+                          {doc.default_temperature != null ? (
+                            <div className="ingestion-detail-row">
+                              <span
+                                className="ingestion-detail-icon"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="control" />
+                              </span>
+                              <div className="ingestion-detail-copy">
+                                <strong>Temperature</strong>
+                                <span>{doc.default_temperature}</span>
+                              </div>
+                            </div>
+                          ) : null}
+                          {doc.tool_support != null ? (
+                            <div
+                              className={
+                                doc.tool_support
+                                  ? "ingestion-detail-row ok"
+                                  : "ingestion-detail-row warning"
+                              }
+                            >
+                              <span
+                                className={
+                                  doc.tool_support
+                                    ? "ingestion-detail-icon ok"
+                                    : "ingestion-detail-icon warning"
+                                }
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="tools" />
+                              </span>
+                              <div className="ingestion-detail-copy">
+                                <strong>Tool calls</strong>
+                                <span>
+                                  {doc.tool_support ? "supported" : "not supported"}
+                                </span>
+                              </div>
+                            </div>
+                          ) : null}
+                          {doc.reasoning_mode ? (
+                            <div className="ingestion-detail-row">
+                              <span
+                                className="ingestion-detail-icon"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="trace" />
+                              </span>
+                              <div className="ingestion-detail-copy">
+                                <strong>Reasoning</strong>
+                                <span>{doc.reasoning_mode}</span>
+                              </div>
+                            </div>
+                          ) : null}
+                          {doc.privacy_level || doc.cost_tier ? (
+                            <div className="ingestion-detail-row">
+                              <span
+                                className="ingestion-detail-icon"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="approval" />
+                              </span>
+                              <div className="ingestion-detail-copy">
+                                <strong>Policy</strong>
+                                <span>
+                                  {`privacy ${doc.privacy_level ?? "default"} / cost ${doc.cost_tier ?? "default"}`}
+                                </span>
+                              </div>
+                            </div>
+                          ) : null}
+                          {doc.input_cost_per_million != null ||
+                          doc.output_cost_per_million != null ? (
+                            <div className="ingestion-detail-row ok">
+                              <span
+                                className="ingestion-detail-icon ok"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="profile" />
+                              </span>
+                              <div className="ingestion-detail-copy">
+                                <strong>Pricing</strong>
+                                <span>
+                                  {`${doc.input_cost_per_million ?? "default"}/${doc.output_cost_per_million ?? "default"} $/M`}
+                                </span>
+                              </div>
+                            </div>
+                          ) : null}
+                          {providerOptionKeys.length ? (
+                            <div className="ingestion-detail-row ok">
+                              <span
+                                className="ingestion-detail-icon ok"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="setup" />
+                              </span>
+                              <div className="ingestion-detail-copy">
+                                <strong>Provider options</strong>
+                                <span>{providerOptionKeys.join(", ")}</span>
+                              </div>
+                            </div>
+                          ) : null}
+                          {metadataKeys.length ? (
+                            <div className="ingestion-detail-row ok">
+                              <span
+                                className="ingestion-detail-icon ok"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="memory" />
+                              </span>
+                              <div className="ingestion-detail-copy">
+                                <strong>Metadata</strong>
+                                <span>{metadataKeys.join(", ")}</span>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
                         <div className="mini-actions">
                           <button
                             type="button"

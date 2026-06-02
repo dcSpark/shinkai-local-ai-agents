@@ -19769,7 +19769,9 @@ export default function App() {
             <ButtonLabel icon="control">Shell</ButtonLabel>
           </label>
           <label>
-            Max tool calls
+            <FieldLabel icon="tools" section="chat">
+              Max tool calls
+            </FieldLabel>
             <input
               type="number"
               min="0"
@@ -19781,7 +19783,9 @@ export default function App() {
             />
           </label>
           <label>
-            Conversation id
+            <FieldLabel icon="conversation" section="chat">
+              Conversation id
+            </FieldLabel>
             <input
               value={conversationId}
               onChange={(e) => setConversationId(e.target.value)}
@@ -19790,7 +19794,9 @@ export default function App() {
             />
           </label>
           <label>
-            Auto compact at
+            <FieldLabel icon="context" section="chat">
+              Auto compact at
+            </FieldLabel>
             <input
               type="number"
               min="1"
@@ -19802,7 +19808,9 @@ export default function App() {
             />
           </label>
           <label>
-            Compact output
+            <FieldLabel icon="context" section="chat">
+              Compact output
+            </FieldLabel>
             <input
               type="number"
               min="1"
@@ -19814,7 +19822,9 @@ export default function App() {
             />
           </label>
           <label>
-            Tool visibility
+            <FieldLabel icon="tools" section="chat">
+              Tool visibility
+            </FieldLabel>
             <select
               value={toolVisibility}
               onChange={(e) =>
@@ -19829,7 +19839,9 @@ export default function App() {
             </select>
           </label>
           <label>
-            Skill visibility
+            <FieldLabel icon="skill" section="chat">
+              Skill visibility
+            </FieldLabel>
             <select
               value={skillVisibility}
               onChange={(e) =>
@@ -19844,7 +19856,9 @@ export default function App() {
             </select>
           </label>
           <label>
-            Tool allowlist
+            <FieldLabel icon="tools" section="chat">
+              Tool allowlist
+            </FieldLabel>
             <input
               value={allowedTools}
               onChange={(e) => setAllowedTools(e.target.value)}
@@ -19853,7 +19867,9 @@ export default function App() {
             />
           </label>
           <label>
-            Tool categories
+            <FieldLabel icon="tools" section="chat">
+              Tool categories
+            </FieldLabel>
             <input
               value={allowedToolCategories}
               onChange={(e) => setAllowedToolCategories(e.target.value)}
@@ -19862,7 +19878,9 @@ export default function App() {
             />
           </label>
           <label>
-            Skill categories
+            <FieldLabel icon="skill" section="chat">
+              Skill categories
+            </FieldLabel>
             <input
               value={allowedSkillCategories}
               onChange={(e) => setAllowedSkillCategories(e.target.value)}
@@ -19880,7 +19898,9 @@ export default function App() {
             <ButtonLabel icon="conversation">Subagent</ButtonLabel>
           </label>
           <label>
-            Max subagent depth
+            <FieldLabel icon="conversation" section="chat">
+              Max subagent depth
+            </FieldLabel>
             <input
               type="number"
               min="0"
@@ -19892,7 +19912,9 @@ export default function App() {
             />
           </label>
           <label>
-            Max recursion depth
+            <FieldLabel icon="conversation" section="chat">
+              Max recursion depth
+            </FieldLabel>
             <input
               type="number"
               min="0"
@@ -19913,7 +19935,9 @@ export default function App() {
             <ButtonLabel icon="tools">Draft tool</ButtonLabel>
           </label>
           <label>
-            Draft guidance
+            <FieldLabel icon="tools" section="chat">
+              Draft guidance
+            </FieldLabel>
             <input
               value={capabilityDraftGuidance}
               onChange={(e) => setCapabilityDraftGuidance(e.target.value)}
@@ -19922,7 +19946,9 @@ export default function App() {
             />
           </label>
           <label>
-            Disabled hooks
+            <FieldLabel icon="approval" section="chat">
+              Disabled hooks
+            </FieldLabel>
             <input
               value={disabledLifecycleHooks}
               onChange={(e) => setDisabledLifecycleHooks(e.target.value)}
@@ -19932,7 +19958,9 @@ export default function App() {
             />
           </label>
           <label>
-            Tool overrides
+            <FieldLabel icon="tools" section="chat">
+              Tool overrides
+            </FieldLabel>
             <textarea
               className="ops-text"
               value={toolOverridesJson}
@@ -19944,7 +19972,9 @@ export default function App() {
             />
           </label>
           <label>
-            Skill overrides
+            <FieldLabel icon="skill" section="chat">
+              Skill overrides
+            </FieldLabel>
             <textarea
               className="ops-text"
               value={skillOverridesJson}
@@ -19965,7 +19995,9 @@ export default function App() {
             <ButtonLabel icon="memory">Memory</ButtonLabel>
           </label>
           <label>
-            Memory backend
+            <FieldLabel icon="memory" section="chat">
+              Memory backend
+            </FieldLabel>
             <select
               value={memoryBackend}
               onChange={(e) => setMemoryBackend(e.target.value)}
@@ -19979,7 +20011,9 @@ export default function App() {
             </select>
           </label>
           <label>
-            Memory model
+            <FieldLabel icon="memory" section="chat">
+              Memory model
+            </FieldLabel>
             <input
               value={memoryModel}
               onChange={(e) => setMemoryModel(e.target.value)}
@@ -19989,7 +20023,9 @@ export default function App() {
             />
           </label>
           <label>
-            Memory generation
+            <FieldLabel icon="memory" section="chat">
+              Memory generation
+            </FieldLabel>
             <select
               value={generateMemoryPolicy}
               onChange={(e) =>
@@ -20003,7 +20039,9 @@ export default function App() {
             </select>
           </label>
           <label>
-            Voice input
+            <FieldLabel icon="control" section="chat">
+              Voice input
+            </FieldLabel>
             <select
               value={voiceInputEnabled}
               onChange={(e) =>
@@ -20017,7 +20055,9 @@ export default function App() {
             </select>
           </label>
           <label>
-            Voice output
+            <FieldLabel icon="artifact" section="chat">
+              Voice output
+            </FieldLabel>
             <select
               value={voiceOutputEnabled}
               onChange={(e) =>
@@ -20031,7 +20071,9 @@ export default function App() {
             </select>
           </label>
           <label>
-            STT backend
+            <FieldLabel icon="control" section="chat">
+              STT backend
+            </FieldLabel>
             <input
               value={voiceInputBackend}
               onChange={(e) => setVoiceInputBackend(e.target.value)}
@@ -20040,7 +20082,9 @@ export default function App() {
             />
           </label>
           <label>
-            STT provider
+            <FieldLabel icon="setup" section="chat">
+              STT provider
+            </FieldLabel>
             <input
               value={voiceInputProvider}
               onChange={(e) => setVoiceInputProvider(e.target.value)}
@@ -20049,7 +20093,9 @@ export default function App() {
             />
           </label>
           <label>
-            STT model
+            <FieldLabel icon="prompt" section="chat">
+              STT model
+            </FieldLabel>
             <input
               value={voiceInputModel}
               onChange={(e) => setVoiceInputModel(e.target.value)}
@@ -20058,7 +20104,9 @@ export default function App() {
             />
           </label>
           <label>
-            TTS backend
+            <FieldLabel icon="artifact" section="chat">
+              TTS backend
+            </FieldLabel>
             <input
               value={voiceOutputBackend}
               onChange={(e) => setVoiceOutputBackend(e.target.value)}
@@ -20067,7 +20115,9 @@ export default function App() {
             />
           </label>
           <label>
-            TTS provider
+            <FieldLabel icon="setup" section="chat">
+              TTS provider
+            </FieldLabel>
             <input
               value={voiceTtsProvider}
               onChange={(e) => setVoiceTtsProvider(e.target.value)}
@@ -20076,7 +20126,9 @@ export default function App() {
             />
           </label>
           <label>
-            TTS model
+            <FieldLabel icon="prompt" section="chat">
+              TTS model
+            </FieldLabel>
             <input
               value={voiceTtsModel}
               onChange={(e) => setVoiceTtsModel(e.target.value)}
@@ -20085,7 +20137,9 @@ export default function App() {
             />
           </label>
           <label>
-            Voice
+            <FieldLabel icon="control" section="chat">
+              Voice
+            </FieldLabel>
             <input
               value={voiceName}
               onChange={(e) => setVoiceName(e.target.value)}
@@ -20094,7 +20148,9 @@ export default function App() {
             />
           </label>
           <label>
-            Voice tone
+            <FieldLabel icon="prompt" section="chat">
+              Voice tone
+            </FieldLabel>
             <input
               value={voiceTone}
               onChange={(e) => setVoiceTone(e.target.value)}
@@ -20121,7 +20177,9 @@ export default function App() {
             <ButtonLabel icon="approval">Unsafe ingest</ButtonLabel>
           </label>
           <label>
-            Ingest guardrail
+            <FieldLabel icon="approval" section="chat">
+              Ingest guardrail
+            </FieldLabel>
             <select
               value={ingestionGuardrailMode || (allowUnsafeIngest ? "allow" : "")}
               onChange={(e) =>
@@ -20147,7 +20205,9 @@ export default function App() {
             <ButtonLabel icon="approval">Approval gate</ButtonLabel>
           </label>
           <label>
-            Approval controller
+            <FieldLabel icon="approval" section="chat">
+              Approval controller
+            </FieldLabel>
             <input
               value={runApprovalControllerAgent}
               onChange={(e) => setRunApprovalControllerAgent(e.target.value)}
@@ -20157,7 +20217,9 @@ export default function App() {
             />
           </label>
           <label>
-            Controller tools
+            <FieldLabel icon="tools" section="chat">
+              Controller tools
+            </FieldLabel>
             <input
               value={approvalControllerTools}
               onChange={(e) => setApprovalControllerTools(e.target.value)}
@@ -20167,7 +20229,9 @@ export default function App() {
             />
           </label>
           <label>
-            Controller categories
+            <FieldLabel icon="tools" section="chat">
+              Controller categories
+            </FieldLabel>
             <input
               value={approvalControllerCategories}
               onChange={(e) => setApprovalControllerCategories(e.target.value)}
@@ -20176,7 +20240,9 @@ export default function App() {
               title="Comma-separated tool categories this controller may approve."
             />
           </label>
-          <div className="field-label">Output mode</div>
+          <FieldLabel icon="artifact" section="chat">
+            Output mode
+          </FieldLabel>
           <div className="segmented-control two" role="group" aria-label="Output mode">
             <button
               type="button"
@@ -20205,7 +20271,9 @@ export default function App() {
             </ModeNote>
           ) : null}
           <label>
-            Router model
+            <FieldLabel icon="tools" section="chat">
+              Router model
+            </FieldLabel>
             <input
               value={toolRoutingModel}
               onChange={(e) => setToolRoutingModel(e.target.value)}
@@ -20216,7 +20284,9 @@ export default function App() {
           </label>
           {!rawToolOutput ? (
             <label>
-              Interpreter model
+              <FieldLabel icon="prompt" section="chat">
+                Interpreter model
+              </FieldLabel>
               <input
                 value={toolOutputInterpretationModel}
                 onChange={(e) =>
@@ -20229,7 +20299,9 @@ export default function App() {
             </label>
           ) : null}
           <label>
-            Compaction guidance
+            <FieldLabel icon="context" section="chat">
+              Compaction guidance
+            </FieldLabel>
             <textarea
               className="ops-text"
               value={compactionGuidance}
@@ -20264,7 +20336,9 @@ export default function App() {
                 </ButtonLabel>
               </label>
               <label>
-                Refiner model
+                <FieldLabel icon="prompt" section="chat">
+                  Refiner model
+                </FieldLabel>
                 <input
                   value={promptRefinementModel}
                   onChange={(e) => setPromptRefinementModel(e.target.value)}
@@ -20273,7 +20347,9 @@ export default function App() {
                 />
               </label>
               <label>
-                Refinement instructions
+                <FieldLabel icon="prompt" section="chat">
+                  Refinement instructions
+                </FieldLabel>
                 <textarea
                   className="ops-text"
                   value={promptRefinementInstructions}
@@ -20286,7 +20362,9 @@ export default function App() {
                 />
               </label>
               <label>
-                Refinement rules
+                <FieldLabel icon="prompt" section="chat">
+                  Refinement rules
+                </FieldLabel>
                 <textarea
                   className="ops-text"
                   value={promptRefinementsJson}

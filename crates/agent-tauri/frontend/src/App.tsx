@@ -23471,7 +23471,9 @@ export default function App() {
               </div>
               <OperationTitle title="Capability Drafts" section="skills" icon="tools" />
               <label>
-                Draft kind
+                <FieldLabel icon="tools" section="skills">
+                  Draft kind
+                </FieldLabel>
                 <select
                   value={capabilityKind}
                   onChange={(e) =>
@@ -23856,7 +23858,9 @@ export default function App() {
             <div className="operation-group">
               <OperationTitle title="Ingestion" section="ingest" />
               <label>
-                Backend
+                <FieldLabel icon="setup" section="ingest">
+                  Backend
+                </FieldLabel>
                 <select
                   value={ingestBackend}
                   onChange={(e) => setIngestBackend(e.target.value)}
@@ -23898,7 +23902,9 @@ export default function App() {
                 </select>
               </label>
               <label>
-                Vision model
+                <FieldLabel icon="prompt" section="ingest">
+                  Vision model
+                </FieldLabel>
                 <input
                   value={ingestVisionModel}
                   onChange={(e) => setIngestVisionModel(e.target.value)}
@@ -23907,7 +23913,9 @@ export default function App() {
                 />
               </label>
               <label>
-                Guardrail model
+                <FieldLabel icon="approval" section="ingest">
+                  Guardrail model
+                </FieldLabel>
                 <input
                   value={ingestGuardrailModel}
                   onChange={(e) => setIngestGuardrailModel(e.target.value)}
@@ -23916,7 +23924,9 @@ export default function App() {
                 />
               </label>
               <label>
-                Finding index
+                <FieldLabel icon="trace" section="ingest">
+                  Finding index
+                </FieldLabel>
                 <input
                   value={ingestFindingIndex}
                   onChange={(e) => setIngestFindingIndex(e.target.value)}
@@ -23925,7 +23935,9 @@ export default function App() {
                 />
               </label>
               <label>
-                Review decision
+                <FieldLabel icon="approval" section="ingest">
+                  Review decision
+                </FieldLabel>
                 <select
                   value={ingestReviewDecision}
                   onChange={(e) =>
@@ -23941,7 +23953,9 @@ export default function App() {
                 </select>
               </label>
               <label>
-                Review note
+                <FieldLabel icon="prompt" section="ingest">
+                  Review note
+                </FieldLabel>
                 <input
                   value={ingestReviewNote}
                   onChange={(e) => setIngestReviewNote(e.target.value)}

@@ -26390,7 +26390,7 @@ export default function App() {
                 title="Use the resolved agent, profile, or global stopped-run retention policy."
                 onClick={() => setStopRetentionMode(null)}
               >
-                Default
+                <ButtonLabel icon="setup">Default</ButtonLabel>
               </button>
               <button
                 type="button"
@@ -26398,7 +26398,7 @@ export default function App() {
                 title="Stop without retaining context from the cancelled task."
                 onClick={() => setStopRetentionMode("discard")}
               >
-                Discard
+                <ButtonLabel icon="approval">Discard</ButtonLabel>
               </button>
               <button
                 type="button"
@@ -26406,7 +26406,7 @@ export default function App() {
                 title="Stop and retain a concise summary of what happened."
                 onClick={() => setStopRetentionMode("summarise")}
               >
-                Summarise
+                <ButtonLabel icon="context">Summarise</ButtonLabel>
               </button>
             </div>
             <ModeNote section={runControlVisualSection} icon="control">

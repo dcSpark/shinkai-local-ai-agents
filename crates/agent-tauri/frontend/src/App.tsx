@@ -1209,16 +1209,14 @@ function BundleStatusCard({
   const reminders = status.manifest.credential_reminders ?? [];
   const reminderCount = bundleReminderCount(status.manifest);
   const visible = reminders.slice(0, 3);
+  const tone = bundleStatusTone(status);
   return (
     <div
-      className={`bundle-visual-card ${bundleStatusTone(status)}`}
+      className={`bundle-visual-card ${tone}`}
       style={sectionThemeStyle(section)}
     >
       <div className="bundle-visual-head with-icon">
-        <span
-          className={`bundle-visual-icon ${bundleStatusTone(status)}`}
-          aria-hidden="true"
-        >
+        <span className={`bundle-visual-icon ${tone}`} aria-hidden="true">
           <AppIcon name="artifact" />
         </span>
         <div className="bundle-visual-title">
@@ -1254,21 +1252,83 @@ function BundleStatusCard({
           section={section}
         />
       </div>
-      <span title={status.path}>path {status.path}</span>
-      <span>exported {status.manifest.exported_at}</span>
-      {reminderCount ? (
-        <span>{reminderCount} credential file(s) omitted</span>
-      ) : (
-        <span>no credential reminders</span>
-      )}
-      {visible.map((reminder) => (
-        <span key={reminder.path} title={reminder.reason}>
-          omitted {reminder.path}
-        </span>
-      ))}
-      {reminders.length > visible.length ? (
-        <span>+{reminders.length - visible.length} more credential reminder(s)</span>
-      ) : null}
+      <div className="bundle-visual-detail-list">
+        <div className="bundle-visual-detail-row ok">
+          <span className="bundle-visual-detail-icon ok" aria-hidden="true">
+            <AppIcon name="artifact" />
+          </span>
+          <div className="bundle-visual-detail-copy">
+            <strong>Bundle path</strong>
+            <span title={status.path}>{status.path}</span>
+          </div>
+        </div>
+        <div className="bundle-visual-detail-row">
+          <span className="bundle-visual-detail-icon" aria-hidden="true">
+            <AppIcon name="trace" />
+          </span>
+          <div className="bundle-visual-detail-copy">
+            <strong>Exported at</strong>
+            <span>{status.manifest.exported_at}</span>
+          </div>
+        </div>
+        <div
+          className={`bundle-visual-detail-row ${
+            reminderCount ? "warning" : "ok"
+          }`}
+        >
+          <span
+            className={`bundle-visual-detail-icon ${
+              reminderCount ? "warning" : "ok"
+            }`}
+            aria-hidden="true"
+          >
+            <AppIcon name="approval" />
+          </span>
+          <div className="bundle-visual-detail-copy">
+            <strong>Credential reminders</strong>
+            <span>
+              {reminderCount
+                ? `${reminderCount} credential file(s) omitted`
+                : "none"}
+            </span>
+          </div>
+        </div>
+        {visible.map((reminder) => (
+          <div
+            className="bundle-visual-detail-row warning"
+            key={reminder.path}
+            title={reminder.reason}
+          >
+            <span
+              className="bundle-visual-detail-icon warning"
+              aria-hidden="true"
+            >
+              <AppIcon name="approval" />
+            </span>
+            <div className="bundle-visual-detail-copy">
+              <strong>Omitted credential</strong>
+              <span>{reminder.path}</span>
+              <p>{reminder.reason}</p>
+            </div>
+          </div>
+        ))}
+        {reminders.length > visible.length ? (
+          <div className="bundle-visual-detail-row warning">
+            <span
+              className="bundle-visual-detail-icon warning"
+              aria-hidden="true"
+            >
+              <AppIcon name="approval" />
+            </span>
+            <div className="bundle-visual-detail-copy">
+              <strong>More reminders</strong>
+              <span>
+                +{reminders.length - visible.length} credential reminder(s)
+              </span>
+            </div>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }

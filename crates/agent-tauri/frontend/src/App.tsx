@@ -26584,7 +26584,9 @@ export default function App() {
           {activeSection === "approvals" ? (
             <>
               <label>
-                Unlock
+                <FieldLabel icon="approval" section="approvals">
+                  Unlock
+                </FieldLabel>
                 <input
                   type="password"
                   value={approvalUnlock}
@@ -26594,7 +26596,9 @@ export default function App() {
                 />
               </label>
               <label>
-                Signature
+                <FieldLabel icon="profile" section="approvals">
+                  Signature
+                </FieldLabel>
                 <input
                   value={approvalSignature}
                   onChange={(e) => setApprovalSignature(e.target.value)}
@@ -26603,7 +26607,9 @@ export default function App() {
                 />
               </label>
               <label>
-                Controller
+                <FieldLabel icon="profile" section="approvals">
+                  Controller
+                </FieldLabel>
                 <input
                   value={approvalControllerAgent}
                   onChange={(e) => setApprovalControllerAgent(e.target.value)}
@@ -26762,7 +26768,11 @@ export default function App() {
             )
           ) : null}
           <fieldset className="operation-group">
-            <legend>Stop mode</legend>
+            <legend>
+              <FieldLabel icon="control" section={runControlVisualSection}>
+                Stop mode
+              </FieldLabel>
+            </legend>
             <div className="segmented-control" role="group" aria-label="Stop mode">
               <button
                 type="button"
@@ -26798,9 +26808,15 @@ export default function App() {
             </ModeNote>
           </fieldset>
           <fieldset className="operation-group">
-            <legend>Resume cursor</legend>
+            <legend>
+              <FieldLabel icon="trace" section={runControlVisualSection}>
+                Resume cursor
+              </FieldLabel>
+            </legend>
             <label>
-              From event
+              <FieldLabel icon="trace" section={runControlVisualSection}>
+                From event
+              </FieldLabel>
               <input
                 type="number"
                 min="1"

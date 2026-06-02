@@ -6229,7 +6229,7 @@ export default function App() {
             onClick={() => setOpsId(node.run_id)}
             disabled={running}
           >
-            Set Id
+            <ButtonLabel icon="trace">Set Id</ButtonLabel>
           </button>
           <button
             type="button"
@@ -6237,7 +6237,7 @@ export default function App() {
             onClick={() => void loadTraceTreeNode(node.run_id)}
             disabled={running || !node.trace_available}
           >
-            Load
+            <ButtonLabel icon="trace">Load</ButtonLabel>
           </button>
           <button
             type="button"
@@ -6245,7 +6245,7 @@ export default function App() {
             onClick={() => setTraceCompareRunId(node.run_id)}
             disabled={running || !node.trace_available}
           >
-            Compare
+            <ButtonLabel icon="trace">Compare</ButtonLabel>
           </button>
           <button
             type="button"
@@ -6257,7 +6257,7 @@ export default function App() {
             }
             disabled={running || !node.trace_available}
           >
-            Replay
+            <ButtonLabel icon="trace">Replay</ButtonLabel>
           </button>
           <button
             type="button"
@@ -6270,7 +6270,7 @@ export default function App() {
             }
             disabled={running || !node.trace_available}
           >
-            Replay Compare
+            <ButtonLabel icon="trace">Replay Compare</ButtonLabel>
           </button>
         </div>
         {children.length && !collapsed ? (
@@ -20435,7 +20435,7 @@ export default function App() {
               onClick={() => void listTraceRuns()}
               disabled={running}
             >
-              Runs
+              <ButtonLabel icon="trace">Runs</ButtonLabel>
             </button>
             <button
               type="button"
@@ -20443,7 +20443,7 @@ export default function App() {
               onClick={() => void loadTraceFromOps()}
               disabled={running || (!opsId.trim() && !lastRunId)}
             >
-              Load Trace
+              <ButtonLabel icon="trace">Load Trace</ButtonLabel>
             </button>
             <button
               type="button"
@@ -20455,21 +20455,21 @@ export default function App() {
                 (!traceCompareRunId.trim() && !opsId.trim())
               }
             >
-              Compare
+              <ButtonLabel icon="trace">Compare</ButtonLabel>
             </button>
             <button
               type="button"
               onClick={clearLoadedTrace}
               disabled={running || !traceEvents.length}
             >
-              Clear Trace
+              <ButtonLabel icon="approval">Clear Trace</ButtonLabel>
             </button>
             <button
               type="button"
               onClick={clearTraceComparison}
               disabled={running || !traceCompareSummary}
             >
-              Clear Compare
+              <ButtonLabel icon="approval">Clear Compare</ButtonLabel>
             </button>
             <button
               type="button"
@@ -20477,7 +20477,7 @@ export default function App() {
               onClick={() => void loadTracePromptToComposer()}
               disabled={running || !traceOriginalPrompt(traceEvents)}
             >
-              Load Prompt
+              <ButtonLabel icon="prompt">Load Prompt</ButtonLabel>
             </button>
             <button
               type="button"
@@ -20485,7 +20485,7 @@ export default function App() {
               onClick={() => void replayTracePrompt()}
               disabled={running || !traceOriginalPrompt(traceEvents)}
             >
-              Replay
+              <ButtonLabel icon="trace">Replay</ButtonLabel>
             </button>
             <button
               type="button"
@@ -20493,7 +20493,7 @@ export default function App() {
               onClick={() => void replayTracePromptWithComparison()}
               disabled={running || !traceOriginalPrompt(traceEvents)}
             >
-              Replay Compare
+              <ButtonLabel icon="trace">Replay Compare</ButtonLabel>
             </button>
           </div>
           <label>
@@ -20533,7 +20533,7 @@ export default function App() {
                         onClick={() => void loadTraceById(record.run_id)}
                         disabled={running}
                       >
-                        Load
+                        <ButtonLabel icon="trace">Load</ButtonLabel>
                       </button>
                       <button
                         type="button"
@@ -20541,7 +20541,7 @@ export default function App() {
                         onClick={() => setTraceCompareRunId(record.run_id)}
                         disabled={running}
                       >
-                        Compare
+                        <ButtonLabel icon="trace">Compare</ButtonLabel>
                       </button>
                       <button
                         type="button"
@@ -20553,7 +20553,7 @@ export default function App() {
                         }
                         disabled={running}
                       >
-                        Replay
+                        <ButtonLabel icon="trace">Replay</ButtonLabel>
                       </button>
                       <button
                         type="button"
@@ -20566,7 +20566,7 @@ export default function App() {
                         }
                         disabled={running}
                       >
-                        Replay Compare
+                        <ButtonLabel icon="trace">Replay Compare</ButtonLabel>
                       </button>
                       <button
                         type="button"
@@ -20574,7 +20574,7 @@ export default function App() {
                         onClick={() => setOpsId(record.run_id)}
                         disabled={running}
                       >
-                        Set Id
+                        <ButtonLabel icon="trace">Set Id</ButtonLabel>
                       </button>
                     </div>
                   </div>
@@ -20700,7 +20700,7 @@ export default function App() {
                     onClick={() => setCollapsedTraceTreeRuns([])}
                     disabled={running || !collapsedTraceTreeRuns.length}
                   >
-                    Expand All
+                    <ButtonLabel icon="trace">Expand All</ButtonLabel>
                   </button>
                   <button
                     type="button"
@@ -20712,7 +20712,7 @@ export default function App() {
                     }
                     disabled={running || !expandableTraceTreeRunIds(traceTree).length}
                   >
-                    Collapse All
+                    <ButtonLabel icon="trace">Collapse All</ButtonLabel>
                   </button>
                 </div>
               </div>

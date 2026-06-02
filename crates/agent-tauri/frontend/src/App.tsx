@@ -23605,7 +23605,7 @@ export default function App() {
                   onClick={() => void reviewIngestionBackends()}
                   disabled={running}
                 >
-                  Backends
+                  <ButtonLabel icon="setup">Backends</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23613,7 +23613,7 @@ export default function App() {
                   onClick={() => void reviewIngestion()}
                   disabled={running}
                 >
-                  List Ingest
+                  <ButtonLabel icon="ingest">List Ingest</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23621,7 +23621,7 @@ export default function App() {
                   onClick={() => void probeIngestSourceFromOps()}
                   disabled={running || !opsValue.trim()}
                 >
-                  Probe Source
+                  <ButtonLabel icon="trace">Probe Source</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23629,7 +23629,7 @@ export default function App() {
                   onClick={() => void ingestPathFromOps()}
                   disabled={running || !opsValue.trim()}
                 >
-                  Ingest
+                  <ButtonLabel icon="ingest">Ingest</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23637,7 +23637,7 @@ export default function App() {
                   onClick={() => void showIngestFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Show Ingest
+                  <ButtonLabel icon="artifact">Show Ingest</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23645,7 +23645,7 @@ export default function App() {
                   onClick={() => void rerunIngestFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Rerun Ingest
+                  <ButtonLabel icon="trace">Rerun Ingest</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23653,7 +23653,7 @@ export default function App() {
                   onClick={() => includeIngestFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Use Ingest
+                  <ButtonLabel icon="context">Use Ingest</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23663,7 +23663,7 @@ export default function App() {
                     running || (!opsId.trim() && !includeIngestIds.length)
                   }
                 >
-                  Preview With Ingest
+                  <ButtonLabel icon="context">Preview With Ingest</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23671,7 +23671,7 @@ export default function App() {
                   onClick={() => appendLine("assistant", guardrailReport())}
                   disabled={running}
                 >
-                  Guardrails
+                  <ButtonLabel icon="approval">Guardrails</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23679,7 +23679,7 @@ export default function App() {
                   onClick={() => void reviewIngestFindingFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Review Finding
+                  <ButtonLabel icon="approval">Review Finding</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -23688,7 +23688,7 @@ export default function App() {
                   onClick={() => void removeIngestFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Remove Ingest
+                  <ButtonLabel icon="approval">Remove Ingest</ButtonLabel>
                 </button>
               </div>
               {ingestionSourceProbe ? (

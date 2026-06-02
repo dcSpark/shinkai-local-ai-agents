@@ -21138,8 +21138,58 @@ export default function App() {
               >
                 <pre>{previewJson(contextPreview.conversation)}</pre>
               </ContextPreviewPane>
-              <section>
-                <strong>Tools ({contextPreview.visible_tools.length})</strong>
+              <ContextPreviewPane
+                title="Tools"
+                icon="tools"
+                detail="Tool definitions visible to the next run."
+                tone={contextPreview.visible_tools.length ? "ok" : "neutral"}
+                metrics={
+                  <>
+                    <VisualMetric
+                      icon="tools"
+                      label="visible"
+                      value={contextPreview.visible_tools.length}
+                      section="chat"
+                      tone={contextPreview.visible_tools.length ? "ok" : "neutral"}
+                    />
+                    <VisualMetric
+                      icon="setup"
+                      label="schemas"
+                      value={
+                        contextPreview.visible_tools.filter((tool) => tool.input_schema)
+                          .length
+                      }
+                      section="chat"
+                      tone={
+                        contextPreview.visible_tools.some((tool) => tool.input_schema)
+                          ? "ok"
+                          : "neutral"
+                      }
+                    />
+                    <VisualMetric
+                      icon="context"
+                      label="categories"
+                      value={
+                        new Set(
+                          contextPreview.visible_tools.flatMap(
+                            (tool) => tool.categories,
+                          ),
+                        ).size
+                      }
+                      section="chat"
+                    />
+                    <VisualMetric
+                      icon="trace"
+                      label="provenance"
+                      value={
+                        contextPreview.visible_tools.filter((tool) => tool.provenance)
+                          .length
+                      }
+                      section="chat"
+                    />
+                  </>
+                }
+              >
                 {contextPreview.visible_tools.length ? (
                   <div className="context-cards">
                     {contextPreview.visible_tools.map((tool) => {
@@ -21249,9 +21299,55 @@ export default function App() {
                   </div>
                 ) : null}
                 <pre>{previewJson(contextPreview.visible_tools)}</pre>
-              </section>
-              <section>
-                <strong>Skills ({contextPreview.visible_skills.length})</strong>
+              </ContextPreviewPane>
+              <ContextPreviewPane
+                title="Skills"
+                icon="skill"
+                detail="Skill instructions visible in the preview context."
+                tone={contextPreview.visible_skills.length ? "ok" : "neutral"}
+                metrics={
+                  <>
+                    <VisualMetric
+                      icon="skill"
+                      label="visible"
+                      value={contextPreview.visible_skills.length}
+                      section="chat"
+                      tone={contextPreview.visible_skills.length ? "ok" : "neutral"}
+                    />
+                    <VisualMetric
+                      icon="setup"
+                      label="est tokens"
+                      value={`~${contextPreview.visible_skills.reduce(
+                        (total, skill) => total + skill.estimated_tokens,
+                        0,
+                      )}`}
+                      section="chat"
+                      tone={contextPreview.visible_skills.length ? "ok" : "neutral"}
+                    />
+                    <VisualMetric
+                      icon="context"
+                      label="categories"
+                      value={
+                        new Set(
+                          contextPreview.visible_skills.flatMap(
+                            (skill) => skill.categories,
+                          ),
+                        ).size
+                      }
+                      section="chat"
+                    />
+                    <VisualMetric
+                      icon="trace"
+                      label="provenance"
+                      value={
+                        contextPreview.visible_skills.filter((skill) => skill.provenance)
+                          .length
+                      }
+                      section="chat"
+                    />
+                  </>
+                }
+              >
                 {contextPreview.visible_skills.length ? (
                   <div className="context-cards">
                     {contextPreview.visible_skills.map((skill) => {
@@ -21324,9 +21420,44 @@ export default function App() {
                   </div>
                 ) : null}
                 <pre>{previewJson(contextPreview.visible_skills)}</pre>
-              </section>
-              <section>
-                <strong>Memory ({contextPreview.loaded_memory.length})</strong>
+              </ContextPreviewPane>
+              <ContextPreviewPane
+                title="Memory"
+                icon="memory"
+                detail="Durable memory fragments loaded into this preview."
+                tone={contextPreview.loaded_memory.length ? "ok" : "neutral"}
+                metrics={
+                  <>
+                    <VisualMetric
+                      icon="memory"
+                      label="fragments"
+                      value={contextPreview.loaded_memory.length}
+                      section="chat"
+                      tone={contextPreview.loaded_memory.length ? "ok" : "neutral"}
+                    />
+                    <VisualMetric
+                      icon="context"
+                      label="content chars"
+                      value={contextPreview.loaded_memory.reduce(
+                        (total, memory) => total + memory.content.length,
+                        0,
+                      )}
+                      section="chat"
+                      tone={contextPreview.loaded_memory.length ? "ok" : "neutral"}
+                    />
+                    <VisualMetric
+                      icon="trace"
+                      label="provenance"
+                      value={
+                        contextPreview.loaded_memory.filter(
+                          (memory) => memory.provenance,
+                        ).length
+                      }
+                      section="chat"
+                    />
+                  </>
+                }
+              >
                 {contextPreview.loaded_memory.length ? (
                   <div className="context-cards">
                     {contextPreview.loaded_memory.map((memory) => (
@@ -21366,9 +21497,70 @@ export default function App() {
                   </div>
                 ) : null}
                 <pre>{previewJson(contextPreview.loaded_memory)}</pre>
-              </section>
-              <section>
-                <strong>Artifacts ({contextPreview.loaded_artifacts.length})</strong>
+              </ContextPreviewPane>
+              <ContextPreviewPane
+                title="Artifacts"
+                icon="ingest"
+                detail="Ingested artifacts included in the next prompt."
+                tone={
+                  highRiskPreviewFindings(contextPreview).length
+                    ? activeIngestionGuardrailMode() === "block"
+                      ? "danger"
+                      : "warning"
+                    : contextPreview.loaded_artifacts.length
+                      ? "ok"
+                      : "neutral"
+                }
+                metrics={
+                  <>
+                    <VisualMetric
+                      icon="artifact"
+                      label="included"
+                      value={contextPreview.loaded_artifacts.length}
+                      section="chat"
+                      tone={
+                        contextPreview.loaded_artifacts.length ? "ok" : "neutral"
+                      }
+                    />
+                    <VisualMetric
+                      icon="ingest"
+                      label="sections"
+                      value={contextPreview.loaded_artifacts.reduce(
+                        (total, artifact) => total + artifact.sections,
+                        0,
+                      )}
+                      section="chat"
+                    />
+                    <VisualMetric
+                      icon="approval"
+                      label="findings"
+                      value={contextPreview.loaded_artifacts.reduce(
+                        (total, artifact) => total + artifact.findings.length,
+                        0,
+                      )}
+                      section="chat"
+                      tone={
+                        contextPreview.loaded_artifacts.some(
+                          (artifact) => artifact.findings.length,
+                        )
+                          ? "warning"
+                          : "ok"
+                      }
+                    />
+                    <VisualMetric
+                      icon="control"
+                      label="high risk"
+                      value={highRiskPreviewFindings(contextPreview).length}
+                      section="chat"
+                      tone={
+                        highRiskPreviewFindings(contextPreview).length
+                          ? "danger"
+                          : "ok"
+                      }
+                    />
+                  </>
+                }
+              >
                 {contextPreview.loaded_artifacts.length ? (
                   <div className="context-cards">
                     {contextPreview.loaded_artifacts.map((artifact) => {
@@ -21439,9 +21631,44 @@ export default function App() {
                   </div>
                 ) : null}
                 <pre>{previewJson(contextPreview.loaded_artifacts)}</pre>
-              </section>
-              <section>
-                <strong>Provenance ({contextPreview.provenance.length})</strong>
+              </ContextPreviewPane>
+              <ContextPreviewPane
+                title="Provenance"
+                icon="trace"
+                detail="Where each preview fragment came from."
+                tone={contextPreview.provenance.length ? "ok" : "neutral"}
+                metrics={
+                  <>
+                    <VisualMetric
+                      icon="trace"
+                      label="records"
+                      value={contextPreview.provenance.length}
+                      section="chat"
+                      tone={contextPreview.provenance.length ? "ok" : "neutral"}
+                    />
+                    <VisualMetric
+                      icon="context"
+                      label="fragments"
+                      value={
+                        new Set(
+                          contextPreview.provenance.map((record) => record.fragment),
+                        ).size
+                      }
+                      section="chat"
+                    />
+                    <VisualMetric
+                      icon="artifact"
+                      label="sources"
+                      value={
+                        new Set(
+                          contextPreview.provenance.map((record) => record.source),
+                        ).size
+                      }
+                      section="chat"
+                    />
+                  </>
+                }
+              >
                 {contextPreview.provenance.length ? (
                   <div className="context-cards">
                     {contextPreview.provenance.map((record) => (
@@ -21483,7 +21710,7 @@ export default function App() {
                   </div>
                 ) : null}
                 <pre>{previewJson(contextPreview.provenance)}</pre>
-              </section>
+              </ContextPreviewPane>
             </div>
           ) : null}
         </section>

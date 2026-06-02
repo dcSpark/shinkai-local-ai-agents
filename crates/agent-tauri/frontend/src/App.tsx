@@ -18853,6 +18853,37 @@ export default function App() {
     return "Mixed visibility";
   }
 
+  function contextVisibilityLabel(value: string) {
+    return value.replaceAll("_", " ");
+  }
+
+  function contextVisibilityTone(value: string): ContextReviewCard["tone"] {
+    const normalized = value.toLowerCase();
+    if (normalized.includes("full")) return "ok";
+    if (normalized.includes("summary")) return "neutral";
+    if (normalized.includes("hidden") || normalized.includes("none")) {
+      return "danger";
+    }
+    return "warning";
+  }
+
+  function contextToolSchemaLabel(tool: ContextSnapshot["visible_tools"][number]) {
+    if (!tool.input_schema) return "not loaded";
+    const parameters = toolParameters(tool.input_schema);
+    return parameters.length ? `${parameters.length} params` : "schema ready";
+  }
+
+  function contextArtifactTone(
+    artifact: ContextSnapshot["loaded_artifacts"][number],
+  ): ContextReviewCard["tone"] {
+    if (artifact.findings.some(isHighRiskFindingText)) return "danger";
+    return artifact.findings.length ? "warning" : "ok";
+  }
+
+  function contextSourcePreview(value: string | null | undefined, max = 36) {
+    return value ? previewText(value, max) : "none";
+  }
+
   function contextReviewCards(snapshot: ContextSnapshot): ContextReviewCard[] {
     const draftStatus = contextPreviewDraftStatus();
     const highRiskFindings = highRiskPreviewFindings(snapshot);
@@ -20769,53 +20800,110 @@ export default function App() {
                 <strong>Tools ({contextPreview.visible_tools.length})</strong>
                 {contextPreview.visible_tools.length ? (
                   <div className="context-cards">
-                    {contextPreview.visible_tools.map((tool) => (
-                      <div className="context-card" key={tool.id}>
-                        <strong>{tool.name}</strong>
-                        <span>{tool.visibility}</span>
-                        <span>output {tool.output_mode}</span>
-                        {tool.categories.length ? (
-                          <span>categories {tool.categories.join(", ")}</span>
-                        ) : null}
-                        {tool.provenance ? <span>{tool.provenance}</span> : null}
-                        {tool.description ? <p>{tool.description}</p> : null}
-                        {tool.input_schema ? (
-                          <div className="tool-parameters">
-                            {toolParameters(tool.input_schema).length ? (
-                              toolParameters(tool.input_schema).map((parameter) => (
-                                <div className="tool-parameter" key={parameter.name}>
-                                  <div className="tool-parameter-head">
-                                    <strong>{parameter.name}</strong>
-                                    <span>
-                                      {parameter.type}
-                                      {parameter.required ? " / required" : ""}
-                                    </span>
-                                  </div>
-                                  {parameter.description ? (
-                                    <p>{parameter.description}</p>
-                                  ) : null}
-                                </div>
-                              ))
-                            ) : (
-                              <span>schema available</span>
-                            )}
+                    {contextPreview.visible_tools.map((tool) => {
+                      const visibilityTone = contextVisibilityTone(tool.visibility);
+                      const parameters = tool.input_schema
+                        ? toolParameters(tool.input_schema)
+                        : [];
+                      return (
+                        <div
+                          className={`context-source-card ${visibilityTone}`}
+                          key={tool.id}
+                          style={sectionThemeStyle("chat")}
+                        >
+                          <div className="context-source-head">
+                            <span
+                              className={`context-source-icon ${visibilityTone}`}
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="tools" />
+                            </span>
+                            <div className="context-source-title">
+                              <strong>{tool.name}</strong>
+                              <span>{tool.id}</span>
+                            </div>
                           </div>
-                        ) : null}
-                        {tool.output_interpretation_guidance ? (
-                          <p>{previewText(tool.output_interpretation_guidance, 180)}</p>
-                        ) : null}
-                        <div className="mini-actions">
-                          <button
-                            type="button"
-                            title="Stage this tool in Id and Value for a direct manual call."
-                            onClick={() => void stageToolFromPreview(tool)}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="tools">Use Tool</ButtonLabel>
-                          </button>
+                          <div className="context-source-metrics">
+                            <VisualMetric
+                              icon="tools"
+                              label="visibility"
+                              value={contextVisibilityLabel(tool.visibility)}
+                              section="chat"
+                              tone={visibilityTone}
+                            />
+                            <VisualMetric
+                              icon="control"
+                              label="output"
+                              value={tool.output_mode}
+                              section="chat"
+                              tone="neutral"
+                            />
+                            <VisualMetric
+                              icon="setup"
+                              label="schema"
+                              value={contextToolSchemaLabel(tool)}
+                              section="chat"
+                              tone={tool.input_schema ? "ok" : "warning"}
+                            />
+                            <VisualMetric
+                              icon="context"
+                              label="categories"
+                              value={tool.categories.length}
+                              section="chat"
+                              tone={tool.categories.length ? "ok" : "neutral"}
+                            />
+                            <VisualMetric
+                              icon="trace"
+                              label="provenance"
+                              value={contextSourcePreview(tool.provenance)}
+                              section="chat"
+                              tone={tool.provenance ? "ok" : "neutral"}
+                            />
+                          </div>
+                          {tool.categories.length ? (
+                            <span>categories {tool.categories.join(", ")}</span>
+                          ) : null}
+                          {tool.description ? <p>{tool.description}</p> : null}
+                          {tool.input_schema ? (
+                            <div className="tool-parameters">
+                              {parameters.length ? (
+                                parameters.map((parameter) => (
+                                  <div className="tool-parameter" key={parameter.name}>
+                                    <div className="tool-parameter-head">
+                                      <strong>{parameter.name}</strong>
+                                      <span>
+                                        {parameter.type}
+                                        {parameter.required ? " / required" : ""}
+                                      </span>
+                                    </div>
+                                    {parameter.description ? (
+                                      <p>{parameter.description}</p>
+                                    ) : null}
+                                  </div>
+                                ))
+                              ) : (
+                                <span>schema available</span>
+                              )}
+                            </div>
+                          ) : null}
+                          {tool.output_interpretation_guidance ? (
+                            <p>
+                              {previewText(tool.output_interpretation_guidance, 180)}
+                            </p>
+                          ) : null}
+                          <div className="mini-actions">
+                            <button
+                              type="button"
+                              title="Stage this tool in Id and Value for a direct manual call."
+                              onClick={() => void stageToolFromPreview(tool)}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="tools">Use Tool</ButtonLabel>
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : null}
                 <pre>{previewJson(contextPreview.visible_tools)}</pre>
@@ -20824,27 +20912,73 @@ export default function App() {
                 <strong>Skills ({contextPreview.visible_skills.length})</strong>
                 {contextPreview.visible_skills.length ? (
                   <div className="context-cards">
-                    {contextPreview.visible_skills.map((skill) => (
-                      <div className="context-card" key={skill.id}>
-                        <strong>{skill.name}</strong>
-                        <span>{skill.visibility}</span>
-                        <span>~{skill.estimated_tokens} tokens</span>
-                        {skill.categories.length ? (
-                          <span>categories {skill.categories.join(", ")}</span>
-                        ) : null}
-                        {skill.description ? <p>{skill.description}</p> : null}
-                        <div className="mini-actions">
-                          <button
-                            type="button"
-                            title="Open the full skill source and review status."
-                            onClick={() => void openSkillFromPreview(skill)}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="skill">Open Skill</ButtonLabel>
-                          </button>
+                    {contextPreview.visible_skills.map((skill) => {
+                      const visibilityTone = contextVisibilityTone(skill.visibility);
+                      return (
+                        <div
+                          className={`context-source-card ${visibilityTone}`}
+                          key={skill.id}
+                          style={sectionThemeStyle("chat")}
+                        >
+                          <div className="context-source-head">
+                            <span
+                              className={`context-source-icon ${visibilityTone}`}
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="skill" />
+                            </span>
+                            <div className="context-source-title">
+                              <strong>{skill.name}</strong>
+                              <span>{skill.id}</span>
+                            </div>
+                          </div>
+                          <div className="context-source-metrics">
+                            <VisualMetric
+                              icon="skill"
+                              label="visibility"
+                              value={contextVisibilityLabel(skill.visibility)}
+                              section="chat"
+                              tone={visibilityTone}
+                            />
+                            <VisualMetric
+                              icon="setup"
+                              label="estimated"
+                              value={`~${skill.estimated_tokens}`}
+                              section="chat"
+                              tone={skill.estimated_tokens ? "ok" : "neutral"}
+                            />
+                            <VisualMetric
+                              icon="context"
+                              label="categories"
+                              value={skill.categories.length}
+                              section="chat"
+                              tone={skill.categories.length ? "ok" : "neutral"}
+                            />
+                            <VisualMetric
+                              icon="trace"
+                              label="provenance"
+                              value={contextSourcePreview(skill.provenance)}
+                              section="chat"
+                              tone={skill.provenance ? "ok" : "neutral"}
+                            />
+                          </div>
+                          {skill.categories.length ? (
+                            <span>categories {skill.categories.join(", ")}</span>
+                          ) : null}
+                          {skill.description ? <p>{skill.description}</p> : null}
+                          <div className="mini-actions">
+                            <button
+                              type="button"
+                              title="Open the full skill source and review status."
+                              onClick={() => void openSkillFromPreview(skill)}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="skill">Open Skill</ButtonLabel>
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : null}
                 <pre>{previewJson(contextPreview.visible_skills)}</pre>
@@ -20854,9 +20988,36 @@ export default function App() {
                 {contextPreview.loaded_memory.length ? (
                   <div className="context-cards">
                     {contextPreview.loaded_memory.map((memory) => (
-                      <div className="context-card" key={memory.id}>
-                        <strong>{memory.id}</strong>
-                        <span>{memory.provenance}</span>
+                      <div
+                        className="context-source-card ok"
+                        key={memory.id}
+                        style={sectionThemeStyle("chat")}
+                      >
+                        <div className="context-source-head">
+                          <span className="context-source-icon ok" aria-hidden="true">
+                            <AppIcon name="memory" />
+                          </span>
+                          <div className="context-source-title">
+                            <strong>{memory.id}</strong>
+                            <span>{contextSourcePreview(memory.provenance, 64)}</span>
+                          </div>
+                        </div>
+                        <div className="context-source-metrics">
+                          <VisualMetric
+                            icon="memory"
+                            label="content chars"
+                            value={memory.content.length}
+                            section="chat"
+                            tone={memory.content.length ? "ok" : "warning"}
+                          />
+                          <VisualMetric
+                            icon="trace"
+                            label="provenance"
+                            value={contextSourcePreview(memory.provenance)}
+                            section="chat"
+                            tone="ok"
+                          />
+                        </div>
                         <p>{previewText(memory.content)}</p>
                       </div>
                     ))}
@@ -20868,24 +21029,71 @@ export default function App() {
                 <strong>Artifacts ({contextPreview.loaded_artifacts.length})</strong>
                 {contextPreview.loaded_artifacts.length ? (
                   <div className="context-cards">
-                    {contextPreview.loaded_artifacts.map((artifact) => (
-                      <div className="context-card" key={artifact.id}>
-                        <strong>{artifact.id}</strong>
-                        <span>
-                          {artifact.sections} sections / {artifact.provenance}
-                        </span>
-                        {artifact.findings.length ? (
-                          <div className="finding-list">
-                            {artifact.findings.map((finding) => (
-                              <span className="finding high" key={finding}>
-                                {finding}
-                              </span>
-                            ))}
+                    {contextPreview.loaded_artifacts.map((artifact) => {
+                      const tone = contextArtifactTone(artifact);
+                      const highRiskCount =
+                        artifact.findings.filter(isHighRiskFindingText).length;
+                      return (
+                        <div
+                          className={`context-source-card ${tone}`}
+                          key={artifact.id}
+                          style={sectionThemeStyle("chat")}
+                        >
+                          <div className="context-source-head">
+                            <span
+                              className={`context-source-icon ${tone}`}
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="ingest" />
+                            </span>
+                            <div className="context-source-title">
+                              <strong>{artifact.id}</strong>
+                              <span>{artifact.source}</span>
+                            </div>
                           </div>
-                        ) : null}
-                        <p>{previewText(artifact.content)}</p>
-                      </div>
-                    ))}
+                          <div className="context-source-metrics">
+                            <VisualMetric
+                              icon="ingest"
+                              label="sections"
+                              value={artifact.sections}
+                              section="chat"
+                              tone={artifact.sections ? "ok" : "warning"}
+                            />
+                            <VisualMetric
+                              icon="approval"
+                              label="findings"
+                              value={artifact.findings.length}
+                              section="chat"
+                              tone={tone}
+                            />
+                            <VisualMetric
+                              icon="control"
+                              label="high risk"
+                              value={highRiskCount}
+                              section="chat"
+                              tone={highRiskCount ? "danger" : "ok"}
+                            />
+                            <VisualMetric
+                              icon="trace"
+                              label="provenance"
+                              value={contextSourcePreview(artifact.provenance)}
+                              section="chat"
+                              tone="neutral"
+                            />
+                          </div>
+                          {artifact.findings.length ? (
+                            <div className="finding-list">
+                              {artifact.findings.map((finding) => (
+                                <span className="finding high" key={finding}>
+                                  {finding}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+                          <p>{previewText(artifact.content)}</p>
+                        </div>
+                      );
+                    })}
                   </div>
                 ) : null}
                 <pre>{previewJson(contextPreview.loaded_artifacts)}</pre>
@@ -20896,11 +21104,38 @@ export default function App() {
                   <div className="context-cards">
                     {contextPreview.provenance.map((record) => (
                       <div
-                        className="context-card compact"
+                        className="context-source-card neutral"
                         key={`${record.fragment}:${record.source}`}
+                        style={sectionThemeStyle("chat")}
                       >
-                        <strong>{record.fragment}</strong>
-                        <span>{record.source}</span>
+                        <div className="context-source-head">
+                          <span
+                            className="context-source-icon neutral"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="trace" />
+                          </span>
+                          <div className="context-source-title">
+                            <strong>{record.fragment}</strong>
+                            <span>{contextSourcePreview(record.source, 72)}</span>
+                          </div>
+                        </div>
+                        <div className="context-source-metrics">
+                          <VisualMetric
+                            icon="trace"
+                            label="fragment"
+                            value={contextSourcePreview(record.fragment)}
+                            section="chat"
+                            tone="neutral"
+                          />
+                          <VisualMetric
+                            icon="context"
+                            label="source"
+                            value={contextSourcePreview(record.source)}
+                            section="chat"
+                            tone="neutral"
+                          />
+                        </div>
                       </div>
                     ))}
                   </div>

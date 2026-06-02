@@ -21791,12 +21791,39 @@ export default function App() {
                             />
                           </div>
                           {artifact.findings.length ? (
-                            <div className="finding-list">
-                              {artifact.findings.map((finding) => (
-                                <span className="finding high" key={finding}>
-                                  {finding}
-                                </span>
-                              ))}
+                            <div className="context-source-detail-list">
+                              {artifact.findings.map((finding) => {
+                                const highRisk = isHighRiskFindingText(finding);
+                                const findingTone = highRisk ? "danger" : "warning";
+                                return (
+                                  <div
+                                    className={`context-source-detail-row ${findingTone}`}
+                                    key={finding}
+                                  >
+                                    <span
+                                      className={`context-source-detail-icon ${findingTone}`}
+                                      aria-hidden="true"
+                                    >
+                                      <AppIcon
+                                        name={highRisk ? "control" : "approval"}
+                                      />
+                                    </span>
+                                    <div className="context-source-detail-copy">
+                                      <strong>
+                                        {highRisk
+                                          ? "High-risk finding"
+                                          : "Finding"}
+                                      </strong>
+                                      <span>{previewText(finding, 180)}</span>
+                                      {highRisk ? (
+                                        <p>
+                                          guardrail {activeIngestionGuardrailMode()}
+                                        </p>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                );
+                              })}
                             </div>
                           ) : null}
                           <p>{previewText(artifact.content)}</p>

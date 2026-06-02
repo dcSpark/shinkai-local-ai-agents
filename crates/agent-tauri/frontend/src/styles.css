@@ -1074,6 +1074,144 @@ textarea:disabled {
   font-size: 0.78rem;
 }
 
+.tool-list {
+  display: grid;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.tool-card {
+  display: grid;
+  gap: 0.42rem;
+  min-width: 0;
+  padding: 0.55rem;
+  border: 1px solid #2a2d34;
+  border-radius: 8px;
+  background: #111215;
+}
+
+.tool-card.ok {
+  border-color: #2d6844;
+  background: #13201a;
+}
+
+.tool-card.warning {
+  border-color: #816a2d;
+  background: #251f12;
+}
+
+.tool-card.danger {
+  border-color: #7d3c45;
+  background: #211317;
+}
+
+.tool-card-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.tool-card-head.with-icon {
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+}
+
+.tool-card-icon {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border: 1px solid #2d6844;
+  border-radius: 8px;
+  background: #16251a;
+  color: #7ed68d;
+}
+
+.tool-card-icon.ok {
+  border-color: #2d6844;
+  background: #17321f;
+  color: #78dda7;
+}
+
+.tool-card-icon.warning {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
+.tool-card-icon.danger {
+  border-color: #7d3c45;
+  background: #32191f;
+  color: #ffb4c0;
+}
+
+.tool-card-icon .app-icon {
+  width: 0.92rem;
+  height: 0.92rem;
+}
+
+.tool-card-title {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.tool-card strong,
+.tool-card span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tool-card strong {
+  color: #f1f2f4;
+}
+
+.tool-card span {
+  color: #9da3ad;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+}
+
+.tool-card p {
+  margin: 0;
+  color: #c3c8d0;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.tool-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.2rem, 1fr));
+  gap: 0.4rem;
+}
+
+.tool-card .visual-metric {
+  font-family: inherit;
+}
+
+.tool-card .visual-metric .visual-metric-icon {
+  font-family: inherit;
+  color: var(--section-accent);
+}
+
+.tool-card .visual-metric.ok .visual-metric-icon {
+  color: #78dda7;
+}
+
+.tool-card .visual-metric.warning .visual-metric-icon {
+  color: #ffce6b;
+}
+
+.tool-card .visual-metric.danger .visual-metric-icon {
+  color: #ffb4c0;
+}
+
+.tool-card .visual-metric-copy span {
+  color: #8e949f;
+  font-family: inherit;
+}
+
 .storage-report {
   display: grid;
   gap: 0.5rem;

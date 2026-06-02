@@ -18038,6 +18038,45 @@ export default function App() {
     };
   }
 
+  function toolSensitivityLabel(tool: ToolView) {
+    if (tool.id === "shell" || tool.categories.includes("shell")) return "shell";
+    if (
+      tool.id.startsWith("payment_") ||
+      tool.categories.includes("payment") ||
+      tool.categories.includes("wallet")
+    ) {
+      return "payment";
+    }
+    if (["code_python", "code_typescript"].includes(tool.id)) return "code";
+    if (tool.categories.includes("secrets")) return "secrets";
+    return tool.categories[0] ?? "standard";
+  }
+
+  function toolSensitivityTone(tool: ToolView): ContextReviewCard["tone"] {
+    const label = toolSensitivityLabel(tool);
+    return ["shell", "payment", "code", "secrets"].includes(label)
+      ? "warning"
+      : "neutral";
+  }
+
+  function toolOutputTone(tool: ToolView): ContextReviewCard["tone"] {
+    return tool.output_mode === "raw" ? "warning" : "ok";
+  }
+
+  function toolVisibilityTone(tool: ToolView): ContextReviewCard["tone"] {
+    return tool.visibility === "full_schema" ? "ok" : "neutral";
+  }
+
+  function toolSchemaLabel(tool: ToolView) {
+    if (!tool.input_schema) return "on demand";
+    const count = toolParameters(tool.input_schema).length;
+    return count ? `${count} params` : "schema";
+  }
+
+  function toolSchemaTone(tool: ToolView): ContextReviewCard["tone"] {
+    return tool.input_schema ? "ok" : "neutral";
+  }
+
   function sectionClass(section: ActiveSection) {
     return activeSection === section ? "rail-item active" : "rail-item";
   }
@@ -24095,23 +24134,58 @@ export default function App() {
                 <>
                   {(() => {
                     const summary = visibleToolCatalogSummary(visibleTools);
+                    const sensitiveTools =
+                      summary.codeTools + summary.paymentTools + summary.shellTools;
+                    const catalogTone = visibleTools.length ? "ok" : "neutral";
                     return (
-                      <div className="bundle-card">
-                        <div className="bundle-card-head">
-                          <strong>Visible tools</strong>
-                          <span>{visibleTools.length}</span>
+                      <div className={`tool-card ${catalogTone}`}>
+                        <div className="tool-card-head with-icon">
+                          <span className={`tool-card-icon ${catalogTone}`} aria-hidden="true">
+                            <AppIcon name="tools" />
+                          </span>
+                          <div className="tool-card-title">
+                            <strong>Visible tools</strong>
+                            <span>{activeAgentLabel()}</span>
+                          </div>
+                        </div>
+                        <div className="tool-metrics">
+                          <VisualMetric
+                            icon="tools"
+                            label="visible"
+                            value={visibleTools.length}
+                            section="chat"
+                            tone={visibleTools.length ? "ok" : "neutral"}
+                          />
+                          <VisualMetric
+                            icon="approval"
+                            label="sensitive"
+                            value={sensitiveTools}
+                            section="chat"
+                            tone={sensitiveTools ? "warning" : "ok"}
+                          />
+                          <VisualMetric
+                            icon="context"
+                            label="raw output"
+                            value={summary.rawOutputTools}
+                            section="chat"
+                            tone={summary.rawOutputTools ? "warning" : "ok"}
+                          />
+                          <VisualMetric
+                            icon="prompt"
+                            label="guided"
+                            value={summary.guidedOutputTools}
+                            section="chat"
+                            tone={summary.guidedOutputTools ? "ok" : "neutral"}
+                          />
+                          <VisualMetric
+                            icon="trace"
+                            label="categories"
+                            value={summary.categories.length}
+                            section="chat"
+                          />
                         </div>
                         <span>
-                          code {summary.codeTools} / payment {summary.paymentTools} / shell{" "}
-                          {summary.shellTools}
-                        </span>
-                        <span>
-                          raw output {summary.rawOutputTools} / guided output{" "}
-                          {summary.guidedOutputTools}
-                        </span>
-                        <span>
-                          categories{" "}
-                          {summary.categories.length
+                          categories {summary.categories.length
                             ? summary.categories.join(", ")
                             : "none"}
                         </span>
@@ -24119,20 +24193,60 @@ export default function App() {
                     );
                   })()}
                   {visibleTools.length ? (
-                    <div className="context-cards">
+                    <div className="tool-list">
                       {visibleTools.map((tool) => (
-                        <div className="context-card compact" key={tool.id}>
-                          <strong>{tool.name || tool.id}</strong>
-                          <span>{tool.id}</span>
-                          <span>
-                            {tool.visibility} / output {tool.output_mode}
-                          </span>
+                        <div className={`tool-card ${toolSensitivityTone(tool)}`} key={tool.id}>
+                          <div className="tool-card-head with-icon">
+                            <span
+                              className={`tool-card-icon ${toolSensitivityTone(tool)}`}
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="tools" />
+                            </span>
+                            <div className="tool-card-title">
+                              <strong>{tool.name || tool.id}</strong>
+                              <span>{tool.id}</span>
+                            </div>
+                          </div>
+                          <div className="tool-metrics">
+                            <VisualMetric
+                              icon="approval"
+                              label="visibility"
+                              value={tool.visibility}
+                              section="chat"
+                              tone={toolVisibilityTone(tool)}
+                            />
+                            <VisualMetric
+                              icon="context"
+                              label="output"
+                              value={tool.output_mode}
+                              section="chat"
+                              tone={toolOutputTone(tool)}
+                            />
+                            <VisualMetric
+                              icon="tools"
+                              label="schema"
+                              value={toolSchemaLabel(tool)}
+                              section="chat"
+                              tone={toolSchemaTone(tool)}
+                            />
+                            <VisualMetric
+                              icon="trace"
+                              label="kind"
+                              value={toolSensitivityLabel(tool)}
+                              section="chat"
+                              tone={toolSensitivityTone(tool)}
+                            />
+                          </div>
                           {tool.categories.length ? (
                             <span>categories {tool.categories.join(", ")}</span>
                           ) : null}
                           {tool.provenance ? <span>{tool.provenance}</span> : null}
                           {tool.description ? (
                             <p>{previewText(tool.description, 180)}</p>
+                          ) : null}
+                          {tool.output_interpretation_guidance ? (
+                            <p>{previewText(tool.output_interpretation_guidance, 180)}</p>
                           ) : null}
                           <div className="mini-actions">
                             <button

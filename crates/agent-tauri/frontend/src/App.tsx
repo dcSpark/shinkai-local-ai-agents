@@ -29983,10 +29983,55 @@ export default function App() {
                   tone="neutral"
                 />
               </div>
-              <span>{resumePlan.source_run_id}</span>
-              <span>{resumePlanSummary(resumePlan)}</span>
-              <span>original {previewText(resumePlan.original_input, 180)}</span>
-              <p>{previewText(resumePlan.prompt, 260)}</p>
+              <div className="resume-plan-detail-list">
+                <div className="resume-plan-detail-row ok">
+                  <span className="resume-plan-detail-icon ok" aria-hidden="true">
+                    <AppIcon name="trace" />
+                  </span>
+                  <div className="resume-plan-detail-copy">
+                    <strong>Source run</strong>
+                    <span>{resumePlan.source_run_id}</span>
+                  </div>
+                </div>
+                <div
+                  className={`resume-plan-detail-row ${
+                    resumePlan.omitted_events ? "warning" : "ok"
+                  }`}
+                >
+                  <span
+                    className={`resume-plan-detail-icon ${
+                      resumePlan.omitted_events ? "warning" : "ok"
+                    }`}
+                    aria-hidden="true"
+                  >
+                    <AppIcon name="context" />
+                  </span>
+                  <div className="resume-plan-detail-copy">
+                    <strong>Resume scope</strong>
+                    <span>{resumePlanSummary(resumePlan)}</span>
+                  </div>
+                </div>
+                <div className="resume-plan-detail-row">
+                  <span className="resume-plan-detail-icon" aria-hidden="true">
+                    <AppIcon name="conversation" />
+                  </span>
+                  <div className="resume-plan-detail-copy">
+                    <strong>Original input</strong>
+                    <span>~{estimateLocalTokens(resumePlan.original_input)} tokens</span>
+                    <p>{previewText(resumePlan.original_input, 180)}</p>
+                  </div>
+                </div>
+                <div className="resume-plan-detail-row ok">
+                  <span className="resume-plan-detail-icon ok" aria-hidden="true">
+                    <AppIcon name="prompt" />
+                  </span>
+                  <div className="resume-plan-detail-copy">
+                    <strong>Generated prompt</strong>
+                    <span>~{estimateLocalTokens(resumePlan.prompt)} tokens</span>
+                    <p>{previewText(resumePlan.prompt, 260)}</p>
+                  </div>
+                </div>
+              </div>
               <div className="mini-actions">
                 <button
                   type="button"

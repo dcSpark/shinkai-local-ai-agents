@@ -12004,16 +12004,7 @@ export default function App() {
   }
 
   function textFromDataUrl(dataUrl: string) {
-    const marker = ";base64,";
-    const markerIndex = dataUrl.indexOf(marker);
-    if (markerIndex < 0) return "";
-    try {
-      const base64 = dataUrl.slice(markerIndex + marker.length);
-      const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
-      return new TextDecoder().decode(bytes);
-    } catch {
-      return "";
-    }
+    return textFromArtifactDataUrl(dataUrl);
   }
 
   function isAudioFormat(format: string) {
@@ -33075,15 +33066,29 @@ function formatFromMediaType(mediaType: string | null) {
 }
 
 function textFromStructuredDataUrl(dataUrl: string) {
-  const marker = ";base64,";
-  const markerIndex = dataUrl.indexOf(marker);
-  if (markerIndex < 0) return "";
+  return textFromArtifactDataUrl(dataUrl);
+}
+
+function textFromArtifactDataUrl(dataUrl: string) {
+  if (!dataUrl.startsWith("data:")) return "";
+  const payloadIndex = dataUrl.indexOf(",");
+  if (payloadIndex < 0) return "";
+  const metadata = dataUrl.slice(5, payloadIndex).toLowerCase();
+  const payload = dataUrl.slice(payloadIndex + 1);
+  if (metadata.split(";").includes("base64")) {
+    try {
+      const bytes = Uint8Array.from(atob(payload.replace(/\s/g, "")), (char) =>
+        char.charCodeAt(0),
+      );
+      return new TextDecoder().decode(bytes);
+    } catch {
+      return "";
+    }
+  }
   try {
-    const base64 = dataUrl.slice(markerIndex + marker.length);
-    const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0));
-    return new TextDecoder().decode(bytes);
+    return decodeURIComponent(payload);
   } catch {
-    return "";
+    return payload;
   }
 }
 

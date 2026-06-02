@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App text artifact data-url decoding | Done | `crates/agent-tauri/frontend/src/App.tsx` | Artifact text/CSV/JSON previews now share a decoder that supports both base64 data URLs and plain or percent-encoded `data:text/...` payloads in the Artifacts panel and structured chat previews. |
 | App structured artifact action affordances | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Structured generated-artifact results in the chat transcript now include icon-bearing Preview/Open actions when artifact metadata is present, giving users one-click inline preview or OS-default open without leaving the transcript. |
 | App structured artifact inline viewing | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Structured assistant/tool JSON results that include generated-artifact data URLs now render image, audio, text/CSV/JSON, PDF, or HTML previews directly inside the chat transcript, while keeping raw JSON available and hiding noisy data URLs from summary rows. |
 | App trace-tree toggle visual identity | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Trace Run Tree expand/collapse controls now use shared SVG icon glyphs with trace-colored button styling instead of raw plus/minus text symbols, making branch navigation match the rest of the app visual language. |

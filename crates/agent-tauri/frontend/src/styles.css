@@ -2756,11 +2756,64 @@ textarea:disabled {
   gap: 0.4rem;
 }
 
+.compaction-review-head {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  align-items: center;
+}
+
+.compaction-review-head.with-icon {
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+}
+
+.compaction-review-head > div {
+  display: grid;
+  gap: 0.14rem;
+  min-width: 0;
+}
+
+.compaction-review-icon {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+  color: var(--section-accent);
+}
+
+.compaction-review-icon.ok {
+  border-color: #275c43;
+  background: #183222;
+  color: #78dda7;
+}
+
+.compaction-review-icon .app-icon {
+  width: 0.92rem;
+  height: 0.92rem;
+}
+
 .compaction-review > span {
   color: #c3c8d0;
   font-size: 0.74rem;
   font-weight: 800;
   overflow-wrap: anywhere;
+}
+
+.compaction-review-head span {
+  min-width: 0;
+  color: #c3c8d0;
+  font-size: 0.74rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.compaction-review-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.2rem, 1fr));
+  gap: 0.4rem;
 }
 
 .compaction-review-grid {

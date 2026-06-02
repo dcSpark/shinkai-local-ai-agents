@@ -20766,8 +20766,82 @@ export default function App() {
               </div>
               {contextPreview.compaction_review ? (
                 <section className="compaction-review">
-                  <strong>Compaction Review</strong>
-                  <span>{compactionReviewLabel(contextPreview)}</span>
+                  <div
+                    className="compaction-review-head with-icon"
+                    style={sectionThemeStyle("chat")}
+                  >
+                    <span className="compaction-review-icon ok" aria-hidden="true">
+                      <AppIcon name="context" />
+                    </span>
+                    <div>
+                      <strong>Compaction Review</strong>
+                      <span>{compactionReviewLabel(contextPreview)}</span>
+                    </div>
+                  </div>
+                  <div className="compaction-review-metrics">
+                    <VisualMetric
+                      icon="context"
+                      label="mode"
+                      value={
+                        contextPreview.compaction_review.mode === "auto"
+                          ? "auto"
+                          : "manual"
+                      }
+                      section="chat"
+                      tone="ok"
+                    />
+                    <VisualMetric
+                      icon="setup"
+                      label="before tokens"
+                      value={Math.max(
+                        0,
+                        Math.round(contextPreview.compaction_review.before_tokens),
+                      )}
+                      section="chat"
+                      tone="neutral"
+                    />
+                    <VisualMetric
+                      icon="setup"
+                      label="after tokens"
+                      value={Math.max(
+                        0,
+                        Math.round(contextPreview.compaction_review.after_tokens),
+                      )}
+                      section="chat"
+                      tone="ok"
+                    />
+                    <VisualMetric
+                      icon="approval"
+                      label="tokens saved"
+                      value={Math.max(
+                        0,
+                        Math.round(
+                          contextPreview.compaction_review.before_tokens -
+                            contextPreview.compaction_review.after_tokens,
+                        ),
+                      )}
+                      section="chat"
+                      tone="ok"
+                    />
+                    <VisualMetric
+                      icon="control"
+                      label="withheld"
+                      value={contextPreview.compaction_review.withheld_before_messages}
+                      section="chat"
+                      tone={
+                        contextPreview.compaction_review.withheld_before_messages
+                          ? "warning"
+                          : "ok"
+                      }
+                    />
+                    <VisualMetric
+                      icon="chat"
+                      label="visible msgs"
+                      value={contextPreview.compaction_review.visible_messages.length}
+                      section="chat"
+                      tone="neutral"
+                    />
+                  </div>
                   <div className="compaction-review-grid">
                     <div>
                       <strong>Before</strong>

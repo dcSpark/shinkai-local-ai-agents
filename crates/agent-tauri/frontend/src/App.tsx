@@ -29771,28 +29771,103 @@ export default function App() {
                               tone={summary.cacheBucket ? "ok" : "warning"}
                             />
                           </div>
-                          <span title={storageReport.root}>root {storageReport.root}</span>
-                          <span>{storageQuotaStatus(storageReport)}</span>
-                          <span>
-                            largest bucket{" "}
-                            {summary.largestBucket
-                              ? `${summary.largestBucket.name} ${formatBytes(summary.largestBucket.bytes)}`
-                              : "none"}
-                          </span>
-                          {storageReport.largest_file ? (
-                            <span title={storageReport.largest_file}>
-                              largest file {fileName(storageReport.largest_file)}{" "}
-                              {formatBytes(storageReport.largest_file_bytes)}
-                            </span>
-                          ) : null}
-                          <span>
-                            missing buckets{" "}
-                            {summary.missingBuckets.length
-                              ? summary.missingBuckets
-                                  .map((bucket) => bucket.name)
-                                  .join(", ")
-                              : "none"}
-                          </span>
+                          <div className="storage-detail-list">
+                            <div className="storage-detail-row ok">
+                              <span
+                                className="storage-detail-icon ok"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="memory" />
+                              </span>
+                              <div className="storage-detail-copy">
+                                <strong>Storage root</strong>
+                                <span title={storageReport.root}>
+                                  {storageReport.root}
+                                </span>
+                              </div>
+                            </div>
+                            <div
+                              className={`storage-detail-row ${storageQuotaTone(
+                                storageReport,
+                              )}`}
+                            >
+                              <span
+                                className={`storage-detail-icon ${storageQuotaTone(
+                                  storageReport,
+                                )}`}
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="approval" />
+                              </span>
+                              <div className="storage-detail-copy">
+                                <strong>Quota posture</strong>
+                                <span>{storageQuotaStatus(storageReport)}</span>
+                              </div>
+                            </div>
+                            <div
+                              className={`storage-detail-row ${
+                                summary.largestBucket ? "ok" : "warning"
+                              }`}
+                            >
+                              <span
+                                className={`storage-detail-icon ${
+                                  summary.largestBucket ? "ok" : "warning"
+                                }`}
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="artifact" />
+                              </span>
+                              <div className="storage-detail-copy">
+                                <strong>Largest bucket</strong>
+                                <span>
+                                  {summary.largestBucket
+                                    ? `${summary.largestBucket.name} ${formatBytes(summary.largestBucket.bytes)}`
+                                    : "none"}
+                                </span>
+                              </div>
+                            </div>
+                            {storageReport.largest_file ? (
+                              <div className="storage-detail-row ok">
+                                <span
+                                  className="storage-detail-icon ok"
+                                  aria-hidden="true"
+                                >
+                                  <AppIcon name="artifact" />
+                                </span>
+                                <div className="storage-detail-copy">
+                                  <strong>Largest file</strong>
+                                  <span title={storageReport.largest_file}>
+                                    {fileName(storageReport.largest_file)}{" "}
+                                    {formatBytes(storageReport.largest_file_bytes)}
+                                  </span>
+                                </div>
+                              </div>
+                            ) : null}
+                            <div
+                              className={`storage-detail-row ${
+                                summary.missingBuckets.length ? "warning" : "ok"
+                              }`}
+                            >
+                              <span
+                                className={`storage-detail-icon ${
+                                  summary.missingBuckets.length ? "warning" : "ok"
+                                }`}
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="context" />
+                              </span>
+                              <div className="storage-detail-copy">
+                                <strong>Missing buckets</strong>
+                                <span>
+                                  {summary.missingBuckets.length
+                                    ? summary.missingBuckets
+                                        .map((bucket) => bucket.name)
+                                        .join(", ")
+                                    : "none"}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
                         </div>
                         <div className="storage-list">
                           {storageReport.buckets.map((bucket) => (
@@ -29846,12 +29921,42 @@ export default function App() {
                                   tone={bucket.largest_file ? "ok" : storageBucketTone(bucket)}
                                 />
                               </div>
-                              <span title={bucket.path}>path {bucket.path}</span>
-                              {bucket.largest_file ? (
-                                <span title={bucket.largest_file}>
-                                  max {fileName(bucket.largest_file)}
-                                </span>
-                              ) : null}
+                              <div className="storage-detail-list">
+                                <div
+                                  className={`storage-detail-row ${storageBucketTone(
+                                    bucket,
+                                  )}`}
+                                >
+                                  <span
+                                    className={`storage-detail-icon ${storageBucketTone(
+                                      bucket,
+                                    )}`}
+                                    aria-hidden="true"
+                                  >
+                                    <AppIcon name="memory" />
+                                  </span>
+                                  <div className="storage-detail-copy">
+                                    <strong>Bucket path</strong>
+                                    <span title={bucket.path}>{bucket.path}</span>
+                                  </div>
+                                </div>
+                                {bucket.largest_file ? (
+                                  <div className="storage-detail-row ok">
+                                    <span
+                                      className="storage-detail-icon ok"
+                                      aria-hidden="true"
+                                    >
+                                      <AppIcon name="artifact" />
+                                    </span>
+                                    <div className="storage-detail-copy">
+                                      <strong>Largest file</strong>
+                                      <span title={bucket.largest_file}>
+                                        {fileName(bucket.largest_file)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </div>
                             </div>
                           ))}
                         </div>

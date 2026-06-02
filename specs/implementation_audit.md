@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App bridge status detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx` | Bridge status summary and per-platform readiness cards now render daemon x402 posture, delivery-worker metadata, daemon x402 config, inbound endpoints, targets, and compact bridge metadata as icon-bearing bridge detail rows after the existing readiness metrics. |
 | App bridge-delivery dead-letter visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx` | Bridge delivery dead-letter cards now render updated timestamp and delivery URL as icon-bearing bridge detail rows before Set Id, Retry, and Delete actions. |
 | App storage prune detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx` | Storage prune plan/result cards now render prune summary, plan root, and each visible candidate path as icon-bearing storage detail rows before Apply Plan or candidate inspection. |
 | App storage report detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Storage report summary and bucket cards now render storage root, quota posture, largest bucket/file, missing bucket posture, bucket paths, and per-bucket largest files as icon-bearing detail rows after the existing footprint, file, directory, quota, cache, size, and largest metrics. |

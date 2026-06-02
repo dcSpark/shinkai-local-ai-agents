@@ -21284,7 +21284,7 @@ export default function App() {
                         }
                         disabled={running}
                       >
-                        Set Id
+                        <ButtonLabel icon="conversation">Set Id</ButtonLabel>
                       </button>
                       <button
                         type="button"
@@ -21292,7 +21292,7 @@ export default function App() {
                         onClick={() => void previewCurrentContext()}
                         disabled={running}
                       >
-                        Preview
+                        <ButtonLabel icon="context">Preview</ButtonLabel>
                       </button>
                     </div>
                   </div>
@@ -21410,7 +21410,7 @@ export default function App() {
                                 onClick={() => setOpsId(node.id)}
                                 disabled={running}
                               >
-                                Set Id
+                                <ButtonLabel icon="conversation">Set Id</ButtonLabel>
                               </button>
                               <button
                                 type="button"
@@ -21418,7 +21418,7 @@ export default function App() {
                                 onClick={() => void showConversation(node.id)}
                                 disabled={running}
                               >
-                                Show
+                                <ButtonLabel icon="conversation">Show</ButtonLabel>
                               </button>
                               <button
                                 type="button"
@@ -21426,7 +21426,7 @@ export default function App() {
                                 onClick={() => void recoverConversation(node.id)}
                                 disabled={running}
                               >
-                                Recover
+                                <ButtonLabel icon="context">Recover</ButtonLabel>
                               </button>
                               <button
                                 type="button"
@@ -21436,7 +21436,7 @@ export default function App() {
                                 }
                                 disabled={running}
                               >
-                                Plan
+                                <ButtonLabel icon="approval">Plan</ButtonLabel>
                               </button>
                               <button
                                 type="button"
@@ -21446,7 +21446,7 @@ export default function App() {
                                 }
                                 disabled={running}
                               >
-                                Plan Rec
+                                <ButtonLabel icon="trace">Plan Rec</ButtonLabel>
                               </button>
                               <button
                                 type="button"
@@ -21455,7 +21455,7 @@ export default function App() {
                                 onClick={() => void deleteConversation(node.id, false)}
                                 disabled={running}
                               >
-                                Delete
+                                <ButtonLabel icon="approval">Delete</ButtonLabel>
                               </button>
                             </div>
                           </div>
@@ -21514,7 +21514,7 @@ export default function App() {
                       onClick={() => setOpsId(expandedConversation.conversation.id)}
                       disabled={running}
                     >
-                      Set Id
+                      <ButtonLabel icon="conversation">Set Id</ButtonLabel>
                     </button>
                     <button
                       type="button"
@@ -21527,7 +21527,7 @@ export default function App() {
                       }
                       disabled={running}
                     >
-                      Plan Recursive
+                      <ButtonLabel icon="trace">Plan Recursive</ButtonLabel>
                     </button>
                     <button
                       type="button"
@@ -21537,7 +21537,7 @@ export default function App() {
                       }
                       disabled={running}
                     >
-                      Recover
+                      <ButtonLabel icon="context">Recover</ButtonLabel>
                     </button>
                     <button
                       type="button"
@@ -21545,7 +21545,7 @@ export default function App() {
                       onClick={() => applySelectedConversationPolicy()}
                       disabled={running || !expandedConversation.conversation.policy}
                     >
-                      Apply Policy
+                      <ButtonLabel icon="approval">Apply Policy</ButtonLabel>
                     </button>
                     <button
                       type="button"
@@ -21553,7 +21553,7 @@ export default function App() {
                       onClick={() => void saveSelectedConversationPolicy()}
                       disabled={running}
                     >
-                      Save Policy
+                      <ButtonLabel icon="approval">Save Policy</ButtonLabel>
                     </button>
                     <button
                       type="button"
@@ -21561,7 +21561,7 @@ export default function App() {
                       onClick={() => void clearSelectedConversationPolicy()}
                       disabled={running}
                     >
-                      Clear Policy
+                      <ButtonLabel icon="approval">Clear Policy</ButtonLabel>
                     </button>
                   </div>
                 </div>
@@ -21584,7 +21584,7 @@ export default function App() {
                         }
                         disabled={running}
                       >
-                        Set Range
+                        <ButtonLabel icon="trace">Set Range</ButtonLabel>
                       </button>
                     </div>
                   </div>

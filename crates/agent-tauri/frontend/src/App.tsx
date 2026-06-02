@@ -20324,7 +20324,7 @@ export default function App() {
                             onClick={() => void stageToolFromPreview(tool)}
                             disabled={running}
                           >
-                            Use Tool
+                            <ButtonLabel icon="tools">Use Tool</ButtonLabel>
                           </button>
                         </div>
                       </div>
@@ -20353,7 +20353,7 @@ export default function App() {
                             onClick={() => void openSkillFromPreview(skill)}
                             disabled={running}
                           >
-                            Open Skill
+                            <ButtonLabel icon="skill">Open Skill</ButtonLabel>
                           </button>
                         </div>
                       </div>
@@ -25015,7 +25015,7 @@ export default function App() {
                               onClick={() => void stageToolFromPreview(tool)}
                               disabled={running}
                             >
-                              Use Tool
+                              <ButtonLabel icon="tools">Use Tool</ButtonLabel>
                             </button>
                           </div>
                         </div>
@@ -26495,7 +26495,7 @@ export default function App() {
                   onClick={() => setOpsId(resumePlan.source_run_id)}
                   disabled={running}
                 >
-                  Set Id
+                  <ButtonLabel icon="trace">Set Id</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -26503,7 +26503,7 @@ export default function App() {
                   onClick={() => setOpsValue(resumePlan.prompt)}
                   disabled={running}
                 >
-                  Use Prompt
+                  <ButtonLabel icon="prompt">Use Prompt</ButtonLabel>
                 </button>
               </div>
             </div>

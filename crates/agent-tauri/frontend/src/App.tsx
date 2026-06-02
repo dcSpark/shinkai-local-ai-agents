@@ -24507,7 +24507,7 @@ export default function App() {
                           onClick={() => setOpsId(record.id)}
                           disabled={running}
                         >
-                          Set Id
+                          <ButtonLabel icon="context">Set Id</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -24518,7 +24518,7 @@ export default function App() {
                           }}
                           disabled={running}
                         >
-                          Edit
+                          <ButtonLabel icon="prompt">Edit</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -24530,7 +24530,7 @@ export default function App() {
                           }}
                           disabled={running}
                         >
-                          Use
+                          <ButtonLabel icon="chat">Use</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -24541,7 +24541,7 @@ export default function App() {
                           }}
                           disabled={running}
                         >
-                          Path
+                          <ButtonLabel icon="artifact">Path</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -24555,7 +24555,7 @@ export default function App() {
                           }}
                           disabled={running}
                         >
-                          Export
+                          <ButtonLabel icon="artifact">Export</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -24564,7 +24564,7 @@ export default function App() {
                           onClick={() => void deleteCompactionFromOps(record.id)}
                           disabled={running}
                         >
-                          Delete
+                          <ButtonLabel icon="approval">Delete</ButtonLabel>
                         </button>
                       </div>
                     </div>
@@ -24802,7 +24802,7 @@ export default function App() {
                             onClick={() => setOpsId(doc.id)}
                             disabled={running}
                           >
-                            Set Id
+                            <ButtonLabel icon="brand">Set Id</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -24810,7 +24810,7 @@ export default function App() {
                             onClick={() => void useAgent(doc.id)}
                             disabled={running}
                           >
-                            Use
+                            <ButtonLabel icon="chat">Use</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -24818,7 +24818,7 @@ export default function App() {
                             onClick={() => void showAgent(doc.id)}
                             disabled={running}
                           >
-                            Show
+                            <ButtonLabel icon="brand">Show</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -24829,7 +24829,7 @@ export default function App() {
                             }}
                             disabled={running}
                           >
-                            Path
+                            <ButtonLabel icon="artifact">Path</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -24843,7 +24843,7 @@ export default function App() {
                             }}
                             disabled={running}
                           >
-                            Export
+                            <ButtonLabel icon="artifact">Export</ButtonLabel>
                           </button>
                           <button
                             type="button"
@@ -24856,7 +24856,7 @@ export default function App() {
                             onClick={() => void deleteAgentFromOps(doc.id)}
                             disabled={running || sharedFrom != null}
                           >
-                            Delete
+                            <ButtonLabel icon="approval">Delete</ButtonLabel>
                           </button>
                         </div>
                       </div>

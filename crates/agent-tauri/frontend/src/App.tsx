@@ -21094,7 +21094,7 @@ export default function App() {
                   onClick={() => void reviewConversations()}
                   disabled={running}
                 >
-                  List
+                  <ButtonLabel icon="conversation">List</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21102,7 +21102,7 @@ export default function App() {
                   onClick={() => void showConversationFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Show
+                  <ButtonLabel icon="conversation">Show</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21110,7 +21110,7 @@ export default function App() {
                   onClick={() => void loadConversationUsageFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Usage
+                  <ButtonLabel icon="trace">Usage</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21118,7 +21118,7 @@ export default function App() {
                   onClick={() => void recoverConversationFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Recover
+                  <ButtonLabel icon="context">Recover</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21126,7 +21126,7 @@ export default function App() {
                   onClick={() => void deleteConversationRangeFromOps()}
                   disabled={running || !opsId.trim() || !opsValue.trim()}
                 >
-                  Delete Range
+                  <ButtonLabel icon="control">Delete Range</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21134,7 +21134,7 @@ export default function App() {
                   onClick={() => void previewConversationDeleteFromOps(false)}
                   disabled={running || !opsId.trim()}
                 >
-                  Plan Delete
+                  <ButtonLabel icon="prompt">Plan Delete</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21142,7 +21142,7 @@ export default function App() {
                   onClick={() => void previewConversationDeleteFromOps(true)}
                   disabled={running || !opsId.trim()}
                 >
-                  Plan Recursive
+                  <ButtonLabel icon="conversation">Plan Recursive</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21151,7 +21151,7 @@ export default function App() {
                   onClick={() => void deleteConversationFromOps(false)}
                   disabled={running || !opsId.trim()}
                 >
-                  Delete
+                  <ButtonLabel icon="approval">Delete</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21160,7 +21160,7 @@ export default function App() {
                   onClick={() => void deleteConversationFromOps(true)}
                   disabled={running || !opsId.trim()}
                 >
-                  Delete Recursive
+                  <ButtonLabel icon="approval">Delete Recursive</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21168,7 +21168,7 @@ export default function App() {
                   onClick={() => void previewConversationDeleteAgent()}
                   disabled={running || !agentId.trim()}
                 >
-                  Plan Agent
+                  <ButtonLabel icon="profile">Plan Agent</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21177,7 +21177,7 @@ export default function App() {
                   onClick={() => void deleteConversationsForAgent()}
                   disabled={running || !agentId.trim()}
                 >
-                  Delete Agent
+                  <ButtonLabel icon="profile">Delete Agent</ButtonLabel>
                 </button>
               </div>
               {conversationDocs.length ? (

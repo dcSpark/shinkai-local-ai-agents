@@ -18625,6 +18625,38 @@ export default function App() {
     return "danger";
   }
 
+  function ingestionSourceProbeBackendTone(
+    backend: IngestionBackendSourceProbe,
+  ): ContextReviewCard["tone"] {
+    if (backend.status === "ready") return "ok";
+    return backend.supported ? "warning" : "danger";
+  }
+
+  function ingestionFindingTone(
+    severity: IngestionArtifact["findings"][number]["severity"],
+  ): ContextReviewCard["tone"] {
+    if (severity === "high") return "danger";
+    if (severity === "warning") return "warning";
+    return "ok";
+  }
+
+  function ingestionFindingReviewTone(
+    review: ReturnType<typeof reviewForFinding> | null,
+  ): ContextReviewCard["tone"] {
+    if (!review) return "warning";
+    if (review.decision === "approve") return "ok";
+    if (review.decision === "reject") return "danger";
+    return "warning";
+  }
+
+  function ingestionCompatibilityTone(
+    item: NonNullable<IngestionBackendDescriptor["compatibility"]>[number],
+  ): ContextReviewCard["tone"] {
+    return item.optional_tools.length || item.model_requirements.length
+      ? "warning"
+      : "ok";
+  }
+
   function ingestionBackendTone(
     backend: IngestionBackendDescriptor,
   ): ContextReviewCard["tone"] {
@@ -26409,16 +26441,33 @@ export default function App() {
                       />
                     </div>
                     {ingestionSourceProbe.vision_model ? (
-                      <span
-                        className={`finding ${
+                      <div
+                        className={`ingestion-detail-row ${
                           ingestionSourceProbe.vision_model.supported
-                            ? "none"
-                            : "high"
+                            ? "ok"
+                            : "danger"
                         }`}
                       >
-                        model {ingestionSourceProbe.vision_model.model}:{" "}
-                        {ingestionSourceProbe.vision_model.reason}
-                      </span>
+                        <span
+                          className={`ingestion-detail-icon ${
+                            ingestionSourceProbe.vision_model.supported
+                              ? "ok"
+                              : "danger"
+                          }`}
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="prompt" />
+                        </span>
+                        <div className="ingestion-detail-copy">
+                          <strong>{ingestionSourceProbe.vision_model.model}</strong>
+                          <span>
+                            {ingestionSourceProbe.vision_model.supported
+                              ? "vision model supported"
+                              : "vision model blocked"}
+                          </span>
+                          <p>{ingestionSourceProbe.vision_model.reason}</p>
+                        </div>
+                      </div>
                     ) : null}
                     <div className="mini-actions">
                       <button
@@ -26430,67 +26479,126 @@ export default function App() {
                         <ButtonLabel icon="artifact">Use Path</ButtonLabel>
                       </button>
                     </div>
-                    <div className="finding-list">
-                      {ingestionSourceProbe.backends.map((backend) => (
-                        <div className="probe-backend-row" key={backend.backend_id}>
-                          <span
-                            className={`finding ${
-                              backend.status === "ready"
-                                ? "none"
-                                : backend.supported
-                                  ? "warning"
-                                  : "high"
-                            }`}
-                            title={backend.notes}
+                    <div className="ingestion-detail-list">
+                      {ingestionSourceProbe.backends.map((backend) => {
+                        const backendTone = ingestionSourceProbeBackendTone(backend);
+                        return (
+                          <div
+                            className={`probe-backend-row ingestion-detail-row ${backendTone}`}
+                            key={backend.backend_id}
                           >
-                            {backend.backend_id}: {backend.status}
-                            {backend.extraction ? ` / ${backend.extraction}` : ""}
-                            {backend.missing_optional_tools.length
-                              ? ` / missing ${backend.missing_optional_tools.join(", ")}`
-                              : ""}
-                            {backend.model_requirements.length
-                              ? ` / model ${backend.model_requirements.join(", ")}`
-                              : ""}
-                          </span>
-                          {backend.supported ? (
-                            <div className="mini-actions">
-                              <button
-                                type="button"
-                                title={`Use ${backend.backend_id} for this probed source.`}
-                                onClick={() =>
-                                  stageIngestSourceProbe(
-                                    ingestionSourceProbe,
-                                    backend.backend_id,
-                                  )
-                                }
-                                disabled={running}
+                            <div className="ingestion-detail-main">
+                              <span
+                                className={`ingestion-detail-icon ${backendTone}`}
+                                aria-hidden="true"
                               >
-                                <ButtonLabel icon="setup">Use</ButtonLabel>
-                              </button>
-                              <button
-                                type="button"
-                                title={
-                                  sourceProbeDirectIngestBlocked(ingestionSourceProbe)
-                                    ? "Cannot ingest directly with the unsupported probed vision model."
-                                    : `Ingest this probed source with ${backend.backend_id}.`
-                                }
-                                onClick={() =>
-                                  void ingestSourceProbeBackend(
-                                    ingestionSourceProbe,
-                                    backend,
-                                  )
-                                }
-                                disabled={
-                                  running ||
-                                  sourceProbeDirectIngestBlocked(ingestionSourceProbe)
-                                }
-                              >
-                                <ButtonLabel icon="ingest">Ingest</ButtonLabel>
-                              </button>
+                                <AppIcon name="ingest" />
+                              </span>
+                              <div className="ingestion-detail-copy">
+                                <strong>{backend.backend_id}</strong>
+                                <span>
+                                  {backend.backend_name} / {backend.status}
+                                </span>
+                                <div className="ingestion-detail-metrics">
+                                  <VisualMetric
+                                    icon="ingest"
+                                    label="support"
+                                    value={
+                                      backend.supported ? "supported" : "blocked"
+                                    }
+                                    section="ingest"
+                                    tone={backendTone}
+                                  />
+                                  <VisualMetric
+                                    icon="artifact"
+                                    label="extract"
+                                    value={backend.extraction || "none"}
+                                    section="ingest"
+                                    tone={backend.extraction ? "ok" : "neutral"}
+                                  />
+                                  <VisualMetric
+                                    icon="setup"
+                                    label="deps"
+                                    value={
+                                      backend.local_dependencies_ready
+                                        ? "ready"
+                                        : "missing"
+                                    }
+                                    section="ingest"
+                                    tone={
+                                      backend.local_dependencies_ready
+                                        ? "ok"
+                                        : "warning"
+                                    }
+                                  />
+                                  <VisualMetric
+                                    icon="tools"
+                                    label="missing"
+                                    value={backend.missing_optional_tools.length}
+                                    section="ingest"
+                                    tone={
+                                      backend.missing_optional_tools.length
+                                        ? "warning"
+                                        : "ok"
+                                    }
+                                  />
+                                  <VisualMetric
+                                    icon="prompt"
+                                    label="models"
+                                    value={backend.model_requirements.length}
+                                    section="ingest"
+                                    tone={
+                                      backend.model_requirements.length
+                                        ? "warning"
+                                        : "neutral"
+                                    }
+                                  />
+                                </div>
+                                {backend.notes ? (
+                                  <p>{previewText(backend.notes, 180)}</p>
+                                ) : null}
+                              </div>
                             </div>
-                          ) : null}
-                        </div>
-                      ))}
+                            {backend.supported ? (
+                              <div className="mini-actions">
+                                <button
+                                  type="button"
+                                  title={`Use ${backend.backend_id} for this probed source.`}
+                                  onClick={() =>
+                                    stageIngestSourceProbe(
+                                      ingestionSourceProbe,
+                                      backend.backend_id,
+                                    )
+                                  }
+                                  disabled={running}
+                                >
+                                  <ButtonLabel icon="setup">Use</ButtonLabel>
+                                </button>
+                                <button
+                                  type="button"
+                                  title={
+                                    sourceProbeDirectIngestBlocked(ingestionSourceProbe)
+                                      ? "Cannot ingest directly with the unsupported probed vision model."
+                                      : `Ingest this probed source with ${backend.backend_id}.`
+                                  }
+                                  onClick={() =>
+                                    void ingestSourceProbeBackend(
+                                      ingestionSourceProbe,
+                                      backend,
+                                    )
+                                  }
+                                  disabled={
+                                    running ||
+                                    sourceProbeDirectIngestBlocked(ingestionSourceProbe)
+                                  }
+                                >
+                                  <ButtonLabel icon="ingest">Ingest</ButtonLabel>
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
@@ -26523,19 +26631,57 @@ export default function App() {
                       </span>
                       <p>{backend.description}</p>
                       {backend.compatibility?.length ? (
-                        <div className="finding-list">
+                        <div className="ingestion-detail-list">
                           {backend.compatibility.map((item) => {
                             const meta = ingestionCompatibilityMeta(item);
+                            const compatibilityTone =
+                              ingestionCompatibilityTone(item);
                             return (
-                              <span
-                                className="finding"
+                              <div
+                                className={`ingestion-detail-row ${compatibilityTone}`}
                                 key={`${backend.id}:${item.source_kind}:${item.extraction}`}
                                 title={item.notes}
                               >
-                                {item.source_kind} {"->"} {item.extraction}
-                                {meta ? ` / ${meta}` : ""}
-                                {item.notes ? ` / ${item.notes}` : ""}
-                              </span>
+                                <span
+                                  className={`ingestion-detail-icon ${compatibilityTone}`}
+                                  aria-hidden="true"
+                                >
+                                  <AppIcon name="artifact" />
+                                </span>
+                                <div className="ingestion-detail-copy">
+                                  <strong>
+                                    {item.source_kind} {"->"} {item.extraction}
+                                  </strong>
+                                  <div className="ingestion-detail-metrics">
+                                    <VisualMetric
+                                      icon="tools"
+                                      label="tools"
+                                      value={item.optional_tools.length}
+                                      section="ingest"
+                                      tone={
+                                        item.optional_tools.length
+                                          ? "warning"
+                                          : "ok"
+                                      }
+                                    />
+                                    <VisualMetric
+                                      icon="prompt"
+                                      label="models"
+                                      value={item.model_requirements.length}
+                                      section="ingest"
+                                      tone={
+                                        item.model_requirements.length
+                                          ? "warning"
+                                          : "neutral"
+                                      }
+                                    />
+                                  </div>
+                                  {meta ? <span>{meta}</span> : null}
+                                  {item.notes ? (
+                                    <p>{previewText(item.notes, 180)}</p>
+                                  ) : null}
+                                </div>
+                              </div>
                             );
                           })}
                         </div>
@@ -26599,24 +26745,80 @@ export default function App() {
                         {fileName(artifact.source)} / {artifact.sections.length} sections
                       </span>
                       {artifact.findings.length ? (
-                        <div className="finding-list">
+                        <div className="ingestion-detail-list">
                           {artifact.findings.map((finding, index) => {
                             const review = reviewForFinding(artifact, index);
+                            const findingTone = ingestionFindingTone(
+                              finding.severity,
+                            );
+                            const reviewTone = ingestionFindingReviewTone(review);
                             return (
-                              <span
-                                className={`finding ${finding.severity}`}
+                              <div
+                                className={`ingestion-detail-row ${findingTone}`}
                                 key={`${artifact.id}:${index}:${finding.severity}:${finding.message}`}
                               >
-                                #{index} {finding.severity}: {finding.message}
-                                {review
-                                  ? ` (${review.decision}${review.note ? `: ${review.note}` : ""})`
-                                  : ""}
-                              </span>
+                                <span
+                                  className={`ingestion-detail-icon ${findingTone}`}
+                                  aria-hidden="true"
+                                >
+                                  <AppIcon
+                                    name={
+                                      finding.severity === "high"
+                                        ? "trace"
+                                        : "approval"
+                                    }
+                                  />
+                                </span>
+                                <div className="ingestion-detail-copy">
+                                  <strong>
+                                    #{index} {finding.severity}
+                                  </strong>
+                                  <span>{previewText(finding.message, 180)}</span>
+                                  <div className="ingestion-detail-metrics">
+                                    <VisualMetric
+                                      icon="approval"
+                                      label="review"
+                                      value={review ? review.decision : "pending"}
+                                      section="ingest"
+                                      tone={reviewTone}
+                                    />
+                                    <VisualMetric
+                                      icon="ingest"
+                                      label="guardrail"
+                                      value={
+                                        finding.severity === "high" && !review
+                                          ? activeIngestionGuardrailMode()
+                                          : "clear"
+                                      }
+                                      section="ingest"
+                                      tone={
+                                        finding.severity === "high" && !review
+                                          ? ingestionArtifactTone(artifact)
+                                          : "ok"
+                                      }
+                                    />
+                                  </div>
+                                  {review?.note ? (
+                                    <p>{previewText(review.note, 160)}</p>
+                                  ) : null}
+                                </div>
+                              </div>
                             );
                           })}
                         </div>
                       ) : (
-                        <span className="finding none">no findings</span>
+                        <div className="ingestion-detail-row ok">
+                          <span
+                            className="ingestion-detail-icon ok"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="approval" />
+                          </span>
+                          <div className="ingestion-detail-copy">
+                            <strong>Findings</strong>
+                            <span>none</span>
+                          </div>
+                        </div>
                       )}
                       {artifact.extracted_text ? (
                         <p>{previewText(artifact.extracted_text)}</p>

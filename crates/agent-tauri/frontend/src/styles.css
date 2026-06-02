@@ -61,6 +61,28 @@ button.danger:hover:not(:disabled) {
   background: #3a2429;
 }
 
+.button-label.with-icon {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  justify-content: center;
+  gap: 0.38rem;
+  min-width: 0;
+}
+
+.button-label .app-icon {
+  flex: 0 0 auto;
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.button-label > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 button:disabled,
 input:disabled,
 select:disabled,

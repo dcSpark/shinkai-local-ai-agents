@@ -545,6 +545,15 @@ function OperationTitle({
   );
 }
 
+function ButtonLabel({ icon, children }: { icon: IconName; children: ReactNode }) {
+  return (
+    <span className="button-label with-icon">
+      <AppIcon name={icon} />
+      <span>{children}</span>
+    </span>
+  );
+}
+
 function EmptyNote({
   section,
   icon,
@@ -26502,7 +26511,7 @@ export default function App() {
               onClick={() => void reviewApprovals()}
               disabled={running || !lastRunId}
             >
-              Review
+              <ButtonLabel icon="approval">Review</ButtonLabel>
             </button>
             <button
               type="button"
@@ -26510,7 +26519,7 @@ export default function App() {
               onClick={() => void approveFirstPending()}
               disabled={running || !lastRunId}
             >
-              Approve
+              <ButtonLabel icon="approval">Approve</ButtonLabel>
             </button>
             <button
               type="button"
@@ -26519,7 +26528,7 @@ export default function App() {
               onClick={() => void rejectFirstPending()}
               disabled={running || !lastRunId}
             >
-              Reject
+              <ButtonLabel icon="approval">Reject</ButtonLabel>
             </button>
             <button
               type="button"
@@ -26527,7 +26536,7 @@ export default function App() {
               onClick={() => void scoreLastRun()}
               disabled={running || !lastRunId}
             >
-              Score
+              <ButtonLabel icon="skill">Score</ButtonLabel>
             </button>
             <button
               type="button"
@@ -26535,7 +26544,7 @@ export default function App() {
               onClick={() => void scoreLastRun(10, "last_answer")}
               disabled={running || !lastRunId}
             >
-              Great 10
+              <ButtonLabel icon="skill">Great 10</ButtonLabel>
             </button>
             <button
               type="button"
@@ -26543,7 +26552,7 @@ export default function App() {
               onClick={() => void scoreLastRun(7, "last_answer")}
               disabled={running || !lastRunId}
             >
-              Good 7
+              <ButtonLabel icon="skill">Good 7</ButtonLabel>
             </button>
             <button
               type="button"
@@ -26551,7 +26560,7 @@ export default function App() {
               onClick={() => void scoreLastRun(3, "last_answer")}
               disabled={running || !lastRunId}
             >
-              Poor 3
+              <ButtonLabel icon="skill">Poor 3</ButtonLabel>
             </button>
             <button
               type="button"
@@ -26559,7 +26568,7 @@ export default function App() {
               onClick={() => void cancelLastRun()}
               disabled={!running || !lastRunId}
             >
-              Stop
+              <ButtonLabel icon="control">Stop</ButtonLabel>
             </button>
             <button
               type="button"
@@ -26567,7 +26576,7 @@ export default function App() {
               onClick={() => void resumeLastRun()}
               disabled={running || (!opsId.trim() && !lastRunId)}
             >
-              Resume
+              <ButtonLabel icon="trace">Resume</ButtonLabel>
             </button>
             <button
               type="button"
@@ -26575,14 +26584,14 @@ export default function App() {
               onClick={() => void reviewResumePlanFromControls()}
               disabled={running || (!opsId.trim() && !lastRunId)}
             >
-              Resume Plan
+              <ButtonLabel icon="context">Resume Plan</ButtonLabel>
             </button>
             <button
               type="button"
               onClick={() => void loadLastTrace()}
               disabled={running || !lastRunId}
             >
-              Trace
+              <ButtonLabel icon="trace">Trace</ButtonLabel>
             </button>
           </div>
         </section>

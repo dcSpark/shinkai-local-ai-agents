@@ -1478,6 +1478,119 @@ textarea:disabled {
   font-family: inherit;
 }
 
+.bundle-visual-card {
+  display: grid;
+  gap: 0.42rem;
+  min-width: 0;
+  padding: 0.55rem;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+}
+
+.bundle-visual-card.warning {
+  border-color: #816a2d;
+  background: #251f12;
+}
+
+.bundle-visual-card.danger {
+  border-color: #7d3c45;
+  background: #211317;
+}
+
+.bundle-visual-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.bundle-visual-head.with-icon {
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+}
+
+.bundle-visual-icon {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+  color: var(--section-accent);
+}
+
+.bundle-visual-icon.warning {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
+.bundle-visual-icon.danger {
+  border-color: #7d3c45;
+  background: #32191f;
+  color: #ffb4c0;
+}
+
+.bundle-visual-icon .app-icon {
+  width: 0.92rem;
+  height: 0.92rem;
+}
+
+.bundle-visual-title {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.bundle-visual-card strong,
+.bundle-visual-card span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.bundle-visual-card strong {
+  color: #f1f2f4;
+}
+
+.bundle-visual-card span {
+  color: #9da3ad;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+}
+
+.bundle-visual-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.2rem, 1fr));
+  gap: 0.4rem;
+}
+
+.bundle-visual-card .visual-metric {
+  font-family: inherit;
+}
+
+.bundle-visual-card .visual-metric .visual-metric-icon {
+  font-family: inherit;
+  color: var(--section-accent);
+}
+
+.bundle-visual-card .visual-metric.ok .visual-metric-icon {
+  color: #78dda7;
+}
+
+.bundle-visual-card .visual-metric.warning .visual-metric-icon {
+  color: #ffce6b;
+}
+
+.bundle-visual-card .visual-metric.danger .visual-metric-icon {
+  color: #ffb4c0;
+}
+
+.bundle-visual-card .visual-metric-copy span {
+  color: #8e949f;
+  font-family: inherit;
+}
+
 .storage-total,
 .storage-largest,
 .storage-bucket,

@@ -870,24 +870,96 @@ interface BundleStatus {
   manifest: BundleManifest;
 }
 
-function bundleCredentialReminderRows(manifest: BundleManifest) {
-  const reminders = manifest.credential_reminders ?? [];
-  if (reminders.length === 0) {
-    return null;
+function bundleReminderCount(manifest: BundleManifest) {
+  return manifest.credential_reminders?.length ?? 0;
+}
+
+function bundleStatusTone(status: BundleStatus): ContextReviewCard["tone"] {
+  return bundleReminderCount(status.manifest) > 0 ? "warning" : "ok";
+}
+
+function bundleTimestampLabel(manifest: BundleManifest) {
+  const date = new Date(manifest.exported_at);
+  if (Number.isNaN(date.getTime())) {
+    return "unknown";
   }
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function BundleStatusCard({
+  status,
+  section,
+}: {
+  status: BundleStatus;
+  section: ActiveSection;
+}) {
+  const reminders = status.manifest.credential_reminders ?? [];
+  const reminderCount = bundleReminderCount(status.manifest);
   const visible = reminders.slice(0, 3);
   return (
-    <>
-      <span>{reminders.length} credential file(s) omitted</span>
+    <div
+      className={`bundle-visual-card ${bundleStatusTone(status)}`}
+      style={sectionThemeStyle(section)}
+    >
+      <div className="bundle-visual-head with-icon">
+        <span
+          className={`bundle-visual-icon ${bundleStatusTone(status)}`}
+          aria-hidden="true"
+        >
+          <AppIcon name="artifact" />
+        </span>
+        <div className="bundle-visual-title">
+          <strong>Bundle {status.operation}</strong>
+          <span>{status.manifest.profile}</span>
+        </div>
+      </div>
+      <div className="bundle-visual-metrics">
+        <VisualMetric
+          icon="artifact"
+          label="operation"
+          value={status.operation}
+          section={section}
+          tone="ok"
+        />
+        <VisualMetric
+          icon="context"
+          label="schema"
+          value={status.manifest.schema_version}
+          section={section}
+        />
+        <VisualMetric
+          icon="approval"
+          label="credentials"
+          value={reminderCount}
+          section={section}
+          tone={reminderCount ? "warning" : "ok"}
+        />
+        <VisualMetric
+          icon="trace"
+          label="exported"
+          value={bundleTimestampLabel(status.manifest)}
+          section={section}
+        />
+      </div>
+      <span title={status.path}>path {status.path}</span>
+      <span>exported {status.manifest.exported_at}</span>
+      {reminderCount ? (
+        <span>{reminderCount} credential file(s) omitted</span>
+      ) : (
+        <span>no credential reminders</span>
+      )}
       {visible.map((reminder) => (
         <span key={reminder.path} title={reminder.reason}>
-          {reminder.path}
+          omitted {reminder.path}
         </span>
       ))}
       {reminders.length > visible.length ? (
-        <span>+{reminders.length - visible.length} more</span>
+        <span>+{reminders.length - visible.length} more credential reminder(s)</span>
       ) : null}
-    </>
+    </div>
   );
 }
 
@@ -21313,16 +21385,7 @@ export default function App() {
                 </div>
               ) : null}
               {bundleStatus ? (
-                <div className="bundle-card">
-                  <div className="bundle-card-head">
-                    <strong>Bundle {bundleStatus.operation}</strong>
-                    <span>schema {bundleStatus.manifest.schema_version}</span>
-                  </div>
-                  <span title={bundleStatus.path}>{bundleStatus.path}</span>
-                  <span>profile {bundleStatus.manifest.profile}</span>
-                  <span>{bundleStatus.manifest.exported_at}</span>
-                  {bundleCredentialReminderRows(bundleStatus.manifest)}
-                </div>
+                <BundleStatusCard status={bundleStatus} section="profiles" />
               ) : null}
             </div>
             ) : null}
@@ -25167,18 +25230,7 @@ export default function App() {
                 </button>
               </div>
               {bundleStatus ? (
-                <div className="bundle-card">
-                  <div className="bundle-card-head">
-                    <strong>
-                      Bundle {bundleStatus.operation}
-                    </strong>
-                    <span>schema {bundleStatus.manifest.schema_version}</span>
-                  </div>
-                  <span title={bundleStatus.path}>{bundleStatus.path}</span>
-                  <span>profile {bundleStatus.manifest.profile}</span>
-                  <span>{bundleStatus.manifest.exported_at}</span>
-                  {bundleCredentialReminderRows(bundleStatus.manifest)}
-                </div>
+                <BundleStatusCard status={bundleStatus} section="adapters" />
               ) : (
                 <div className="empty-note">
                   No bundle activity yet. Export a backup or import a bundle.

@@ -1591,6 +1591,119 @@ textarea:disabled {
   font-family: inherit;
 }
 
+.adapter-doctor-card {
+  display: grid;
+  gap: 0.42rem;
+  min-width: 0;
+  padding: 0.55rem;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+}
+
+.adapter-doctor-card.warning {
+  border-color: #816a2d;
+  background: #251f12;
+}
+
+.adapter-doctor-card.danger {
+  border-color: #7d3c45;
+  background: #211317;
+}
+
+.adapter-doctor-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.adapter-doctor-head.with-icon {
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+}
+
+.adapter-doctor-icon {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+  color: var(--section-accent);
+}
+
+.adapter-doctor-icon.warning {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
+.adapter-doctor-icon.danger {
+  border-color: #7d3c45;
+  background: #32191f;
+  color: #ffb4c0;
+}
+
+.adapter-doctor-icon .app-icon {
+  width: 0.92rem;
+  height: 0.92rem;
+}
+
+.adapter-doctor-title {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.adapter-doctor-card strong,
+.adapter-doctor-card span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.adapter-doctor-card strong {
+  color: #f1f2f4;
+}
+
+.adapter-doctor-card span {
+  color: #9da3ad;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+}
+
+.adapter-doctor-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.2rem, 1fr));
+  gap: 0.4rem;
+}
+
+.adapter-doctor-card .visual-metric {
+  font-family: inherit;
+}
+
+.adapter-doctor-card .visual-metric .visual-metric-icon {
+  font-family: inherit;
+  color: var(--section-accent);
+}
+
+.adapter-doctor-card .visual-metric.ok .visual-metric-icon {
+  color: #78dda7;
+}
+
+.adapter-doctor-card .visual-metric.warning .visual-metric-icon {
+  color: #ffce6b;
+}
+
+.adapter-doctor-card .visual-metric.danger .visual-metric-icon {
+  color: #ffb4c0;
+}
+
+.adapter-doctor-card .visual-metric-copy span {
+  color: #8e949f;
+  font-family: inherit;
+}
+
 .storage-total,
 .storage-largest,
 .storage-bucket,

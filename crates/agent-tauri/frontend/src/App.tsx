@@ -889,6 +889,33 @@ function bundleTimestampLabel(manifest: BundleManifest) {
   });
 }
 
+function adapterDoctorTone(report: AdapterDoctorReport): ContextReviewCard["tone"] {
+  if (report.status === "error" || report.high_risk_finding_count > 0) {
+    return "danger";
+  }
+  if (
+    report.status === "warning" ||
+    report.quarantined_package_count > 0 ||
+    report.unsupported_capability_count > 0 ||
+    report.metadata_only_capability_count > 0 ||
+    report.secret_requirement_count > 0
+  ) {
+    return "warning";
+  }
+  return "ok";
+}
+
+function adapterDoctorReadinessTone(
+  report: AdapterDoctorReport,
+): ContextReviewCard["tone"] {
+  if (report.executable_capability_count === 0) {
+    return report.capability_count > 0 ? "warning" : "neutral";
+  }
+  return report.ready_capability_count >= report.executable_capability_count
+    ? "ok"
+    : "warning";
+}
+
 function BundleStatusCard({
   status,
   section,
@@ -18304,6 +18331,12 @@ export default function App() {
   const conversationStats = conversationTreeStats(conversationTree);
   const canGuideRun = Boolean(activeGuidanceRunId() && input.trim());
   const activeVisual = sectionVisual(activeSection);
+  const adapterDoctorCardTone = adapterDoctorReport
+    ? adapterDoctorTone(adapterDoctorReport)
+    : "neutral";
+  const adapterDoctorReadyTone = adapterDoctorReport
+    ? adapterDoctorReadinessTone(adapterDoctorReport)
+    : "neutral";
 
   return (
     <div className="app-shell">
@@ -24569,26 +24602,118 @@ export default function App() {
                 </button>
               </div>
               {adapterDoctorReport ? (
-                <div className="bundle-card">
-                  <div className="bundle-card-head">
-                    <strong>Adapter doctor {adapterDoctorReport.status}</strong>
-                    <span>
-                      {adapterDoctorReport.ready_capability_count}/
-                      {adapterDoctorReport.executable_capability_count} executable ready
+                <div
+                  className={`adapter-doctor-card ${adapterDoctorCardTone}`}
+                  style={sectionThemeStyle("adapters")}
+                >
+                  <div className="adapter-doctor-head with-icon">
+                    <span
+                      className={`adapter-doctor-icon ${adapterDoctorCardTone}`}
+                      aria-hidden="true"
+                    >
+                      <AppIcon name="adapter" />
                     </span>
+                    <div className="adapter-doctor-title">
+                      <strong>Adapter doctor {adapterDoctorReport.status}</strong>
+                      <span>
+                        {adapterDoctorReport.ready_capability_count}/
+                        {adapterDoctorReport.executable_capability_count} executable ready
+                      </span>
+                    </div>
+                  </div>
+                  <div className="adapter-doctor-metrics">
+                    <VisualMetric
+                      icon="adapter"
+                      label="packages"
+                      value={adapterDoctorReport.package_count}
+                      section="adapters"
+                      tone={adapterDoctorReport.package_count ? "ok" : "neutral"}
+                    />
+                    <VisualMetric
+                      icon="tools"
+                      label="ready"
+                      value={`${adapterDoctorReport.ready_capability_count}/${adapterDoctorReport.executable_capability_count}`}
+                      section="adapters"
+                      tone={adapterDoctorReadyTone}
+                    />
+                    <VisualMetric
+                      icon="approval"
+                      label="quarantined"
+                      value={adapterDoctorReport.quarantined_package_count}
+                      section="adapters"
+                      tone={
+                        adapterDoctorReport.quarantined_package_count
+                          ? "warning"
+                          : "ok"
+                      }
+                    />
+                    <VisualMetric
+                      icon="trace"
+                      label="unsupported"
+                      value={adapterDoctorReport.unsupported_capability_count}
+                      section="adapters"
+                      tone={
+                        adapterDoctorReport.unsupported_capability_count
+                          ? "warning"
+                          : "ok"
+                      }
+                    />
+                    <VisualMetric
+                      icon="skill"
+                      label="installable"
+                      value={adapterDoctorReport.installable_skill_count}
+                      section="adapters"
+                      tone={
+                        adapterDoctorReport.installable_skill_count
+                          ? "ok"
+                          : "neutral"
+                      }
+                    />
+                    <VisualMetric
+                      icon="control"
+                      label="secrets"
+                      value={adapterDoctorReport.secret_requirement_count}
+                      section="adapters"
+                      tone={
+                        adapterDoctorReport.secret_requirement_count
+                          ? "warning"
+                          : "ok"
+                      }
+                    />
+                    <VisualMetric
+                      icon="trace"
+                      label="findings"
+                      value={adapterDoctorReport.finding_count}
+                      section="adapters"
+                      tone={
+                        adapterDoctorReport.high_risk_finding_count
+                          ? "danger"
+                          : adapterDoctorReport.finding_count
+                            ? "warning"
+                            : "ok"
+                      }
+                    />
+                    <VisualMetric
+                      icon="approval"
+                      label="risk"
+                      value={adapterDoctorReport.high_risk_finding_count}
+                      section="adapters"
+                      tone={
+                        adapterDoctorReport.high_risk_finding_count ? "danger" : "ok"
+                      }
+                    />
                   </div>
                   <span>
-                    {adapterDoctorReport.package_count} packages /{" "}
-                    {adapterDoctorReport.quarantined_package_count} quarantined /{" "}
-                    {adapterDoctorReport.unsupported_capability_count} unsupported
+                    {adapterDoctorReport.allowed_package_count} allowed /{" "}
+                    {adapterDoctorReport.quarantined_package_count} quarantined packages
                   </span>
                   <span>
                     {adapterDoctorReport.metadata_only_capability_count} metadata-only /{" "}
-                    {adapterDoctorReport.installable_skill_count} installable skills
+                    {adapterDoctorReport.unsupported_capability_count} unsupported capabilities
                   </span>
                   <span>
                     {adapterDoctorReport.secret_requirement_count} secrets /{" "}
-                    {adapterDoctorReport.high_risk_finding_count} high-risk findings
+                    {adapterDoctorReport.finding_count} scan findings
                   </span>
                   {adapterDoctorReport.errors?.length ? (
                     <div className="finding-list">

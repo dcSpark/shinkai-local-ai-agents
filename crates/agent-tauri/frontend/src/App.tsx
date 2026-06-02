@@ -29064,7 +29064,11 @@ export default function App() {
                     );
                   })}
                 </div>
-              ) : null}
+              ) : (
+                <EmptyNote section="artifacts" icon="artifact">
+                  No generated artifacts loaded.
+                </EmptyNote>
+              )}
               {artifactPreview ? (
                 <div className="artifact-preview">
                   <div className="artifact-preview-head with-icon">

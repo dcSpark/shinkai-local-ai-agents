@@ -28838,19 +28838,117 @@ export default function App() {
               {compactionRecords.length ? (
                 <div className="memory-review">
                   {compactionRecords.map((record) => (
-                    <div className="memory-card" key={record.id}>
-                      <div className="memory-card-head">
-                        <strong>{record.id}</strong>
-                        <span>{record.max_output_tokens} tokens</span>
+                    <div className="compaction-transfer-card ok" key={record.id}>
+                      <div className="compaction-transfer-head with-icon">
+                        <span
+                          className="compaction-transfer-icon ok"
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="context" />
+                        </span>
+                        <div className="compaction-transfer-title">
+                          <strong>{record.id}</strong>
+                          <span>{record.source}</span>
+                        </div>
                       </div>
-                      <div className="memory-meta">
-                        <span>{record.source}</span>
+                      <div className="compaction-transfer-metrics">
+                        <VisualMetric
+                          icon="context"
+                          label="output cap"
+                          value={record.max_output_tokens}
+                          section="chat"
+                          tone="ok"
+                        />
+                        <VisualMetric
+                          icon="conversation"
+                          label="conversation"
+                          value={record.conversation_id ? "linked" : "manual"}
+                          section="chat"
+                          tone={record.conversation_id ? "ok" : "neutral"}
+                        />
+                        <VisualMetric
+                          icon="prompt"
+                          label="content"
+                          value={estimateLocalTokens(record.content)}
+                          section="chat"
+                          tone={record.content.trim() ? "ok" : "warning"}
+                        />
+                        <VisualMetric
+                          icon="trace"
+                          label="guidance"
+                          value={record.guidance ? "set" : "none"}
+                          section="chat"
+                          tone={record.guidance ? "ok" : "neutral"}
+                        />
+                      </div>
+                      <div className="compaction-transfer-detail-list">
+                        <div className="compaction-transfer-detail-row ok">
+                          <span
+                            className="compaction-transfer-detail-icon ok"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="context" />
+                          </span>
+                          <div className="compaction-transfer-detail-copy">
+                            <strong>Compacted context</strong>
+                            <span>{previewText(record.content, 260)}</span>
+                          </div>
+                        </div>
                         {record.conversation_id ? (
-                          <span>conversation {record.conversation_id}</span>
+                          <div className="compaction-transfer-detail-row ok">
+                            <span
+                              className="compaction-transfer-detail-icon ok"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="conversation" />
+                            </span>
+                            <div className="compaction-transfer-detail-copy">
+                              <strong>Conversation link</strong>
+                              <span>{record.conversation_id}</span>
+                            </div>
+                          </div>
                         ) : null}
-                        <span>{record.created_at}</span>
+                        <div className="compaction-transfer-detail-row">
+                          <span
+                            className="compaction-transfer-detail-icon"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="prompt" />
+                          </span>
+                          <div className="compaction-transfer-detail-copy">
+                            <strong>Original input</strong>
+                            <span title={record.original_input_hash}>
+                              {previewText(record.original_input_excerpt, 220)}
+                            </span>
+                          </div>
+                        </div>
+                        {record.guidance ? (
+                          <div className="compaction-transfer-detail-row ok">
+                            <span
+                              className="compaction-transfer-detail-icon ok"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="trace" />
+                            </span>
+                            <div className="compaction-transfer-detail-copy">
+                              <strong>Guidance</strong>
+                              <span>{previewText(record.guidance, 180)}</span>
+                            </div>
+                          </div>
+                        ) : null}
+                        <div className="compaction-transfer-detail-row">
+                          <span
+                            className="compaction-transfer-detail-icon"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="artifact" />
+                          </span>
+                          <div className="compaction-transfer-detail-copy">
+                            <strong>Created</strong>
+                            <span>{record.created_at}</span>
+                          </div>
+                        </div>
                       </div>
-                      <p>{previewText(record.content, 260)}</p>
                       <div className="mini-actions">
                         <button
                           type="button"

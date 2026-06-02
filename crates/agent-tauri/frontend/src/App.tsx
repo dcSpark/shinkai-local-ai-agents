@@ -18581,6 +18581,21 @@ export default function App() {
       : "neutral";
   }
 
+  function secretBackendTone(
+    backend: SecretBackendDescriptor,
+  ): ContextReviewCard["tone"] {
+    if (!backend.supported) return "danger";
+    return backend.active ? "ok" : "neutral";
+  }
+
+  function profileGrantIcon(kind: ProfileGrantKind): IconName {
+    if (kind === "agent") return "brand";
+    if (kind === "memory") return "memory";
+    if (kind === "tool") return "tools";
+    if (kind === "skill") return "skill";
+    return "approval";
+  }
+
   function capabilityStatusTone(
     status: CapabilityDraft["status"],
   ): ContextReviewCard["tone"] {
@@ -22147,10 +22162,50 @@ export default function App() {
               {profileSummaries.length ? (
                 <div className="ingestion-review">
                   {profileSummaries.map((profile) => (
-                    <div className="ingestion-card" key={profile.id}>
-                      <div className="ingestion-card-head">
-                        <strong>{profile.name || profile.id}</strong>
-                        <span>{profile.id}</span>
+                    <div
+                      className={`ingestion-card ${
+                        currentProfile?.id === profile.id ? "ok" : ""
+                      }`}
+                      key={profile.id}
+                    >
+                      <div className="ingestion-card-head with-icon">
+                        <span
+                          className={`ingestion-card-icon ${
+                            currentProfile?.id === profile.id ? "ok" : ""
+                          }`}
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="profile" />
+                        </span>
+                        <div className="ingestion-card-title">
+                          <strong>{profile.name || profile.id}</strong>
+                          <span>{profile.id}</span>
+                        </div>
+                      </div>
+                      <div className="ingestion-metrics">
+                        <VisualMetric
+                          icon="profile"
+                          label="active"
+                          value={currentProfile?.id === profile.id ? "yes" : "no"}
+                          section="profiles"
+                          tone={
+                            currentProfile?.id === profile.id ? "ok" : "neutral"
+                          }
+                        />
+                        <VisualMetric
+                          icon="approval"
+                          label="protected"
+                          value={profile.id === "main" ? "main" : "custom"}
+                          section="profiles"
+                          tone={profile.id === "main" ? "warning" : "neutral"}
+                        />
+                        <VisualMetric
+                          icon="artifact"
+                          label="config"
+                          value={fileName(profile.path)}
+                          section="profiles"
+                          tone="ok"
+                        />
                       </div>
                       <span title={profile.path}>{fileName(profile.path)}</span>
                       <div className="mini-actions">
@@ -22205,10 +22260,46 @@ export default function App() {
               {secretBackends.length ? (
                 <div className="ingestion-review">
                   {secretBackends.map((backend) => (
-                    <div className="ingestion-card" key={backend.id}>
-                      <div className="ingestion-card-head">
-                        <strong>{backend.name}</strong>
-                        <span>{backend.active ? "active" : backend.id}</span>
+                    <div
+                      className={`ingestion-card ${secretBackendTone(backend)}`}
+                      key={backend.id}
+                    >
+                      <div className="ingestion-card-head with-icon">
+                        <span
+                          className={`ingestion-card-icon ${secretBackendTone(
+                            backend,
+                          )}`}
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="control" />
+                        </span>
+                        <div className="ingestion-card-title">
+                          <strong>{backend.name}</strong>
+                          <span>{backend.active ? "active" : backend.id}</span>
+                        </div>
+                      </div>
+                      <div className="ingestion-metrics">
+                        <VisualMetric
+                          icon="control"
+                          label="support"
+                          value={backend.supported ? "supported" : "unsupported"}
+                          section="profiles"
+                          tone={backend.supported ? "ok" : "danger"}
+                        />
+                        <VisualMetric
+                          icon="approval"
+                          label="active"
+                          value={backend.active ? "yes" : "no"}
+                          section="profiles"
+                          tone={backend.active ? "ok" : "neutral"}
+                        />
+                        <VisualMetric
+                          icon="setup"
+                          label="backend"
+                          value={backend.id}
+                          section="profiles"
+                          tone={secretBackendTone(backend)}
+                        />
                       </div>
                       <span>{backend.description}</span>
                       <span>{backend.supported ? "supported" : "unsupported"}</span>
@@ -22219,12 +22310,47 @@ export default function App() {
               {secretRecords.length ? (
                 <div className="ingestion-review">
                   {secretRecords.map((record) => (
-                    <div className="ingestion-card" key={record.id}>
-                      <div className="ingestion-card-head">
-                        <strong>{record.label || record.id}</strong>
-                        <span>
-                          {record.backend} v{record.current_version}
+                    <div className="ingestion-card ok" key={record.id}>
+                      <div className="ingestion-card-head with-icon">
+                        <span className="ingestion-card-icon ok" aria-hidden="true">
+                          <AppIcon name="control" />
                         </span>
+                        <div className="ingestion-card-title">
+                          <strong>{record.label || record.id}</strong>
+                          <span>
+                            {record.backend} v{record.current_version}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="ingestion-metrics">
+                        <VisualMetric
+                          icon="control"
+                          label="backend"
+                          value={record.backend}
+                          section="profiles"
+                          tone="ok"
+                        />
+                        <VisualMetric
+                          icon="trace"
+                          label="version"
+                          value={record.current_version}
+                          section="profiles"
+                          tone="ok"
+                        />
+                        <VisualMetric
+                          icon="approval"
+                          label="fingerprint"
+                          value={record.value_fingerprint.slice(0, 8)}
+                          section="profiles"
+                          tone="ok"
+                        />
+                        <VisualMetric
+                          icon="prompt"
+                          label="label"
+                          value={record.label ? "set" : "id"}
+                          section="profiles"
+                          tone={record.label ? "ok" : "neutral"}
+                        />
                       </div>
                       <span>{record.id}</span>
                       <span title={record.value_fingerprint}>
@@ -22268,12 +22394,47 @@ export default function App() {
               {profileGrants.length ? (
                 <div className="ingestion-review">
                   {profileGrants.map((grant) => (
-                    <div className="ingestion-card" key={grant.id}>
-                      <div className="ingestion-card-head">
-                        <strong>
-                          {grant.from_profile} to {grant.to_profile}
-                        </strong>
-                        <span>{grant.kind}</span>
+                    <div className="ingestion-card warning" key={grant.id}>
+                      <div className="ingestion-card-head with-icon">
+                        <span className="ingestion-card-icon warning" aria-hidden="true">
+                          <AppIcon name={profileGrantIcon(grant.kind)} />
+                        </span>
+                        <div className="ingestion-card-title">
+                          <strong>
+                            {grant.from_profile} to {grant.to_profile}
+                          </strong>
+                          <span>{grant.kind}</span>
+                        </div>
+                      </div>
+                      <div className="ingestion-metrics">
+                        <VisualMetric
+                          icon={profileGrantIcon(grant.kind)}
+                          label="kind"
+                          value={grant.kind}
+                          section="profiles"
+                          tone="warning"
+                        />
+                        <VisualMetric
+                          icon="profile"
+                          label="from"
+                          value={grant.from_profile}
+                          section="profiles"
+                          tone="neutral"
+                        />
+                        <VisualMetric
+                          icon="profile"
+                          label="to"
+                          value={grant.to_profile}
+                          section="profiles"
+                          tone="warning"
+                        />
+                        <VisualMetric
+                          icon="approval"
+                          label="resource"
+                          value={previewText(grant.resource, 18)}
+                          section="profiles"
+                          tone="warning"
+                        />
                       </div>
                       <span>{grant.resource}</span>
                       <span>{grant.id}</span>

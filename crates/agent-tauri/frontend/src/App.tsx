@@ -18709,6 +18709,35 @@ export default function App() {
     return adapterPackage.findings.some((finding) => finding.severity === "high");
   }
 
+  function adapterPackageTone(
+    adapterPackage: AdapterPackage,
+  ): ContextReviewCard["tone"] {
+    if (hasHighRiskAdapterFindings(adapterPackage)) return "danger";
+    if (
+      adapterPackage.quarantined ||
+      enabledPermissions(adapterPackage).length ||
+      (adapterPackage.secret_requirements ?? []).length ||
+      adapterPackage.findings.length
+    ) {
+      return "warning";
+    }
+    return "ok";
+  }
+
+  function adapterFindingSeverityTone(
+    severity: AdapterPackage["findings"][number]["severity"],
+  ): ContextReviewCard["tone"] {
+    if (severity === "high") return "danger";
+    if (severity === "warning") return "warning";
+    return "ok";
+  }
+
+  function adapterCapabilityInventoryTone(
+    capability: AdapterPackage["capabilities"][number],
+  ): ContextReviewCard["tone"] {
+    return capability.quarantined ? "warning" : "ok";
+  }
+
   function hasHighRiskSkillFindings(skill: SkillDoc) {
     return (skill.findings ?? []).some((finding) => finding.severity === "high");
   }
@@ -28216,84 +28245,268 @@ export default function App() {
                     const permissions = enabledPermissions(adapterPackage);
                     const secretRequirements = adapterPackage.secret_requirements ?? [];
                     const highRisk = hasHighRiskAdapterFindings(adapterPackage);
+                    const packageTone = adapterPackageTone(adapterPackage);
                     return (
                       <div
-                        className={`ingestion-card ${
+                        className={`ingestion-card ${packageTone} ${
                           highRisk ? "high-risk" : ""
                         }`}
                         key={adapterPackage.id}
                       >
-                        <div className="ingestion-card-head">
-                          <strong>{adapterPackage.id}</strong>
-                          <span>
-                            {adapterPackage.quarantined ? "quarantined" : "allowed"}
+                        <div className="ingestion-card-head with-icon">
+                          <span
+                            className={`ingestion-card-icon ${packageTone}`}
+                            aria-hidden="true"
+                          >
+                            <AppIcon
+                              name={highRisk ? "trace" : "adapter"}
+                            />
                           </span>
+                          <div className="ingestion-card-title">
+                            <strong>{adapterPackage.id}</strong>
+                            <span>
+                              {adapterPackage.adapter} /{" "}
+                              {adapterPackage.quarantined ? "quarantined" : "allowed"}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="ingestion-metrics">
+                          <VisualMetric
+                            icon="approval"
+                            label="review"
+                            value={
+                              highRisk
+                                ? "blocked"
+                                : adapterPackage.quarantined
+                                  ? "quarantined"
+                                  : "allowed"
+                            }
+                            section="adapters"
+                            tone={packageTone}
+                          />
+                          <VisualMetric
+                            icon="tools"
+                            label="capabilities"
+                            value={adapterPackage.capabilities.length}
+                            section="adapters"
+                            tone={
+                              adapterPackage.capabilities.length ? "ok" : "neutral"
+                            }
+                          />
+                          <VisualMetric
+                            icon="approval"
+                            label="permissions"
+                            value={permissions.length}
+                            section="adapters"
+                            tone={permissions.length ? "warning" : "ok"}
+                          />
+                          <VisualMetric
+                            icon="control"
+                            label="secrets"
+                            value={secretRequirements.length}
+                            section="adapters"
+                            tone={secretRequirements.length ? "warning" : "ok"}
+                          />
+                          <VisualMetric
+                            icon="trace"
+                            label="findings"
+                            value={adapterPackage.findings.length}
+                            section="adapters"
+                            tone={
+                              highRisk
+                                ? "danger"
+                                : adapterPackage.findings.length
+                                  ? "warning"
+                                  : "ok"
+                            }
+                          />
                         </div>
                         <span title={adapterPackage.source}>
-                          {adapterPackage.adapter} / {fileName(adapterPackage.source)}
+                          source {fileName(adapterPackage.source)}
                         </span>
                         <span title={adapterPackage.digest}>
                           digest {adapterPackage.digest.slice(0, 16)}
                         </span>
                         {highRisk ? (
-                          <span className="finding high">
-                            activation blocked until this package is re-inspected or removed
-                          </span>
+                          <div className="adapter-inventory-row danger">
+                            <span
+                              className="adapter-inventory-icon danger"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="trace" />
+                            </span>
+                            <div className="adapter-inventory-copy">
+                              <strong>Activation blocked</strong>
+                              <span>
+                                Re-inspect or remove this package before allowing it.
+                              </span>
+                            </div>
+                          </div>
                         ) : null}
-                        <div className="finding-list">
+                        <div className="adapter-inventory-list">
                           {permissions.length ? (
                             permissions.map((permission) => (
-                              <span className="finding warning" key={permission}>
-                                permission: {permission}
-                              </span>
+                              <div
+                                className="adapter-inventory-row warning"
+                                key={permission}
+                              >
+                                <span
+                                  className="adapter-inventory-icon warning"
+                                  aria-hidden="true"
+                                >
+                                  <AppIcon name="approval" />
+                                </span>
+                                <div className="adapter-inventory-copy">
+                                  <strong>Permission</strong>
+                                  <span>{permission.replace(/_/g, " ")}</span>
+                                </div>
+                              </div>
                             ))
                           ) : (
-                            <span className="finding none">no requested permissions</span>
+                            <div className="adapter-inventory-row ok">
+                              <span
+                                className="adapter-inventory-icon ok"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="approval" />
+                              </span>
+                              <div className="adapter-inventory-copy">
+                                <strong>Permissions</strong>
+                                <span>none requested</span>
+                              </div>
+                            </div>
                           )}
                         </div>
                         {secretRequirements.length ? (
-                          <div className="finding-list">
+                          <div className="adapter-inventory-list">
                             {secretRequirements.map((secret) => (
-                              <span
-                                className="finding warning"
+                              <div
+                                className="adapter-inventory-row warning"
                                 key={`${adapterPackage.id}:secret:${secret.source}:${secret.name}`}
                                 title={secret.description ?? secret.source}
                               >
-                                secret: {secret.name} / {secret.source}
-                                {secret.required === false ? " / optional" : ""}
-                              </span>
+                                <span
+                                  className="adapter-inventory-icon warning"
+                                  aria-hidden="true"
+                                >
+                                  <AppIcon name="control" />
+                                </span>
+                                <div className="adapter-inventory-copy">
+                                  <strong>{secret.name}</strong>
+                                  <span>
+                                    {secret.source} /{" "}
+                                    {secret.required === false
+                                      ? "optional"
+                                      : "required"}
+                                  </span>
+                                  {secret.description ? (
+                                    <p>{previewText(secret.description, 140)}</p>
+                                  ) : null}
+                                </div>
+                              </div>
                             ))}
                           </div>
                         ) : null}
                         {adapterPackage.findings.length ? (
-                          <div className="finding-list">
-                            {adapterPackage.findings.map((finding) => (
-                              <span
-                                className={`finding ${finding.severity}`}
-                                key={`${adapterPackage.id}:${finding.severity}:${finding.message}`}
-                              >
-                                {finding.severity}: {finding.message}
-                              </span>
-                            ))}
-                          </div>
-                        ) : (
-                          <span className="finding none">no scan findings</span>
-                        )}
-                        {adapterPackage.capabilities.length ? (
-                          <div className="finding-list">
-                            {adapterPackage.capabilities.map((capability) => {
-                              const runtime = adapterRuntimeSummary(capability.runtime);
+                          <div className="adapter-inventory-list">
+                            {adapterPackage.findings.map((finding) => {
+                              const findingTone = adapterFindingSeverityTone(
+                                finding.severity,
+                              );
                               return (
-                                <span className="finding" key={capability.id}>
-                                  {capability.kind}: {capability.name}{" "}
-                                  {capability.quarantined ? "(quarantined)" : "(allowed)"}
-                                  {runtime ? ` / ${runtime}` : ""}
-                                </span>
+                                <div
+                                  className={`adapter-inventory-row ${findingTone}`}
+                                  key={`${adapterPackage.id}:${finding.severity}:${finding.message}`}
+                                >
+                                  <span
+                                    className={`adapter-inventory-icon ${findingTone}`}
+                                    aria-hidden="true"
+                                  >
+                                    <AppIcon
+                                      name={
+                                        finding.severity === "high"
+                                          ? "trace"
+                                          : "approval"
+                                      }
+                                    />
+                                  </span>
+                                  <div className="adapter-inventory-copy">
+                                    <strong>{finding.severity}</strong>
+                                    <span>{previewText(finding.message, 180)}</span>
+                                  </div>
+                                </div>
                               );
                             })}
                           </div>
                         ) : (
-                          <span className="finding none">no capabilities</span>
+                          <div className="adapter-inventory-row ok">
+                            <span
+                              className="adapter-inventory-icon ok"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="trace" />
+                            </span>
+                            <div className="adapter-inventory-copy">
+                              <strong>Scan findings</strong>
+                              <span>none</span>
+                            </div>
+                          </div>
+                        )}
+                        {adapterPackage.capabilities.length ? (
+                          <div className="adapter-inventory-list">
+                            {adapterPackage.capabilities.map((capability) => {
+                              const runtime = adapterRuntimeSummary(capability.runtime);
+                              const capabilityTone =
+                                adapterCapabilityInventoryTone(capability);
+                              return (
+                                <div
+                                  className={`adapter-inventory-row ${capabilityTone}`}
+                                  key={capability.id}
+                                >
+                                  <span
+                                    className={`adapter-inventory-icon ${capabilityTone}`}
+                                    aria-hidden="true"
+                                  >
+                                    <AppIcon
+                                      name={
+                                        capability.kind === "skill"
+                                          ? "skill"
+                                          : capability.kind === "agent" ||
+                                              capability.kind === "subagent"
+                                            ? "brand"
+                                            : "tools"
+                                      }
+                                    />
+                                  </span>
+                                  <div className="adapter-inventory-copy">
+                                    <strong>
+                                      {capability.kind}: {capability.name}
+                                    </strong>
+                                    <span>
+                                      {capability.id} /{" "}
+                                      {capability.quarantined
+                                        ? "quarantined"
+                                        : "allowed"}
+                                    </span>
+                                    {runtime ? <p>{runtime}</p> : null}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="adapter-inventory-row neutral">
+                            <span
+                              className="adapter-inventory-icon neutral"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="tools" />
+                            </span>
+                            <div className="adapter-inventory-copy">
+                              <strong>Capabilities</strong>
+                              <span>none declared</span>
+                            </div>
+                          </div>
                         )}
                         <div className="mini-actions">
                           <button

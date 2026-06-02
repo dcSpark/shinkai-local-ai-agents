@@ -4463,6 +4463,87 @@ textarea:disabled {
   font-family: inherit;
 }
 
+.adapter-inventory-list {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.adapter-inventory-row {
+  display: grid;
+  grid-template-columns: 1.55rem minmax(0, 1fr);
+  gap: 0.4rem;
+  align-items: start;
+  min-width: 0;
+  padding: 0.42rem;
+  border: 1px solid #2a2d34;
+  border-radius: 8px;
+  background: #111215;
+}
+
+.adapter-inventory-row.ok {
+  border-color: #275c43;
+  background: #13201a;
+}
+
+.adapter-inventory-row.warning {
+  border-color: #816a2d;
+  background: #251f12;
+}
+
+.adapter-inventory-row.danger {
+  border-color: #7d3c45;
+  background: #211317;
+}
+
+.adapter-inventory-icon {
+  display: inline-grid;
+  width: 1.55rem;
+  height: 1.55rem;
+  place-items: center;
+  border: 1px solid #3d4650;
+  border-radius: 8px;
+  background: #15171b;
+  color: #65d4ff;
+}
+
+.adapter-inventory-icon.ok {
+  border-color: #275c43;
+  background: #13281d;
+  color: #78dda7;
+}
+
+.adapter-inventory-icon.warning {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
+.adapter-inventory-icon.danger {
+  border-color: #7d3c45;
+  background: #32191f;
+  color: #ffb4c0;
+}
+
+.adapter-inventory-icon .app-icon {
+  width: 0.82rem;
+  height: 0.82rem;
+}
+
+.adapter-inventory-copy {
+  display: grid;
+  gap: 0.14rem;
+  min-width: 0;
+}
+
+.adapter-inventory-copy p {
+  margin: 0;
+  color: #c3c8d0;
+  font-size: 0.76rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .artifact-card {
   display: grid;
   gap: 0.42rem;

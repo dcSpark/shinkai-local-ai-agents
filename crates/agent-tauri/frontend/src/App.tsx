@@ -23218,6 +23218,70 @@ export default function App() {
                           <strong>{doc.id}</strong>
                           <span>{doc.provider || "provider default"}</span>
                         </div>
+                        <div className="ingestion-metrics">
+                          <VisualMetric
+                            icon="setup"
+                            label="provider"
+                            value={previewText(doc.provider || "default", 18)}
+                            section="prompts"
+                            tone={doc.provider ? "ok" : "neutral"}
+                          />
+                          <VisualMetric
+                            icon="prompt"
+                            label="modalities"
+                            value={doc.available_modalities?.length || "catalog"}
+                            section="prompts"
+                            tone={doc.available_modalities?.length ? "ok" : "neutral"}
+                          />
+                          <VisualMetric
+                            icon="context"
+                            label="ctx / output"
+                            value={`${doc.max_context_tokens ?? "cfg"}/${doc.max_output_tokens ?? "cfg"}`}
+                            section="prompts"
+                            tone={
+                              doc.max_context_tokens != null ||
+                              doc.max_output_tokens != null
+                                ? "ok"
+                                : "neutral"
+                            }
+                          />
+                          <VisualMetric
+                            icon="tools"
+                            label="tool calls"
+                            value={
+                              doc.tool_support == null
+                                ? "default"
+                                : doc.tool_support
+                                  ? "yes"
+                                  : "no"
+                            }
+                            section="prompts"
+                            tone={
+                              doc.tool_support == null
+                                ? "neutral"
+                                : doc.tool_support
+                                  ? "ok"
+                                  : "warning"
+                            }
+                          />
+                          <VisualMetric
+                            icon="profile"
+                            label="pricing"
+                            value={
+                              doc.input_cost_per_million != null ||
+                              doc.output_cost_per_million != null
+                                ? "set"
+                                : "default"
+                            }
+                            section="prompts"
+                            tone={
+                              doc.input_cost_per_million != null ||
+                              doc.output_cost_per_million != null
+                                ? "ok"
+                                : "neutral"
+                            }
+                          />
+                        </div>
                         {doc.api_base_url ? (
                           <span>{doc.api_base_url}</span>
                         ) : null}
@@ -23355,6 +23419,48 @@ export default function App() {
                         <div className="ingestion-card-head">
                           <strong>{descriptor.name}</strong>
                           <span>{descriptor.id}</span>
+                        </div>
+                        <div className="ingestion-metrics">
+                          <VisualMetric
+                            icon="setup"
+                            label="kind"
+                            value={
+                              descriptor.local
+                                ? "local"
+                                : descriptor.native
+                                  ? "native"
+                                  : "remote"
+                            }
+                            section="prompts"
+                            tone={descriptor.local || descriptor.native ? "ok" : "neutral"}
+                          />
+                          <VisualMetric
+                            icon="prompt"
+                            label="default"
+                            value={previewText(descriptor.default_model, 18)}
+                            section="prompts"
+                            tone={descriptor.default_model ? "ok" : "warning"}
+                          />
+                          <VisualMetric
+                            icon="context"
+                            label="modalities"
+                            value={descriptor.available_modalities.length || "unspecified"}
+                            section="prompts"
+                            tone={
+                              descriptor.available_modalities.length ? "ok" : "neutral"
+                            }
+                          />
+                          <VisualMetric
+                            icon="tools"
+                            label="runtime / provider"
+                            value={`${runtimeOptions.length}/${providerOptions.length}`}
+                            section="prompts"
+                            tone={
+                              runtimeOptions.length || providerOptions.length
+                                ? "ok"
+                                : "neutral"
+                            }
+                          />
                         </div>
                         <span>default model {descriptor.default_model}</span>
                         {descriptor.api_base_url ? (

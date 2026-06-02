@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App saved-model card visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx` | Saved model and provider descriptor cards now start with icon metrics for provider/kind, modality coverage, context/output or option schema posture, tool-call support, pricing, and default model readiness before the detailed text rows, making model setup artifacts easier to compare visually. |
 | App skill-ingest field visual identity | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Capability Draft and Ingestion operation setup controls now use compact icon labels for draft kind, backend, vision and guardrail models, finding index, review decision, and review note fields, making capability authoring and document-safety review easier to scan before operations. |
 | App profile-memory field visual identity | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Profiles and Memory operation setup controls now use compact icon labels for secret labels, source ranges, topics, generation guidance, and classification model fields, making credential and durable-memory workflows easier to scan before high-impact operations. |
 | App trace field visual identity | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Trace panel now uses a compact trace icon label for the comparison run control, keeping trace load, compare, and replay setup visually grouped with the trace action buttons and summaries. |

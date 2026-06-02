@@ -710,6 +710,41 @@ function VisualMetric({
   );
 }
 
+function ContextPreviewPane({
+  title,
+  detail,
+  icon,
+  tone = "neutral",
+  metrics,
+  children,
+}: {
+  title: string;
+  detail: string;
+  icon: IconName;
+  tone?: ContextReviewCard["tone"];
+  metrics?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <section
+      className={`context-preview-pane ${tone}`}
+      style={sectionThemeStyle("chat")}
+    >
+      <div className="context-preview-pane-head with-icon">
+        <span className={`context-preview-pane-icon ${tone}`} aria-hidden="true">
+          <AppIcon name={icon} />
+        </span>
+        <div>
+          <strong>{title}</strong>
+          <span>{detail}</span>
+        </div>
+      </div>
+      {metrics ? <div className="context-preview-pane-metrics">{metrics}</div> : null}
+      {children}
+    </section>
+  );
+}
+
 function FeatureVisual({ section }: { section: ActiveSection }) {
   const visual = sectionVisual(section);
   return (
@@ -20961,22 +20996,148 @@ export default function App() {
                   </div>
                 </section>
               ) : null}
-              <section>
-                <strong>System</strong>
+              <ContextPreviewPane
+                title="System"
+                icon="prompt"
+                detail={
+                  contextPreview.system_prompt.trim()
+                    ? "Active system instruction for this preview."
+                    : "No system instruction is present."
+                }
+                tone={contextPreview.system_prompt.trim() ? "ok" : "warning"}
+                metrics={
+                  <>
+                    <VisualMetric
+                      icon="prompt"
+                      label="tokens"
+                      value={
+                        contextPreview.system_prompt.trim()
+                          ? `~${estimateLocalTokens(contextPreview.system_prompt)}`
+                          : 0
+                      }
+                      section="chat"
+                      tone={contextPreview.system_prompt.trim() ? "ok" : "warning"}
+                    />
+                    <VisualMetric
+                      icon="context"
+                      label="characters"
+                      value={contextPreview.system_prompt.length}
+                      section="chat"
+                    />
+                  </>
+                }
+              >
                 <pre>{contextPreview.system_prompt}</pre>
-              </section>
-              <section>
-                <strong>Limits</strong>
+              </ContextPreviewPane>
+              <ContextPreviewPane
+                title="Limits"
+                icon="control"
+                detail="Tool-call budget that will be sent with this context."
+                tone={
+                  contextPreview.limits.remaining_tool_calls === 0
+                    ? "danger"
+                    : contextPreview.limits.remaining_tool_calls === 1
+                      ? "warning"
+                      : "ok"
+                }
+                metrics={
+                  <>
+                    <VisualMetric
+                      icon="tools"
+                      label="max calls"
+                      value={contextPreview.limits.max_tool_calls}
+                      section="chat"
+                      tone={contextPreview.limits.max_tool_calls > 0 ? "ok" : "neutral"}
+                    />
+                    <VisualMetric
+                      icon="control"
+                      label="remaining"
+                      value={contextPreview.limits.remaining_tool_calls}
+                      section="chat"
+                      tone={
+                        contextPreview.limits.remaining_tool_calls === 0
+                          ? "danger"
+                          : contextPreview.limits.remaining_tool_calls === 1
+                            ? "warning"
+                            : "ok"
+                      }
+                    />
+                  </>
+                }
+              >
                 <pre>{previewJson(contextPreview.limits)}</pre>
-              </section>
-              <section>
-                <strong>Compacted Context</strong>
+              </ContextPreviewPane>
+              <ContextPreviewPane
+                title="Compacted Context"
+                icon="context"
+                detail={
+                  contextPreview.compacted
+                    ? "Retained summary is included before visible messages."
+                    : "No compacted context is currently attached."
+                }
+                tone={contextPreview.compacted ? "ok" : "neutral"}
+                metrics={
+                  <>
+                    <VisualMetric
+                      icon="context"
+                      label="status"
+                      value={contextPreview.compacted ? "on" : "off"}
+                      section="chat"
+                      tone={contextPreview.compacted ? "ok" : "neutral"}
+                    />
+                    <VisualMetric
+                      icon="prompt"
+                      label="tokens"
+                      value={
+                        contextPreview.compacted
+                          ? `~${estimateLocalTokens(contextPreview.compacted)}`
+                          : 0
+                      }
+                      section="chat"
+                      tone={contextPreview.compacted ? "ok" : "neutral"}
+                    />
+                  </>
+                }
+              >
                 <pre>{contextPreview.compacted ?? "(none)"}</pre>
-              </section>
-              <section>
-                <strong>Conversation ({contextPreview.conversation.length})</strong>
+              </ContextPreviewPane>
+              <ContextPreviewPane
+                title="Conversation"
+                icon="conversation"
+                detail="Visible conversation messages included in the next prompt."
+                tone={contextPreview.conversation.length ? "ok" : "neutral"}
+                metrics={
+                  <>
+                    <VisualMetric
+                      icon="conversation"
+                      label="messages"
+                      value={contextPreview.conversation.length}
+                      section="chat"
+                      tone={contextPreview.conversation.length ? "ok" : "neutral"}
+                    />
+                    <VisualMetric
+                      icon="chat"
+                      label="user"
+                      value={conversationRoleCount("user")}
+                      section="chat"
+                    />
+                    <VisualMetric
+                      icon="chat"
+                      label="assistant"
+                      value={conversationRoleCount("assistant")}
+                      section="chat"
+                    />
+                    <VisualMetric
+                      icon="tools"
+                      label="tool results"
+                      value={conversationRoleCount("tool_result")}
+                      section="chat"
+                    />
+                  </>
+                }
+              >
                 <pre>{previewJson(contextPreview.conversation)}</pre>
-              </section>
+              </ContextPreviewPane>
               <section>
                 <strong>Tools ({contextPreview.visible_tools.length})</strong>
                 {contextPreview.visible_tools.length ? (

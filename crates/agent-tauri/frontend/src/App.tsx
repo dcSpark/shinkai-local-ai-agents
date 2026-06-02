@@ -6196,6 +6196,72 @@ export default function App() {
     return `${delta > 0 ? "+" : ""}${value}${suffix}`;
   }
 
+  function traceRunTone(record: TraceRunRecord): ContextReviewCard["tone"] {
+    const status = record.status.toLowerCase();
+    if (status === "completed" || status === "succeeded") return "ok";
+    if (status === "failed" || status === "cancelled" || status === "canceled") {
+      return "danger";
+    }
+    if (status === "paused" || status === "running") return "warning";
+    return "neutral";
+  }
+
+  function traceRunIcon(record: TraceRunRecord): IconName {
+    const tone = traceRunTone(record);
+    if (tone === "danger") return "adapter";
+    if (record.child_run_count > 0) return "trace";
+    if (tone === "ok") return "approval";
+    return "trace";
+  }
+
+  function traceRunTime(value: string) {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? "n/a" : date.toLocaleTimeString();
+  }
+
+  function traceComparisonIcon(label: string): IconName {
+    switch (label) {
+      case "Run Tree":
+      case "Events":
+        return "trace";
+      case "Contexts":
+        return "context";
+      case "LLM Calls":
+        return "prompt";
+      case "Tool Calls":
+        return "tools";
+      case "Input Tokens":
+      case "Output Tokens":
+        return "setup";
+      case "Cost":
+        return "profile";
+      case "Duration":
+        return "control";
+      case "Approvals":
+        return "approval";
+      case "Quality Avg":
+        return "skill";
+      case "Hook Failures":
+        return "adapter";
+      default:
+        return "trace";
+    }
+  }
+
+  function traceComparisonTone(row: TraceComparisonRow): ContextReviewCard["tone"] {
+    if (row.delta === "0" || row.delta === "0ms" || row.delta === "n/a") {
+      return "neutral";
+    }
+    if (row.label === "Quality Avg") {
+      if (row.delta.startsWith("+")) return "ok";
+      if (row.delta.startsWith("-")) return "danger";
+    }
+    if (row.label === "Hook Failures") return "danger";
+    return row.delta.startsWith("+") || row.delta.startsWith("-")
+      ? "warning"
+      : "neutral";
+  }
+
   function traceComparisonRows(
     primary: TraceSummary,
     compare: TraceSummary,
@@ -20930,78 +20996,139 @@ export default function App() {
           </label>
           {traceRuns.length ? (
             <section className="trace-tree">
-              <div className="trace-tree-head">
-                <strong>Recent Runs</strong>
-                <span>{traceRuns.length} loaded</span>
+              <div className="trace-section-head">
+                <div
+                  className="trace-section-title with-icon"
+                  style={sectionThemeStyle("trace")}
+                >
+                  <span className="trace-section-icon" aria-hidden="true">
+                    <AppIcon name="trace" />
+                  </span>
+                  <div>
+                    <strong>Recent Runs</strong>
+                    <span>{traceRuns.length} loaded for replay or comparison</span>
+                  </div>
+                </div>
               </div>
               <div className="trace-timeline-list">
-                {traceRuns.map((record) => (
-                  <div className="context-card compact" key={record.run_id}>
-                    <div className="trace-tree-node-meta">
-                      <strong>{record.status}</strong>
-                      <span>{record.agent_id ?? "unknown agent"}</span>
+                {traceRuns.map((record) => {
+                  const tone = traceRunTone(record);
+                  const icon = traceRunIcon(record);
+                  return (
+                    <div
+                      className={`trace-detail-card ${tone}`}
+                      key={record.run_id}
+                      style={sectionThemeStyle("trace")}
+                    >
+                      <div className="trace-detail-head">
+                        <span
+                          className={`trace-detail-icon ${tone}`}
+                          aria-hidden="true"
+                        >
+                          <AppIcon name={icon} />
+                        </span>
+                        <div className="trace-detail-title">
+                          <strong>{record.status}</strong>
+                          <span title={record.run_id}>
+                            {record.agent_id ?? "unknown agent"} / {record.run_id}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="trace-detail-metrics">
+                        <VisualMetric
+                          icon={icon}
+                          label="status"
+                          value={record.status}
+                          section="trace"
+                          tone={tone}
+                        />
+                        <VisualMetric
+                          icon="trace"
+                          label="events"
+                          value={record.event_count}
+                          section="trace"
+                          tone={record.event_count ? "ok" : "neutral"}
+                        />
+                        <VisualMetric
+                          icon="adapter"
+                          label="children"
+                          value={record.child_run_count}
+                          section="trace"
+                          tone={record.child_run_count ? "warning" : "neutral"}
+                        />
+                        <VisualMetric
+                          icon="control"
+                          label="event range"
+                          value={`${record.first_event_id}-${record.last_event_id}`}
+                          section="trace"
+                          tone="neutral"
+                        />
+                        <VisualMetric
+                          icon="profile"
+                          label="updated"
+                          value={traceRunTime(record.updated_at)}
+                          section="trace"
+                          tone="neutral"
+                        />
+                      </div>
+                      {record.input_preview ? <p>{record.input_preview}</p> : null}
+                      {record.final_output_preview ? (
+                        <p>{record.final_output_preview}</p>
+                      ) : null}
+                      <div className="mini-actions">
+                        <button
+                          type="button"
+                          title="Load this trace."
+                          onClick={() => void loadTraceById(record.run_id)}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="trace">Load</ButtonLabel>
+                        </button>
+                        <button
+                          type="button"
+                          title="Use this run as the comparison target."
+                          onClick={() => setTraceCompareRunId(record.run_id)}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="trace">Compare</ButtonLabel>
+                        </button>
+                        <button
+                          type="button"
+                          title="Replay this run's original prompt."
+                          onClick={() =>
+                            void replayTracePromptWithOptions({
+                              runId: record.run_id,
+                            })
+                          }
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="trace">Replay</ButtonLabel>
+                        </button>
+                        <button
+                          type="button"
+                          title="Replay this run and compare the replay against it."
+                          onClick={() =>
+                            void replayTracePromptWithOptions({
+                              runId: record.run_id,
+                              compareSource: true,
+                            })
+                          }
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="trace">Replay Compare</ButtonLabel>
+                        </button>
+                        <button
+                          type="button"
+                          title="Move this run id into the Id field."
+                          onClick={() => setOpsId(record.run_id)}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="trace">Set Id</ButtonLabel>
+                        </button>
+                      </div>
                     </div>
-                    <span title={record.run_id}>
-                      {record.run_id} / {record.event_count} events /{" "}
-                      {record.child_run_count} children
-                    </span>
-                    {record.input_preview ? <p>{record.input_preview}</p> : null}
-                    {record.final_output_preview ? (
-                      <p>{record.final_output_preview}</p>
-                    ) : null}
-                    <div className="mini-actions">
-                      <button
-                        type="button"
-                        title="Load this trace."
-                        onClick={() => void loadTraceById(record.run_id)}
-                        disabled={running}
-                      >
-                        <ButtonLabel icon="trace">Load</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Use this run as the comparison target."
-                        onClick={() => setTraceCompareRunId(record.run_id)}
-                        disabled={running}
-                      >
-                        <ButtonLabel icon="trace">Compare</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Replay this run's original prompt."
-                        onClick={() =>
-                          void replayTracePromptWithOptions({
-                            runId: record.run_id,
-                          })
-                        }
-                        disabled={running}
-                      >
-                        <ButtonLabel icon="trace">Replay</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Replay this run and compare the replay against it."
-                        onClick={() =>
-                          void replayTracePromptWithOptions({
-                            runId: record.run_id,
-                            compareSource: true,
-                          })
-                        }
-                        disabled={running}
-                      >
-                        <ButtonLabel icon="trace">Replay Compare</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Move this run id into the Id field."
-                        onClick={() => setOpsId(record.run_id)}
-                        disabled={running}
-                      >
-                        <ButtonLabel icon="trace">Set Id</ButtonLabel>
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </section>
           ) : null}
@@ -21144,13 +21271,21 @@ export default function App() {
           ) : null}
           {traceSummary && traceCompareSummary ? (
             <section className="trace-tree">
-              <div className="trace-tree-head">
-                <div>
-                  <strong>Trace Compare</strong>
-                  <span>
-                    primary {traceSummary.run_id} / compare{" "}
-                    {traceCompareSummary.run_id}
+              <div className="trace-section-head">
+                <div
+                  className="trace-section-title with-icon"
+                  style={sectionThemeStyle("trace")}
+                >
+                  <span className="trace-section-icon" aria-hidden="true">
+                    <AppIcon name="trace" />
                   </span>
+                  <div>
+                    <strong>Trace Compare</strong>
+                    <span>
+                      primary {traceSummary.run_id} / compare{" "}
+                      {traceCompareSummary.run_id}
+                    </span>
+                  </div>
                 </div>
               </div>
               <div className="context-cards">
@@ -21159,14 +21294,53 @@ export default function App() {
                   traceCompareSummary,
                   traceTree,
                   traceCompareTree,
-                ).map((row) => (
-                  <div className="context-card compact" key={row.label}>
-                    <strong>{row.label}</strong>
-                    <span>primary {row.primary}</span>
-                    <span>compare {row.compare}</span>
-                    <span>delta {row.delta}</span>
-                  </div>
-                ))}
+                ).map((row) => {
+                  const tone = traceComparisonTone(row);
+                  const icon = traceComparisonIcon(row.label);
+                  return (
+                    <div
+                      className={`trace-detail-card ${tone}`}
+                      key={row.label}
+                      style={sectionThemeStyle("trace")}
+                    >
+                      <div className="trace-detail-head">
+                        <span
+                          className={`trace-detail-icon ${tone}`}
+                          aria-hidden="true"
+                        >
+                          <AppIcon name={icon} />
+                        </span>
+                        <div className="trace-detail-title">
+                          <strong>{row.label}</strong>
+                          <span>delta {row.delta}</span>
+                        </div>
+                      </div>
+                      <div className="trace-detail-metrics">
+                        <VisualMetric
+                          icon={icon}
+                          label="primary"
+                          value={row.primary}
+                          section="trace"
+                          tone="neutral"
+                        />
+                        <VisualMetric
+                          icon={icon}
+                          label="compare"
+                          value={row.compare}
+                          section="trace"
+                          tone="neutral"
+                        />
+                        <VisualMetric
+                          icon="control"
+                          label="delta"
+                          value={row.delta}
+                          section="trace"
+                          tone={tone}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </section>
           ) : null}

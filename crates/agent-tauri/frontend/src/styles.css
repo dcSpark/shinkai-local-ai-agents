@@ -844,6 +844,64 @@ textarea:disabled {
   max-height: 14rem;
 }
 
+.csv-preview {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.csv-preview-table-wrap {
+  max-height: 18rem;
+  overflow: auto;
+  border: 1px solid #27464b;
+  border-radius: 8px;
+  background: #071014;
+}
+
+.csv-preview-table {
+  width: 100%;
+  min-width: 26rem;
+  border-collapse: collapse;
+  color: #d8eef0;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+}
+
+.csv-preview-table th,
+.csv-preview-table td {
+  max-width: 14rem;
+  padding: 0.42rem 0.5rem;
+  border-bottom: 1px solid #1d3940;
+  border-right: 1px solid #1d3940;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.csv-preview-table th {
+  position: sticky;
+  top: 0;
+  background: #102d32;
+  color: #9be7ee;
+  font-weight: 850;
+}
+
+.csv-preview-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.csv-preview-table th:last-child,
+.csv-preview-table td:last-child {
+  border-right: 0;
+}
+
+.csv-preview-note {
+  color: #96c8ce;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+}
+
 .structured-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

@@ -12003,10 +12003,6 @@ export default function App() {
     return ["txt", "md", "csv", "json"].includes(format.toLowerCase());
   }
 
-  function textFromDataUrl(dataUrl: string) {
-    return textFromArtifactDataUrl(dataUrl);
-  }
-
   function isAudioFormat(format: string) {
     return ["mp3", "wav", "webm", "m4a", "ogg"].includes(format.toLowerCase());
   }
@@ -29067,9 +29063,11 @@ export default function App() {
                       src={artifactPreview.data_url}
                     />
                   ) : isTextArtifactFormat(artifactPreview.artifact.format) ? (
-                    <pre className="artifact-preview-text">
-                      {textFromDataUrl(artifactPreview.data_url)}
-                    </pre>
+                    renderTextArtifactPreview(
+                      artifactPreview.artifact.format,
+                      artifactPreview.data_url,
+                      "artifact-preview-text",
+                    )
                   ) : (
                     <iframe
                       className="artifact-preview-frame"
@@ -32901,7 +32899,7 @@ function structuredMediaPreview(value: JsonValue): ReactNode | null {
       ) : kind === "image" ? (
         <img src={dataUrl} alt={`Inline artifact preview ${id}`} />
       ) : kind === "text" ? (
-        <pre>{textFromStructuredDataUrl(dataUrl)}</pre>
+        renderTextArtifactPreview(format ?? "", dataUrl)
       ) : (
         <iframe
           title={`Inline artifact preview ${id}`}
@@ -33065,8 +33063,125 @@ function formatFromMediaType(mediaType: string | null) {
   return subtype || null;
 }
 
-function textFromStructuredDataUrl(dataUrl: string) {
-  return textFromArtifactDataUrl(dataUrl);
+function renderTextArtifactPreview(format: string, dataUrl: string, className?: string) {
+  const text = textFromArtifactDataUrl(dataUrl);
+  if (format.toLowerCase().replace(/^\./, "") !== "csv") {
+    return <pre className={className}>{text}</pre>;
+  }
+  const preview = csvPreviewFromText(text);
+  if (!preview || preview.rows.length < 2) {
+    return <pre className={className}>{text}</pre>;
+  }
+  const [header, ...bodyRows] = preview.rows;
+  return (
+    <div className="csv-preview">
+      <div className="csv-preview-table-wrap">
+        <table className="csv-preview-table">
+          <thead>
+            <tr>
+              {header.map((cell, index) => (
+                <th key={`h:${index}`}>{cell || `Column ${index + 1}`}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {bodyRows.map((row, rowIndex) => (
+              <tr key={`r:${rowIndex}`}>
+                {header.map((_, columnIndex) => (
+                  <td key={`c:${rowIndex}:${columnIndex}`}>{row[columnIndex] ?? ""}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {preview.truncatedRows || preview.truncatedColumns ? (
+        <span className="csv-preview-note">
+          {[
+            preview.truncatedRows ? "more rows hidden" : null,
+            preview.truncatedColumns ? "more columns hidden" : null,
+          ]
+            .filter(Boolean)
+            .join(" / ")}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
+function csvPreviewFromText(text: string, maxRows = 9, maxColumns = 8) {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  let truncatedRows = false;
+  let truncatedColumns = false;
+
+  const pushField = () => {
+    if (row.length < maxColumns) {
+      row.push(field);
+    } else {
+      truncatedColumns = true;
+    }
+    field = "";
+  };
+  const pushRow = () => {
+    pushField();
+    if (rows.length < maxRows) {
+      rows.push(row);
+    } else {
+      truncatedRows = true;
+    }
+    row = [];
+  };
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (inQuotes) {
+      if (char === '"') {
+        if (text[index + 1] === '"') {
+          field += '"';
+          index += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += char;
+      }
+      continue;
+    }
+    if (char === '"' && field.length === 0) {
+      inQuotes = true;
+    } else if (char === ",") {
+      pushField();
+    } else if (char === "\n") {
+      pushRow();
+      if (rows.length >= maxRows) {
+        truncatedRows = index < text.length - 1;
+        break;
+      }
+    } else if (char === "\r") {
+      if (text[index + 1] === "\n") index += 1;
+      pushRow();
+      if (rows.length >= maxRows) {
+        truncatedRows = index < text.length - 1;
+        break;
+      }
+    } else {
+      field += char;
+    }
+  }
+
+  if (!truncatedRows && (field || row.length || text.length)) {
+    pushRow();
+  }
+  const nonEmptyRows = rows.filter((items) => items.some((item) => item.trim()));
+  if (nonEmptyRows.length === 0) return null;
+  return {
+    rows: nonEmptyRows,
+    truncatedColumns,
+    truncatedRows,
+  };
 }
 
 function textFromArtifactDataUrl(dataUrl: string) {

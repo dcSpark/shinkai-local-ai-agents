@@ -22133,7 +22133,7 @@ export default function App() {
                           onClick={() => stageMemoryBackendSelection(backend.id)}
                           disabled={running}
                         >
-                          Use
+                          <ButtonLabel icon="chat">Use</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -22141,7 +22141,7 @@ export default function App() {
                           onClick={() => void probeMemoryBackend(backend.id)}
                           disabled={running}
                         >
-                          Probe
+                          <ButtonLabel icon="trace">Probe</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -22149,7 +22149,7 @@ export default function App() {
                           onClick={() => void previewMemoryBackend(backend.id)}
                           disabled={running}
                         >
-                          Preview
+                          <ButtonLabel icon="context">Preview</ButtonLabel>
                         </button>
                       </div>
                     </div>
@@ -22186,7 +22186,7 @@ export default function App() {
                         onClick={() => stageMemoryBackendProbe(memoryBackendProbe)}
                         disabled={running}
                       >
-                        Use
+                        <ButtonLabel icon="chat">Use</ButtonLabel>
                       </button>
                       <button
                         type="button"
@@ -22199,7 +22199,7 @@ export default function App() {
                         }
                         disabled={running || !memoryBackendProbe.ok}
                       >
-                        Preview
+                        <ButtonLabel icon="context">Preview</ButtonLabel>
                       </button>
                     </div>
                   </div>
@@ -22252,7 +22252,7 @@ export default function App() {
                           onClick={() => setOpsId(record.id)}
                           disabled={running}
                         >
-                          Set Id
+                          <ButtonLabel icon="memory">Set Id</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -22263,7 +22263,7 @@ export default function App() {
                           }}
                           disabled={running}
                         >
-                          Edit
+                          <ButtonLabel icon="prompt">Edit</ButtonLabel>
                         </button>
                         <button
                           type="button"
@@ -22271,7 +22271,7 @@ export default function App() {
                           onClick={() => void classifyMemoryFromOps(record.id)}
                           disabled={running}
                         >
-                          Classify
+                          <ButtonLabel icon="skill">Classify</ButtonLabel>
                         </button>
                       </div>
                     </div>

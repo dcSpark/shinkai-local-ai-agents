@@ -30457,30 +30457,90 @@ export default function App() {
                         tone={approvalAssessmentTone(approval.assessment)}
                       />
                     </div>
-                    {approval.reason ? (
-                      <p>{previewText(approval.reason, 180)}</p>
-                    ) : null}
-                    {approval.controller_agent ? (
-                      <p>
-                        controller {approval.controller_agent}
-                        {approval.controller_scope?.length
-                          ? ` (${approval.controller_scope.join(", ")})`
-                          : ""}
-                      </p>
-                    ) : null}
-                    {approval.delegated_controller ? (
-                      <p>delegated by {approval.delegated_controller}</p>
-                    ) : null}
-                    {approval.assessment ? (
-                      <p>
-                        assessment{" "}
-                        {approval.assessment.recommendation ??
-                          approval.assessment.status}{" "}
-                        by {approval.assessment.controller_agent}
-                        {approval.assessment.model
-                          ? ` via ${approval.assessment.model}`
-                          : ""}
-                      </p>
+                    {approval.reason ||
+                    approval.controller_agent ||
+                    approval.delegated_controller ||
+                    approval.assessment ? (
+                      <div className="approval-detail-list">
+                        {approval.reason ? (
+                          <div
+                            className={`approval-detail-row ${approvalTone(
+                              approval,
+                            )}`}
+                          >
+                            <span
+                              className={`approval-detail-icon ${approvalTone(approval)}`}
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="prompt" />
+                            </span>
+                            <div className="approval-detail-copy">
+                              <strong>Rationale</strong>
+                              <span>{previewText(approval.reason, 180)}</span>
+                            </div>
+                          </div>
+                        ) : null}
+                        {approval.controller_agent ? (
+                          <div className="approval-detail-row ok">
+                            <span
+                              className="approval-detail-icon ok"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="profile" />
+                            </span>
+                            <div className="approval-detail-copy">
+                              <strong>Controller</strong>
+                              <span>
+                                {approval.controller_agent}
+                                {approval.controller_scope?.length
+                                  ? ` / ${approval.controller_scope.join(", ")}`
+                                  : " / default scope"}
+                              </span>
+                            </div>
+                          </div>
+                        ) : null}
+                        {approval.delegated_controller ? (
+                          <div className="approval-detail-row warning">
+                            <span
+                              className="approval-detail-icon warning"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="approval" />
+                            </span>
+                            <div className="approval-detail-copy">
+                              <strong>Delegated By</strong>
+                              <span>{approval.delegated_controller}</span>
+                            </div>
+                          </div>
+                        ) : null}
+                        {approval.assessment ? (
+                          <div
+                            className={`approval-detail-row ${approvalAssessmentTone(
+                              approval.assessment,
+                            )}`}
+                          >
+                            <span
+                              className={`approval-detail-icon ${approvalAssessmentTone(
+                                approval.assessment,
+                              )}`}
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="profile" />
+                            </span>
+                            <div className="approval-detail-copy">
+                              <strong>Assessment</strong>
+                              <span>
+                                {approval.assessment.recommendation ??
+                                  approval.assessment.status}{" "}
+                                by {approval.assessment.controller_agent}
+                                {approval.assessment.model
+                                  ? ` via ${approval.assessment.model}`
+                                  : ""}
+                              </span>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
                     ) : null}
                     <div className="mini-actions">
                       <button

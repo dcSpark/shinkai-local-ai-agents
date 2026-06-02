@@ -619,6 +619,25 @@ function ButtonLabel({ icon, children }: { icon: IconName; children: ReactNode }
   );
 }
 
+function FieldLabel({
+  icon,
+  section,
+  children,
+}: {
+  icon: IconName;
+  section: ActiveSection;
+  children: ReactNode;
+}) {
+  return (
+    <span className="field-label with-icon" style={sectionThemeStyle(section)}>
+      <span className="field-label-icon" aria-hidden="true">
+        <AppIcon name={icon} />
+      </span>
+      <span>{children}</span>
+    </span>
+  );
+}
+
 function EmptyNote({
   section,
   icon,
@@ -21241,7 +21260,9 @@ export default function App() {
         <section className="panel">
           <PanelTitle title={operationsTitle()} section={activeSection} />
           <label>
-            Value
+            <FieldLabel icon={activeVisual.secondaryIcon} section={activeSection}>
+              Value
+            </FieldLabel>
             <textarea
               className="ops-text"
               value={opsValue}
@@ -21252,7 +21273,9 @@ export default function App() {
             />
           </label>
           <label>
-            Id
+            <FieldLabel icon={activeVisual.icon} section={activeSection}>
+              Id
+            </FieldLabel>
             <input
               value={opsId}
               onChange={(e) => setOpsId(e.target.value)}

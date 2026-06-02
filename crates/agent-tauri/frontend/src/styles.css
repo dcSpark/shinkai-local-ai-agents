@@ -1109,6 +1109,37 @@ textarea:disabled {
   font-weight: 800;
 }
 
+.field-label.with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  min-width: 0;
+}
+
+.field-label-icon {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 1.45rem;
+  height: 1.45rem;
+  place-items: center;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+  color: var(--section-accent);
+}
+
+.field-label-icon .app-icon {
+  width: 0.78rem;
+  height: 0.78rem;
+}
+
+.field-label.with-icon > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .mode-note {
   padding: 0.45rem 0.55rem;
   border: 1px solid #816a2d;

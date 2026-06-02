@@ -1250,6 +1250,7 @@ textarea:disabled {
   overflow-wrap: anywhere;
 }
 
+.run-readiness-detail,
 .run-readiness-copy p {
   margin: 0;
   color: #c3c8d0;
@@ -3496,6 +3497,7 @@ textarea:disabled {
   overflow-wrap: anywhere;
 }
 
+.context-review-detail,
 .context-review-copy p {
   margin: 0;
   color: #c3c8d0;

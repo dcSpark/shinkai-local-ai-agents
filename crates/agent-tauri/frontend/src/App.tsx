@@ -19940,7 +19940,7 @@ export default function App() {
                 <div className="run-readiness-copy">
                   <span>{card.title}</span>
                   <strong>{card.value}</strong>
-                  <p>{card.detail}</p>
+                  <span className="run-readiness-detail">{card.detail}</span>
                 </div>
               </div>
             ))}
@@ -20319,7 +20319,7 @@ export default function App() {
                 <div className="run-readiness-copy">
                   <span>{card.title}</span>
                   <strong>{card.value}</strong>
-                  <p>{card.detail}</p>
+                  <span className="run-readiness-detail">{card.detail}</span>
                 </div>
               </div>
             ))}
@@ -21266,7 +21266,7 @@ export default function App() {
                     <div className="context-review-copy">
                       <span>{card.title}</span>
                       <strong>{card.value}</strong>
-                      <p>{card.detail}</p>
+                      <span className="context-review-detail">{card.detail}</span>
                     </div>
                   </div>
                 ))}

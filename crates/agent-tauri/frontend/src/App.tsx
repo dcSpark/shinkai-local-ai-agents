@@ -27364,11 +27364,11 @@ export default function App() {
                           </span>
                           <div className="capability-draft-detail-copy">
                             <strong>Draft body</strong>
-                            <p>
+                            <span>
                               {draft.body.trim()
                                 ? previewText(draft.body)
                                 : "Draft body is empty."}
-                            </p>
+                            </span>
                           </div>
                         </div>
                         {draft.guidance ? (
@@ -27381,7 +27381,7 @@ export default function App() {
                             </span>
                             <div className="capability-draft-detail-copy">
                               <strong>Guidance</strong>
-                              <p>{previewText(draft.guidance)}</p>
+                              <span>{previewText(draft.guidance)}</span>
                             </div>
                           </div>
                         ) : null}
@@ -27662,7 +27662,7 @@ export default function App() {
                                 </span>
                                 <div className="skill-detail-copy">
                                   <strong>Description</strong>
-                                  <p>{skill.description}</p>
+                                  <span>{skill.description}</span>
                                 </div>
                               </div>
                             ) : null}
@@ -27676,7 +27676,7 @@ export default function App() {
                                 </span>
                                 <div className="skill-detail-copy">
                                   <strong>Prompt body</strong>
-                                  <p>{previewText(skill.body)}</p>
+                                  <span>{previewText(skill.body)}</span>
                                 </div>
                               </div>
                             ) : null}
@@ -29599,7 +29599,9 @@ export default function App() {
                                 </span>
                                 <div className="agent-detail-copy">
                                   <strong>Prompt</strong>
-                                  <p>{previewText(savedAgent.system_prompt, 220)}</p>
+                                  <span>
+                                    {previewText(savedAgent.system_prompt, 220)}
+                                  </span>
                                 </div>
                               </div>
                             </>
@@ -32219,7 +32221,7 @@ export default function App() {
                   <div className="resume-plan-detail-copy">
                     <strong>Original input</strong>
                     <span>~{estimateLocalTokens(resumePlan.original_input)} tokens</span>
-                    <p>{previewText(resumePlan.original_input, 180)}</p>
+                    <span>{previewText(resumePlan.original_input, 180)}</span>
                   </div>
                 </div>
                 <div className="resume-plan-detail-row ok">
@@ -32229,7 +32231,7 @@ export default function App() {
                   <div className="resume-plan-detail-copy">
                     <strong>Generated prompt</strong>
                     <span>~{estimateLocalTokens(resumePlan.prompt)} tokens</span>
-                    <p>{previewText(resumePlan.prompt, 260)}</p>
+                    <span>{previewText(resumePlan.prompt, 260)}</span>
                   </div>
                 </div>
               </div>

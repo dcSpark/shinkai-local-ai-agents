@@ -3184,6 +3184,7 @@ textarea:disabled {
   min-width: 0;
 }
 
+.resume-plan-detail-copy span,
 .resume-plan-detail-copy p {
   margin: 0;
   color: #c3c8d0;
@@ -5222,6 +5223,7 @@ textarea:disabled {
   min-width: 0;
 }
 
+.skill-detail-copy span,
 .skill-detail-copy p {
   margin: 0;
   color: #c3c8d0;
@@ -5419,6 +5421,7 @@ textarea:disabled {
   min-width: 0;
 }
 
+.capability-draft-detail-copy span,
 .capability-draft-detail-copy p {
   margin: 0;
   color: #c3c8d0;

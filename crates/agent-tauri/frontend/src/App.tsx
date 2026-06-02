@@ -1380,19 +1380,107 @@ function SecretResultCard({ status }: { status: JsonValue }) {
         />
       </div>
       {record ? (
-        <>
-          <span>{record.id}</span>
-          <span title={record.value_fingerprint}>
-            fingerprint {record.value_fingerprint}
-          </span>
-          <span>updated {record.updated_at}</span>
-        </>
+        <div className="secret-result-detail-list">
+          <div className="secret-result-detail-row ok">
+            <span className="secret-result-detail-icon ok" aria-hidden="true">
+              <AppIcon name="profile" />
+            </span>
+            <div className="secret-result-detail-copy">
+              <strong>Secret id</strong>
+              <span>{record.id}</span>
+            </div>
+          </div>
+          <div className="secret-result-detail-row ok">
+            <span className="secret-result-detail-icon ok" aria-hidden="true">
+              <AppIcon name="approval" />
+            </span>
+            <div className="secret-result-detail-copy">
+              <strong>Value fingerprint</strong>
+              <span title={record.value_fingerprint}>
+                {record.value_fingerprint}
+              </span>
+            </div>
+          </div>
+          <div className="secret-result-detail-row ok">
+            <span className="secret-result-detail-icon ok" aria-hidden="true">
+              <AppIcon name="trace" />
+            </span>
+            <div className="secret-result-detail-copy">
+              <strong>Updated at</strong>
+              <span>{record.updated_at}</span>
+            </div>
+          </div>
+          <div className="secret-result-detail-row warning">
+            <span
+              className="secret-result-detail-icon warning"
+              aria-hidden="true"
+            >
+              <AppIcon name="control" />
+            </span>
+            <div className="secret-result-detail-copy">
+              <strong>Secret value</strong>
+              <span>withheld</span>
+              <p>Secret values stay redacted on this app surface.</p>
+            </div>
+          </div>
+        </div>
       ) : deleted ? (
-        <span>
-          {deleted.id} {deleted.deleted ? "removed from metadata" : "was not removed"}
-        </span>
+        <div className="secret-result-detail-list">
+          <div
+            className={`secret-result-detail-row ${
+              deleted.deleted ? "warning" : "danger"
+            }`}
+          >
+            <span
+              className={`secret-result-detail-icon ${
+                deleted.deleted ? "warning" : "danger"
+              }`}
+              aria-hidden="true"
+            >
+              <AppIcon name="profile" />
+            </span>
+            <div className="secret-result-detail-copy">
+              <strong>Secret id</strong>
+              <span>{deleted.id}</span>
+            </div>
+          </div>
+          <div
+            className={`secret-result-detail-row ${
+              deleted.deleted ? "warning" : "danger"
+            }`}
+          >
+            <span
+              className={`secret-result-detail-icon ${
+                deleted.deleted ? "warning" : "danger"
+              }`}
+              aria-hidden="true"
+            >
+              <AppIcon name="approval" />
+            </span>
+            <div className="secret-result-detail-copy">
+              <strong>Metadata state</strong>
+              <span>
+                {deleted.deleted ? "removed from metadata" : "was not removed"}
+              </span>
+            </div>
+          </div>
+        </div>
       ) : (
-        <span>secret values are not returned by this app surface</span>
+        <div className="secret-result-detail-list">
+          <div className="secret-result-detail-row warning">
+            <span
+              className="secret-result-detail-icon warning"
+              aria-hidden="true"
+            >
+              <AppIcon name="control" />
+            </span>
+            <div className="secret-result-detail-copy">
+              <strong>Secret values</strong>
+              <span>not returned</span>
+              <p>This app surface keeps secret values redacted.</p>
+            </div>
+          </div>
+        </div>
       )}
       <pre>{JSON.stringify(status, null, 2)}</pre>
     </div>

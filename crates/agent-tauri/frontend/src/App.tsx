@@ -17314,6 +17314,7 @@ export default function App() {
           : "neutral";
     const queueTone: ContextReviewCard["tone"] =
       remaining === null ? "neutral" : remaining > 0 ? "warning" : "ok";
+    const resultPreview = previewText(previewJson(value), 260);
     return (
       <div className={`bridge-card ${tone}`} style={sectionThemeStyle("adapters")}>
         <div className="bridge-card-head with-icon">
@@ -17355,7 +17356,49 @@ export default function App() {
             tone={queueTone}
           />
         </div>
-        <span>{previewText(previewJson(value), 260)}</span>
+        <div className="bridge-detail-list">
+          <div className={`bridge-detail-row ${tone}`}>
+            <span className={`bridge-detail-icon ${tone}`} aria-hidden="true">
+              <AppIcon name="conversation" />
+            </span>
+            <div className="bridge-detail-copy">
+              <strong>Delivery target</strong>
+              <span>{target}</span>
+            </div>
+          </div>
+          <div className={`bridge-detail-row ${tone}`}>
+            <span className={`bridge-detail-icon ${tone}`} aria-hidden="true">
+              <AppIcon name="approval" />
+            </span>
+            <div className="bridge-detail-copy">
+              <strong>Outcome</strong>
+              <span>{status}</span>
+            </div>
+          </div>
+          <div className={`bridge-detail-row ${queueTone}`}>
+            <span
+              className={`bridge-detail-icon ${queueTone}`}
+              aria-hidden="true"
+            >
+              <AppIcon name="control" />
+            </span>
+            <div className="bridge-detail-copy">
+              <strong>Queue posture</strong>
+              <span>
+                {queue}; {resolution}
+              </span>
+            </div>
+          </div>
+          <div className="bridge-detail-row">
+            <span className="bridge-detail-icon" aria-hidden="true">
+              <AppIcon name="trace" />
+            </span>
+            <div className="bridge-detail-copy">
+              <strong>Result payload</strong>
+              <span>{resultPreview}</span>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

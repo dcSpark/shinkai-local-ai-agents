@@ -1771,6 +1771,79 @@ textarea:disabled {
   font-family: inherit;
 }
 
+.bridge-detail-list {
+  display: grid;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.bridge-detail-row {
+  display: grid;
+  grid-template-columns: 1.55rem minmax(0, 1fr);
+  gap: 0.4rem;
+  align-items: start;
+  min-width: 0;
+  padding: 0.42rem;
+  border: 1px solid #2a2d34;
+  border-radius: 8px;
+  background: #111215;
+}
+
+.bridge-detail-row.ok {
+  border-color: #47752e;
+  background: #182516;
+}
+
+.bridge-detail-row.warning {
+  border-color: #816a2d;
+  background: #251f12;
+}
+
+.bridge-detail-row.danger {
+  border-color: #7d3c45;
+  background: #211317;
+}
+
+.bridge-detail-icon {
+  display: inline-grid;
+  width: 1.55rem;
+  height: 1.55rem;
+  place-items: center;
+  border: 1px solid #47752e;
+  border-radius: 8px;
+  background: #1c2a14;
+  color: #9ddc6f;
+}
+
+.bridge-detail-icon.ok {
+  border-color: #47752e;
+  background: #213819;
+  color: #9ddc6f;
+}
+
+.bridge-detail-icon.warning {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
+.bridge-detail-icon.danger {
+  border-color: #7d3c45;
+  background: #32191f;
+  color: #ffb4c0;
+}
+
+.bridge-detail-icon .app-icon {
+  width: 0.82rem;
+  height: 0.82rem;
+}
+
+.bridge-detail-copy {
+  display: grid;
+  gap: 0.14rem;
+  min-width: 0;
+}
+
 .storage-report {
   display: grid;
   gap: 0.5rem;

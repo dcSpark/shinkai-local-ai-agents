@@ -11361,6 +11361,55 @@ export default function App() {
     return `modified ${new Date(artifact.modified_ms).toLocaleString()}`;
   }
 
+  function artifactExportCard(status: GeneratedArtifactExport) {
+    const artifact = status.artifact;
+    const tone = generatedArtifactTone(artifact);
+    return (
+      <div className={`artifact-export-card ${tone}`} style={sectionThemeStyle("artifacts")}>
+        <div className="artifact-export-head with-icon">
+          <span className={`artifact-export-icon ${tone}`} aria-hidden="true">
+            <AppIcon name="artifact" />
+          </span>
+          <div className="artifact-export-title">
+            <strong>Artifact exported</strong>
+            <span>{artifact.id}</span>
+          </div>
+        </div>
+        <div className="artifact-export-metrics">
+          <VisualMetric
+            icon="artifact"
+            label="format"
+            value={generatedArtifactFormatLabel(artifact.format)}
+            section="artifacts"
+            tone={tone}
+          />
+          <VisualMetric
+            icon="control"
+            label="written"
+            value={formatBytes(status.bytes)}
+            section="artifacts"
+            tone={status.bytes > 0 ? "ok" : "warning"}
+          />
+          <VisualMetric
+            icon="prompt"
+            label="preview"
+            value={generatedArtifactPreviewLabel(artifact.format)}
+            section="artifacts"
+            tone={isInlineArtifactFormat(artifact.format) ? "ok" : "neutral"}
+          />
+          <VisualMetric
+            icon="trace"
+            label="modified"
+            value={generatedArtifactModifiedLabel(artifact)}
+            section="artifacts"
+            tone={artifact.modified_ms ? "ok" : "neutral"}
+          />
+        </div>
+        <span title={status.output_path}>{status.output_path}</span>
+      </div>
+    );
+  }
+
   function isImageArtifactFormat(format: string) {
     return ["svg", "png", "jpg", "jpeg", "gif", "webp"].includes(
       format.toLowerCase(),
@@ -23970,16 +24019,7 @@ export default function App() {
                 </button>
               </div>
               {artifactExportStatus ? (
-                <div className="bundle-card">
-                  <div className="bundle-card-head">
-                    <strong>Artifact exported</strong>
-                    <span>{artifactExportStatus.artifact.id}</span>
-                  </div>
-                  <span title={artifactExportStatus.output_path}>
-                    {artifactExportStatus.output_path}
-                  </span>
-                  <span>{formatBytes(artifactExportStatus.bytes)}</span>
-                </div>
+                artifactExportCard(artifactExportStatus)
               ) : null}
               {generatedArtifacts.length ? (
                 <div className="ingestion-review">

@@ -3468,6 +3468,110 @@ textarea:disabled {
   font-family: inherit;
 }
 
+.artifact-export-card {
+  display: grid;
+  gap: 0.42rem;
+  min-width: 0;
+  padding: 0.55rem;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+}
+
+.artifact-export-card.warning {
+  border-color: #816a2d;
+  background: #251f12;
+}
+
+.artifact-export-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.artifact-export-head.with-icon {
+  grid-template-columns: 1.75rem minmax(0, 1fr);
+}
+
+.artifact-export-icon {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+  color: var(--section-accent);
+}
+
+.artifact-export-icon.ok {
+  border-color: #7a3f58;
+  background: #3a1d2a;
+  color: #ff8fb1;
+}
+
+.artifact-export-icon.warning {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
+.artifact-export-icon .app-icon {
+  width: 0.92rem;
+  height: 0.92rem;
+}
+
+.artifact-export-title {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.artifact-export-card strong,
+.artifact-export-card span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.artifact-export-card strong {
+  color: #f1f2f4;
+}
+
+.artifact-export-card span {
+  color: #9da3ad;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+}
+
+.artifact-export-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.2rem, 1fr));
+  gap: 0.4rem;
+}
+
+.artifact-export-card .visual-metric {
+  font-family: inherit;
+}
+
+.artifact-export-card .visual-metric .visual-metric-icon {
+  font-family: inherit;
+  color: var(--section-accent);
+}
+
+.artifact-export-card .visual-metric.ok .visual-metric-icon {
+  color: #78dda7;
+}
+
+.artifact-export-card .visual-metric.warning .visual-metric-icon {
+  color: #ffce6b;
+}
+
+.artifact-export-card .visual-metric-copy span {
+  color: #8e949f;
+  font-family: inherit;
+}
+
 .artifact-preview {
   display: grid;
   gap: 0.55rem;

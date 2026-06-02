@@ -4847,7 +4847,7 @@ textarea:disabled {
   overflow-wrap: anywhere;
 }
 
-.trace-section-title span {
+.trace-section-title > div span {
   min-width: 0;
   color: #9da3ad;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -5008,16 +5008,14 @@ textarea:disabled {
   color: #dfe3ea;
 }
 
-.trace-tree-head span {
-  min-width: 0;
-  color: #9da3ad;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 0.72rem;
-  overflow-wrap: anywhere;
-}
-
 .trace-tree-head .mini-actions {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.trace-tree-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7.2rem, 1fr));
+  gap: 0.4rem;
 }
 
 .trace-tree-list,

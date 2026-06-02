@@ -22039,13 +22039,21 @@ export default function App() {
           {traceTree ? (
             <section className="trace-tree">
               <div className="trace-tree-head">
-                <div>
-                  <strong>Run Tree</strong>
-                  <span>
-                    {traceTreeNodeCount(traceTree)} run(s),{" "}
-                    {traceTreeLeafCount(traceTree)} leaf run(s), depth{" "}
-                    {traceTreeMaxDepth(traceTree)}
+                <div
+                  className="trace-section-title with-icon"
+                  style={sectionThemeStyle("trace")}
+                >
+                  <span className="trace-section-icon" aria-hidden="true">
+                    <AppIcon name="trace" />
                   </span>
+                  <div>
+                    <strong>Run Tree</strong>
+                    <span>
+                      {traceTreeNodeCount(traceTree)} run(s),{" "}
+                      {traceTreeLeafCount(traceTree)} leaf run(s), depth{" "}
+                      {traceTreeMaxDepth(traceTree)}
+                    </span>
+                  </div>
                 </div>
                 <div className="mini-actions">
                   <button
@@ -22069,6 +22077,45 @@ export default function App() {
                     <ButtonLabel icon="trace">Collapse All</ButtonLabel>
                   </button>
                 </div>
+              </div>
+              <div className="trace-tree-metrics">
+                <VisualMetric
+                  icon="trace"
+                  label="runs"
+                  value={traceTreeNodeCount(traceTree)}
+                  section="trace"
+                  tone="ok"
+                />
+                <VisualMetric
+                  icon="conversation"
+                  label="leaf runs"
+                  value={traceTreeLeafCount(traceTree)}
+                  section="trace"
+                  tone="neutral"
+                />
+                <VisualMetric
+                  icon="context"
+                  label="depth"
+                  value={traceTreeMaxDepth(traceTree)}
+                  section="trace"
+                  tone={traceTreeMaxDepth(traceTree) > 1 ? "warning" : "neutral"}
+                />
+                <VisualMetric
+                  icon="adapter"
+                  label="branches"
+                  value={expandableTraceTreeRunIds(traceTree).length}
+                  section="trace"
+                  tone={
+                    expandableTraceTreeRunIds(traceTree).length ? "warning" : "neutral"
+                  }
+                />
+                <VisualMetric
+                  icon="control"
+                  label="collapsed"
+                  value={collapsedTraceTreeRuns.length}
+                  section="trace"
+                  tone={collapsedTraceTreeRuns.length ? "warning" : "ok"}
+                />
               </div>
               <div className="trace-tree-list">{renderTraceTreeNode(traceTree)}</div>
             </section>

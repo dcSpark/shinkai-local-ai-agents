@@ -18562,6 +18562,28 @@ export default function App() {
     return (skill.findings ?? []).length ? "warning" : "ok";
   }
 
+  function capabilityStatusTone(
+    status: CapabilityDraft["status"],
+  ): ContextReviewCard["tone"] {
+    if (status === "allowed") return "ok";
+    if (status === "rejected") return "danger";
+    return "warning";
+  }
+
+  function capabilityDoctorTone(
+    status: CapabilityDraftDoctorReport["status"],
+  ): ContextReviewCard["tone"] {
+    return status === "ok" ? "ok" : "warning";
+  }
+
+  function capabilityPromotionLabel(
+    target: CapabilityDraftDoctorReport["drafts"][number]["promotion_target"],
+  ) {
+    if (target === "adapter_package") return "adapter";
+    if (target === "skill_doc") return "skill";
+    return "agent";
+  }
+
   function enabledPermissions(adapterPackage: AdapterPackage) {
     return Object.entries(adapterPackage.permissions)
       .filter(([, enabled]) => enabled)
@@ -23670,10 +23692,89 @@ export default function App() {
               </div>
               {capabilityDoctorReport ? (
                 <div className="ingestion-review">
-                  <div className="ingestion-card">
-                    <div className="ingestion-card-head">
-                      <strong>Capability doctor</strong>
-                      <span>{capabilityDoctorReport.status}</span>
+                  <div
+                    className={`ingestion-card ${capabilityDoctorTone(
+                      capabilityDoctorReport.status,
+                    )}`}
+                  >
+                    <div className="ingestion-card-head with-icon">
+                      <span
+                        className={`ingestion-card-icon ${capabilityDoctorTone(
+                          capabilityDoctorReport.status,
+                        )}`}
+                        aria-hidden="true"
+                      >
+                        <AppIcon name="tools" />
+                      </span>
+                      <div className="ingestion-card-title">
+                        <strong>Capability doctor</strong>
+                        <span>{capabilityDoctorReport.status}</span>
+                      </div>
+                    </div>
+                    <div className="ingestion-metrics">
+                      <VisualMetric
+                        icon="tools"
+                        label="drafts"
+                        value={capabilityDoctorReport.draft_count}
+                        section="skills"
+                        tone={
+                          capabilityDoctorReport.draft_count ? "ok" : "neutral"
+                        }
+                      />
+                      <VisualMetric
+                        icon="approval"
+                        label="review"
+                        value={capabilityDoctorReport.review_needed_count}
+                        section="skills"
+                        tone={
+                          capabilityDoctorReport.review_needed_count
+                            ? "warning"
+                            : "ok"
+                        }
+                      />
+                      <VisualMetric
+                        icon="adapter"
+                        label="adapter / skill"
+                        value={`${capabilityDoctorReport.adapter_pack_candidate_count}/${capabilityDoctorReport.skill_candidate_count}`}
+                        section="skills"
+                        tone={
+                          capabilityDoctorReport.adapter_pack_candidate_count ||
+                          capabilityDoctorReport.skill_candidate_count
+                            ? "ok"
+                            : "neutral"
+                        }
+                      />
+                      <VisualMetric
+                        icon="brand"
+                        label="agents"
+                        value={capabilityDoctorReport.agent_candidate_count}
+                        section="skills"
+                        tone={
+                          capabilityDoctorReport.agent_candidate_count
+                            ? "ok"
+                            : "neutral"
+                        }
+                      />
+                      <VisualMetric
+                        icon="approval"
+                        label="quarantine"
+                        value={capabilityDoctorReport.quarantined_count}
+                        section="skills"
+                        tone={
+                          capabilityDoctorReport.quarantined_count
+                            ? "warning"
+                            : "ok"
+                        }
+                      />
+                      <VisualMetric
+                        icon="trace"
+                        label="warnings"
+                        value={capabilityDoctorReport.warnings.length}
+                        section="skills"
+                        tone={
+                          capabilityDoctorReport.warnings.length ? "warning" : "ok"
+                        }
+                      />
                     </div>
                     <span>
                       {capabilityDoctorReport.draft_count} drafts /{" "}
@@ -23698,7 +23799,7 @@ export default function App() {
                       <span key={draft.id}>
                         {draft.id} {draft.status}
                         {" -> "}
-                        {draft.promotion_target}
+                        {capabilityPromotionLabel(draft.promotion_target)}
                         {` / source ${draft.created_by}`}
                         {` / created ${draft.created_at}`}
                         {` / ${previewText(draft.provenance, 80)}`}
@@ -23714,10 +23815,61 @@ export default function App() {
               {capabilityDrafts.length ? (
                 <div className="ingestion-review">
                   {capabilityDrafts.map((draft) => (
-                    <div className="ingestion-card" key={draft.id}>
-                      <div className="ingestion-card-head">
-                        <strong>{draft.name}</strong>
-                        <span>{draft.status}</span>
+                    <div
+                      className={`ingestion-card ${capabilityStatusTone(
+                        draft.status,
+                      )}`}
+                      key={draft.id}
+                    >
+                      <div className="ingestion-card-head with-icon">
+                        <span
+                          className={`ingestion-card-icon ${capabilityStatusTone(
+                            draft.status,
+                          )}`}
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="tools" />
+                        </span>
+                        <div className="ingestion-card-title">
+                          <strong>{draft.name}</strong>
+                          <span>{draft.status}</span>
+                        </div>
+                      </div>
+                      <div className="ingestion-metrics">
+                        <VisualMetric
+                          icon="approval"
+                          label="status"
+                          value={draft.status}
+                          section="skills"
+                          tone={capabilityStatusTone(draft.status)}
+                        />
+                        <VisualMetric
+                          icon={
+                            draft.kind === "agent" || draft.kind === "subagent"
+                              ? "brand"
+                              : draft.kind === "skill"
+                                ? "skill"
+                                : "tools"
+                          }
+                          label="kind"
+                          value={draft.kind}
+                          section="skills"
+                          tone="ok"
+                        />
+                        <VisualMetric
+                          icon="prompt"
+                          label="body"
+                          value={estimateLocalTokens(draft.body)}
+                          section="skills"
+                          tone={draft.body.trim() ? "ok" : "warning"}
+                        />
+                        <VisualMetric
+                          icon="context"
+                          label="guidance"
+                          value={draft.guidance ? "set" : "none"}
+                          section="skills"
+                          tone={draft.guidance ? "ok" : "neutral"}
+                        />
                       </div>
                       <span>{draft.id}</span>
                       <span>{draft.kind}</span>

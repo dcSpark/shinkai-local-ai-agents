@@ -25088,6 +25088,9 @@ export default function App() {
                 <div className="ingestion-review">
                   {promptDocs.map((prompt) => {
                     const tone = promptTone(prompt);
+                    const promptExportPath = defaultPromptExportPath(prompt);
+                    const promptBodyTone: ContextReviewCard["tone"] =
+                      prompt.body.trim() ? "ok" : "warning";
                     return (
                       <div className={`prompt-card ${tone}`} key={prompt.name}>
                         <div className="prompt-card-head with-icon">
@@ -25127,7 +25130,59 @@ export default function App() {
                             section="prompts"
                           />
                         </div>
-                        <p>{previewText(prompt.body, 220)}</p>
+                        <div className="prompt-detail-list">
+                          <div
+                            className={
+                              prompt.agent_id
+                                ? "prompt-detail-row ok"
+                                : "prompt-detail-row"
+                            }
+                          >
+                            <span
+                              className={
+                                prompt.agent_id
+                                  ? "prompt-detail-icon ok"
+                                  : "prompt-detail-icon"
+                              }
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="profile" />
+                            </span>
+                            <div className="prompt-detail-copy">
+                              <strong>Scope</strong>
+                              <span>
+                                {prompt.agent_id
+                                  ? `agent ${prompt.agent_id}`
+                                  : "profile prompt"}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="prompt-detail-row">
+                            <span className="prompt-detail-icon" aria-hidden="true">
+                              <AppIcon name="artifact" />
+                            </span>
+                            <div className="prompt-detail-copy">
+                              <strong>Default Export</strong>
+                              <span>{promptExportPath}</span>
+                            </div>
+                          </div>
+                          <div className={`prompt-detail-row ${promptBodyTone}`}>
+                            <span
+                              className={`prompt-detail-icon ${promptBodyTone}`}
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="prompt" />
+                            </span>
+                            <div className="prompt-detail-copy">
+                              <strong>Prompt Body</strong>
+                              <p>
+                                {prompt.body.trim()
+                                  ? previewText(prompt.body, 220)
+                                  : "Prompt body is empty."}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
                         <div className="mini-actions">
                           <button
                             type="button"
@@ -25181,7 +25236,7 @@ export default function App() {
                             title="Set Value to a default export path for this prompt."
                             onClick={() => {
                               setOpsId(prompt.name);
-                              setOpsValue(defaultPromptExportPath(prompt));
+                              setOpsValue(promptExportPath);
                             }}
                             disabled={running}
                           >
@@ -25191,8 +25246,7 @@ export default function App() {
                             type="button"
                             title="Export this saved prompt to Value, or to /tmp when Value is blank."
                             onClick={() => {
-                              const path =
-                                opsValue.trim() || defaultPromptExportPath(prompt);
+                              const path = opsValue.trim() || promptExportPath;
                               setOpsId(prompt.name);
                               setOpsValue(path);
                               void exportPromptByName(

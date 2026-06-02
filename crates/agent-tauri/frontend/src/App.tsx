@@ -21969,7 +21969,7 @@ export default function App() {
                   onClick={() => void reviewMemory()}
                   disabled={running}
                 >
-                  List Memory
+                  <ButtonLabel icon="memory">List Memory</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21977,7 +21977,7 @@ export default function App() {
                   onClick={() => void reviewMemoryAccess()}
                   disabled={running}
                 >
-                  Access
+                  <ButtonLabel icon="profile">Access</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21985,7 +21985,7 @@ export default function App() {
                   onClick={() => void reviewMemoryBackends()}
                   disabled={running}
                 >
-                  Backends
+                  <ButtonLabel icon="setup">Backends</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -21993,7 +21993,7 @@ export default function App() {
                   onClick={() => void probeMemoryBackend()}
                   disabled={running}
                 >
-                  Probe Backend
+                  <ButtonLabel icon="trace">Probe Backend</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22001,7 +22001,7 @@ export default function App() {
                   onClick={() => void previewWithMemoryFromOps()}
                   disabled={running}
                 >
-                  Preview With Memory
+                  <ButtonLabel icon="context">Preview With Memory</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22009,7 +22009,7 @@ export default function App() {
                   onClick={() => void createMemoryFromOps()}
                   disabled={running || !opsValue.trim()}
                 >
-                  Add Memory
+                  <ButtonLabel icon="memory">Add Memory</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22017,7 +22017,7 @@ export default function App() {
                   onClick={() => void generateMemoryFromOps()}
                   disabled={running || !opsValue.trim()}
                 >
-                  Generate
+                  <ButtonLabel icon="prompt">Generate</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22027,7 +22027,7 @@ export default function App() {
                     running || !expandedConversation || !opsValue.trim()
                   }
                 >
-                  Generate Range
+                  <ButtonLabel icon="conversation">Generate Range</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22035,7 +22035,7 @@ export default function App() {
                   onClick={() => void generatePendingMemoryFromOps()}
                   disabled={running}
                 >
-                  Generate Pending
+                  <ButtonLabel icon="trace">Generate Pending</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22043,7 +22043,7 @@ export default function App() {
                   onClick={() => void classifyMemoryFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Classify
+                  <ButtonLabel icon="skill">Classify</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22051,7 +22051,7 @@ export default function App() {
                   onClick={() => void editMemoryFromOps()}
                   disabled={running || !opsValue.trim() || !opsId.trim()}
                 >
-                  Edit Mem
+                  <ButtonLabel icon="prompt">Edit Mem</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22060,7 +22060,7 @@ export default function App() {
                   onClick={() => void deleteMemoryFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Delete Mem
+                  <ButtonLabel icon="approval">Delete Mem</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22069,7 +22069,7 @@ export default function App() {
                   onClick={() => void rollbackMemoryFromOps()}
                   disabled={running}
                 >
-                  Rollback
+                  <ButtonLabel icon="trace">Rollback</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22088,7 +22088,7 @@ export default function App() {
                   }}
                   disabled={running}
                 >
-                  Export Mem
+                  <ButtonLabel icon="artifact">Export Mem</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -22096,7 +22096,7 @@ export default function App() {
                   onClick={() => void importMemoryFromControls()}
                   disabled={running || !opsValue.trim()}
                 >
-                  Import Mem
+                  <ButtonLabel icon="artifact">Import Mem</ButtonLabel>
                 </button>
               </div>
               {memoryBackends.length ? (

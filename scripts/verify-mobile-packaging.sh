@@ -146,6 +146,22 @@ assert(
   "frontend Tauri script must use the project-root wrapper",
 );
 assert(fs.existsSync("scripts/tauri-local.mjs"), "project-root Tauri wrapper is missing");
+assert(fs.existsSync("scripts/build-release-artifact.sh"), "release artifact build helper is missing");
+const releaseBuildScript = fs.readFileSync("scripts/build-release-artifact.sh", "utf8");
+assert(
+  releaseBuildScript.includes('platform.kind === "mobile"'),
+  "release artifact build helper must detect mobile targets before building",
+);
+assert(
+  releaseBuildScript.includes("scripts/verify-mobile-packaging.sh --strict --platform=${platformId}"),
+  "release artifact build helper must run strict mobile packaging verification before mobile builds",
+);
+assertBefore(
+  releaseBuildScript,
+  "scripts/verify-mobile-packaging.sh --strict --platform=${platformId}",
+  "run(platform.command)",
+  "release artifact build helper must verify mobile packaging before invoking the Tauri build",
+);
 assert(fs.existsSync(".github/workflows/mobile-packaging.yml"), "mobile packaging workflow is missing");
 const workflow = fs.readFileSync(".github/workflows/mobile-packaging.yml", "utf8");
 assert(workflow.includes("Build signed Android mobile artifacts"), "mobile workflow must expose an Android build step");

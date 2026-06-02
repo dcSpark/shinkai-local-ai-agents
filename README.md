@@ -331,7 +331,10 @@ initialization. Android uses the `ANDROID_KEYSTORE_BASE64`,
 secrets. iOS uses `APPLE_API_KEY`, `APPLE_API_ISSUER`,
 `APPLE_API_KEY_BASE64`, and `APPLE_TEAM_ID`; the helper writes the
 `APPLE_API_KEY_PATH` and `APPLE_DEVELOPMENT_TEAM` environment values expected by
-Tauri.
+Tauri. The release artifact build helper runs strict native mobile packaging
+verification before invoking Android or iOS Tauri builds, so missing generated
+projects, SDK paths, or Rust mobile targets fail before the signed package build
+starts.
 
 Release binary smoke build:
 

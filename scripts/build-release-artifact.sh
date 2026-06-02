@@ -19,7 +19,8 @@ function usage() {
   console.log(`usage: scripts/build-release-artifact.sh [--platform=<id>] [--env-only] [--skip-env-check]
 
 Builds the manifest-selected Tauri release artifact, then verifies strict
-artifact outputs for that platform. Defaults to the host desktop platform.
+artifact outputs for that platform. Mobile targets also run strict native
+packaging checks before the Tauri build starts.
 
 Options:
   --platform=<id>     Build linux, macos, windows, android, or ios
@@ -95,6 +96,9 @@ if (envOnly) {
   process.exit(0);
 }
 
+if (platform.kind === "mobile") {
+  run(`scripts/verify-mobile-packaging.sh --strict --platform=${platformId}`);
+}
 run(platform.command);
 run(`scripts/verify-release-artifacts.sh --strict --platform=${platformId}`);
 NODE

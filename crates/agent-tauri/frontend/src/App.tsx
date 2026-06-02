@@ -17718,6 +17718,26 @@ export default function App() {
     return (skill.findings ?? []).some((finding) => finding.severity === "high");
   }
 
+  function skillTone(skill: SkillDoc): ContextReviewCard["tone"] {
+    if (hasHighRiskSkillFindings(skill)) return "danger";
+    if (skill.quarantined) return "warning";
+    return "ok";
+  }
+
+  function skillReviewLabel(skill: SkillDoc) {
+    if (hasHighRiskSkillFindings(skill)) return "blocked";
+    return skill.quarantined ? "quarantined" : "allowed";
+  }
+
+  function skillDigestLabel(skill: SkillDoc) {
+    return skill.digest ? skill.digest.slice(0, 8) : "legacy";
+  }
+
+  function skillFindingTone(skill: SkillDoc): ContextReviewCard["tone"] {
+    if (hasHighRiskSkillFindings(skill)) return "danger";
+    return (skill.findings ?? []).length ? "warning" : "ok";
+  }
+
   function enabledPermissions(adapterPackage: AdapterPackage) {
     return Object.entries(adapterPackage.permissions)
       .filter(([, enabled]) => enabled)
@@ -22463,18 +22483,47 @@ export default function App() {
                   {skillDocs.map((skill) => {
                     const findings = skill.findings ?? [];
                     const highRisk = hasHighRiskSkillFindings(skill);
+                    const tone = skillTone(skill);
                     return (
-                      <div
-                        className={`ingestion-card ${highRisk ? "high-risk" : ""}`}
-                        key={skill.id}
-                      >
-                        <div className="ingestion-card-head">
-                          <strong>{skill.name}</strong>
-                          <span>
-                            {skill.quarantined ? "quarantined" : "allowed"}
+                      <div className={`skill-card ${tone}`} key={skill.id}>
+                        <div className="skill-card-head with-icon">
+                          <span className={`skill-card-icon ${tone}`} aria-hidden="true">
+                            <AppIcon name="skill" />
                           </span>
+                          <div className="skill-card-title">
+                            <strong>{skill.name}</strong>
+                            <span>{skill.id}</span>
+                          </div>
                         </div>
-                        <span>{skill.id}</span>
+                        <div className="skill-metrics">
+                          <VisualMetric
+                            icon="approval"
+                            label="review"
+                            value={skillReviewLabel(skill)}
+                            section="skills"
+                            tone={tone}
+                          />
+                          <VisualMetric
+                            icon="context"
+                            label="tokens"
+                            value={`~${skill.estimated_tokens}`}
+                            section="skills"
+                          />
+                          <VisualMetric
+                            icon="trace"
+                            label="findings"
+                            value={findings.length}
+                            section="skills"
+                            tone={skillFindingTone(skill)}
+                          />
+                          <VisualMetric
+                            icon="profile"
+                            label="digest"
+                            value={skillDigestLabel(skill)}
+                            section="skills"
+                            tone={skill.digest ? "ok" : "warning"}
+                          />
+                        </div>
                         {skill.source_path ? (
                           <span title={skill.source_path}>
                             source {fileName(skill.source_path)}
@@ -22483,15 +22532,16 @@ export default function App() {
                           <span className="finding none">no source path</span>
                         )}
                         {skill.digest ? (
-                          <span title={skill.digest}>
-                            digest {skill.digest.slice(0, 16)}
-                          </span>
+                          <span title={skill.digest}>digest pin {skillDigestLabel(skill)}</span>
                         ) : (
                           <span className="finding warning">
                             legacy skill without digest pin
                           </span>
                         )}
                         <span>~{skill.estimated_tokens} tokens</span>
+                        {skill.categories.length ? (
+                          <span>categories {skill.categories.join(", ")}</span>
+                        ) : null}
                         {highRisk ? (
                           <span className="finding high">
                             activation blocked by high-risk prompt-injection findings

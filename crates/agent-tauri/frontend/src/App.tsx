@@ -19344,7 +19344,9 @@ export default function App() {
             ))}
           </div>
           <label>
-            Transport
+            <FieldLabel icon="adapter" section="chat">
+              Transport
+            </FieldLabel>
             <select
               value={transport}
               onChange={(e) => setTransport(e.target.value as Transport)}
@@ -19357,7 +19359,9 @@ export default function App() {
             </select>
           </label>
           <label>
-            Daemon URL
+            <FieldLabel icon="adapter" section="chat">
+              Daemon URL
+            </FieldLabel>
             <input
               value={daemonUrl}
               onChange={(e) => setDaemonUrl(e.target.value)}
@@ -19365,7 +19369,9 @@ export default function App() {
             />
           </label>
           <label>
-            Demo behavior
+            <FieldLabel icon="brand" section="chat">
+              Demo behavior
+            </FieldLabel>
             <select
               value={demo}
               onChange={(e) => setDemo(e.target.value as Demo)}
@@ -19376,7 +19382,9 @@ export default function App() {
             </select>
           </label>
           <label>
-            Agent id
+            <FieldLabel icon="profile" section="chat">
+              Agent id
+            </FieldLabel>
             <input
               value={agentId}
               onChange={(e) => setAgentId(e.target.value)}
@@ -19385,7 +19393,9 @@ export default function App() {
             />
           </label>
           <label>
-            Provider
+            <FieldLabel icon="setup" section="chat">
+              Provider
+            </FieldLabel>
             <select
               value={provider}
               title={
@@ -19410,7 +19420,9 @@ export default function App() {
             </select>
           </label>
           <label>
-            Model
+            <FieldLabel icon="prompt" section="chat">
+              Model
+            </FieldLabel>
             <input
               value={model}
               onChange={(e) => setModel(e.target.value)}
@@ -19419,7 +19431,9 @@ export default function App() {
             />
           </label>
           <label>
-            Max context
+            <FieldLabel icon="context" section="chat">
+              Max context
+            </FieldLabel>
             <input
               type="number"
               min="1"
@@ -19432,7 +19446,9 @@ export default function App() {
             />
           </label>
           <label>
-            Max output
+            <FieldLabel icon="prompt" section="chat">
+              Max output
+            </FieldLabel>
             <input
               type="number"
               min={runtimeOptionDescriptor("max_output_tokens")?.min ?? 1}
@@ -19445,7 +19461,9 @@ export default function App() {
             />
           </label>
           <label>
-            Temperature
+            <FieldLabel icon="control" section="chat">
+              Temperature
+            </FieldLabel>
             <input
               type="number"
               min={runtimeOptionDescriptor("temperature")?.min ?? 0}
@@ -19459,7 +19477,9 @@ export default function App() {
             />
           </label>
           <label>
-            Image input
+            <FieldLabel icon="artifact" section="chat">
+              Image input
+            </FieldLabel>
             <input
               type="checkbox"
               checked={modelSupportsImage}
@@ -19468,7 +19488,9 @@ export default function App() {
             />
           </label>
           <label>
-            Modalities
+            <FieldLabel icon="artifact" section="chat">
+              Modalities
+            </FieldLabel>
             <input
               value={modelModalities}
               onChange={(e) => {
@@ -19481,7 +19503,9 @@ export default function App() {
             />
           </label>
           <label>
-            Tool calls
+            <FieldLabel icon="tools" section="chat">
+              Tool calls
+            </FieldLabel>
             <select
               value={modelToolSupport}
               onChange={(e) => setModelToolSupport(e.target.value)}
@@ -19493,7 +19517,9 @@ export default function App() {
             </select>
           </label>
           <label>
-            Reasoning mode
+            <FieldLabel icon="setup" section="chat">
+              Reasoning mode
+            </FieldLabel>
             <input
               value={modelReasoningMode}
               onChange={(e) => setModelReasoningMode(e.target.value)}
@@ -19508,7 +19534,9 @@ export default function App() {
             </datalist>
           </label>
           <label>
-            Privacy
+            <FieldLabel icon="approval" section="chat">
+              Privacy
+            </FieldLabel>
             <input
               value={modelPrivacyLevel}
               onChange={(e) => setModelPrivacyLevel(e.target.value)}
@@ -19517,7 +19545,9 @@ export default function App() {
             />
           </label>
           <label>
-            Cost tier
+            <FieldLabel icon="trace" section="chat">
+              Cost tier
+            </FieldLabel>
             <input
               value={modelCostTier}
               onChange={(e) => setModelCostTier(e.target.value)}
@@ -19526,7 +19556,9 @@ export default function App() {
             />
           </label>
           <label>
-            Metadata JSON
+            <FieldLabel icon="context" section="chat">
+              Metadata JSON
+            </FieldLabel>
             <textarea
               value={modelMetadataJson}
               onChange={(e) => setModelMetadataJson(e.target.value)}
@@ -19536,7 +19568,9 @@ export default function App() {
             />
           </label>
           <label>
-            API base
+            <FieldLabel icon="adapter" section="chat">
+              API base
+            </FieldLabel>
             <input
               value={apiBaseUrl}
               onChange={(e) => setApiBaseUrl(e.target.value)}
@@ -19546,7 +19580,9 @@ export default function App() {
             />
           </label>
           <label>
-            API key env
+            <FieldLabel icon="profile" section="chat">
+              API key env
+            </FieldLabel>
             <input
               value={apiKeyEnv}
               onChange={(e) => setApiKeyEnv(e.target.value)}
@@ -19554,7 +19590,9 @@ export default function App() {
             />
           </label>
           <label>
-            API key
+            <FieldLabel icon="approval" section="chat">
+              API key
+            </FieldLabel>
             <input
               type="password"
               value={apiKey}
@@ -19564,7 +19602,9 @@ export default function App() {
             />
           </label>
           <label>
-            Top p
+            <FieldLabel icon="control" section="chat">
+              Top p
+            </FieldLabel>
             <input
               value={providerTopP}
               onChange={(e) => setProviderTopP(e.target.value)}
@@ -19574,7 +19614,9 @@ export default function App() {
             />
           </label>
           <label>
-            Top k
+            <FieldLabel icon="control" section="chat">
+              Top k
+            </FieldLabel>
             <input
               value={providerTopK}
               onChange={(e) => setProviderTopK(e.target.value)}
@@ -19584,7 +19626,9 @@ export default function App() {
             />
           </label>
           <label>
-            Reasoning effort
+            <FieldLabel icon="setup" section="chat">
+              Reasoning effort
+            </FieldLabel>
             <input
               value={providerReasoningEffort}
               onChange={(e) => setProviderReasoningEffort(e.target.value)}
@@ -19604,7 +19648,9 @@ export default function App() {
           </label>
           {supportsFrequencyPenalty || providerFrequencyPenalty ? (
             <label>
-              Frequency penalty
+              <FieldLabel icon="control" section="chat">
+                Frequency penalty
+              </FieldLabel>
               <input
                 value={providerFrequencyPenalty}
                 onChange={(e) => setProviderFrequencyPenalty(e.target.value)}
@@ -19616,7 +19662,9 @@ export default function App() {
           ) : null}
           {supportsPresencePenalty || providerPresencePenalty ? (
             <label>
-              Presence penalty
+              <FieldLabel icon="control" section="chat">
+                Presence penalty
+              </FieldLabel>
               <input
                 value={providerPresencePenalty}
                 onChange={(e) => setProviderPresencePenalty(e.target.value)}
@@ -19627,7 +19675,9 @@ export default function App() {
             </label>
           ) : null}
           <label>
-            Input $/M
+            <FieldLabel icon="trace" section="chat">
+              Input $/M
+            </FieldLabel>
             <input
               type="number"
               min="0"
@@ -19639,7 +19689,9 @@ export default function App() {
             />
           </label>
           <label>
-            Output $/M
+            <FieldLabel icon="trace" section="chat">
+              Output $/M
+            </FieldLabel>
             <input
               type="number"
               min="0"

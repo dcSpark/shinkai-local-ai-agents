@@ -157,6 +157,7 @@ interface SectionVisual {
   hint: string;
   icon: IconName;
   secondaryIcon: IconName;
+  tertiaryIcon: IconName;
   accent: string;
   surface: string;
 }
@@ -208,6 +209,7 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
     hint: "Ask, run, and guide agents",
     icon: "chat",
     secondaryIcon: "tools",
+    tertiaryIcon: "prompt",
     accent: "#7ed68d",
     surface: "#16251a",
   },
@@ -216,6 +218,7 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
     hint: "Inspect runs and compare paths",
     icon: "trace",
     secondaryIcon: "context",
+    tertiaryIcon: "control",
     accent: "#8db7ff",
     surface: "#151f33",
   },
@@ -224,6 +227,7 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
     hint: "Browse branches and recover context",
     icon: "conversation",
     secondaryIcon: "context",
+    tertiaryIcon: "trace",
     accent: "#caa5ff",
     surface: "#251c35",
   },
@@ -232,6 +236,7 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
     hint: "Manage grants, bundles, and secrets",
     icon: "profile",
     secondaryIcon: "approval",
+    tertiaryIcon: "artifact",
     accent: "#f0bf63",
     surface: "#2d2312",
   },
@@ -240,6 +245,7 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
     hint: "Load durable context and topics",
     icon: "memory",
     secondaryIcon: "context",
+    tertiaryIcon: "profile",
     accent: "#61d6bd",
     surface: "#102923",
   },
@@ -248,6 +254,7 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
     hint: "Review capabilities and drafts",
     icon: "skill",
     secondaryIcon: "tools",
+    tertiaryIcon: "approval",
     accent: "#ff9f7a",
     surface: "#321f18",
   },
@@ -256,6 +263,7 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
     hint: "Reuse prompts and model profiles",
     icon: "prompt",
     secondaryIcon: "setup",
+    tertiaryIcon: "context",
     accent: "#f2df72",
     surface: "#2d2914",
   },
@@ -264,6 +272,7 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
     hint: "Prepare files, OCR, and guardrails",
     icon: "ingest",
     secondaryIcon: "artifact",
+    tertiaryIcon: "approval",
     accent: "#65d4ff",
     surface: "#102837",
   },
@@ -272,6 +281,7 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
     hint: "Preview generated files and voice",
     icon: "artifact",
     secondaryIcon: "prompt",
+    tertiaryIcon: "context",
     accent: "#ff8fb1",
     surface: "#321a24",
   },
@@ -280,6 +290,7 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
     hint: "Connect tools, bridges, and storage",
     icon: "adapter",
     secondaryIcon: "tools",
+    tertiaryIcon: "conversation",
     accent: "#9ddc6f",
     surface: "#1c2a14",
   },
@@ -288,6 +299,7 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
     hint: "Assess and resolve gated actions",
     icon: "approval",
     secondaryIcon: "control",
+    tertiaryIcon: "tools",
     accent: "#ff7e86",
     surface: "#32191f",
   },
@@ -365,6 +377,15 @@ function visualStyle(accent: string, surface: string): CSSProperties {
 function sectionThemeStyle(section: ActiveSection): CSSProperties {
   const visual = sectionVisual(section);
   return visualStyle(visual.accent, visual.surface);
+}
+
+function featureVisualMode(section: ActiveSection) {
+  if (section === "trace" || section === "conversations") return "tree";
+  if (section === "profiles" || section === "skills" || section === "approvals") {
+    return "gate";
+  }
+  if (section === "memory" || section === "prompts") return "stack";
+  return "flow";
 }
 
 function estimateStaticTokens(text: string) {
@@ -765,9 +786,10 @@ function ContextPreviewPane({
 
 function FeatureVisual({ section }: { section: ActiveSection }) {
   const visual = sectionVisual(section);
+  const mode = featureVisualMode(section);
   return (
     <div
-      className="feature-visual"
+      className={`feature-visual feature-visual-${mode}`}
       style={sectionThemeStyle(section)}
       aria-hidden="true"
     >
@@ -780,7 +802,7 @@ function FeatureVisual({ section }: { section: ActiveSection }) {
         <AppIcon name={visual.secondaryIcon} />
       </span>
       <span className="feature-node tertiary">
-        <AppIcon name="brand" />
+        <AppIcon name={visual.tertiaryIcon} />
       </span>
     </div>
   );

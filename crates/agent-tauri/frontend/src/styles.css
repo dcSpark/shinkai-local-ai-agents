@@ -312,6 +312,62 @@ textarea:disabled {
   transform: rotate(38deg);
 }
 
+.feature-visual-flow .feature-line.main {
+  top: 2.05rem;
+  left: 0.95rem;
+  width: 2.6rem;
+  transform: none;
+}
+
+.feature-visual-flow .feature-line.cross {
+  top: 1.52rem;
+  left: 1.9rem;
+  width: 1.45rem;
+  transform: rotate(38deg);
+}
+
+.feature-visual-tree .feature-line.main {
+  top: 1.85rem;
+  left: 1.1rem;
+  width: 2.75rem;
+  transform: rotate(32deg);
+}
+
+.feature-visual-tree .feature-line.cross {
+  top: 1.5rem;
+  left: 1.78rem;
+  width: 1.95rem;
+  transform: rotate(-26deg);
+}
+
+.feature-visual-gate .feature-line.main {
+  top: 1.65rem;
+  left: 1.22rem;
+  width: 2.35rem;
+  transform: rotate(18deg);
+}
+
+.feature-visual-gate .feature-line.cross {
+  top: 2.55rem;
+  left: 1.23rem;
+  width: 2.25rem;
+  transform: rotate(-20deg);
+}
+
+.feature-visual-stack .feature-line.main {
+  top: 1rem;
+  left: 2.07rem;
+  width: 2.1rem;
+  transform: rotate(90deg);
+}
+
+.feature-visual-stack .feature-line.cross {
+  top: 2.15rem;
+  left: 2.07rem;
+  width: 1.65rem;
+  transform: rotate(90deg);
+}
+
 .feature-node {
   position: absolute;
   display: grid;
@@ -351,6 +407,73 @@ textarea:disabled {
 .feature-node.tertiary .app-icon {
   width: 0.72rem;
   height: 0.72rem;
+}
+
+.feature-visual-flow .feature-node.primary {
+  top: 1.35rem;
+  left: 0.48rem;
+}
+
+.feature-visual-flow .feature-node.secondary {
+  top: 1.35rem;
+  right: 0.48rem;
+  bottom: auto;
+}
+
+.feature-visual-flow .feature-node.tertiary {
+  top: 0.58rem;
+  right: 1.3rem;
+}
+
+.feature-visual-tree .feature-node.primary {
+  top: 0.52rem;
+  left: 0.55rem;
+}
+
+.feature-visual-tree .feature-node.secondary {
+  right: 0.48rem;
+  bottom: 0.58rem;
+}
+
+.feature-visual-tree .feature-node.tertiary {
+  top: 0.62rem;
+  right: 0.56rem;
+}
+
+.feature-visual-gate .feature-node.primary {
+  top: 1.36rem;
+  left: 0.48rem;
+}
+
+.feature-visual-gate .feature-node.secondary {
+  top: 0.58rem;
+  right: 0.48rem;
+  bottom: auto;
+}
+
+.feature-visual-gate .feature-node.tertiary {
+  right: 0.7rem;
+  bottom: 0.62rem;
+  top: auto;
+}
+
+.feature-visual-stack .feature-node.primary {
+  top: 0.42rem;
+  left: 1.35rem;
+}
+
+.feature-visual-stack .feature-node.secondary {
+  top: 1.7rem;
+  right: auto;
+  bottom: auto;
+  left: 1.35rem;
+}
+
+.feature-visual-stack .feature-node.tertiary {
+  top: auto;
+  right: auto;
+  bottom: 0.48rem;
+  left: 1.58rem;
 }
 
 .run-meta {

@@ -24435,7 +24435,7 @@ export default function App() {
                   onClick={() => void listCompactionsFromOps()}
                   disabled={running}
                 >
-                  List Compact
+                  <ButtonLabel icon="context">List Compact</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24443,7 +24443,7 @@ export default function App() {
                   onClick={() => void showCompactionFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Show Compact
+                  <ButtonLabel icon="context">Show Compact</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24451,7 +24451,7 @@ export default function App() {
                   onClick={() => void useCompactionFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Use Compact
+                  <ButtonLabel icon="chat">Use Compact</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24459,7 +24459,7 @@ export default function App() {
                   onClick={() => void exportCompactionFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Export Compact
+                  <ButtonLabel icon="artifact">Export Compact</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24467,7 +24467,7 @@ export default function App() {
                   onClick={() => void importCompactionFromOps()}
                   disabled={running || !opsValue.trim()}
                 >
-                  Import Compact
+                  <ButtonLabel icon="artifact">Import Compact</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24476,7 +24476,7 @@ export default function App() {
                   onClick={() => void deleteCompactionFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Delete Compact
+                  <ButtonLabel icon="approval">Delete Compact</ButtonLabel>
                 </button>
               </div>
               {compactionTransferStatus ? (
@@ -24586,7 +24586,7 @@ export default function App() {
                   onClick={() => void reviewAgents()}
                   disabled={running}
                 >
-                  List Agents
+                  <ButtonLabel icon="brand">List Agents</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24594,7 +24594,7 @@ export default function App() {
                   onClick={() => void showAgentFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Show Agent
+                  <ButtonLabel icon="brand">Show Agent</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24602,7 +24602,7 @@ export default function App() {
                   onClick={() => void useAgentFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Use Agent
+                  <ButtonLabel icon="chat">Use Agent</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24610,7 +24610,7 @@ export default function App() {
                   onClick={() => void saveAgentFromOps()}
                   disabled={running || !opsId.trim() || !opsValue.trim()}
                 >
-                  Save Agent
+                  <ButtonLabel icon="setup">Save Agent</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24618,7 +24618,7 @@ export default function App() {
                   onClick={() => void exportAgentFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Export Agent
+                  <ButtonLabel icon="artifact">Export Agent</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24626,7 +24626,7 @@ export default function App() {
                   onClick={() => void importAgentFromOps()}
                   disabled={running || !opsValue.trim()}
                 >
-                  Import Agent
+                  <ButtonLabel icon="artifact">Import Agent</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24643,7 +24643,7 @@ export default function App() {
                     knownProfileGrantedAgent(opsId.trim())
                   }
                 >
-                  Delete Agent
+                  <ButtonLabel icon="approval">Delete Agent</ButtonLabel>
                 </button>
               </div>
               {agentConfigs.length ? (
@@ -24875,7 +24875,7 @@ export default function App() {
                   onClick={() => void callToolFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  Call Tool
+                  <ButtonLabel icon="tools">Call Tool</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -24883,7 +24883,7 @@ export default function App() {
                   onClick={() => void explainCurrentTools()}
                   disabled={running}
                 >
-                  List Tools
+                  <ButtonLabel icon="tools">List Tools</ButtonLabel>
                 </button>
               </div>
               {visibleTools ? (

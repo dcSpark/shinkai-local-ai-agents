@@ -1931,6 +1931,43 @@ textarea:disabled {
   gap: 0.5rem;
 }
 
+.context-disclosure-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.context-disclosure-grid > .advanced-controls {
+  min-width: 0;
+}
+
+.context-disclosure-grid > .advanced-controls[open],
+.context-disclosure-grid > .included-list {
+  grid-column: 1 / -1;
+}
+
+.context-disclosure-grid > .advanced-controls:not([open]) {
+  min-height: 2.8rem;
+  padding: 0.42rem;
+}
+
+.context-disclosure-grid
+  > .advanced-controls:not([open])
+  .advanced-controls-icon {
+  width: 1.55rem;
+  height: 1.55rem;
+}
+
+.context-disclosure-grid
+  > .advanced-controls:not([open])
+  .advanced-controls-copy
+  strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .button-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

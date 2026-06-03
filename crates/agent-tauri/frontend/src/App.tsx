@@ -20478,6 +20478,7 @@ export default function App() {
               <ButtonLabel icon="context">Preview Context</ButtonLabel>
             </button>
           </div>
+          <div className="context-disclosure-grid">
           <details
             className="advanced-controls"
             style={sectionThemeStyle("chat")}
@@ -21361,6 +21362,7 @@ export default function App() {
               </button>
             </div>
           </details>
+          </div>
           {postRunCompactionPrompt ? (
             <ModeNote section="chat" icon="context" className="compaction-prompt">
               <span>

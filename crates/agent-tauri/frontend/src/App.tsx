@@ -31962,14 +31962,6 @@ export default function App() {
                             <div className="mini-actions">
                               <button
                                 type="button"
-                                title="Move this adapter package id into the Id field."
-                                onClick={() => setOpsId(pkg.id)}
-                                disabled={running}
-                              >
-                                <ButtonLabel icon="adapter">Set Id</ButtonLabel>
-                              </button>
-                              <button
-                                type="button"
                                 title="Show this adapter package."
                                 onClick={() => {
                                   setOpsId(pkg.id);
@@ -31978,32 +31970,6 @@ export default function App() {
                                 disabled={running}
                               >
                                 <ButtonLabel icon="adapter">Show</ButtonLabel>
-                              </button>
-                              <button
-                                type="button"
-                                title="Stage a default export path for this adapter package."
-                                onClick={() => {
-                                  setOpsId(pkg.id);
-                                  setOpsValue(defaultAdapterExportPathForId(pkg.id));
-                                }}
-                                disabled={running}
-                              >
-                                <ButtonLabel icon="artifact">Path</ButtonLabel>
-                              </button>
-                              <button
-                                type="button"
-                                title="Export this adapter package to Value, or to /tmp when Value is blank."
-                                onClick={() => {
-                                  const path =
-                                    opsValue.trim() ||
-                                    defaultAdapterExportPathForId(pkg.id);
-                                  setOpsId(pkg.id);
-                                  setOpsValue(path);
-                                  void exportAdapterFromOps(pkg.id, path);
-                                }}
-                                disabled={running}
-                              >
-                                <ButtonLabel icon="artifact">Export</ButtonLabel>
                               </button>
                               <button
                                 type="button"
@@ -32034,6 +32000,59 @@ export default function App() {
                                 <ButtonLabel icon="approval">Allow</ButtonLabel>
                               </button>
                             </div>
+                            <details
+                              className="advanced-controls"
+                              style={sectionThemeStyle("adapters")}
+                            >
+                              <summary title="Show adapter package staging and export actions">
+                                <span
+                                  className="advanced-controls-icon"
+                                  aria-hidden="true"
+                                >
+                                  <AppIcon name="adapter" />
+                                </span>
+                                <span className="advanced-controls-copy">
+                                  <strong>More</strong>
+                                  <span>Stage or export this package</span>
+                                </span>
+                              </summary>
+                              <div className="button-grid">
+                                <button
+                                  type="button"
+                                  title="Move this adapter package id into the Target id field."
+                                  onClick={() => setOpsId(pkg.id)}
+                                  disabled={running}
+                                >
+                                  <ButtonLabel icon="adapter">Set id</ButtonLabel>
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Set Payload to a default export path for this adapter package."
+                                  onClick={() => {
+                                    setOpsId(pkg.id);
+                                    setOpsValue(defaultAdapterExportPathForId(pkg.id));
+                                  }}
+                                  disabled={running}
+                                >
+                                  <ButtonLabel icon="artifact">Path</ButtonLabel>
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Export this adapter package to Payload, or to /tmp when Payload is blank."
+                                  onClick={() => {
+                                    const path =
+                                      opsValue.trim() ||
+                                      defaultAdapterExportPathForId(pkg.id);
+                                    setOpsId(pkg.id);
+                                    setOpsValue(path);
+                                    void exportAdapterFromOps(pkg.id, path);
+                                  }}
+                                  disabled={running}
+                                >
+                                  <ButtonLabel icon="artifact">Export</ButtonLabel>
+                                </button>
+                              </div>
+                            </details>
                           </div>
                         );
                       })}
@@ -32482,14 +32501,6 @@ export default function App() {
                         <div className="mini-actions">
                           <button
                             type="button"
-                            title="Move this adapter package id into the Id field."
-                            onClick={() => setOpsId(adapterPackage.id)}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="adapter">Set Id</ButtonLabel>
-                          </button>
-                          <button
-                            type="button"
                             title={
                               highRisk
                                 ? "High-risk static scan findings block activation."
@@ -32519,32 +32530,6 @@ export default function App() {
                           </button>
                           <button
                             type="button"
-                            title="Stage a default /tmp export path for this adapter."
-                            onClick={() => {
-                              setOpsId(adapterPackage.id);
-                              setOpsValue(defaultAdapterExportPath(adapterPackage));
-                            }}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="artifact">Path</ButtonLabel>
-                          </button>
-                          <button
-                            type="button"
-                            title="Export this adapter to Value, or to /tmp when Value is blank."
-                            onClick={() => {
-                              const path =
-                                opsValue.trim() ||
-                                defaultAdapterExportPath(adapterPackage);
-                              setOpsId(adapterPackage.id);
-                              setOpsValue(path);
-                              void exportAdapterFromOps(adapterPackage.id, path);
-                            }}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="artifact">Export</ButtonLabel>
-                          </button>
-                          <button
-                            type="button"
                             title="Keep this adapter package quarantined."
                             onClick={() => {
                               setOpsId(adapterPackage.id);
@@ -32555,6 +32540,59 @@ export default function App() {
                             <ButtonLabel icon="approval">Block</ButtonLabel>
                           </button>
                         </div>
+                        <details
+                          className="advanced-controls"
+                          style={sectionThemeStyle("adapters")}
+                        >
+                          <summary title="Show adapter staging and export actions">
+                            <span
+                              className="advanced-controls-icon"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="adapter" />
+                            </span>
+                            <span className="advanced-controls-copy">
+                              <strong>More</strong>
+                              <span>Stage or export this adapter</span>
+                            </span>
+                          </summary>
+                          <div className="button-grid">
+                            <button
+                              type="button"
+                              title="Move this adapter package id into the Target id field."
+                              onClick={() => setOpsId(adapterPackage.id)}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="adapter">Set id</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              title="Set Payload to a default /tmp export path for this adapter."
+                              onClick={() => {
+                                setOpsId(adapterPackage.id);
+                                setOpsValue(defaultAdapterExportPath(adapterPackage));
+                              }}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Path</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              title="Export this adapter to Payload, or to /tmp when Payload is blank."
+                              onClick={() => {
+                                const path =
+                                  opsValue.trim() ||
+                                  defaultAdapterExportPath(adapterPackage);
+                                setOpsId(adapterPackage.id);
+                                setOpsValue(path);
+                                void exportAdapterFromOps(adapterPackage.id, path);
+                              }}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Export</ButtonLabel>
+                            </button>
+                          </div>
+                        </details>
                       </div>
                     );
                   })}

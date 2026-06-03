@@ -32020,16 +32020,32 @@ export default function App() {
                 >
                   <ButtonLabel icon="trace">Prune Plan</ButtonLabel>
                 </button>
-                <button
-                  type="button"
-                  className="danger"
-                  title="Delete cache files older than the Value retention days."
-                  onClick={() => void storagePruneCacheFromOps(true)}
-                  disabled={running || !opsValue.trim()}
-                >
-                  <ButtonLabel icon="approval">Prune Apply</ButtonLabel>
-                </button>
               </div>
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("adapters")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="approval" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Advanced storage maintenance</strong>
+                    <span>Apply cache pruning after choosing retention days</span>
+                  </span>
+                </summary>
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    className="danger"
+                    title="Delete cache files older than the Value retention days."
+                    onClick={() => void storagePruneCacheFromOps(true)}
+                    disabled={running || !opsValue.trim()}
+                  >
+                    <ButtonLabel icon="approval">Prune Apply</ButtonLabel>
+                  </button>
+                </div>
+              </details>
               {storageReport ? (
                 <div className="storage-report">
                   {(() => {

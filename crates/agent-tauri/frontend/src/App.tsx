@@ -27292,9 +27292,21 @@ export default function App() {
                     const providerOptionKeys = savedModelProviderOptionKeys(doc);
                     return (
                       <div className="ingestion-card" key={doc.id}>
-                        <div className="ingestion-card-head">
-                          <strong>{doc.id}</strong>
-                          <span>{doc.provider || "provider default"}</span>
+                        <div className="ingestion-card-head with-icon">
+                          <span
+                            className={
+                              doc.provider
+                                ? "ingestion-card-icon ok"
+                                : "ingestion-card-icon"
+                            }
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="setup" />
+                          </span>
+                          <div className="ingestion-card-title">
+                            <strong>{doc.id}</strong>
+                            <span>{doc.provider || "provider default"}</span>
+                          </div>
                         </div>
                         <div className="ingestion-metrics">
                           <VisualMetric
@@ -27624,9 +27636,21 @@ export default function App() {
                       .sort();
                     return (
                       <div className="ingestion-card" key={descriptor.id}>
-                        <div className="ingestion-card-head">
-                          <strong>{descriptor.name}</strong>
-                          <span>{descriptor.id}</span>
+                        <div className="ingestion-card-head with-icon">
+                          <span
+                            className={
+                              descriptor.default_model
+                                ? "ingestion-card-icon ok"
+                                : "ingestion-card-icon warning"
+                            }
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="setup" />
+                          </span>
+                          <div className="ingestion-card-title">
+                            <strong>{descriptor.name}</strong>
+                            <span>{descriptor.id}</span>
+                          </div>
                         </div>
                         <div className="ingestion-metrics">
                           <VisualMetric

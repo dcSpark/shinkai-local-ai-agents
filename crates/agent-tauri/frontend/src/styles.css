@@ -1491,51 +1491,8 @@ textarea:disabled {
 
 .section-overview {
   display: grid;
-  gap: 0.65rem;
-  padding-bottom: 1rem;
+  padding-bottom: 0.85rem;
   border-bottom: 1px solid #2a2f39;
-}
-
-.section-overview-head {
-  display: grid;
-  grid-template-columns: 4.2rem minmax(0, 1fr);
-  align-items: center;
-  gap: 0.75rem;
-  min-width: 0;
-}
-
-.section-overview-copy {
-  display: grid;
-  gap: 0.18rem;
-  min-width: 0;
-}
-
-.section-overview-kicker {
-  min-width: 0;
-  color: var(--section-accent);
-  font-size: 0.68rem;
-  font-weight: 850;
-  overflow: hidden;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.section-overview-copy strong {
-  min-width: 0;
-  color: #f4f5f2;
-  font-size: 1.05rem;
-  line-height: 1.15;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.section-overview-copy > span:last-child {
-  min-width: 0;
-  color: #a9b1bb;
-  font-size: 0.78rem;
-  line-height: 1.35;
-  overflow-wrap: anywhere;
 }
 
 .section-cue-map {

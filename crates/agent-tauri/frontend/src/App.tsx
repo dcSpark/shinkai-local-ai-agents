@@ -960,15 +960,11 @@ function SectionCueMap({ section }: { section: ActiveSection }) {
 function SectionOverview({ section }: { section: ActiveSection }) {
   const visual = sectionVisual(section);
   return (
-    <section className="section-overview" style={sectionThemeStyle(section)}>
-      <div className="section-overview-head">
-        <FeatureVisual section={section} />
-        <div className="section-overview-copy">
-          <span className="section-overview-kicker">Workspace</span>
-          <strong>{visual.label}</strong>
-          <span>{visual.hint}</span>
-        </div>
-      </div>
+    <section
+      className="section-overview"
+      aria-label={`${visual.label}: ${visual.hint}`}
+      style={sectionThemeStyle(section)}
+    >
       <SectionCueMap section={section} />
     </section>
   );

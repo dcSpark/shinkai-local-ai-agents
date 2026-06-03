@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App agent setup first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat Agent setup panel now presents Provider and Model before the Model posture diagnostics disclosure, so first-use setup starts with the controls users need before diagnostic metadata. |
 | App context response-routing progressive disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat Context panel now combines response output mode, router/interpreter model overrides, compaction guidance, and prompt refinement settings into one Response and routing disclosure, reducing adjacent advanced cards without removing any controls. |
 | App context diagnostics progressive disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat Context panel now keeps Preview Context as the visible review action while moving Explain Config and Explain Tools into a compact Context diagnostics disclosure. |
 | App chat library progressive disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat operations rail now keeps tool inspection and run controls on the first scan while moving saved compacted-context artifacts and reusable saved-agent management into a single Chat library disclosure. |

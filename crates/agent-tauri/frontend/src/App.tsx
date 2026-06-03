@@ -19994,34 +19994,6 @@ export default function App() {
         {activeSection === "chat" ? (
         <section className="panel">
           <PanelTitle title="Agent setup" section="chat" icon="setup" />
-          <details
-            className="advanced-controls model-posture-controls"
-            style={sectionThemeStyle("chat")}
-          >
-            <summary>
-              <span className="advanced-controls-icon" aria-hidden="true">
-                <AppIcon name="setup" />
-              </span>
-              <span className="advanced-controls-copy">
-                <strong>Model posture</strong>
-                <span>Provider, model, modality, runtime, and cost metadata</span>
-              </span>
-            </summary>
-            <div className="run-readiness-grid model-setup-grid">
-              {modelSetupCards().map((card) => (
-                <div className={`run-readiness-card ${card.tone}`} key={card.title}>
-                  <span className="run-readiness-icon" aria-hidden="true">
-                    <AppIcon name={card.icon} />
-                  </span>
-                  <div className="run-readiness-copy">
-                    <span>{card.title}</span>
-                    <strong>{card.value}</strong>
-                    <span className="run-readiness-detail">{card.detail}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </details>
           <label>
             <FieldLabel icon="setup" section="chat">
               Provider
@@ -20060,6 +20032,34 @@ export default function App() {
               disabled={running}
             />
           </label>
+          <details
+            className="advanced-controls model-posture-controls"
+            style={sectionThemeStyle("chat")}
+          >
+            <summary>
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="setup" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Model posture</strong>
+                <span>Provider, model, modality, runtime, and cost metadata</span>
+              </span>
+            </summary>
+            <div className="run-readiness-grid model-setup-grid">
+              {modelSetupCards().map((card) => (
+                <div className={`run-readiness-card ${card.tone}`} key={card.title}>
+                  <span className="run-readiness-icon" aria-hidden="true">
+                    <AppIcon name={card.icon} />
+                  </span>
+                  <div className="run-readiness-copy">
+                    <span>{card.title}</span>
+                    <strong>{card.value}</strong>
+                    <span className="run-readiness-detail">{card.detail}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </details>
           <details
             className="advanced-controls"
             style={sectionThemeStyle("chat")}

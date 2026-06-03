@@ -25616,14 +25616,6 @@ export default function App() {
                       <div className="mini-actions">
                         <button
                           type="button"
-                          title="Move this profile id into the Id field."
-                          onClick={() => setOpsId(profile.id)}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="profile">Set Id</ButtonLabel>
-                        </button>
-                        <button
-                          type="button"
                           title="Show this profile record."
                           onClick={() => void showProfileFromOps(profile.id)}
                           disabled={running}
@@ -25638,26 +25630,53 @@ export default function App() {
                         >
                           <ButtonLabel icon="approval">Grants</ButtonLabel>
                         </button>
-                        <button
-                          type="button"
-                          className="danger"
-                          title={
-                            currentProfile?.id === profile.id
-                              ? "The active profile cannot be deleted from this session."
-                              : profile.id === "main"
-                                ? "The main profile cannot be deleted."
-                                : "Delete this profile."
-                          }
-                          onClick={() => void deleteProfileFromOps(profile.id)}
-                          disabled={
-                            running ||
-                            profile.id === "main" ||
-                            currentProfile?.id === profile.id
-                          }
-                        >
-                          <ButtonLabel icon="approval">Delete</ButtonLabel>
-                        </button>
                       </div>
+                      <details
+                        className="advanced-controls"
+                        style={sectionThemeStyle("profiles")}
+                      >
+                        <summary title="Show profile staging and deletion actions">
+                          <span
+                            className="advanced-controls-icon"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="profile" />
+                          </span>
+                          <span className="advanced-controls-copy">
+                            <strong>More</strong>
+                            <span>Stage or delete this profile</span>
+                          </span>
+                        </summary>
+                        <div className="button-grid">
+                          <button
+                            type="button"
+                            title="Move this profile id into the Target id field."
+                            onClick={() => setOpsId(profile.id)}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="profile">Set id</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            className="danger"
+                            title={
+                              currentProfile?.id === profile.id
+                                ? "The active profile cannot be deleted from this session."
+                                : profile.id === "main"
+                                  ? "The main profile cannot be deleted."
+                                  : "Delete this profile."
+                            }
+                            onClick={() => void deleteProfileFromOps(profile.id)}
+                            disabled={
+                              running ||
+                              profile.id === "main" ||
+                              currentProfile?.id === profile.id
+                            }
+                          >
+                            <ButtonLabel icon="approval">Delete</ButtonLabel>
+                          </button>
+                        </div>
+                      </details>
                     </div>
                   ))}
                 </div>

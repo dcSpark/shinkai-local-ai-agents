@@ -33167,14 +33167,6 @@ export default function App() {
                       <div className="mini-actions">
                         <button
                           type="button"
-                          title="Move this delivery id into the Id field."
-                          onClick={() => setOpsId(delivery.id)}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="conversation">Set Id</ButtonLabel>
-                        </button>
-                        <button
-                          type="button"
                           title="Retry this failed bridge delivery."
                           onClick={() => {
                             setOpsId(delivery.id);
@@ -33184,18 +33176,45 @@ export default function App() {
                         >
                           <ButtonLabel icon="trace">Retry</ButtonLabel>
                         </button>
-                        <button
-                          type="button"
-                          title="Delete this failed bridge delivery without retrying."
-                          onClick={() => {
-                            setOpsId(delivery.id);
-                            void deleteBridgeDeliveryFromOps(delivery.id);
-                          }}
-                          disabled={running || transport !== "daemon"}
-                        >
-                          <ButtonLabel icon="approval">Delete</ButtonLabel>
-                        </button>
                       </div>
+                      <details
+                        className="advanced-controls"
+                        style={sectionThemeStyle("adapters")}
+                      >
+                        <summary title="Show delivery staging and deletion actions">
+                          <span
+                            className="advanced-controls-icon"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="conversation" />
+                          </span>
+                          <span className="advanced-controls-copy">
+                            <strong>More</strong>
+                            <span>Stage or delete this delivery</span>
+                          </span>
+                        </summary>
+                        <div className="button-grid">
+                          <button
+                            type="button"
+                            title="Move this delivery id into the Target id field."
+                            onClick={() => setOpsId(delivery.id)}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="conversation">Set id</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            title="Delete this failed bridge delivery without retrying."
+                            onClick={() => {
+                              setOpsId(delivery.id);
+                              void deleteBridgeDeliveryFromOps(delivery.id);
+                            }}
+                            disabled={running || transport !== "daemon"}
+                          >
+                            <ButtonLabel icon="approval">Delete</ButtonLabel>
+                          </button>
+                        </div>
+                      </details>
                     </div>
                   ))}
                 </div>

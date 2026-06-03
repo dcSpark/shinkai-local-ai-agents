@@ -19784,6 +19784,10 @@ export default function App() {
     approvals.length > 0;
   const showPostRunControlDisclosures =
     activeSection === "approvals" || Boolean(lastRunId) || approvals.length > 0;
+  const showRunControlPanel =
+    activeSection === "approvals" ||
+    showRunControlActions ||
+    showPostRunControlDisclosures;
   const trimmedApprovalController = approvalControllerAgent.trim();
   const approvalControllerValue = trimmedApprovalController || "manual";
   const showSessionOverview =
@@ -32833,7 +32837,7 @@ export default function App() {
         </section>
         ) : null}
 
-        {activeSection === "chat" || activeSection === "approvals" ? (
+        {showRunControlPanel ? (
         <section className="panel">
           <PanelTitle
             title="Control"

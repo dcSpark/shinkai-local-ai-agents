@@ -31867,51 +31867,67 @@ export default function App() {
                 </EmptyNote>
               ) : null}
               <details
-                className="advanced-controls"
+                className="context-more-controls"
                 style={sectionThemeStyle("adapters")}
               >
-                <summary>
+                <summary title="Show additional adapter settings">
                   <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="approval" />
+                    <AppIcon name="setup" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Advanced adapter controls</strong>
-                    <span>Portable manifest import/export and quarantine policy changes</span>
+                    <strong>More settings</strong>
+                    <span>Adapter transfer and quarantine policy</span>
                   </span>
                 </summary>
-                <div className="button-grid">
-                  <button
-                    type="button"
-                    title="Import portable adapter manifest JSON from Value."
-                    onClick={() => void importAdapterManifestFromOps()}
-                    disabled={running || !opsValue.trim()}
+                <div className="context-more-grid">
+                  <details
+                    className="advanced-controls"
+                    style={sectionThemeStyle("adapters")}
                   >
-                    <ButtonLabel icon="artifact">Import Manifest</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Export adapter package Id to Value, or to /tmp when Value is blank."
-                    onClick={() => void exportAdapterFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="artifact">Export Adapter</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Allow adapter package Id."
-                    onClick={() => void setAdapterQuarantine(true)}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="approval">Allow Adapter</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Block adapter package Id."
-                    onClick={() => void setAdapterQuarantine(false)}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="approval">Block Adapter</ButtonLabel>
-                  </button>
+                    <summary>
+                      <span className="advanced-controls-icon" aria-hidden="true">
+                        <AppIcon name="approval" />
+                      </span>
+                      <span className="advanced-controls-copy">
+                        <strong>Adapter transfer</strong>
+                        <span>Import/export manifests and quarantine by id</span>
+                      </span>
+                    </summary>
+                    <div className="button-grid">
+                      <button
+                        type="button"
+                        title="Import portable adapter manifest JSON from Value."
+                        onClick={() => void importAdapterManifestFromOps()}
+                        disabled={running || !opsValue.trim()}
+                      >
+                        <ButtonLabel icon="artifact">Import Manifest</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        title="Export adapter package Id to Value, or to /tmp when Value is blank."
+                        onClick={() => void exportAdapterFromOps()}
+                        disabled={running || !opsId.trim()}
+                      >
+                        <ButtonLabel icon="artifact">Export Adapter</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        title="Allow adapter package Id."
+                        onClick={() => void setAdapterQuarantine(true)}
+                        disabled={running || !opsId.trim()}
+                      >
+                        <ButtonLabel icon="approval">Allow Adapter</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        title="Block adapter package Id."
+                        onClick={() => void setAdapterQuarantine(false)}
+                        disabled={running || !opsId.trim()}
+                      >
+                        <ButtonLabel icon="approval">Block Adapter</ButtonLabel>
+                      </button>
+                    </div>
+                  </details>
                 </div>
               </details>
             </div>
@@ -32289,43 +32305,59 @@ export default function App() {
                 bridgeDeliveryResultCard(bridgeDeliveryResult)
               ) : null}
               <details
-                className="advanced-controls"
+                className="context-more-controls"
                 style={sectionThemeStyle("adapters")}
               >
-                <summary>
+                <summary title="Show additional bridge delivery settings">
                   <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="trace" />
+                    <AppIcon name="setup" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Advanced bridge delivery controls</strong>
-                    <span>Retry failed deliveries or remove dead-letter entries</span>
+                    <strong>More settings</strong>
+                    <span>Retry and dead-letter cleanup</span>
                   </span>
                 </summary>
-                <div className="button-grid">
-                  <button
-                    type="button"
-                    title="Retry bridge delivery Id."
-                    onClick={() => void retryBridgeDeliveryFromOps()}
-                    disabled={running || transport !== "daemon" || !opsId.trim()}
+                <div className="context-more-grid">
+                  <details
+                    className="advanced-controls"
+                    style={sectionThemeStyle("adapters")}
                   >
-                    <ButtonLabel icon="trace">Retry Id</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Delete bridge delivery Id without retrying."
-                    onClick={() => void deleteBridgeDeliveryFromOps()}
-                    disabled={running || transport !== "daemon" || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="approval">Delete Id</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Retry all failed bridge deliveries up to the daemon batch limit."
-                    onClick={() => void retryAllBridgeDeliveriesFromOps()}
-                    disabled={running || transport !== "daemon"}
-                  >
-                    <ButtonLabel icon="trace">Retry All</ButtonLabel>
-                  </button>
+                    <summary>
+                      <span className="advanced-controls-icon" aria-hidden="true">
+                        <AppIcon name="trace" />
+                      </span>
+                      <span className="advanced-controls-copy">
+                        <strong>Delivery maintenance</strong>
+                        <span>Retry failed deliveries or remove dead-letter entries</span>
+                      </span>
+                    </summary>
+                    <div className="button-grid">
+                      <button
+                        type="button"
+                        title="Retry bridge delivery Id."
+                        onClick={() => void retryBridgeDeliveryFromOps()}
+                        disabled={running || transport !== "daemon" || !opsId.trim()}
+                      >
+                        <ButtonLabel icon="trace">Retry Id</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        title="Delete bridge delivery Id without retrying."
+                        onClick={() => void deleteBridgeDeliveryFromOps()}
+                        disabled={running || transport !== "daemon" || !opsId.trim()}
+                      >
+                        <ButtonLabel icon="approval">Delete Id</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        title="Retry all failed bridge deliveries up to the daemon batch limit."
+                        onClick={() => void retryAllBridgeDeliveriesFromOps()}
+                        disabled={running || transport !== "daemon"}
+                      >
+                        <ButtonLabel icon="trace">Retry All</ButtonLabel>
+                      </button>
+                    </div>
+                  </details>
                 </div>
               </details>
             </div>
@@ -32352,35 +32384,51 @@ export default function App() {
                 </EmptyNote>
               )}
               <details
-                className="advanced-controls"
+                className="context-more-controls"
                 style={sectionThemeStyle("adapters")}
               >
-                <summary>
+                <summary title="Show additional bundle settings">
                   <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="artifact" />
+                    <AppIcon name="setup" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Advanced bundle transfer</strong>
-                    <span>Export to a custom path or import an existing bundle</span>
+                    <strong>More settings</strong>
+                    <span>Custom bundle import and export</span>
                   </span>
                 </summary>
-                <div className="button-grid">
-                  <button
-                    type="button"
-                    title="Export bundle to Value, or to a timestamped /tmp path when Value is blank."
-                    onClick={() => void exportBundleFromOps()}
-                    disabled={running}
+                <div className="context-more-grid">
+                  <details
+                    className="advanced-controls"
+                    style={sectionThemeStyle("adapters")}
                   >
-                    <ButtonLabel icon="artifact">Export</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Import bundle from the path in Value."
-                    onClick={() => void importBundleFromOps()}
-                    disabled={running || !opsValue.trim()}
-                  >
-                    <ButtonLabel icon="artifact">Import</ButtonLabel>
-                  </button>
+                    <summary>
+                      <span className="advanced-controls-icon" aria-hidden="true">
+                        <AppIcon name="artifact" />
+                      </span>
+                      <span className="advanced-controls-copy">
+                        <strong>Bundle transfer</strong>
+                        <span>Export to a custom path or import an existing bundle</span>
+                      </span>
+                    </summary>
+                    <div className="button-grid">
+                      <button
+                        type="button"
+                        title="Export bundle to Value, or to a timestamped /tmp path when Value is blank."
+                        onClick={() => void exportBundleFromOps()}
+                        disabled={running}
+                      >
+                        <ButtonLabel icon="artifact">Export</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        title="Import bundle from the path in Value."
+                        onClick={() => void importBundleFromOps()}
+                        disabled={running || !opsValue.trim()}
+                      >
+                        <ButtonLabel icon="artifact">Import</ButtonLabel>
+                      </button>
+                    </div>
+                  </details>
                 </div>
               </details>
             </div>
@@ -32900,28 +32948,44 @@ export default function App() {
                 </div>
               ) : null}
               <details
-                className="advanced-controls"
+                className="context-more-controls"
                 style={sectionThemeStyle("adapters")}
               >
-                <summary>
+                <summary title="Show additional storage maintenance settings">
                   <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="approval" />
+                    <AppIcon name="setup" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Advanced storage maintenance</strong>
-                    <span>Apply cache pruning after choosing retention days</span>
+                    <strong>More settings</strong>
+                    <span>Apply cache pruning after planning retention</span>
                   </span>
                 </summary>
-                <div className="button-grid">
-                  <button
-                    type="button"
-                    className="danger"
-                    title="Delete cache files older than the Value retention days."
-                    onClick={() => void storagePruneCacheFromOps(true)}
-                    disabled={running || !opsValue.trim()}
+                <div className="context-more-grid">
+                  <details
+                    className="advanced-controls"
+                    style={sectionThemeStyle("adapters")}
                   >
-                    <ButtonLabel icon="approval">Apply</ButtonLabel>
-                  </button>
+                    <summary>
+                      <span className="advanced-controls-icon" aria-hidden="true">
+                        <AppIcon name="approval" />
+                      </span>
+                      <span className="advanced-controls-copy">
+                        <strong>Storage maintenance</strong>
+                        <span>Apply cache pruning after choosing retention days</span>
+                      </span>
+                    </summary>
+                    <div className="button-grid">
+                      <button
+                        type="button"
+                        className="danger"
+                        title="Delete cache files older than the Value retention days."
+                        onClick={() => void storagePruneCacheFromOps(true)}
+                        disabled={running || !opsValue.trim()}
+                      >
+                        <ButtonLabel icon="approval">Apply</ButtonLabel>
+                      </button>
+                    </div>
+                  </details>
                 </div>
               </details>
             </div>

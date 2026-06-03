@@ -20549,8 +20549,10 @@ export default function App() {
               type="button"
               onClick={() => void previewCurrentContext()}
               disabled={running}
+              title="Preview Context"
+              aria-label="Preview Context"
             >
-              <ButtonLabel icon="context">Preview Context</ButtonLabel>
+              <ButtonLabel icon="context">Preview</ButtonLabel>
             </button>
           </div>
           <div className="context-disclosure-grid">

@@ -19797,6 +19797,45 @@ export default function App() {
   const showComposerPreviewAction = input.trim().length > 0;
   const sessionOverviewCards = runReadinessCards().slice(1, 4);
 
+  function sessionOverviewTitle(card: ContextReviewCard) {
+    switch (card.title) {
+      case "Tool Budget":
+        return "Tools";
+      case "Safety":
+        return "Gate";
+      case "Context Sources":
+        return "Context";
+      default:
+        return card.title;
+    }
+  }
+
+  function sessionOverviewValue(card: ContextReviewCard) {
+    switch (card.title) {
+      case "Tool Budget":
+        if (effectiveMaxToolCalls === 0) return "No calls";
+        if (effectiveMaxToolCalls === 1) return "1 call";
+        return `${effectiveMaxToolCalls} calls`;
+      case "Safety":
+        if (requireApproval) return "On";
+        return enableShell ? "Shell ungated" : "Auto";
+      case "Context Sources":
+        if (loadMemory && loadSkills) return "Memory + skills";
+        if (loadMemory) return "Memory on";
+        if (loadSkills) return "Skills on";
+        if (manualCompactedContext.trim() || conversationId.trim()) {
+          return "Linked";
+        }
+        return "Memory/skills off";
+      default:
+        return card.value;
+    }
+  }
+
+  function sessionOverviewDetail(card: ContextReviewCard) {
+    return `${card.title}: ${card.value}. ${card.detail}`;
+  }
+
   return (
     <div className="app-shell">
       <aside className="rail" aria-label="Agent workspace sections">
@@ -19929,14 +19968,15 @@ export default function App() {
                   {sessionOverviewCards.map((card) => (
                     <div
                       className={`session-overview-card ${card.tone}`}
+                      title={sessionOverviewDetail(card)}
                       key={card.title}
                     >
                       <span className="session-overview-icon" aria-hidden="true">
                         <AppIcon name={card.icon} />
                       </span>
                       <div className="session-overview-copy">
-                        <span>{card.title}</span>
-                        <strong>{card.value}</strong>
+                        <span>{sessionOverviewTitle(card)}</span>
+                        <strong>{sessionOverviewValue(card)}</strong>
                       </div>
                     </div>
                   ))}

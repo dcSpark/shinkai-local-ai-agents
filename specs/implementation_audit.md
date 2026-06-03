@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App empty-session posture copy compaction | Done | `crates/agent-tauri/frontend/src/App.tsx` | The empty Chat posture row now scans as short icon metrics such as "Tools / 5 calls", "Gate / On", and "Context / Memory/skills off" while preserving the fuller readiness values and details in card titles and the existing Run readiness disclosure. |
 | App workspace cue intent labels | Done | `crates/agent-tauri/frontend/src/App.tsx` | The inspector workspace flow map now names the hidden power-user step by intent, such as "Tune", "Replay", "Cleanup", "Admin", "Guard", and "Export", instead of repeating "Advanced" across sections; disclosure controls and power-user functionality remain unchanged. |
 | App starter card visible-copy compaction | Done | `crates/agent-tauri/frontend/src/App.tsx` | The empty Chat starter cards now use tighter visible labels such as "Plan workflow", "Missing inputs.", and "One tool, one result." while preserving their full staged prompts in titles and click behavior. |
 | App composer placeholder task framing | Done | `crates/agent-tauri/frontend/src/App.tsx` | The empty composer now invites users to "Describe a task" instead of repeating "Ask the agent" beside the compact Ask button, making the first input feel action-oriented while keeping submit behavior and Ask Agent accessibility unchanged. |

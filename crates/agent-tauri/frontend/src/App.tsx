@@ -20058,7 +20058,7 @@ export default function App() {
             />
           </label>
           <details
-            className="advanced-controls model-posture-controls"
+            className="advanced-controls model-posture-controls setup-details-controls"
             style={sectionThemeStyle("chat")}
           >
             <summary>
@@ -20066,8 +20066,8 @@ export default function App() {
                 <AppIcon name="setup" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Model posture</strong>
-                <span>Provider, model, modality, runtime, and cost metadata</span>
+                <strong>Setup details</strong>
+                <span>Model posture, connection, and advanced options</span>
               </span>
             </summary>
             <div className="run-readiness-grid model-setup-grid">
@@ -20084,20 +20084,6 @@ export default function App() {
                 </div>
               ))}
             </div>
-          </details>
-          <details
-            className="advanced-controls"
-            style={sectionThemeStyle("chat")}
-          >
-            <summary>
-              <span className="advanced-controls-icon" aria-hidden="true">
-                <AppIcon name="adapter" />
-              </span>
-              <span className="advanced-controls-copy">
-                <strong>Connection and identity</strong>
-                <span>Transport, daemon URL, demo mode, and agent id</span>
-              </span>
-            </summary>
             <label>
               <FieldLabel icon="adapter" section="chat">
                 Transport
@@ -20147,20 +20133,6 @@ export default function App() {
                 disabled={running}
               />
             </label>
-          </details>
-          <details
-            className="advanced-controls"
-            style={sectionThemeStyle("chat")}
-          >
-            <summary>
-              <span className="advanced-controls-icon" aria-hidden="true">
-                <AppIcon name="control" />
-              </span>
-              <span className="advanced-controls-copy">
-                <strong>Advanced model options</strong>
-                <span>Sampling, metadata, API credentials, modalities, and pricing</span>
-              </span>
-            </summary>
           <label>
             <FieldLabel icon="context" section="chat">
               Max context

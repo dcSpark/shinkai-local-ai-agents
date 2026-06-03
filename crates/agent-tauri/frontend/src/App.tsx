@@ -30445,30 +30445,6 @@ export default function App() {
                   <ButtonLabel icon="tools">List Tools</ButtonLabel>
                 </button>
               </div>
-              <details
-                className="advanced-controls"
-                style={sectionThemeStyle("chat")}
-              >
-                <summary>
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="tools" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>Direct tool call</strong>
-                    <span>Use Operation inputs as tool id and JSON payload</span>
-                  </span>
-                </summary>
-                <div className="button-grid">
-                  <button
-                    type="button"
-                    title="Call tool Id directly with Value as JSON input."
-                    onClick={() => void callToolFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="tools">Call Tool</ButtonLabel>
-                  </button>
-                </div>
-              </details>
               {visibleTools ? (
                 <>
                   {(() => {
@@ -30689,7 +30665,35 @@ export default function App() {
                     <EmptyNote section="chat" icon="tools">No visible tools loaded.</EmptyNote>
                   )}
                 </>
-              ) : null}
+              ) : (
+                <EmptyNote section="chat" icon="tools">
+                  No tool catalog loaded yet. List tools before calling one directly.
+                </EmptyNote>
+              )}
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("chat")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="tools" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Direct tool call</strong>
+                    <span>Use Operation inputs as tool id and JSON payload</span>
+                  </span>
+                </summary>
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    title="Call tool Id directly with Value as JSON input."
+                    onClick={() => void callToolFromOps()}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="tools">Call Tool</ButtonLabel>
+                  </button>
+                </div>
+              </details>
             </div>
             ) : null}
 

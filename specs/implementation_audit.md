@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App tool catalog first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat Tools group now presents List Tools plus visible-tool catalog cards or a catalog-not-loaded cue before the Direct tool call disclosure, so users inspect runtime tool visibility before staging raw JSON tool calls. |
 | App chat library first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat library disclosure now presents compact List/Show/Use/Save actions plus saved-item cards or empty cues before import/export/delete disclosures, so reusable context and agent presets are inspected before power-user transfer or cleanup controls without repeating group names in every button. |
 | App generated artifact first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The generated Artifacts group now presents List/Generate/Show/Open/Download plus generated-file inventory, empty inventory, and inline preview before advanced export/delete cache controls, so file review appears before power-user artifact cleanup. |
 | App storage and bundle first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Bundles group now presents one-click backup plus bundle activity or a short empty cue before advanced import/export transfer controls, and the Storage group presents report/plan actions plus diagnostic results or an idle cue before destructive maintenance controls. |

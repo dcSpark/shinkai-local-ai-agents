@@ -31973,28 +31973,44 @@ export default function App() {
                 >
                   <ButtonLabel icon="artifact">Backup Now</ButtonLabel>
                 </button>
-                <button
-                  type="button"
-                  title="Export bundle to Value, or to a timestamped /tmp path when Value is blank."
-                  onClick={() => void exportBundleFromOps()}
-                  disabled={running}
-                >
-                  <ButtonLabel icon="artifact">Export</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Import bundle from the path in Value."
-                  onClick={() => void importBundleFromOps()}
-                  disabled={running || !opsValue.trim()}
-                >
-                  <ButtonLabel icon="artifact">Import</ButtonLabel>
-                </button>
               </div>
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("adapters")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="artifact" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Advanced bundle transfer</strong>
+                    <span>Export to a custom path or import an existing bundle</span>
+                  </span>
+                </summary>
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    title="Export bundle to Value, or to a timestamped /tmp path when Value is blank."
+                    onClick={() => void exportBundleFromOps()}
+                    disabled={running}
+                  >
+                    <ButtonLabel icon="artifact">Export</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Import bundle from the path in Value."
+                    onClick={() => void importBundleFromOps()}
+                    disabled={running || !opsValue.trim()}
+                  >
+                    <ButtonLabel icon="artifact">Import</ButtonLabel>
+                  </button>
+                </div>
+              </details>
               {bundleStatus ? (
                 <BundleStatusCard status={bundleStatus} section="adapters" />
               ) : (
                 <EmptyNote section="adapters" icon="artifact">
-                  No bundle activity yet. Export a backup or import a bundle.
+                  No bundle activity yet. Run a backup or open advanced transfer.
                 </EmptyNote>
               )}
             </div>

@@ -175,6 +175,7 @@ interface SectionCue {
 
 interface StarterPrompt {
   title: string;
+  description: string;
   prompt: string;
   icon: IconName;
   tone?: ContextReviewCard["tone"];
@@ -419,6 +420,7 @@ const SECTION_CUES: Record<ActiveSection, SectionCue[]> = {
 const CHAT_STARTER_PROMPTS: StarterPrompt[] = [
   {
     title: "Plan a workflow",
+    description: "Map steps and tool choices first.",
     prompt:
       "Plan a safe multi-step workflow for: [task]. List the tools you would use before taking action.",
     icon: "tools",
@@ -426,12 +428,14 @@ const CHAT_STARTER_PROMPTS: StarterPrompt[] = [
   },
   {
     title: "Inspect context",
+    description: "Check missing inputs before answering.",
     prompt:
       "Review the available context for: [task]. Point out missing inputs before answering.",
     icon: "context",
   },
   {
     title: "Route one action",
+    description: "Use one action and return the result.",
     prompt:
       "Use at most one action for: [task]. Return the raw result if interpretation is not needed.",
     icon: "control",
@@ -19910,7 +19914,7 @@ export default function App() {
                     </span>
                     <span className="starter-prompt-copy">
                       <strong>{starter.title}</strong>
-                      <span>{starter.prompt}</span>
+                      <span>{starter.description}</span>
                     </span>
                   </button>
                 ))}

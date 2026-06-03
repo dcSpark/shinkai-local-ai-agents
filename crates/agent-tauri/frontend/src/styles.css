@@ -751,9 +751,9 @@ textarea:disabled {
   display: grid;
   grid-template-columns: 1.8rem minmax(0, 1fr);
   gap: 0.55rem;
-  align-items: start;
+  align-items: center;
   min-width: 0;
-  min-height: 5.75rem;
+  min-height: 4.65rem;
   padding: 0.65rem;
   border-color: #2a2d34;
   background: #15171b;

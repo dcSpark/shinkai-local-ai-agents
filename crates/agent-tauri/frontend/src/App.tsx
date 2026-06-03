@@ -26047,6 +26047,20 @@ export default function App() {
                 </div>
               ) : null}
               <details
+                className="context-more-controls"
+                style={sectionThemeStyle("memory")}
+              >
+                <summary title="Show additional memory settings">
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="setup" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>More settings</strong>
+                    <span>Generation, classification, maintenance, and transfer</span>
+                  </span>
+                </summary>
+                <div className="context-more-grid">
+              <details
                 className="advanced-controls"
                 style={sectionThemeStyle("memory")}
               >
@@ -26055,8 +26069,8 @@ export default function App() {
                     <AppIcon name="prompt" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Advanced memory generation</strong>
-                    <span>Range metadata, generation guidance, model selection, and classification</span>
+                    <strong>Generation</strong>
+                    <span>Range metadata, guidance, model selection, and classification</span>
                   </span>
                 </summary>
                 <label>
@@ -26139,7 +26153,7 @@ export default function App() {
                     <AppIcon name="artifact" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Advanced memory maintenance</strong>
+                    <strong>Maintenance</strong>
                     <span>Edit, delete, rollback, import, and export memory records</span>
                   </span>
                 </summary>
@@ -26197,6 +26211,8 @@ export default function App() {
                   >
                     <ButtonLabel icon="artifact">Import Mem</ButtonLabel>
                   </button>
+                </div>
+              </details>
                 </div>
               </details>
             </div>

@@ -19748,7 +19748,7 @@ export default function App() {
     transcript.length === 1 &&
     transcript[0]?.kind === "event" &&
     transcript[0]?.text.startsWith("Welcome.");
-  const sessionOverviewCards = runReadinessCards().slice(0, 4);
+  const sessionOverviewCards = runReadinessCards().slice(1, 4);
 
   return (
     <div className="app-shell">

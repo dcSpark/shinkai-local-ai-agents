@@ -30048,33 +30048,52 @@ export default function App() {
                         >
                           <ButtonLabel icon="context">Preview</ButtonLabel>
                         </button>
-                        <button
-                          type="button"
-                          title="Move this artifact id into the Id field."
-                          onClick={() => setOpsId(artifact.id)}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="artifact">Set Id</ButtonLabel>
-                        </button>
-                        {artifact.findings.length ? (
+                      </div>
+                      <details
+                        className="advanced-controls"
+                        style={sectionThemeStyle("ingest")}
+                      >
+                        <summary title="Show ingestion artifact staging and rerun actions">
+                          <span
+                            className="advanced-controls-icon"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="ingest" />
+                          </span>
+                          <span className="advanced-controls-copy">
+                            <strong>More</strong>
+                            <span>Stage findings or rerun this artifact</span>
+                          </span>
+                        </summary>
+                        <div className="button-grid">
                           <button
                             type="button"
-                            title="Move this artifact id and first unreviewed finding index into the review controls."
-                            onClick={() => stageIngestFindingReview(artifact)}
+                            title="Move this artifact id into the Target id field."
+                            onClick={() => setOpsId(artifact.id)}
                             disabled={running}
                           >
-                            <ButtonLabel icon="approval">Stage Finding</ButtonLabel>
+                            <ButtonLabel icon="artifact">Set id</ButtonLabel>
                           </button>
-                        ) : null}
-                        <button
-                          type="button"
-                          title="Re-run this artifact with the selected backend."
-                          onClick={() => void rerunIngestId(artifact.id)}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="trace">Rerun</ButtonLabel>
-                        </button>
-                      </div>
+                          {artifact.findings.length ? (
+                            <button
+                              type="button"
+                              title="Move this artifact id and first unreviewed finding index into the review controls."
+                              onClick={() => stageIngestFindingReview(artifact)}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="approval">Stage Finding</ButtonLabel>
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            title="Re-run this artifact with the selected backend."
+                            onClick={() => void rerunIngestId(artifact.id)}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="trace">Rerun</ButtonLabel>
+                          </button>
+                        </div>
+                      </details>
                     </div>
                   ))}
                 </div>

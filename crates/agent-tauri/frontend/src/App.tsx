@@ -31047,7 +31047,7 @@ export default function App() {
                   </span>
                   <span className="advanced-controls-copy">
                     <strong>Direct tool call</strong>
-                    <span>Use Operation inputs as tool id and JSON payload</span>
+                    <span>Use staged Id and Value as the tool id and JSON payload</span>
                   </span>
                 </summary>
                 <div className="button-grid">
@@ -33096,8 +33096,8 @@ export default function App() {
                 <AppIcon name={activeVisual.secondaryIcon} />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Operation inputs</strong>
-                <span>Value, id, and user-memory scope</span>
+                <strong>Staged inputs</strong>
+                <span>Value, id, and user-memory scope for focused actions</span>
               </span>
             </summary>
             <label>

@@ -20014,10 +20014,11 @@ export default function App() {
               className="primary"
               onClick={() => void submit()}
               disabled={running || !input.trim()}
-              title="Send"
+              title="Ask Agent"
+              aria-label="Ask Agent"
             >
               <AppIcon name="chat" />
-              <span>Ask Agent</span>
+              <span>Ask</span>
             </button>
             {showComposerPreviewAction ? (
               <button

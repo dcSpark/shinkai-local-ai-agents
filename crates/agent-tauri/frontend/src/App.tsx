@@ -24798,14 +24798,6 @@ export default function App() {
                             <div className="mini-actions">
                               <button
                                 type="button"
-                                title="Move this conversation id into the Id field."
-                                onClick={() => setOpsId(node.id)}
-                                disabled={running}
-                              >
-                                <ButtonLabel icon="conversation">Set Id</ButtonLabel>
-                              </button>
-                              <button
-                                type="button"
                                 title="Show expanded conversation messages."
                                 onClick={() => void showConversation(node.id)}
                                 disabled={running}
@@ -24820,36 +24812,63 @@ export default function App() {
                               >
                                 <ButtonLabel icon="context">Recover</ButtonLabel>
                               </button>
-                              <button
-                                type="button"
-                                title="Preview deletion impact for this branch."
-                                onClick={() =>
-                                  void previewConversationDelete(node.id, false)
-                                }
-                                disabled={running}
-                              >
-                                <ButtonLabel icon="approval">Plan</ButtonLabel>
-                              </button>
-                              <button
-                                type="button"
-                                title="Preview recursive deletion impact for this branch."
-                                onClick={() =>
-                                  void previewConversationDelete(node.id, true)
-                                }
-                                disabled={running}
-                              >
-                                <ButtonLabel icon="trace">Plan Rec</ButtonLabel>
-                              </button>
-                              <button
-                                type="button"
-                                className="danger"
-                                title="Delete this leaf conversation."
-                                onClick={() => void deleteConversation(node.id, false)}
-                                disabled={running}
-                              >
-                                <ButtonLabel icon="approval">Delete</ButtonLabel>
-                              </button>
                             </div>
+                            <details
+                              className="advanced-controls"
+                              style={sectionThemeStyle("conversations")}
+                            >
+                              <summary title="Show branch staging and cleanup actions">
+                                <span
+                                  className="advanced-controls-icon"
+                                  aria-hidden="true"
+                                >
+                                  <AppIcon name="conversation" />
+                                </span>
+                                <span className="advanced-controls-copy">
+                                  <strong>More</strong>
+                                  <span>Stage, plan, or delete this branch</span>
+                                </span>
+                              </summary>
+                              <div className="button-grid">
+                                <button
+                                  type="button"
+                                  title="Move this conversation id into the Target id field."
+                                  onClick={() => setOpsId(node.id)}
+                                  disabled={running}
+                                >
+                                  <ButtonLabel icon="conversation">Set id</ButtonLabel>
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Preview deletion impact for this branch."
+                                  onClick={() =>
+                                    void previewConversationDelete(node.id, false)
+                                  }
+                                  disabled={running}
+                                >
+                                  <ButtonLabel icon="approval">Plan</ButtonLabel>
+                                </button>
+                                <button
+                                  type="button"
+                                  title="Preview recursive deletion impact for this branch."
+                                  onClick={() =>
+                                    void previewConversationDelete(node.id, true)
+                                  }
+                                  disabled={running}
+                                >
+                                  <ButtonLabel icon="trace">Plan Rec</ButtonLabel>
+                                </button>
+                                <button
+                                  type="button"
+                                  className="danger"
+                                  title="Delete this leaf conversation."
+                                  onClick={() => void deleteConversation(node.id, false)}
+                                  disabled={running}
+                                >
+                                  <ButtonLabel icon="approval">Delete</ButtonLabel>
+                                </button>
+                              </div>
+                            </details>
                           </div>
                         </div>
                       );

@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App staged-input field language | Done | `crates/agent-tauri/frontend/src/App.tsx` | The shared Staged inputs drawer now labels its raw Value/Id controls as Payload and Target id in the visible UI, keeping the same backing fields and action behavior while making power-user staging less cryptic. |
 | App model settings copy compaction | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Models More settings drawer now uses shorter group labels and action labels for catalog review, model transfer, and catalog import/export while keeping the full JSON/path behavior in titles and handlers. |
 | App model card icon headers | Done | `crates/agent-tauri/frontend/src/App.tsx` | Saved model and provider descriptor review cards now use the shared icon-bearing header pattern, giving provider/default-model posture a visual cue while preserving existing metrics, detail rows, and actions. |
 | App trace-event raw payload disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Trace event rows now keep the icon-bearing event summary visible when expanded while moving the exact raw event JSON behind a nested Raw event disclosure with payload size/token cues, preserving auditability without dumping every event body at once. |

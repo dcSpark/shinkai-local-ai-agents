@@ -33538,30 +33538,30 @@ export default function App() {
               </span>
               <span className="advanced-controls-copy">
                 <strong>Staged inputs</strong>
-                <span>Value, id, and user-memory scope for focused actions</span>
+                <span>Payload, target id, and memory scope for focused actions</span>
               </span>
             </summary>
             <label>
               <FieldLabel icon={activeVisual.secondaryIcon} section={activeSection}>
-                Value
+                Payload
               </FieldLabel>
               <textarea
                 className="ops-text"
                 value={opsValue}
                 onChange={(e) => setOpsValue(e.target.value)}
-                placeholder="file path, text, or JSON payload"
+                placeholder="file path, text, JSON, or command payload"
                 disabled={running}
                 rows={3}
               />
             </label>
             <label>
               <FieldLabel icon={activeVisual.icon} section={activeSection}>
-                Id
+                Target id
               </FieldLabel>
               <input
                 value={opsId}
                 onChange={(e) => setOpsId(e.target.value)}
-                placeholder="tool, model, prompt, conversation, artifact, skill, adapter, or batch id"
+                placeholder="tool, model, prompt, conversation, artifact, skill, adapter, or batch"
                 disabled={running}
               />
             </label>

@@ -32393,14 +32393,6 @@ export default function App() {
                               <div className="mini-actions">
                                 <button
                                   type="button"
-                                  title="Move this adapter package id into the Id field."
-                                  onClick={() => setOpsId(pkg.id)}
-                                  disabled={running}
-                                >
-                                  <ButtonLabel icon="adapter">Set Pkg</ButtonLabel>
-                                </button>
-                                <button
-                                  type="button"
                                   title="Install this package's installable adapter skills."
                                   onClick={() => {
                                     setOpsId(pkg.id);
@@ -32432,6 +32424,33 @@ export default function App() {
                                   <ButtonLabel icon="approval">Allow Pkg</ButtonLabel>
                                 </button>
                               </div>
+                              <details
+                                className="advanced-controls"
+                                style={sectionThemeStyle("adapters")}
+                              >
+                                <summary title="Show adapter package staging action">
+                                  <span
+                                    className="advanced-controls-icon"
+                                    aria-hidden="true"
+                                  >
+                                    <AppIcon name="adapter" />
+                                  </span>
+                                  <span className="advanced-controls-copy">
+                                    <strong>More</strong>
+                                    <span>Stage this package</span>
+                                  </span>
+                                </summary>
+                                <div className="button-grid">
+                                  <button
+                                    type="button"
+                                    title="Move this adapter package id into the Target id field."
+                                    onClick={() => setOpsId(pkg.id)}
+                                    disabled={running}
+                                  >
+                                    <ButtonLabel icon="adapter">Set id</ButtonLabel>
+                                  </button>
+                                </div>
+                              </details>
                             </div>
                           );
                         }),

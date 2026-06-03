@@ -28530,50 +28530,6 @@ export default function App() {
             {activeSection === "ingest" ? (
             <div className="operation-group">
               <OperationTitle title="Ingestion" section="ingest" />
-              <label>
-                <FieldLabel icon="setup" section="ingest">
-                  Backend
-                </FieldLabel>
-                <select
-                  value={ingestBackend}
-                  onChange={(e) => setIngestBackend(e.target.value)}
-                  disabled={running}
-                >
-                  {(ingestionBackends.length
-                    ? ingestionBackends
-                    : [
-                        {
-                          id: "local-v0",
-                          name: "Local Text",
-                          description: "",
-                          modalities: [],
-                        },
-                        {
-                          id: "local-lines-v0",
-                          name: "Local Lines",
-                          description: "",
-                          modalities: [],
-                        },
-                        {
-                          id: "local-structured-v0",
-                          name: "Local Structured",
-                          description: "",
-                          modalities: [],
-                        },
-                        {
-                          id: "local-layout-v0",
-                          name: "Local Layout/OCR",
-                          description: "",
-                          modalities: [],
-                        },
-                      ]
-                  ).map((backend) => (
-                    <option value={backend.id} key={backend.id}>
-                      {backend.id}
-                    </option>
-                  ))}
-                </select>
-              </label>
               <div className="button-grid">
                 <button
                   type="button"
@@ -28643,134 +28599,194 @@ export default function App() {
                 </button>
               </div>
               <details
-                className="advanced-controls"
+                className="context-more-controls"
                 style={sectionThemeStyle("ingest")}
               >
-                <summary>
+                <summary title="Show additional ingestion settings">
                   <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="prompt" />
+                    <AppIcon name="setup" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Advanced ingest models</strong>
-                    <span>Vision/OCR and guardrail model overrides</span>
+                    <strong>More settings</strong>
+                    <span>Backend, models, finding review, and maintenance</span>
                   </span>
                 </summary>
-                <label>
-                  <FieldLabel icon="prompt" section="ingest">
-                    Vision model
-                  </FieldLabel>
-                  <input
-                    value={ingestVisionModel}
-                    onChange={(e) => setIngestVisionModel(e.target.value)}
-                    placeholder="optional OCR/layout model"
-                    disabled={running}
-                  />
-                </label>
-                <label>
-                  <FieldLabel icon="approval" section="ingest">
-                    Guardrail model
-                  </FieldLabel>
-                  <input
-                    value={ingestGuardrailModel}
-                    onChange={(e) => setIngestGuardrailModel(e.target.value)}
-                    placeholder="profile default"
-                    disabled={running}
-                  />
-                </label>
-              </details>
-              <details
-                className="advanced-controls"
-                style={sectionThemeStyle("ingest")}
-              >
-                <summary>
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="approval" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>Advanced finding review</strong>
-                    <span>Finding index, decision, and reviewer note</span>
-                  </span>
-                </summary>
-                <label>
-                  <FieldLabel icon="trace" section="ingest">
-                    Finding index
-                  </FieldLabel>
-                  <input
-                    value={ingestFindingIndex}
-                    onChange={(e) => setIngestFindingIndex(e.target.value)}
-                    placeholder="0"
-                    disabled={running}
-                  />
-                </label>
-                <label>
-                  <FieldLabel icon="approval" section="ingest">
-                    Review decision
-                  </FieldLabel>
-                  <select
-                    value={ingestReviewDecision}
-                    onChange={(e) =>
-                      setIngestReviewDecision(
-                        e.target.value as IngestionFindingReviewDecision,
-                      )
-                    }
-                    disabled={running}
+                <div className="context-more-grid">
+                  <details
+                    className="advanced-controls"
+                    style={sectionThemeStyle("ingest")}
                   >
-                    <option value="approve">approve</option>
-                    <option value="acknowledge">acknowledge</option>
-                    <option value="reject">reject</option>
-                  </select>
-                </label>
-                <label>
-                  <FieldLabel icon="prompt" section="ingest">
-                    Review note
-                  </FieldLabel>
-                  <input
-                    value={ingestReviewNote}
-                    onChange={(e) => setIngestReviewNote(e.target.value)}
-                    placeholder="optional"
-                    disabled={running}
-                  />
-                </label>
-              </details>
-              <details
-                className="advanced-controls"
-                style={sectionThemeStyle("ingest")}
-              >
-                <summary>
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="trace" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>Advanced ingest operations</strong>
-                    <span>Review findings, rerun artifacts, and remove cached ingest</span>
-                  </span>
-                </summary>
-                <div className="button-grid">
-                  <button
-                    type="button"
-                    title="Review finding index on ingestion artifact Id."
-                    onClick={() => void reviewIngestFindingFromOps()}
-                    disabled={running || !opsId.trim()}
+                    <summary>
+                      <span className="advanced-controls-icon" aria-hidden="true">
+                        <AppIcon name="setup" />
+                      </span>
+                      <span className="advanced-controls-copy">
+                        <strong>Source setup</strong>
+                        <span>Backend plus OCR and guardrail models</span>
+                      </span>
+                    </summary>
+                    <label>
+                      <FieldLabel icon="setup" section="ingest">
+                        Backend
+                      </FieldLabel>
+                      <select
+                        value={ingestBackend}
+                        onChange={(e) => setIngestBackend(e.target.value)}
+                        disabled={running}
+                      >
+                        {(ingestionBackends.length
+                          ? ingestionBackends
+                          : [
+                              {
+                                id: "local-v0",
+                                name: "Local Text",
+                                description: "",
+                                modalities: [],
+                              },
+                              {
+                                id: "local-lines-v0",
+                                name: "Local Lines",
+                                description: "",
+                                modalities: [],
+                              },
+                              {
+                                id: "local-structured-v0",
+                                name: "Local Structured",
+                                description: "",
+                                modalities: [],
+                              },
+                              {
+                                id: "local-layout-v0",
+                                name: "Local Layout/OCR",
+                                description: "",
+                                modalities: [],
+                              },
+                            ]
+                        ).map((backend) => (
+                          <option value={backend.id} key={backend.id}>
+                            {backend.id}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <FieldLabel icon="prompt" section="ingest">
+                        Vision model
+                      </FieldLabel>
+                      <input
+                        value={ingestVisionModel}
+                        onChange={(e) => setIngestVisionModel(e.target.value)}
+                        placeholder="optional OCR/layout model"
+                        disabled={running}
+                      />
+                    </label>
+                    <label>
+                      <FieldLabel icon="approval" section="ingest">
+                        Guardrail model
+                      </FieldLabel>
+                      <input
+                        value={ingestGuardrailModel}
+                        onChange={(e) => setIngestGuardrailModel(e.target.value)}
+                        placeholder="profile default"
+                        disabled={running}
+                      />
+                    </label>
+                  </details>
+                  <details
+                    className="advanced-controls"
+                    style={sectionThemeStyle("ingest")}
                   >
-                    <ButtonLabel icon="approval">Review Finding</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Re-run ingestion artifact Id with the selected backend."
-                    onClick={() => void rerunIngestFromOps()}
-                    disabled={running || !opsId.trim()}
+                    <summary>
+                      <span className="advanced-controls-icon" aria-hidden="true">
+                        <AppIcon name="approval" />
+                      </span>
+                      <span className="advanced-controls-copy">
+                        <strong>Finding review</strong>
+                        <span>Finding index, decision, and reviewer note</span>
+                      </span>
+                    </summary>
+                    <label>
+                      <FieldLabel icon="trace" section="ingest">
+                        Finding index
+                      </FieldLabel>
+                      <input
+                        value={ingestFindingIndex}
+                        onChange={(e) => setIngestFindingIndex(e.target.value)}
+                        placeholder="0"
+                        disabled={running}
+                      />
+                    </label>
+                    <label>
+                      <FieldLabel icon="approval" section="ingest">
+                        Review decision
+                      </FieldLabel>
+                      <select
+                        value={ingestReviewDecision}
+                        onChange={(e) =>
+                          setIngestReviewDecision(
+                            e.target.value as IngestionFindingReviewDecision,
+                          )
+                        }
+                        disabled={running}
+                      >
+                        <option value="approve">approve</option>
+                        <option value="acknowledge">acknowledge</option>
+                        <option value="reject">reject</option>
+                      </select>
+                    </label>
+                    <label>
+                      <FieldLabel icon="prompt" section="ingest">
+                        Review note
+                      </FieldLabel>
+                      <input
+                        value={ingestReviewNote}
+                        onChange={(e) => setIngestReviewNote(e.target.value)}
+                        placeholder="optional"
+                        disabled={running}
+                      />
+                    </label>
+                  </details>
+                  <details
+                    className="advanced-controls"
+                    style={sectionThemeStyle("ingest")}
                   >
-                    <ButtonLabel icon="trace">Rerun Ingest</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    title="Remove ingestion artifact Id."
-                    onClick={() => void removeIngestFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="approval">Remove Ingest</ButtonLabel>
-                  </button>
+                    <summary>
+                      <span className="advanced-controls-icon" aria-hidden="true">
+                        <AppIcon name="trace" />
+                      </span>
+                      <span className="advanced-controls-copy">
+                        <strong>Maintenance</strong>
+                        <span>Review findings, rerun artifacts, and remove cached ingest</span>
+                      </span>
+                    </summary>
+                    <div className="button-grid">
+                      <button
+                        type="button"
+                        title="Review finding index on ingestion artifact Id."
+                        onClick={() => void reviewIngestFindingFromOps()}
+                        disabled={running || !opsId.trim()}
+                      >
+                        <ButtonLabel icon="approval">Review Finding</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        title="Re-run ingestion artifact Id with the selected backend."
+                        onClick={() => void rerunIngestFromOps()}
+                        disabled={running || !opsId.trim()}
+                      >
+                        <ButtonLabel icon="trace">Rerun Ingest</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        className="danger"
+                        title="Remove ingestion artifact Id."
+                        onClick={() => void removeIngestFromOps()}
+                        disabled={running || !opsId.trim()}
+                      >
+                        <ButtonLabel icon="approval">Remove Ingest</ButtonLabel>
+                      </button>
+                    </div>
+                  </details>
                 </div>
               </details>
               {ingestionSourceProbe ? (

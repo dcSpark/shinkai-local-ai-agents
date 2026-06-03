@@ -32904,184 +32904,6 @@ export default function App() {
               </EmptyNote>
             )
           ) : null}
-          <fieldset className="operation-group">
-            <legend>
-              <FieldLabel icon="control" section={runControlVisualSection}>
-                Stop mode
-              </FieldLabel>
-            </legend>
-            <div className="segmented-control" role="group" aria-label="Stop mode">
-              <button
-                type="button"
-                className={stopRetentionMode === null ? "selected" : ""}
-                title="Use the resolved agent, profile, or global stopped-run retention policy."
-                onClick={() => setStopRetentionMode(null)}
-              >
-                <ButtonLabel icon="setup">Default</ButtonLabel>
-              </button>
-              <button
-                type="button"
-                className={stopRetentionMode === "discard" ? "selected" : ""}
-                title="Stop without retaining context from the cancelled task."
-                onClick={() => setStopRetentionMode("discard")}
-              >
-                <ButtonLabel icon="approval">Discard</ButtonLabel>
-              </button>
-              <button
-                type="button"
-                className={stopRetentionMode === "summarise" ? "selected" : ""}
-                title="Stop and retain a concise summary of what happened."
-                onClick={() => setStopRetentionMode("summarise")}
-              >
-                <ButtonLabel icon="context">Summarise</ButtonLabel>
-              </button>
-            </div>
-            <ModeNote section={runControlVisualSection} icon="control">
-              {stopRetentionMode === null
-                ? "Stopped tasks follow the resolved policy."
-                : stopRetentionMode === "discard"
-                  ? "Stopped tasks keep no attempted context."
-                  : "Stopped tasks retain only a summary artifact."}
-            </ModeNote>
-          </fieldset>
-          <fieldset className="operation-group">
-            <legend>
-              <FieldLabel icon="trace" section={runControlVisualSection}>
-                Resume cursor
-              </FieldLabel>
-            </legend>
-            <label>
-              <FieldLabel icon="trace" section={runControlVisualSection}>
-                From event
-              </FieldLabel>
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={resumeFromEvent}
-                onChange={(e) => setResumeFromEvent(e.target.value)}
-                placeholder="auto"
-                inputMode="numeric"
-                disabled={running}
-              />
-            </label>
-            <ModeNote section={runControlVisualSection} icon="trace">
-              Empty uses the latest resumable event.
-            </ModeNote>
-          </fieldset>
-          {resumePlan ? (
-            <div
-              className="resume-plan-card ok"
-              style={sectionThemeStyle(runControlVisualSection)}
-            >
-              <div className="resume-plan-head with-icon">
-                <span className="resume-plan-icon ok" aria-hidden="true">
-                  <AppIcon name="trace" />
-                </span>
-                <div className="resume-plan-title">
-                  <strong>Resume plan</strong>
-                  <span>{resumePlan.agent_id}</span>
-                </div>
-              </div>
-              <div className="resume-plan-metrics">
-                <VisualMetric
-                  icon="trace"
-                  label="event"
-                  value={resumePlan.selected_event_id}
-                  section={runControlVisualSection}
-                  tone="ok"
-                />
-                <VisualMetric
-                  icon="context"
-                  label="omitted"
-                  value={resumePlan.omitted_events}
-                  section={runControlVisualSection}
-                  tone={resumePlan.omitted_events ? "warning" : "ok"}
-                />
-                <VisualMetric
-                  icon="prompt"
-                  label="prompt tokens"
-                  value={estimateLocalTokens(resumePlan.prompt)}
-                  section={runControlVisualSection}
-                  tone="ok"
-                />
-                <VisualMetric
-                  icon="conversation"
-                  label="original tokens"
-                  value={estimateLocalTokens(resumePlan.original_input)}
-                  section={runControlVisualSection}
-                  tone="neutral"
-                />
-              </div>
-              <div className="resume-plan-detail-list">
-                <div className="resume-plan-detail-row ok">
-                  <span className="resume-plan-detail-icon ok" aria-hidden="true">
-                    <AppIcon name="trace" />
-                  </span>
-                  <div className="resume-plan-detail-copy">
-                    <strong>Source run</strong>
-                    <span>{resumePlan.source_run_id}</span>
-                  </div>
-                </div>
-                <div
-                  className={`resume-plan-detail-row ${
-                    resumePlan.omitted_events ? "warning" : "ok"
-                  }`}
-                >
-                  <span
-                    className={`resume-plan-detail-icon ${
-                      resumePlan.omitted_events ? "warning" : "ok"
-                    }`}
-                    aria-hidden="true"
-                  >
-                    <AppIcon name="context" />
-                  </span>
-                  <div className="resume-plan-detail-copy">
-                    <strong>Resume scope</strong>
-                    <span>{resumePlanSummary(resumePlan)}</span>
-                  </div>
-                </div>
-                <div className="resume-plan-detail-row">
-                  <span className="resume-plan-detail-icon" aria-hidden="true">
-                    <AppIcon name="conversation" />
-                  </span>
-                  <div className="resume-plan-detail-copy">
-                    <strong>Original input</strong>
-                    <span>~{estimateLocalTokens(resumePlan.original_input)} tokens</span>
-                    <span>{previewText(resumePlan.original_input, 180)}</span>
-                  </div>
-                </div>
-                <div className="resume-plan-detail-row ok">
-                  <span className="resume-plan-detail-icon ok" aria-hidden="true">
-                    <AppIcon name="prompt" />
-                  </span>
-                  <div className="resume-plan-detail-copy">
-                    <strong>Generated prompt</strong>
-                    <span>~{estimateLocalTokens(resumePlan.prompt)} tokens</span>
-                    <span>{previewText(resumePlan.prompt, 260)}</span>
-                  </div>
-                </div>
-              </div>
-              <div className="mini-actions">
-                <button
-                  type="button"
-                  title="Move the resume source run id into the Id field."
-                  onClick={() => setOpsId(resumePlan.source_run_id)}
-                  disabled={running}
-                >
-                  <ButtonLabel icon="trace">Set Id</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Copy the generated resume prompt into Value."
-                  onClick={() => setOpsValue(resumePlan.prompt)}
-                  disabled={running}
-                >
-                  <ButtonLabel icon="prompt">Use Prompt</ButtonLabel>
-                </button>
-              </div>
-            </div>
-          ) : null}
           <div className="button-grid">
             <button
               type="button"
@@ -33110,59 +32932,11 @@ export default function App() {
             </button>
             <button
               type="button"
-              title="Score Id target using Value as 0-10; empty Id targets last_answer and empty Value records 10."
-              onClick={() => void scoreLastRun()}
-              disabled={running || !lastRunId}
-            >
-              <ButtonLabel icon="skill">Score</ButtonLabel>
-            </button>
-            <button
-              type="button"
-              title="Mark the last answer as excellent."
-              onClick={() => void scoreLastRun(10, "last_answer")}
-              disabled={running || !lastRunId}
-            >
-              <ButtonLabel icon="skill">Great 10</ButtonLabel>
-            </button>
-            <button
-              type="button"
-              title="Mark the last answer as acceptable."
-              onClick={() => void scoreLastRun(7, "last_answer")}
-              disabled={running || !lastRunId}
-            >
-              <ButtonLabel icon="skill">Good 7</ButtonLabel>
-            </button>
-            <button
-              type="button"
-              title="Mark the last answer as poor."
-              onClick={() => void scoreLastRun(3, "last_answer")}
-              disabled={running || !lastRunId}
-            >
-              <ButtonLabel icon="skill">Poor 3</ButtonLabel>
-            </button>
-            <button
-              type="button"
               title={`Stop current run and ${stopRetentionLabel(stopRetentionMode)}.`}
               onClick={() => void cancelLastRun()}
               disabled={!running || !lastRunId}
             >
               <ButtonLabel icon="control">Stop</ButtonLabel>
-            </button>
-            <button
-              type="button"
-              title="Resume the run id in the Id field, or the last run when Id is blank."
-              onClick={() => void resumeLastRun()}
-              disabled={running || (!opsId.trim() && !lastRunId)}
-            >
-              <ButtonLabel icon="trace">Resume</ButtonLabel>
-            </button>
-            <button
-              type="button"
-              title="Preview the generated resume prompt for Id, or the last run when Id is blank."
-              onClick={() => void reviewResumePlanFromControls()}
-              disabled={running || (!opsId.trim() && !lastRunId)}
-            >
-              <ButtonLabel icon="context">Plan</ButtonLabel>
             </button>
             <button
               type="button"
@@ -33172,6 +32946,280 @@ export default function App() {
               <ButtonLabel icon="trace">Trace</ButtonLabel>
             </button>
           </div>
+          <details
+            className="advanced-controls"
+            style={sectionThemeStyle(runControlVisualSection)}
+          >
+            <summary>
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="control" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Stop policy</strong>
+                <span>Choose whether cancelled runs retain context</span>
+              </span>
+            </summary>
+            <fieldset className="operation-group">
+              <legend>
+                <FieldLabel icon="control" section={runControlVisualSection}>
+                  Stop mode
+                </FieldLabel>
+              </legend>
+              <div className="segmented-control" role="group" aria-label="Stop mode">
+                <button
+                  type="button"
+                  className={stopRetentionMode === null ? "selected" : ""}
+                  title="Use the resolved agent, profile, or global stopped-run retention policy."
+                  onClick={() => setStopRetentionMode(null)}
+                >
+                  <ButtonLabel icon="setup">Default</ButtonLabel>
+                </button>
+                <button
+                  type="button"
+                  className={stopRetentionMode === "discard" ? "selected" : ""}
+                  title="Stop without retaining context from the cancelled task."
+                  onClick={() => setStopRetentionMode("discard")}
+                >
+                  <ButtonLabel icon="approval">Discard</ButtonLabel>
+                </button>
+                <button
+                  type="button"
+                  className={stopRetentionMode === "summarise" ? "selected" : ""}
+                  title="Stop and retain a concise summary of what happened."
+                  onClick={() => setStopRetentionMode("summarise")}
+                >
+                  <ButtonLabel icon="context">Summarise</ButtonLabel>
+                </button>
+              </div>
+              <ModeNote section={runControlVisualSection} icon="control">
+                {stopRetentionMode === null
+                  ? "Stopped tasks follow the resolved policy."
+                  : stopRetentionMode === "discard"
+                    ? "Stopped tasks keep no attempted context."
+                    : "Stopped tasks retain only a summary artifact."}
+              </ModeNote>
+            </fieldset>
+          </details>
+          <details
+            className="advanced-controls"
+            style={sectionThemeStyle(runControlVisualSection)}
+          >
+            <summary>
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="skill" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Quality scoring</strong>
+                <span>Score the latest answer or staged target</span>
+              </span>
+            </summary>
+            <div className="button-grid">
+              <button
+                type="button"
+                title="Score Id target using Value as 0-10; empty Id targets last_answer and empty Value records 10."
+                onClick={() => void scoreLastRun()}
+                disabled={running || !lastRunId}
+              >
+                <ButtonLabel icon="skill">Score</ButtonLabel>
+              </button>
+              <button
+                type="button"
+                title="Mark the last answer as excellent."
+                onClick={() => void scoreLastRun(10, "last_answer")}
+                disabled={running || !lastRunId}
+              >
+                <ButtonLabel icon="skill">Great 10</ButtonLabel>
+              </button>
+              <button
+                type="button"
+                title="Mark the last answer as acceptable."
+                onClick={() => void scoreLastRun(7, "last_answer")}
+                disabled={running || !lastRunId}
+              >
+                <ButtonLabel icon="skill">Good 7</ButtonLabel>
+              </button>
+              <button
+                type="button"
+                title="Mark the last answer as poor."
+                onClick={() => void scoreLastRun(3, "last_answer")}
+                disabled={running || !lastRunId}
+              >
+                <ButtonLabel icon="skill">Poor 3</ButtonLabel>
+              </button>
+            </div>
+          </details>
+          <details
+            className="advanced-controls"
+            style={sectionThemeStyle(runControlVisualSection)}
+          >
+            <summary>
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="trace" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Resume controls</strong>
+                <span>Preview or restart from a run checkpoint</span>
+              </span>
+            </summary>
+            <fieldset className="operation-group">
+              <legend>
+                <FieldLabel icon="trace" section={runControlVisualSection}>
+                  Resume cursor
+                </FieldLabel>
+              </legend>
+              <label>
+                <FieldLabel icon="trace" section={runControlVisualSection}>
+                  From event
+                </FieldLabel>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={resumeFromEvent}
+                  onChange={(e) => setResumeFromEvent(e.target.value)}
+                  placeholder="auto"
+                  inputMode="numeric"
+                  disabled={running}
+                />
+              </label>
+              <ModeNote section={runControlVisualSection} icon="trace">
+                Empty uses the latest resumable event.
+              </ModeNote>
+            </fieldset>
+            <div className="button-grid">
+              <button
+                type="button"
+                title="Resume the run id in the Id field, or the last run when Id is blank."
+                onClick={() => void resumeLastRun()}
+                disabled={running || (!opsId.trim() && !lastRunId)}
+              >
+                <ButtonLabel icon="trace">Resume</ButtonLabel>
+              </button>
+              <button
+                type="button"
+                title="Preview the generated resume prompt for Id, or the last run when Id is blank."
+                onClick={() => void reviewResumePlanFromControls()}
+                disabled={running || (!opsId.trim() && !lastRunId)}
+              >
+                <ButtonLabel icon="context">Plan</ButtonLabel>
+              </button>
+            </div>
+            {resumePlan ? (
+              <div
+                className="resume-plan-card ok"
+                style={sectionThemeStyle(runControlVisualSection)}
+              >
+                <div className="resume-plan-head with-icon">
+                  <span className="resume-plan-icon ok" aria-hidden="true">
+                    <AppIcon name="trace" />
+                  </span>
+                  <div className="resume-plan-title">
+                    <strong>Resume plan</strong>
+                    <span>{resumePlan.agent_id}</span>
+                  </div>
+                </div>
+                <div className="resume-plan-metrics">
+                  <VisualMetric
+                    icon="trace"
+                    label="event"
+                    value={resumePlan.selected_event_id}
+                    section={runControlVisualSection}
+                    tone="ok"
+                  />
+                  <VisualMetric
+                    icon="context"
+                    label="omitted"
+                    value={resumePlan.omitted_events}
+                    section={runControlVisualSection}
+                    tone={resumePlan.omitted_events ? "warning" : "ok"}
+                  />
+                  <VisualMetric
+                    icon="prompt"
+                    label="prompt tokens"
+                    value={estimateLocalTokens(resumePlan.prompt)}
+                    section={runControlVisualSection}
+                    tone="ok"
+                  />
+                  <VisualMetric
+                    icon="conversation"
+                    label="original tokens"
+                    value={estimateLocalTokens(resumePlan.original_input)}
+                    section={runControlVisualSection}
+                    tone="neutral"
+                  />
+                </div>
+                <div className="resume-plan-detail-list">
+                  <div className="resume-plan-detail-row ok">
+                    <span className="resume-plan-detail-icon ok" aria-hidden="true">
+                      <AppIcon name="trace" />
+                    </span>
+                    <div className="resume-plan-detail-copy">
+                      <strong>Source run</strong>
+                      <span>{resumePlan.source_run_id}</span>
+                    </div>
+                  </div>
+                  <div
+                    className={`resume-plan-detail-row ${
+                      resumePlan.omitted_events ? "warning" : "ok"
+                    }`}
+                  >
+                    <span
+                      className={`resume-plan-detail-icon ${
+                        resumePlan.omitted_events ? "warning" : "ok"
+                      }`}
+                      aria-hidden="true"
+                    >
+                      <AppIcon name="context" />
+                    </span>
+                    <div className="resume-plan-detail-copy">
+                      <strong>Resume scope</strong>
+                      <span>{resumePlanSummary(resumePlan)}</span>
+                    </div>
+                  </div>
+                  <div className="resume-plan-detail-row">
+                    <span className="resume-plan-detail-icon" aria-hidden="true">
+                      <AppIcon name="conversation" />
+                    </span>
+                    <div className="resume-plan-detail-copy">
+                      <strong>Original input</strong>
+                      <span>
+                        ~{estimateLocalTokens(resumePlan.original_input)} tokens
+                      </span>
+                      <span>{previewText(resumePlan.original_input, 180)}</span>
+                    </div>
+                  </div>
+                  <div className="resume-plan-detail-row ok">
+                    <span className="resume-plan-detail-icon ok" aria-hidden="true">
+                      <AppIcon name="prompt" />
+                    </span>
+                    <div className="resume-plan-detail-copy">
+                      <strong>Generated prompt</strong>
+                      <span>~{estimateLocalTokens(resumePlan.prompt)} tokens</span>
+                      <span>{previewText(resumePlan.prompt, 260)}</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="mini-actions">
+                  <button
+                    type="button"
+                    title="Move the resume source run id into the Id field."
+                    onClick={() => setOpsId(resumePlan.source_run_id)}
+                    disabled={running}
+                  >
+                    <ButtonLabel icon="trace">Set Id</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Copy the generated resume prompt into Value."
+                    onClick={() => setOpsValue(resumePlan.prompt)}
+                    disabled={running}
+                  >
+                    <ButtonLabel icon="prompt">Use Prompt</ButtonLabel>
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </details>
         </section>
         ) : null}
       </aside>

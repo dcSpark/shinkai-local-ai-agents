@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App chat control-action progressive disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | The shared Chat/Approvals Control panel now keeps approval review, approve/reject, stop, and trace actions visible while moving stop-retention policy, quality scoring presets, and resume cursor/plan/run controls into focused icon-bearing disclosures. |
 | App chat direct-tool-call progressive disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat Tools operation group now keeps List Tools visible while moving direct Call Tool execution behind a compact Direct tool call disclosure that uses Operation inputs for id and payload staging. |
 | App operation-inputs progressive disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Shared operation panels now keep action groups visible first while moving the raw Value, Id, and User memory staging fields into an icon-bearing Operation inputs disclosure. |
 | App context knowledge-sources progressive disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat Context panel now keeps the first-use run path focused on mode, conversation, and approval while moving Memory and Skills loading toggles into a compact Knowledge sources disclosure. |

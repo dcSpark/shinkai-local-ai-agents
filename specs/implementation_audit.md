@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App skill overview safe-default alignment | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Skills workspace overview now leads with Off/Preview/Advanced cues and "Preview skills before loading" copy, while visible skill and capability-draft actions use shorter labels under their headings; this matches the spec posture that skills/capability imports stay off or quarantined until explicitly reviewed. |
 | App memory overview safe-default alignment | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Memory workspace overview now leads with Off/Preview/Advanced cues and "Preview memory before loading" copy, while the always-visible memory actions use shorter labels that fit the inspector; this matches the spec posture that memory loading/generation are explicit instead of always-on defaults. |
 | App profile overview progressive disclosure alignment | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Profiles workspace overview now mirrors the first-use profile flow with Current/List/Advanced cues instead of foregrounding grants, secrets, and bundles as primary actions. |
 | App conversation overview progressive disclosure alignment | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Conversations workspace overview now keeps Tree and Recover as first-use cues while replacing the top-level Prune cue with Advanced cleanup, matching the existing advanced cleanup disclosure. |

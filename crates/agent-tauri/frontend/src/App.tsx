@@ -255,7 +255,7 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
   },
   skills: {
     label: "Skills",
-    hint: "Review capabilities and drafts",
+    hint: "Preview skills before loading",
     icon: "skill",
     secondaryIcon: "tools",
     tertiaryIcon: "approval",
@@ -336,9 +336,9 @@ const SECTION_CUES: Record<ActiveSection, SectionCue[]> = {
     { value: "Advanced", label: "generate/manage", icon: "memory", tone: "warning" },
   ],
   skills: [
-    { value: "Review", label: "trusted skills", icon: "approval", tone: "warning" },
-    { value: "Drafts", label: "new tools", icon: "skill" },
-    { value: "Policy", label: "visibility", icon: "tools" },
+    { value: "Off", label: "by default", icon: "approval", tone: "ok" },
+    { value: "Preview", label: "before use", icon: "context" },
+    { value: "Advanced", label: "review drafts", icon: "skill", tone: "warning" },
   ],
   prompts: [
     { value: "Library", label: "saved tasks", icon: "prompt", tone: "ok" },
@@ -27301,7 +27301,7 @@ export default function App() {
                   onClick={() => void reviewSkills()}
                   disabled={running}
                 >
-                  <ButtonLabel icon="skill">List Skills</ButtonLabel>
+                  <ButtonLabel icon="skill">List</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -27309,7 +27309,7 @@ export default function App() {
                   onClick={() => void showSkillFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  <ButtonLabel icon="skill">Show Skill</ButtonLabel>
+                  <ButtonLabel icon="skill">Show</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -27317,7 +27317,7 @@ export default function App() {
                   onClick={() => void previewWithSkillsFromOps()}
                   disabled={running}
                 >
-                  <ButtonLabel icon="context">Preview With Skills</ButtonLabel>
+                  <ButtonLabel icon="context">Preview</ButtonLabel>
                 </button>
               </div>
               <details
@@ -27393,7 +27393,7 @@ export default function App() {
                   onClick={() => void reviewCapabilities()}
                   disabled={running}
                 >
-                  <ButtonLabel icon="tools">List Drafts</ButtonLabel>
+                  <ButtonLabel icon="tools">List</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -27409,7 +27409,7 @@ export default function App() {
                   onClick={() => void proposeCapabilityFromOps()}
                   disabled={running || !opsId.trim() || !opsValue.trim()}
                 >
-                  <ButtonLabel icon="tools">Propose Draft</ButtonLabel>
+                  <ButtonLabel icon="tools">Propose</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -27417,7 +27417,7 @@ export default function App() {
                   onClick={() => void showCapabilityFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  <ButtonLabel icon="tools">Show Draft</ButtonLabel>
+                  <ButtonLabel icon="tools">Show</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -27425,7 +27425,7 @@ export default function App() {
                   onClick={() => void reviewCapabilityDraft(true)}
                   disabled={running || !opsId.trim()}
                 >
-                  <ButtonLabel icon="approval">Allow Draft</ButtonLabel>
+                  <ButtonLabel icon="approval">Allow</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -27433,7 +27433,7 @@ export default function App() {
                   onClick={() => void reviewCapabilityDraft(false)}
                   disabled={running || !opsId.trim()}
                 >
-                  <ButtonLabel icon="approval">Reject Draft</ButtonLabel>
+                  <ButtonLabel icon="approval">Reject</ButtonLabel>
                 </button>
               </div>
               <details

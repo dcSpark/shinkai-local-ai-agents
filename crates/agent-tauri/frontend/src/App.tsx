@@ -29130,14 +29130,6 @@ export default function App() {
                         <div className="mini-actions">
                           <button
                             type="button"
-                            title="Move this skill id into the Id field."
-                            onClick={() => setOpsId(skill.id)}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="skill">Set Id</ButtonLabel>
-                          </button>
-                          <button
-                            type="button"
                             title={
                               highRisk
                                 ? "High-risk prompt-injection findings block activation."
@@ -29153,31 +29145,6 @@ export default function App() {
                           </button>
                           <button
                             type="button"
-                            title="Stage a default /tmp export path for this skill."
-                            onClick={() => {
-                              setOpsId(skill.id);
-                              setOpsValue(defaultSkillExportPath(skill));
-                            }}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="artifact">Path</ButtonLabel>
-                          </button>
-                          <button
-                            type="button"
-                            title="Export this skill to Value, or to /tmp when Value is blank."
-                            onClick={() => {
-                              const path =
-                                opsValue.trim() || defaultSkillExportPath(skill);
-                              setOpsId(skill.id);
-                              setOpsValue(path);
-                              void exportSkillFromOps(skill.id, path);
-                            }}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="artifact">Export</ButtonLabel>
-                          </button>
-                          <button
-                            type="button"
                             title="Keep this skill out of context."
                             onClick={() => {
                               setOpsId(skill.id);
@@ -29188,6 +29155,58 @@ export default function App() {
                             <ButtonLabel icon="approval">Quarantine</ButtonLabel>
                           </button>
                         </div>
+                        <details
+                          className="advanced-controls"
+                          style={sectionThemeStyle("skills")}
+                        >
+                          <summary title="Show skill staging and export actions">
+                            <span
+                              className="advanced-controls-icon"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="artifact" />
+                            </span>
+                            <span className="advanced-controls-copy">
+                              <strong>More</strong>
+                              <span>Stage or export this skill</span>
+                            </span>
+                          </summary>
+                          <div className="button-grid">
+                            <button
+                              type="button"
+                              title="Move this skill id into the Target id field."
+                              onClick={() => setOpsId(skill.id)}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="skill">Set id</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              title="Set Payload to a default /tmp export path for this skill."
+                              onClick={() => {
+                                setOpsId(skill.id);
+                                setOpsValue(defaultSkillExportPath(skill));
+                              }}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Path</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              title="Export this skill to Payload, or to /tmp when Payload is blank."
+                              onClick={() => {
+                                const path =
+                                  opsValue.trim() || defaultSkillExportPath(skill);
+                                setOpsId(skill.id);
+                                setOpsValue(path);
+                                void exportSkillFromOps(skill.id, path);
+                              }}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Export</ButtonLabel>
+                            </button>
+                          </div>
+                        </details>
                       </div>
                     );
                   })}

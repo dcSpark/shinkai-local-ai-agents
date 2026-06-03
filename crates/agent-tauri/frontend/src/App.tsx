@@ -31571,31 +31571,47 @@ export default function App() {
                 >
                   <ButtonLabel icon="conversation">List Deliveries</ButtonLabel>
                 </button>
-                <button
-                  type="button"
-                  title="Retry bridge delivery Id."
-                  onClick={() => void retryBridgeDeliveryFromOps()}
-                  disabled={running || transport !== "daemon" || !opsId.trim()}
-                >
-                  <ButtonLabel icon="trace">Retry Id</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Delete bridge delivery Id without retrying."
-                  onClick={() => void deleteBridgeDeliveryFromOps()}
-                  disabled={running || transport !== "daemon" || !opsId.trim()}
-                >
-                  <ButtonLabel icon="approval">Delete Id</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Retry all failed bridge deliveries up to the daemon batch limit."
-                  onClick={() => void retryAllBridgeDeliveriesFromOps()}
-                  disabled={running || transport !== "daemon"}
-                >
-                  <ButtonLabel icon="trace">Retry All</ButtonLabel>
-                </button>
               </div>
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("adapters")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="trace" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Advanced bridge delivery controls</strong>
+                    <span>Retry failed deliveries or remove dead-letter entries</span>
+                  </span>
+                </summary>
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    title="Retry bridge delivery Id."
+                    onClick={() => void retryBridgeDeliveryFromOps()}
+                    disabled={running || transport !== "daemon" || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="trace">Retry Id</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Delete bridge delivery Id without retrying."
+                    onClick={() => void deleteBridgeDeliveryFromOps()}
+                    disabled={running || transport !== "daemon" || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="approval">Delete Id</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Retry all failed bridge deliveries up to the daemon batch limit."
+                    onClick={() => void retryAllBridgeDeliveriesFromOps()}
+                    disabled={running || transport !== "daemon"}
+                  >
+                    <ButtonLabel icon="trace">Retry All</ButtonLabel>
+                  </button>
+                </div>
+              </details>
               {bridgeStatus ? (
                 <>
                   {(() => {

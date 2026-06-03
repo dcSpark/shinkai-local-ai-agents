@@ -22327,7 +22327,7 @@ export default function App() {
                           <div className="mini-actions">
                             <button
                               type="button"
-                              title="Stage this tool in Id and Value for a direct manual call."
+                              title="Stage this tool in Id and Value for a manual call."
                               onClick={() => void stageToolFromPreview(tool)}
                               disabled={running}
                             >
@@ -31018,7 +31018,7 @@ export default function App() {
                           <div className="mini-actions">
                             <button
                               type="button"
-                              title="Stage this tool in Id and Value for a direct manual call."
+                              title="Stage this tool in Id and Value for a manual call."
                               onClick={() => void stageToolFromPreview(tool)}
                               disabled={running}
                             >
@@ -31046,7 +31046,7 @@ export default function App() {
                     <AppIcon name="tools" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Direct tool call</strong>
+                    <strong>Manual tool call</strong>
                     <span>Use staged Id and Value as the tool id and JSON payload</span>
                   </span>
                 </summary>
@@ -31057,7 +31057,7 @@ export default function App() {
                     onClick={() => void callToolFromOps()}
                     disabled={running || !opsId.trim()}
                   >
-                    <ButtonLabel icon="tools">Call Tool</ButtonLabel>
+                    <ButtonLabel icon="tools">Call</ButtonLabel>
                   </button>
                 </div>
               </details>

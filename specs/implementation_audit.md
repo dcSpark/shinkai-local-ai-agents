@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App context first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat Context panel now presents Agent mode, Conversation id, and Approval gate before the Run readiness and Tool access disclosures, so the first scan starts with run-shaping controls before diagnostic summaries or power-user access knobs. |
 | App shared operations first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | Shared operation panels now render the active section's operation groups before the Operation inputs disclosure, so users see section-specific actions before raw Value/Id/User-memory staging fields while retaining those controls for power workflows. |
 | App artifact first-use output ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Artifacts operation panel now presents generated artifact List/Generate/Show/Open/Download controls, advanced artifact export/delete, and the empty inventory note before Voice controls and Voice status, so first-use output work is not preceded by lower-frequency audio tooling. |
 | App agent setup first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat Agent setup panel now presents Provider and Model before the Model posture diagnostics disclosure, so first-use setup starts with the controls users need before diagnostic metadata. |

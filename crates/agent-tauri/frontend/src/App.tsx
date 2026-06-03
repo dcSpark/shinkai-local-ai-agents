@@ -23836,39 +23836,53 @@ export default function App() {
         {showOperationsPanel() ? (
         <section className="panel">
           <PanelTitle title={operationsTitle()} section={activeSection} />
-          <label>
-            <FieldLabel icon={activeVisual.secondaryIcon} section={activeSection}>
-              Value
-            </FieldLabel>
-            <textarea
-              className="ops-text"
-              value={opsValue}
-              onChange={(e) => setOpsValue(e.target.value)}
-              placeholder="file path, text, or JSON payload"
-              disabled={running}
-              rows={3}
-            />
-          </label>
-          <label>
-            <FieldLabel icon={activeVisual.icon} section={activeSection}>
-              Id
-            </FieldLabel>
-            <input
-              value={opsId}
-              onChange={(e) => setOpsId(e.target.value)}
-              placeholder="tool, model, prompt, conversation, artifact, skill, adapter, or batch id"
-              disabled={running}
-            />
-          </label>
-          <label className="switch">
-            <input
-              type="checkbox"
-              checked={opsUserMemory}
-              onChange={(e) => setOpsUserMemory(e.target.checked)}
-              disabled={running}
-            />
-            <ButtonLabel icon="memory">User memory</ButtonLabel>
-          </label>
+          <details
+            className="advanced-controls"
+            style={sectionThemeStyle(activeSection)}
+          >
+            <summary>
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name={activeVisual.secondaryIcon} />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Operation inputs</strong>
+                <span>Value, id, and user-memory scope</span>
+              </span>
+            </summary>
+            <label>
+              <FieldLabel icon={activeVisual.secondaryIcon} section={activeSection}>
+                Value
+              </FieldLabel>
+              <textarea
+                className="ops-text"
+                value={opsValue}
+                onChange={(e) => setOpsValue(e.target.value)}
+                placeholder="file path, text, or JSON payload"
+                disabled={running}
+                rows={3}
+              />
+            </label>
+            <label>
+              <FieldLabel icon={activeVisual.icon} section={activeSection}>
+                Id
+              </FieldLabel>
+              <input
+                value={opsId}
+                onChange={(e) => setOpsId(e.target.value)}
+                placeholder="tool, model, prompt, conversation, artifact, skill, adapter, or batch id"
+                disabled={running}
+              />
+            </label>
+            <label className="switch">
+              <input
+                type="checkbox"
+                checked={opsUserMemory}
+                onChange={(e) => setOpsUserMemory(e.target.checked)}
+                disabled={running}
+              />
+              <ButtonLabel icon="memory">User memory</ButtonLabel>
+            </label>
+          </details>
           <div className="operation-groups">
             {activeSection === "conversations" ? (
             <div className="operation-group">

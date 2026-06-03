@@ -20577,17 +20577,11 @@ export default function App() {
               Custom budget: {effectiveMaxToolCalls} calls
             </ModeNote>
           ) : null}
-          <label>
-            <FieldLabel icon="conversation" section="chat">
-              Conversation id
-            </FieldLabel>
-            <input
-              value={conversationId}
-              onChange={(e) => setConversationId(e.target.value)}
-              placeholder="optional branch"
-              disabled={running}
-            />
-          </label>
+          {conversationId.trim() ? (
+            <ModeNote section="chat" icon="conversation">
+              Branch: {conversationId.trim()}
+            </ModeNote>
+          ) : null}
           <label className="switch">
             <input
               type="checkbox"
@@ -20688,6 +20682,31 @@ export default function App() {
               </span>
             </summary>
             <div className="context-more-grid">
+          <details
+            className="advanced-controls"
+            style={sectionThemeStyle("chat")}
+          >
+            <summary>
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="conversation" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Branch</strong>
+                <span>Optional conversation id for continuing context</span>
+              </span>
+            </summary>
+          <label>
+            <FieldLabel icon="conversation" section="chat">
+              Conversation id
+            </FieldLabel>
+            <input
+              value={conversationId}
+              onChange={(e) => setConversationId(e.target.value)}
+              placeholder="optional branch"
+              disabled={running}
+            />
+          </label>
+          </details>
           <details
             className="advanced-controls"
             style={sectionThemeStyle("chat")}

@@ -20748,15 +20748,38 @@ export default function App() {
             />
           </label>
           </details>
-          <label className="switch">
-            <input
-              type="checkbox"
-              checked={loadMemory}
-              onChange={(e) => setLoadMemory(e.target.checked)}
-              disabled={running}
-            />
-            <ButtonLabel icon="memory">Memory</ButtonLabel>
-          </label>
+          <details
+            className="advanced-controls"
+            style={sectionThemeStyle("chat")}
+          >
+            <summary>
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="context" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Knowledge sources</strong>
+                <span>Memory and skill loading for this run</span>
+              </span>
+            </summary>
+            <label className="switch">
+              <input
+                type="checkbox"
+                checked={loadMemory}
+                onChange={(e) => setLoadMemory(e.target.checked)}
+                disabled={running}
+              />
+              <ButtonLabel icon="memory">Memory</ButtonLabel>
+            </label>
+            <label className="switch">
+              <input
+                type="checkbox"
+                checked={loadSkills}
+                onChange={(e) => setLoadSkills(e.target.checked)}
+                disabled={running}
+              />
+              <ButtonLabel icon="skill">Skills</ButtonLabel>
+            </label>
+          </details>
           <details
             className="advanced-controls"
             style={sectionThemeStyle("chat")}
@@ -20935,15 +20958,6 @@ export default function App() {
             />
           </label>
           </details>
-          <label className="switch">
-            <input
-              type="checkbox"
-              checked={loadSkills}
-              onChange={(e) => setLoadSkills(e.target.checked)}
-              disabled={running}
-            />
-            <ButtonLabel icon="skill">Skills</ButtonLabel>
-          </label>
           <details
             className="advanced-controls"
             style={sectionThemeStyle("chat")}

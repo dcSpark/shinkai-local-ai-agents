@@ -173,6 +173,13 @@ interface SectionCue {
   tone?: ContextReviewCard["tone"];
 }
 
+interface StarterPrompt {
+  title: string;
+  prompt: string;
+  icon: IconName;
+  tone?: ContextReviewCard["tone"];
+}
+
 interface ConversationTreeRow {
   node: ConversationTreeNode;
   depth: number;
@@ -408,6 +415,29 @@ const SECTION_CUES: Record<ActiveSection, SectionCue[]> = {
     { value: "Resolve", label: "approve/reject", icon: "control", tone: "warning" },
   ],
 };
+
+const CHAT_STARTER_PROMPTS: StarterPrompt[] = [
+  {
+    title: "Plan a workflow",
+    prompt:
+      "Plan a safe multi-step workflow for: [task]. List the tools you would use before taking action.",
+    icon: "tools",
+    tone: "ok",
+  },
+  {
+    title: "Inspect context",
+    prompt:
+      "Review the available context for: [task]. Point out missing inputs before answering.",
+    icon: "context",
+  },
+  {
+    title: "Route one action",
+    prompt:
+      "Use at most one action for: [task]. Return the raw result if interpretation is not needed.",
+    icon: "control",
+    tone: "warning",
+  },
+];
 
 function sectionVisual(section: ActiveSection) {
   return SECTION_VISUALS[section];
@@ -19853,24 +19883,53 @@ export default function App() {
 
         <section className="transcript" aria-live="polite" ref={transcriptRef}>
           {showSessionOverview ? (
-            <div className="session-overview" style={sectionThemeStyle("chat")}>
-              <div className="session-overview-visual" aria-hidden="true">
-                <FeatureVisual section="chat" />
-              </div>
-              <div className="session-overview-grid">
-                {sessionOverviewCards.map((card) => (
-                  <div className={`session-overview-card ${card.tone}`} key={card.title}>
-                    <span className="session-overview-icon" aria-hidden="true">
-                      <AppIcon name={card.icon} />
+            <>
+              <div className="starter-prompts" style={sectionThemeStyle("chat")}>
+                {CHAT_STARTER_PROMPTS.map((starter) => (
+                  <button
+                    type="button"
+                    className={
+                      starter.tone
+                        ? `starter-prompt ${starter.tone}`
+                        : "starter-prompt"
+                    }
+                    title={starter.prompt}
+                    onClick={() => updateComposerInput(starter.prompt)}
+                    disabled={running}
+                    key={starter.title}
+                  >
+                    <span className="starter-prompt-icon" aria-hidden="true">
+                      <AppIcon name={starter.icon} />
                     </span>
-                    <div className="session-overview-copy">
-                      <span>{card.title}</span>
-                      <strong>{card.value}</strong>
-                    </div>
-                  </div>
+                    <span className="starter-prompt-copy">
+                      <strong>{starter.title}</strong>
+                      <span>{starter.prompt}</span>
+                    </span>
+                  </button>
                 ))}
               </div>
-            </div>
+              <div className="session-overview" style={sectionThemeStyle("chat")}>
+                <div className="session-overview-visual" aria-hidden="true">
+                  <FeatureVisual section="chat" />
+                </div>
+                <div className="session-overview-grid">
+                  {sessionOverviewCards.map((card) => (
+                    <div
+                      className={`session-overview-card ${card.tone}`}
+                      key={card.title}
+                    >
+                      <span className="session-overview-icon" aria-hidden="true">
+                        <AppIcon name={card.icon} />
+                      </span>
+                      <div className="session-overview-copy">
+                        <span>{card.title}</span>
+                        <strong>{card.value}</strong>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
           ) : null}
           {transcript.map((line, i) => (
             <div key={i} className={`line line-${line.kind}`}>

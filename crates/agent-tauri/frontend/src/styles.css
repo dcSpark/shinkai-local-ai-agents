@@ -739,6 +739,91 @@ textarea:disabled {
   color: #ffb4c0;
 }
 
+.starter-prompts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.55rem;
+  width: min(100%, 64rem);
+  margin: 0 auto 1rem;
+}
+
+.starter-prompt {
+  display: grid;
+  grid-template-columns: 1.8rem minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: start;
+  min-width: 0;
+  min-height: 5.75rem;
+  padding: 0.65rem;
+  border-color: #2a2d34;
+  background: #15171b;
+  text-align: left;
+}
+
+.starter-prompt:hover:not(:disabled) {
+  border-color: var(--section-accent);
+  background: #18211b;
+}
+
+.starter-prompt-icon {
+  display: inline-grid;
+  width: 1.8rem;
+  height: 1.8rem;
+  place-items: center;
+  border: 1px solid #3d4650;
+  border-radius: 8px;
+  background: #111215;
+  color: var(--section-accent);
+}
+
+.starter-prompt-icon .app-icon {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.starter-prompt-copy {
+  display: grid;
+  gap: 0.22rem;
+  min-width: 0;
+}
+
+.starter-prompt-copy strong {
+  color: #f1f2f4;
+  font-size: 0.8rem;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.starter-prompt-copy span {
+  color: #9da3ad;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.starter-prompt.ok {
+  border-color: #275c43;
+  background: #13201a;
+}
+
+.starter-prompt.ok .starter-prompt-icon {
+  border-color: #275c43;
+  background: #13281d;
+  color: #78dda7;
+}
+
+.starter-prompt.warning {
+  border-color: #816a2d;
+  background: #251f12;
+}
+
+.starter-prompt.warning .starter-prompt-icon {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
 .line {
   display: grid;
   grid-template-columns: 5rem minmax(0, 1fr);
@@ -8245,6 +8330,33 @@ textarea:disabled {
 
   .session-overview-grid {
     grid-template-columns: 1fr;
+  }
+
+  .starter-prompts {
+    grid-template-columns: 1fr;
+    gap: 0.4rem;
+  }
+
+  .starter-prompt {
+    align-items: center;
+    min-height: 3.15rem;
+    padding: 0.45rem 0.55rem;
+  }
+
+  .starter-prompt-copy {
+    gap: 0;
+  }
+
+  .starter-prompt-copy span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
   }
 
   .structured-actions {

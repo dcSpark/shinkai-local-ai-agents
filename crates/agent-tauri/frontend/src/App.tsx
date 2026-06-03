@@ -19810,7 +19810,10 @@ export default function App() {
               <AppIcon name="profile" />
               <span>Agent {activeAgentLabel()}</span>
             </span>
-            <span className={running ? "pill running" : "pill idle"}>
+            <span
+              className={running ? "pill running" : "pill idle"}
+              title="Run state"
+            >
               <AppIcon name="approval" />
               <span>{running ? "Running" : "Idle"}</span>
             </span>

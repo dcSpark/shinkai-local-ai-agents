@@ -8136,6 +8136,45 @@ textarea:disabled {
     align-items: flex-start;
   }
 
+  .status-pills {
+    gap: 0.4rem;
+    position: relative;
+  }
+
+  .status-pills > .pill,
+  .status-pills > .status-disclosure > summary {
+    justify-content: center;
+    width: 2.3rem;
+    min-width: 2.3rem;
+    min-height: 2.3rem;
+    padding: 0;
+    border-radius: 8px;
+  }
+
+  .status-pills > .pill > span,
+  .status-pills > .status-disclosure > summary > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .status-pills > .status-disclosure {
+    flex: 0 0 auto;
+    position: static;
+  }
+
+  .status-pills > .status-disclosure .status-disclosure-panel {
+    right: 0;
+    left: auto;
+    width: min(18rem, 100%);
+  }
+
   .topbar-identity {
     grid-template-columns: 3.4rem minmax(0, 1fr);
   }

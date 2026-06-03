@@ -8313,6 +8313,29 @@ textarea:disabled {
   line-height: 1.35;
 }
 
+.trace-event-payload {
+  border-top: 1px solid #252830;
+  padding: 0.55rem;
+}
+
+.trace-event-payload summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.trace-event-payload .structured-raw-summary {
+  display: grid;
+  grid-template-columns: 1.7rem minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+  min-height: 0;
+  padding: 0;
+}
+
+.trace-event-payload summary::-webkit-details-marker {
+  display: none;
+}
+
 .trace-events pre {
   margin: 0;
   padding: 0.55rem;
@@ -8323,6 +8346,10 @@ textarea:disabled {
   line-height: 1.35;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.trace-events .trace-event-payload pre {
+  margin-top: 0.55rem;
 }
 
 @media (max-width: 1100px) {

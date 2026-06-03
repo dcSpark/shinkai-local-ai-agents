@@ -24286,7 +24286,18 @@ export default function App() {
                         </span>
                       </span>
                     </summary>
-                    <pre>{previewJson(event)}</pre>
+                    <details className="trace-event-payload">
+                      <summary className="structured-raw-summary">
+                        <span className="structured-raw-icon" aria-hidden="true">
+                          <AppIcon name={icon} />
+                        </span>
+                        <span className="structured-raw-copy">
+                          <strong>Raw event</strong>
+                          <span>{rawPayloadMeta(event)}</span>
+                        </span>
+                      </summary>
+                      <pre>{previewJson(event)}</pre>
+                    </details>
                   </details>
                 );
               })}

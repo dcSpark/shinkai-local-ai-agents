@@ -19741,6 +19741,11 @@ export default function App() {
   const conversationStats = conversationTreeStats(conversationTree);
   const canGuideRun = Boolean(activeGuidanceRunId() && input.trim());
   const activeVisual = sectionVisual(activeSection);
+  const runStatusLabel = lastRunId ? `Run ${runLabel}` : "Ready for a new run";
+  const topbarMeta =
+    activeSection === "chat"
+      ? runStatusLabel
+      : `${activeVisual.hint} / ${runStatusLabel}`;
   const adapterDoctorCardTone = adapterDoctorReport
     ? adapterDoctorTone(adapterDoctorReport)
     : "neutral";
@@ -19844,11 +19849,7 @@ export default function App() {
             <div className="topbar-copy">
               <span className="topbar-kicker">Shinkai V2</span>
               <h1>{activeVisual.label}</h1>
-              <div className="run-meta">
-                {activeVisual.hint}
-                {" / "}
-                {lastRunId ? `Run ${runLabel}` : "Ready for a new run"}
-              </div>
+              <div className="run-meta">{topbarMeta}</div>
             </div>
           </div>
           <div className="status-pills">

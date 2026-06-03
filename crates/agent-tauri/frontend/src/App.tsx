@@ -24533,78 +24533,94 @@ export default function App() {
                 </EmptyNote>
               )}
               <details
-                className="advanced-controls"
+                className="context-more-controls"
                 style={sectionThemeStyle("conversations")}
               >
-                <summary>
+                <summary title="Show additional conversation settings">
                   <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="approval" />
+                    <AppIcon name="setup" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Advanced conversation cleanup</strong>
+                    <strong>More settings</strong>
                     <span>Preview and remove ranges, branches, or agent-owned conversations</span>
                   </span>
                 </summary>
-                <div className="button-grid">
-                  <button
-                    type="button"
-                    title='Delete a leaf conversation message range using Value like { "from": 2, "to": 4 }.'
-                    onClick={() => void deleteConversationRangeFromOps()}
-                    disabled={running || !opsId.trim() || !opsValue.trim()}
+                <div className="context-more-grid">
+                  <details
+                    className="advanced-controls"
+                    style={sectionThemeStyle("conversations")}
                   >
-                    <ButtonLabel icon="control">Delete Range</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Preview which conversations would be deleted."
-                    onClick={() => void previewConversationDeleteFromOps(false)}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="prompt">Plan Delete</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Preview recursive deletion including child branches."
-                    onClick={() => void previewConversationDeleteFromOps(true)}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="conversation">Plan Recursive</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    title="Delete conversation Id if it has no child branches."
-                    onClick={() => void deleteConversationFromOps(false)}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="approval">Delete</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    title="Delete conversation Id and all child branches."
-                    onClick={() => void deleteConversationFromOps(true)}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="approval">Delete Recursive</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Preview deletion of all conversations owned by the active Agent id."
-                    onClick={() => void previewConversationDeleteAgent()}
-                    disabled={running || !agentId.trim()}
-                  >
-                    <ButtonLabel icon="profile">Plan Agent</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    title="Delete all conversations owned by the active Agent id."
-                    onClick={() => void deleteConversationsForAgent()}
-                    disabled={running || !agentId.trim()}
-                  >
-                    <ButtonLabel icon="profile">Delete Agent</ButtonLabel>
-                  </button>
+                    <summary>
+                      <span className="advanced-controls-icon" aria-hidden="true">
+                        <AppIcon name="approval" />
+                      </span>
+                      <span className="advanced-controls-copy">
+                        <strong>Conversation cleanup</strong>
+                        <span>Preview and remove ranges, branches, or agent-owned conversations</span>
+                      </span>
+                    </summary>
+                    <div className="button-grid">
+                      <button
+                        type="button"
+                        title='Delete a leaf conversation message range using Value like { "from": 2, "to": 4 }.'
+                        onClick={() => void deleteConversationRangeFromOps()}
+                        disabled={running || !opsId.trim() || !opsValue.trim()}
+                      >
+                        <ButtonLabel icon="control">Delete Range</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        title="Preview which conversations would be deleted."
+                        onClick={() => void previewConversationDeleteFromOps(false)}
+                        disabled={running || !opsId.trim()}
+                      >
+                        <ButtonLabel icon="prompt">Plan Delete</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        title="Preview recursive deletion including child branches."
+                        onClick={() => void previewConversationDeleteFromOps(true)}
+                        disabled={running || !opsId.trim()}
+                      >
+                        <ButtonLabel icon="conversation">Plan Recursive</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        className="danger"
+                        title="Delete conversation Id if it has no child branches."
+                        onClick={() => void deleteConversationFromOps(false)}
+                        disabled={running || !opsId.trim()}
+                      >
+                        <ButtonLabel icon="approval">Delete</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        className="danger"
+                        title="Delete conversation Id and all child branches."
+                        onClick={() => void deleteConversationFromOps(true)}
+                        disabled={running || !opsId.trim()}
+                      >
+                        <ButtonLabel icon="approval">Delete Recursive</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        title="Preview deletion of all conversations owned by the active Agent id."
+                        onClick={() => void previewConversationDeleteAgent()}
+                        disabled={running || !agentId.trim()}
+                      >
+                        <ButtonLabel icon="profile">Plan Agent</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        className="danger"
+                        title="Delete all conversations owned by the active Agent id."
+                        onClick={() => void deleteConversationsForAgent()}
+                        disabled={running || !agentId.trim()}
+                      >
+                        <ButtonLabel icon="profile">Delete Agent</ButtonLabel>
+                      </button>
+                    </div>
+                  </details>
                 </div>
               </details>
             </div>
@@ -24974,6 +24990,20 @@ export default function App() {
                 </EmptyNote>
               ) : null}
               <details
+                className="context-more-controls"
+                style={sectionThemeStyle("profiles")}
+              >
+                <summary title="Show additional profile settings">
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="setup" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>More settings</strong>
+                    <span>Access, grants, bundles, and secret storage</span>
+                  </span>
+                </summary>
+                <div className="context-more-grid">
+              <details
                 className="advanced-controls"
                 style={sectionThemeStyle("profiles")}
               >
@@ -24982,7 +25012,7 @@ export default function App() {
                     <AppIcon name="approval" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Advanced profile access</strong>
+                    <strong>Profile access</strong>
                     <span>Delete profiles and manage cross-profile grants</span>
                   </span>
                 </summary>
@@ -25043,7 +25073,7 @@ export default function App() {
                     <AppIcon name="artifact" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Profile bundle controls</strong>
+                    <strong>Profile bundles</strong>
                     <span>Backup, export, and import profile/config/cache bundles</span>
                   </span>
                 </summary>
@@ -25083,7 +25113,7 @@ export default function App() {
                     <AppIcon name="control" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Secret storage controls</strong>
+                    <strong>Secret storage</strong>
                     <span>Inspect backends and store, rotate, or delete secrets</span>
                   </span>
                 </summary>
@@ -25148,6 +25178,8 @@ export default function App() {
                   >
                     <ButtonLabel icon="approval">Delete Secret</ButtonLabel>
                   </button>
+                </div>
+              </details>
                 </div>
               </details>
               {profileSummaries.length ? (
@@ -33366,52 +33398,68 @@ export default function App() {
           ) : null}
           {activeSection === "approvals" ? (
             <details
-              className="advanced-controls"
+              className="context-more-controls"
               style={sectionThemeStyle("approvals")}
             >
-              <summary>
+              <summary title="Show additional approval settings">
                 <span className="advanced-controls-icon" aria-hidden="true">
-                  <AppIcon name="profile" />
+                  <AppIcon name="setup" />
                 </span>
                 <span className="advanced-controls-copy">
-                  <strong>Advanced approval identity</strong>
+                  <strong>More settings</strong>
                   <span>Unlock secret, signature, and delegated controller</span>
                 </span>
               </summary>
-              <label>
-                <FieldLabel icon="approval" section="approvals">
-                  Unlock
-                </FieldLabel>
-                <input
-                  type="password"
-                  value={approvalUnlock}
-                  onChange={(e) => setApprovalUnlock(e.target.value)}
-                  placeholder="optional"
-                  disabled={running}
-                />
-              </label>
-              <label>
-                <FieldLabel icon="profile" section="approvals">
-                  Signature
-                </FieldLabel>
-                <input
-                  value={approvalSignature}
-                  onChange={(e) => setApprovalSignature(e.target.value)}
-                  placeholder="optional"
-                  disabled={running}
-                />
-              </label>
-              <label>
-                <FieldLabel icon="profile" section="approvals">
-                  Controller
-                </FieldLabel>
-                <input
-                  value={approvalControllerAgent}
-                  onChange={(e) => setApprovalControllerAgent(e.target.value)}
-                  placeholder="optional delegated agent"
-                  disabled={running}
-                />
-              </label>
+              <div className="context-more-grid">
+                <details
+                  className="advanced-controls"
+                  style={sectionThemeStyle("approvals")}
+                >
+                  <summary>
+                    <span className="advanced-controls-icon" aria-hidden="true">
+                      <AppIcon name="profile" />
+                    </span>
+                    <span className="advanced-controls-copy">
+                      <strong>Approval identity</strong>
+                      <span>Unlock secret, signature, and delegated controller</span>
+                    </span>
+                  </summary>
+                  <label>
+                    <FieldLabel icon="approval" section="approvals">
+                      Unlock
+                    </FieldLabel>
+                    <input
+                      type="password"
+                      value={approvalUnlock}
+                      onChange={(e) => setApprovalUnlock(e.target.value)}
+                      placeholder="optional"
+                      disabled={running}
+                    />
+                  </label>
+                  <label>
+                    <FieldLabel icon="profile" section="approvals">
+                      Signature
+                    </FieldLabel>
+                    <input
+                      value={approvalSignature}
+                      onChange={(e) => setApprovalSignature(e.target.value)}
+                      placeholder="optional"
+                      disabled={running}
+                    />
+                  </label>
+                  <label>
+                    <FieldLabel icon="profile" section="approvals">
+                      Controller
+                    </FieldLabel>
+                    <input
+                      value={approvalControllerAgent}
+                      onChange={(e) => setApprovalControllerAgent(e.target.value)}
+                      placeholder="optional delegated agent"
+                      disabled={running}
+                    />
+                  </label>
+                </details>
+              </div>
             </details>
           ) : null}
           <details

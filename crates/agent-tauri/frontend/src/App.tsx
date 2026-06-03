@@ -24711,17 +24711,6 @@ export default function App() {
             {activeSection === "profiles" ? (
             <div className="operation-group">
               <OperationTitle title="Profiles" section="profiles" />
-              <label>
-                <FieldLabel icon="control" section="profiles">
-                  Secret label
-                </FieldLabel>
-                <input
-                  value={secretLabel}
-                  onChange={(e) => setSecretLabel(e.target.value)}
-                  placeholder="optional display label"
-                  disabled={running}
-                />
-              </label>
               <div className="button-grid">
                 <button
                   type="button"
@@ -24755,125 +24744,184 @@ export default function App() {
                 >
                   <ButtonLabel icon="profile">Create</ButtonLabel>
                 </button>
-                <button
-                  type="button"
-                  className="danger"
-                  title={
-                    currentProfile?.id === opsId.trim()
-                      ? "The active profile cannot be deleted from this session."
-                      : opsId.trim() === "main"
-                        ? "The main profile cannot be deleted."
-                        : "Delete profile Id."
-                  }
-                  onClick={() => void deleteProfileFromOps()}
-                  disabled={
-                    running ||
-                    !opsId.trim() ||
-                    opsId.trim() === "main" ||
-                    currentProfile?.id === opsId.trim()
-                  }
-                >
-                  <ButtonLabel icon="approval">Delete</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="List all profile grants, or grants from profile Id when Id is set."
-                  onClick={() => void listProfileGrantsForOps()}
-                  disabled={running}
-                >
-                  <ButtonLabel icon="approval">List Grants</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title='Grant to profile Id using Value JSON like { "kind": "memory", "resource": "agent:critic" }.'
-                  onClick={() => void grantProfileFromOps()}
-                  disabled={running || !opsId.trim() || !opsValue.trim()}
-                >
-                  <ButtonLabel icon="approval">Grant</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  className="danger"
-                  title="Revoke profile grant Id."
-                  onClick={() => void revokeProfileGrantFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="approval">Revoke Grant</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Export the active profile/config/cache bundle to a timestamped path."
-                  onClick={() => void backupBundleNow()}
-                  disabled={running}
-                >
-                  <ButtonLabel icon="artifact">Backup</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Export the active profile/config/cache bundle to Value, or to a timestamped /tmp path when Value is blank."
-                  onClick={() => void exportBundleFromOps()}
-                  disabled={running}
-                >
-                  <ButtonLabel icon="artifact">Export Bundle</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Import a profile/config/cache bundle from the path in Value."
-                  onClick={() => void importBundleFromOps()}
-                  disabled={running || !opsValue.trim()}
-                >
-                  <ButtonLabel icon="artifact">Import Bundle</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="List secret storage backends."
-                  onClick={() => void listSecretBackendsFromOps()}
-                  disabled={running}
-                >
-                  <ButtonLabel icon="setup">Secret Backends</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="List redacted secret metadata."
-                  onClick={() => void listSecretsFromOps()}
-                  disabled={running}
-                >
-                  <ButtonLabel icon="control">List Secrets</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Show redacted metadata for secret Id."
-                  onClick={() => void showSecretFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="control">Show Secret</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Store secret Id using Value as the secret value."
-                  onClick={() => void setSecretFromOps()}
-                  disabled={running || !opsId.trim() || !opsValue.trim()}
-                >
-                  <ButtonLabel icon="control">Store Secret</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Rotate secret Id using Value as the new secret value."
-                  onClick={() => void rotateSecretFromOps()}
-                  disabled={running || !opsId.trim() || !opsValue.trim()}
-                >
-                  <ButtonLabel icon="control">Rotate Secret</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  className="danger"
-                  title="Delete secret Id."
-                  onClick={() => void deleteSecretFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="approval">Delete Secret</ButtonLabel>
-                </button>
               </div>
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("profiles")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="approval" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Advanced profile access</strong>
+                    <span>Delete profiles and manage cross-profile grants</span>
+                  </span>
+                </summary>
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    className="danger"
+                    title={
+                      currentProfile?.id === opsId.trim()
+                        ? "The active profile cannot be deleted from this session."
+                        : opsId.trim() === "main"
+                          ? "The main profile cannot be deleted."
+                          : "Delete profile Id."
+                    }
+                    onClick={() => void deleteProfileFromOps()}
+                    disabled={
+                      running ||
+                      !opsId.trim() ||
+                      opsId.trim() === "main" ||
+                      currentProfile?.id === opsId.trim()
+                    }
+                  >
+                    <ButtonLabel icon="approval">Delete</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="List all profile grants, or grants from profile Id when Id is set."
+                    onClick={() => void listProfileGrantsForOps()}
+                    disabled={running}
+                  >
+                    <ButtonLabel icon="approval">List Grants</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title='Grant to profile Id using Value JSON like { "kind": "memory", "resource": "agent:critic" }.'
+                    onClick={() => void grantProfileFromOps()}
+                    disabled={running || !opsId.trim() || !opsValue.trim()}
+                  >
+                    <ButtonLabel icon="approval">Grant</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    title="Revoke profile grant Id."
+                    onClick={() => void revokeProfileGrantFromOps()}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="approval">Revoke Grant</ButtonLabel>
+                  </button>
+                </div>
+              </details>
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("profiles")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="artifact" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Profile bundle controls</strong>
+                    <span>Backup, export, and import profile/config/cache bundles</span>
+                  </span>
+                </summary>
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    title="Export the active profile/config/cache bundle to a timestamped path."
+                    onClick={() => void backupBundleNow()}
+                    disabled={running}
+                  >
+                    <ButtonLabel icon="artifact">Backup</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Export the active profile/config/cache bundle to Value, or to a timestamped /tmp path when Value is blank."
+                    onClick={() => void exportBundleFromOps()}
+                    disabled={running}
+                  >
+                    <ButtonLabel icon="artifact">Export Bundle</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Import a profile/config/cache bundle from the path in Value."
+                    onClick={() => void importBundleFromOps()}
+                    disabled={running || !opsValue.trim()}
+                  >
+                    <ButtonLabel icon="artifact">Import Bundle</ButtonLabel>
+                  </button>
+                </div>
+              </details>
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("profiles")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="control" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Secret storage controls</strong>
+                    <span>Inspect backends and store, rotate, or delete secrets</span>
+                  </span>
+                </summary>
+                <label>
+                  <FieldLabel icon="control" section="profiles">
+                    Secret label
+                  </FieldLabel>
+                  <input
+                    value={secretLabel}
+                    onChange={(e) => setSecretLabel(e.target.value)}
+                    placeholder="optional display label"
+                    disabled={running}
+                  />
+                </label>
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    title="List secret storage backends."
+                    onClick={() => void listSecretBackendsFromOps()}
+                    disabled={running}
+                  >
+                    <ButtonLabel icon="setup">Secret Backends</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="List redacted secret metadata."
+                    onClick={() => void listSecretsFromOps()}
+                    disabled={running}
+                  >
+                    <ButtonLabel icon="control">List Secrets</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Show redacted metadata for secret Id."
+                    onClick={() => void showSecretFromOps()}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="control">Show Secret</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Store secret Id using Value as the secret value."
+                    onClick={() => void setSecretFromOps()}
+                    disabled={running || !opsId.trim() || !opsValue.trim()}
+                  >
+                    <ButtonLabel icon="control">Store Secret</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Rotate secret Id using Value as the new secret value."
+                    onClick={() => void rotateSecretFromOps()}
+                    disabled={running || !opsId.trim() || !opsValue.trim()}
+                  >
+                    <ButtonLabel icon="control">Rotate Secret</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    title="Delete secret Id."
+                    onClick={() => void deleteSecretFromOps()}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="approval">Delete Secret</ButtonLabel>
+                  </button>
+                </div>
+              </details>
               {currentProfile ? (
                 <EmptyNote section="profiles" icon="profile">
                   Active profile: {currentProfile.name || currentProfile.id} ({currentProfile.id})

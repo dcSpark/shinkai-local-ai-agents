@@ -20789,104 +20789,148 @@ export default function App() {
               </span>
               <span className="advanced-controls-copy">
                 <strong>Rules</strong>
-                <span>Compaction budgets, tool schemas, allowlists, and categories</span>
+                <span>Compaction, visibility, and allowlists</span>
               </span>
             </summary>
-          <label>
-            <FieldLabel icon="context" section="chat">
-              Auto compact at
-            </FieldLabel>
-            <input
-              type="number"
-              min="1"
-              step="1"
-              value={maxTokensBeforeCompaction}
-              onChange={(e) => setMaxTokensBeforeCompaction(e.target.value)}
-              placeholder="config"
-              disabled={running}
-            />
-          </label>
-          <label>
-            <FieldLabel icon="context" section="chat">
-              Compact output
-            </FieldLabel>
-            <input
-              type="number"
-              min="1"
-              step="1"
-              value={maxCompactionOutputTokens}
-              onChange={(e) => setMaxCompactionOutputTokens(e.target.value)}
-              placeholder="config"
-              disabled={running}
-            />
-          </label>
-          <label>
-            <FieldLabel icon="tools" section="chat">
-              Tool visibility
-            </FieldLabel>
-            <select
-              value={toolVisibility}
-              onChange={(e) =>
-                setToolVisibility(e.target.value as ToolVisibility | "")
-              }
-              disabled={running}
-            >
-              <option value="">config</option>
-              <option value="full_schema">full schema</option>
-              <option value="name_and_description">name and description</option>
-              <option value="name_only">name only</option>
-            </select>
-          </label>
-          <label>
-            <FieldLabel icon="skill" section="chat">
-              Skill visibility
-            </FieldLabel>
-            <select
-              value={skillVisibility}
-              onChange={(e) =>
-                setSkillVisibility(e.target.value as ToolVisibility | "")
-              }
-              disabled={running}
-            >
-              <option value="">config</option>
-              <option value="full_schema">full schema</option>
-              <option value="name_and_description">name and description</option>
-              <option value="name_only">name only</option>
-            </select>
-          </label>
-          <label>
-            <FieldLabel icon="tools" section="chat">
-              Tool allowlist
-            </FieldLabel>
-            <input
-              value={allowedTools}
-              onChange={(e) => setAllowedTools(e.target.value)}
-              placeholder="all tools"
-              disabled={running}
-            />
-          </label>
-          <label>
-            <FieldLabel icon="tools" section="chat">
-              Tool categories
-            </FieldLabel>
-            <input
-              value={allowedToolCategories}
-              onChange={(e) => setAllowedToolCategories(e.target.value)}
-              placeholder="all categories"
-              disabled={running}
-            />
-          </label>
-          <label>
-            <FieldLabel icon="skill" section="chat">
-              Skill categories
-            </FieldLabel>
-            <input
-              value={allowedSkillCategories}
-              onChange={(e) => setAllowedSkillCategories(e.target.value)}
-              placeholder="all categories"
-              disabled={running}
-            />
-          </label>
+            <div className="context-more-grid">
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("chat")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="context" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Compaction</strong>
+                    <span>Token thresholds and compacted output budget</span>
+                  </span>
+                </summary>
+                <label>
+                  <FieldLabel icon="context" section="chat">
+                    Auto compact at
+                  </FieldLabel>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={maxTokensBeforeCompaction}
+                    onChange={(e) => setMaxTokensBeforeCompaction(e.target.value)}
+                    placeholder="config"
+                    disabled={running}
+                  />
+                </label>
+                <label>
+                  <FieldLabel icon="context" section="chat">
+                    Compact output
+                  </FieldLabel>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={maxCompactionOutputTokens}
+                    onChange={(e) => setMaxCompactionOutputTokens(e.target.value)}
+                    placeholder="config"
+                    disabled={running}
+                  />
+                </label>
+              </details>
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("chat")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="tools" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Visibility</strong>
+                    <span>Tool and skill detail shown to the model</span>
+                  </span>
+                </summary>
+                <label>
+                  <FieldLabel icon="tools" section="chat">
+                    Tool visibility
+                  </FieldLabel>
+                  <select
+                    value={toolVisibility}
+                    onChange={(e) =>
+                      setToolVisibility(e.target.value as ToolVisibility | "")
+                    }
+                    disabled={running}
+                  >
+                    <option value="">config</option>
+                    <option value="full_schema">full schema</option>
+                    <option value="name_and_description">name and description</option>
+                    <option value="name_only">name only</option>
+                  </select>
+                </label>
+                <label>
+                  <FieldLabel icon="skill" section="chat">
+                    Skill visibility
+                  </FieldLabel>
+                  <select
+                    value={skillVisibility}
+                    onChange={(e) =>
+                      setSkillVisibility(e.target.value as ToolVisibility | "")
+                    }
+                    disabled={running}
+                  >
+                    <option value="">config</option>
+                    <option value="full_schema">full schema</option>
+                    <option value="name_and_description">name and description</option>
+                    <option value="name_only">name only</option>
+                  </select>
+                </label>
+              </details>
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("chat")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="approval" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Allowlists</strong>
+                    <span>Exact tools plus tool and skill categories</span>
+                  </span>
+                </summary>
+                <label>
+                  <FieldLabel icon="tools" section="chat">
+                    Tool allowlist
+                  </FieldLabel>
+                  <input
+                    value={allowedTools}
+                    onChange={(e) => setAllowedTools(e.target.value)}
+                    placeholder="all tools"
+                    disabled={running}
+                  />
+                </label>
+                <label>
+                  <FieldLabel icon="tools" section="chat">
+                    Tool categories
+                  </FieldLabel>
+                  <input
+                    value={allowedToolCategories}
+                    onChange={(e) => setAllowedToolCategories(e.target.value)}
+                    placeholder="all categories"
+                    disabled={running}
+                  />
+                </label>
+                <label>
+                  <FieldLabel icon="skill" section="chat">
+                    Skill categories
+                  </FieldLabel>
+                  <input
+                    value={allowedSkillCategories}
+                    onChange={(e) => setAllowedSkillCategories(e.target.value)}
+                    placeholder="all categories"
+                    disabled={running}
+                  />
+                </label>
+              </details>
+            </div>
           </details>
           <details
             className="advanced-controls"

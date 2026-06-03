@@ -273,7 +273,7 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
   },
   ingest: {
     label: "Ingest",
-    hint: "Prepare files, OCR, and guardrails",
+    hint: "Probe files before context",
     icon: "ingest",
     secondaryIcon: "artifact",
     tertiaryIcon: "approval",
@@ -346,9 +346,9 @@ const SECTION_CUES: Record<ActiveSection, SectionCue[]> = {
     { value: "Advanced", label: "models/imports", icon: "setup", tone: "warning" },
   ],
   ingest: [
-    { value: "Sources", label: "files", icon: "ingest", tone: "ok" },
-    { value: "Guard", label: "findings", icon: "approval", tone: "warning" },
-    { value: "OCR", label: "layout", icon: "artifact" },
+    { value: "Probe", label: "source fit", icon: "trace", tone: "ok" },
+    { value: "Ingest", label: "explicit files", icon: "ingest" },
+    { value: "Advanced", label: "guardrails/OCR", icon: "approval", tone: "warning" },
   ],
   artifacts: [
     { value: "Files", label: "generated", icon: "artifact", tone: "ok" },
@@ -28480,7 +28480,7 @@ export default function App() {
                   onClick={() => void reviewIngestion()}
                   disabled={running}
                 >
-                  <ButtonLabel icon="ingest">List Ingest</ButtonLabel>
+                  <ButtonLabel icon="ingest">List</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -28488,7 +28488,7 @@ export default function App() {
                   onClick={() => void probeIngestSourceFromOps()}
                   disabled={running || !opsValue.trim()}
                 >
-                  <ButtonLabel icon="trace">Probe Source</ButtonLabel>
+                  <ButtonLabel icon="trace">Probe</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -28504,7 +28504,7 @@ export default function App() {
                   onClick={() => void showIngestFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  <ButtonLabel icon="artifact">Show Ingest</ButtonLabel>
+                  <ButtonLabel icon="artifact">Show</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -28512,7 +28512,7 @@ export default function App() {
                   onClick={() => includeIngestFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  <ButtonLabel icon="context">Use Ingest</ButtonLabel>
+                  <ButtonLabel icon="context">Use</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -28522,7 +28522,7 @@ export default function App() {
                     running || (!opsId.trim() && !includeIngestIds.length)
                   }
                 >
-                  <ButtonLabel icon="context">Preview With Ingest</ButtonLabel>
+                  <ButtonLabel icon="context">Preview</ButtonLabel>
                 </button>
                 <button
                   type="button"

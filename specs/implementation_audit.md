@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App composer controls progressive disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | The composer now keeps Ask Agent and Preview visible while moving shell, batch, resume, and guide power actions into a compact icon-bearing advanced run controls disclosure. |
 | App bundle controls progressive disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | The Bundles operation panel now keeps one-click backup visible while moving custom bundle export/import transfer actions into an icon-bearing advanced disclosure with a simpler empty-state prompt. |
 | App storage controls progressive disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | The Storage operation panel now keeps report and prune-plan diagnostics visible while moving direct destructive cache-prune apply behind an icon-bearing advanced disclosure. |
 | App bridge delivery controls progressive disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | The Bridge Deliveries operation panel now keeps status/list diagnostics visible while moving retry-by-id, delete-by-id, and retry-all dead-letter actions into an icon-bearing advanced disclosure. |

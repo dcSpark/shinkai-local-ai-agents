@@ -1248,6 +1248,7 @@ textarea:disabled {
 
 .composer-actions {
   display: flex;
+  align-items: flex-start;
   flex-wrap: wrap;
   gap: 0.55rem;
   justify-content: flex-end;
@@ -1284,6 +1285,19 @@ textarea:disabled {
 .composer-actions .primary:hover:not(:disabled) {
   border-color: #76cb86;
   background: #7ed68d;
+}
+
+.composer-advanced-controls {
+  flex: 1 1 20rem;
+  max-width: 32rem;
+}
+
+.composer-advanced-controls .button-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.composer-advanced-controls .button-grid button {
+  min-width: 0;
 }
 
 .inspector {

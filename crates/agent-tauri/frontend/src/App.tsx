@@ -25125,27 +25125,6 @@ export default function App() {
                   <div className="mini-actions">
                     <button
                       type="button"
-                      title="Move this conversation id into the Id field."
-                      onClick={() => setOpsId(expandedConversation.conversation.id)}
-                      disabled={running}
-                    >
-                      <ButtonLabel icon="conversation">Set Id</ButtonLabel>
-                    </button>
-                    <button
-                      type="button"
-                      title="Preview recursive deletion impact."
-                      onClick={() =>
-                        void previewConversationDelete(
-                          expandedConversation.conversation.id,
-                          true,
-                        )
-                      }
-                      disabled={running}
-                    >
-                      <ButtonLabel icon="trace">Plan Recursive</ButtonLabel>
-                    </button>
-                    <button
-                      type="button"
                       title="Build a recovery plan and apply suggested run settings."
                       onClick={() =>
                         void recoverConversation(expandedConversation.conversation.id)
@@ -25154,31 +25133,68 @@ export default function App() {
                     >
                       <ButtonLabel icon="context">Recover</ButtonLabel>
                     </button>
-                    <button
-                      type="button"
-                      title="Copy this conversation policy into the context controls."
-                      onClick={() => applySelectedConversationPolicy()}
-                      disabled={running || !expandedConversation.conversation.policy}
-                    >
-                      <ButtonLabel icon="approval">Apply Policy</ButtonLabel>
-                    </button>
-                    <button
-                      type="button"
-                      title="Save current context controls as this conversation's policy."
-                      onClick={() => void saveSelectedConversationPolicy()}
-                      disabled={running}
-                    >
-                      <ButtonLabel icon="approval">Save Policy</ButtonLabel>
-                    </button>
-                    <button
-                      type="button"
-                      title="Clear this conversation's context policy overrides."
-                      onClick={() => void clearSelectedConversationPolicy()}
-                      disabled={running}
-                    >
-                      <ButtonLabel icon="approval">Clear Policy</ButtonLabel>
-                    </button>
                   </div>
+                  <details
+                    className="advanced-controls"
+                    style={sectionThemeStyle("conversations")}
+                  >
+                    <summary title="Show selected-branch staging, policy, and cleanup actions">
+                      <span className="advanced-controls-icon" aria-hidden="true">
+                        <AppIcon name="conversation" />
+                      </span>
+                      <span className="advanced-controls-copy">
+                        <strong>More</strong>
+                        <span>Stage, plan, or edit branch policy</span>
+                      </span>
+                    </summary>
+                    <div className="button-grid">
+                      <button
+                        type="button"
+                        title="Move this conversation id into the Target id field."
+                        onClick={() => setOpsId(expandedConversation.conversation.id)}
+                        disabled={running}
+                      >
+                        <ButtonLabel icon="conversation">Set id</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        title="Preview recursive deletion impact."
+                        onClick={() =>
+                          void previewConversationDelete(
+                            expandedConversation.conversation.id,
+                            true,
+                          )
+                        }
+                        disabled={running}
+                      >
+                        <ButtonLabel icon="trace">Plan Recursive</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        title="Copy this conversation policy into the context controls."
+                        onClick={() => applySelectedConversationPolicy()}
+                        disabled={running || !expandedConversation.conversation.policy}
+                      >
+                        <ButtonLabel icon="approval">Apply Policy</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        title="Save current context controls as this conversation's policy."
+                        onClick={() => void saveSelectedConversationPolicy()}
+                        disabled={running}
+                      >
+                        <ButtonLabel icon="approval">Save Policy</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        title="Clear this conversation's context policy overrides."
+                        onClick={() => void clearSelectedConversationPolicy()}
+                        disabled={running}
+                      >
+                        <ButtonLabel icon="approval">Clear Policy</ButtonLabel>
+                      </button>
+                    </div>
+                  </details>
                 </div>
                 {expandedConversation.messages.map((message, index) => (
                   <div

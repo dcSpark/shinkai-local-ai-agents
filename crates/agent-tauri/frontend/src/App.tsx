@@ -309,6 +309,48 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
   },
 };
 
+const RAIL_SECTIONS: ActiveSection[] = [
+  "chat",
+  "trace",
+  "conversations",
+  "profiles",
+  "memory",
+  "skills",
+  "prompts",
+  "ingest",
+  "artifacts",
+  "adapters",
+  "approvals",
+];
+
+const RAIL_HINTS: Record<ActiveSection, string> = {
+  chat: "Ask first",
+  trace: "Runs + cost",
+  conversations: "Branches",
+  profiles: "Identity",
+  memory: "Opt-in",
+  skills: "Preview",
+  prompts: "Tasks",
+  ingest: "Probe files",
+  artifacts: "Outputs",
+  adapters: "Review first",
+  approvals: "Decisions",
+};
+
+const RAIL_ARIA_LABELS: Record<ActiveSection, string> = {
+  chat: "Chat transcript",
+  trace: "Trace viewer",
+  conversations: "Conversation branches",
+  profiles: "Profiles and grants",
+  memory: "Memory records",
+  skills: "Skill library",
+  prompts: "Saved prompts",
+  ingest: "Ingestion artifacts",
+  artifacts: "Generated artifacts",
+  adapters: "Adapter manifests",
+  approvals: "Approvals",
+};
+
 const SECTION_CUES: Record<ActiveSection, SectionCue[]> = {
   chat: [
     { value: "Ask", label: "agent chat", icon: "chat", tone: "ok" },
@@ -19573,6 +19615,34 @@ export default function App() {
     return activeSection === section ? "rail-item active" : "rail-item";
   }
 
+  function railClass(section: ActiveSection) {
+    return section === "approvals"
+      ? `${sectionClass(section)} rail-bottom`
+      : sectionClass(section);
+  }
+
+  function railDisabled(section: ActiveSection) {
+    if (section === "chat") return false;
+    return section === "trace" ? running || !lastRunId : running;
+  }
+
+  function selectRailSection(section: ActiveSection) {
+    setActiveSection(section);
+    if (section === "trace") {
+      if (lastRunId && !running) void loadLastTrace();
+      return;
+    }
+    if (section === "conversations") {
+      if (!running && !conversationTree.length) void reviewConversations();
+      return;
+    }
+    if (section === "profiles" && !running) {
+      void showCurrentProfileFromOps();
+      void listProfilesFromOps();
+      void listProfileGrantsFromOps();
+    }
+  }
+
   function showOperationsPanel() {
     return [
       "chat",
@@ -19673,183 +19743,27 @@ export default function App() {
             <span className="rail-hint">Agents</span>
           </span>
         </div>
-        <button
-          type="button"
-          className={sectionClass("chat")}
-          title="Chat"
-          aria-label="Chat transcript"
-          onClick={() => setActiveSection("chat")}
-          style={sectionThemeStyle("chat")}
-        >
-          <SectionIcon section="chat" />
-          <span className="rail-copy">
-            <span className="rail-label">Chat</span>
-            <span className="rail-hint">Ask an agent</span>
-          </span>
-        </button>
-        <button
-          type="button"
-          className={sectionClass("trace")}
-          title="Trace"
-          aria-label="Trace viewer"
-          onClick={() => {
-            setActiveSection("trace");
-            if (lastRunId && !running) void loadLastTrace();
-          }}
-          disabled={running || !lastRunId}
-          style={sectionThemeStyle("trace")}
-        >
-          <SectionIcon section="trace" />
-          <span className="rail-copy">
-            <span className="rail-label">Trace</span>
-            <span className="rail-hint">Inspect runs</span>
-          </span>
-        </button>
-        <button
-          type="button"
-          className={sectionClass("conversations")}
-          title="Conversations"
-          aria-label="Conversation branches"
-          onClick={() => {
-            setActiveSection("conversations");
-            if (!running && !conversationTree.length) void reviewConversations();
-          }}
-          disabled={running}
-          style={sectionThemeStyle("conversations")}
-        >
-          <SectionIcon section="conversations" />
-          <span className="rail-copy">
-            <span className="rail-label">Conversations</span>
-            <span className="rail-hint">Branches</span>
-          </span>
-        </button>
-        <button
-          type="button"
-          className={sectionClass("profiles")}
-          title="Profiles"
-          aria-label="Profiles and grants"
-          onClick={() => {
-            setActiveSection("profiles");
-            if (!running) {
-              void showCurrentProfileFromOps();
-              void listProfilesFromOps();
-              void listProfileGrantsFromOps();
-            }
-          }}
-          disabled={running}
-          style={sectionThemeStyle("profiles")}
-        >
-          <SectionIcon section="profiles" />
-          <span className="rail-copy">
-            <span className="rail-label">Profiles</span>
-            <span className="rail-hint">Grants</span>
-          </span>
-        </button>
-        <button
-          type="button"
-          className={sectionClass("memory")}
-          title="Memory"
-          aria-label="Memory records"
-          onClick={() => setActiveSection("memory")}
-          disabled={running}
-          style={sectionThemeStyle("memory")}
-        >
-          <SectionIcon section="memory" />
-          <span className="rail-copy">
-            <span className="rail-label">Memory</span>
-            <span className="rail-hint">Saved context</span>
-          </span>
-        </button>
-        <button
-          type="button"
-          className={sectionClass("skills")}
-          title="Skills"
-          aria-label="Skill library"
-          onClick={() => setActiveSection("skills")}
-          disabled={running}
-          style={sectionThemeStyle("skills")}
-        >
-          <SectionIcon section="skills" />
-          <span className="rail-copy">
-            <span className="rail-label">Skills</span>
-            <span className="rail-hint">Capabilities</span>
-          </span>
-        </button>
-        <button
-          type="button"
-          className={sectionClass("prompts")}
-          title="Prompts"
-          aria-label="Saved prompts"
-          onClick={() => setActiveSection("prompts")}
-          disabled={running}
-          style={sectionThemeStyle("prompts")}
-        >
-          <SectionIcon section="prompts" />
-          <span className="rail-copy">
-            <span className="rail-label">Prompts</span>
-            <span className="rail-hint">Reusable tasks</span>
-          </span>
-        </button>
-        <button
-          type="button"
-          className={sectionClass("ingest")}
-          title="Ingest"
-          aria-label="Ingestion artifacts"
-          onClick={() => setActiveSection("ingest")}
-          disabled={running}
-          style={sectionThemeStyle("ingest")}
-        >
-          <SectionIcon section="ingest" />
-          <span className="rail-copy">
-            <span className="rail-label">Ingest</span>
-            <span className="rail-hint">Documents</span>
-          </span>
-        </button>
-        <button
-          type="button"
-          className={sectionClass("artifacts")}
-          title="Artifacts"
-          aria-label="Generated artifacts"
-          onClick={() => setActiveSection("artifacts")}
-          disabled={running}
-          style={sectionThemeStyle("artifacts")}
-        >
-          <SectionIcon section="artifacts" />
-          <span className="rail-copy">
-            <span className="rail-label">Artifacts</span>
-            <span className="rail-hint">Generated files</span>
-          </span>
-        </button>
-        <button
-          type="button"
-          className={sectionClass("adapters")}
-          title="Adapters"
-          aria-label="Adapter manifests"
-          onClick={() => setActiveSection("adapters")}
-          disabled={running}
-          style={sectionThemeStyle("adapters")}
-        >
-          <SectionIcon section="adapters" />
-          <span className="rail-copy">
-            <span className="rail-label">Adapters</span>
-            <span className="rail-hint">Integrations</span>
-          </span>
-        </button>
-        <button
-          type="button"
-          className={`${sectionClass("approvals")} rail-bottom`}
-          title="Approvals"
-          aria-label="Approvals"
-          onClick={() => setActiveSection("approvals")}
-          disabled={running}
-          style={sectionThemeStyle("approvals")}
-        >
-          <SectionIcon section="approvals" />
-          <span className="rail-copy">
-            <span className="rail-label">Approvals</span>
-            <span className="rail-hint">Review actions</span>
-          </span>
-        </button>
+        {RAIL_SECTIONS.map((section) => {
+          const visual = sectionVisual(section);
+          return (
+            <button
+              type="button"
+              className={railClass(section)}
+              title={visual.label}
+              aria-label={RAIL_ARIA_LABELS[section]}
+              onClick={() => selectRailSection(section)}
+              disabled={railDisabled(section)}
+              style={sectionThemeStyle(section)}
+              key={section}
+            >
+              <SectionIcon section={section} />
+              <span className="rail-copy">
+                <span className="rail-label">{visual.label}</span>
+                <span className="rail-hint">{RAIL_HINTS[section]}</span>
+              </span>
+            </button>
+          );
+        })}
       </aside>
 
       <main className="workspace">

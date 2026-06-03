@@ -25865,30 +25865,49 @@ export default function App() {
                       <div className="mini-actions">
                         <button
                           type="button"
-                          title="Move this secret id into the Id field."
-                          onClick={() => setOpsId(record.id)}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="control">Set Id</ButtonLabel>
-                        </button>
-                        <button
-                          type="button"
                           title="Show this secret metadata."
                           onClick={() => void showSecretFromOps(record.id)}
                           disabled={running}
                         >
                           <ButtonLabel icon="control">Show</ButtonLabel>
                         </button>
-                        <button
-                          type="button"
-                          className="danger"
-                          title="Delete this secret."
-                          onClick={() => void deleteSecretFromOps(record.id)}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="approval">Delete</ButtonLabel>
-                        </button>
                       </div>
+                      <details
+                        className="advanced-controls"
+                        style={sectionThemeStyle("profiles")}
+                      >
+                        <summary title="Show secret staging and deletion actions">
+                          <span
+                            className="advanced-controls-icon"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="control" />
+                          </span>
+                          <span className="advanced-controls-copy">
+                            <strong>More</strong>
+                            <span>Stage or delete this secret</span>
+                          </span>
+                        </summary>
+                        <div className="button-grid">
+                          <button
+                            type="button"
+                            title="Move this secret id into the Target id field."
+                            onClick={() => setOpsId(record.id)}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="control">Set id</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            className="danger"
+                            title="Delete this secret."
+                            onClick={() => void deleteSecretFromOps(record.id)}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="approval">Delete</ButtonLabel>
+                          </button>
+                        </div>
+                      </details>
                     </div>
                   ))}
                 </div>

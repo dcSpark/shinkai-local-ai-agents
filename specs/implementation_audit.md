@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App profile card detail visual summary | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Profile summaries, secret backend rows, secret records, and profile grant rows now render paths, backend descriptions, support posture, fingerprints, timestamps, resources, and grant ids as labeled icon detail rows instead of loose text spans inside profile cards. |
 | App context rules grouping | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat Context Rules disclosure now opens to nested Compaction, Visibility, and Allowlists groups, separating token budgets from tool/skill schema detail and exact/category filters without removing any policy controls. |
 | App routing setup grouping | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat Context Routing disclosure now opens to nested Output, Models, and Prompt prep groups instead of showing output mode, router/interpreter overrides, compaction guidance, and prompt-refinement controls in one flat stack. |
 | App context voice setup grouping | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat Context More settings drawer now separates memory configuration from voice configuration: Memory setup keeps backend/model/generation policy, while Voice setup owns STT/TTS enablement, providers, models, voice, and tone so two different runtime concepts no longer share one disclosure. |

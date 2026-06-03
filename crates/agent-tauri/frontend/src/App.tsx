@@ -25404,7 +25404,25 @@ export default function App() {
                           tone="ok"
                         />
                       </div>
-                      <span title={profile.path}>{fileName(profile.path)}</span>
+                      <div
+                        className="profile-detail-list"
+                        style={sectionThemeStyle("profiles")}
+                      >
+                        <div className="profile-detail-row ok">
+                          <span
+                            className="profile-detail-icon ok"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="artifact" />
+                          </span>
+                          <div className="profile-detail-copy">
+                            <strong>Config path</strong>
+                            <span title={profile.path}>
+                              {fileName(profile.path)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
                       <div className="mini-actions">
                         <button
                           type="button"
@@ -25498,8 +25516,51 @@ export default function App() {
                           tone={secretBackendTone(backend)}
                         />
                       </div>
-                      <span>{backend.description}</span>
-                      <span>{backend.supported ? "supported" : "unsupported"}</span>
+                      <div
+                        className="profile-detail-list"
+                        style={sectionThemeStyle("profiles")}
+                      >
+                        <div
+                          className={`profile-detail-row ${secretBackendTone(backend)}`}
+                        >
+                          <span
+                            className={`profile-detail-icon ${secretBackendTone(
+                              backend,
+                            )}`}
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="control" />
+                          </span>
+                          <div className="profile-detail-copy">
+                            <strong>Backend detail</strong>
+                            <span>{backend.description}</span>
+                          </div>
+                        </div>
+                        <div
+                          className={
+                            backend.supported
+                              ? "profile-detail-row ok"
+                              : "profile-detail-row warning"
+                          }
+                        >
+                          <span
+                            className={
+                              backend.supported
+                                ? "profile-detail-icon ok"
+                                : "profile-detail-icon warning"
+                            }
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="approval" />
+                          </span>
+                          <div className="profile-detail-copy">
+                            <strong>Support posture</strong>
+                            <span>
+                              {backend.supported ? "supported" : "unsupported"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -25549,11 +25610,49 @@ export default function App() {
                           tone={record.label ? "ok" : "neutral"}
                         />
                       </div>
-                      <span>{record.id}</span>
-                      <span title={record.value_fingerprint}>
-                        fingerprint {record.value_fingerprint}
-                      </span>
-                      <span>{record.updated_at}</span>
+                      <div
+                        className="profile-detail-list"
+                        style={sectionThemeStyle("profiles")}
+                      >
+                        <div className="profile-detail-row ok">
+                          <span
+                            className="profile-detail-icon ok"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="control" />
+                          </span>
+                          <div className="profile-detail-copy">
+                            <strong>Secret id</strong>
+                            <span>{record.id}</span>
+                          </div>
+                        </div>
+                        <div className="profile-detail-row ok">
+                          <span
+                            className="profile-detail-icon ok"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="approval" />
+                          </span>
+                          <div className="profile-detail-copy">
+                            <strong>Fingerprint</strong>
+                            <span title={record.value_fingerprint}>
+                              {record.value_fingerprint}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="profile-detail-row">
+                          <span
+                            className="profile-detail-icon"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="trace" />
+                          </span>
+                          <div className="profile-detail-copy">
+                            <strong>Updated</strong>
+                            <span>{record.updated_at}</span>
+                          </div>
+                        </div>
+                      </div>
                       <div className="mini-actions">
                         <button
                           type="button"
@@ -25633,8 +25732,35 @@ export default function App() {
                           tone="warning"
                         />
                       </div>
-                      <span>{grant.resource}</span>
-                      <span>{grant.id}</span>
+                      <div
+                        className="profile-detail-list"
+                        style={sectionThemeStyle("profiles")}
+                      >
+                        <div className="profile-detail-row warning">
+                          <span
+                            className="profile-detail-icon warning"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name={profileGrantIcon(grant.kind)} />
+                          </span>
+                          <div className="profile-detail-copy">
+                            <strong>Resource</strong>
+                            <span>{grant.resource}</span>
+                          </div>
+                        </div>
+                        <div className="profile-detail-row">
+                          <span
+                            className="profile-detail-icon"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="approval" />
+                          </span>
+                          <div className="profile-detail-copy">
+                            <strong>Grant id</strong>
+                            <span>{grant.id}</span>
+                          </div>
+                        </div>
+                      </div>
                       <div className="mini-actions">
                         <button
                           type="button"

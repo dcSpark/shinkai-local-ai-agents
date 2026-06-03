@@ -29714,7 +29714,7 @@ export default function App() {
                       onClick={() => void listCompactionsFromOps()}
                       disabled={running}
                     >
-                      <ButtonLabel icon="context">List Compact</ButtonLabel>
+                      <ButtonLabel icon="context">List</ButtonLabel>
                     </button>
                     <button
                       type="button"
@@ -29722,7 +29722,7 @@ export default function App() {
                       onClick={() => void showCompactionFromOps()}
                       disabled={running || !opsId.trim()}
                     >
-                      <ButtonLabel icon="context">Show Compact</ButtonLabel>
+                      <ButtonLabel icon="context">Show</ButtonLabel>
                     </button>
                     <button
                       type="button"
@@ -29730,50 +29730,9 @@ export default function App() {
                       onClick={() => void useCompactionFromOps()}
                       disabled={running || !opsId.trim()}
                     >
-                      <ButtonLabel icon="chat">Use Compact</ButtonLabel>
+                      <ButtonLabel icon="chat">Use</ButtonLabel>
                     </button>
                   </div>
-                  <details
-                    className="advanced-controls"
-                    style={sectionThemeStyle("chat")}
-                  >
-                    <summary>
-                      <span className="advanced-controls-icon" aria-hidden="true">
-                        <AppIcon name="context" />
-                      </span>
-                      <span className="advanced-controls-copy">
-                        <strong>Advanced compaction controls</strong>
-                        <span>Import/export compacted context and delete saved artifacts</span>
-                      </span>
-                    </summary>
-                <div className="button-grid">
-                  <button
-                    type="button"
-                    title="Export compacted-context artifact Id to Value, or to /tmp when Value is blank."
-                    onClick={() => void exportCompactionFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="artifact">Export Compact</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Import a compacted-context JSON artifact from the path in Value."
-                    onClick={() => void importCompactionFromOps()}
-                    disabled={running || !opsValue.trim()}
-                  >
-                    <ButtonLabel icon="artifact">Import Compact</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    title="Delete compacted-context artifact Id."
-                    onClick={() => void deleteCompactionFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="approval">Delete Compact</ButtonLabel>
-                  </button>
-                </div>
-                  </details>
               {compactionTransferStatus ? (
                 <CompactionTransferCard status={compactionTransferStatus} />
               ) : null}
@@ -29966,6 +29925,47 @@ export default function App() {
                   No compacted-context artifacts loaded. List saved artifacts or keep one from preview.
                 </EmptyNote>
               )}
+                  <details
+                    className="advanced-controls"
+                    style={sectionThemeStyle("chat")}
+                  >
+                    <summary>
+                      <span className="advanced-controls-icon" aria-hidden="true">
+                        <AppIcon name="context" />
+                      </span>
+                      <span className="advanced-controls-copy">
+                        <strong>Advanced compaction controls</strong>
+                        <span>Import/export compacted context and delete saved artifacts</span>
+                      </span>
+                    </summary>
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    title="Export compacted-context artifact Id to Value, or to /tmp when Value is blank."
+                    onClick={() => void exportCompactionFromOps()}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="artifact">Export Compact</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Import a compacted-context JSON artifact from the path in Value."
+                    onClick={() => void importCompactionFromOps()}
+                    disabled={running || !opsValue.trim()}
+                  >
+                    <ButtonLabel icon="artifact">Import Compact</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    title="Delete compacted-context artifact Id."
+                    onClick={() => void deleteCompactionFromOps()}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="approval">Delete Compact</ButtonLabel>
+                  </button>
+                </div>
+                  </details>
                 </div>
 
                 <div className="operation-group">
@@ -29977,7 +29977,7 @@ export default function App() {
                   onClick={() => void reviewAgents()}
                   disabled={running}
                 >
-                  <ButtonLabel icon="brand">List Agents</ButtonLabel>
+                  <ButtonLabel icon="brand">List</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -29985,7 +29985,7 @@ export default function App() {
                   onClick={() => void showAgentFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  <ButtonLabel icon="brand">Show Agent</ButtonLabel>
+                  <ButtonLabel icon="brand">Show</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -29993,7 +29993,7 @@ export default function App() {
                   onClick={() => void useAgentFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  <ButtonLabel icon="chat">Use Agent</ButtonLabel>
+                  <ButtonLabel icon="chat">Use</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -30001,58 +30001,9 @@ export default function App() {
                   onClick={() => void saveAgentFromOps()}
                   disabled={running || !opsId.trim() || !opsValue.trim()}
                 >
-                  <ButtonLabel icon="setup">Save Agent</ButtonLabel>
+                  <ButtonLabel icon="setup">Save</ButtonLabel>
                 </button>
               </div>
-              <details
-                className="advanced-controls"
-                style={sectionThemeStyle("chat")}
-              >
-                <summary>
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="brand" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>Advanced agent controls</strong>
-                    <span>Portable agent import/export and destructive delete</span>
-                  </span>
-                </summary>
-                <div className="button-grid">
-                  <button
-                    type="button"
-                    title="Export saved agent Id to Value, or to /tmp when Value is blank."
-                    onClick={() => void exportAgentFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="artifact">Export Agent</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Import saved agent config from Value path."
-                    onClick={() => void importAgentFromOps()}
-                    disabled={running || !opsValue.trim()}
-                  >
-                    <ButtonLabel icon="artifact">Import Agent</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    title={
-                      knownProfileGrantedAgent(opsId.trim())
-                        ? "This agent is shared from another profile; revoke the profile grant to remove access."
-                        : "Delete saved agent Id."
-                    }
-                    onClick={() => void deleteAgentFromOps()}
-                    disabled={
-                      running ||
-                      !opsId.trim() ||
-                      knownProfileGrantedAgent(opsId.trim())
-                    }
-                  >
-                    <ButtonLabel icon="approval">Delete Agent</ButtonLabel>
-                  </button>
-                </div>
-              </details>
               {agentConfigs.length ? (
                 <div className="ingestion-review">
                   {agentConfigs.map((doc) => {
@@ -30422,7 +30373,60 @@ export default function App() {
                     );
                   })}
                 </div>
-              ) : null}
+              ) : (
+                <EmptyNote section="chat" icon="brand">
+                  No saved agents loaded. List agents or save the current setup.
+                </EmptyNote>
+              )}
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("chat")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="brand" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Advanced agent controls</strong>
+                    <span>Portable agent import/export and destructive delete</span>
+                  </span>
+                </summary>
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    title="Export saved agent Id to Value, or to /tmp when Value is blank."
+                    onClick={() => void exportAgentFromOps()}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="artifact">Export Agent</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Import saved agent config from Value path."
+                    onClick={() => void importAgentFromOps()}
+                    disabled={running || !opsValue.trim()}
+                  >
+                    <ButtonLabel icon="artifact">Import Agent</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    title={
+                      knownProfileGrantedAgent(opsId.trim())
+                        ? "This agent is shared from another profile; revoke the profile grant to remove access."
+                        : "Delete saved agent Id."
+                    }
+                    onClick={() => void deleteAgentFromOps()}
+                    disabled={
+                      running ||
+                      !opsId.trim() ||
+                      knownProfileGrantedAgent(opsId.trim())
+                    }
+                  >
+                    <ButtonLabel icon="approval">Delete Agent</ButtonLabel>
+                  </button>
+                </div>
+              </details>
                 </div>
               </div>
             </details>

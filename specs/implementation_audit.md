@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App context preview first-use placement | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat Context panel now places Preview Context immediately after mode, conversation id, and approval gate controls, so users can inspect the assembled context before scrolling through run-readiness, access, source, delegation, memory, safety, routing, and diagnostics disclosures. |
 | App mobile topbar status compaction | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Mobile-width topbar status pills now collapse to compact icon controls with tooltip/accessibility text retained, while the Run telemetry disclosure still expands to the full token, cost, time, and tool-budget details. |
 | App mobile rail icon-first navigation | Done | `crates/agent-tauri/frontend/src/styles.css` | Narrow viewports now collapse the workspace rail to icon-first navigation while preserving existing button titles and aria labels, avoiding clipped rail text and giving the chat/workspace area more room on mobile-style screens. |
 | App advanced-summary text reduction | Done | `crates/agent-tauri/frontend/src/styles.css` | Closed advanced disclosures now show a compact icon-plus-title row while keeping their explanatory detail available when expanded, reducing first-scan text density across setup, context, composer, and operation panels without removing power-user controls. |

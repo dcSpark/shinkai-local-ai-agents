@@ -20497,6 +20497,15 @@ export default function App() {
             />
             <ButtonLabel icon="approval">Approval gate</ButtonLabel>
           </label>
+          <div className="context-actions">
+            <button
+              type="button"
+              onClick={() => void previewCurrentContext()}
+              disabled={running}
+            >
+              <ButtonLabel icon="context">Preview Context</ButtonLabel>
+            </button>
+          </div>
           <details
             className="advanced-controls"
             style={sectionThemeStyle("chat")}
@@ -21350,15 +21359,6 @@ export default function App() {
                 );
               })()
             : null}
-          <div className="context-actions">
-            <button
-              type="button"
-              onClick={() => void previewCurrentContext()}
-              disabled={running}
-            >
-              <ButtonLabel icon="context">Preview Context</ButtonLabel>
-            </button>
-          </div>
           <details
             className="advanced-controls"
             style={sectionThemeStyle("chat")}

@@ -27569,14 +27569,6 @@ export default function App() {
                         <div className="mini-actions">
                           <button
                             type="button"
-                            title="Move this model id into the Id field."
-                            onClick={() => setOpsId(doc.id)}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="setup">Set Id</ButtonLabel>
-                          </button>
-                          <button
-                            type="button"
                             title="Apply this saved model to the visible model controls."
                             onClick={() => applyModelConfigToControls(doc)}
                             disabled={running}
@@ -27599,41 +27591,72 @@ export default function App() {
                           >
                             <ButtonLabel icon="trace">Probe</ButtonLabel>
                           </button>
-                          <button
-                            type="button"
-                            title="Set Value to a default export path for this saved model."
-                            onClick={() => {
-                              setOpsId(doc.id);
-                              setOpsValue(defaultSavedModelExportPath(doc.id));
-                            }}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="artifact">Path</ButtonLabel>
-                          </button>
-                          <button
-                            type="button"
-                            title="Export this saved model to Value, or to /tmp when Value is blank."
-                            onClick={() => {
-                              const path =
-                                opsValue.trim() || defaultSavedModelExportPath(doc.id);
-                              setOpsId(doc.id);
-                              setOpsValue(path);
-                              void exportModel(doc.id, path);
-                            }}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="artifact">Export</ButtonLabel>
-                          </button>
-                          <button
-                            type="button"
-                            className="danger"
-                            title="Delete this saved model."
-                            onClick={() => void deleteModelFromOps(doc.id)}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="approval">Delete</ButtonLabel>
-                          </button>
                         </div>
+                        <details
+                          className="advanced-controls"
+                          style={sectionThemeStyle("prompts")}
+                        >
+                          <summary title="Show model staging, export, and delete actions">
+                            <span
+                              className="advanced-controls-icon"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="artifact" />
+                            </span>
+                            <span className="advanced-controls-copy">
+                              <strong>More</strong>
+                              <span>Stage, export, or delete this model</span>
+                            </span>
+                          </summary>
+                          <div className="button-grid">
+                            <button
+                              type="button"
+                              title="Move this model id into the Target id field."
+                              onClick={() => setOpsId(doc.id)}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="setup">Set id</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              title="Set Payload to a default export path for this saved model."
+                              onClick={() => {
+                                setOpsId(doc.id);
+                                setOpsValue(defaultSavedModelExportPath(doc.id));
+                              }}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Path</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              title="Export this saved model to Payload, or to /tmp when Payload is blank."
+                              onClick={() => {
+                                const path =
+                                  opsValue.trim() ||
+                                  defaultSavedModelExportPath(doc.id);
+                                setOpsId(doc.id);
+                                setOpsValue(path);
+                                void exportModel(doc.id, path);
+                              }}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Export</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              className="danger"
+                              title="Delete this saved model."
+                              onClick={() => {
+                                setOpsId(doc.id);
+                                void deleteModelFromOps(doc.id);
+                              }}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="approval">Delete</ButtonLabel>
+                            </button>
+                          </div>
+                        </details>
                       </div>
                     );
                   })}

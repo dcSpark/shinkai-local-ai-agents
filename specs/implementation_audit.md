@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App model-card utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Saved model cards now keep Use/Show/Probe visible while moving Set id, export path staging, export, and delete actions into a per-card More disclosure, matching the prompt-card utility pattern without removing transfer or cleanup workflows. |
 | App prompt-card utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Saved prompt cards now keep Use/Run/Preview/Edit visible while moving Set id, export path staging, export, and delete actions into a per-card More disclosure, reducing first-scan button density without removing transfer or cleanup workflows. |
 | App staged-input field language | Done | `crates/agent-tauri/frontend/src/App.tsx` | The shared Staged inputs drawer now labels its raw Value/Id controls as Payload and Target id in the visible UI, keeping the same backing fields and action behavior while making power-user staging less cryptic. |
 | App model settings copy compaction | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Models More settings drawer now uses shorter group labels and action labels for catalog review, model transfer, and catalog import/export while keeping the full JSON/path behavior in titles and handlers. |

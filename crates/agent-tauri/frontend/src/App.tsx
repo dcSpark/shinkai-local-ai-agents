@@ -24670,16 +24670,6 @@ export default function App() {
                     <div className="mini-actions">
                       <button
                         type="button"
-                        title="Move the recovery conversation id into the Id field."
-                        onClick={() =>
-                          setOpsId(conversationRecoveryPlan.conversation_id)
-                        }
-                        disabled={running}
-                      >
-                        <ButtonLabel icon="conversation">Set Id</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
                         title="Preview the next context with the recovered run settings."
                         onClick={() => void previewCurrentContext()}
                         disabled={running}
@@ -24687,6 +24677,35 @@ export default function App() {
                         <ButtonLabel icon="context">Preview</ButtonLabel>
                       </button>
                     </div>
+                    <details
+                      className="advanced-controls"
+                      style={sectionThemeStyle("conversations")}
+                    >
+                      <summary title="Show recovery-plan staging action">
+                        <span
+                          className="advanced-controls-icon"
+                          aria-hidden="true"
+                        >
+                          <AppIcon name="conversation" />
+                        </span>
+                        <span className="advanced-controls-copy">
+                          <strong>More</strong>
+                          <span>Stage this conversation</span>
+                        </span>
+                      </summary>
+                      <div className="button-grid">
+                        <button
+                          type="button"
+                          title="Move the recovery conversation id into the Target id field."
+                          onClick={() =>
+                            setOpsId(conversationRecoveryPlan.conversation_id)
+                          }
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="conversation">Set id</ButtonLabel>
+                        </button>
+                      </div>
+                    </details>
                   </div>
                 </div>
               ) : null}

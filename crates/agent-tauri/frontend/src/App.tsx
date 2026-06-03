@@ -29703,47 +29703,61 @@ export default function App() {
             ) : null}
 
             {activeSection === "chat" ? (
-            <div className="operation-group">
-              <OperationTitle title="Compactions" section="chat" icon="context" />
-              <div className="button-grid">
-                <button
-                  type="button"
-                  title="List saved compacted-context artifacts."
-                  onClick={() => void listCompactionsFromOps()}
-                  disabled={running}
-                >
-                  <ButtonLabel icon="context">List Compact</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Show compacted-context artifact Id and load its content into Value."
-                  onClick={() => void showCompactionFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="context">Show Compact</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Use compacted-context artifact Id as the next manual compacted context."
-                  onClick={() => void useCompactionFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="chat">Use Compact</ButtonLabel>
-                </button>
-              </div>
-              <details
-                className="advanced-controls"
-                style={sectionThemeStyle("chat")}
-              >
-                <summary>
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="context" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>Advanced compaction controls</strong>
-                    <span>Import/export compacted context and delete saved artifacts</span>
-                  </span>
-                </summary>
+            <details
+              className="advanced-controls"
+              style={sectionThemeStyle("chat")}
+            >
+              <summary>
+                <span className="advanced-controls-icon" aria-hidden="true">
+                  <AppIcon name="context" />
+                </span>
+                <span className="advanced-controls-copy">
+                  <strong>Chat library</strong>
+                  <span>Saved compactions and reusable agent presets</span>
+                </span>
+              </summary>
+              <div className="operation-groups">
+                <div className="operation-group">
+                  <OperationTitle title="Compactions" section="chat" icon="context" />
+                  <div className="button-grid">
+                    <button
+                      type="button"
+                      title="List saved compacted-context artifacts."
+                      onClick={() => void listCompactionsFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="context">List Compact</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Show compacted-context artifact Id and load its content into Value."
+                      onClick={() => void showCompactionFromOps()}
+                      disabled={running || !opsId.trim()}
+                    >
+                      <ButtonLabel icon="context">Show Compact</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Use compacted-context artifact Id as the next manual compacted context."
+                      onClick={() => void useCompactionFromOps()}
+                      disabled={running || !opsId.trim()}
+                    >
+                      <ButtonLabel icon="chat">Use Compact</ButtonLabel>
+                    </button>
+                  </div>
+                  <details
+                    className="advanced-controls"
+                    style={sectionThemeStyle("chat")}
+                  >
+                    <summary>
+                      <span className="advanced-controls-icon" aria-hidden="true">
+                        <AppIcon name="context" />
+                      </span>
+                      <span className="advanced-controls-copy">
+                        <strong>Advanced compaction controls</strong>
+                        <span>Import/export compacted context and delete saved artifacts</span>
+                      </span>
+                    </summary>
                 <div className="button-grid">
                   <button
                     type="button"
@@ -29771,7 +29785,7 @@ export default function App() {
                     <ButtonLabel icon="approval">Delete Compact</ButtonLabel>
                   </button>
                 </div>
-              </details>
+                  </details>
               {compactionTransferStatus ? (
                 <CompactionTransferCard status={compactionTransferStatus} />
               ) : null}
@@ -29964,11 +29978,9 @@ export default function App() {
                   No compacted-context artifacts loaded. List saved artifacts or keep one from preview.
                 </EmptyNote>
               )}
-            </div>
-            ) : null}
+                </div>
 
-            {activeSection === "chat" ? (
-            <div className="operation-group">
+                <div className="operation-group">
               <OperationTitle title="Agents" section="chat" />
               <div className="button-grid">
                 <button
@@ -30423,7 +30435,9 @@ export default function App() {
                   })}
                 </div>
               ) : null}
-            </div>
+                </div>
+              </div>
+            </details>
             ) : null}
 
             {activeSection === "chat" ? (

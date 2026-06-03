@@ -24132,37 +24132,56 @@ export default function App() {
                         >
                           <ButtonLabel icon="approval">Skip Hooks</ButtonLabel>
                         </button>
-                        <button
-                          type="button"
-                          title="Persistently skip or re-enable this lifecycle hook for future runs in the active profile."
-                          onClick={() =>
-                            void setPersistentHookDisabled(
-                              item.hook_id,
-                              !profileDisabled,
-                              "profile",
-                            )
-                          }
-                        >
-                          <ButtonLabel icon="profile">
-                            {profileDisabled ? "Enable Profile" : "Disable Profile"}
-                          </ButtonLabel>
-                        </button>
-                        <button
-                          type="button"
-                          title="Persistently skip or re-enable this lifecycle hook for the active agent config."
-                          onClick={() =>
-                            void setPersistentHookDisabled(
-                              item.hook_id,
-                              !agentDisabled,
-                              "agent",
-                            )
-                          }
-                        >
-                          <ButtonLabel icon="brand">
-                            {agentDisabled ? "Enable Agent" : "Disable Agent"}
-                          </ButtonLabel>
-                        </button>
                       </div>
+                      <details
+                        className="advanced-controls"
+                        style={sectionThemeStyle("trace")}
+                      >
+                        <summary title="Show persistent hook policy actions">
+                          <span
+                            className="advanced-controls-icon"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="adapter" />
+                          </span>
+                          <span className="advanced-controls-copy">
+                            <strong>More</strong>
+                            <span>Persist hook policy changes</span>
+                          </span>
+                        </summary>
+                        <div className="button-grid">
+                          <button
+                            type="button"
+                            title="Persistently skip or re-enable this lifecycle hook for future runs in the active profile."
+                            onClick={() =>
+                              void setPersistentHookDisabled(
+                                item.hook_id,
+                                !profileDisabled,
+                                "profile",
+                              )
+                            }
+                          >
+                            <ButtonLabel icon="profile">
+                              {profileDisabled ? "Enable Profile" : "Disable Profile"}
+                            </ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            title="Persistently skip or re-enable this lifecycle hook for the active agent config."
+                            onClick={() =>
+                              void setPersistentHookDisabled(
+                                item.hook_id,
+                                !agentDisabled,
+                                "agent",
+                              )
+                            }
+                          >
+                            <ButtonLabel icon="brand">
+                              {agentDisabled ? "Enable Agent" : "Disable Agent"}
+                            </ButtonLabel>
+                          </button>
+                        </div>
+                      </details>
                     </div>
                   );
                 })}

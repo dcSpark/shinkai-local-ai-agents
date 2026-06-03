@@ -27336,6 +27336,17 @@ export default function App() {
                   <ButtonLabel icon="context">Preview</ButtonLabel>
                 </button>
               </div>
+              {skillDocs.length ? (
+                <EmptyNote section="skills" icon="skill">
+                  Imported skills: {skillDocs.length};{" "}
+                  {skillDocs.filter((skill) => skill.quarantined).length} quarantined;{" "}
+                  {skillDocs.filter(hasHighRiskSkillFindings).length} blocked.
+                </EmptyNote>
+              ) : (
+                <EmptyNote section="skills" icon="skill">
+                  No imported skills loaded. Skills stay out of context until allowed.
+                </EmptyNote>
+              )}
               <details
                 className="advanced-controls"
                 style={sectionThemeStyle("skills")}
@@ -27452,6 +27463,19 @@ export default function App() {
                   <ButtonLabel icon="approval">Reject</ButtonLabel>
                 </button>
               </div>
+              {capabilityDoctorReport || capabilityDrafts.length ? (
+                <EmptyNote section="skills" icon="tools">
+                  Capability drafts:{" "}
+                  {capabilityDoctorReport?.draft_count ?? capabilityDrafts.length};{" "}
+                  {capabilityDoctorReport?.review_needed_count ??
+                    capabilityDrafts.filter((draft) => draft.status === "quarantined")
+                      .length} review needed.
+                </EmptyNote>
+              ) : (
+                <EmptyNote section="skills" icon="tools">
+                  No capability drafts loaded. Drafts stay quarantined until allowed.
+                </EmptyNote>
+              )}
               <details
                 className="advanced-controls"
                 style={sectionThemeStyle("skills")}

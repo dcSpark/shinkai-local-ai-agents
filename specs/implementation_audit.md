@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App starter card visible-copy compaction | Done | `crates/agent-tauri/frontend/src/App.tsx` | The empty Chat starter cards now use tighter visible labels such as "Plan workflow", "Missing inputs.", and "One tool, one result." while preserving their full staged prompts in titles and click behavior. |
 | App composer placeholder task framing | Done | `crates/agent-tauri/frontend/src/App.tsx` | The empty composer now invites users to "Describe a task" instead of repeating "Ask the agent" beside the compact Ask button, making the first input feel action-oriented while keeping submit behavior and Ask Agent accessibility unchanged. |
 | App context preview action label compaction | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat Context panel now shows the primary review action as "Preview" under the Context heading while retaining "Preview Context" in the title and aria label, reducing repeated panel/action copy without changing behavior. |
 | App context advanced tile grouping | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | The Chat Context panel now keeps Readiness and Tools visible after the everyday controls while grouping lower-frequency rules, delegation, memory, ingest, approval, and routing settings behind one More settings disclosure; selected ingest artifacts and Checks remain visible outside the group. |

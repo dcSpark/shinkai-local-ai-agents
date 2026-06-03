@@ -199,6 +199,18 @@ textarea:disabled {
   white-space: nowrap;
 }
 
+.rail-item:not(.active):not(:hover):not(:focus-visible) .rail-hint {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
 .rail-item.active {
   border-color: var(--section-accent);
   background: var(--section-surface);

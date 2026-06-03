@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App rail inactive-hint reduction | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | The workspace rail now keeps the active section hint visible while inactive sections scan as icon-plus-label rows; their hints remain available on hover/focus and in the button title so first-use navigation is less text-heavy without losing orientation. |
 | App topbar status label compaction | Done | `crates/agent-tauri/frontend/src/App.tsx` | The topbar output-mode pill now shows "Raw" or "Interpreted" directly and the telemetry disclosure scans as "Telemetry", while their titles keep "Tool output mode" and "Show run telemetry" context for users who need it. |
 | App topbar active-agent copy reduction | Done | `crates/agent-tauri/frontend/src/App.tsx` | The active-agent status pill now renders the resolved agent label directly, such as "Tool agent", instead of prefixing it with another "Agent"; the pill title still identifies it as the active agent. |
 | App composer primary action copy reduction | Done | `crates/agent-tauri/frontend/src/App.tsx` | The primary composer action now shows the compact visible label "Ask" while retaining the "Ask Agent" title and accessible name, reducing repeated "agent" copy beside the `Ask the agent` placeholder without changing submit behavior. |

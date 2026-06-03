@@ -19822,7 +19822,7 @@ export default function App() {
             <button
               type="button"
               className={railClass(section)}
-              title={visual.label}
+              title={`${visual.label} - ${RAIL_HINTS[section]}`}
               aria-label={RAIL_ARIA_LABELS[section]}
               onClick={() => selectRailSection(section)}
               disabled={railDisabled(section)}

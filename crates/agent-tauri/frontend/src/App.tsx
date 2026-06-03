@@ -219,7 +219,7 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
   },
   trace: {
     label: "Trace",
-    hint: "Inspect runs and compare paths",
+    hint: "Inspect run history and cost",
     icon: "trace",
     secondaryIcon: "context",
     tertiaryIcon: "control",
@@ -316,9 +316,9 @@ const SECTION_CUES: Record<ActiveSection, SectionCue[]> = {
     { value: "Advanced", label: "run controls", icon: "control" },
   ],
   trace: [
-    { value: "Replay", label: "run paths", icon: "trace", tone: "ok" },
-    { value: "Compare", label: "outputs", icon: "context" },
-    { value: "Usage", label: "cost and tokens", icon: "control" },
+    { value: "Load", label: "run history", icon: "trace", tone: "ok" },
+    { value: "Compare", label: "cost/output", icon: "context" },
+    { value: "Advanced", label: "replay/cleanup", icon: "control", tone: "warning" },
   ],
   conversations: [
     { value: "Tree", label: "branches", icon: "conversation", tone: "ok" },
@@ -22718,7 +22718,7 @@ export default function App() {
               onClick={() => void loadTraceFromOps()}
               disabled={running || (!opsId.trim() && !lastRunId)}
             >
-              <ButtonLabel icon="trace">Load Trace</ButtonLabel>
+              <ButtonLabel icon="trace">Load</ButtonLabel>
             </button>
             <button
               type="button"
@@ -22732,44 +22732,62 @@ export default function App() {
             >
               <ButtonLabel icon="trace">Compare</ButtonLabel>
             </button>
-            <button
-              type="button"
-              onClick={clearLoadedTrace}
-              disabled={running || !traceEvents.length}
+            <details
+              className="advanced-controls"
+              style={sectionThemeStyle("trace")}
             >
-              <ButtonLabel icon="approval">Clear Trace</ButtonLabel>
-            </button>
-            <button
-              type="button"
-              onClick={clearTraceComparison}
-              disabled={running || !traceCompareSummary}
-            >
-              <ButtonLabel icon="approval">Clear Compare</ButtonLabel>
-            </button>
-            <button
-              type="button"
-              title="Load the original prompt from the loaded trace into the composer."
-              onClick={() => void loadTracePromptToComposer()}
-              disabled={running || !traceOriginalPrompt(traceEvents)}
-            >
-              <ButtonLabel icon="prompt">Load Prompt</ButtonLabel>
-            </button>
-            <button
-              type="button"
-              title="Run the original prompt from the loaded trace again."
-              onClick={() => void replayTracePrompt()}
-              disabled={running || !traceOriginalPrompt(traceEvents)}
-            >
-              <ButtonLabel icon="trace">Replay</ButtonLabel>
-            </button>
-            <button
-              type="button"
-              title="Run the original prompt again, then compare the replay against this trace."
-              onClick={() => void replayTracePromptWithComparison()}
-              disabled={running || !traceOriginalPrompt(traceEvents)}
-            >
-              <ButtonLabel icon="trace">Replay Compare</ButtonLabel>
-            </button>
+              <summary>
+                <span className="advanced-controls-icon" aria-hidden="true">
+                  <AppIcon name="control" />
+                </span>
+                <span className="advanced-controls-copy">
+                  <strong>Advanced trace controls</strong>
+                  <span>Prompt recovery, replay, comparison, and cleanup</span>
+                </span>
+              </summary>
+              <div className="button-grid">
+                <button
+                  type="button"
+                  title="Clear the loaded trace."
+                  onClick={clearLoadedTrace}
+                  disabled={running || !traceEvents.length}
+                >
+                  <ButtonLabel icon="approval">Clear Trace</ButtonLabel>
+                </button>
+                <button
+                  type="button"
+                  title="Clear the comparison trace."
+                  onClick={clearTraceComparison}
+                  disabled={running || !traceCompareSummary}
+                >
+                  <ButtonLabel icon="approval">Clear Compare</ButtonLabel>
+                </button>
+                <button
+                  type="button"
+                  title="Load the original prompt from the loaded trace into the composer."
+                  onClick={() => void loadTracePromptToComposer()}
+                  disabled={running || !traceOriginalPrompt(traceEvents)}
+                >
+                  <ButtonLabel icon="prompt">Load Prompt</ButtonLabel>
+                </button>
+                <button
+                  type="button"
+                  title="Run the original prompt from the loaded trace again."
+                  onClick={() => void replayTracePrompt()}
+                  disabled={running || !traceOriginalPrompt(traceEvents)}
+                >
+                  <ButtonLabel icon="trace">Replay</ButtonLabel>
+                </button>
+                <button
+                  type="button"
+                  title="Run the original prompt again, then compare the replay against this trace."
+                  onClick={() => void replayTracePromptWithComparison()}
+                  disabled={running || !traceOriginalPrompt(traceEvents)}
+                >
+                  <ButtonLabel icon="trace">Replay Compare</ButtonLabel>
+                </button>
+              </div>
+            </details>
           </div>
           <label>
             <FieldLabel icon="trace" section="trace">

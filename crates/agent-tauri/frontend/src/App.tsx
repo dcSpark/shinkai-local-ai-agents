@@ -19793,6 +19793,7 @@ export default function App() {
     (line, index) =>
       !(index === 0 && line.kind === "event" && line.text.startsWith("Welcome.")),
   );
+  const showComposerPreviewAction = input.trim().length > 0;
   const sessionOverviewCards = runReadinessCards().slice(1, 4);
 
   return (
@@ -20017,15 +20018,17 @@ export default function App() {
               <AppIcon name="chat" />
               <span>Ask Agent</span>
             </button>
-            <button
-              type="button"
-              onClick={() => void previewCurrentContext()}
-              disabled={running}
-              title="Preview context"
-            >
-              <AppIcon name="context" />
-              <span>Preview</span>
-            </button>
+            {showComposerPreviewAction ? (
+              <button
+                type="button"
+                onClick={() => void previewCurrentContext()}
+                disabled={running}
+                title="Preview draft context"
+              >
+                <AppIcon name="context" />
+                <span>Preview</span>
+              </button>
+            ) : null}
             <details
               className="advanced-controls composer-advanced-controls"
               style={sectionThemeStyle(activeSection)}

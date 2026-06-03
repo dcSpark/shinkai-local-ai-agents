@@ -21045,36 +21045,50 @@ export default function App() {
             />
           </label>
           </details>
-          <FieldLabel icon="artifact" section="chat">
-            Output mode
-          </FieldLabel>
-          <div className="segmented-control two" role="group" aria-label="Output mode">
-            <button
-              type="button"
-              className={!rawToolOutput ? "selected" : ""}
-              aria-pressed={!rawToolOutput}
-              onClick={() => setRawToolOutput(false)}
-              disabled={running}
-              title="Let the agent interpret tool results before replying."
-            >
-              <ButtonLabel icon="prompt">Interpret</ButtonLabel>
-            </button>
-            <button
-              type="button"
-              className={rawToolOutput ? "selected" : ""}
-              aria-pressed={rawToolOutput}
-              onClick={() => setRawToolOutput(true)}
-              disabled={running}
-              title="Show original tool results without interpretation."
-            >
-              <ButtonLabel icon="artifact">Raw</ButtonLabel>
-            </button>
-          </div>
-          {rawToolOutput ? (
-            <ModeNote section="chat" icon="prompt">
-              Raw output preserves original tool results and skips interpretation.
-            </ModeNote>
-          ) : null}
+          <details
+            className="advanced-controls"
+            style={sectionThemeStyle("chat")}
+          >
+            <summary>
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="artifact" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Response handling</strong>
+                <span>Interpret tool results or show raw outputs</span>
+              </span>
+            </summary>
+            <FieldLabel icon="artifact" section="chat">
+              Output mode
+            </FieldLabel>
+            <div className="segmented-control two" role="group" aria-label="Output mode">
+              <button
+                type="button"
+                className={!rawToolOutput ? "selected" : ""}
+                aria-pressed={!rawToolOutput}
+                onClick={() => setRawToolOutput(false)}
+                disabled={running}
+                title="Let the agent interpret tool results before replying."
+              >
+                <ButtonLabel icon="prompt">Interpret</ButtonLabel>
+              </button>
+              <button
+                type="button"
+                className={rawToolOutput ? "selected" : ""}
+                aria-pressed={rawToolOutput}
+                onClick={() => setRawToolOutput(true)}
+                disabled={running}
+                title="Show original tool results without interpretation."
+              >
+                <ButtonLabel icon="artifact">Raw</ButtonLabel>
+              </button>
+            </div>
+            {rawToolOutput ? (
+              <ModeNote section="chat" icon="prompt">
+                Raw output preserves original tool results and skips interpretation.
+              </ModeNote>
+            ) : null}
+          </details>
           <details
             className="advanced-controls"
             style={sectionThemeStyle("chat")}

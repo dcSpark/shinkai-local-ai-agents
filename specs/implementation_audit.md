@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App capability-draft utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Capability draft cards now keep Edit/Allow/Reject visible while moving Set id, export path staging, Export, and Delete into a per-card More disclosure, keeping the review decision path prominent while preserving transfer and cleanup workflows. |
 | App model-doctor utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Model Doctor rows now keep Show and Probe visible while moving Set id, export path staging, and Export into a row-level More disclosure, keeping flagged-model inspection prominent without losing the transfer workflow. |
 | App model-card utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Saved model cards now keep Use/Show/Probe visible while moving Set id, export path staging, export, and delete actions into a per-card More disclosure, matching the prompt-card utility pattern without removing transfer or cleanup workflows. |
 | App prompt-card utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Saved prompt cards now keep Use/Run/Preview/Edit visible while moving Set id, export path staging, export, and delete actions into a per-card More disclosure, reducing first-scan button density without removing transfer or cleanup workflows. |

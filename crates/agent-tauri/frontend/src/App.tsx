@@ -28812,14 +28812,6 @@ export default function App() {
                       <div className="mini-actions">
                         <button
                           type="button"
-                          title="Move this draft id into the Id field."
-                          onClick={() => setOpsId(draft.id)}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="tools">Set Id</ButtonLabel>
-                        </button>
-                        <button
-                          type="button"
                           title="Load this draft into the edit fields."
                           onClick={() => {
                             setOpsId(draft.name);
@@ -28852,41 +28844,71 @@ export default function App() {
                         >
                           <ButtonLabel icon="approval">Reject</ButtonLabel>
                         </button>
-                        <button
-                          type="button"
-                          title="Stage a default /tmp export path for this draft."
-                          onClick={() => {
-                            setOpsId(draft.id);
-                            setOpsValue(defaultCapabilityDraftExportPath(draft));
-                          }}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="artifact">Path</ButtonLabel>
-                        </button>
-                        <button
-                          type="button"
-                          title="Export this draft to Value, or to /tmp when Value is blank."
-                          onClick={() => {
-                            const path =
-                              opsValue.trim() || defaultCapabilityDraftExportPath(draft);
-                            setOpsId(draft.id);
-                            setOpsValue(path);
-                            void exportCapabilityFromOps(draft.id, path);
-                          }}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="artifact">Export</ButtonLabel>
-                        </button>
-                        <button
-                          type="button"
-                          className="danger"
-                          title="Delete this draft."
-                          onClick={() => void deleteCapabilityFromOps(draft.id)}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="approval">Delete</ButtonLabel>
-                        </button>
                       </div>
+                      <details
+                        className="advanced-controls"
+                        style={sectionThemeStyle("skills")}
+                      >
+                        <summary title="Show draft staging, export, and delete actions">
+                          <span
+                            className="advanced-controls-icon"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="artifact" />
+                          </span>
+                          <span className="advanced-controls-copy">
+                            <strong>More</strong>
+                            <span>Stage, export, or delete this draft</span>
+                          </span>
+                        </summary>
+                        <div className="button-grid">
+                          <button
+                            type="button"
+                            title="Move this draft id into the Target id field."
+                            onClick={() => setOpsId(draft.id)}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="tools">Set id</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            title="Set Payload to a default /tmp export path for this draft."
+                            onClick={() => {
+                              setOpsId(draft.id);
+                              setOpsValue(defaultCapabilityDraftExportPath(draft));
+                            }}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="artifact">Path</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            title="Export this draft to Payload, or to /tmp when Payload is blank."
+                            onClick={() => {
+                              const path =
+                                opsValue.trim() || defaultCapabilityDraftExportPath(draft);
+                              setOpsId(draft.id);
+                              setOpsValue(path);
+                              void exportCapabilityFromOps(draft.id, path);
+                            }}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="artifact">Export</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            className="danger"
+                            title="Delete this draft."
+                            onClick={() => {
+                              setOpsId(draft.id);
+                              void deleteCapabilityFromOps(draft.id);
+                            }}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="approval">Delete</ButtonLabel>
+                          </button>
+                        </div>
+                      </details>
                     </div>
                   ))}
                 </div>

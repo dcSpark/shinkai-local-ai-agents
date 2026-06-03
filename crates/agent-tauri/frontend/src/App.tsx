@@ -20157,6 +20157,19 @@ export default function App() {
               disabled={running}
             />
           </label>
+          <details
+            className="advanced-controls"
+            style={sectionThemeStyle("chat")}
+          >
+            <summary>
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="control" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Advanced model options</strong>
+                <span>Sampling, metadata, API credentials, modalities, and pricing</span>
+              </span>
+            </summary>
           <label>
             <FieldLabel icon="context" section="chat">
               Max context
@@ -20429,6 +20442,7 @@ export default function App() {
               disabled={running}
             />
           </label>
+          </details>
         </section>
         ) : null}
 

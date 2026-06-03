@@ -323,7 +323,7 @@ const SECTION_CUES: Record<ActiveSection, SectionCue[]> = {
   conversations: [
     { value: "Tree", label: "branches", icon: "conversation", tone: "ok" },
     { value: "Recover", label: "context", icon: "context" },
-    { value: "Prune", label: "ranges", icon: "approval", tone: "warning" },
+    { value: "Advanced", label: "cleanup", icon: "approval", tone: "warning" },
   ],
   profiles: [
     { value: "Grants", label: "shared scope", icon: "approval", tone: "ok" },

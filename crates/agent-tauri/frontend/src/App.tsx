@@ -20195,7 +20195,7 @@ export default function App() {
               </span>
               <span className="advanced-controls-copy">
                 <strong>Model details</strong>
-                <span>Connection, identity, and model options</span>
+                <span>Posture, connection, limits, tuning, and cost</span>
               </span>
             </summary>
             <div className="run-readiness-grid model-setup-grid">
@@ -20212,6 +20212,20 @@ export default function App() {
                 </div>
               ))}
             </div>
+            <div className="context-more-grid">
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("chat")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="adapter" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Connection</strong>
+                    <span>Transport, demo identity, and endpoint selection</span>
+                  </span>
+                </summary>
             <label>
               <FieldLabel icon="adapter" section="chat">
                 Transport
@@ -20261,6 +20275,20 @@ export default function App() {
                 disabled={running}
               />
             </label>
+              </details>
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("chat")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="context" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Limits</strong>
+                    <span>Context window, output budget, and temperature</span>
+                  </span>
+                </summary>
           <label>
             <FieldLabel icon="context" section="chat">
               Max context
@@ -20307,6 +20335,20 @@ export default function App() {
               disabled={running || !supportsTemperature}
             />
           </label>
+              </details>
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("chat")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="setup" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Model shape</strong>
+                    <span>Modalities, tools, metadata, and credentials</span>
+                  </span>
+                </summary>
           <label>
             <FieldLabel icon="artifact" section="chat">
               Image input
@@ -20432,6 +20474,20 @@ export default function App() {
               disabled={running || provider === "fake"}
             />
           </label>
+              </details>
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("chat")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="control" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Provider tuning</strong>
+                    <span>Sampling and reasoning provider options</span>
+                  </span>
+                </summary>
           <label>
             <FieldLabel icon="control" section="chat">
               Top p
@@ -20505,6 +20561,20 @@ export default function App() {
               />
             </label>
           ) : null}
+              </details>
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("chat")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="trace" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Cost</strong>
+                    <span>Manual token pricing for estimates</span>
+                  </span>
+                </summary>
           <label>
             <FieldLabel icon="trace" section="chat">
               Input $/M
@@ -20533,6 +20603,8 @@ export default function App() {
               disabled={running}
             />
           </label>
+              </details>
+            </div>
           </details>
         </section>
         ) : null}

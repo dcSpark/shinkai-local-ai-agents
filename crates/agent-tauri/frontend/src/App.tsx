@@ -27177,27 +27177,11 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Import a SKILL.md file or folder path from Value."
-                  onClick={() => void importSkillFromOps()}
-                  disabled={running || !opsValue.trim()}
-                >
-                  <ButtonLabel icon="artifact">Import Skill</ButtonLabel>
-                </button>
-                <button
-                  type="button"
                   title="Show quarantined or allowed skill Id."
                   onClick={() => void showSkillFromOps()}
                   disabled={running || !opsId.trim()}
                 >
                   <ButtonLabel icon="skill">Show Skill</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Export quarantined or allowed skill Id to Value, or to /tmp when Value is blank."
-                  onClick={() => void exportSkillFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="artifact">Export Skill</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -27207,23 +27191,55 @@ export default function App() {
                 >
                   <ButtonLabel icon="context">Preview With Skills</ButtonLabel>
                 </button>
-                <button
-                  type="button"
-                  title="Allow quarantined skill Id into context after digest and prompt-injection checks pass."
-                  onClick={() => void setSkillQuarantine(true)}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="approval">Allow Skill</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Quarantine skill Id."
-                  onClick={() => void setSkillQuarantine(false)}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="approval">Quarantine</ButtonLabel>
-                </button>
               </div>
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("skills")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="skill" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Advanced skill controls</strong>
+                    <span>Portable imports, exports, allow/quarantine by id</span>
+                  </span>
+                </summary>
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    title="Import a SKILL.md file or folder path from Value."
+                    onClick={() => void importSkillFromOps()}
+                    disabled={running || !opsValue.trim()}
+                  >
+                    <ButtonLabel icon="artifact">Import Skill</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Export quarantined or allowed skill Id to Value, or to /tmp when Value is blank."
+                    onClick={() => void exportSkillFromOps()}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="artifact">Export Skill</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Allow quarantined skill Id into context after digest and prompt-injection checks pass."
+                    onClick={() => void setSkillQuarantine(true)}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="approval">Allow Skill</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Quarantine skill Id."
+                    onClick={() => void setSkillQuarantine(false)}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="approval">Quarantine</ButtonLabel>
+                  </button>
+                </div>
+              </details>
               <OperationTitle title="Capability Drafts" section="skills" icon="tools" />
               <label>
                 <FieldLabel icon="tools" section="skills">
@@ -27277,22 +27293,6 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Export capability draft Id to Value, or to /tmp when Value is blank."
-                  onClick={() => void exportCapabilityFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="artifact">Export Draft</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Import a capability draft from Value path. Imported drafts stay quarantined."
-                  onClick={() => void importCapabilityFromOps()}
-                  disabled={running || !opsValue.trim()}
-                >
-                  <ButtonLabel icon="artifact">Import Draft</ButtonLabel>
-                </button>
-                <button
-                  type="button"
                   title="Allow capability draft Id after review."
                   onClick={() => void reviewCapabilityDraft(true)}
                   disabled={running || !opsId.trim()}
@@ -27307,16 +27307,48 @@ export default function App() {
                 >
                   <ButtonLabel icon="approval">Reject Draft</ButtonLabel>
                 </button>
-                <button
-                  type="button"
-                  className="danger"
-                  title="Delete capability draft Id."
-                  onClick={() => void deleteCapabilityFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="approval">Delete Draft</ButtonLabel>
-                </button>
               </div>
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("skills")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="tools" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Advanced draft controls</strong>
+                    <span>Portable draft import/export and destructive cleanup</span>
+                  </span>
+                </summary>
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    title="Export capability draft Id to Value, or to /tmp when Value is blank."
+                    onClick={() => void exportCapabilityFromOps()}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="artifact">Export Draft</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Import a capability draft from Value path. Imported drafts stay quarantined."
+                    onClick={() => void importCapabilityFromOps()}
+                    disabled={running || !opsValue.trim()}
+                  >
+                    <ButtonLabel icon="artifact">Import Draft</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    title="Delete capability draft Id."
+                    onClick={() => void deleteCapabilityFromOps()}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="approval">Delete Draft</ButtonLabel>
+                  </button>
+                </div>
+              </details>
               {capabilityDoctorReport ? (
                 <div className="ingestion-review">
                   <div

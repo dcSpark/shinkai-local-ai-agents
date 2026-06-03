@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App memory overview safe-default alignment | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Memory workspace overview now leads with Off/Preview/Advanced cues and "Preview memory before loading" copy, while the always-visible memory actions use shorter labels that fit the inspector; this matches the spec posture that memory loading/generation are explicit instead of always-on defaults. |
 | App profile overview progressive disclosure alignment | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Profiles workspace overview now mirrors the first-use profile flow with Current/List/Advanced cues instead of foregrounding grants, secrets, and bundles as primary actions. |
 | App conversation overview progressive disclosure alignment | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Conversations workspace overview now keeps Tree and Recover as first-use cues while replacing the top-level Prune cue with Advanced cleanup, matching the existing advanced cleanup disclosure. |
 | App chat overview progressive disclosure alignment | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat workspace overview now mirrors the simplified first-use path by showing Ask, Preview, and Advanced run controls instead of repeating Guide as a top-level cue. |

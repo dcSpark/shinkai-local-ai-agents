@@ -246,7 +246,7 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
   },
   memory: {
     label: "Memory",
-    hint: "Load durable context and topics",
+    hint: "Preview memory before loading",
     icon: "memory",
     secondaryIcon: "context",
     tertiaryIcon: "profile",
@@ -331,9 +331,9 @@ const SECTION_CUES: Record<ActiveSection, SectionCue[]> = {
     { value: "Advanced", label: "admin tools", icon: "approval", tone: "warning" },
   ],
   memory: [
-    { value: "Records", label: "durable facts", icon: "memory", tone: "ok" },
-    { value: "Topics", label: "filters", icon: "context" },
-    { value: "Backends", label: "sources", icon: "adapter" },
+    { value: "Off", label: "by default", icon: "approval", tone: "ok" },
+    { value: "Preview", label: "before use", icon: "context" },
+    { value: "Advanced", label: "generate/manage", icon: "memory", tone: "warning" },
   ],
   skills: [
     { value: "Review", label: "trusted skills", icon: "approval", tone: "warning" },
@@ -25288,7 +25288,7 @@ export default function App() {
                   onClick={() => void reviewMemory()}
                   disabled={running}
                 >
-                  <ButtonLabel icon="memory">List Memory</ButtonLabel>
+                  <ButtonLabel icon="memory">List</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -25312,7 +25312,7 @@ export default function App() {
                   onClick={() => void probeMemoryBackend()}
                   disabled={running}
                 >
-                  <ButtonLabel icon="trace">Probe Backend</ButtonLabel>
+                  <ButtonLabel icon="trace">Probe</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -25320,7 +25320,7 @@ export default function App() {
                   onClick={() => void previewWithMemoryFromOps()}
                   disabled={running}
                 >
-                  <ButtonLabel icon="context">Preview With Memory</ButtonLabel>
+                  <ButtonLabel icon="context">Preview</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -25328,7 +25328,7 @@ export default function App() {
                   onClick={() => void createMemoryFromOps()}
                   disabled={running || !opsValue.trim()}
                 >
-                  <ButtonLabel icon="memory">Add Memory</ButtonLabel>
+                  <ButtonLabel icon="memory">Add</ButtonLabel>
                 </button>
               </div>
               <details

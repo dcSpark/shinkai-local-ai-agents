@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App section cue visual map | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | The inspector overview now renders each workspace's first-use cues as a reusable icon-sequenced visual map instead of stacked text metric cards, so primary action, inspection, and advanced/guarded posture are easier to scan before detailed controls. |
 | App conversation cleanup first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Conversations operation group now presents List/Show/Usage/Recover plus conversation records, recovery/delete previews, and the branch tree or empty tree cue before advanced range, branch, recursive, and agent-owned deletion controls. |
 | App trace first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Trace panel now presents Runs/Load/Compare actions, compare target input, recent runs, and trace summary or empty trace cue before advanced prompt recovery, replay, comparison cleanup, and trace clearing controls. |
 | App tool catalog first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat Tools group now presents List Tools plus visible-tool catalog cards or a catalog-not-loaded cue before the Direct tool call disclosure, so users inspect runtime tool visibility before staging raw JSON tool calls. |

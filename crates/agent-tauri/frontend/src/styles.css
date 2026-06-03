@@ -1436,20 +1436,126 @@ textarea:disabled {
   overflow-wrap: anywhere;
 }
 
-.section-overview-cues {
+.section-cue-map {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.45rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.section-cue-node {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  min-height: 5.35rem;
+  padding: 0.55rem 0.35rem 0.5rem;
+  border: 1px solid #2a2d34;
+  border-radius: 8px;
+  background: #15171b;
+  text-align: center;
+}
+
+.section-cue-node:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 1.6rem;
+  right: -0.45rem;
+  width: 0.45rem;
+  height: 1px;
+  background: var(--section-accent);
+  opacity: 0.58;
+}
+
+.section-cue-node.ok {
+  border-color: #275c43;
+  background: #13201a;
+}
+
+.section-cue-node.warning {
+  border-color: #816a2d;
+  background: #251f12;
+}
+
+.section-cue-node.danger {
+  border-color: #7d3c45;
+  background: #26171c;
+}
+
+.section-cue-index {
+  position: absolute;
+  top: 0.28rem;
+  left: 0.35rem;
+  color: var(--section-accent);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.58rem;
+  font-weight: 850;
+  line-height: 1;
+  opacity: 0.74;
+}
+
+.section-cue-icon {
+  display: inline-grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+  color: var(--section-accent);
+}
+
+.section-cue-node.ok .section-cue-icon {
+  border-color: #275c43;
+  background: #13281d;
+  color: #78dda7;
+}
+
+.section-cue-node.warning .section-cue-icon {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
+.section-cue-node.danger .section-cue-icon {
+  border-color: #7d3c45;
+  background: #32191f;
+  color: #ffb4c0;
+}
+
+.section-cue-icon .app-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.section-cue-copy {
+  display: grid;
+  gap: 0.1rem;
   min-width: 0;
 }
 
-.section-overview .visual-metric {
-  min-height: 2.9rem;
-  padding: 0.42rem;
+.section-cue-copy strong,
+.section-cue-copy span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-.section-overview .visual-metric strong {
-  font-size: 0.88rem;
+.section-cue-copy strong {
+  color: #f1f2f4;
+  font-size: 0.78rem;
+  font-weight: 850;
+  line-height: 1.15;
+}
+
+.section-cue-copy span {
+  color: #9da3ad;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.66rem;
+  line-height: 1.2;
 }
 
 .panel {

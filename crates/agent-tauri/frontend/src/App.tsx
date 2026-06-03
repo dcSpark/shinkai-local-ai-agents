@@ -894,9 +894,37 @@ function FeatureVisual({ section }: { section: ActiveSection }) {
   );
 }
 
-function SectionOverview({ section }: { section: ActiveSection }) {
+function SectionCueMap({ section }: { section: ActiveSection }) {
   const visual = sectionVisual(section);
   const cues = SECTION_CUES[section];
+  return (
+    <ol
+      className="section-cue-map"
+      aria-label={`${visual.label} workspace flow`}
+    >
+      {cues.map((cue, index) => (
+        <li
+          className={cue.tone ? `section-cue-node ${cue.tone}` : "section-cue-node"}
+          key={`${section}:${cue.value}`}
+        >
+          <span className="section-cue-index" aria-hidden="true">
+            {index + 1}
+          </span>
+          <span className="section-cue-icon" aria-hidden="true">
+            <AppIcon name={cue.icon} />
+          </span>
+          <span className="section-cue-copy">
+            <strong>{cue.value}</strong>
+            <span>{cue.label}</span>
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function SectionOverview({ section }: { section: ActiveSection }) {
+  const visual = sectionVisual(section);
   return (
     <section className="section-overview" style={sectionThemeStyle(section)}>
       <div className="section-overview-head">
@@ -907,18 +935,7 @@ function SectionOverview({ section }: { section: ActiveSection }) {
           <span>{visual.hint}</span>
         </div>
       </div>
-      <div className="section-overview-cues">
-        {cues.map((cue) => (
-          <VisualMetric
-            key={`${section}:${cue.value}`}
-            icon={cue.icon}
-            label={cue.label}
-            value={cue.value}
-            section={section}
-            tone={cue.tone}
-          />
-        ))}
-      </div>
+      <SectionCueMap section={section} />
     </section>
   );
 }

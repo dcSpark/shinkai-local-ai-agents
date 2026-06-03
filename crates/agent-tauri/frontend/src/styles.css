@@ -1842,6 +1842,10 @@ textarea:disabled {
   background: transparent;
 }
 
+.artifacts-voice-group {
+  order: 1;
+}
+
 .operation-title {
   display: flex;
   align-items: center;

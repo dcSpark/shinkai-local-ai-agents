@@ -282,7 +282,7 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
   },
   artifacts: {
     label: "Artifacts",
-    hint: "Preview generated files and voice",
+    hint: "Generate and inspect outputs",
     icon: "artifact",
     secondaryIcon: "prompt",
     tertiaryIcon: "context",
@@ -351,9 +351,9 @@ const SECTION_CUES: Record<ActiveSection, SectionCue[]> = {
     { value: "Advanced", label: "guardrails/OCR", icon: "approval", tone: "warning" },
   ],
   artifacts: [
-    { value: "Files", label: "generated", icon: "artifact", tone: "ok" },
-    { value: "Preview", label: "openable", icon: "context" },
-    { value: "Voice", label: "capture", icon: "control" },
+    { value: "Generate", label: "docs/data", icon: "prompt", tone: "ok" },
+    { value: "Preview", label: "before open", icon: "context" },
+    { value: "Advanced", label: "export/delete", icon: "approval", tone: "warning" },
   ],
   adapters: [
     { value: "Packages", label: "review", icon: "adapter", tone: "warning" },
@@ -29107,7 +29107,7 @@ export default function App() {
             ) : null}
 
             {activeSection === "artifacts" ? (
-            <div className="operation-group">
+            <div className="operation-group artifacts-voice-group">
               <OperationTitle title="Voice" section="artifacts" icon="control" />
               <div className="button-grid">
                 <button
@@ -29312,7 +29312,7 @@ export default function App() {
             ) : null}
 
             {activeSection === "artifacts" ? (
-            <div className="operation-group">
+            <div className="operation-group artifacts-primary-group">
               <OperationTitle title="Artifacts" section="artifacts" />
               <div className="button-grid">
                 <button
@@ -29321,7 +29321,7 @@ export default function App() {
                   onClick={() => void reviewGeneratedArtifacts()}
                   disabled={running}
                 >
-                  <ButtonLabel icon="artifact">List Artifacts</ButtonLabel>
+                  <ButtonLabel icon="artifact">List</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -29329,7 +29329,7 @@ export default function App() {
                   onClick={() => void generateArtifactFromOps()}
                   disabled={running || !opsId.trim() || !opsValue.trim()}
                 >
-                  <ButtonLabel icon="prompt">Generate Artifact</ButtonLabel>
+                  <ButtonLabel icon="prompt">Generate</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -29337,7 +29337,7 @@ export default function App() {
                   onClick={() => void showGeneratedArtifactFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  <ButtonLabel icon="artifact">Show Artifact</ButtonLabel>
+                  <ButtonLabel icon="artifact">Show</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -29345,7 +29345,7 @@ export default function App() {
                   onClick={() => void openGeneratedArtifactFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  <ButtonLabel icon="context">Open Artifact</ButtonLabel>
+                  <ButtonLabel icon="context">Open</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -29353,7 +29353,7 @@ export default function App() {
                   onClick={() => void downloadGeneratedArtifactFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  <ButtonLabel icon="artifact">Download Artifact</ButtonLabel>
+                  <ButtonLabel icon="artifact">Download</ButtonLabel>
                 </button>
               </div>
               <details
@@ -29376,7 +29376,7 @@ export default function App() {
                     onClick={() => void exportGeneratedArtifactFromOps()}
                     disabled={running || !opsId.trim()}
                   >
-                    <ButtonLabel icon="artifact">Export Artifact</ButtonLabel>
+                    <ButtonLabel icon="artifact">Export</ButtonLabel>
                   </button>
                   <button
                     type="button"
@@ -29384,7 +29384,7 @@ export default function App() {
                     onClick={() => void deleteGeneratedArtifactFromOps()}
                     disabled={running || !opsId.trim()}
                   >
-                    <ButtonLabel icon="approval">Delete Artifact</ButtonLabel>
+                    <ButtonLabel icon="approval">Delete</ButtonLabel>
                   </button>
                 </div>
               </details>

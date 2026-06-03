@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App bridge delivery first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Bridge Deliveries operation group now presents bridge readiness/dead-letter actions plus failed-delivery cards or the empty delivery cue before advanced retry/delete controls, so messaging delivery status appears before power-user cleanup operations. |
 | App skill first-use status ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Skills operation panel now presents imported-skill and capability-draft status cues before advanced skill/draft import-export, allow/quarantine, and delete disclosures, so review posture is visible before power-user transfer controls. |
 | App model first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Models operation panel now presents List/Providers/Doctor/Show/Probe/Save actions plus model doctor, saved-model, empty-model, and provider descriptor review before catalog JSON, manual save, import/export, and delete controls, so model health appears before power-user transfer operations. |
 | App prompt first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Prompts operation panel now presents List/Save/Show/Use/Run/Preview actions plus prompt library cards or the empty prompt-library cue before portable import/export/delete controls, so saved-task review appears before destructive or transfer operations. |

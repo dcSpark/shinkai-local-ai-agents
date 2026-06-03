@@ -23336,40 +23336,59 @@ export default function App() {
                         >
                           <ButtonLabel icon="trace">Compare</ButtonLabel>
                         </button>
-                        <button
-                          type="button"
-                          title="Replay this run's original prompt."
-                          onClick={() =>
-                            void replayTracePromptWithOptions({
-                              runId: record.run_id,
-                            })
-                          }
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="trace">Replay</ButtonLabel>
-                        </button>
-                        <button
-                          type="button"
-                          title="Replay this run and compare the replay against it."
-                          onClick={() =>
-                            void replayTracePromptWithOptions({
-                              runId: record.run_id,
-                              compareSource: true,
-                            })
-                          }
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="trace">Replay Compare</ButtonLabel>
-                        </button>
-                        <button
-                          type="button"
-                          title="Move this run id into the Id field."
-                          onClick={() => setOpsId(record.run_id)}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="trace">Set Id</ButtonLabel>
-                        </button>
                       </div>
+                      <details
+                        className="advanced-controls"
+                        style={sectionThemeStyle("trace")}
+                      >
+                        <summary title="Show trace replay and staging actions">
+                          <span
+                            className="advanced-controls-icon"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="trace" />
+                          </span>
+                          <span className="advanced-controls-copy">
+                            <strong>More</strong>
+                            <span>Replay or stage this run</span>
+                          </span>
+                        </summary>
+                        <div className="button-grid">
+                          <button
+                            type="button"
+                            title="Replay this run's original prompt."
+                            onClick={() =>
+                              void replayTracePromptWithOptions({
+                                runId: record.run_id,
+                              })
+                            }
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="trace">Replay</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            title="Replay this run and compare the replay against it."
+                            onClick={() =>
+                              void replayTracePromptWithOptions({
+                                runId: record.run_id,
+                                compareSource: true,
+                              })
+                            }
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="trace">Replay Compare</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            title="Move this run id into the Target id field."
+                            onClick={() => setOpsId(record.run_id)}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="trace">Set id</ButtonLabel>
+                          </button>
+                        </div>
+                      </details>
                     </div>
                   );
                 })}

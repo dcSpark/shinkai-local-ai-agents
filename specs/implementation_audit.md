@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App trace-run utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Recent trace-run cards now keep Load and Compare visible while moving Replay, Replay Compare, and Set id into a per-card More disclosure, keeping first-scan trace inspection focused while preserving replay workflows. |
 | App adapter-package utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Adapter doctor package rows and adapter inventory cards now keep Show, Install Skill, Allow, and Block review actions visible while moving Set id, export path staging, and Export into per-card More disclosures, preserving quarantine decisions while reducing transfer-button density. |
 | App compaction-card utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Saved compacted-context cards now keep Edit and Use visible while moving Set id, export path staging, Export, and Delete into a per-card More disclosure, preserving compacted-context reuse while reducing Chat library transfer and cleanup button density. |
 | App saved-agent card utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Saved-agent cards now keep Use and Show visible while moving Set id, export path staging, Export, and Delete into a per-card More disclosure, preserving saved-agent review and activation while reducing Chat library maintenance button density. |

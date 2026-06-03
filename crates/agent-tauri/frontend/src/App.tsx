@@ -27887,7 +27887,7 @@ export default function App() {
                   </span>
                   <span className="advanced-controls-copy">
                     <strong>More settings</strong>
-                    <span>Catalog review, model transfer, and catalog transfer</span>
+                    <span>Catalogs and transfer</span>
                   </span>
                 </summary>
                 <div className="context-more-grid">
@@ -27900,8 +27900,8 @@ export default function App() {
                         <AppIcon name="setup" />
                       </span>
                       <span className="advanced-controls-copy">
-                        <strong>Catalog review</strong>
-                        <span>Provider and metadata catalog JSON</span>
+                        <strong>Catalogs</strong>
+                        <span>Provider and model metadata records</span>
                       </span>
                     </summary>
                     <div className="button-grid">
@@ -27911,7 +27911,7 @@ export default function App() {
                         onClick={() => void showModelProviderCatalogFromOps()}
                         disabled={running}
                       >
-                        <ButtonLabel icon="setup">Provider Catalog</ButtonLabel>
+                        <ButtonLabel icon="setup">Providers</ButtonLabel>
                       </button>
                       <button
                         type="button"
@@ -27919,7 +27919,7 @@ export default function App() {
                         onClick={() => void showModelMetadataCatalogFromOps()}
                         disabled={running}
                       >
-                        <ButtonLabel icon="setup">Metadata Catalog</ButtonLabel>
+                        <ButtonLabel icon="setup">Metadata</ButtonLabel>
                       </button>
                     </div>
                   </details>
@@ -27932,8 +27932,8 @@ export default function App() {
                         <AppIcon name="setup" />
                       </span>
                       <span className="advanced-controls-copy">
-                        <strong>Model transfer</strong>
-                        <span>Manual save, import/export, and delete</span>
+                        <strong>Models</strong>
+                        <span>Save, import/export, and delete</span>
                       </span>
                     </summary>
                     <div className="button-grid">
@@ -27943,7 +27943,7 @@ export default function App() {
                         onClick={() => void saveModelFromOps()}
                         disabled={running || !opsId.trim()}
                       >
-                        <ButtonLabel icon="setup">Save Model</ButtonLabel>
+                        <ButtonLabel icon="setup">Save</ButtonLabel>
                       </button>
                       <button
                         type="button"
@@ -27951,7 +27951,7 @@ export default function App() {
                         onClick={() => void exportModelFromOps()}
                         disabled={running || !opsId.trim()}
                       >
-                        <ButtonLabel icon="artifact">Export Model</ButtonLabel>
+                        <ButtonLabel icon="artifact">Export</ButtonLabel>
                       </button>
                       <button
                         type="button"
@@ -27959,7 +27959,7 @@ export default function App() {
                         onClick={() => void importModelFromOps()}
                         disabled={running || !opsValue.trim()}
                       >
-                        <ButtonLabel icon="artifact">Import Model</ButtonLabel>
+                        <ButtonLabel icon="artifact">Import</ButtonLabel>
                       </button>
                       <button
                         type="button"
@@ -27968,7 +27968,7 @@ export default function App() {
                         onClick={() => void deleteModelFromOps()}
                         disabled={running || !opsId.trim()}
                       >
-                        <ButtonLabel icon="approval">Delete Model</ButtonLabel>
+                        <ButtonLabel icon="approval">Delete</ButtonLabel>
                       </button>
                     </div>
                   </details>
@@ -27981,8 +27981,8 @@ export default function App() {
                         <AppIcon name="artifact" />
                       </span>
                       <span className="advanced-controls-copy">
-                        <strong>Catalog transfer</strong>
-                        <span>Provider and metadata catalog import/export</span>
+                        <strong>Catalog files</strong>
+                        <span>Import/export provider and metadata catalogs</span>
                       </span>
                     </summary>
                     <div className="button-grid">
@@ -27997,7 +27997,7 @@ export default function App() {
                         }}
                         disabled={running}
                       >
-                        <ButtonLabel icon="artifact">Export Providers</ButtonLabel>
+                        <ButtonLabel icon="artifact">Export providers</ButtonLabel>
                       </button>
                       <button
                         type="button"
@@ -28005,7 +28005,7 @@ export default function App() {
                         onClick={() => void importModelProviderCatalogFromOps()}
                         disabled={running || !opsValue.trim()}
                       >
-                        <ButtonLabel icon="artifact">Import Providers</ButtonLabel>
+                        <ButtonLabel icon="artifact">Import providers</ButtonLabel>
                       </button>
                       <button
                         type="button"
@@ -28018,7 +28018,7 @@ export default function App() {
                         }}
                         disabled={running}
                       >
-                        <ButtonLabel icon="artifact">Export Metadata</ButtonLabel>
+                        <ButtonLabel icon="artifact">Export metadata</ButtonLabel>
                       </button>
                       <button
                         type="button"
@@ -28026,7 +28026,7 @@ export default function App() {
                         onClick={() => void importModelMetadataCatalogFromOps()}
                         disabled={running || !opsValue.trim()}
                       >
-                        <ButtonLabel icon="artifact">Import Metadata</ButtonLabel>
+                        <ButtonLabel icon="artifact">Import metadata</ButtonLabel>
                       </button>
                     </div>
                   </details>

@@ -29161,211 +29161,6 @@ export default function App() {
             ) : null}
 
             {activeSection === "artifacts" ? (
-            <div className="operation-group artifacts-voice-group">
-              <OperationTitle title="Voice" section="artifacts" icon="control" />
-              <div className="button-grid">
-                <button
-                  type="button"
-                  title="Start microphone capture."
-                  onClick={() => void startVoiceCapture()}
-                  disabled={running || recordingVoice}
-                >
-                  <ButtonLabel icon="control">Record</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Stop microphone capture."
-                  onClick={stopVoiceCapture}
-                  disabled={!recordingVoice}
-                >
-                  <ButtonLabel icon="approval">Stop</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Transcribe the latest voice capture."
-                  onClick={() => void transcribeVoiceCapture()}
-                  disabled={running || recordingVoice || !voiceCaptureArtifact}
-                >
-                  <ButtonLabel icon="prompt">Transcribe</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Create speech audio from composer text or the latest assistant answer."
-                  onClick={() => void speakVoiceOutput()}
-                  disabled={running || recordingVoice || voiceOutputBusy}
-                >
-                  <ButtonLabel icon="artifact">Speak</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Stage voice_speak with composer text or the latest assistant answer."
-                  onClick={() => stageVoiceSpeak()}
-                  disabled={running || recordingVoice}
-                >
-                  <ButtonLabel icon="tools">Stage TTS</ButtonLabel>
-                </button>
-              </div>
-              <div className={`artifact-card ${voiceActivityTone()}`}>
-                <div className="artifact-card-head with-icon">
-                  <span
-                    className={`artifact-card-icon ${voiceActivityTone()}`}
-                    aria-hidden="true"
-                  >
-                    <AppIcon name="control" />
-                  </span>
-                  <div className="artifact-card-title">
-                    <strong>Voice status</strong>
-                    <span>{activeAgentLabel()}</span>
-                  </div>
-                </div>
-                <div className="artifact-metrics">
-                  <VisualMetric
-                    icon="control"
-                    label="activity"
-                    value={voiceActivityLabel()}
-                    section="artifacts"
-                    tone={voiceActivityTone()}
-                  />
-                  <VisualMetric
-                    icon="context"
-                    label={`input ${voiceTriStateStatus(voiceInputEnabled)}`}
-                    value={voiceControlLabel(voiceInputBackend, "config")}
-                    section="artifacts"
-                    tone={voiceInputEnabled === "off" ? "warning" : "neutral"}
-                  />
-                  <VisualMetric
-                    icon="prompt"
-                    label={`output ${voiceTriStateStatus(voiceOutputEnabled)}`}
-                    value={voiceControlLabel(voiceOutputBackend, "config")}
-                    section="artifacts"
-                    tone={voiceOutputEnabled === "off" ? "warning" : "neutral"}
-                  />
-                  <VisualMetric
-                    icon="audio"
-                    label="capture"
-                    value={voiceArtifactMetric(voiceCaptureArtifact)}
-                    section="artifacts"
-                    tone={voiceCaptureArtifact ? "ok" : "neutral"}
-                  />
-                  <VisualMetric
-                    icon="audio"
-                    label="speech"
-                    value={voiceArtifactMetric(voiceOutputArtifact)}
-                    section="artifacts"
-                    tone={voiceOutputArtifact ? "ok" : "neutral"}
-                  />
-                </div>
-                <div className="artifact-detail-list">
-                  <div
-                    className={`artifact-detail-row ${
-                      voiceInputEnabled === "off" ? "warning" : ""
-                    }`}
-                  >
-                    <span
-                      className={`artifact-detail-icon ${
-                        voiceInputEnabled === "off" ? "warning" : ""
-                      }`}
-                      aria-hidden="true"
-                    >
-                      <AppIcon name="context" />
-                    </span>
-                    <div className="artifact-detail-copy">
-                      <strong>Input model</strong>
-                      <span>
-                        {voiceControlLabel(voiceInputModel, "configured model")}
-                      </span>
-                    </div>
-                  </div>
-                  <div
-                    className={`artifact-detail-row ${
-                      voiceOutputEnabled === "off" ? "warning" : ""
-                    }`}
-                  >
-                    <span
-                      className={`artifact-detail-icon ${
-                        voiceOutputEnabled === "off" ? "warning" : ""
-                      }`}
-                      aria-hidden="true"
-                    >
-                      <AppIcon name="prompt" />
-                    </span>
-                    <div className="artifact-detail-copy">
-                      <strong>Output model</strong>
-                      <span>
-                        {voiceControlLabel(voiceTtsModel, "configured model")}
-                      </span>
-                    </div>
-                  </div>
-                  <div
-                    className={`artifact-detail-row ${
-                      voiceCaptureArtifact ? "ok" : ""
-                    }`}
-                  >
-                    <span
-                      className={`artifact-detail-icon ${
-                        voiceCaptureArtifact ? "ok" : ""
-                      }`}
-                      aria-hidden="true"
-                    >
-                      <AppIcon name="audio" />
-                    </span>
-                    <div className="artifact-detail-copy">
-                      <strong>Capture artifact</strong>
-                      <span title={voiceCaptureArtifact?.path ?? undefined}>
-                        {voiceArtifactDetail(voiceCaptureArtifact)}
-                      </span>
-                    </div>
-                  </div>
-                  <div
-                    className={`artifact-detail-row ${
-                      voiceOutputArtifact ? "ok" : ""
-                    }`}
-                  >
-                    <span
-                      className={`artifact-detail-icon ${
-                        voiceOutputArtifact ? "ok" : ""
-                      }`}
-                      aria-hidden="true"
-                    >
-                      <AppIcon name="audio" />
-                    </span>
-                    <div className="artifact-detail-copy">
-                      <strong>Speech artifact</strong>
-                      <span title={voiceOutputArtifact?.path ?? undefined}>
-                        {voiceArtifactDetail(voiceOutputArtifact)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              {voicePreviewUrl || voiceCaptureArtifact ? (
-                <div className="voice-capture">
-                  {voicePreviewUrl ? (
-                    <audio src={voicePreviewUrl} controls />
-                  ) : null}
-                  {voiceCaptureArtifact ? (
-                    <span title={voiceCaptureArtifact.path}>
-                      {voiceCaptureArtifact.id} / {formatBytes(voiceCaptureArtifact.bytes)}
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
-              {voiceOutputPreviewUrl || voiceOutputArtifact ? (
-                <div className="voice-capture">
-                  {voiceOutputPreviewUrl ? (
-                    <audio src={voiceOutputPreviewUrl} controls />
-                  ) : null}
-                  {voiceOutputArtifact ? (
-                    <span title={voiceOutputArtifact.path}>
-                      {voiceOutputArtifact.id} / {formatBytes(voiceOutputArtifact.bytes)}
-                    </span>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-            ) : null}
-
-            {activeSection === "artifacts" ? (
             <div className="operation-group artifacts-primary-group">
               <OperationTitle title="Artifacts" section="artifacts" />
               <div className="button-grid">
@@ -29699,6 +29494,211 @@ export default function App() {
                       sandbox="allow-same-origin"
                     />
                   )}
+                </div>
+              ) : null}
+            </div>
+            ) : null}
+
+            {activeSection === "artifacts" ? (
+            <div className="operation-group artifacts-voice-group">
+              <OperationTitle title="Voice" section="artifacts" icon="control" />
+              <div className="button-grid">
+                <button
+                  type="button"
+                  title="Start microphone capture."
+                  onClick={() => void startVoiceCapture()}
+                  disabled={running || recordingVoice}
+                >
+                  <ButtonLabel icon="control">Record</ButtonLabel>
+                </button>
+                <button
+                  type="button"
+                  title="Stop microphone capture."
+                  onClick={stopVoiceCapture}
+                  disabled={!recordingVoice}
+                >
+                  <ButtonLabel icon="approval">Stop</ButtonLabel>
+                </button>
+                <button
+                  type="button"
+                  title="Transcribe the latest voice capture."
+                  onClick={() => void transcribeVoiceCapture()}
+                  disabled={running || recordingVoice || !voiceCaptureArtifact}
+                >
+                  <ButtonLabel icon="prompt">Transcribe</ButtonLabel>
+                </button>
+                <button
+                  type="button"
+                  title="Create speech audio from composer text or the latest assistant answer."
+                  onClick={() => void speakVoiceOutput()}
+                  disabled={running || recordingVoice || voiceOutputBusy}
+                >
+                  <ButtonLabel icon="artifact">Speak</ButtonLabel>
+                </button>
+                <button
+                  type="button"
+                  title="Stage voice_speak with composer text or the latest assistant answer."
+                  onClick={() => stageVoiceSpeak()}
+                  disabled={running || recordingVoice}
+                >
+                  <ButtonLabel icon="tools">Stage TTS</ButtonLabel>
+                </button>
+              </div>
+              <div className={`artifact-card ${voiceActivityTone()}`}>
+                <div className="artifact-card-head with-icon">
+                  <span
+                    className={`artifact-card-icon ${voiceActivityTone()}`}
+                    aria-hidden="true"
+                  >
+                    <AppIcon name="control" />
+                  </span>
+                  <div className="artifact-card-title">
+                    <strong>Voice status</strong>
+                    <span>{activeAgentLabel()}</span>
+                  </div>
+                </div>
+                <div className="artifact-metrics">
+                  <VisualMetric
+                    icon="control"
+                    label="activity"
+                    value={voiceActivityLabel()}
+                    section="artifacts"
+                    tone={voiceActivityTone()}
+                  />
+                  <VisualMetric
+                    icon="context"
+                    label={`input ${voiceTriStateStatus(voiceInputEnabled)}`}
+                    value={voiceControlLabel(voiceInputBackend, "config")}
+                    section="artifacts"
+                    tone={voiceInputEnabled === "off" ? "warning" : "neutral"}
+                  />
+                  <VisualMetric
+                    icon="prompt"
+                    label={`output ${voiceTriStateStatus(voiceOutputEnabled)}`}
+                    value={voiceControlLabel(voiceOutputBackend, "config")}
+                    section="artifacts"
+                    tone={voiceOutputEnabled === "off" ? "warning" : "neutral"}
+                  />
+                  <VisualMetric
+                    icon="audio"
+                    label="capture"
+                    value={voiceArtifactMetric(voiceCaptureArtifact)}
+                    section="artifacts"
+                    tone={voiceCaptureArtifact ? "ok" : "neutral"}
+                  />
+                  <VisualMetric
+                    icon="audio"
+                    label="speech"
+                    value={voiceArtifactMetric(voiceOutputArtifact)}
+                    section="artifacts"
+                    tone={voiceOutputArtifact ? "ok" : "neutral"}
+                  />
+                </div>
+                <div className="artifact-detail-list">
+                  <div
+                    className={`artifact-detail-row ${
+                      voiceInputEnabled === "off" ? "warning" : ""
+                    }`}
+                  >
+                    <span
+                      className={`artifact-detail-icon ${
+                        voiceInputEnabled === "off" ? "warning" : ""
+                      }`}
+                      aria-hidden="true"
+                    >
+                      <AppIcon name="context" />
+                    </span>
+                    <div className="artifact-detail-copy">
+                      <strong>Input model</strong>
+                      <span>
+                        {voiceControlLabel(voiceInputModel, "configured model")}
+                      </span>
+                    </div>
+                  </div>
+                  <div
+                    className={`artifact-detail-row ${
+                      voiceOutputEnabled === "off" ? "warning" : ""
+                    }`}
+                  >
+                    <span
+                      className={`artifact-detail-icon ${
+                        voiceOutputEnabled === "off" ? "warning" : ""
+                      }`}
+                      aria-hidden="true"
+                    >
+                      <AppIcon name="prompt" />
+                    </span>
+                    <div className="artifact-detail-copy">
+                      <strong>Output model</strong>
+                      <span>
+                        {voiceControlLabel(voiceTtsModel, "configured model")}
+                      </span>
+                    </div>
+                  </div>
+                  <div
+                    className={`artifact-detail-row ${
+                      voiceCaptureArtifact ? "ok" : ""
+                    }`}
+                  >
+                    <span
+                      className={`artifact-detail-icon ${
+                        voiceCaptureArtifact ? "ok" : ""
+                      }`}
+                      aria-hidden="true"
+                    >
+                      <AppIcon name="audio" />
+                    </span>
+                    <div className="artifact-detail-copy">
+                      <strong>Capture artifact</strong>
+                      <span title={voiceCaptureArtifact?.path ?? undefined}>
+                        {voiceArtifactDetail(voiceCaptureArtifact)}
+                      </span>
+                    </div>
+                  </div>
+                  <div
+                    className={`artifact-detail-row ${
+                      voiceOutputArtifact ? "ok" : ""
+                    }`}
+                  >
+                    <span
+                      className={`artifact-detail-icon ${
+                        voiceOutputArtifact ? "ok" : ""
+                      }`}
+                      aria-hidden="true"
+                    >
+                      <AppIcon name="audio" />
+                    </span>
+                    <div className="artifact-detail-copy">
+                      <strong>Speech artifact</strong>
+                      <span title={voiceOutputArtifact?.path ?? undefined}>
+                        {voiceArtifactDetail(voiceOutputArtifact)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {voicePreviewUrl || voiceCaptureArtifact ? (
+                <div className="voice-capture">
+                  {voicePreviewUrl ? (
+                    <audio src={voicePreviewUrl} controls />
+                  ) : null}
+                  {voiceCaptureArtifact ? (
+                    <span title={voiceCaptureArtifact.path}>
+                      {voiceCaptureArtifact.id} / {formatBytes(voiceCaptureArtifact.bytes)}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+              {voiceOutputPreviewUrl || voiceOutputArtifact ? (
+                <div className="voice-capture">
+                  {voiceOutputPreviewUrl ? (
+                    <audio src={voiceOutputPreviewUrl} controls />
+                  ) : null}
+                  {voiceOutputArtifact ? (
+                    <span title={voiceOutputArtifact.path}>
+                      {voiceOutputArtifact.id} / {formatBytes(voiceOutputArtifact.bytes)}
+                    </span>
+                  ) : null}
                 </div>
               ) : null}
             </div>

@@ -20023,55 +20023,6 @@ export default function App() {
             </div>
           </details>
           <label>
-            <FieldLabel icon="adapter" section="chat">
-              Transport
-            </FieldLabel>
-            <select
-              value={transport}
-              onChange={(e) => setTransport(e.target.value as Transport)}
-              disabled={running}
-            >
-              <option value="in-process" disabled={!tauriRuntime}>
-                in-process
-              </option>
-              <option value="daemon">daemon</option>
-            </select>
-          </label>
-          <label>
-            <FieldLabel icon="adapter" section="chat">
-              Daemon URL
-            </FieldLabel>
-            <input
-              value={daemonUrl}
-              onChange={(e) => setDaemonUrl(e.target.value)}
-              disabled={running || transport !== "daemon"}
-            />
-          </label>
-          <label>
-            <FieldLabel icon="brand" section="chat">
-              Demo behavior
-            </FieldLabel>
-            <select
-              value={demo}
-              onChange={(e) => setDemo(e.target.value as Demo)}
-              disabled={running}
-            >
-              <option value="echo">Echo agent</option>
-              <option value="tool">Tool agent</option>
-            </select>
-          </label>
-          <label>
-            <FieldLabel icon="profile" section="chat">
-              Agent id
-            </FieldLabel>
-            <input
-              value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
-              placeholder="blank for demo default"
-              disabled={running}
-            />
-          </label>
-          <label>
             <FieldLabel icon="setup" section="chat">
               Provider
             </FieldLabel>
@@ -20109,6 +20060,69 @@ export default function App() {
               disabled={running}
             />
           </label>
+          <details
+            className="advanced-controls"
+            style={sectionThemeStyle("chat")}
+          >
+            <summary>
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="adapter" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Connection and identity</strong>
+                <span>Transport, daemon URL, demo mode, and agent id</span>
+              </span>
+            </summary>
+            <label>
+              <FieldLabel icon="adapter" section="chat">
+                Transport
+              </FieldLabel>
+              <select
+                value={transport}
+                onChange={(e) => setTransport(e.target.value as Transport)}
+                disabled={running}
+              >
+                <option value="in-process" disabled={!tauriRuntime}>
+                  in-process
+                </option>
+                <option value="daemon">daemon</option>
+              </select>
+            </label>
+            <label>
+              <FieldLabel icon="adapter" section="chat">
+                Daemon URL
+              </FieldLabel>
+              <input
+                value={daemonUrl}
+                onChange={(e) => setDaemonUrl(e.target.value)}
+                disabled={running || transport !== "daemon"}
+              />
+            </label>
+            <label>
+              <FieldLabel icon="brand" section="chat">
+                Demo behavior
+              </FieldLabel>
+              <select
+                value={demo}
+                onChange={(e) => setDemo(e.target.value as Demo)}
+                disabled={running}
+              >
+                <option value="echo">Echo agent</option>
+                <option value="tool">Tool agent</option>
+              </select>
+            </label>
+            <label>
+              <FieldLabel icon="profile" section="chat">
+                Agent id
+              </FieldLabel>
+              <input
+                value={agentId}
+                onChange={(e) => setAgentId(e.target.value)}
+                placeholder="blank for demo default"
+                disabled={running}
+              />
+            </label>
+          </details>
           <details
             className="advanced-controls"
             style={sectionThemeStyle("chat")}

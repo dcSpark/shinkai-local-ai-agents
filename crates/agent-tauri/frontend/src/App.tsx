@@ -31223,14 +31223,6 @@ export default function App() {
                         <div className="mini-actions">
                           <button
                             type="button"
-                            title="Move this agent id into the Id field."
-                            onClick={() => setOpsId(doc.id)}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="brand">Set Id</ButtonLabel>
-                          </button>
-                          <button
-                            type="button"
                             title="Use this saved agent and apply its saved setup to the visible controls."
                             onClick={() => void useAgent(doc.id)}
                             disabled={running}
@@ -31245,45 +31237,73 @@ export default function App() {
                           >
                             <ButtonLabel icon="brand">Show</ButtonLabel>
                           </button>
-                          <button
-                            type="button"
-                            title="Set Value to a default export path for this saved agent."
-                            onClick={() => {
-                              setOpsId(doc.id);
-                              setOpsValue(defaultSavedAgentExportPath(doc.id));
-                            }}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="artifact">Path</ButtonLabel>
-                          </button>
-                          <button
-                            type="button"
-                            title="Export this saved agent to Value, or to /tmp when Value is blank."
-                            onClick={() => {
-                              const path =
-                                opsValue.trim() || defaultSavedAgentExportPath(doc.id);
-                              setOpsId(doc.id);
-                              setOpsValue(path);
-                              void exportAgent(doc.id, path);
-                            }}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="artifact">Export</ButtonLabel>
-                          </button>
-                          <button
-                            type="button"
-                            className="danger"
-                            title={
-                              sharedFrom
-                                ? "Revoke this profile grant to remove shared access."
-                                : "Delete this saved agent config."
-                            }
-                            onClick={() => void deleteAgentFromOps(doc.id)}
-                            disabled={running || sharedFrom != null}
-                          >
-                            <ButtonLabel icon="approval">Delete</ButtonLabel>
-                          </button>
                         </div>
+                        <details
+                          className="advanced-controls"
+                          style={sectionThemeStyle("chat")}
+                        >
+                          <summary title="Show saved-agent staging, export, and cleanup actions">
+                            <span
+                              className="advanced-controls-icon"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="brand" />
+                            </span>
+                            <span className="advanced-controls-copy">
+                              <strong>More</strong>
+                              <span>Stage, export, or remove this agent</span>
+                            </span>
+                          </summary>
+                          <div className="button-grid">
+                            <button
+                              type="button"
+                              title="Move this agent id into the Target id field."
+                              onClick={() => setOpsId(doc.id)}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="brand">Set id</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              title="Set Payload to a default export path for this saved agent."
+                              onClick={() => {
+                                setOpsId(doc.id);
+                                setOpsValue(defaultSavedAgentExportPath(doc.id));
+                              }}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Path</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              title="Export this saved agent to Payload, or to /tmp when Payload is blank."
+                              onClick={() => {
+                                const path =
+                                  opsValue.trim() ||
+                                  defaultSavedAgentExportPath(doc.id);
+                                setOpsId(doc.id);
+                                setOpsValue(path);
+                                void exportAgent(doc.id, path);
+                              }}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Export</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              className="danger"
+                              title={
+                                sharedFrom
+                                  ? "Revoke this profile grant to remove shared access."
+                                  : "Delete this saved agent config."
+                              }
+                              onClick={() => void deleteAgentFromOps(doc.id)}
+                              disabled={running || sharedFrom != null}
+                            >
+                              <ButtonLabel icon="approval">Delete</ButtonLabel>
+                            </button>
+                          </div>
+                        </details>
                       </div>
                     );
                   })}

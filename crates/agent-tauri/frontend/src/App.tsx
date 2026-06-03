@@ -19866,12 +19866,12 @@ export default function App() {
             </span>
             <span className="pill" title="Tool output mode">
               <AppIcon name="prompt" />
-              <span>Output {rawToolOutput ? "Raw" : "Interpreted"}</span>
+              <span>{rawToolOutput ? "Raw" : "Interpreted"}</span>
             </span>
             <details className="status-disclosure">
               <summary title="Show run telemetry">
                 <AppIcon name="trace" />
-                <span>Run telemetry</span>
+                <span>Telemetry</span>
               </summary>
               <div className="status-disclosure-panel">
                 <span className="pill">

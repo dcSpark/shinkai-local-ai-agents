@@ -23197,59 +23197,75 @@ export default function App() {
             <EmptyNote section="trace" icon="trace">No trace loaded.</EmptyNote>
           )}
           <details
-            className="advanced-controls"
+            className="context-more-controls"
             style={sectionThemeStyle("trace")}
           >
-            <summary>
+            <summary title="Show additional trace settings">
               <span className="advanced-controls-icon" aria-hidden="true">
-                <AppIcon name="control" />
+                <AppIcon name="setup" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Advanced trace controls</strong>
+                <strong>More settings</strong>
                 <span>Prompt recovery, replay, comparison, and cleanup</span>
               </span>
             </summary>
-            <div className="button-grid">
-              <button
-                type="button"
-                title="Clear the loaded trace."
-                onClick={clearLoadedTrace}
-                disabled={running || !traceEvents.length}
+            <div className="context-more-grid">
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("trace")}
               >
-                <ButtonLabel icon="approval">Clear Trace</ButtonLabel>
-              </button>
-              <button
-                type="button"
-                title="Clear the comparison trace."
-                onClick={clearTraceComparison}
-                disabled={running || !traceCompareSummary}
-              >
-                <ButtonLabel icon="approval">Clear Compare</ButtonLabel>
-              </button>
-              <button
-                type="button"
-                title="Load the original prompt from the loaded trace into the composer."
-                onClick={() => void loadTracePromptToComposer()}
-                disabled={running || !traceOriginalPrompt(traceEvents)}
-              >
-                <ButtonLabel icon="prompt">Load Prompt</ButtonLabel>
-              </button>
-              <button
-                type="button"
-                title="Run the original prompt from the loaded trace again."
-                onClick={() => void replayTracePrompt()}
-                disabled={running || !traceOriginalPrompt(traceEvents)}
-              >
-                <ButtonLabel icon="trace">Replay</ButtonLabel>
-              </button>
-              <button
-                type="button"
-                title="Run the original prompt again, then compare the replay against this trace."
-                onClick={() => void replayTracePromptWithComparison()}
-                disabled={running || !traceOriginalPrompt(traceEvents)}
-              >
-                <ButtonLabel icon="trace">Replay Compare</ButtonLabel>
-              </button>
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="trace" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Replay and cleanup</strong>
+                    <span>Recover prompts, rerun traces, or clear loaded comparisons</span>
+                  </span>
+                </summary>
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    title="Clear the loaded trace."
+                    onClick={clearLoadedTrace}
+                    disabled={running || !traceEvents.length}
+                  >
+                    <ButtonLabel icon="approval">Clear Trace</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Clear the comparison trace."
+                    onClick={clearTraceComparison}
+                    disabled={running || !traceCompareSummary}
+                  >
+                    <ButtonLabel icon="approval">Clear Compare</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Load the original prompt from the loaded trace into the composer."
+                    onClick={() => void loadTracePromptToComposer()}
+                    disabled={running || !traceOriginalPrompt(traceEvents)}
+                  >
+                    <ButtonLabel icon="prompt">Load Prompt</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Run the original prompt from the loaded trace again."
+                    onClick={() => void replayTracePrompt()}
+                    disabled={running || !traceOriginalPrompt(traceEvents)}
+                  >
+                    <ButtonLabel icon="trace">Replay</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Run the original prompt again, then compare the replay against this trace."
+                    onClick={() => void replayTracePromptWithComparison()}
+                    disabled={running || !traceOriginalPrompt(traceEvents)}
+                  >
+                    <ButtonLabel icon="trace">Replay Compare</ButtonLabel>
+                  </button>
+                </div>
+              </details>
             </div>
           </details>
           {traceTree ? (
@@ -29722,35 +29738,51 @@ export default function App() {
                 </div>
               ) : null}
               <details
-                className="advanced-controls"
+                className="context-more-controls"
                 style={sectionThemeStyle("artifacts")}
               >
-                <summary>
+                <summary title="Show additional artifact settings">
                   <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="artifact" />
+                    <AppIcon name="setup" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Advanced artifact controls</strong>
+                    <strong>More settings</strong>
                     <span>Export generated files and remove cached artifacts</span>
                   </span>
                 </summary>
-                <div className="button-grid">
-                  <button
-                    type="button"
-                    title="Export generated artifact Id to the path in Value, or to /tmp when Value is blank."
-                    onClick={() => void exportGeneratedArtifactFromOps()}
-                    disabled={running || !opsId.trim()}
+                <div className="context-more-grid">
+                  <details
+                    className="advanced-controls"
+                    style={sectionThemeStyle("artifacts")}
                   >
-                    <ButtonLabel icon="artifact">Export</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Delete generated artifact Id from the local artifact cache."
-                    onClick={() => void deleteGeneratedArtifactFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="approval">Delete</ButtonLabel>
-                  </button>
+                    <summary>
+                      <span className="advanced-controls-icon" aria-hidden="true">
+                        <AppIcon name="artifact" />
+                      </span>
+                      <span className="advanced-controls-copy">
+                        <strong>Artifact maintenance</strong>
+                        <span>Export generated files or remove cached entries</span>
+                      </span>
+                    </summary>
+                    <div className="button-grid">
+                      <button
+                        type="button"
+                        title="Export generated artifact Id to the path in Value, or to /tmp when Value is blank."
+                        onClick={() => void exportGeneratedArtifactFromOps()}
+                        disabled={running || !opsId.trim()}
+                      >
+                        <ButtonLabel icon="artifact">Export</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        title="Delete generated artifact Id from the local artifact cache."
+                        onClick={() => void deleteGeneratedArtifactFromOps()}
+                        disabled={running || !opsId.trim()}
+                      >
+                        <ButtonLabel icon="approval">Delete</ButtonLabel>
+                      </button>
+                    </div>
+                  </details>
                 </div>
               </details>
             </div>
@@ -30197,45 +30229,61 @@ export default function App() {
                 </EmptyNote>
               )}
                   <details
-                    className="advanced-controls"
+                    className="context-more-controls"
                     style={sectionThemeStyle("chat")}
                   >
-                    <summary>
+                    <summary title="Show additional compaction settings">
                       <span className="advanced-controls-icon" aria-hidden="true">
-                        <AppIcon name="context" />
+                        <AppIcon name="setup" />
                       </span>
                       <span className="advanced-controls-copy">
-                        <strong>Advanced compaction controls</strong>
+                        <strong>More settings</strong>
                         <span>Import/export compacted context and delete saved artifacts</span>
                       </span>
                     </summary>
-                <div className="button-grid">
-                  <button
-                    type="button"
-                    title="Export compacted-context artifact Id to Value, or to /tmp when Value is blank."
-                    onClick={() => void exportCompactionFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="artifact">Export Compact</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Import a compacted-context JSON artifact from the path in Value."
-                    onClick={() => void importCompactionFromOps()}
-                    disabled={running || !opsValue.trim()}
-                  >
-                    <ButtonLabel icon="artifact">Import Compact</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    title="Delete compacted-context artifact Id."
-                    onClick={() => void deleteCompactionFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="approval">Delete Compact</ButtonLabel>
-                  </button>
-                </div>
+                    <div className="context-more-grid">
+                      <details
+                        className="advanced-controls"
+                        style={sectionThemeStyle("chat")}
+                      >
+                        <summary>
+                          <span className="advanced-controls-icon" aria-hidden="true">
+                            <AppIcon name="context" />
+                          </span>
+                          <span className="advanced-controls-copy">
+                            <strong>Compaction transfer</strong>
+                            <span>Import, export, or delete compacted context artifacts</span>
+                          </span>
+                        </summary>
+                        <div className="button-grid">
+                          <button
+                            type="button"
+                            title="Export compacted-context artifact Id to Value, or to /tmp when Value is blank."
+                            onClick={() => void exportCompactionFromOps()}
+                            disabled={running || !opsId.trim()}
+                          >
+                            <ButtonLabel icon="artifact">Export Compact</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            title="Import a compacted-context JSON artifact from the path in Value."
+                            onClick={() => void importCompactionFromOps()}
+                            disabled={running || !opsValue.trim()}
+                          >
+                            <ButtonLabel icon="artifact">Import Compact</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            className="danger"
+                            title="Delete compacted-context artifact Id."
+                            onClick={() => void deleteCompactionFromOps()}
+                            disabled={running || !opsId.trim()}
+                          >
+                            <ButtonLabel icon="approval">Delete Compact</ButtonLabel>
+                          </button>
+                        </div>
+                      </details>
+                    </div>
                   </details>
                 </div>
 
@@ -30650,52 +30698,68 @@ export default function App() {
                 </EmptyNote>
               )}
               <details
-                className="advanced-controls"
+                className="context-more-controls"
                 style={sectionThemeStyle("chat")}
               >
-                <summary>
+                <summary title="Show additional saved-agent settings">
                   <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="brand" />
+                    <AppIcon name="setup" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Advanced agent controls</strong>
+                    <strong>More settings</strong>
                     <span>Portable agent import/export and destructive delete</span>
                   </span>
                 </summary>
-                <div className="button-grid">
-                  <button
-                    type="button"
-                    title="Export saved agent Id to Value, or to /tmp when Value is blank."
-                    onClick={() => void exportAgentFromOps()}
-                    disabled={running || !opsId.trim()}
+                <div className="context-more-grid">
+                  <details
+                    className="advanced-controls"
+                    style={sectionThemeStyle("chat")}
                   >
-                    <ButtonLabel icon="artifact">Export Agent</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Import saved agent config from Value path."
-                    onClick={() => void importAgentFromOps()}
-                    disabled={running || !opsValue.trim()}
-                  >
-                    <ButtonLabel icon="artifact">Import Agent</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    title={
-                      knownProfileGrantedAgent(opsId.trim())
-                        ? "This agent is shared from another profile; revoke the profile grant to remove access."
-                        : "Delete saved agent Id."
-                    }
-                    onClick={() => void deleteAgentFromOps()}
-                    disabled={
-                      running ||
-                      !opsId.trim() ||
-                      knownProfileGrantedAgent(opsId.trim())
-                    }
-                  >
-                    <ButtonLabel icon="approval">Delete Agent</ButtonLabel>
-                  </button>
+                    <summary>
+                      <span className="advanced-controls-icon" aria-hidden="true">
+                        <AppIcon name="brand" />
+                      </span>
+                      <span className="advanced-controls-copy">
+                        <strong>Agent transfer</strong>
+                        <span>Import, export, or delete saved agent configs</span>
+                      </span>
+                    </summary>
+                    <div className="button-grid">
+                      <button
+                        type="button"
+                        title="Export saved agent Id to Value, or to /tmp when Value is blank."
+                        onClick={() => void exportAgentFromOps()}
+                        disabled={running || !opsId.trim()}
+                      >
+                        <ButtonLabel icon="artifact">Export Agent</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        title="Import saved agent config from Value path."
+                        onClick={() => void importAgentFromOps()}
+                        disabled={running || !opsValue.trim()}
+                      >
+                        <ButtonLabel icon="artifact">Import Agent</ButtonLabel>
+                      </button>
+                      <button
+                        type="button"
+                        className="danger"
+                        title={
+                          knownProfileGrantedAgent(opsId.trim())
+                            ? "This agent is shared from another profile; revoke the profile grant to remove access."
+                            : "Delete saved agent Id."
+                        }
+                        onClick={() => void deleteAgentFromOps()}
+                        disabled={
+                          running ||
+                          !opsId.trim() ||
+                          knownProfileGrantedAgent(opsId.trim())
+                        }
+                      >
+                        <ButtonLabel icon="approval">Delete Agent</ButtonLabel>
+                      </button>
+                    </div>
+                  </details>
                 </div>
               </details>
                 </div>

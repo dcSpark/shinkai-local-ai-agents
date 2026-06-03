@@ -34565,14 +34565,6 @@ export default function App() {
                 <div className="mini-actions">
                   <button
                     type="button"
-                    title="Move the resume source run id into the Id field."
-                    onClick={() => setOpsId(resumePlan.source_run_id)}
-                    disabled={running}
-                  >
-                    <ButtonLabel icon="trace">Set Id</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
                     title="Copy the generated resume prompt into Value."
                     onClick={() => setOpsValue(resumePlan.prompt)}
                     disabled={running}
@@ -34580,6 +34572,33 @@ export default function App() {
                     <ButtonLabel icon="prompt">Use Prompt</ButtonLabel>
                   </button>
                 </div>
+                <details
+                  className="advanced-controls"
+                  style={sectionThemeStyle(runControlVisualSection)}
+                >
+                  <summary title="Show resume-plan staging action">
+                    <span
+                      className="advanced-controls-icon"
+                      aria-hidden="true"
+                    >
+                      <AppIcon name="trace" />
+                    </span>
+                    <span className="advanced-controls-copy">
+                      <strong>More</strong>
+                      <span>Stage this source run</span>
+                    </span>
+                  </summary>
+                  <div className="button-grid">
+                    <button
+                      type="button"
+                      title="Move the resume source run id into the Target id field."
+                      onClick={() => setOpsId(resumePlan.source_run_id)}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="trace">Set id</ButtonLabel>
+                    </button>
+                  </div>
+                </details>
               </div>
             ) : null}
           </details>

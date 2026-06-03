@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App resume-plan utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Resume-plan cards now keep Use Prompt visible while moving source-run Set id into a per-card More disclosure, preserving run staging without competing with generated-prompt review. |
 | App cache-prune utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Cache-prune dry-run result cards now move the destructive Apply plan action into a per-card More disclosure, preserving cleanup execution while making the result card read as a reviewable plan first. |
 | App bridge-delivery utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Failed bridge-delivery cards now keep Retry visible while moving Set id and Delete into a per-card More disclosure, preserving dead-letter remediation without foregrounding no-retry deletion. |
 | App profile-grant utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Profile grant cards now move Set id and Revoke into a per-card More disclosure, preserving grant revocation while making grant rows read as review-first. |

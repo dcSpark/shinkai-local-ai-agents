@@ -30752,14 +30752,6 @@ export default function App() {
                       <div className="mini-actions">
                         <button
                           type="button"
-                          title="Move this compaction id into the Id field."
-                          onClick={() => setOpsId(record.id)}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="context">Set Id</ButtonLabel>
-                        </button>
-                        <button
-                          type="button"
                           title="Load this compacted context into Value."
                           onClick={() => {
                             setOpsId(record.id);
@@ -30781,41 +30773,68 @@ export default function App() {
                         >
                           <ButtonLabel icon="chat">Use</ButtonLabel>
                         </button>
-                        <button
-                          type="button"
-                          title="Set Value to a default export path for this artifact."
-                          onClick={() => {
-                            setOpsId(record.id);
-                            setOpsValue(defaultCompactionPath(record.id));
-                          }}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="artifact">Path</ButtonLabel>
-                        </button>
-                        <button
-                          type="button"
-                          title="Export this compacted context to Value, or to /tmp when Value is blank."
-                          onClick={() => {
-                            const path =
-                              opsValue.trim() || defaultCompactionPath(record.id);
-                            setOpsId(record.id);
-                            setOpsValue(path);
-                            void exportCompactionFromOps(record.id, path);
-                          }}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="artifact">Export</ButtonLabel>
-                        </button>
-                        <button
-                          type="button"
-                          className="danger"
-                          title="Delete this compacted context artifact."
-                          onClick={() => void deleteCompactionFromOps(record.id)}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="approval">Delete</ButtonLabel>
-                        </button>
                       </div>
+                      <details
+                        className="advanced-controls"
+                        style={sectionThemeStyle("chat")}
+                      >
+                        <summary title="Show compacted-context staging, export, and cleanup actions">
+                          <span
+                            className="advanced-controls-icon"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="context" />
+                          </span>
+                          <span className="advanced-controls-copy">
+                            <strong>More</strong>
+                            <span>Stage, export, or delete this context</span>
+                          </span>
+                        </summary>
+                        <div className="button-grid">
+                          <button
+                            type="button"
+                            title="Move this compaction id into the Target id field."
+                            onClick={() => setOpsId(record.id)}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="context">Set id</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            title="Set Payload to a default export path for this artifact."
+                            onClick={() => {
+                              setOpsId(record.id);
+                              setOpsValue(defaultCompactionPath(record.id));
+                            }}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="artifact">Path</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            title="Export this compacted context to Payload, or to /tmp when Payload is blank."
+                            onClick={() => {
+                              const path =
+                                opsValue.trim() || defaultCompactionPath(record.id);
+                              setOpsId(record.id);
+                              setOpsValue(path);
+                              void exportCompactionFromOps(record.id, path);
+                            }}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="artifact">Export</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            className="danger"
+                            title="Delete this compacted context artifact."
+                            onClick={() => void deleteCompactionFromOps(record.id)}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="approval">Delete</ButtonLabel>
+                          </button>
+                        </div>
+                      </details>
                     </div>
                   ))}
                 </div>

@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App compaction-card utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Saved compacted-context cards now keep Edit and Use visible while moving Set id, export path staging, Export, and Delete into a per-card More disclosure, preserving compacted-context reuse while reducing Chat library transfer and cleanup button density. |
 | App saved-agent card utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Saved-agent cards now keep Use and Show visible while moving Set id, export path staging, Export, and Delete into a per-card More disclosure, preserving saved-agent review and activation while reducing Chat library maintenance button density. |
 | App artifact-card utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Generated artifact cards now keep Show, Open, Download, and inline Preview/Play visible while moving Set id, export path staging, Export, and Delete into a per-card More disclosure, preserving output review while reducing first-scan maintenance controls. |
 | App skill-card utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Imported skill cards now keep Allow and Quarantine visible while moving Set id, export path staging, and Export into a per-card More disclosure, preserving the safety decision flow while reducing transfer-button density. |

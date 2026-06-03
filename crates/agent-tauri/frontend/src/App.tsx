@@ -6393,6 +6393,10 @@ export default function App() {
     });
   }
 
+  function traceEventSummary(event: RunEvent) {
+    return traceTimelineItems([event])[0];
+  }
+
   async function fetchTraceEvents(runId: string) {
     return transport === "daemon"
       ? await daemonJson<RunEvent[]>(`/trace/${runId}`)
@@ -23657,15 +23661,35 @@ export default function App() {
           ) : null}
           {traceEvents.length ? (
             <div className="trace-events">
-              {traceEvents.map((event) => (
-                <details key={`${event.run_id}:${event.id}`}>
-                  <summary>
-                    <span>[{event.id}]</span>
-                    <strong>{event.kind.type}</strong>
-                  </summary>
-                  <pre>{previewJson(event)}</pre>
-                </details>
-              ))}
+              {traceEvents.map((event) => {
+                const summary = traceEventSummary(event);
+                const icon = traceTimelineIcon(summary.tone);
+                return (
+                  <details
+                    className={summary.tone}
+                    key={`${event.run_id}:${event.id}`}
+                  >
+                    <summary>
+                      <span
+                        className={`trace-event-summary-icon ${summary.tone}`}
+                        aria-hidden="true"
+                      >
+                        <AppIcon name={icon} />
+                        <small>{event.id}</small>
+                      </span>
+                      <span className="trace-event-summary-copy">
+                        <strong>{event.kind.type}</strong>
+                        <span>{summary.title}</span>
+                        <span>{summary.meta}</span>
+                        <span className="trace-event-summary-detail">
+                          {summary.detail}
+                        </span>
+                      </span>
+                    </summary>
+                    <pre>{previewJson(event)}</pre>
+                  </details>
+                );
+              })}
             </div>
           ) : null}
         </section>

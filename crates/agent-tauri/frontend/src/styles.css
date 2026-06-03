@@ -7597,26 +7597,101 @@ textarea:disabled {
   background: #111215;
 }
 
+.trace-events details.ok {
+  border-color: #275c43;
+  background: #13201a;
+}
+
+.trace-events details.warning {
+  border-color: #816a2d;
+  background: #251f12;
+}
+
+.trace-events details.danger {
+  border-color: #7d3c45;
+  background: #26171c;
+}
+
 .trace-events summary {
-  display: flex;
-  align-items: center;
-  gap: 0.55rem;
-  min-height: 2.1rem;
-  padding: 0 0.55rem;
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  align-items: start;
+  gap: 0.6rem;
+  min-height: 2.6rem;
+  padding: 0.55rem;
   color: #dfe3ea;
   cursor: pointer;
 }
 
-.trace-events summary span {
-  color: #8e949f;
+.trace-event-summary-icon {
+  display: inline-grid;
+  gap: 0.12rem;
+  width: 2.25rem;
+  min-height: 2.25rem;
+  place-items: center;
+  border: 1px solid #333844;
+  border-radius: 8px;
+  background: #1b2028;
+  color: #c3c8d0;
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.trace-event-summary-icon.ok {
+  border-color: #275c43;
+  background: #183222;
+  color: #78dda7;
+}
+
+.trace-event-summary-icon.warning {
+  border-color: #816a2d;
+  background: #332814;
+  color: #ffce6b;
+}
+
+.trace-event-summary-icon.danger {
+  border-color: #7d3c45;
+  background: #32191f;
+  color: #ffb4c0;
+}
+
+.trace-event-summary-icon .app-icon {
+  width: 0.86rem;
+  height: 0.86rem;
+}
+
+.trace-event-summary-icon small {
+  color: inherit;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.65rem;
+  line-height: 1;
+}
+
+.trace-event-summary-copy {
+  display: grid;
+  gap: 0.12rem;
+  min-width: 0;
 }
 
 .trace-events summary strong {
   min-width: 0;
   font-size: 0.78rem;
   overflow-wrap: anywhere;
+}
+
+.trace-event-summary-copy span {
+  min-width: 0;
+  color: #8e949f;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.trace-event-summary-detail {
+  color: #c3c8d0;
+  font-family: inherit;
+  line-height: 1.35;
 }
 
 .trace-events pre {

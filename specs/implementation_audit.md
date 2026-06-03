@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App profile-grant utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Profile grant cards now move Set id and Revoke into a per-card More disclosure, preserving grant revocation while making grant rows read as review-first. |
 | App secret-card utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Redacted secret metadata cards now keep Show visible while moving Set id and Delete into a per-card More disclosure, preserving credential metadata review while reducing high-impact deletion exposure. |
 | App profile-card utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Profile cards now keep Show and Grants visible while moving Set id and guarded Delete into a per-card More disclosure, keeping identity review first while preserving profile administration. |
 | App memory-record utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Memory record cards now keep Edit visible while moving Set id and model-backed Classify into a per-card More disclosure, preserving memory maintenance without making every record row feel like a control panel. |

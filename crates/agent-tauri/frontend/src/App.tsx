@@ -25989,25 +25989,42 @@ export default function App() {
                           </div>
                         </div>
                       </div>
-                      <div className="mini-actions">
-                        <button
-                          type="button"
-                          title="Move this grant id into the Id field."
-                          onClick={() => setOpsId(grant.id)}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="approval">Set Id</ButtonLabel>
-                        </button>
-                        <button
-                          type="button"
-                          title="Revoke this profile grant."
-                          className="danger"
-                          onClick={() => void revokeProfileGrantFromOps(grant.id)}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="approval">Revoke</ButtonLabel>
-                        </button>
-                      </div>
+                      <details
+                        className="advanced-controls"
+                        style={sectionThemeStyle("profiles")}
+                      >
+                        <summary title="Show grant staging and revocation actions">
+                          <span
+                            className="advanced-controls-icon"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="approval" />
+                          </span>
+                          <span className="advanced-controls-copy">
+                            <strong>More</strong>
+                            <span>Stage or revoke this grant</span>
+                          </span>
+                        </summary>
+                        <div className="button-grid">
+                          <button
+                            type="button"
+                            title="Move this grant id into the Target id field."
+                            onClick={() => setOpsId(grant.id)}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="approval">Set id</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            title="Revoke this profile grant."
+                            className="danger"
+                            onClick={() => void revokeProfileGrantFromOps(grant.id)}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="approval">Revoke</ButtonLabel>
+                          </button>
+                        </div>
+                      </details>
                     </div>
                   ))}
                 </div>

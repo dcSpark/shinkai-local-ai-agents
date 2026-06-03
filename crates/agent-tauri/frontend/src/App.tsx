@@ -19777,6 +19777,8 @@ export default function App() {
     running ||
     Boolean(lastRunId) ||
     approvals.length > 0;
+  const showPostRunControlDisclosures =
+    activeSection === "approvals" || Boolean(lastRunId) || approvals.length > 0;
   const trimmedApprovalController = approvalControllerAgent.trim();
   const approvalControllerValue = trimmedApprovalController || "manual";
   const showSessionOverview =
@@ -33130,6 +33132,7 @@ export default function App() {
           <details
             className="advanced-controls"
             style={sectionThemeStyle(runControlVisualSection)}
+            hidden={!showPostRunControlDisclosures}
           >
             <summary>
               <span className="advanced-controls-icon" aria-hidden="true">
@@ -33178,6 +33181,7 @@ export default function App() {
           <details
             className="advanced-controls"
             style={sectionThemeStyle(runControlVisualSection)}
+            hidden={!showPostRunControlDisclosures}
           >
             <summary>
               <span className="advanced-controls-icon" aria-hidden="true">

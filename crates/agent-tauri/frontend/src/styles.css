@@ -2069,6 +2069,10 @@ textarea:disabled {
   background: var(--section-surface);
 }
 
+.advanced-controls[hidden] {
+  display: none;
+}
+
 .advanced-controls summary {
   display: grid;
   grid-template-columns: 1.7rem minmax(0, 1fr);

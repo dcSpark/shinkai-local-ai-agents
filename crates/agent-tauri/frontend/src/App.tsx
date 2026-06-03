@@ -21040,8 +21040,8 @@ export default function App() {
                 <AppIcon name="memory" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Memory</strong>
-                <span>Memory backend/model policy plus STT and TTS provider settings</span>
+                <strong>Memory setup</strong>
+                <span>Backend, model, and generation policy</span>
               </span>
             </summary>
           <label>
@@ -21088,6 +21088,20 @@ export default function App() {
               <option value="off">off</option>
             </select>
           </label>
+          </details>
+          <details
+            className="advanced-controls"
+            style={sectionThemeStyle("chat")}
+          >
+            <summary>
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="control" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Voice setup</strong>
+                <span>Speech input, speech output, voice, and tone</span>
+              </span>
+            </summary>
           <label>
             <FieldLabel icon="control" section="chat">
               Voice input

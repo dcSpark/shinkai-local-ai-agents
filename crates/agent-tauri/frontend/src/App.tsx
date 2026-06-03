@@ -19712,7 +19712,7 @@ export default function App() {
   function operationsTitle() {
     switch (activeSection) {
       case "chat":
-        return "Tools";
+        return "Toolbox";
       case "conversations":
         return "Conversations";
       case "profiles":
@@ -30561,7 +30561,7 @@ export default function App() {
 
             {activeSection === "chat" ? (
             <div className="operation-group">
-              <OperationTitle title="Tools" section="chat" icon="tools" />
+              <OperationTitle title="Catalog" section="chat" icon="tools" />
               <div className="button-grid">
                 <button
                   type="button"
@@ -30569,7 +30569,7 @@ export default function App() {
                   onClick={() => void explainCurrentTools()}
                   disabled={running}
                 >
-                  <ButtonLabel icon="tools">List Tools</ButtonLabel>
+                  <ButtonLabel icon="tools">List</ButtonLabel>
                 </button>
               </div>
               {visibleTools ? (

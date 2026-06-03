@@ -19968,7 +19968,7 @@ export default function App() {
             value={input}
             onChange={(e) => updateComposerInput(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={running ? "Type /guide to steer this run" : "Ask the agent"}
+            placeholder={running ? "Type /guide to steer this run" : "Describe a task"}
             aria-controls={slashCommandItems.length ? "slash-command-menu" : undefined}
             aria-expanded={slashCommandItems.length ? true : undefined}
             aria-activedescendant={activeSlashCommandId}

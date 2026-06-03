@@ -19789,6 +19789,10 @@ export default function App() {
     transcript.length === 1 &&
     transcript[0]?.kind === "event" &&
     transcript[0]?.text.startsWith("Welcome.");
+  const visibleTranscript = transcript.filter(
+    (line, index) =>
+      !(index === 0 && line.kind === "event" && line.text.startsWith("Welcome.")),
+  );
   const sessionOverviewCards = runReadinessCards().slice(1, 4);
 
   return (
@@ -19942,7 +19946,7 @@ export default function App() {
               </div>
             </>
           ) : null}
-          {transcript.map((line, i) => (
+          {visibleTranscript.map((line, i) => (
             <div key={i} className={`line line-${line.kind}`}>
               <span className="prefix">
                 <span className="prefix-icon" aria-hidden="true">

@@ -19772,6 +19772,11 @@ export default function App() {
       : assessedApprovalCount
         ? "ok"
         : "neutral";
+  const showRunControlActions =
+    activeSection === "approvals" ||
+    running ||
+    Boolean(lastRunId) ||
+    approvals.length > 0;
   const trimmedApprovalController = approvalControllerAgent.trim();
   const approvalControllerValue = trimmedApprovalController || "manual";
   const showSessionOverview =
@@ -32974,48 +32979,50 @@ export default function App() {
               </EmptyNote>
             )
           ) : null}
-          <div className="button-grid">
-            <button
-              type="button"
-              title="List pending and resolved approvals for the current run."
-              onClick={() => void reviewApprovals()}
-              disabled={running || !lastRunId}
-            >
-              <ButtonLabel icon="approval">Review</ButtonLabel>
-            </button>
-            <button
-              type="button"
-              title="Approve and execute the first pending tool approval."
-              onClick={() => void approveFirstPending()}
-              disabled={running || !lastRunId}
-            >
-              <ButtonLabel icon="approval">Approve</ButtonLabel>
-            </button>
-            <button
-              type="button"
-              className="danger"
-              title="Reject the first pending tool approval without executing it."
-              onClick={() => void rejectFirstPending()}
-              disabled={running || !lastRunId}
-            >
-              <ButtonLabel icon="approval">Reject</ButtonLabel>
-            </button>
-            <button
-              type="button"
-              title={`Stop current run and ${stopRetentionLabel(stopRetentionMode)}.`}
-              onClick={() => void cancelLastRun()}
-              disabled={!running || !lastRunId}
-            >
-              <ButtonLabel icon="control">Stop</ButtonLabel>
-            </button>
-            <button
-              type="button"
-              onClick={() => void loadLastTrace()}
-              disabled={running || !lastRunId}
-            >
-              <ButtonLabel icon="trace">Trace</ButtonLabel>
-            </button>
-          </div>
+          {showRunControlActions ? (
+            <div className="button-grid">
+              <button
+                type="button"
+                title="List pending and resolved approvals for the current run."
+                onClick={() => void reviewApprovals()}
+                disabled={running || !lastRunId}
+              >
+                <ButtonLabel icon="approval">Review</ButtonLabel>
+              </button>
+              <button
+                type="button"
+                title="Approve and execute the first pending tool approval."
+                onClick={() => void approveFirstPending()}
+                disabled={running || !lastRunId}
+              >
+                <ButtonLabel icon="approval">Approve</ButtonLabel>
+              </button>
+              <button
+                type="button"
+                className="danger"
+                title="Reject the first pending tool approval without executing it."
+                onClick={() => void rejectFirstPending()}
+                disabled={running || !lastRunId}
+              >
+                <ButtonLabel icon="approval">Reject</ButtonLabel>
+              </button>
+              <button
+                type="button"
+                title={`Stop current run and ${stopRetentionLabel(stopRetentionMode)}.`}
+                onClick={() => void cancelLastRun()}
+                disabled={!running || !lastRunId}
+              >
+                <ButtonLabel icon="control">Stop</ButtonLabel>
+              </button>
+              <button
+                type="button"
+                onClick={() => void loadLastTrace()}
+                disabled={running || !lastRunId}
+              >
+                <ButtonLabel icon="trace">Trace</ButtonLabel>
+              </button>
+            </div>
+          ) : null}
           {activeSection === "approvals" ? (
             <details
               className="advanced-controls"

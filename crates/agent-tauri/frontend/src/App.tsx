@@ -21325,9 +21325,23 @@ export default function App() {
               </span>
               <span className="advanced-controls-copy">
                 <strong>Routing</strong>
-                <span>Output mode, router models, and prompt refiners</span>
+                <span>Output, model routing, and prompt prep</span>
               </span>
             </summary>
+            <div className="context-more-grid">
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("chat")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="artifact" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Output</strong>
+                    <span>Interpreted or raw tool results</span>
+                  </span>
+                </summary>
             <FieldLabel icon="artifact" section="chat">
               Output mode
             </FieldLabel>
@@ -21358,6 +21372,20 @@ export default function App() {
                 Raw output preserves original tool results and skips interpretation.
               </ModeNote>
             ) : null}
+              </details>
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("chat")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="tools" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Models</strong>
+                    <span>Router and interpreter model overrides</span>
+                  </span>
+                </summary>
           <label>
             <FieldLabel icon="tools" section="chat">
               Router model
@@ -21386,6 +21414,20 @@ export default function App() {
               />
             </label>
           ) : null}
+              </details>
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("chat")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="prompt" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Prompt prep</strong>
+                    <span>Compaction guidance and prompt refinement</span>
+                  </span>
+                </summary>
           <label>
             <FieldLabel icon="context" section="chat">
               Compaction guidance
@@ -21465,6 +21507,8 @@ export default function App() {
               </label>
             </>
           ) : null}
+              </details>
+            </div>
             </details>
             </div>
           </details>

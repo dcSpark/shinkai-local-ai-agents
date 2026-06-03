@@ -33396,21 +33396,25 @@ export default function App() {
               </button>
             </div>
           ) : null}
-          {activeSection === "approvals" ? (
-            <details
-              className="context-more-controls"
-              style={sectionThemeStyle("approvals")}
-            >
-              <summary title="Show additional approval settings">
-                <span className="advanced-controls-icon" aria-hidden="true">
-                  <AppIcon name="setup" />
+          <details
+            className="context-more-controls"
+            style={sectionThemeStyle(runControlVisualSection)}
+          >
+            <summary title="Show additional run control settings">
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="setup" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>More settings</strong>
+                <span>
+                  {activeSection === "approvals"
+                    ? "Identity, stop policy, scoring, and resume"
+                    : "Stop policy, scoring, and resume"}
                 </span>
-                <span className="advanced-controls-copy">
-                  <strong>More settings</strong>
-                  <span>Unlock secret, signature, and delegated controller</span>
-                </span>
-              </summary>
-              <div className="context-more-grid">
+              </span>
+            </summary>
+            <div className="context-more-grid">
+              {activeSection === "approvals" ? (
                 <details
                   className="advanced-controls"
                   style={sectionThemeStyle("approvals")}
@@ -33459,9 +33463,7 @@ export default function App() {
                     />
                   </label>
                 </details>
-              </div>
-            </details>
-          ) : null}
+              ) : null}
           <details
             className="advanced-controls"
             style={sectionThemeStyle(runControlVisualSection)}
@@ -33737,6 +33739,8 @@ export default function App() {
                 </div>
               </div>
             ) : null}
+          </details>
+            </div>
           </details>
         </section>
         ) : null}

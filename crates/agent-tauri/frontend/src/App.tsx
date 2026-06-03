@@ -26096,47 +26096,6 @@ export default function App() {
                   <ButtonLabel icon="context">Preview</ButtonLabel>
                 </button>
               </div>
-              <details
-                className="advanced-controls"
-                style={sectionThemeStyle("prompts")}
-              >
-                <summary>
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="artifact" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>Advanced prompt controls</strong>
-                    <span>Portable prompt import/export and destructive delete</span>
-                  </span>
-                </summary>
-                <div className="button-grid">
-                  <button
-                    type="button"
-                    title="Export saved prompt Id to Value, or to /tmp when Value is blank."
-                    onClick={() => void exportPromptFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="artifact">Export</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Import a saved prompt from the path in Value."
-                    onClick={() => void importPromptFromOps()}
-                    disabled={running || !opsValue.trim()}
-                  >
-                    <ButtonLabel icon="artifact">Import</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    title="Delete saved prompt Id."
-                    onClick={() => void deletePromptFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="approval">Delete</ButtonLabel>
-                  </button>
-                </div>
-              </details>
             </div>
             ) : null}
 
@@ -26337,6 +26296,47 @@ export default function App() {
                   No saved prompts loaded. List prompts, or save one with Id and Value.
                 </EmptyNote>
               )}
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("prompts")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="artifact" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Advanced prompt controls</strong>
+                    <span>Portable prompt import/export and destructive delete</span>
+                  </span>
+                </summary>
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    title="Export saved prompt Id to Value, or to /tmp when Value is blank."
+                    onClick={() => void exportPromptFromOps()}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="artifact">Export</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Import a saved prompt from the path in Value."
+                    onClick={() => void importPromptFromOps()}
+                    disabled={running || !opsValue.trim()}
+                  >
+                    <ButtonLabel icon="artifact">Import</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    title="Delete saved prompt Id."
+                    onClick={() => void deletePromptFromOps()}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="approval">Delete</ButtonLabel>
+                  </button>
+                </div>
+              </details>
             </div>
             ) : null}
 

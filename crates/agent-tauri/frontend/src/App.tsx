@@ -21068,8 +21068,8 @@ export default function App() {
                 <AppIcon name="artifact" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Response handling</strong>
-                <span>Interpret tool results or show raw outputs</span>
+                <strong>Response and routing</strong>
+                <span>Output mode, router models, and prompt refiners</span>
               </span>
             </summary>
             <FieldLabel icon="artifact" section="chat">
@@ -21102,20 +21102,6 @@ export default function App() {
                 Raw output preserves original tool results and skips interpretation.
               </ModeNote>
             ) : null}
-          </details>
-          <details
-            className="advanced-controls"
-            style={sectionThemeStyle("chat")}
-          >
-            <summary>
-              <span className="advanced-controls-icon" aria-hidden="true">
-                <AppIcon name="prompt" />
-              </span>
-              <span className="advanced-controls-copy">
-                <strong>Advanced routing and refinement</strong>
-                <span>Router/interpreter models, compaction guidance, and prompt refiners</span>
-              </span>
-            </summary>
           <label>
             <FieldLabel icon="tools" section="chat">
               Router model

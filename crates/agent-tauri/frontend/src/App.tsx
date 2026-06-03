@@ -20534,6 +20534,19 @@ export default function App() {
               disabled={running}
             />
           </label>
+          <details
+            className="advanced-controls"
+            style={sectionThemeStyle("chat")}
+          >
+            <summary>
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="context" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Advanced context sources</strong>
+                <span>Compaction budgets, tool schemas, allowlists, and categories</span>
+              </span>
+            </summary>
           <label>
             <FieldLabel icon="context" section="chat">
               Auto compact at
@@ -20629,6 +20642,20 @@ export default function App() {
               disabled={running}
             />
           </label>
+          </details>
+          <details
+            className="advanced-controls"
+            style={sectionThemeStyle("chat")}
+          >
+            <summary>
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="tools" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Advanced delegation and drafts</strong>
+                <span>Subagents, recursion limits, capability drafts, hooks, and overrides</span>
+              </span>
+            </summary>
           <label className="switch">
             <input
               type="checkbox"
@@ -20726,6 +20753,7 @@ export default function App() {
               title="JSON array of per-skill visibility overrides."
             />
           </label>
+          </details>
           <label className="switch">
             <input
               type="checkbox"
@@ -20735,6 +20763,19 @@ export default function App() {
             />
             <ButtonLabel icon="memory">Memory</ButtonLabel>
           </label>
+          <details
+            className="advanced-controls"
+            style={sectionThemeStyle("chat")}
+          >
+            <summary>
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="memory" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Advanced memory and voice</strong>
+                <span>Memory backend/model policy plus STT and TTS provider settings</span>
+              </span>
+            </summary>
           <label>
             <FieldLabel icon="memory" section="chat">
               Memory backend
@@ -20899,6 +20940,7 @@ export default function App() {
               disabled={running}
             />
           </label>
+          </details>
           <label className="switch">
             <input
               type="checkbox"
@@ -20945,6 +20987,19 @@ export default function App() {
             />
             <ButtonLabel icon="approval">Approval gate</ButtonLabel>
           </label>
+          <details
+            className="advanced-controls"
+            style={sectionThemeStyle("chat")}
+          >
+            <summary>
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="approval" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Advanced approval scope</strong>
+                <span>Controller agent, delegated tool ids, and delegated categories</span>
+              </span>
+            </summary>
           <label>
             <FieldLabel icon="approval" section="chat">
               Approval controller
@@ -20981,6 +21036,7 @@ export default function App() {
               title="Comma-separated tool categories this controller may approve."
             />
           </label>
+          </details>
           <FieldLabel icon="artifact" section="chat">
             Output mode
           </FieldLabel>
@@ -21011,6 +21067,19 @@ export default function App() {
               Raw output preserves original tool results and skips interpretation.
             </ModeNote>
           ) : null}
+          <details
+            className="advanced-controls"
+            style={sectionThemeStyle("chat")}
+          >
+            <summary>
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="prompt" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Advanced routing and refinement</strong>
+                <span>Router/interpreter models, compaction guidance, and prompt refiners</span>
+              </span>
+            </summary>
           <label>
             <FieldLabel icon="tools" section="chat">
               Router model
@@ -21118,6 +21187,7 @@ export default function App() {
               </label>
             </>
           ) : null}
+          </details>
           {includeIngestIds.length
             ? (() => {
                 const guardrailMode = activeIngestionGuardrailMode();

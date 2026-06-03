@@ -20034,12 +20034,12 @@ export default function App() {
               className="advanced-controls composer-advanced-controls"
               style={sectionThemeStyle(activeSection)}
             >
-              <summary>
+              <summary title="Advanced run controls">
                 <span className="advanced-controls-icon" aria-hidden="true">
                   <AppIcon name="control" />
                 </span>
                 <span className="advanced-controls-copy">
-                  <strong>Advanced run controls</strong>
+                  <strong>Advanced</strong>
                   <span>Shell, batch, resume, and guide actions</span>
                 </span>
               </summary>

@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App composer advanced affordance compaction | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | The closed composer power-user disclosure now scans as a compact "Advanced" affordance instead of a wide "Advanced run controls" block, while the tooltip and expanded disclosure still expose shell, batch, resume, and guide actions. |
 | App chat header copy reduction | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat topbar now shows only the current run status instead of repeating the inspector's "Ask agents and preview context" orientation line, while other workspaces keep their section hint in the header and the inspector keeps the detailed visual flow. |
 | App idle composer preview reduction | Done | `crates/agent-tauri/frontend/src/App.tsx` | The composer Preview action now appears only when the composer has draft text, leaving the always-available inspector Preview Context control as the empty-state context review path and reducing duplicate Preview buttons on first load. |
 | App empty-chat welcome-log reduction | Done | `crates/agent-tauri/frontend/src/App.tsx` | The synthetic initial "Welcome" event remains available for empty-session detection but is no longer rendered as a separate transcript log line, so the fresh Chat surface starts with starter choices and visual readiness cues instead of repeating an extra text event. |

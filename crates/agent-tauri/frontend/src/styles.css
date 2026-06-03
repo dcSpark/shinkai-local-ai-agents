@@ -1448,6 +1448,11 @@ textarea:disabled {
 }
 
 .composer-advanced-controls {
+  flex: 0 0 auto;
+  max-width: 9rem;
+}
+
+.composer-advanced-controls[open] {
   flex: 1 1 20rem;
   max-width: 32rem;
 }

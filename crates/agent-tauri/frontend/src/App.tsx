@@ -6904,14 +6904,6 @@ export default function App() {
         <div className="mini-actions trace-tree-actions">
           <button
             type="button"
-            title="Move this run id into the Id field."
-            onClick={() => setOpsId(node.run_id)}
-            disabled={running}
-          >
-            <ButtonLabel icon="trace">Set Id</ButtonLabel>
-          </button>
-          <button
-            type="button"
             title="Load this run's trace and subtree."
             onClick={() => void loadTraceTreeNode(node.run_id)}
             disabled={running || !node.trace_available}
@@ -6926,32 +6918,56 @@ export default function App() {
           >
             <ButtonLabel icon="trace">Compare</ButtonLabel>
           </button>
-          <button
-            type="button"
-            title="Replay this run's original prompt."
-            onClick={() =>
-              void replayTracePromptWithOptions({
-                runId: node.run_id,
-              })
-            }
-            disabled={running || !node.trace_available}
-          >
-            <ButtonLabel icon="trace">Replay</ButtonLabel>
-          </button>
-          <button
-            type="button"
-            title="Replay this run and compare the replay against it."
-            onClick={() =>
-              void replayTracePromptWithOptions({
-                runId: node.run_id,
-                compareSource: true,
-              })
-            }
-            disabled={running || !node.trace_available}
-          >
-            <ButtonLabel icon="trace">Replay Compare</ButtonLabel>
-          </button>
         </div>
+        <details
+          className="advanced-controls"
+          style={sectionThemeStyle("trace")}
+        >
+          <summary title="Show run staging and replay actions">
+            <span className="advanced-controls-icon" aria-hidden="true">
+              <AppIcon name="trace" />
+            </span>
+            <span className="advanced-controls-copy">
+              <strong>More</strong>
+              <span>Stage or replay this run</span>
+            </span>
+          </summary>
+          <div className="button-grid">
+            <button
+              type="button"
+              title="Move this run id into the Target id field."
+              onClick={() => setOpsId(node.run_id)}
+              disabled={running}
+            >
+              <ButtonLabel icon="trace">Set id</ButtonLabel>
+            </button>
+            <button
+              type="button"
+              title="Replay this run's original prompt."
+              onClick={() =>
+                void replayTracePromptWithOptions({
+                  runId: node.run_id,
+                })
+              }
+              disabled={running || !node.trace_available}
+            >
+              <ButtonLabel icon="trace">Replay</ButtonLabel>
+            </button>
+            <button
+              type="button"
+              title="Replay this run and compare the replay against it."
+              onClick={() =>
+                void replayTracePromptWithOptions({
+                  runId: node.run_id,
+                  compareSource: true,
+                })
+              }
+              disabled={running || !node.trace_available}
+            >
+              <ButtonLabel icon="trace">Replay Compare</ButtonLabel>
+            </button>
+          </div>
+        </details>
         {children.length && !collapsed ? (
           <div className="trace-tree-children">
             {children.map((child) => renderTraceTreeNode(child, depth + 1))}

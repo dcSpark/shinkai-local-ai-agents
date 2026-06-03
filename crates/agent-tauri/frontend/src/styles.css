@@ -3822,6 +3822,20 @@ textarea:disabled {
   overflow-wrap: anywhere;
 }
 
+.secret-result-card details {
+  border-top: 1px solid rgba(240, 191, 99, 0.2);
+  padding-top: 0.45rem;
+}
+
+.secret-result-card summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.secret-result-card summary::-webkit-details-marker {
+  display: none;
+}
+
 .secret-result-card pre {
   max-height: 12rem;
   margin: 0;

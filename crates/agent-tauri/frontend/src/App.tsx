@@ -1659,7 +1659,18 @@ function SecretResultCard({ status }: { status: JsonValue }) {
           </div>
         </div>
       )}
-      <pre>{JSON.stringify(status, null, 2)}</pre>
+      <details>
+        <summary className="structured-raw-summary">
+          <span className="structured-raw-icon" aria-hidden="true">
+            <AppIcon name="context" />
+          </span>
+          <span className="structured-raw-copy">
+            <strong>Raw JSON</strong>
+            <span>{structuredRawJsonMeta(status)}</span>
+          </span>
+        </summary>
+        <pre>{JSON.stringify(status, null, 2)}</pre>
+      </details>
     </div>
   );
 }

@@ -28382,6 +28382,74 @@ export default function App() {
                   ))}
                 </select>
               </label>
+              <div className="button-grid">
+                <button
+                  type="button"
+                  title="List available ingestion backends."
+                  onClick={() => void reviewIngestionBackends()}
+                  disabled={running}
+                >
+                  <ButtonLabel icon="setup">Backends</ButtonLabel>
+                </button>
+                <button
+                  type="button"
+                  title="List ingestion artifacts."
+                  onClick={() => void reviewIngestion()}
+                  disabled={running}
+                >
+                  <ButtonLabel icon="ingest">List</ButtonLabel>
+                </button>
+                <button
+                  type="button"
+                  title="Check which ingestion backends fit the file path in Value."
+                  onClick={() => void probeIngestSourceFromOps()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  <ButtonLabel icon="trace">Probe</ButtonLabel>
+                </button>
+                <button
+                  type="button"
+                  title="Ingest the file path in Value using the selected backend."
+                  onClick={() => void ingestPathFromOps()}
+                  disabled={running || !opsValue.trim()}
+                >
+                  <ButtonLabel icon="ingest">Ingest</ButtonLabel>
+                </button>
+                <button
+                  type="button"
+                  title="Show ingestion artifact Id."
+                  onClick={() => void showIngestFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  <ButtonLabel icon="artifact">Show</ButtonLabel>
+                </button>
+                <button
+                  type="button"
+                  title="Include ingestion artifact Id in the next run context."
+                  onClick={() => includeIngestFromOps()}
+                  disabled={running || !opsId.trim()}
+                >
+                  <ButtonLabel icon="context">Use</ButtonLabel>
+                </button>
+                <button
+                  type="button"
+                  title="Include artifact Id and preview the next agent context."
+                  onClick={() => void previewWithIngestFromOps()}
+                  disabled={
+                    running || (!opsId.trim() && !includeIngestIds.length)
+                  }
+                >
+                  <ButtonLabel icon="context">Preview</ButtonLabel>
+                </button>
+                <button
+                  type="button"
+                  title="Review prompt-injection and unsafe-ingest guardrail status."
+                  onClick={() => appendLine("assistant", guardrailReport())}
+                  disabled={running}
+                >
+                  <ButtonLabel icon="approval">Guardrails</ButtonLabel>
+                </button>
+              </div>
               <details
                 className="advanced-controls"
                 style={sectionThemeStyle("ingest")}
@@ -28472,74 +28540,6 @@ export default function App() {
                   />
                 </label>
               </details>
-              <div className="button-grid">
-                <button
-                  type="button"
-                  title="List available ingestion backends."
-                  onClick={() => void reviewIngestionBackends()}
-                  disabled={running}
-                >
-                  <ButtonLabel icon="setup">Backends</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="List ingestion artifacts."
-                  onClick={() => void reviewIngestion()}
-                  disabled={running}
-                >
-                  <ButtonLabel icon="ingest">List</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Check which ingestion backends fit the file path in Value."
-                  onClick={() => void probeIngestSourceFromOps()}
-                  disabled={running || !opsValue.trim()}
-                >
-                  <ButtonLabel icon="trace">Probe</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Ingest the file path in Value using the selected backend."
-                  onClick={() => void ingestPathFromOps()}
-                  disabled={running || !opsValue.trim()}
-                >
-                  <ButtonLabel icon="ingest">Ingest</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Show ingestion artifact Id."
-                  onClick={() => void showIngestFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="artifact">Show</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Include ingestion artifact Id in the next run context."
-                  onClick={() => includeIngestFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="context">Use</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Include artifact Id and preview the next agent context."
-                  onClick={() => void previewWithIngestFromOps()}
-                  disabled={
-                    running || (!opsId.trim() && !includeIngestIds.length)
-                  }
-                >
-                  <ButtonLabel icon="context">Preview</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Review prompt-injection and unsafe-ingest guardrail status."
-                  onClick={() => appendLine("assistant", guardrailReport())}
-                  disabled={running}
-                >
-                  <ButtonLabel icon="approval">Guardrails</ButtonLabel>
-                </button>
-              </div>
               <details
                 className="advanced-controls"
                 style={sectionThemeStyle("ingest")}

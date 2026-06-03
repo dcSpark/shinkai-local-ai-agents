@@ -264,7 +264,7 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
   },
   prompts: {
     label: "Prompts",
-    hint: "Reuse prompts and model profiles",
+    hint: "Save and reuse task prompts",
     icon: "prompt",
     secondaryIcon: "setup",
     tertiaryIcon: "context",
@@ -341,9 +341,9 @@ const SECTION_CUES: Record<ActiveSection, SectionCue[]> = {
     { value: "Advanced", label: "review drafts", icon: "skill", tone: "warning" },
   ],
   prompts: [
-    { value: "Library", label: "saved tasks", icon: "prompt", tone: "ok" },
-    { value: "Models", label: "provider setup", icon: "setup" },
-    { value: "Context", label: "preview", icon: "context" },
+    { value: "Use", label: "saved tasks", icon: "prompt", tone: "ok" },
+    { value: "Save", label: "from value", icon: "prompt" },
+    { value: "Advanced", label: "models/imports", icon: "setup", tone: "warning" },
   ],
   ingest: [
     { value: "Sources", label: "files", icon: "ingest", tone: "ok" },
@@ -26037,7 +26037,7 @@ export default function App() {
                   onClick={() => void reviewPrompts()}
                   disabled={running}
                 >
-                  <ButtonLabel icon="prompt">List Prompts</ButtonLabel>
+                  <ButtonLabel icon="prompt">List</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -26045,7 +26045,7 @@ export default function App() {
                   onClick={() => void savePromptFromOps()}
                   disabled={running || !opsValue.trim() || !opsId.trim()}
                 >
-                  <ButtonLabel icon="prompt">Save Prompt</ButtonLabel>
+                  <ButtonLabel icon="prompt">Save</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -26053,7 +26053,7 @@ export default function App() {
                   onClick={() => void showPromptFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  <ButtonLabel icon="prompt">Show Prompt</ButtonLabel>
+                  <ButtonLabel icon="prompt">Show</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -26061,7 +26061,7 @@ export default function App() {
                   onClick={() => void usePromptFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  <ButtonLabel icon="chat">Use Prompt</ButtonLabel>
+                  <ButtonLabel icon="chat">Use</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -26069,7 +26069,7 @@ export default function App() {
                   onClick={() => void runPromptFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  <ButtonLabel icon="control">Run Prompt</ButtonLabel>
+                  <ButtonLabel icon="control">Run</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -26077,7 +26077,7 @@ export default function App() {
                   onClick={() => void previewPromptFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  <ButtonLabel icon="context">Preview Prompt</ButtonLabel>
+                  <ButtonLabel icon="context">Preview</ButtonLabel>
                 </button>
               </div>
               <details
@@ -26100,7 +26100,7 @@ export default function App() {
                     onClick={() => void exportPromptFromOps()}
                     disabled={running || !opsId.trim()}
                   >
-                    <ButtonLabel icon="artifact">Export Prompt</ButtonLabel>
+                    <ButtonLabel icon="artifact">Export</ButtonLabel>
                   </button>
                   <button
                     type="button"
@@ -26108,7 +26108,7 @@ export default function App() {
                     onClick={() => void importPromptFromOps()}
                     disabled={running || !opsValue.trim()}
                   >
-                    <ButtonLabel icon="artifact">Import Prompt</ButtonLabel>
+                    <ButtonLabel icon="artifact">Import</ButtonLabel>
                   </button>
                   <button
                     type="button"
@@ -26117,7 +26117,7 @@ export default function App() {
                     onClick={() => void deletePromptFromOps()}
                     disabled={running || !opsId.trim()}
                   >
-                    <ButtonLabel icon="approval">Delete Prompt</ButtonLabel>
+                    <ButtonLabel icon="approval">Delete</ButtonLabel>
                   </button>
                 </div>
               </details>
@@ -26334,7 +26334,7 @@ export default function App() {
                   onClick={() => void listModelsFromOps()}
                   disabled={running}
                 >
-                  <ButtonLabel icon="setup">List Models</ButtonLabel>
+                  <ButtonLabel icon="setup">List</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -26358,7 +26358,7 @@ export default function App() {
                   onClick={() => void showModelFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  <ButtonLabel icon="setup">Show Model</ButtonLabel>
+                  <ButtonLabel icon="setup">Show</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -26366,7 +26366,7 @@ export default function App() {
                   onClick={() => void probeModelFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  <ButtonLabel icon="trace">Probe Model</ButtonLabel>
+                  <ButtonLabel icon="trace">Probe</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -26374,7 +26374,7 @@ export default function App() {
                   onClick={() => void saveCurrentModelFromControls()}
                   disabled={running || provider === "fake"}
                 >
-                  <ButtonLabel icon="setup">Save Current</ButtonLabel>
+                  <ButtonLabel icon="setup">Save</ButtonLabel>
                 </button>
               </div>
               <details

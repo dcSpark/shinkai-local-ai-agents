@@ -19696,8 +19696,17 @@ export default function App() {
   }
 
   function showOperationsPanel() {
+    if (activeSection === "chat") {
+      return (
+        !showSessionOverview ||
+        visibleTools !== null ||
+        agentConfigs.length > 0 ||
+        compactionRecords.length > 0 ||
+        compactionTransferStatus !== null ||
+        Boolean(opsId.trim() || opsValue.trim() || opsUserMemory)
+      );
+    }
     return [
-      "chat",
       "conversations",
       "profiles",
       "memory",

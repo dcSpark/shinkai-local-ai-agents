@@ -210,7 +210,7 @@ const MODEL_PROVIDER_OPTION_KEYS = [
 const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
   chat: {
     label: "Chat",
-    hint: "Ask, run, and guide agents",
+    hint: "Ask agents and preview context",
     icon: "chat",
     secondaryIcon: "tools",
     tertiaryIcon: "prompt",
@@ -313,7 +313,7 @@ const SECTION_CUES: Record<ActiveSection, SectionCue[]> = {
   chat: [
     { value: "Ask", label: "agent chat", icon: "chat", tone: "ok" },
     { value: "Preview", label: "context", icon: "context" },
-    { value: "Guide", label: "live run", icon: "prompt" },
+    { value: "Advanced", label: "run controls", icon: "control" },
   ],
   trace: [
     { value: "Replay", label: "run paths", icon: "trace", tone: "ok" },

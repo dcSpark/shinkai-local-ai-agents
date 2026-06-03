@@ -862,10 +862,60 @@ textarea:disabled {
 }
 
 .structured-result summary {
-  color: #a6cdd2;
   cursor: pointer;
+  list-style: none;
+}
+
+.structured-result summary::-webkit-details-marker {
+  display: none;
+}
+
+.structured-raw-summary {
+  display: grid;
+  grid-template-columns: 1.7rem minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+  min-width: 0;
+}
+
+.structured-raw-icon {
+  display: inline-grid;
+  width: 1.7rem;
+  height: 1.7rem;
+  place-items: center;
+  border: 1px solid #33565b;
+  border-radius: 8px;
+  background: #102d32;
+  color: #8fe8f0;
+}
+
+.structured-raw-icon .app-icon {
+  width: 0.86rem;
+  height: 0.86rem;
+}
+
+.structured-raw-copy {
+  display: grid;
+  gap: 0.08rem;
+  min-width: 0;
+}
+
+.structured-raw-copy strong,
+.structured-raw-copy span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.structured-raw-copy strong {
+  color: #d8eef0;
   font-size: 0.78rem;
   font-weight: 800;
+}
+
+.structured-raw-copy span {
+  color: #91a4ac;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.7rem;
 }
 
 .structured-result pre {
@@ -1690,6 +1740,74 @@ textarea:disabled {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.55rem;
+}
+
+.advanced-controls {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 0.5rem;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: var(--section-surface);
+}
+
+.advanced-controls summary {
+  display: grid;
+  grid-template-columns: 1.7rem minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+  min-width: 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.advanced-controls summary::-webkit-details-marker {
+  display: none;
+}
+
+.advanced-controls-icon {
+  display: inline-grid;
+  width: 1.7rem;
+  height: 1.7rem;
+  place-items: center;
+  border: 1px solid var(--section-accent);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.16);
+  color: var(--section-accent);
+}
+
+.advanced-controls-icon .app-icon {
+  width: 0.86rem;
+  height: 0.86rem;
+}
+
+.advanced-controls-copy {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.advanced-controls-copy strong,
+.advanced-controls-copy span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.advanced-controls-copy strong {
+  color: #f1f2f4;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.advanced-controls-copy span {
+  color: #9da3ad;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.7rem;
+}
+
+.advanced-controls .button-grid {
+  margin-top: 0.5rem;
 }
 
 .operation-groups {

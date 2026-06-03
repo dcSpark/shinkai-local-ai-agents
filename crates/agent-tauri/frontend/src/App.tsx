@@ -2801,7 +2801,7 @@ export default function App() {
     if (rest === null) return null;
     const match = rest.match(/^(\S+)(?:\s+([\s\S]*))?$/);
     if (!match) {
-      appendLine("error", "Direct tool shortcut needs a tool name.");
+      appendLine("error", "Manual tool shortcut needs a tool name.");
       return null;
     }
     return {
@@ -2863,11 +2863,11 @@ export default function App() {
     ];
     const toolCommands = contextPreview?.visible_tools.map((tool) => ({
       command: `/tool!${tool.id} ${compactJson(sampleToolInput(tool.input_schema))}`,
-      label: `Call ${tool.name} directly`,
+      label: `Call ${tool.name} with JSON`,
     })) ?? [
       {
         command: '/tool!echo {"text":"hello"}',
-        label: "Call echo directly",
+        label: "Call echo with JSON",
       },
     ];
     const commands: SlashCommandSuggestion[] = [
@@ -2889,7 +2889,7 @@ export default function App() {
       { command: "/agents delete ", label: "Delete saved agent" },
       { command: "/agents rm ", label: "Delete saved agent" },
       { command: "/tool help", label: "Show tool shortcuts" },
-      { command: "/tool!help", label: "Show direct tool shortcut" },
+      { command: "/tool!help", label: "Show manual tool shortcut" },
       ...forcedToolCommands,
       ...toolCommands,
       { command: "/run help", label: "Show saved prompt shortcuts" },
@@ -3569,7 +3569,7 @@ export default function App() {
     return [
       "Tool shortcuts:",
       "- /tool <name> <request> - ask the agent to fill and call a visible tool",
-      "- /tool!<name> <json> - directly call a visible tool with explicit JSON input",
+      "- /tool!<name> <json> - call a visible tool with explicit JSON input",
     ].join("\n");
   }
 
@@ -20194,8 +20194,8 @@ export default function App() {
                 <AppIcon name="setup" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Setup details</strong>
-                <span>Model posture, connection, and advanced options</span>
+                <strong>Model details</strong>
+                <span>Connection, identity, and model options</span>
               </span>
             </summary>
             <div className="run-readiness-grid model-setup-grid">
@@ -20612,8 +20612,8 @@ export default function App() {
                 <AppIcon name="context" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Readiness</strong>
-                <span>Agent, budget, safety, sources, and prompt prep</span>
+                <strong>Run check</strong>
+                <span>Agent, budget, safety, sources, and prep</span>
               </span>
             </summary>
             <div className="run-readiness-grid">
@@ -21506,8 +21506,8 @@ export default function App() {
                 <AppIcon name="trace" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Checks</strong>
-                <span>Explain resolved config and visible tool policy</span>
+                <strong>Diagnostics</strong>
+                <span>Explain setup and visible tools</span>
               </span>
             </summary>
             <div className="button-grid">
@@ -21516,14 +21516,14 @@ export default function App() {
                 onClick={() => void explainCurrentConfig()}
                 disabled={running}
               >
-                <ButtonLabel icon="setup">Explain Config</ButtonLabel>
+                <ButtonLabel icon="setup">Setup</ButtonLabel>
               </button>
               <button
                 type="button"
                 onClick={() => void explainCurrentTools()}
                 disabled={running}
               >
-                <ButtonLabel icon="tools">Explain Tools</ButtonLabel>
+                <ButtonLabel icon="tools">Tools</ButtonLabel>
               </button>
             </div>
           </details>
@@ -31034,7 +31034,7 @@ export default function App() {
                 </>
               ) : (
                 <EmptyNote section="chat" icon="tools">
-                  No tool catalog loaded yet. List tools before calling one directly.
+                  No tool catalog loaded yet. List tools before staging a manual call.
                 </EmptyNote>
               )}
               <details
@@ -31046,14 +31046,14 @@ export default function App() {
                     <AppIcon name="tools" />
                   </span>
                   <span className="advanced-controls-copy">
-                    <strong>Manual tool call</strong>
+                    <strong>Call by ID</strong>
                     <span>Use staged Id and Value as the tool id and JSON payload</span>
                   </span>
                 </summary>
                 <div className="button-grid">
                   <button
                     type="button"
-                    title="Call tool Id directly with Value as JSON input."
+                    title="Call the staged tool Id with Value as JSON input."
                     onClick={() => void callToolFromOps()}
                     disabled={running || !opsId.trim()}
                   >

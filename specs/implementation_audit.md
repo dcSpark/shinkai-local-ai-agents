@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App conversation cleanup first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Conversations operation group now presents List/Show/Usage/Recover plus conversation records, recovery/delete previews, and the branch tree or empty tree cue before advanced range, branch, recursive, and agent-owned deletion controls. |
 | App trace first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Trace panel now presents Runs/Load/Compare actions, compare target input, recent runs, and trace summary or empty trace cue before advanced prompt recovery, replay, comparison cleanup, and trace clearing controls. |
 | App tool catalog first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat Tools group now presents List Tools plus visible-tool catalog cards or a catalog-not-loaded cue before the Direct tool call disclosure, so users inspect runtime tool visibility before staging raw JSON tool calls. |
 | App chat library first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat library disclosure now presents compact List/Show/Use/Save actions plus saved-item cards or empty cues before import/export/delete disclosures, so reusable context and agent presets are inspected before power-user transfer or cleanup controls without repeating group names in every button. |

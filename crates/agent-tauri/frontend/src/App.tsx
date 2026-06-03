@@ -291,7 +291,7 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
   },
   adapters: {
     label: "Adapters",
-    hint: "Connect tools, bridges, and storage",
+    hint: "Review integrations before install",
     icon: "adapter",
     secondaryIcon: "tools",
     tertiaryIcon: "conversation",
@@ -356,9 +356,9 @@ const SECTION_CUES: Record<ActiveSection, SectionCue[]> = {
     { value: "Advanced", label: "export/delete", icon: "approval", tone: "warning" },
   ],
   adapters: [
-    { value: "Packages", label: "review", icon: "adapter", tone: "warning" },
-    { value: "Bridges", label: "messaging", icon: "conversation" },
-    { value: "Storage", label: "cache", icon: "memory" },
+    { value: "Review", label: "scan first", icon: "trace", tone: "warning" },
+    { value: "Install", label: "quarantined", icon: "skill" },
+    { value: "Advanced", label: "bridges/storage", icon: "approval", tone: "warning" },
   ],
   approvals: [
     { value: "Pending", label: "gated actions", icon: "approval", tone: "warning" },
@@ -30629,7 +30629,7 @@ export default function App() {
                   onClick={() => void reviewAdapters()}
                   disabled={running}
                 >
-                  <ButtonLabel icon="adapter">List Adapters</ButtonLabel>
+                  <ButtonLabel icon="adapter">List</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -30645,7 +30645,7 @@ export default function App() {
                   onClick={() => void importAdapterFromOps()}
                   disabled={running || !opsValue.trim()}
                 >
-                  <ButtonLabel icon="artifact">Import Adapter</ButtonLabel>
+                  <ButtonLabel icon="artifact">Import</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -30653,7 +30653,7 @@ export default function App() {
                   onClick={() => void showAdapterFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  <ButtonLabel icon="adapter">Show Adapter</ButtonLabel>
+                  <ButtonLabel icon="adapter">Show</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -30661,7 +30661,7 @@ export default function App() {
                   onClick={() => void installAdapterSkillFromOps()}
                   disabled={running || !opsId.trim()}
                 >
-                  <ButtonLabel icon="skill">Install Skill</ButtonLabel>
+                  <ButtonLabel icon="skill">Install</ButtonLabel>
                 </button>
               </div>
               <details
@@ -31585,7 +31585,7 @@ export default function App() {
                   onClick={() => void listBridgeDeliveriesFromOps()}
                   disabled={running || transport !== "daemon"}
                 >
-                  <ButtonLabel icon="conversation">List Deliveries</ButtonLabel>
+                  <ButtonLabel icon="conversation">List</ButtonLabel>
                 </button>
               </div>
               <details
@@ -31987,7 +31987,7 @@ export default function App() {
                   onClick={() => void backupBundleNow()}
                   disabled={running}
                 >
-                  <ButtonLabel icon="artifact">Backup Now</ButtonLabel>
+                  <ButtonLabel icon="artifact">Backup</ButtonLabel>
                 </button>
               </div>
               <details
@@ -32050,7 +32050,7 @@ export default function App() {
                   onClick={() => void storagePruneCacheFromOps(false)}
                   disabled={running || !opsValue.trim()}
                 >
-                  <ButtonLabel icon="trace">Prune Plan</ButtonLabel>
+                  <ButtonLabel icon="trace">Plan</ButtonLabel>
                 </button>
               </div>
               <details
@@ -32074,7 +32074,7 @@ export default function App() {
                     onClick={() => void storagePruneCacheFromOps(true)}
                     disabled={running || !opsValue.trim()}
                   >
-                    <ButtonLabel icon="approval">Prune Apply</ButtonLabel>
+                    <ButtonLabel icon="approval">Apply</ButtonLabel>
                   </button>
                 </div>
               </details>

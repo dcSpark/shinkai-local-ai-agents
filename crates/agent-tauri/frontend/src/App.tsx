@@ -363,52 +363,52 @@ const SECTION_CUES: Record<ActiveSection, SectionCue[]> = {
   chat: [
     { value: "Ask", label: "agent chat", icon: "chat", tone: "ok" },
     { value: "Preview", label: "context", icon: "context" },
-    { value: "Advanced", label: "run controls", icon: "control" },
+    { value: "Tune", label: "run controls", icon: "control" },
   ],
   trace: [
     { value: "Load", label: "run history", icon: "trace", tone: "ok" },
     { value: "Compare", label: "cost/output", icon: "context" },
-    { value: "Advanced", label: "replay/cleanup", icon: "control", tone: "warning" },
+    { value: "Replay", label: "or cleanup", icon: "control", tone: "warning" },
   ],
   conversations: [
     { value: "Tree", label: "branches", icon: "conversation", tone: "ok" },
     { value: "Recover", label: "context", icon: "context" },
-    { value: "Advanced", label: "cleanup", icon: "approval", tone: "warning" },
+    { value: "Cleanup", label: "branches", icon: "approval", tone: "warning" },
   ],
   profiles: [
     { value: "Current", label: "active profile", icon: "profile", tone: "ok" },
     { value: "List", label: "profiles", icon: "profile" },
-    { value: "Advanced", label: "admin tools", icon: "approval", tone: "warning" },
+    { value: "Admin", label: "grants", icon: "approval", tone: "warning" },
   ],
   memory: [
     { value: "Off", label: "by default", icon: "approval", tone: "ok" },
     { value: "Preview", label: "before use", icon: "context" },
-    { value: "Advanced", label: "generate/manage", icon: "memory", tone: "warning" },
+    { value: "Generate", label: "or manage", icon: "memory", tone: "warning" },
   ],
   skills: [
     { value: "Off", label: "by default", icon: "approval", tone: "ok" },
     { value: "Preview", label: "before use", icon: "context" },
-    { value: "Advanced", label: "review drafts", icon: "skill", tone: "warning" },
+    { value: "Review", label: "drafts", icon: "skill", tone: "warning" },
   ],
   prompts: [
     { value: "Use", label: "saved tasks", icon: "prompt", tone: "ok" },
     { value: "Save", label: "from value", icon: "prompt" },
-    { value: "Advanced", label: "models/imports", icon: "setup", tone: "warning" },
+    { value: "Models", label: "imports", icon: "setup", tone: "warning" },
   ],
   ingest: [
     { value: "Probe", label: "source fit", icon: "trace", tone: "ok" },
     { value: "Ingest", label: "explicit files", icon: "ingest" },
-    { value: "Advanced", label: "guardrails/OCR", icon: "approval", tone: "warning" },
+    { value: "Guard", label: "OCR/policy", icon: "approval", tone: "warning" },
   ],
   artifacts: [
     { value: "Generate", label: "docs/data", icon: "prompt", tone: "ok" },
     { value: "Preview", label: "before open", icon: "context" },
-    { value: "Advanced", label: "export/delete", icon: "approval", tone: "warning" },
+    { value: "Export", label: "or delete", icon: "approval", tone: "warning" },
   ],
   adapters: [
     { value: "Review", label: "scan first", icon: "trace", tone: "warning" },
     { value: "Install", label: "quarantined", icon: "skill" },
-    { value: "Advanced", label: "bridges/storage", icon: "approval", tone: "warning" },
+    { value: "Storage", label: "bridges", icon: "approval", tone: "warning" },
   ],
   approvals: [
     { value: "Review", label: "pending gates", icon: "approval", tone: "warning" },

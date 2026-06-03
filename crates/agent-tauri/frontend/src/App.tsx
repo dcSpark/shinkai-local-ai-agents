@@ -1973,6 +1973,9 @@ export default function App() {
     useState<ModelDoctorReport | null>(null);
   const [profileSummaries, setProfileSummaries] = useState<ProfileSummary[]>([]);
   const [currentProfile, setCurrentProfile] = useState<ProfileSummary | null>(null);
+  const [currentProfileError, setCurrentProfileError] = useState<string | null>(
+    null,
+  );
   const [profileGrants, setProfileGrants] = useState<ProfileGrant[]>([]);
   const [secretBackends, setSecretBackends] = useState<SecretBackendDescriptor[]>(
     [],
@@ -13244,10 +13247,12 @@ export default function App() {
           ? await daemonJson<ProfileSummary>("/profiles/current")
           : await invoke<ProfileSummary>("profile_current");
       setCurrentProfile(profile);
+      setCurrentProfileError(null);
       setProfileSummaries((profiles) => upsertProfileSummary(profiles, profile));
       appendJson("Current profile", profile);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
+      setCurrentProfileError(msg);
       appendLine("error", `Current profile failed: ${msg}`);
     }
   }
@@ -24784,6 +24789,15 @@ export default function App() {
                   <ButtonLabel icon="profile">Create</ButtonLabel>
                 </button>
               </div>
+              {currentProfile || currentProfileError ? (
+                <EmptyNote section="profiles" icon="profile">
+                  {currentProfile
+                    ? `Active profile: ${
+                        currentProfile.name || currentProfile.id
+                      } (${currentProfile.id})`
+                    : `Active profile unavailable: ${currentProfileError}`}
+                </EmptyNote>
+              ) : null}
               <details
                 className="advanced-controls"
                 style={sectionThemeStyle("profiles")}
@@ -24961,11 +24975,6 @@ export default function App() {
                   </button>
                 </div>
               </details>
-              {currentProfile ? (
-                <EmptyNote section="profiles" icon="profile">
-                  Active profile: {currentProfile.name || currentProfile.id} ({currentProfile.id})
-                </EmptyNote>
-              ) : null}
               {profileSummaries.length ? (
                 <div className="ingestion-review">
                   {profileSummaries.map((profile) => (

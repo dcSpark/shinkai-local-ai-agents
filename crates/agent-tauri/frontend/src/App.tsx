@@ -19295,6 +19295,44 @@ export default function App() {
       .length ?? 0;
   }
 
+  function contextPreviewMessageRoleLabel(
+    message: ContextSnapshot["conversation"][number],
+  ) {
+    return message.role.replace("_", " ");
+  }
+
+  function contextPreviewMessageContent(
+    message: ContextSnapshot["conversation"][number],
+  ) {
+    return message.role === "assistant" ? (message.content ?? "") : message.content;
+  }
+
+  function contextPreviewMessageIcon(
+    message: ContextSnapshot["conversation"][number],
+  ): IconName {
+    if (message.role === "assistant") return "brand";
+    if (message.role === "tool_result") return "tools";
+    if (message.role === "system") return "setup";
+    return "profile";
+  }
+
+  function contextPreviewMessageTone(
+    message: ContextSnapshot["conversation"][number],
+  ): ContextReviewCard["tone"] {
+    if (message.role === "assistant") return "ok";
+    if (message.role === "tool_result") return "warning";
+    return "neutral";
+  }
+
+  function contextPreviewMessageEmptyLabel(
+    message: ContextSnapshot["conversation"][number],
+  ) {
+    if (message.role === "assistant" && message.tool_calls.length) {
+      return "Assistant message carries tool calls without text content.";
+    }
+    return "No text content in this message.";
+  }
+
   function contextPreviewDraftStatus() {
     if (!contextPreview) {
       return null;
@@ -21669,6 +21707,115 @@ export default function App() {
                   </>
                 }
               >
+                {contextPreview.conversation.length ? (
+                  <div className="context-cards">
+                    {contextPreview.conversation.map((message, index) => {
+                      const content = contextPreviewMessageContent(message);
+                      const tone = contextPreviewMessageTone(message);
+                      const roleLabel = contextPreviewMessageRoleLabel(message);
+                      const contentPreview = content.trim()
+                        ? previewText(content, 260)
+                        : contextPreviewMessageEmptyLabel(message);
+                      return (
+                        <div
+                          className={`context-source-card ${tone}`}
+                          key={`${index}:${message.role}:${content.slice(0, 24)}`}
+                          style={sectionThemeStyle("chat")}
+                        >
+                          <div className="context-source-head">
+                            <span
+                              className={`context-source-icon ${tone}`}
+                              aria-hidden="true"
+                            >
+                              <AppIcon name={contextPreviewMessageIcon(message)} />
+                            </span>
+                            <div className="context-source-title">
+                              <strong>
+                                {index + 1}. {roleLabel}
+                              </strong>
+                              <span>{contentPreview}</span>
+                            </div>
+                          </div>
+                          <div className="context-source-metrics">
+                            <VisualMetric
+                              icon={contextPreviewMessageIcon(message)}
+                              label="role"
+                              value={roleLabel}
+                              section="chat"
+                              tone={tone}
+                            />
+                            <VisualMetric
+                              icon="prompt"
+                              label="tokens"
+                              value={
+                                content.trim()
+                                  ? `~${estimateLocalTokens(content)}`
+                                  : 0
+                              }
+                              section="chat"
+                              tone={content.trim() ? tone : "warning"}
+                            />
+                            <VisualMetric
+                              icon="context"
+                              label="characters"
+                              value={content.length}
+                              section="chat"
+                              tone={content.trim() ? "neutral" : "warning"}
+                            />
+                            {message.role === "assistant" ? (
+                              <VisualMetric
+                                icon="tools"
+                                label="tool calls"
+                                value={message.tool_calls.length}
+                                section="chat"
+                                tone={
+                                  message.tool_calls.length ? "warning" : "neutral"
+                                }
+                              />
+                            ) : null}
+                            {message.role === "tool_result" ? (
+                              <VisualMetric
+                                icon="tools"
+                                label="call id"
+                                value={previewText(message.tool_call_id, 18)}
+                                section="chat"
+                                tone="warning"
+                              />
+                            ) : null}
+                          </div>
+                          <div className="context-source-detail-list">
+                            <div
+                              className={
+                                content.trim()
+                                  ? "context-source-detail-row"
+                                  : "context-source-detail-row warning"
+                              }
+                            >
+                              <span
+                                className={
+                                  content.trim()
+                                    ? "context-source-detail-icon"
+                                    : "context-source-detail-icon warning"
+                                }
+                                aria-hidden="true"
+                              >
+                                <AppIcon name={contextPreviewMessageIcon(message)} />
+                              </span>
+                              <div className="context-source-detail-copy">
+                                <strong>Message content</strong>
+                                <span>{contentPreview}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <EmptyNote section="chat" icon="conversation">
+                    No visible conversation messages in this preview.
+                  </EmptyNote>
+                )}
                 <pre>{previewJson(contextPreview.conversation)}</pre>
               </ContextPreviewPane>
               <ContextPreviewPane

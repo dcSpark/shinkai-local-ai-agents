@@ -21347,21 +21347,37 @@ export default function App() {
             >
               <ButtonLabel icon="context">Preview Context</ButtonLabel>
             </button>
-            <button
-              type="button"
-              onClick={() => void explainCurrentConfig()}
-              disabled={running}
-            >
-              <ButtonLabel icon="setup">Explain Config</ButtonLabel>
-            </button>
-            <button
-              type="button"
-              onClick={() => void explainCurrentTools()}
-              disabled={running}
-            >
-              <ButtonLabel icon="tools">Explain Tools</ButtonLabel>
-            </button>
           </div>
+          <details
+            className="advanced-controls"
+            style={sectionThemeStyle("chat")}
+          >
+            <summary>
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="trace" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Context diagnostics</strong>
+                <span>Explain resolved config and visible tool policy</span>
+              </span>
+            </summary>
+            <div className="button-grid">
+              <button
+                type="button"
+                onClick={() => void explainCurrentConfig()}
+                disabled={running}
+              >
+                <ButtonLabel icon="setup">Explain Config</ButtonLabel>
+              </button>
+              <button
+                type="button"
+                onClick={() => void explainCurrentTools()}
+                disabled={running}
+              >
+                <ButtonLabel icon="tools">Explain Tools</ButtonLabel>
+              </button>
+            </div>
+          </details>
           {postRunCompactionPrompt ? (
             <ModeNote section="chat" icon="context" className="compaction-prompt">
               <span>

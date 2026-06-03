@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App context diagnostics progressive disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat Context panel now keeps Preview Context as the visible review action while moving Explain Config and Explain Tools into a compact Context diagnostics disclosure. |
 | App chat library progressive disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat operations rail now keeps tool inspection and run controls on the first scan while moving saved compacted-context artifacts and reusable saved-agent management into a single Chat library disclosure. |
 | App chat control-action progressive disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | The shared Chat/Approvals Control panel now keeps approval review, approve/reject, stop, and trace actions visible while moving stop-retention policy, quality scoring presets, and resume cursor/plan/run controls into focused icon-bearing disclosures. |
 | App chat direct-tool-call progressive disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat Tools operation group now keeps List Tools visible while moving direct Call Tool execution behind a compact Direct tool call disclosure that uses Operation inputs for id and payload staging. |

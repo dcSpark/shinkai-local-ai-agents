@@ -20930,34 +20930,48 @@ export default function App() {
             />
             <ButtonLabel icon="skill">Skills</ButtonLabel>
           </label>
-          <label className="switch">
-            <input
-              type="checkbox"
-              checked={allowUnsafeIngest}
-              onChange={(e) => toggleUnsafeIngest(e.target.checked)}
-              disabled={running || !includeIngestIds.length}
-            />
-            <ButtonLabel icon="approval">Unsafe ingest</ButtonLabel>
-          </label>
-          <label>
-            <FieldLabel icon="approval" section="chat">
-              Ingest guardrail
-            </FieldLabel>
-            <select
-              value={ingestionGuardrailMode || (allowUnsafeIngest ? "allow" : "")}
-              onChange={(e) =>
-                updateIngestionGuardrailMode(
-                  e.target.value as IngestionGuardrailMode | "",
-                )
-              }
-              disabled={running}
-            >
-              <option value="">config</option>
-              <option value="block">block</option>
-              <option value="warn">warn</option>
-              <option value="allow">allow</option>
-            </select>
-          </label>
+          <details
+            className="advanced-controls"
+            style={sectionThemeStyle("chat")}
+          >
+            <summary>
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="approval" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Ingest safety</strong>
+                <span>Unsafe source override and guardrail mode</span>
+              </span>
+            </summary>
+            <label className="switch">
+              <input
+                type="checkbox"
+                checked={allowUnsafeIngest}
+                onChange={(e) => toggleUnsafeIngest(e.target.checked)}
+                disabled={running || !includeIngestIds.length}
+              />
+              <ButtonLabel icon="approval">Unsafe ingest</ButtonLabel>
+            </label>
+            <label>
+              <FieldLabel icon="approval" section="chat">
+                Ingest guardrail
+              </FieldLabel>
+              <select
+                value={ingestionGuardrailMode || (allowUnsafeIngest ? "allow" : "")}
+                onChange={(e) =>
+                  updateIngestionGuardrailMode(
+                    e.target.value as IngestionGuardrailMode | "",
+                  )
+                }
+                disabled={running}
+              >
+                <option value="">config</option>
+                <option value="block">block</option>
+                <option value="warn">warn</option>
+                <option value="allow">allow</option>
+              </select>
+            </label>
+          </details>
           <label className="switch">
             <input
               type="checkbox"

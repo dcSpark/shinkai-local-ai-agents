@@ -26881,59 +26881,79 @@ export default function App() {
                           >
                             <ButtonLabel icon="prompt">Edit</ButtonLabel>
                           </button>
-                          <button
-                            type="button"
-                            title="Move this prompt name into the Id field."
-                            onClick={() => setOpsId(prompt.name)}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="prompt">Set Id</ButtonLabel>
-                          </button>
-                          <button
-                            type="button"
-                            title="Set Value to a default export path for this prompt."
-                            onClick={() => {
-                              setOpsId(prompt.name);
-                              setOpsValue(promptExportPath);
-                            }}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="artifact">Path</ButtonLabel>
-                          </button>
-                          <button
-                            type="button"
-                            title="Export this saved prompt to Value, or to /tmp when Value is blank."
-                            onClick={() => {
-                              const path = opsValue.trim() || promptExportPath;
-                              setOpsId(prompt.name);
-                              setOpsValue(path);
-                              void exportPromptByName(
-                                prompt.name,
-                                path,
-                                prompt.agent_id ?? null,
-                              );
-                            }}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="artifact">Export</ButtonLabel>
-                          </button>
-                          <button
-                            type="button"
-                            className="danger"
-                            title="Delete this saved prompt."
-                            onClick={() => void deletePromptByName(prompt.name)}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="approval">Delete</ButtonLabel>
-                          </button>
                         </div>
+                        <details
+                          className="advanced-controls"
+                          style={sectionThemeStyle("prompts")}
+                        >
+                          <summary title="Show prompt staging, export, and delete actions">
+                            <span
+                              className="advanced-controls-icon"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="artifact" />
+                            </span>
+                            <span className="advanced-controls-copy">
+                              <strong>More</strong>
+                              <span>Stage, export, or delete this prompt</span>
+                            </span>
+                          </summary>
+                          <div className="button-grid">
+                            <button
+                              type="button"
+                              title="Move this prompt name into the Target id field."
+                              onClick={() => setOpsId(prompt.name)}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="prompt">Set id</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              title="Set Payload to a default export path for this prompt."
+                              onClick={() => {
+                                setOpsId(prompt.name);
+                                setOpsValue(promptExportPath);
+                              }}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Path</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              title="Export this saved prompt to Payload, or to /tmp when Payload is blank."
+                              onClick={() => {
+                                const path = opsValue.trim() || promptExportPath;
+                                setOpsId(prompt.name);
+                                setOpsValue(path);
+                                void exportPromptByName(
+                                  prompt.name,
+                                  path,
+                                  prompt.agent_id ?? null,
+                                );
+                              }}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Export</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              className="danger"
+                              title="Delete this saved prompt."
+                              onClick={() => void deletePromptByName(prompt.name)}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="approval">Delete</ButtonLabel>
+                            </button>
+                          </div>
+                        </details>
                       </div>
                     );
                   })}
                 </div>
               ) : (
                 <EmptyNote section="prompts" icon="prompt">
-                  No saved prompts loaded. List prompts, or save one with Id and Value.
+                  No saved prompts loaded. List prompts, or save one with Target id
+                  and Payload.
                 </EmptyNote>
               )}
               <details

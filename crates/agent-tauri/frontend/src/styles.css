@@ -4643,6 +4643,24 @@ textarea:disabled {
   gap: 0.4rem;
 }
 
+.context-preview-payload {
+  border-top: 1px solid rgba(126, 214, 141, 0.18);
+  padding-top: 0.45rem;
+}
+
+.context-preview-payload summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.context-preview-payload summary::-webkit-details-marker {
+  display: none;
+}
+
+.context-preview-payload pre {
+  margin-top: 0.55rem;
+}
+
 .context-preview section {
   display: grid;
   gap: 0.3rem;

@@ -904,6 +904,40 @@ function ContextPreviewPane({
   );
 }
 
+function rawPayloadMeta(value: unknown) {
+  const text =
+    typeof value === "string" ? value : JSON.stringify(value, null, 2) ?? "";
+  if (!text.trim()) return "empty";
+  return `${text.length} chars / ~${estimateStaticTokens(text)} tokens`;
+}
+
+function ContextPreviewPayload({
+  title = "Exact payload",
+  meta,
+  icon = "context",
+  children,
+}: {
+  title?: string;
+  meta: string;
+  icon?: IconName;
+  children: ReactNode;
+}) {
+  return (
+    <details className="context-preview-payload">
+      <summary className="structured-raw-summary">
+        <span className="structured-raw-icon" aria-hidden="true">
+          <AppIcon name={icon} />
+        </span>
+        <span className="structured-raw-copy">
+          <strong>{title}</strong>
+          <span>{meta}</span>
+        </span>
+      </summary>
+      {children}
+    </details>
+  );
+}
+
 function FeatureVisual({ section }: { section: ActiveSection }) {
   const visual = sectionVisual(section);
   const mode = featureVisualMode(section);
@@ -21991,7 +22025,15 @@ export default function App() {
                         </>
                       }
                     >
-                      <pre>{compactionReviewBeforeText(contextPreview)}</pre>
+                      <ContextPreviewPayload
+                        title="Before payload"
+                        meta={rawPayloadMeta(
+                          compactionReviewBeforeText(contextPreview),
+                        )}
+                        icon="chat"
+                      >
+                        <pre>{compactionReviewBeforeText(contextPreview)}</pre>
+                      </ContextPreviewPayload>
                     </ContextPreviewPane>
                     <ContextPreviewPane
                       title="After"
@@ -22037,7 +22079,15 @@ export default function App() {
                         </>
                       }
                     >
-                      <pre>{compactionReviewAfterText(contextPreview)}</pre>
+                      <ContextPreviewPayload
+                        title="After payload"
+                        meta={rawPayloadMeta(
+                          compactionReviewAfterText(contextPreview),
+                        )}
+                        icon="context"
+                      >
+                        <pre>{compactionReviewAfterText(contextPreview)}</pre>
+                      </ContextPreviewPayload>
                     </ContextPreviewPane>
                   </div>
                 </section>
@@ -22073,7 +22123,12 @@ export default function App() {
                   </>
                 }
               >
-                <pre>{contextPreview.system_prompt}</pre>
+                <ContextPreviewPayload
+                  meta={rawPayloadMeta(contextPreview.system_prompt)}
+                  icon="prompt"
+                >
+                  <pre>{contextPreview.system_prompt}</pre>
+                </ContextPreviewPayload>
               </ContextPreviewPane>
               <ContextPreviewPane
                 title="Limits"
@@ -22111,7 +22166,12 @@ export default function App() {
                   </>
                 }
               >
-                <pre>{previewJson(contextPreview.limits)}</pre>
+                <ContextPreviewPayload
+                  meta={rawPayloadMeta(contextPreview.limits)}
+                  icon="control"
+                >
+                  <pre>{previewJson(contextPreview.limits)}</pre>
+                </ContextPreviewPayload>
               </ContextPreviewPane>
               <ContextPreviewPane
                 title="Compacted Context"
@@ -22145,7 +22205,12 @@ export default function App() {
                   </>
                 }
               >
-                <pre>{contextPreview.compacted ?? "(none)"}</pre>
+                <ContextPreviewPayload
+                  meta={rawPayloadMeta(contextPreview.compacted ?? "(none)")}
+                  icon="context"
+                >
+                  <pre>{contextPreview.compacted ?? "(none)"}</pre>
+                </ContextPreviewPayload>
               </ContextPreviewPane>
               <ContextPreviewPane
                 title="Conversation"
@@ -22291,7 +22356,12 @@ export default function App() {
                     No visible conversation messages in this preview.
                   </EmptyNote>
                 )}
-                <pre>{previewJson(contextPreview.conversation)}</pre>
+                <ContextPreviewPayload
+                  meta={rawPayloadMeta(contextPreview.conversation)}
+                  icon="conversation"
+                >
+                  <pre>{previewJson(contextPreview.conversation)}</pre>
+                </ContextPreviewPayload>
               </ContextPreviewPane>
               <ContextPreviewPane
                 title="Tools"
@@ -22524,7 +22594,12 @@ export default function App() {
                     })}
                   </div>
                 ) : null}
-                <pre>{previewJson(contextPreview.visible_tools)}</pre>
+                <ContextPreviewPayload
+                  meta={rawPayloadMeta(contextPreview.visible_tools)}
+                  icon="tools"
+                >
+                  <pre>{previewJson(contextPreview.visible_tools)}</pre>
+                </ContextPreviewPayload>
               </ContextPreviewPane>
               <ContextPreviewPane
                 title="Skills"
@@ -22689,7 +22764,12 @@ export default function App() {
                     })}
                   </div>
                 ) : null}
-                <pre>{previewJson(contextPreview.visible_skills)}</pre>
+                <ContextPreviewPayload
+                  meta={rawPayloadMeta(contextPreview.visible_skills)}
+                  icon="skill"
+                >
+                  <pre>{previewJson(contextPreview.visible_skills)}</pre>
+                </ContextPreviewPayload>
               </ContextPreviewPane>
               <ContextPreviewPane
                 title="Memory"
@@ -22801,7 +22881,12 @@ export default function App() {
                     ))}
                   </div>
                 ) : null}
-                <pre>{previewJson(contextPreview.loaded_memory)}</pre>
+                <ContextPreviewPayload
+                  meta={rawPayloadMeta(contextPreview.loaded_memory)}
+                  icon="memory"
+                >
+                  <pre>{previewJson(contextPreview.loaded_memory)}</pre>
+                </ContextPreviewPayload>
               </ContextPreviewPane>
               <ContextPreviewPane
                 title="Artifacts"
@@ -22985,7 +23070,12 @@ export default function App() {
                     })}
                   </div>
                 ) : null}
-                <pre>{previewJson(contextPreview.loaded_artifacts)}</pre>
+                <ContextPreviewPayload
+                  meta={rawPayloadMeta(contextPreview.loaded_artifacts)}
+                  icon="ingest"
+                >
+                  <pre>{previewJson(contextPreview.loaded_artifacts)}</pre>
+                </ContextPreviewPayload>
               </ContextPreviewPane>
               <ContextPreviewPane
                 title="Provenance"
@@ -23064,7 +23154,12 @@ export default function App() {
                     ))}
                   </div>
                 ) : null}
-                <pre>{previewJson(contextPreview.provenance)}</pre>
+                <ContextPreviewPayload
+                  meta={rawPayloadMeta(contextPreview.provenance)}
+                  icon="trace"
+                >
+                  <pre>{previewJson(contextPreview.provenance)}</pre>
+                </ContextPreviewPayload>
               </ContextPreviewPane>
             </div>
           ) : null}

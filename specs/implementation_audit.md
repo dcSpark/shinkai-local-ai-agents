@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App generated artifact first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The generated Artifacts group now presents List/Generate/Show/Open/Download plus generated-file inventory, empty inventory, and inline preview before advanced export/delete cache controls, so file review appears before power-user artifact cleanup. |
 | App storage and bundle first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Bundles group now presents one-click backup plus bundle activity or a short empty cue before advanced import/export transfer controls, and the Storage group presents report/plan actions plus diagnostic results or an idle cue before destructive maintenance controls. |
 | App bridge delivery first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Bridge Deliveries operation group now presents bridge readiness/dead-letter actions plus failed-delivery cards or the empty delivery cue before advanced retry/delete controls, so messaging delivery status appears before power-user cleanup operations. |
 | App skill first-use status ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Skills operation panel now presents imported-skill and capability-draft status cues before advanced skill/draft import-export, allow/quarantine, and delete disclosures, so review posture is visible before power-user transfer controls. |

@@ -29191,38 +29191,6 @@ export default function App() {
                   <ButtonLabel icon="artifact">Download</ButtonLabel>
                 </button>
               </div>
-              <details
-                className="advanced-controls"
-                style={sectionThemeStyle("artifacts")}
-              >
-                <summary>
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="artifact" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>Advanced artifact controls</strong>
-                    <span>Export generated files and remove cached artifacts</span>
-                  </span>
-                </summary>
-                <div className="button-grid">
-                  <button
-                    type="button"
-                    title="Export generated artifact Id to the path in Value, or to /tmp when Value is blank."
-                    onClick={() => void exportGeneratedArtifactFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="artifact">Export</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Delete generated artifact Id from the local artifact cache."
-                    onClick={() => void deleteGeneratedArtifactFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="approval">Delete</ButtonLabel>
-                  </button>
-                </div>
-              </details>
               {artifactExportStatus ? (
                 artifactExportCard(artifactExportStatus)
               ) : null}
@@ -29482,6 +29450,38 @@ export default function App() {
                   )}
                 </div>
               ) : null}
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("artifacts")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="artifact" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Advanced artifact controls</strong>
+                    <span>Export generated files and remove cached artifacts</span>
+                  </span>
+                </summary>
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    title="Export generated artifact Id to the path in Value, or to /tmp when Value is blank."
+                    onClick={() => void exportGeneratedArtifactFromOps()}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="artifact">Export</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Delete generated artifact Id from the local artifact cache."
+                    onClick={() => void deleteGeneratedArtifactFromOps()}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="approval">Delete</ButtonLabel>
+                  </button>
+                </div>
+              </details>
             </div>
             ) : null}
 

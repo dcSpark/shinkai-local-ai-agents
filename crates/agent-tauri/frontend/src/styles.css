@@ -8107,6 +8107,31 @@ textarea:disabled {
 }
 
 @media (max-width: 720px) {
+  .app-shell {
+    grid-template-columns: 4.2rem minmax(0, 1fr);
+  }
+
+  .rail {
+    align-items: center;
+    grid-row: 1 / span 2;
+    padding: 0.65rem 0.45rem;
+    overflow-y: auto;
+  }
+
+  .rail-item,
+  .rail-mark {
+    grid-template-columns: 2rem;
+    justify-content: center;
+    justify-items: center;
+    gap: 0;
+    min-height: 2.9rem;
+    padding: 0.45rem;
+  }
+
+  .rail-copy {
+    display: none;
+  }
+
   .topbar {
     align-items: flex-start;
   }

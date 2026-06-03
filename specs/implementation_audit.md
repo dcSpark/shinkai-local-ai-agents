@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App mobile rail icon-first navigation | Done | `crates/agent-tauri/frontend/src/styles.css` | Narrow viewports now collapse the workspace rail to icon-first navigation while preserving existing button titles and aria labels, avoiding clipped rail text and giving the chat/workspace area more room on mobile-style screens. |
 | App advanced-summary text reduction | Done | `crates/agent-tauri/frontend/src/styles.css` | Closed advanced disclosures now show a compact icon-plus-title row while keeping their explanatory detail available when expanded, reducing first-scan text density across setup, context, composer, and operation panels without removing power-user controls. |
 | App section cue visual map | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | The inspector overview now renders each workspace's first-use cues as a reusable icon-sequenced visual map instead of stacked text metric cards, so primary action, inspection, and advanced/guarded posture are easier to scan before detailed controls. |
 | App conversation cleanup first-use ordering | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Conversations operation group now presents List/Show/Usage/Recover plus conversation records, recovery/delete previews, and the branch tree or empty tree cue before advanced range, branch, recursive, and agent-owned deletion controls. |

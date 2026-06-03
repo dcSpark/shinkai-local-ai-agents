@@ -25347,159 +25347,6 @@ export default function App() {
                   <ButtonLabel icon="memory">Add</ButtonLabel>
                 </button>
               </div>
-              <details
-                className="advanced-controls"
-                style={sectionThemeStyle("memory")}
-              >
-                <summary>
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="prompt" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>Advanced memory generation</strong>
-                    <span>Range metadata, generation guidance, model selection, and classification</span>
-                  </span>
-                </summary>
-                <label>
-                  <FieldLabel icon="conversation" section="memory">
-                    Source range
-                  </FieldLabel>
-                  <input
-                    value={memorySourceRange}
-                    onChange={(e) => setMemorySourceRange(e.target.value)}
-                    placeholder="optional conversation range label"
-                    title="Stored on generated memory records as source_range."
-                    disabled={running}
-                  />
-                </label>
-                <label>
-                  <FieldLabel icon="prompt" section="memory">
-                    Generation guidance
-                  </FieldLabel>
-                  <input
-                    value={memoryGenerationGuidance}
-                    onChange={(e) => setMemoryGenerationGuidance(e.target.value)}
-                    placeholder="keep durable preferences"
-                    disabled={running}
-                  />
-                </label>
-                <label>
-                  <FieldLabel icon="setup" section="memory">
-                    Classification model
-                  </FieldLabel>
-                  <input
-                    value={memoryClassificationModel}
-                    onChange={(e) => setMemoryClassificationModel(e.target.value)}
-                    placeholder="saved model id or env default"
-                    disabled={running}
-                  />
-                </label>
-                <div className="button-grid">
-                  <button
-                    type="button"
-                    title="Generate memory candidates from Value."
-                    onClick={() => void generateMemoryFromOps()}
-                    disabled={running || !opsValue.trim()}
-                  >
-                    <ButtonLabel icon="prompt">Generate</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title='Generate memory from the expanded conversation range in Value, like { "from": 2, "to": 4 }.'
-                    onClick={() => void generateConversationMemoryFromOps()}
-                    disabled={
-                      running || !expandedConversation || !opsValue.trim()
-                    }
-                  >
-                    <ButtonLabel icon="conversation">Generate Range</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Generate memory for conversation ranges not yet processed."
-                    onClick={() => void generatePendingMemoryFromOps()}
-                    disabled={running}
-                  >
-                    <ButtonLabel icon="trace">Generate Pending</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Classify memory Id with the selected model."
-                    onClick={() => void classifyMemoryFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="skill">Classify</ButtonLabel>
-                  </button>
-                </div>
-              </details>
-              <details
-                className="advanced-controls"
-                style={sectionThemeStyle("memory")}
-              >
-                <summary>
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="artifact" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>Advanced memory maintenance</strong>
-                    <span>Edit, delete, rollback, import, and export memory records</span>
-                  </span>
-                </summary>
-                <div className="button-grid">
-                  <button
-                    type="button"
-                    title="Edit memory Id with Value."
-                    onClick={() => void editMemoryFromOps()}
-                    disabled={running || !opsValue.trim() || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="prompt">Edit Mem</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    title="Delete memory Id."
-                    onClick={() => void deleteMemoryFromOps()}
-                    disabled={running || !opsId.trim()}
-                  >
-                    <ButtonLabel icon="approval">Delete Mem</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    className="danger"
-                    title="Roll back the selected memory file."
-                    onClick={() => void rollbackMemoryFromOps()}
-                    disabled={running}
-                  >
-                    <ButtonLabel icon="trace">Rollback</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Export memory records to Value, or to a scoped /tmp path when Value is blank."
-                    onClick={() => {
-                      const agent = agentId.trim() || null;
-                      const path =
-                        opsValue.trim() ||
-                        defaultMemoryExportPath(opsUserMemory, agent);
-                      setOpsValue(path);
-                      void exportMemoryFromOps({
-                        path,
-                        user: opsUserMemory,
-                        agentId: agent,
-                      });
-                    }}
-                    disabled={running}
-                  >
-                    <ButtonLabel icon="artifact">Export Mem</ButtonLabel>
-                  </button>
-                  <button
-                    type="button"
-                    title="Import memory records from the file path in Value, scoped by User memory and active Agent id."
-                    onClick={() => void importMemoryFromControls()}
-                    disabled={running || !opsValue.trim()}
-                  >
-                    <ButtonLabel icon="artifact">Import Mem</ButtonLabel>
-                  </button>
-                </div>
-              </details>
               {memoryBackends.length ? (
                 <div className="memory-review">
                   {memoryBackends.map((backend) => (
@@ -26040,6 +25887,159 @@ export default function App() {
                   ))}
                 </div>
               ) : null}
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("memory")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="prompt" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Advanced memory generation</strong>
+                    <span>Range metadata, generation guidance, model selection, and classification</span>
+                  </span>
+                </summary>
+                <label>
+                  <FieldLabel icon="conversation" section="memory">
+                    Source range
+                  </FieldLabel>
+                  <input
+                    value={memorySourceRange}
+                    onChange={(e) => setMemorySourceRange(e.target.value)}
+                    placeholder="optional conversation range label"
+                    title="Stored on generated memory records as source_range."
+                    disabled={running}
+                  />
+                </label>
+                <label>
+                  <FieldLabel icon="prompt" section="memory">
+                    Generation guidance
+                  </FieldLabel>
+                  <input
+                    value={memoryGenerationGuidance}
+                    onChange={(e) => setMemoryGenerationGuidance(e.target.value)}
+                    placeholder="keep durable preferences"
+                    disabled={running}
+                  />
+                </label>
+                <label>
+                  <FieldLabel icon="setup" section="memory">
+                    Classification model
+                  </FieldLabel>
+                  <input
+                    value={memoryClassificationModel}
+                    onChange={(e) => setMemoryClassificationModel(e.target.value)}
+                    placeholder="saved model id or env default"
+                    disabled={running}
+                  />
+                </label>
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    title="Generate memory candidates from Value."
+                    onClick={() => void generateMemoryFromOps()}
+                    disabled={running || !opsValue.trim()}
+                  >
+                    <ButtonLabel icon="prompt">Generate</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title='Generate memory from the expanded conversation range in Value, like { "from": 2, "to": 4 }.'
+                    onClick={() => void generateConversationMemoryFromOps()}
+                    disabled={
+                      running || !expandedConversation || !opsValue.trim()
+                    }
+                  >
+                    <ButtonLabel icon="conversation">Generate Range</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Generate memory for conversation ranges not yet processed."
+                    onClick={() => void generatePendingMemoryFromOps()}
+                    disabled={running}
+                  >
+                    <ButtonLabel icon="trace">Generate Pending</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Classify memory Id with the selected model."
+                    onClick={() => void classifyMemoryFromOps()}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="skill">Classify</ButtonLabel>
+                  </button>
+                </div>
+              </details>
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("memory")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="artifact" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Advanced memory maintenance</strong>
+                    <span>Edit, delete, rollback, import, and export memory records</span>
+                  </span>
+                </summary>
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    title="Edit memory Id with Value."
+                    onClick={() => void editMemoryFromOps()}
+                    disabled={running || !opsValue.trim() || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="prompt">Edit Mem</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    title="Delete memory Id."
+                    onClick={() => void deleteMemoryFromOps()}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="approval">Delete Mem</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    className="danger"
+                    title="Roll back the selected memory file."
+                    onClick={() => void rollbackMemoryFromOps()}
+                    disabled={running}
+                  >
+                    <ButtonLabel icon="trace">Rollback</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Export memory records to Value, or to a scoped /tmp path when Value is blank."
+                    onClick={() => {
+                      const agent = agentId.trim() || null;
+                      const path =
+                        opsValue.trim() ||
+                        defaultMemoryExportPath(opsUserMemory, agent);
+                      setOpsValue(path);
+                      void exportMemoryFromOps({
+                        path,
+                        user: opsUserMemory,
+                        agentId: agent,
+                      });
+                    }}
+                    disabled={running}
+                  >
+                    <ButtonLabel icon="artifact">Export Mem</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Import memory records from the file path in Value, scoped by User memory and active Agent id."
+                    onClick={() => void importMemoryFromControls()}
+                    disabled={running || !opsValue.trim()}
+                  >
+                    <ButtonLabel icon="artifact">Import Mem</ButtonLabel>
+                  </button>
+                </div>
+              </details>
             </div>
             ) : null}
 

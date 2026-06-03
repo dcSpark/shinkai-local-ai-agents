@@ -30140,14 +30140,6 @@ export default function App() {
                         <div className="mini-actions">
                           <button
                             type="button"
-                            title="Move this artifact id into the Id field."
-                            onClick={() => setOpsId(artifact.id)}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="artifact">Set Id</ButtonLabel>
-                          </button>
-                          <button
-                            type="button"
                             title="Show this generated artifact."
                             onClick={() => void showGeneratedArtifact(artifact.id)}
                             disabled={running}
@@ -30172,30 +30164,6 @@ export default function App() {
                           >
                             <ButtonLabel icon="artifact">Download</ButtonLabel>
                           </button>
-                          <button
-                            type="button"
-                            title="Set Value to a default export path for this artifact."
-                            onClick={() => {
-                              setOpsId(artifact.id);
-                              setOpsValue(defaultGeneratedArtifactPath(artifact));
-                            }}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="artifact">Path</ButtonLabel>
-                          </button>
-                          <button
-                            type="button"
-                            title="Export this generated artifact to Value, or to /tmp when Value is blank."
-                            onClick={() =>
-                              void exportGeneratedArtifactFromOps(
-                                artifact.id,
-                                opsValue.trim() || defaultGeneratedArtifactPath(artifact),
-                              )
-                            }
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="artifact">Export</ButtonLabel>
-                          </button>
                           {previewable ? (
                             <button
                               type="button"
@@ -30208,15 +30176,67 @@ export default function App() {
                               </ButtonLabel>
                             </button>
                           ) : null}
-                          <button
-                            type="button"
-                            title="Delete this generated artifact from the local artifact cache."
-                            onClick={() => void deleteGeneratedArtifact(artifact.id)}
-                            disabled={running}
-                          >
-                            <ButtonLabel icon="approval">Delete</ButtonLabel>
-                          </button>
                         </div>
+                        <details
+                          className="advanced-controls"
+                          style={sectionThemeStyle("artifacts")}
+                        >
+                          <summary title="Show artifact staging, export, and cache deletion actions">
+                            <span
+                              className="advanced-controls-icon"
+                              aria-hidden="true"
+                            >
+                              <AppIcon name="artifact" />
+                            </span>
+                            <span className="advanced-controls-copy">
+                              <strong>More</strong>
+                              <span>Stage, export, or delete this artifact</span>
+                            </span>
+                          </summary>
+                          <div className="button-grid">
+                            <button
+                              type="button"
+                              title="Move this artifact id into the Target id field."
+                              onClick={() => setOpsId(artifact.id)}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Set id</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              title="Set Payload to a default export path for this artifact."
+                              onClick={() => {
+                                setOpsId(artifact.id);
+                                setOpsValue(defaultGeneratedArtifactPath(artifact));
+                              }}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Path</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              title="Export this generated artifact to Payload, or to /tmp when Payload is blank."
+                              onClick={() =>
+                                void exportGeneratedArtifactFromOps(
+                                  artifact.id,
+                                  opsValue.trim() ||
+                                    defaultGeneratedArtifactPath(artifact),
+                                )
+                              }
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="artifact">Export</ButtonLabel>
+                            </button>
+                            <button
+                              type="button"
+                              title="Delete this generated artifact from the local artifact cache."
+                              onClick={() => void deleteGeneratedArtifact(artifact.id)}
+                              disabled={running}
+                            >
+                              <ButtonLabel icon="approval">Delete</ButtonLabel>
+                            </button>
+                          </div>
+                        </details>
                       </div>
                     );
                   })}

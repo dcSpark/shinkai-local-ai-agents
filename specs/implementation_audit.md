@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App artifact-card utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Generated artifact cards now keep Show, Open, Download, and inline Preview/Play visible while moving Set id, export path staging, Export, and Delete into a per-card More disclosure, preserving output review while reducing first-scan maintenance controls. |
 | App skill-card utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Imported skill cards now keep Allow and Quarantine visible while moving Set id, export path staging, and Export into a per-card More disclosure, preserving the safety decision flow while reducing transfer-button density. |
 | App capability-draft utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Capability draft cards now keep Edit/Allow/Reject visible while moving Set id, export path staging, Export, and Delete into a per-card More disclosure, keeping the review decision path prominent while preserving transfer and cleanup workflows. |
 | App model-doctor utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Model Doctor rows now keep Show and Probe visible while moving Set id, export path staging, and Export into a row-level More disclosure, keeping flagged-model inspection prominent without losing the transfer workflow. |

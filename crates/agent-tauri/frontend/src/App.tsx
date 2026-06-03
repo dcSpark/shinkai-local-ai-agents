@@ -20554,7 +20554,7 @@ export default function App() {
                 <AppIcon name="context" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Run readiness</strong>
+                <strong>Readiness</strong>
                 <span>Agent, budget, safety, sources, and prompt prep</span>
               </span>
             </summary>
@@ -20582,7 +20582,7 @@ export default function App() {
                 <AppIcon name="tools" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Tool access</strong>
+                <strong>Tools</strong>
                 <span>Shell access and custom call budget</span>
               </span>
             </summary>
@@ -20619,7 +20619,7 @@ export default function App() {
                 <AppIcon name="context" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Advanced context sources</strong>
+                <strong>Rules</strong>
                 <span>Compaction budgets, tool schemas, allowlists, and categories</span>
               </span>
             </summary>
@@ -20728,7 +20728,7 @@ export default function App() {
                 <AppIcon name="tools" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Advanced delegation and drafts</strong>
+                <strong>Delegation</strong>
                 <span>Subagents, recursion limits, capability drafts, hooks, and overrides</span>
               </span>
             </summary>
@@ -20839,7 +20839,7 @@ export default function App() {
                 <AppIcon name="context" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Knowledge sources</strong>
+                <strong>Knowledge</strong>
                 <span>Memory and skill loading for this run</span>
               </span>
             </summary>
@@ -20871,7 +20871,7 @@ export default function App() {
                 <AppIcon name="memory" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Advanced memory and voice</strong>
+                <strong>Memory</strong>
                 <span>Memory backend/model policy plus STT and TTS provider settings</span>
               </span>
             </summary>
@@ -21049,7 +21049,7 @@ export default function App() {
                 <AppIcon name="approval" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Ingest safety</strong>
+                <strong>Ingest</strong>
                 <span>Unsafe source override and guardrail mode</span>
               </span>
             </summary>
@@ -21091,7 +21091,7 @@ export default function App() {
                 <AppIcon name="approval" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Advanced approval scope</strong>
+                <strong>Approval</strong>
                 <span>Controller agent, delegated tool ids, and delegated categories</span>
               </span>
             </summary>
@@ -21141,7 +21141,7 @@ export default function App() {
                 <AppIcon name="artifact" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Response and routing</strong>
+                <strong>Routing</strong>
                 <span>Output mode, router models, and prompt refiners</span>
               </span>
             </summary>
@@ -21407,7 +21407,7 @@ export default function App() {
                 <AppIcon name="trace" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Context diagnostics</strong>
+                <strong>Checks</strong>
                 <span>Explain resolved config and visible tool policy</span>
               </span>
             </summary>

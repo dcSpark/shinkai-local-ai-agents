@@ -20415,20 +20415,34 @@ export default function App() {
         {activeSection === "chat" ? (
         <section className="panel">
           <PanelTitle title="Context" section="chat" icon="context" />
-          <div className="run-readiness-grid">
-            {runReadinessCards().map((card) => (
-              <div className={`run-readiness-card ${card.tone}`} key={card.title}>
-                <span className="run-readiness-icon" aria-hidden="true">
-                  <AppIcon name={card.icon} />
-                </span>
-                <div className="run-readiness-copy">
-                  <span>{card.title}</span>
-                  <strong>{card.value}</strong>
-                  <span className="run-readiness-detail">{card.detail}</span>
+          <details
+            className="advanced-controls"
+            style={sectionThemeStyle("chat")}
+          >
+            <summary>
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="context" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Run readiness</strong>
+                <span>Agent, budget, safety, sources, and prompt prep</span>
+              </span>
+            </summary>
+            <div className="run-readiness-grid">
+              {runReadinessCards().map((card) => (
+                <div className={`run-readiness-card ${card.tone}`} key={card.title}>
+                  <span className="run-readiness-icon" aria-hidden="true">
+                    <AppIcon name={card.icon} />
+                  </span>
+                  <div className="run-readiness-copy">
+                    <span>{card.title}</span>
+                    <strong>{card.value}</strong>
+                    <span className="run-readiness-detail">{card.detail}</span>
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </details>
           <div className="segmented-control" role="group" aria-label="Agent mode">
             <button
               type="button"

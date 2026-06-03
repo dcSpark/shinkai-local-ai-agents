@@ -33721,22 +33721,39 @@ export default function App() {
                       </div>
                     </div>
                     {storagePruneResult.dry_run ? (
-                      <div className="mini-actions">
-                        <button
-                          type="button"
-                          className="danger"
-                          title="Apply this cache prune plan using the same retention window."
-                          onClick={() =>
-                            void storagePruneCacheFromOps(
-                              true,
-                              storagePruneResult.plan.retention_days,
-                            )
-                          }
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="approval">Apply Plan</ButtonLabel>
-                        </button>
-                      </div>
+                      <details
+                        className="advanced-controls"
+                        style={sectionThemeStyle("adapters")}
+                      >
+                        <summary title="Show cache prune apply action">
+                          <span
+                            className="advanced-controls-icon"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="approval" />
+                          </span>
+                          <span className="advanced-controls-copy">
+                            <strong>More</strong>
+                            <span>Apply this cleanup plan</span>
+                          </span>
+                        </summary>
+                        <div className="button-grid">
+                          <button
+                            type="button"
+                            className="danger"
+                            title="Apply this cache prune plan using the same retention window."
+                            onClick={() =>
+                              void storagePruneCacheFromOps(
+                                true,
+                                storagePruneResult.plan.retention_days,
+                              )
+                            }
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="approval">Apply plan</ButtonLabel>
+                          </button>
+                        </div>
+                      </details>
                     ) : null}
                   </div>
                   {(storagePruneResult.errors ?? []).length ? (

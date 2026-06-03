@@ -19796,25 +19796,33 @@ export default function App() {
               <AppIcon name="prompt" />
               <span>Output {rawToolOutput ? "Raw" : "Interpreted"}</span>
             </span>
-            <span className="pill">
-              <AppIcon name="context" />
-              <span>Tokens {tokensIn}/{tokensOut}</span>
-            </span>
-            <span className="pill">
-              <AppIcon name="trace" />
-              <span>Cost ${costUsd.toFixed(6)}</span>
-            </span>
-            <span className="pill">
-              <AppIcon name="control" />
-              <span>Time {formatDuration(elapsedMs)}</span>
-            </span>
-            <span
-              className={budgetPillClass}
-              title={`Tool-call budget: ${remainingToolCalls} remaining of ${effectiveMaxToolCalls}`}
-            >
-              <AppIcon name="tools" />
-              <span>Tools {remainingToolCalls} left</span>
-            </span>
+            <details className="status-disclosure">
+              <summary title="Show run telemetry">
+                <AppIcon name="trace" />
+                <span>Run telemetry</span>
+              </summary>
+              <div className="status-disclosure-panel">
+                <span className="pill">
+                  <AppIcon name="context" />
+                  <span>Tokens {tokensIn}/{tokensOut}</span>
+                </span>
+                <span className="pill">
+                  <AppIcon name="trace" />
+                  <span>Cost ${costUsd.toFixed(6)}</span>
+                </span>
+                <span className="pill">
+                  <AppIcon name="control" />
+                  <span>Time {formatDuration(elapsedMs)}</span>
+                </span>
+                <span
+                  className={budgetPillClass}
+                  title={`Tool-call budget: ${remainingToolCalls} remaining of ${effectiveMaxToolCalls}`}
+                >
+                  <AppIcon name="tools" />
+                  <span>Tools {remainingToolCalls} left</span>
+                </span>
+              </div>
+            </details>
           </div>
         </header>
 

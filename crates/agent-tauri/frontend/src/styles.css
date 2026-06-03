@@ -536,6 +536,81 @@ textarea:disabled {
   color: #ffb4c0;
 }
 
+.status-disclosure {
+  position: relative;
+  min-width: 0;
+}
+
+.status-disclosure summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.38rem;
+  min-height: 2.15rem;
+  padding: 0 0.85rem;
+  border: 1px solid #333844;
+  border-radius: 999px;
+  background: #222731;
+  color: #c9cfd6;
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 700;
+  list-style: none;
+  white-space: nowrap;
+}
+
+.status-disclosure summary:hover {
+  border-color: #66707c;
+  background: #2b3038;
+}
+
+.status-disclosure[open] summary {
+  border-color: #66707c;
+  background: #2b3038;
+}
+
+.status-disclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.status-disclosure summary .app-icon {
+  flex: 0 0 auto;
+  width: 0.88rem;
+  height: 0.88rem;
+}
+
+.status-disclosure summary > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.status-disclosure:not([open]) .status-disclosure-panel {
+  display: none;
+}
+
+.status-disclosure-panel {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 0.45rem);
+  right: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(9.5rem, 1fr));
+  gap: 0.45rem;
+  width: min(24rem, calc(100vw - 2rem));
+  padding: 0.55rem;
+  border: 1px solid #333844;
+  border-radius: 8px;
+  background: #171b20;
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.32);
+}
+
+.status-disclosure-panel .pill {
+  width: 100%;
+  justify-content: flex-start;
+  border-radius: 8px;
+  background: #20252d;
+}
+
 .pill.idle {
   border-color: #275c43;
   background: #13281d;
@@ -7895,6 +7970,13 @@ textarea:disabled {
 
   .status-pills {
     justify-content: flex-start;
+  }
+
+  .status-disclosure-panel {
+    right: auto;
+    left: 0;
+    grid-template-columns: 1fr;
+    width: min(20rem, calc(100vw - 2rem));
   }
 }
 

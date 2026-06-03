@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App profile overview progressive disclosure alignment | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Profiles workspace overview now mirrors the first-use profile flow with Current/List/Advanced cues instead of foregrounding grants, secrets, and bundles as primary actions. |
 | App conversation overview progressive disclosure alignment | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Conversations workspace overview now keeps Tree and Recover as first-use cues while replacing the top-level Prune cue with Advanced cleanup, matching the existing advanced cleanup disclosure. |
 | App chat overview progressive disclosure alignment | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat workspace overview now mirrors the simplified first-use path by showing Ask, Preview, and Advanced run controls instead of repeating Guide as a top-level cue. |
 | App composer controls progressive disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | The composer now keeps Ask Agent and Preview visible while moving shell, batch, resume, and guide power actions into a compact icon-bearing advanced run controls disclosure. |

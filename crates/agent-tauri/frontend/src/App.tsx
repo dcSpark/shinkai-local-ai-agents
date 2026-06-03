@@ -237,7 +237,7 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
   },
   profiles: {
     label: "Profiles",
-    hint: "Manage grants, bundles, and secrets",
+    hint: "View and create local profiles",
     icon: "profile",
     secondaryIcon: "approval",
     tertiaryIcon: "artifact",
@@ -326,9 +326,9 @@ const SECTION_CUES: Record<ActiveSection, SectionCue[]> = {
     { value: "Advanced", label: "cleanup", icon: "approval", tone: "warning" },
   ],
   profiles: [
-    { value: "Grants", label: "shared scope", icon: "approval", tone: "ok" },
-    { value: "Secrets", label: "handles", icon: "profile" },
-    { value: "Bundles", label: "portable config", icon: "artifact" },
+    { value: "Current", label: "active profile", icon: "profile", tone: "ok" },
+    { value: "List", label: "profiles", icon: "profile" },
+    { value: "Advanced", label: "admin tools", icon: "approval", tone: "warning" },
   ],
   memory: [
     { value: "Records", label: "durable facts", icon: "memory", tone: "ok" },

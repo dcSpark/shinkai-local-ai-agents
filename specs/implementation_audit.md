@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App visible-tool utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Context preview and Toolbox visible-tool cards now move manual tool-call staging into per-card More disclosures, preserving direct-call setup while keeping tool catalog cards focused on inspection. |
 | App trace-tree utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Trace tree nodes now keep Load and Compare visible while moving run Set id, Replay, and Replay Compare into a node-level More disclosure, keeping trace exploration first without removing replay workflows. |
 | App conversation-recovery utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Conversation recovery-plan cards now keep Preview visible while moving recovery-conversation Set id into a per-card More disclosure, preserving context preview and id staging without crowding the recovery summary. |
 | App resume-plan utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Resume-plan cards now keep Use Prompt visible while moving source-run Set id into a per-card More disclosure, preserving run staging without competing with generated-prompt review. |

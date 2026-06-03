@@ -22595,16 +22595,33 @@ export default function App() {
                               ) : null}
                             </div>
                           ) : null}
-                          <div className="mini-actions">
-                            <button
-                              type="button"
-                              title="Stage this tool in Id and Value for a manual call."
-                              onClick={() => void stageToolFromPreview(tool)}
-                              disabled={running}
-                            >
-                              <ButtonLabel icon="tools">Use Tool</ButtonLabel>
-                            </button>
-                          </div>
+                          <details
+                            className="advanced-controls"
+                            style={sectionThemeStyle("chat")}
+                          >
+                            <summary title="Show manual tool-call staging action">
+                              <span
+                                className="advanced-controls-icon"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="tools" />
+                              </span>
+                              <span className="advanced-controls-copy">
+                                <strong>More</strong>
+                                <span>Stage this tool call</span>
+                              </span>
+                            </summary>
+                            <div className="button-grid">
+                              <button
+                                type="button"
+                                title="Stage this tool in Target id and Payload for a manual call."
+                                onClick={() => void stageToolFromPreview(tool)}
+                                disabled={running}
+                              >
+                                <ButtonLabel icon="tools">Stage tool</ButtonLabel>
+                              </button>
+                            </div>
+                          </details>
                         </div>
                       );
                     })}
@@ -31819,16 +31836,33 @@ export default function App() {
                               ) : null}
                             </div>
                           ) : null}
-                          <div className="mini-actions">
-                            <button
-                              type="button"
-                              title="Stage this tool in Id and Value for a manual call."
-                              onClick={() => void stageToolFromPreview(tool)}
-                              disabled={running}
-                            >
-                              <ButtonLabel icon="tools">Use Tool</ButtonLabel>
-                            </button>
-                          </div>
+                          <details
+                            className="advanced-controls"
+                            style={sectionThemeStyle("chat")}
+                          >
+                            <summary title="Show manual tool-call staging action">
+                              <span
+                                className="advanced-controls-icon"
+                                aria-hidden="true"
+                              >
+                                <AppIcon name="tools" />
+                              </span>
+                              <span className="advanced-controls-copy">
+                                <strong>More</strong>
+                                <span>Stage this tool call</span>
+                              </span>
+                            </summary>
+                            <div className="button-grid">
+                              <button
+                                type="button"
+                                title="Stage this tool in Target id and Payload for a manual call."
+                                onClick={() => void stageToolFromPreview(tool)}
+                                disabled={running}
+                              >
+                                <ButtonLabel icon="tools">Stage tool</ButtonLabel>
+                              </button>
+                            </div>
+                          </details>
                         </div>
                       ))}
                     </div>

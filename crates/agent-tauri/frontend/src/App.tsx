@@ -20480,29 +20480,43 @@ export default function App() {
               Custom budget: {effectiveMaxToolCalls} calls
             </ModeNote>
           ) : null}
-          <label className="switch">
-            <input
-              type="checkbox"
-              checked={enableShell}
-              onChange={(e) => setEnableShell(e.target.checked)}
-              disabled={running}
-            />
-            <ButtonLabel icon="control">Shell</ButtonLabel>
-          </label>
-          <label>
-            <FieldLabel icon="tools" section="chat">
-              Max tool calls
-            </FieldLabel>
-            <input
-              type="number"
-              min="0"
-              step="1"
-              value={maxToolCalls}
-              onChange={(e) => setMaxToolCalls(e.target.value)}
-              placeholder="config"
-              disabled={running}
-            />
-          </label>
+          <details
+            className="advanced-controls"
+            style={sectionThemeStyle("chat")}
+          >
+            <summary>
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="tools" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Tool access</strong>
+                <span>Shell access and custom call budget</span>
+              </span>
+            </summary>
+            <label className="switch">
+              <input
+                type="checkbox"
+                checked={enableShell}
+                onChange={(e) => setEnableShell(e.target.checked)}
+                disabled={running}
+              />
+              <ButtonLabel icon="control">Shell</ButtonLabel>
+            </label>
+            <label>
+              <FieldLabel icon="tools" section="chat">
+                Max tool calls
+              </FieldLabel>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={maxToolCalls}
+                onChange={(e) => setMaxToolCalls(e.target.value)}
+                placeholder="config"
+                disabled={running}
+              />
+            </label>
+          </details>
           <label>
             <FieldLabel icon="conversation" section="chat">
               Conversation id

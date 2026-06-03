@@ -300,7 +300,7 @@ const SECTION_VISUALS: Record<ActiveSection, SectionVisual> = {
   },
   approvals: {
     label: "Approvals",
-    hint: "Assess and resolve gated actions",
+    hint: "Review before execution",
     icon: "approval",
     secondaryIcon: "control",
     tertiaryIcon: "tools",
@@ -361,9 +361,9 @@ const SECTION_CUES: Record<ActiveSection, SectionCue[]> = {
     { value: "Advanced", label: "bridges/storage", icon: "approval", tone: "warning" },
   ],
   approvals: [
-    { value: "Pending", label: "gated actions", icon: "approval", tone: "warning" },
-    { value: "Risk", label: "assessment", icon: "context" },
-    { value: "Resolve", label: "decisions", icon: "control" },
+    { value: "Review", label: "pending gates", icon: "approval", tone: "warning" },
+    { value: "Assess", label: "delegate check", icon: "profile" },
+    { value: "Resolve", label: "approve/reject", icon: "control", tone: "warning" },
   ],
 };
 
@@ -32579,7 +32579,19 @@ export default function App() {
             icon="control"
           />
           {activeSection === "approvals" ? (
-            <>
+            <details
+              className="advanced-controls"
+              style={sectionThemeStyle("approvals")}
+            >
+              <summary>
+                <span className="advanced-controls-icon" aria-hidden="true">
+                  <AppIcon name="profile" />
+                </span>
+                <span className="advanced-controls-copy">
+                  <strong>Advanced approval identity</strong>
+                  <span>Unlock secret, signature, and delegated controller</span>
+                </span>
+              </summary>
               <label>
                 <FieldLabel icon="approval" section="approvals">
                   Unlock
@@ -32614,7 +32626,7 @@ export default function App() {
                   disabled={running}
                 />
               </label>
-            </>
+            </details>
           ) : null}
           {activeSection === "approvals" ? (
             <div className="approval-summary">
@@ -33082,7 +33094,7 @@ export default function App() {
               onClick={() => void reviewResumePlanFromControls()}
               disabled={running || (!opsId.trim() && !lastRunId)}
             >
-              <ButtonLabel icon="context">Resume Plan</ButtonLabel>
+              <ButtonLabel icon="context">Plan</ButtonLabel>
             </button>
             <button
               type="button"

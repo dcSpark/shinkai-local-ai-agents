@@ -26554,14 +26554,6 @@ export default function App() {
                       <div className="mini-actions">
                         <button
                           type="button"
-                          title="Move this memory id into the Id field."
-                          onClick={() => setOpsId(record.id)}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="memory">Set Id</ButtonLabel>
-                        </button>
-                        <button
-                          type="button"
                           title="Load this memory content into Value for editing."
                           onClick={() => {
                             setOpsId(record.id);
@@ -26571,15 +26563,42 @@ export default function App() {
                         >
                           <ButtonLabel icon="prompt">Edit</ButtonLabel>
                         </button>
-                        <button
-                          type="button"
-                          title="Classify this memory with the selected model or configured default."
-                          onClick={() => void classifyMemoryFromOps(record.id)}
-                          disabled={running}
-                        >
-                          <ButtonLabel icon="skill">Classify</ButtonLabel>
-                        </button>
                       </div>
+                      <details
+                        className="advanced-controls"
+                        style={sectionThemeStyle("memory")}
+                      >
+                        <summary title="Show memory staging and classification actions">
+                          <span
+                            className="advanced-controls-icon"
+                            aria-hidden="true"
+                          >
+                            <AppIcon name="memory" />
+                          </span>
+                          <span className="advanced-controls-copy">
+                            <strong>More</strong>
+                            <span>Stage or classify this memory</span>
+                          </span>
+                        </summary>
+                        <div className="button-grid">
+                          <button
+                            type="button"
+                            title="Move this memory id into the Target id field."
+                            onClick={() => setOpsId(record.id)}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="memory">Set id</ButtonLabel>
+                          </button>
+                          <button
+                            type="button"
+                            title="Classify this memory with the selected model or configured default."
+                            onClick={() => void classifyMemoryFromOps(record.id)}
+                            disabled={running}
+                          >
+                            <ButtonLabel icon="skill">Classify</ButtonLabel>
+                          </button>
+                        </div>
+                      </details>
                     </div>
                   ))}
                 </div>

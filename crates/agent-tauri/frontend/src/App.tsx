@@ -32065,6 +32065,13 @@ export default function App() {
                   <ButtonLabel icon="artifact">Backup</ButtonLabel>
                 </button>
               </div>
+              {bundleStatus ? (
+                <BundleStatusCard status={bundleStatus} section="adapters" />
+              ) : (
+                <EmptyNote section="adapters" icon="artifact">
+                  No bundle activity yet.
+                </EmptyNote>
+              )}
               <details
                 className="advanced-controls"
                 style={sectionThemeStyle("adapters")}
@@ -32097,13 +32104,6 @@ export default function App() {
                   </button>
                 </div>
               </details>
-              {bundleStatus ? (
-                <BundleStatusCard status={bundleStatus} section="adapters" />
-              ) : (
-                <EmptyNote section="adapters" icon="artifact">
-                  No bundle activity yet. Run a backup or open advanced transfer.
-                </EmptyNote>
-              )}
             </div>
             ) : null}
 
@@ -32128,31 +32128,11 @@ export default function App() {
                   <ButtonLabel icon="trace">Plan</ButtonLabel>
                 </button>
               </div>
-              <details
-                className="advanced-controls"
-                style={sectionThemeStyle("adapters")}
-              >
-                <summary>
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="approval" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>Advanced storage maintenance</strong>
-                    <span>Apply cache pruning after choosing retention days</span>
-                  </span>
-                </summary>
-                <div className="button-grid">
-                  <button
-                    type="button"
-                    className="danger"
-                    title="Delete cache files older than the Value retention days."
-                    onClick={() => void storagePruneCacheFromOps(true)}
-                    disabled={running || !opsValue.trim()}
-                  >
-                    <ButtonLabel icon="approval">Apply</ButtonLabel>
-                  </button>
-                </div>
-              </details>
+              {!storageReport && !storagePruneResult ? (
+                <EmptyNote section="adapters" icon="memory">
+                  No storage diagnostics loaded yet.
+                </EmptyNote>
+              ) : null}
               {storageReport ? (
                 <div className="storage-report">
                   {(() => {
@@ -32640,6 +32620,31 @@ export default function App() {
                   </div>
                 </div>
               ) : null}
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("adapters")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="approval" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Advanced storage maintenance</strong>
+                    <span>Apply cache pruning after choosing retention days</span>
+                  </span>
+                </summary>
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    className="danger"
+                    title="Delete cache files older than the Value retention days."
+                    onClick={() => void storagePruneCacheFromOps(true)}
+                    disabled={running || !opsValue.trim()}
+                  >
+                    <ButtonLabel icon="approval">Apply</ButtonLabel>
+                  </button>
+                </div>
+              </details>
             </div>
             ) : null}
           </div>

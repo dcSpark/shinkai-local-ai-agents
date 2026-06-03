@@ -20632,6 +20632,20 @@ export default function App() {
             </div>
           </details>
           <details
+            className="context-more-controls"
+            style={sectionThemeStyle("chat")}
+          >
+            <summary title="Show additional context settings">
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="setup" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>More settings</strong>
+                <span>Tools, branch, rules, memory, approvals, and routing</span>
+              </span>
+            </summary>
+            <div className="context-more-grid">
+          <details
             className="advanced-controls"
             style={sectionThemeStyle("chat")}
           >
@@ -20640,7 +20654,7 @@ export default function App() {
                 <AppIcon name="tools" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Tools</strong>
+                <strong>Tool access</strong>
                 <span>Shell access and custom call budget</span>
               </span>
             </summary>
@@ -20668,20 +20682,6 @@ export default function App() {
               />
             </label>
           </details>
-          <details
-            className="context-more-controls"
-            style={sectionThemeStyle("chat")}
-          >
-            <summary title="Show additional context settings">
-              <span className="advanced-controls-icon" aria-hidden="true">
-                <AppIcon name="setup" />
-              </span>
-              <span className="advanced-controls-copy">
-                <strong>More settings</strong>
-                <span>Rules, delegation, memory, ingest, approvals, and routing</span>
-              </span>
-            </summary>
-            <div className="context-more-grid">
           <details
             className="advanced-controls"
             style={sectionThemeStyle("chat")}

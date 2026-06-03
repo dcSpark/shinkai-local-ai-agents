@@ -32663,56 +32663,6 @@ export default function App() {
             icon="control"
           />
           {activeSection === "approvals" ? (
-            <details
-              className="advanced-controls"
-              style={sectionThemeStyle("approvals")}
-            >
-              <summary>
-                <span className="advanced-controls-icon" aria-hidden="true">
-                  <AppIcon name="profile" />
-                </span>
-                <span className="advanced-controls-copy">
-                  <strong>Advanced approval identity</strong>
-                  <span>Unlock secret, signature, and delegated controller</span>
-                </span>
-              </summary>
-              <label>
-                <FieldLabel icon="approval" section="approvals">
-                  Unlock
-                </FieldLabel>
-                <input
-                  type="password"
-                  value={approvalUnlock}
-                  onChange={(e) => setApprovalUnlock(e.target.value)}
-                  placeholder="optional"
-                  disabled={running}
-                />
-              </label>
-              <label>
-                <FieldLabel icon="profile" section="approvals">
-                  Signature
-                </FieldLabel>
-                <input
-                  value={approvalSignature}
-                  onChange={(e) => setApprovalSignature(e.target.value)}
-                  placeholder="optional"
-                  disabled={running}
-                />
-              </label>
-              <label>
-                <FieldLabel icon="profile" section="approvals">
-                  Controller
-                </FieldLabel>
-                <input
-                  value={approvalControllerAgent}
-                  onChange={(e) => setApprovalControllerAgent(e.target.value)}
-                  placeholder="optional delegated agent"
-                  disabled={running}
-                />
-              </label>
-            </details>
-          ) : null}
-          {activeSection === "approvals" ? (
             <div className="approval-summary">
               <VisualMetric
                 icon="approval"
@@ -32962,6 +32912,56 @@ export default function App() {
               <ButtonLabel icon="trace">Trace</ButtonLabel>
             </button>
           </div>
+          {activeSection === "approvals" ? (
+            <details
+              className="advanced-controls"
+              style={sectionThemeStyle("approvals")}
+            >
+              <summary>
+                <span className="advanced-controls-icon" aria-hidden="true">
+                  <AppIcon name="profile" />
+                </span>
+                <span className="advanced-controls-copy">
+                  <strong>Advanced approval identity</strong>
+                  <span>Unlock secret, signature, and delegated controller</span>
+                </span>
+              </summary>
+              <label>
+                <FieldLabel icon="approval" section="approvals">
+                  Unlock
+                </FieldLabel>
+                <input
+                  type="password"
+                  value={approvalUnlock}
+                  onChange={(e) => setApprovalUnlock(e.target.value)}
+                  placeholder="optional"
+                  disabled={running}
+                />
+              </label>
+              <label>
+                <FieldLabel icon="profile" section="approvals">
+                  Signature
+                </FieldLabel>
+                <input
+                  value={approvalSignature}
+                  onChange={(e) => setApprovalSignature(e.target.value)}
+                  placeholder="optional"
+                  disabled={running}
+                />
+              </label>
+              <label>
+                <FieldLabel icon="profile" section="approvals">
+                  Controller
+                </FieldLabel>
+                <input
+                  value={approvalControllerAgent}
+                  onChange={(e) => setApprovalControllerAgent(e.target.value)}
+                  placeholder="optional delegated agent"
+                  disabled={running}
+                />
+              </label>
+            </details>
+          ) : null}
           <details
             className="advanced-controls"
             style={sectionThemeStyle(runControlVisualSection)}

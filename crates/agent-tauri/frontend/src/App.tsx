@@ -30633,27 +30633,11 @@ export default function App() {
                 </button>
                 <button
                   type="button"
-                  title="Import portable adapter manifest JSON from Value."
-                  onClick={() => void importAdapterManifestFromOps()}
-                  disabled={running || !opsValue.trim()}
-                >
-                  <ButtonLabel icon="artifact">Import Manifest</ButtonLabel>
-                </button>
-                <button
-                  type="button"
                   title="Show adapter package Id."
                   onClick={() => void showAdapterFromOps()}
                   disabled={running || !opsId.trim()}
                 >
                   <ButtonLabel icon="adapter">Show Adapter</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Export adapter package Id to Value, or to /tmp when Value is blank."
-                  onClick={() => void exportAdapterFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="artifact">Export Adapter</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -30663,23 +30647,55 @@ export default function App() {
                 >
                   <ButtonLabel icon="skill">Install Skill</ButtonLabel>
                 </button>
-                <button
-                  type="button"
-                  title="Allow adapter package Id."
-                  onClick={() => void setAdapterQuarantine(true)}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="approval">Allow Adapter</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Block adapter package Id."
-                  onClick={() => void setAdapterQuarantine(false)}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="approval">Block Adapter</ButtonLabel>
-                </button>
               </div>
+              <details
+                className="advanced-controls"
+                style={sectionThemeStyle("adapters")}
+              >
+                <summary>
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="approval" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Advanced adapter controls</strong>
+                    <span>Portable manifest import/export and quarantine policy changes</span>
+                  </span>
+                </summary>
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    title="Import portable adapter manifest JSON from Value."
+                    onClick={() => void importAdapterManifestFromOps()}
+                    disabled={running || !opsValue.trim()}
+                  >
+                    <ButtonLabel icon="artifact">Import Manifest</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Export adapter package Id to Value, or to /tmp when Value is blank."
+                    onClick={() => void exportAdapterFromOps()}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="artifact">Export Adapter</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Allow adapter package Id."
+                    onClick={() => void setAdapterQuarantine(true)}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="approval">Allow Adapter</ButtonLabel>
+                  </button>
+                  <button
+                    type="button"
+                    title="Block adapter package Id."
+                    onClick={() => void setAdapterQuarantine(false)}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <ButtonLabel icon="approval">Block Adapter</ButtonLabel>
+                  </button>
+                </div>
+              </details>
               {adapterDoctorReport ? (
                 <div
                   className={`adapter-doctor-card ${adapterDoctorCardTone}`}

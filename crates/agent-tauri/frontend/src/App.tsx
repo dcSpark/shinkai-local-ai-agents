@@ -19855,7 +19855,7 @@ export default function App() {
           <div className="status-pills">
             <span className="pill" title="Active agent">
               <AppIcon name="profile" />
-              <span>Agent {activeAgentLabel()}</span>
+              <span>{activeAgentLabel()}</span>
             </span>
             <span
               className={running ? "pill running" : "pill idle"}

@@ -846,17 +846,20 @@ function VisualMetric({
   value,
   section,
   tone,
+  title,
 }: {
   icon: IconName;
   label: string;
   value: string | number;
   section: ActiveSection;
   tone?: ContextReviewCard["tone"];
+  title?: string;
 }) {
   return (
     <span
       className={tone ? `visual-metric ${tone}` : "visual-metric"}
       style={sectionThemeStyle(section)}
+      title={title}
     >
       <span className="visual-metric-icon" aria-hidden="true">
         <AppIcon name={icon} />
@@ -20209,44 +20212,70 @@ export default function App() {
         {activeSection === "chat" ? (
         <section className="panel">
           <PanelTitle title="Agent setup" section="chat" icon="setup" />
-          <label>
-            <FieldLabel icon="setup" section="chat">
-              Provider
-            </FieldLabel>
-            <select
-              value={provider}
-              title={
-                providerOptionKeys
-                  ? `Provider options: ${providerOptionKeys}`
-                  : "Provider options unavailable"
-              }
-              onChange={(e) => {
-                const nextProvider = e.target.value;
-                setProvider(nextProvider);
-                if (defaultApiKeyEnvs().has(apiKeyEnv)) {
-                  setApiKeyEnv(defaultApiKeyEnvForProvider(nextProvider));
+          <div className="agent-setup-summary" style={sectionThemeStyle("chat")}>
+            {modelSetupCards().slice(0, 2).map((card) => (
+              <VisualMetric
+                icon={card.icon}
+                label={card.title}
+                value={card.value}
+                section="chat"
+                tone={card.tone}
+                title={`${card.title}: ${card.value}. ${card.detail}`}
+                key={card.title}
+              />
+            ))}
+          </div>
+          <details
+            className="advanced-controls setup-details-controls"
+            style={sectionThemeStyle("chat")}
+          >
+            <summary title="Show provider and model setup">
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="setup" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Change setup</strong>
+                <span>Provider, model, connection, limits, and cost</span>
+              </span>
+            </summary>
+            <label>
+              <FieldLabel icon="setup" section="chat">
+                Provider
+              </FieldLabel>
+              <select
+                value={provider}
+                title={
+                  providerOptionKeys
+                    ? `Provider options: ${providerOptionKeys}`
+                    : "Provider options unavailable"
                 }
-              }}
-              disabled={running}
-            >
-              {providerSelectItems.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <FieldLabel icon="prompt" section="chat">
-              Model
-            </FieldLabel>
-            <input
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              placeholder={defaultModelForProvider(provider)}
-              disabled={running}
-            />
-          </label>
+                onChange={(e) => {
+                  const nextProvider = e.target.value;
+                  setProvider(nextProvider);
+                  if (defaultApiKeyEnvs().has(apiKeyEnv)) {
+                    setApiKeyEnv(defaultApiKeyEnvForProvider(nextProvider));
+                  }
+                }}
+                disabled={running}
+              >
+                {providerSelectItems.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <FieldLabel icon="prompt" section="chat">
+                Model
+              </FieldLabel>
+              <input
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                placeholder={defaultModelForProvider(provider)}
+                disabled={running}
+              />
+            </label>
           <details
             className="advanced-controls model-posture-controls setup-details-controls"
             style={sectionThemeStyle("chat")}
@@ -20667,6 +20696,7 @@ export default function App() {
           </label>
               </details>
             </div>
+          </details>
           </details>
         </section>
         ) : null}

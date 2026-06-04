@@ -1686,6 +1686,13 @@ textarea:disabled {
   line-height: 1.35;
 }
 
+.agent-setup-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+  min-width: 0;
+}
+
 .switch {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;

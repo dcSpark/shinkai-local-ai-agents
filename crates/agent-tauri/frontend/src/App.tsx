@@ -20473,7 +20473,7 @@ export default function App() {
         </footer>
       </main>
 
-      <aside className="inspector">
+      <aside className="inspector" style={sectionThemeStyle(activeSection)}>
         {showInspectorSectionOverview ? (
           <SectionOverview section={activeSection} />
         ) : null}

@@ -1884,7 +1884,8 @@ textarea:disabled {
 .panel input:focus,
 .panel select:focus,
 .panel textarea:focus {
-  border-color: #2aa6b6;
+  border-color: var(--section-accent);
+  box-shadow: 0 0 0 2px var(--section-surface);
 }
 
 .panel textarea {
@@ -1946,9 +1947,9 @@ textarea:disabled {
 }
 
 .segmented-control button.selected {
-  border-color: #23919c;
-  background: #123238;
-  color: #e2fbff;
+  border-color: var(--section-accent);
+  background: var(--section-surface);
+  color: #f4f5f2;
 }
 
 .field-label {
@@ -8236,9 +8237,9 @@ textarea:disabled {
 }
 
 .trace-tree-toggle.has-children:hover:not(:disabled) {
-  border-color: #23919c;
-  background: #123238;
-  color: #8fe8f0;
+  border-color: var(--section-accent);
+  background: var(--section-surface);
+  color: var(--section-accent);
 }
 
 .trace-tree-toggle:disabled {

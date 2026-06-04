@@ -19882,6 +19882,15 @@ export default function App() {
     modelConfigs.length > 0 ||
     modelProviderDescriptors.length > 0 ||
     provider !== "fake";
+  const showIngestionArtifactActions =
+    ingestionArtifacts.length > 0 ||
+    includeIngestIds.length > 0 ||
+    Boolean(opsId.trim());
+  const showIngestionGuardrailAction =
+    showIngestionArtifactActions ||
+    Boolean(ingestGuardrailModel.trim()) ||
+    ingestionGuardrailMode !== "" ||
+    allowUnsafeIngest;
   const runControlVisualSection: ActiveSection =
     activeSection === "approvals" ? "approvals" : "chat";
   const pendingApprovalCount = approvals.filter(
@@ -29631,40 +29640,46 @@ export default function App() {
                 >
                   <ButtonLabel icon="ingest">Ingest</ButtonLabel>
                 </button>
-                <button
-                  type="button"
-                  title="Show ingestion artifact Id."
-                  onClick={() => void showIngestFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="artifact">Show</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Include ingestion artifact Id in the next run context."
-                  onClick={() => includeIngestFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="context">Use</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Include artifact Id and preview the next agent context."
-                  onClick={() => void previewWithIngestFromOps()}
-                  disabled={
-                    running || (!opsId.trim() && !includeIngestIds.length)
-                  }
-                >
-                  <ButtonLabel icon="context">Preview</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Review prompt-injection and unsafe-ingest guardrail status."
-                  onClick={() => appendLine("assistant", guardrailReport())}
-                  disabled={running}
-                >
-                  <ButtonLabel icon="approval">Guardrails</ButtonLabel>
-                </button>
+                {showIngestionArtifactActions ? (
+                  <>
+                    <button
+                      type="button"
+                      title="Show ingestion artifact Id."
+                      onClick={() => void showIngestFromOps()}
+                      disabled={running || !opsId.trim()}
+                    >
+                      <ButtonLabel icon="artifact">Show</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Include ingestion artifact Id in the next run context."
+                      onClick={() => includeIngestFromOps()}
+                      disabled={running || !opsId.trim()}
+                    >
+                      <ButtonLabel icon="context">Use</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Include artifact Id and preview the next agent context."
+                      onClick={() => void previewWithIngestFromOps()}
+                      disabled={
+                        running || (!opsId.trim() && !includeIngestIds.length)
+                      }
+                    >
+                      <ButtonLabel icon="context">Preview</ButtonLabel>
+                    </button>
+                  </>
+                ) : null}
+                {showIngestionGuardrailAction ? (
+                  <button
+                    type="button"
+                    title="Review prompt-injection and unsafe-ingest guardrail status."
+                    onClick={() => appendLine("assistant", guardrailReport())}
+                    disabled={running}
+                  >
+                    <ButtonLabel icon="approval">Guardrails</ButtonLabel>
+                  </button>
+                ) : null}
               </div>
               <details
                 className="context-more-controls"

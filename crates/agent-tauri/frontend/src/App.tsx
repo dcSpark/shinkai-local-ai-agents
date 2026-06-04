@@ -19881,6 +19881,8 @@ export default function App() {
       !(index === 0 && line.kind === "event" && line.text.startsWith("Welcome.")),
   );
   const showComposerPreviewAction = input.trim().length > 0;
+  const showComposerAdvancedControls =
+    showComposerPreviewAction || running || Boolean(lastRunId) || Boolean(opsId.trim());
   const sessionOverviewCards = runReadinessCards().slice(1, 4);
 
   function sessionOverviewTitle(card: ContextReviewCard) {
@@ -20159,64 +20161,66 @@ export default function App() {
                 <span>Preview</span>
               </button>
             ) : null}
-            <details
-              className="advanced-controls composer-advanced-controls"
-              style={sectionThemeStyle(activeSection)}
-            >
-              <summary title="Advanced run controls">
-                <span className="advanced-controls-icon" aria-hidden="true">
-                  <AppIcon name="control" />
-                </span>
-                <span className="advanced-controls-copy">
-                  <strong>Advanced</strong>
-                  <span>Shell, batch, resume, and guide actions</span>
-                </span>
-              </summary>
-              <div className="button-grid">
-                <button
-                  type="button"
-                  onClick={() => void callShell()}
-                  disabled={running || !input.trim()}
-                >
-                  <AppIcon name="control" />
-                  <span>Shell</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void runBatchFromInput()}
-                  disabled={running || !input.trim()}
-                >
-                  <AppIcon name="tools" />
-                  <span>Batch</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void resumeBatchFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <AppIcon name="artifact" />
-                  <span>Resume Batch</span>
-                </button>
-                <button
-                  type="button"
-                  title="Resume the run id in the Id field, or the last run when Id is blank."
-                  onClick={() => void resumeLastRun()}
-                  disabled={running || (!opsId.trim() && !lastRunId)}
-                >
-                  <AppIcon name="trace" />
-                  <span>Resume Run</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void guideLastRun()}
-                  disabled={!canGuideRun}
-                  title="Guide the active run"
-                >
-                  <AppIcon name="prompt" />
-                  <span>Guide</span>
-                </button>
-              </div>
-            </details>
+            {showComposerAdvancedControls ? (
+              <details
+                className="advanced-controls composer-advanced-controls"
+                style={sectionThemeStyle(activeSection)}
+              >
+                <summary title="Advanced run controls">
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="control" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Advanced</strong>
+                    <span>Shell, batch, resume, and guide actions</span>
+                  </span>
+                </summary>
+                <div className="button-grid">
+                  <button
+                    type="button"
+                    onClick={() => void callShell()}
+                    disabled={running || !input.trim()}
+                  >
+                    <AppIcon name="control" />
+                    <span>Shell</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void runBatchFromInput()}
+                    disabled={running || !input.trim()}
+                  >
+                    <AppIcon name="tools" />
+                    <span>Batch</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void resumeBatchFromOps()}
+                    disabled={running || !opsId.trim()}
+                  >
+                    <AppIcon name="artifact" />
+                    <span>Resume Batch</span>
+                  </button>
+                  <button
+                    type="button"
+                    title="Resume the run id in the Id field, or the last run when Id is blank."
+                    onClick={() => void resumeLastRun()}
+                    disabled={running || (!opsId.trim() && !lastRunId)}
+                  >
+                    <AppIcon name="trace" />
+                    <span>Resume Run</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void guideLastRun()}
+                    disabled={!canGuideRun}
+                    title="Guide the active run"
+                  >
+                    <AppIcon name="prompt" />
+                    <span>Guide</span>
+                  </button>
+                </div>
+              </details>
+            ) : null}
           </div>
         </footer>
       </main>

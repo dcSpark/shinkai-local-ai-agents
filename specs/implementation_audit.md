@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App composer dormant-advanced suppression | Done | `crates/agent-tauri/frontend/src/App.tsx` | The fresh Chat composer now hides the Advanced run drawer until there is draft text, a running or previous run, or a staged id, removing disabled shell/batch/resume/guide affordances from first use while restoring the same controls once they can become useful. |
 | App context diagnostics nesting | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat Context panel now moves Setup/Tools diagnostics inside More settings and shortens the More settings summary, keeping explain-config and visible-tool diagnostics available without adding a separate top-level disclosure to the first-use context scan. |
 | App topbar fresh-run status suppression | Done | `crates/agent-tauri/frontend/src/App.tsx` | The fresh Chat top bar now hides default Idle and zeroed Telemetry controls until a run exists or telemetry has data, keeping the active agent visible while preserving run state and metrics once they become meaningful. |
 | App topbar default-output suppression | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat top bar no longer shows the default interpreted-output mode as a persistent status pill; it only surfaces a Raw output pill when the user opts into raw tool results, preserving the routing control while reducing first-scan status noise. |

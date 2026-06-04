@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App context approval gate disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Chat Context panel now moves the default-on Approval gate toggle into the Approval settings disclosure while showing a warning note only when auto-approve is enabled, keeping the safety control available without foregrounding configuration on first use. |
 | App chat setup first-scan compaction | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | The Chat Agent setup panel now opens as provider/model status chips with configuration behind a Change setup disclosure, keeping model/provider editing and deeper model details available without leading first use with form fields. |
 | App section overview cue compaction | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Inspector section overviews now show icon-plus-action cue cards while keeping the descriptive cue text in tooltips and accessibility labels, reducing repeated microcopy without losing orientation. |
 | App bridge-delivery maintenance copy | Done | `crates/agent-tauri/frontend/src/App.tsx` | Bridge delivery maintenance controls now use staged-delivery wording instead of terse Id labels, preserving retry/delete workflows while making the advanced drawer read as an action checklist. |

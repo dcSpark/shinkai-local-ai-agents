@@ -20746,15 +20746,11 @@ export default function App() {
               Branch: {conversationId.trim()}
             </ModeNote>
           ) : null}
-          <label className="switch">
-            <input
-              type="checkbox"
-              checked={requireApproval}
-              onChange={(e) => setRequireApproval(e.target.checked)}
-              disabled={running}
-            />
-            <ButtonLabel icon="approval">Approval gate</ButtonLabel>
-          </label>
+          {!requireApproval ? (
+            <ModeNote section="chat" icon="approval">
+              Auto-approve is on for this run setup.
+            </ModeNote>
+          ) : null}
           <div className="context-actions">
             <button
               type="button"
@@ -21411,9 +21407,18 @@ export default function App() {
               </span>
               <span className="advanced-controls-copy">
                 <strong>Approval</strong>
-                <span>Controller agent, delegated tool ids, and delegated categories</span>
+                <span>Gate, controller agent, delegated tools, and categories</span>
               </span>
             </summary>
+          <label className="switch">
+            <input
+              type="checkbox"
+              checked={requireApproval}
+              onChange={(e) => setRequireApproval(e.target.checked)}
+              disabled={running}
+            />
+            <ButtonLabel icon="approval">Approval gate</ButtonLabel>
+          </label>
           <label>
             <FieldLabel icon="approval" section="chat">
               Approval controller

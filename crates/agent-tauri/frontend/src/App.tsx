@@ -19871,10 +19871,6 @@ export default function App() {
       if (lastRunId && !running) void loadLastTrace();
       return;
     }
-    if (section === "conversations") {
-      if (!running && !conversationTree.length) void reviewConversations();
-      return;
-    }
     if (section === "profiles" && !running) {
       void showCurrentProfileFromOps();
       void listProfilesFromOps();

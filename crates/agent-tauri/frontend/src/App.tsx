@@ -19857,6 +19857,8 @@ export default function App() {
     Boolean(bundleStatus) ||
     Boolean(storageReport) ||
     Boolean(storagePruneResult);
+  const showAdapterImportAction = Boolean(opsValue.trim());
+  const showAdapterTargetActions = Boolean(opsId.trim());
   const showArtifactVoiceControls =
     recordingVoice ||
     voiceOutputBusy ||
@@ -32193,30 +32195,36 @@ export default function App() {
                 >
                   <ButtonLabel icon="trace">Doctor</ButtonLabel>
                 </button>
-                <button
-                  type="button"
-                  title="Import adapter manifest or package path from Value."
-                  onClick={() => void importAdapterFromOps()}
-                  disabled={running || !opsValue.trim()}
-                >
-                  <ButtonLabel icon="artifact">Import</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Show adapter package Id."
-                  onClick={() => void showAdapterFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="adapter">Show</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Install OpenClaw adapter package Id as a quarantined skill."
-                  onClick={() => void installAdapterSkillFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="skill">Install</ButtonLabel>
-                </button>
+                {showAdapterImportAction ? (
+                  <button
+                    type="button"
+                    title="Import adapter manifest or package path from Value."
+                    onClick={() => void importAdapterFromOps()}
+                    disabled={running}
+                  >
+                    <ButtonLabel icon="artifact">Import</ButtonLabel>
+                  </button>
+                ) : null}
+                {showAdapterTargetActions ? (
+                  <>
+                    <button
+                      type="button"
+                      title="Show adapter package Id."
+                      onClick={() => void showAdapterFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="adapter">Show</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Install OpenClaw adapter package Id as a quarantined skill."
+                      onClick={() => void installAdapterSkillFromOps()}
+                      disabled={running}
+                    >
+                      <ButtonLabel icon="skill">Install</ButtonLabel>
+                    </button>
+                  </>
+                ) : null}
               </div>
               {adapterDoctorReport ? (
                 <div

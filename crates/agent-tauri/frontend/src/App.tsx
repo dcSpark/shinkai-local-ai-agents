@@ -21886,9 +21886,9 @@ export default function App() {
                   type="button"
                   onClick={sendContextPreviewToValue}
                   disabled={running}
-                  title="Put the exact preview snapshot into the Value field."
+                  title="Stage the exact preview snapshot as Payload."
                 >
-                  <ButtonLabel icon="context">Send to Value</ButtonLabel>
+                  <ButtonLabel icon="context">Stage JSON</ButtonLabel>
                 </button>
                 <button
                   type="button"
@@ -27168,8 +27168,8 @@ export default function App() {
                 </div>
               ) : (
                 <EmptyNote section="prompts" icon="prompt">
-                  No saved prompts loaded. List prompts, or save one with Target id
-                  and Payload.
+                  No saved prompts loaded. List prompts, or save a staged prompt
+                  name and body.
                 </EmptyNote>
               )}
               <details
@@ -31902,13 +31902,13 @@ export default function App() {
                   </span>
                   <span className="advanced-controls-copy">
                     <strong>Call by ID</strong>
-                    <span>Use staged Id and Value as the tool id and JSON payload</span>
+                    <span>Use Target id and Payload for a manual tool call</span>
                   </span>
                 </summary>
                 <div className="button-grid">
                   <button
                     type="button"
-                    title="Call the staged tool Id with Value as JSON input."
+                    title="Call the staged Target id with Payload as JSON input."
                     onClick={() => void callToolFromOps()}
                     disabled={running || !opsId.trim()}
                   >

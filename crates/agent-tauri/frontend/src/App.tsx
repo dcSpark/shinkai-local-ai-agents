@@ -19874,6 +19874,7 @@ export default function App() {
   const showCapabilityTargetActions = Boolean(opsId.trim());
   const showArtifactGenerateAction = Boolean(opsId.trim() || opsValue.trim());
   const showGeneratedArtifactTargetActions = Boolean(opsId.trim());
+  const showGeneratedArtifactMaintenanceControls = Boolean(opsId.trim());
   const showSkillTargetAction = Boolean(opsId.trim());
   const showSkillPreviewAction = loadSkills || skillDocs.length > 0;
   const showSkillTransferControls = Boolean(opsId.trim() || opsValue.trim());
@@ -30864,54 +30865,56 @@ export default function App() {
                   )}
                 </div>
               ) : null}
-              <details
-                className="context-more-controls"
-                style={sectionThemeStyle("artifacts")}
-              >
-                <summary title="Show additional artifact settings">
-                  <span className="advanced-controls-icon" aria-hidden="true">
-                    <AppIcon name="setup" />
-                  </span>
-                  <span className="advanced-controls-copy">
-                    <strong>More settings</strong>
-                    <span>Export generated files and remove cached artifacts</span>
-                  </span>
-                </summary>
-                <div className="context-more-grid">
-                  <details
-                    className="advanced-controls"
-                    style={sectionThemeStyle("artifacts")}
-                  >
-                    <summary>
-                      <span className="advanced-controls-icon" aria-hidden="true">
-                        <AppIcon name="artifact" />
-                      </span>
-                      <span className="advanced-controls-copy">
-                        <strong>Artifact maintenance</strong>
-                        <span>Export generated files or remove cached entries</span>
-                      </span>
-                    </summary>
-                    <div className="button-grid">
-                      <button
-                        type="button"
-                        title="Export generated artifact Id to the path in Value, or to /tmp when Value is blank."
-                        onClick={() => void exportGeneratedArtifactFromOps()}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="artifact">Export</ButtonLabel>
-                      </button>
-                      <button
-                        type="button"
-                        title="Delete generated artifact Id from the local artifact cache."
-                        onClick={() => void deleteGeneratedArtifactFromOps()}
-                        disabled={running || !opsId.trim()}
-                      >
-                        <ButtonLabel icon="approval">Delete</ButtonLabel>
-                      </button>
-                    </div>
-                  </details>
-                </div>
-              </details>
+              {showGeneratedArtifactMaintenanceControls ? (
+                <details
+                  className="context-more-controls"
+                  style={sectionThemeStyle("artifacts")}
+                >
+                  <summary title="Show additional artifact settings">
+                    <span className="advanced-controls-icon" aria-hidden="true">
+                      <AppIcon name="setup" />
+                    </span>
+                    <span className="advanced-controls-copy">
+                      <strong>More settings</strong>
+                      <span>Export generated files and remove cached artifacts</span>
+                    </span>
+                  </summary>
+                  <div className="context-more-grid">
+                    <details
+                      className="advanced-controls"
+                      style={sectionThemeStyle("artifacts")}
+                    >
+                      <summary>
+                        <span className="advanced-controls-icon" aria-hidden="true">
+                          <AppIcon name="artifact" />
+                        </span>
+                        <span className="advanced-controls-copy">
+                          <strong>Artifact maintenance</strong>
+                          <span>Export generated files or remove cached entries</span>
+                        </span>
+                      </summary>
+                      <div className="button-grid">
+                        <button
+                          type="button"
+                          title="Export generated artifact Id to the path in Value, or to /tmp when Value is blank."
+                          onClick={() => void exportGeneratedArtifactFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="artifact">Export</ButtonLabel>
+                        </button>
+                        <button
+                          type="button"
+                          title="Delete generated artifact Id from the local artifact cache."
+                          onClick={() => void deleteGeneratedArtifactFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="approval">Delete</ButtonLabel>
+                        </button>
+                      </div>
+                    </details>
+                  </div>
+                </details>
+              ) : null}
             </div>
             ) : null}
 

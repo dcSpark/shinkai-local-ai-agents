@@ -19977,10 +19977,12 @@ export default function App() {
               <AppIcon name="approval" />
               <span>{running ? "Running" : "Idle"}</span>
             </span>
-            <span className="pill" title="Tool output mode">
-              <AppIcon name="prompt" />
-              <span>{rawToolOutput ? "Raw" : "Interpreted"}</span>
-            </span>
+            {rawToolOutput ? (
+              <span className="pill" title="Tool output mode">
+                <AppIcon name="artifact" />
+                <span>Raw output</span>
+              </span>
+            ) : null}
             <details className="status-disclosure">
               <summary title="Show run telemetry">
                 <AppIcon name="trace" />

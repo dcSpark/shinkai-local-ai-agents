@@ -965,6 +965,48 @@ function FeatureVisual({ section }: { section: ActiveSection }) {
   );
 }
 
+const ORCHESTRATION_VISUAL_NODES: Array<{
+  key: string;
+  label: string;
+  icon: IconName;
+}> = [
+  { key: "prompt", label: "Prompt", icon: "prompt" },
+  { key: "context", label: "Context", icon: "context" },
+  { key: "tools", label: "Tools", icon: "tools" },
+  { key: "approval", label: "Gate", icon: "approval" },
+  { key: "output", label: "Output", icon: "artifact" },
+];
+
+function AgentOrchestrationVisual() {
+  return (
+    <div
+      className="orchestration-visual"
+      style={sectionThemeStyle("chat")}
+      aria-label="Prompt, context, tools, approval gate, and output flow"
+      role="img"
+    >
+      <span className="orchestration-path path-context" aria-hidden="true" />
+      <span className="orchestration-path path-tools" aria-hidden="true" />
+      <span className="orchestration-path path-output" aria-hidden="true" />
+      <span className="orchestration-core" aria-hidden="true">
+        <AppIcon name="brand" />
+      </span>
+      {ORCHESTRATION_VISUAL_NODES.map((node) => (
+        <span
+          className={`orchestration-node ${node.key}`}
+          title={node.label}
+          key={node.key}
+        >
+          <span className="orchestration-node-icon" aria-hidden="true">
+            <AppIcon name={node.icon} />
+          </span>
+          <span>{node.label}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function SectionCueMap({ section }: { section: ActiveSection }) {
   const visual = sectionVisual(section);
   const cues = SECTION_CUES[section];
@@ -20194,8 +20236,8 @@ export default function App() {
                 ))}
               </div>
               <div className="session-overview" style={sectionThemeStyle("chat")}>
-                <div className="session-overview-visual" aria-hidden="true">
-                  <FeatureVisual section="chat" />
+                <div className="session-overview-visual">
+                  <AgentOrchestrationVisual />
                 </div>
                 <div className="session-overview-grid">
                   {sessionOverviewCards.map((card) => (

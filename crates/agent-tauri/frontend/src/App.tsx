@@ -20298,8 +20298,8 @@ export default function App() {
                 <AppIcon name="setup" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>Change setup</strong>
-                <span>Provider, model, connection, limits, and cost</span>
+                <strong>Change model</strong>
+                <span>Provider and model</span>
               </span>
             </summary>
             <label>

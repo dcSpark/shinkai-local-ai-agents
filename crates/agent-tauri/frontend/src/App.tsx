@@ -19920,10 +19920,7 @@ export default function App() {
         ? "ok"
         : "neutral";
   const showRunControlActions =
-    activeSection === "approvals" ||
-    running ||
-    Boolean(lastRunId) ||
-    approvals.length > 0;
+    running || Boolean(lastRunId) || approvals.length > 0;
   const showPostRunControlDisclosures =
     activeSection === "approvals" || Boolean(lastRunId) || approvals.length > 0;
   const showRunControlPanel =

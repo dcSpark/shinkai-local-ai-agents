@@ -20815,7 +20815,7 @@ export default function App() {
               </span>
               <span className="advanced-controls-copy">
                 <strong>More settings</strong>
-                <span>Tools, branch, rules, memory, approvals, and routing</span>
+                <span>Advanced controls</span>
               </span>
             </summary>
             <div className="context-more-grid">
@@ -21665,6 +21665,36 @@ export default function App() {
               </details>
             </div>
             </details>
+          <details
+            className="advanced-controls"
+            style={sectionThemeStyle("chat")}
+          >
+            <summary>
+              <span className="advanced-controls-icon" aria-hidden="true">
+                <AppIcon name="trace" />
+              </span>
+              <span className="advanced-controls-copy">
+                <strong>Diagnostics</strong>
+                <span>Setup and tools</span>
+              </span>
+            </summary>
+            <div className="button-grid">
+              <button
+                type="button"
+                onClick={() => void explainCurrentConfig()}
+                disabled={running}
+              >
+                <ButtonLabel icon="setup">Setup</ButtonLabel>
+              </button>
+              <button
+                type="button"
+                onClick={() => void explainCurrentTools()}
+                disabled={running}
+              >
+                <ButtonLabel icon="tools">Tools</ButtonLabel>
+              </button>
+            </div>
+          </details>
             </div>
           </details>
           {includeIngestIds.length
@@ -21782,36 +21812,6 @@ export default function App() {
                 );
               })()
             : null}
-          <details
-            className="advanced-controls"
-            style={sectionThemeStyle("chat")}
-          >
-            <summary>
-              <span className="advanced-controls-icon" aria-hidden="true">
-                <AppIcon name="trace" />
-              </span>
-              <span className="advanced-controls-copy">
-                <strong>Diagnostics</strong>
-                <span>Explain setup and visible tools</span>
-              </span>
-            </summary>
-            <div className="button-grid">
-              <button
-                type="button"
-                onClick={() => void explainCurrentConfig()}
-                disabled={running}
-              >
-                <ButtonLabel icon="setup">Setup</ButtonLabel>
-              </button>
-              <button
-                type="button"
-                onClick={() => void explainCurrentTools()}
-                disabled={running}
-              >
-                <ButtonLabel icon="tools">Tools</ButtonLabel>
-              </button>
-            </div>
-          </details>
           </div>
           {postRunCompactionPrompt ? (
             <ModeNote section="chat" icon="context" className="compaction-prompt">

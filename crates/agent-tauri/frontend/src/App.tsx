@@ -34928,12 +34928,12 @@ export default function App() {
             className="context-more-controls"
             style={sectionThemeStyle(runControlVisualSection)}
           >
-            <summary title="Show additional run control settings">
+            <summary title="Show run control settings">
               <span className="advanced-controls-icon" aria-hidden="true">
-                <AppIcon name="setup" />
+                <AppIcon name="control" />
               </span>
               <span className="advanced-controls-copy">
-                <strong>More settings</strong>
+                <strong>Run controls</strong>
                 <span>
                   {activeSection === "approvals"
                     ? "Identity, stop policy, scoring, and resume"

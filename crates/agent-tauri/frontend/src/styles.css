@@ -1628,15 +1628,16 @@ textarea:disabled {
 }
 
 .composer-actions .primary {
-  border-color: #52a966;
-  background: #65bd75;
+  border-color: var(--section-accent);
+  background: var(--section-accent);
   color: #07130a;
   font-weight: 800;
 }
 
 .composer-actions .primary:hover:not(:disabled) {
-  border-color: #76cb86;
-  background: #7ed68d;
+  border-color: #f4f5f2;
+  background: var(--section-accent);
+  filter: brightness(1.08);
 }
 
 .composer-advanced-controls {

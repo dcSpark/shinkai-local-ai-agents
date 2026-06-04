@@ -19864,6 +19864,10 @@ export default function App() {
     Boolean(voiceCaptureArtifact) ||
     Boolean(voiceOutputPreviewUrl) ||
     Boolean(voiceOutputArtifact);
+  const showCapabilityDraftControls =
+    capabilityDrafts.length > 0 ||
+    Boolean(capabilityDoctorReport) ||
+    capabilityKind !== "skill";
   const modelDoctorCardTone = modelDoctorReport
     ? modelDoctorTone(modelDoctorReport)
     : "neutral";
@@ -28496,6 +28500,21 @@ export default function App() {
                   No imported skills loaded. Skills stay out of context until allowed.
                 </EmptyNote>
               )}
+              <details
+                className="context-more-controls"
+                style={sectionThemeStyle("skills")}
+                open={showCapabilityDraftControls}
+              >
+                <summary title="Show capability draft review controls">
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="tools" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Capability drafts</strong>
+                    <span>Review proposed tools and agents</span>
+                  </span>
+                </summary>
+                <div className="operation-group">
               <OperationTitle title="Capability Drafts" section="skills" icon="tools" />
               <label>
                 <FieldLabel icon="tools" section="skills">
@@ -28577,6 +28596,8 @@ export default function App() {
                   No capability drafts loaded. Drafts stay quarantined until allowed.
                 </EmptyNote>
               )}
+                </div>
+              </details>
               <details
                 className="context-more-controls"
                 style={sectionThemeStyle("skills")}

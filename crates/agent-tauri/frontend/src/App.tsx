@@ -19843,7 +19843,7 @@ export default function App() {
 
   function railDisabled(section: ActiveSection) {
     if (section === "chat") return false;
-    return section === "trace" ? running || !lastRunId : running;
+    return running;
   }
 
   function selectRailSection(section: ActiveSection) {

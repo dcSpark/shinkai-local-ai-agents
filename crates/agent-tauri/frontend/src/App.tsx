@@ -19898,6 +19898,7 @@ export default function App() {
     memoryBackends.length > 0 ||
     Boolean(memoryBackendProbe);
   const showConversationTargetActions = Boolean(opsId.trim());
+  const showProfileTargetActions = Boolean(opsId.trim());
   const runControlVisualSection: ActiveSection =
     activeSection === "approvals" ? "approvals" : "chat";
   const pendingApprovalCount = approvals.filter(
@@ -25546,22 +25547,26 @@ export default function App() {
                 >
                   <ButtonLabel icon="profile">List</ButtonLabel>
                 </button>
-                <button
-                  type="button"
-                  title="Show profile Id."
-                  onClick={() => void showProfileFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="profile">Show</ButtonLabel>
-                </button>
-                <button
-                  type="button"
-                  title="Create profile Id, using Value as the optional display name."
-                  onClick={() => void createProfileFromOps()}
-                  disabled={running || !opsId.trim()}
-                >
-                  <ButtonLabel icon="profile">Create</ButtonLabel>
-                </button>
+                {showProfileTargetActions ? (
+                  <>
+                    <button
+                      type="button"
+                      title="Show profile Id."
+                      onClick={() => void showProfileFromOps()}
+                      disabled={running || !opsId.trim()}
+                    >
+                      <ButtonLabel icon="profile">Show</ButtonLabel>
+                    </button>
+                    <button
+                      type="button"
+                      title="Create profile Id, using Value as the optional display name."
+                      onClick={() => void createProfileFromOps()}
+                      disabled={running || !opsId.trim()}
+                    >
+                      <ButtonLabel icon="profile">Create</ButtonLabel>
+                    </button>
+                  </>
+                ) : null}
               </div>
               {currentProfile || currentProfileError ? (
                 <EmptyNote section="profiles" icon="profile">

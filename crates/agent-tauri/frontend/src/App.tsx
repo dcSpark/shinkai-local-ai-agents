@@ -974,6 +974,8 @@ function SectionCueMap({ section }: { section: ActiveSection }) {
         <li
           className={cue.tone ? `section-cue-node ${cue.tone}` : "section-cue-node"}
           key={`${section}:${cue.value}`}
+          title={`${cue.value}: ${cue.label}`}
+          aria-label={`${index + 1}. ${cue.value}: ${cue.label}`}
         >
           <span className="section-cue-index" aria-hidden="true">
             {index + 1}
@@ -983,7 +985,6 @@ function SectionCueMap({ section }: { section: ActiveSection }) {
           </span>
           <span className="section-cue-copy">
             <strong>{cue.value}</strong>
-            <span>{cue.label}</span>
           </span>
         </li>
       ))}

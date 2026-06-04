@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App section overview cue compaction | Done | `crates/agent-tauri/frontend/src/App.tsx`, `crates/agent-tauri/frontend/src/styles.css` | Inspector section overviews now show icon-plus-action cue cards while keeping the descriptive cue text in tooltips and accessibility labels, reducing repeated microcopy without losing orientation. |
 | App bridge-delivery maintenance copy | Done | `crates/agent-tauri/frontend/src/App.tsx` | Bridge delivery maintenance controls now use staged-delivery wording instead of terse Id labels, preserving retry/delete workflows while making the advanced drawer read as an action checklist. |
 | App staged-copy language cleanup | Done | `crates/agent-tauri/frontend/src/App.tsx` | Context preview staging, manual tool-call helper copy, and the saved-prompt empty state now avoid stale Id/Value wording in visible UI, using Payload/Target id or plain prompt-name/body language while preserving the same staged-input behavior. |
 | App conversation-message utility disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | Expanded conversation message cards now move single-message range staging into a per-message More disclosure, keeping message content and provenance readable while preserving range workflows. |

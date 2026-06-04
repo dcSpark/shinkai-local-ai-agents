@@ -1511,7 +1511,7 @@ textarea:disabled {
   justify-items: center;
   gap: 0.3rem;
   min-width: 0;
-  min-height: 5.35rem;
+  min-height: 4.2rem;
   padding: 0.55rem 0.35rem 0.5rem;
   border: 1px solid #2a2d34;
   border-radius: 8px;
@@ -1594,11 +1594,11 @@ textarea:disabled {
 .section-cue-copy {
   display: grid;
   gap: 0.1rem;
+  justify-items: center;
   min-width: 0;
 }
 
-.section-cue-copy strong,
-.section-cue-copy span {
+.section-cue-copy strong {
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -1608,13 +1608,6 @@ textarea:disabled {
   font-size: 0.78rem;
   font-weight: 850;
   line-height: 1.15;
-}
-
-.section-cue-copy span {
-  color: #9da3ad;
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-size: 0.66rem;
-  line-height: 1.2;
 }
 
 .panel {

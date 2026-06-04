@@ -1075,6 +1075,22 @@ function SectionOverview({ section }: { section: ActiveSection }) {
   );
 }
 
+function WorkspaceSessionOverview({ section }: { section: ActiveSection }) {
+  const visual = sectionVisual(section);
+  return (
+    <div
+      className="workspace-session-overview"
+      style={sectionThemeStyle(section)}
+      aria-label={`${visual.label} workspace empty overview`}
+    >
+      <div className="workspace-session-visual" aria-hidden="true">
+        <FeatureVisual section={section} />
+      </div>
+      <SectionCueMap section={section} />
+    </div>
+  );
+}
+
 interface SavedModelConfig {
   id: string;
   provider?: string | null;
@@ -20056,6 +20072,9 @@ export default function App() {
     transcript.length === 1 &&
     transcript[0]?.kind === "event" &&
     transcript[0]?.text.startsWith("Welcome.");
+  const showChatSessionOverview = showSessionOverview && activeSection === "chat";
+  const showWorkspaceSessionOverview =
+    showSessionOverview && activeSection !== "chat";
   const visibleTranscript = transcript.filter(
     (line, index) =>
       !(index === 0 && line.kind === "event" && line.text.startsWith("Welcome.")),
@@ -20234,7 +20253,7 @@ export default function App() {
         </header>
 
         <section className="transcript" aria-live="polite" ref={transcriptRef}>
-          {showSessionOverview ? (
+          {showChatSessionOverview ? (
             <>
               <div className="starter-prompts" style={sectionThemeStyle("chat")}>
                 {CHAT_STARTER_PROMPTS.map((starter) => (
@@ -20283,6 +20302,9 @@ export default function App() {
                 </div>
               </div>
             </>
+          ) : null}
+          {showWorkspaceSessionOverview ? (
+            <WorkspaceSessionOverview section={activeSection} />
           ) : null}
           {visibleTranscript.map((line, i) => (
             <div key={i} className={`line line-${line.kind}`}>

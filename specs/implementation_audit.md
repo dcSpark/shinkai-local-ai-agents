@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App prompts model catalog disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Prompts workspace now leads with saved prompt actions and hides model/provider catalog controls behind a Model catalog disclosure until model data, provider descriptors, a doctor report, or a non-demo provider makes those controls immediately relevant. |
 | App setup disclosure copy simplification | Done | `crates/agent-tauri/frontend/src/App.tsx` | The fresh Agent setup disclosure now reads as Change model with Provider and model copy instead of foregrounding connection, limits, and cost on first scan; those advanced controls remain available inside Model details. |
 | App demo setup label cleanup | Done | `crates/agent-tauri/frontend/src/App.tsx` | The fresh Agent setup summary now presents the built-in fake provider/model as Demo provider and Demo model, while keeping the underlying runtime ids unchanged for provider selection and execution paths. |
 | App context dormant-preview suppression | Done | `crates/agent-tauri/frontend/src/App.tsx` | The fresh Chat Context panel now hides its Preview button until there is a draft, an existing preview, linked context/source state, or non-default run/context configuration to inspect, while the composer preview and context preview flow return once a meaningful target exists. |

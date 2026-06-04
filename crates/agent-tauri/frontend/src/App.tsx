@@ -19816,7 +19816,7 @@ export default function App() {
       case "skills":
         return "Skills";
       case "prompts":
-        return "Prompts and models";
+        return "Prompts";
       case "ingest":
         return "Ingestion";
       case "artifacts":
@@ -19859,6 +19859,11 @@ export default function App() {
   const modelDoctorMissingMetadata = modelDoctorReport
     ? modelDoctorMissingMetadataCount(modelDoctorReport)
     : 0;
+  const showModelCatalogControls =
+    Boolean(modelDoctorReport) ||
+    modelConfigs.length > 0 ||
+    modelProviderDescriptors.length > 0 ||
+    provider !== "fake";
   const runControlVisualSection: ActiveSection =
     activeSection === "approvals" ? "approvals" : "chat";
   const pendingApprovalCount = approvals.filter(
@@ -27341,6 +27346,21 @@ export default function App() {
 
             {activeSection === "prompts" ? (
             <div className="operation-group">
+              <details
+                className="context-more-controls"
+                style={sectionThemeStyle("prompts")}
+                open={showModelCatalogControls}
+              >
+                <summary title="Show model catalog and provider metadata controls">
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="setup" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Model catalog</strong>
+                    <span>Providers and saved models</span>
+                  </span>
+                </summary>
+                <div className="operation-group">
               <OperationTitle title="Models" section="prompts" icon="setup" />
               <div className="button-grid">
                 <button
@@ -28415,6 +28435,8 @@ export default function App() {
                       </button>
                     </div>
                   </details>
+                </div>
+              </details>
                 </div>
               </details>
             </div>

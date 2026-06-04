@@ -8,6 +8,7 @@ This audit is intentionally conservative. `Done` means there is a concrete runti
 
 | Area | Status | Evidence | Gap / notes |
 | --- | --- | --- | --- |
+| App adapter maintenance disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Adapters workspace now presents adapter review/install as the first-scan path while grouping bridge delivery, bundle, and storage/cache controls behind one Maintenance disclosure that opens automatically once bridge, bundle, or storage results exist. |
 | App prompts model catalog disclosure | Done | `crates/agent-tauri/frontend/src/App.tsx` | The Prompts workspace now leads with saved prompt actions and hides model/provider catalog controls behind a Model catalog disclosure until model data, provider descriptors, a doctor report, or a non-demo provider makes those controls immediately relevant. |
 | App setup disclosure copy simplification | Done | `crates/agent-tauri/frontend/src/App.tsx` | The fresh Agent setup disclosure now reads as Change model with Provider and model copy instead of foregrounding connection, limits, and cost on first scan; those advanced controls remain available inside Model details. |
 | App demo setup label cleanup | Done | `crates/agent-tauri/frontend/src/App.tsx` | The fresh Agent setup summary now presents the built-in fake provider/model as Demo provider and Demo model, while keeping the underlying runtime ids unchanged for provider selection and execution paths. |

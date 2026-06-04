@@ -19822,7 +19822,7 @@ export default function App() {
       case "artifacts":
         return "Artifacts";
       case "adapters":
-        return "Adapters and storage";
+        return "Adapters";
       default:
         return "Operations";
     }
@@ -19850,6 +19850,13 @@ export default function App() {
   const adapterDoctorReadyTone = adapterDoctorReport
     ? adapterDoctorReadinessTone(adapterDoctorReport)
     : "neutral";
+  const showAdapterMaintenanceControls =
+    Boolean(bridgeStatus) ||
+    bridgeDeliveries.length > 0 ||
+    Boolean(bridgeDeliveryResult) ||
+    Boolean(bundleStatus) ||
+    Boolean(storageReport) ||
+    Boolean(storagePruneResult);
   const modelDoctorCardTone = modelDoctorReport
     ? modelDoctorTone(modelDoctorReport)
     : "neutral";
@@ -33072,6 +33079,21 @@ export default function App() {
 
             {activeSection === "adapters" ? (
             <div className="operation-group">
+              <details
+                className="context-more-controls"
+                style={sectionThemeStyle("adapters")}
+                open={showAdapterMaintenanceControls}
+              >
+                <summary title="Show bridge delivery, bundle, and storage controls">
+                  <span className="advanced-controls-icon" aria-hidden="true">
+                    <AppIcon name="memory" />
+                  </span>
+                  <span className="advanced-controls-copy">
+                    <strong>Maintenance</strong>
+                    <span>Bridges, bundles, storage</span>
+                  </span>
+                </summary>
+                <div className="operation-group">
               <OperationTitle
                 title="Bridge Deliveries"
                 section="adapters"
@@ -33516,11 +33538,8 @@ export default function App() {
                   </details>
                 </div>
               </details>
-            </div>
-            ) : null}
-
-            {activeSection === "adapters" ? (
-            <div className="operation-group">
+                </div>
+                <div className="operation-group">
               <OperationTitle title="Bundles" section="adapters" icon="artifact" />
               <div className="button-grid">
                 <button
@@ -33587,11 +33606,8 @@ export default function App() {
                   </details>
                 </div>
               </details>
-            </div>
-            ) : null}
-
-            {activeSection === "adapters" ? (
-            <div className="operation-group">
+                </div>
+                <div className="operation-group">
               <OperationTitle title="Storage" section="adapters" icon="memory" />
               <div className="button-grid">
                 <button
@@ -34159,6 +34175,8 @@ export default function App() {
                       </button>
                     </div>
                   </details>
+                </div>
+              </details>
                 </div>
               </details>
             </div>

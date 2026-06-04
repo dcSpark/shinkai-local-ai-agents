@@ -530,6 +530,16 @@ textarea:disabled {
   text-overflow: ellipsis;
 }
 
+.status-pills > .pill:first-child {
+  border-color: var(--section-accent);
+  background: var(--section-surface);
+  color: #f4f5f2;
+}
+
+.status-pills > .pill:first-child .app-icon {
+  color: var(--section-accent);
+}
+
 .pill.running {
   border-color: #816a2d;
   background: #332814;

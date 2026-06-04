@@ -20220,7 +20220,7 @@ export default function App() {
               <div className="run-meta">{topbarMeta}</div>
             </div>
           </div>
-          <div className="status-pills">
+          <div className="status-pills" style={sectionThemeStyle(activeSection)}>
             <span className="pill" title="Active agent">
               <AppIcon name="profile" />
               <span>{activeAgentLabel()}</span>

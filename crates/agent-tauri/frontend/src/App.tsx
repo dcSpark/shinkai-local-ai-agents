@@ -19874,6 +19874,7 @@ export default function App() {
   const showGeneratedArtifactTargetActions = Boolean(opsId.trim());
   const showSkillTargetAction = Boolean(opsId.trim());
   const showSkillPreviewAction = loadSkills || skillDocs.length > 0;
+  const showCompactionTargetActions = Boolean(opsId.trim());
   const showAgentTargetActions = Boolean(opsId.trim());
   const showAgentSaveAction = Boolean(opsId.trim() || opsValue.trim());
   const modelDoctorCardTone = modelDoctorReport
@@ -31100,22 +31101,26 @@ export default function App() {
                     >
                       <ButtonLabel icon="context">List</ButtonLabel>
                     </button>
-                    <button
-                      type="button"
-                      title="Show compacted-context artifact Id and load its content into Value."
-                      onClick={() => void showCompactionFromOps()}
-                      disabled={running || !opsId.trim()}
-                    >
-                      <ButtonLabel icon="context">Show</ButtonLabel>
-                    </button>
-                    <button
-                      type="button"
-                      title="Use compacted-context artifact Id as the next manual compacted context."
-                      onClick={() => void useCompactionFromOps()}
-                      disabled={running || !opsId.trim()}
-                    >
-                      <ButtonLabel icon="chat">Use</ButtonLabel>
-                    </button>
+                    {showCompactionTargetActions ? (
+                      <>
+                        <button
+                          type="button"
+                          title="Show compacted-context artifact Id and load its content into Value."
+                          onClick={() => void showCompactionFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="context">Show</ButtonLabel>
+                        </button>
+                        <button
+                          type="button"
+                          title="Use compacted-context artifact Id as the next manual compacted context."
+                          onClick={() => void useCompactionFromOps()}
+                          disabled={running}
+                        >
+                          <ButtonLabel icon="chat">Use</ButtonLabel>
+                        </button>
+                      </>
+                    ) : null}
                   </div>
               {compactionTransferStatus ? (
                 <CompactionTransferCard status={compactionTransferStatus} />
